@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "PharmaCeylon",
+    "slug": "pharmaceylon",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.pharmaceylon.app"
+    },
+    "android": {
+      "package": "com.pharmaceylon.app"
+    }
+  }
+}

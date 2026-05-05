@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  owner
+  manager
+  pharmacist
+  cashier
+  inventory_clerk
+  analyst
+}
+
+model Tenant {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  legalName        String   @map("legal_name")
+  displayName      String   @map("display_name")
+  complianceRegion String   @map("compliance_region")
+  timezone         String   @default("Asia/Colombo")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  branches        Branch[]
+  users           AppUser[]
+  userBranchRoles UserBranchRole[]
+
+  @@map("tenant")
+}
+
+model Branch {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  code         String
+  name         String
+  timezone     String
+  addressLine1 String?  @map("address_line1")
+  city         String?
+  phone        String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  userBranchRoles   UserBranchRole[]
+
+  @@unique([tenantId, code])
+  @@map("branch")
+}
+
+model AppUser {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  email     String
+  fullName  String   @map("full_name")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  userBranchRoles UserBranchRole[]
+
+  @@unique([tenantId, email])
+  @@map("app_user")
+}
+
+model UserBranchRole {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  branchId  String   @map("branch_id")
+  role      RoleName
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  user   AppUser @relation(fields: [userId], references: [id])
+  branch Branch  @relation(fields: [branchId], references: [id])
+
+  @@unique([tenantId, userId, branchId, role])
+  @@map("user_branch_role")
+}
+
+model ProductCategory {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  name             String
+  parentCategoryId String?  @map("parent_category_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  parent   ProductCategory?  @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
+  children ProductCategory[] @relation("CategoryHierarchy")
+
+  @@unique([tenantId, name, parentCategoryId])
+  @@map("product_category")
+}
+
+model ProductTag {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, name])
+  @@map("product_tag")
+}
+
+model Supplier {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  code             String
+  name             String
+  leadTimeDays     Int      @default(2) @map("lead_time_days")
+  paymentTermsDays Int      @default(30) @map("payment_terms_days")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, code])
+  @@map("supplier")
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  sku          String
+  barcode      String?
+  name         String
+  brandName    String?  @map("brand_name")
+  genericName  String?  @map("generic_name")
+  manufacturer String?
+  dosageForm   String?  @map("dosage_form")
+  strength     String?
+  unit         String?
+  isControlled Boolean  @default(false) @map("is_controlled")
+  reorderLevel Int      @default(0) @map("reorder_level")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, barcode])
+  @@index([tenantId, brandName])
+  @@index([tenantId, genericName])
+  @@map("product")
+}
