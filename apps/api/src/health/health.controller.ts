@@ -1,8 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Controller, Get } from "@nestjs/common";
 import { APP_NAME, HealthStatus } from "@pharmaceylon/shared";
+import { Public } from "../security/decorators/public.decorator";
 
-@Injectable()
-export class AppService {
+@Controller()
+export class HealthController {
+  @Public()
+  @Get("health")
   getHealth(): HealthStatus {
     return {
       ok: true,
