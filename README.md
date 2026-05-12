@@ -56,6 +56,8 @@ packages/
    npx expo install
    ```
 
+For database seeding, API/web URLs, CORS, and signing in locally with the Next app, see **[docs/LOCAL_DEV.md](docs/LOCAL_DEV.md)**.
+
 ## Development
 
 From the repository root:

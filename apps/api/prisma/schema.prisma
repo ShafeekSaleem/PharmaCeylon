@@ -103,13 +103,16 @@ model AppUser {
   email     String
   fullName  String   @map("full_name")
   passwordHash String @map("password_hash")
-  refreshTokenHash String? @map("refresh_token_hash")
+  /// Bumped on logout-all, password change, role change, or detected refresh-reuse.
+  /// Embedded in every access JWT; mismatch ⇒ 401.
+  tokenVersion Int   @default(0) @map("token_version")
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant               Tenant           @relation(fields: [tenantId], references: [id])
   userBranchRoles      UserBranchRole[]
+  sessions             Session[]
   purchaseOrdersCreated PurchaseOrder[] @relation("PurchaseOrderCreator")
   goodsReceiptsReceived GoodsReceipt[]  @relation("GoodsReceiptReceiver")
   sales                Sale[]           @relation("SaleSeller")
@@ -122,6 +125,35 @@ model AppUser {
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("app_user")
+}
+
+/// Refresh-token-backed session. One row per issued refresh token.
+/// Rotation: on refresh we create a new row sharing `familyId`, mark the old
+/// row revoked with `replacedById` pointing at the new one. Reuse of a revoked
+/// row triggers revocation of every row in the family.
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  familyId          String    @map("family_id") @db.Uuid
+  refreshTokenHash  String    @map("refresh_token_hash")
+  userAgent         String?   @map("user_agent")
+  ipAddress         String?   @map("ip_address")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  expiresAt         DateTime  @map("expires_at")
+  lastUsedAt        DateTime? @map("last_used_at")
+  revokedAt         DateTime? @map("revoked_at")
+  revokedReason     String?   @map("revoked_reason")
+  replacedById      String?   @unique @map("replaced_by_id") @db.Uuid
+
+  user       AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy Session? @relation("SessionRotation", fields: [replacedById], references: [id])
+  replaces   Session? @relation("SessionRotation")
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("session")
 }
 
 model UserBranchRole {
