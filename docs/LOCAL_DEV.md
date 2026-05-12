@@ -18,7 +18,7 @@ npm run prepare
 Copy environment files:
 
 - **API:** `cp apps/api/.env.example apps/api/.env` and set `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`.
-- **Web:** `cp apps/web/.env.example apps/web/.env.local` and set `NEXT_PUBLIC_API_BASE_URL` if your API is not on the default below.
+- **Web:** `cp apps/web/.env.example apps/web/.env` (or `.env.local`) and adjust `NEXT_PUBLIC_API_BASE_URL` / `API_PROXY_TARGET` only if your ports differ from the defaults below.
 
 Apply schema and seed demo data (from repo root):
 
@@ -49,16 +49,18 @@ Some Next.js **15.4.5+** patch releases fail `next build` on **Windows** while p
 | Service | URL |
 |---------|-----|
 | Web (Next.js) | http://localhost:3000 |
-| API (Nest, global prefix) | http://localhost:3001/api/v1 |
+| API (Nest, direct — mobile/Postman) | http://localhost:3001/api/v1 |
+| Browser API base (same origin as web) | http://localhost:3000/api/v1 (proxied to Nest) |
 
 ### Web → API wiring
 
-- Set `NEXT_PUBLIC_API_BASE_URL` to `http://localhost:3001/api/v1` (already the default in `.env.example`).
+- The browser calls **`NEXT_PUBLIC_API_BASE_URL`** on the **same host as Next** (default `http://localhost:3000/api/v1`). Next rewrites `/api/v1/*` to **`API_PROXY_TARGET`** (default `http://127.0.0.1:3001`), so auth cookies and CSRF work without cross-origin cookie reads.
+- Nest still listens on **port 3001**; only the SPA uses the `:3000/api/v1` URL.
 - After login, pick a **branch** in the dashboard; the app sends `x-branch-id` on authenticated requests so tenant/branch guards match the API.
 
 ### CORS
 
-The API allows origins listed in `WEB_ORIGINS` (comma-separated). Default includes `http://localhost:3000`.
+The API allows origins listed in `WEB_ORIGINS` (comma-separated). Use the **web app** origin (e.g. `http://localhost:3000`), not the API port. If you open the site from another device, add that origin too (e.g. `http://192.168.x.x:3000`).
 
 ### Optional: JSON HTTP logs (API)
 

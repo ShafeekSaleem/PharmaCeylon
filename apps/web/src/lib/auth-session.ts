@@ -10,9 +10,9 @@ import type { AuthUser } from "./auth-types";
  * the currently-selected branch.
  *
  * The CSRF token lives in a NON-httpOnly cookie (`pc_csrf`) so JS can read
- * it and echo it as `X-CSRF-Token`. That cookie is also re-set on every
- * login/refresh, so we always read it fresh from `document.cookie` rather
- * than caching it.
+ * it from `document.cookie` and echo it as `X-CSRF-Token`. The browser should
+ * call the API through the same origin as the web app (Next.js rewrite to
+ * Nest); the cookie uses Path=/ so routes like `/login` can read it.
  */
 
 const USER = "pharmaceylon_user_json";
@@ -30,15 +30,30 @@ function canUseStorage(): boolean {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
 }
 
+const emptySession = { user: null as AuthUser | null, branchId: null as string | null };
+
+let cachedSession: { user: AuthUser | null; branchId: string | null } = emptySession;
+let cachedRawUser: string | null = null;
+let cachedRawBranch: string | null = null;
+
+/**
+ * Reads session from localStorage. Returns a stable object reference when the
+ * stored keys are unchanged — required for `useSyncExternalStore(getSnapshot)`.
+ */
 export function loadStoredSession(): {
   user: AuthUser | null;
   branchId: string | null;
 } {
   if (!canUseStorage()) {
-    return { user: null, branchId: null };
+    return emptySession;
   }
   const branchId = localStorage.getItem(BRANCH);
   const rawUser = localStorage.getItem(USER);
+  if (rawUser === cachedRawUser && branchId === cachedRawBranch) {
+    return cachedSession;
+  }
+  cachedRawUser = rawUser;
+  cachedRawBranch = branchId;
   let user: AuthUser | null = null;
   if (rawUser) {
     try {
@@ -47,7 +62,8 @@ export function loadStoredSession(): {
       user = null;
     }
   }
-  return { user, branchId };
+  cachedSession = { user, branchId };
+  return cachedSession;
 }
 
 export function persistUser(user: AuthUser): void {
@@ -78,7 +94,7 @@ export function clearSession(): void {
   emitAuthChanged();
 }
 
-/** Read the CSRF token straight from the cookie jar — never cached. */
+/** Read the CSRF token from the cookie jar (same origin as the API rewrite). */
 export function readCsrfToken(): string | null {
   if (typeof document === "undefined") return null;
   const cookies = document.cookie ? document.cookie.split("; ") : [];

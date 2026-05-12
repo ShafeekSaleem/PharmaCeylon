@@ -1,11 +1,6 @@
 import { getApiBaseUrl } from "./api-base";
 import type { AuthResponse, AuthUser } from "./auth-types";
-import {
-  clearSession,
-  getBranchId,
-  persistUser,
-  readCsrfToken,
-} from "./auth-session";
+import { clearSession, getBranchId, persistUser, readCsrfToken } from "./auth-session";
 
 const base = () => getApiBaseUrl();
 
@@ -17,9 +12,9 @@ let refreshInFlight: Promise<boolean> | null = null;
  * Build outgoing headers for an authenticated request.
  *
  * - `credentials: "include"` (set on the fetch call) ensures the browser
- *   sends our httpOnly auth cookies cross-origin.
+ *   sends httpOnly auth cookies on same-origin `/api/v1` requests.
  * - For mutating requests we echo the `pc_csrf` cookie value as
- *   `X-CSRF-Token`; the server uses constant-time equality to verify.
+ *   `X-CSRF-Token` (same-origin API via Next rewrite so JS can read it).
  * - `x-branch-id` selects the active branch for the request.
  */
 function buildHeaders(method: string, init: RequestInit): Headers {
@@ -69,17 +64,35 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
+function mapNetworkError(err: unknown, action: string): Error {
+  const url = `${base()}/auth/${action}`;
+  // fetch() rejects with TypeError on DNS / connection refused / TLS / CORS-preflight abort, etc.
+  if (err instanceof TypeError) {
+    return new Error(
+      `Cannot reach the API at ${url}. With the default setup, NEXT_PUBLIC_API_BASE_URL should ` +
+        `point at this Next app (e.g. http://localhost:3000/api/v1) and Nest should be reachable ` +
+        `at API_PROXY_TARGET (see apps/web/next.config.ts).`,
+    );
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 export async function loginRequest(input: {
   tenantCode: string;
   email: string;
   password: string;
 }): Promise<AuthUser> {
-  const res = await fetch(`${base()}/auth/login`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base()}/auth/login`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch (err) {
+    throw mapNetworkError(err, "login");
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Login failed (${res.status})`);

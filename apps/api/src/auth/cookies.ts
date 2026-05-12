@@ -10,11 +10,12 @@ export const CSRF_COOKIE = "pc_csrf";
  * - access cookie is sent on every API call → Path = `/api/v1`
  * - refresh cookie is only needed by /auth/refresh and /auth/logout → Path = `/api/v1/auth`
  *   (limits exposure: refresh never leaks to non-auth endpoints)
- * - csrf cookie mirrors the access cookie path so the SPA can read it for
- *   every request that needs the X-CSRF-Token header.
+ * - csrf cookie uses Path=/ so the SPA can read it from `document.cookie` on
+ *   any app route (e.g. `/login`) while still being sent on `/api/v1/*` requests.
  */
 export const ACCESS_COOKIE_PATH = "/api/v1";
 export const REFRESH_COOKIE_PATH = "/api/v1/auth";
+export const CSRF_COOKIE_PATH = "/";
 
 export type SameSiteMode = "lax" | "strict" | "none";
 
@@ -85,7 +86,7 @@ export function setCsrfCookie(
     secure: env.secure,
     sameSite: env.sameSite,
     domain: env.domain,
-    path: ACCESS_COOKIE_PATH,
+    path: CSRF_COOKIE_PATH,
     maxAge: ttlSeconds * 1000,
   });
 }
@@ -98,5 +99,5 @@ export function clearAuthCookies(res: Response, env: CookieEnv) {
   };
   res.clearCookie(ACCESS_COOKIE, { ...common, httpOnly: true, path: ACCESS_COOKIE_PATH });
   res.clearCookie(REFRESH_COOKIE, { ...common, httpOnly: true, path: REFRESH_COOKIE_PATH });
-  res.clearCookie(CSRF_COOKIE, { ...common, httpOnly: false, path: ACCESS_COOKIE_PATH });
+  res.clearCookie(CSRF_COOKIE, { ...common, httpOnly: false, path: CSRF_COOKIE_PATH });
 }

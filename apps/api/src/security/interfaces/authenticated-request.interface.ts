@@ -16,7 +16,8 @@ export type RequestUser = {
   authMethod: "cookie" | "bearer";
 };
 
-export interface AuthenticatedRequest extends Request {
+/** Omit `cookies` so we can keep it optional before `cookie-parser` runs. */
+export interface AuthenticatedRequest extends Omit<Request, "cookies"> {
   user?: RequestUser;
   branchId?: string;
   cookies?: Record<string, string>;
