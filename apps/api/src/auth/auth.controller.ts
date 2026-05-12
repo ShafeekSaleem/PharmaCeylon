@@ -83,11 +83,11 @@ export class AuthController {
   @Post("logout")
   async logout(
     @CurrentUser() _user: RequestUser,
-    @Body() dto: RefreshTokenDto,
+    @Body() dto: RefreshTokenDto | undefined,
     @Req() req: CookieAwareRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const refreshToken = dto.refreshToken ?? req.cookies?.[REFRESH_COOKIE] ?? null;
+    const refreshToken = dto?.refreshToken ?? req.cookies?.[REFRESH_COOKIE] ?? null;
     await this.authService.logout(refreshToken);
     clearAuthCookies(res, readCookieEnv(this.configService));
   }
