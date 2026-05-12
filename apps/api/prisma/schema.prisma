@@ -47,6 +47,23 @@ enum StockMovementType {
   transfer_in
   adjustment_in
   adjustment_out
+  sale_void_in
+  sale_refund_in
+}
+
+/// Client-supplied idempotency keys (e.g. `Idempotency-Key` header) to avoid duplicate money mutations.
+model IdempotencyRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  scope          String   @db.VarChar(64)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(128)
+  resourceId     String   @map("resource_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, userId, scope, idempotencyKey])
+  @@index([tenantId, scope, resourceId])
+  @@map("idempotency_record")
 }
 
 model Tenant {
@@ -100,7 +117,8 @@ model Branch {
 model AppUser {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
-  email     String
+  /// Globally unique — login resolves tenant from this email alone (subdomains may refine UX later).
+  email     String   @unique
   fullName  String   @map("full_name")
   passwordHash String @map("password_hash")
   /// Bumped on logout-all, password change, role change, or detected refresh-reuse.
@@ -122,7 +140,6 @@ model AppUser {
   transfersReceived    Transfer[]       @relation("TransferReceiver")
   auditEvents          AuditEvent[]     @relation("AuditActor")
 
-  @@unique([tenantId, email])
   @@index([tenantId])
   @@map("app_user")
 }

@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { apiFetch, fetchTenantContext } from "@/lib/auth-client";
+import { PmsNav } from "@/components/pms-nav";
+import { apiFetch, fetchTenantBranches, fetchTenantContext } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, ready, isAuthenticated, branchId, setBranchId, logout, logoutAll } = useAuth();
   const [context, setContext] = useState<unknown>(null);
+  const [branches, setBranches] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [management, setManagement] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -22,9 +24,10 @@ export default function DashboardPage() {
     let cancelled = false;
     (async () => {
       try {
-        const ctx = await fetchTenantContext();
+        const [ctx, br] = await Promise.all([fetchTenantContext(), fetchTenantBranches()]);
         if (!cancelled) {
           setContext(ctx);
+          setBranches(br);
           setLoadError(null);
         }
       } catch (e) {
@@ -76,6 +79,8 @@ export default function DashboardPage() {
         margin: "0 auto",
       }}
     >
+      <PmsNav />
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0 }}>Dashboard</h1>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -119,11 +124,15 @@ export default function DashboardPage() {
             style={{ minWidth: 280, padding: "0.35rem 0.5rem", fontSize: "1rem" }}
           >
             <option value="">None</option>
-            {(user?.branchRoles ?? []).map((br) => (
-              <option key={br.branchId} value={br.branchId}>
-                {br.branchId.slice(0, 8)}… — {br.role}
-              </option>
-            ))}
+            {(user?.branchRoles ?? []).map((br) => {
+              const meta = branches.find((b) => b.id === br.branchId);
+              const label = meta ? `${meta.code} — ${meta.name}` : `${br.branchId.slice(0, 8)}…`;
+              return (
+                <option key={br.branchId} value={br.branchId}>
+                  {label} ({br.role})
+                </option>
+              );
+            })}
           </select>
         </label>
       </section>

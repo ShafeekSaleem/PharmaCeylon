@@ -31,11 +31,13 @@ npm run prisma:seed -w api
 
 ## Daily commands
 
+**Important:** Starting `npm run dev` **inside `apps/api` only** runs Nest on **:3001**. It does **not** start Next.js, so **`http://localhost:3000` will not work** until you also run the web app.
+
 | Goal | Command |
 |------|---------|
-| API + web together | `npm run dev` (Turbo runs both `apps/api` and `apps/web` dev servers) |
+| API + web together | From **repo root**: `npm run dev` (Turbo runs both `apps/api` and `apps/web`) |
 | API only | `npm run dev -w api` |
-| Web only | `npm run dev -w web` |
+| Web only | `npm run dev -w web` (use together with API, or use root `npm run dev`) |
 | API typecheck | `npm run lint -w api` |
 | API tests | `npm run test -w api` |
 | Web lint | `npm run lint -w web` |
@@ -68,4 +70,4 @@ Set `STRUCTURED_HTTP_LOG=true` in `apps/api/.env` to emit one JSON line per fini
 
 ### Seed users (defaults)
 
-See output of `npm run prisma:seed -w api`. Typical demo logins use tenant code **`demo`** (override passwords with `SEED_ADMIN_PASSWORD` / `SEED_CASHIER_PASSWORD` in `apps/api/.env` before seeding).
+See output of `npm run prisma:seed -w api`. Demo logins use **email + password** only (e.g. `admin@pharmaceylon.demo`); override passwords with `SEED_ADMIN_PASSWORD` / `SEED_CASHIER_PASSWORD` in `apps/api/.env` before seeding.

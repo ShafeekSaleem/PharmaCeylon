@@ -1,11 +1,7 @@
-import {
-  Injectable,
-  Logger,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { AppUser, RoleName, Session } from "@prisma/client";
+import { AppUser, Prisma, RoleName, Session } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import { randomBytes } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
@@ -64,21 +60,19 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async login(dto: LoginDto, meta: RequestMeta = {}): Promise<LoginResult> {
-    const tenantCode = dto.tenantCode.trim().toLowerCase();
+    const emailNorm = dto.email.trim().toLowerCase();
 
-    const user = await this.prisma.appUser.findFirst({
-      where: {
-        email: dto.email.toLowerCase(),
-        isActive: true,
-        tenant: { code: tenantCode, isActive: true },
-      },
-      include: {
-        tenant: { select: { code: true } },
-        userBranchRoles: { select: { branchId: true, role: true } },
-      },
+    const userInclude = {
+      tenant: { select: { code: true, isActive: true } },
+      userBranchRoles: { select: { branchId: true, role: true } },
+    } satisfies Prisma.AppUserInclude;
+
+    const user = await this.prisma.appUser.findUnique({
+      where: { email: emailNorm },
+      include: userInclude,
     });
 
-    if (!user) {
+    if (!user || !user.isActive || !user.tenant?.isActive) {
       throw new UnauthorizedException("Invalid credentials");
     }
 

@@ -38,6 +38,9 @@ describe("Security Guards", () => {
       .overrideProvider(PrismaService)
       .useValue({
         $queryRawUnsafe: jest.fn().mockResolvedValue([{ "?column?": 1 }]),
+        branch: {
+          findMany: jest.fn().mockResolvedValue([]),
+        },
       })
       .overrideProvider(AuthService)
       .useValue({

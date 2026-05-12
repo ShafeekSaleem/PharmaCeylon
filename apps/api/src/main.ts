@@ -1,5 +1,6 @@
 import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
 import type { NextFunction, Request, Response } from "express";
 import { AppModule } from "./app.module";
@@ -37,7 +38,13 @@ async function bootstrap() {
     origin: parseWebOrigins(),
     credentials: true,
     // SPA reads pc_csrf cookie and echoes it as X-CSRF-Token.
-    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "x-branch-id"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-CSRF-Token",
+      "x-branch-id",
+      "Idempotency-Key",
+    ],
     exposedHeaders: [],
   });
 
@@ -59,9 +66,28 @@ async function bootstrap() {
   }
 
   app.setGlobalPrefix("api/v1");
+
+  if (process.env.OPENAPI_ENABLED !== "false") {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle("PharmaCeylon API")
+      .setDescription("Pilot REST contract (v1). Use Idempotency-Key on mutating money paths where documented.")
+      .setVersion("1.0")
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup("docs", app, document, { useGlobalPrefix: true });
+  }
+
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
   logger.log(`Listening on http://localhost:${port}/api/v1`);
+  if (process.env.OPENAPI_ENABLED !== "false") {
+    logger.log(`OpenAPI UI: http://localhost:${port}/api/v1/docs`);
+  }
+  if (process.env.NODE_ENV !== "production") {
+    logger.log(
+      "Web UI runs on port 3000 (Next.js). From repo root run `npm run dev` for API+web, or in another terminal: `npm run dev -w web`.",
+    );
+  }
 }
 
 bootstrap().catch((error) => {

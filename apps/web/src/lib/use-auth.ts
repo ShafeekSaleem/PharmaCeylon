@@ -36,7 +36,7 @@ export function useAuth() {
   const s = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const login = useCallback(
-    async (input: { tenantCode: string; email: string; password: string }) => {
+    async (input: { email: string; password: string }) => {
       const user = await loginRequest(input);
       const first = user.branchRoles[0]?.branchId ?? null;
       persistBranchId(first);

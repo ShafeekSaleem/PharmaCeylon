@@ -75,12 +75,12 @@ async function main() {
   const cashierHash = await bcrypt.hash(cashierPassword, 10);
 
   const admin = await prisma.appUser.upsert({
-    where: {
-      tenantId_email: { tenantId: tenant.id, email: "admin@pharmaceylon.demo" },
-    },
+    where: { email: "admin@pharmaceylon.demo" },
     update: {
+      tenantId: tenant.id,
       fullName: "Seed Administrator",
       isActive: true,
+      passwordHash: adminHash,
     },
     create: {
       tenantId: tenant.id,
@@ -91,12 +91,12 @@ async function main() {
   });
 
   const cashier = await prisma.appUser.upsert({
-    where: {
-      tenantId_email: { tenantId: tenant.id, email: "cashier@pharmaceylon.demo" },
-    },
+    where: { email: "cashier@pharmaceylon.demo" },
     update: {
+      tenantId: tenant.id,
       fullName: "Seed Cashier",
       isActive: true,
+      passwordHash: cashierHash,
     },
     create: {
       tenantId: tenant.id,

@@ -1,0 +1,186 @@
+import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+
+@Injectable()
+export class CatalogService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async search(tenantId: string, branchId: string | undefined, q: string, skip = 0, take = 20) {
+    const term = q.trim();
+    if (!term) {
+      return { items: [], total: 0, skip, take };
+    }
+    const pattern = term;
+    const where: Prisma.ProductWhereInput = {
+      tenantId,
+      isActive: true,
+      OR: [
+        { sku: { contains: pattern, mode: "insensitive" } },
+        { barcode: { contains: pattern, mode: "insensitive" } },
+        { name: { contains: pattern, mode: "insensitive" } },
+        { brandName: { contains: pattern, mode: "insensitive" } },
+        { genericName: { contains: pattern, mode: "insensitive" } },
+        {
+          aliases: {
+            some: { tenantId, aliasText: { contains: pattern, mode: "insensitive" } },
+          },
+        },
+      ],
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        where,
+        orderBy: [{ brandName: "asc" }, { name: "asc" }],
+        skip,
+        take: Math.min(take, 100),
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    let stockByProduct = new Map<string, number>();
+    if (branchId) {
+      const grouped = await this.prisma.stockLedger.groupBy({
+        by: ["productId"],
+        where: { tenantId, branchId },
+        _sum: { qtyDelta: true },
+      });
+      stockByProduct = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+    }
+
+    return {
+      items: items.map((p) => ({
+        ...p,
+        qtyOnHand: branchId ? (stockByProduct.get(p.id) ?? 0) : null,
+      })),
+      total,
+      skip,
+      take: Math.min(take, 100),
+    };
+  }
+
+  async facets(tenantId: string, branchId: string | undefined, q?: string) {
+    const baseWhere: Prisma.ProductWhereInput = {
+      tenantId,
+      isActive: true,
+      ...(q?.trim()
+        ? {
+            OR: [
+              { name: { contains: q.trim(), mode: "insensitive" } },
+              { sku: { contains: q.trim(), mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
+
+    const [brands, forms, controlled] = await this.prisma.$transaction([
+      this.prisma.product.groupBy({
+        by: ["brandName"],
+        where: { ...baseWhere, brandName: { not: null } },
+        orderBy: { brandName: "asc" },
+        _count: true,
+      }),
+      this.prisma.product.groupBy({
+        by: ["dosageForm"],
+        where: { ...baseWhere, dosageForm: { not: null } },
+        orderBy: { dosageForm: "asc" },
+        _count: true,
+      }),
+      this.prisma.product.groupBy({
+        by: ["isControlled"],
+        where: baseWhere,
+        orderBy: { isControlled: "asc" },
+        _count: true,
+      }),
+    ]);
+
+    let inStock = 0;
+    let lowStock = 0;
+    if (branchId) {
+      const grouped = await this.prisma.stockLedger.groupBy({
+        by: ["productId"],
+        where: { tenantId, branchId },
+        _sum: { qtyDelta: true },
+      });
+      const products = await this.prisma.product.findMany({
+        where: baseWhere,
+        select: { id: true, reorderLevel: true },
+      });
+      const pmap = new Map(products.map((p) => [p.id, p.reorderLevel]));
+      const qtyMap = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+      for (const p of products) {
+        const qty = qtyMap.get(p.id) ?? 0;
+        if (qty > 0) inStock += 1;
+        if (qty > 0 && qty <= p.reorderLevel) lowStock += 1;
+      }
+    }
+
+    return {
+      brands: brands.map((b) => ({ value: b.brandName, count: b._count })),
+      dosageForms: forms.map((f) => ({ value: f.dosageForm, count: f._count })),
+      controlled: controlled.map((c) => ({ value: c.isControlled, count: c._count })),
+      branchStockSummary: branchId ? { inStockProductCount: inStock, lowStockProductCount: lowStock } : null,
+    };
+  }
+
+  async alternatives(tenantId: string, branchId: string | undefined, productId: string) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, tenantId } });
+    if (!product) return { items: [] };
+
+    const sims = await this.prisma.productSimilarity.findMany({
+      where: { tenantId, productId },
+      include: { similarProduct: true },
+      orderBy: { score: "desc" },
+      take: 20,
+    });
+
+    let stockByProduct = new Map<string, number>();
+    if (branchId) {
+      const grouped = await this.prisma.stockLedger.groupBy({
+        by: ["productId"],
+        where: { tenantId, branchId },
+        _sum: { qtyDelta: true },
+      });
+      stockByProduct = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+    }
+
+    const genericMatches =
+      product.genericName && product.strength && product.dosageForm
+        ? await this.prisma.product.findMany({
+            where: {
+              tenantId,
+              isActive: true,
+              id: { not: productId },
+              genericName: { equals: product.genericName, mode: "insensitive" },
+              strength: { equals: product.strength, mode: "insensitive" },
+              dosageForm: { equals: product.dosageForm, mode: "insensitive" },
+            },
+            take: 15,
+          })
+        : [];
+
+    const merged = new Map<string, { reason: string; product: typeof product; score?: number }>();
+    for (const s of sims) {
+      merged.set(s.similarProductId, {
+        reason: s.reasonCode,
+        product: s.similarProduct,
+        score: Number(s.score),
+      });
+    }
+    for (const p of genericMatches) {
+      if (!merged.has(p.id)) {
+        merged.set(p.id, { reason: "same_generic_form_strength", product: p });
+      }
+    }
+
+    return {
+      items: [...merged.values()].map((m) => ({
+        product: m.product,
+        reason: m.reason,
+        score: m.score ?? null,
+        qtyOnHand: branchId ? (stockByProduct.get(m.product.id) ?? 0) : null,
+      })),
+    };
+  }
+}

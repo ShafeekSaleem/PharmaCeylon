@@ -77,18 +77,15 @@ function mapNetworkError(err: unknown, action: string): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
-export async function loginRequest(input: {
-  tenantCode: string;
-  email: string;
-  password: string;
-}): Promise<AuthUser> {
+export async function loginRequest(input: { email: string; password: string }): Promise<AuthUser> {
+  const body = { email: input.email.trim().toLowerCase(), password: input.password };
   let res: Response;
   try {
     res = await fetch(`${base()}/auth/login`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify(body),
     });
   } catch (err) {
     throw mapNetworkError(err, "login");
@@ -174,4 +171,27 @@ export async function fetchTenantContext(): Promise<unknown> {
     throw new Error(text || `Context failed (${res.status})`);
   }
   return res.json();
+}
+
+export type TenantBranch = { id: string; code: string; name: string; city: string | null; timezone: string };
+
+export async function fetchTenantBranches(): Promise<TenantBranch[]> {
+  const res = await apiFetch("/tenant/branches");
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Branches failed (${res.status})`);
+  }
+  return (await res.json()) as TenantBranch[];
+}
+
+export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await apiFetch(path, init);
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+  if (!text.trim()) {
+    return {} as T;
+  }
+  return JSON.parse(text) as T;
 }

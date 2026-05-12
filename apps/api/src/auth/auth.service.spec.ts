@@ -26,7 +26,7 @@ describe("AuthService", () => {
     passwordHash: "hash",
     tokenVersion: 3,
     isActive: true,
-    tenant: { code: "demo" },
+    tenant: { code: "demo", isActive: true },
     userBranchRoles: [{ branchId: "branch-1", role: RoleName.manager }],
   };
 
@@ -91,7 +91,7 @@ describe("AuthService", () => {
 
   describe("login", () => {
     it("issues an access+refresh token pair, creates a session, and clears the user-context cache", async () => {
-      prisma.appUser.findFirst.mockResolvedValue(baseUser);
+      prisma.appUser.findUnique.mockResolvedValue(baseUser);
       mockedBcrypt.compare.mockResolvedValue(true as never);
       mockedBcrypt.hash.mockResolvedValue("hashed" as never);
       prisma.session.create.mockResolvedValue({ id: "session-1", familyId: "family-1" });
@@ -100,7 +100,6 @@ describe("AuthService", () => {
         .mockResolvedValueOnce("signed-access");
 
       const result = await service.login({
-        tenantCode: "demo",
         email: "demo@pharma.com",
         password: "password123",
       });
@@ -109,6 +108,11 @@ describe("AuthService", () => {
       expect(result.refreshToken).toBe("signed-refresh");
       expect(result.user.tenantCode).toBe("demo");
       expect(result.csrfToken).toMatch(/^[a-f0-9]{64}$/);
+      expect(prisma.appUser.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { email: "demo@pharma.com" },
+        }),
+      );
       expect(prisma.session.create).toHaveBeenCalledTimes(1);
       expect(prisma.session.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -120,19 +124,19 @@ describe("AuthService", () => {
     });
 
     it("rejects an invalid password", async () => {
-      prisma.appUser.findFirst.mockResolvedValue(baseUser);
+      prisma.appUser.findUnique.mockResolvedValue(baseUser);
       mockedBcrypt.compare.mockResolvedValue(false as never);
 
       await expect(
-        service.login({ tenantCode: "demo", email: "demo@pharma.com", password: "wrong" }),
+        service.login({ email: "demo@pharma.com", password: "wrong" }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
       expect(prisma.session.create).not.toHaveBeenCalled();
     });
 
-    it("rejects an unknown tenant/email/active combination", async () => {
-      prisma.appUser.findFirst.mockResolvedValue(null);
+    it("rejects an unknown email or inactive user/tenant", async () => {
+      prisma.appUser.findUnique.mockResolvedValue(null);
       await expect(
-        service.login({ tenantCode: "unknown", email: "demo@pharma.com", password: "password123" }),
+        service.login({ email: "nobody@pharma.com", password: "password123" }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });

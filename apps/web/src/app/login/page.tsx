@@ -8,7 +8,6 @@ import { useAuth } from "@/lib/use-auth";
 export default function LoginPage() {
   const router = useRouter();
   const { login, isAuthenticated, ready } = useAuth();
-  const [tenantCode, setTenantCode] = useState("demo");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +25,6 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login({
-        tenantCode: tenantCode.trim().toLowerCase(),
         email: email.trim(),
         password,
       });
@@ -55,7 +53,8 @@ export default function LoginPage() {
       </Link>
       <h1 style={{ marginBottom: "0.5rem" }}>Sign in</h1>
       <p style={{ color: "#555", marginBottom: "1.25rem", maxWidth: 360, textAlign: "center" }}>
-        Use tenant code <strong>demo</strong> after running <code>npm run prisma:seed -w api</code>.
+        Use the email and password from <code>npm run prisma:seed -w api</code> (tenant is detected from your
+        account).
       </p>
       <form
         onSubmit={onSubmit}
@@ -67,17 +66,6 @@ export default function LoginPage() {
           gap: "0.75rem",
         }}
       >
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span>Tenant code</span>
-          <input
-            name="tenantCode"
-            value={tenantCode}
-            onChange={(e) => setTenantCode(e.target.value)}
-            autoComplete="organization"
-            required
-            style={{ padding: "0.5rem 0.6rem", fontSize: "1rem" }}
-          />
-        </label>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span>Email</span>
           <input
