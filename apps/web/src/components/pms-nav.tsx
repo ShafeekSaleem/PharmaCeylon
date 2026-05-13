@@ -4,9 +4,10 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 
 const linkStyle: CSSProperties = {
-  color: "#2563eb",
+  color: "var(--pc-primary)",
   textDecoration: "none",
   fontSize: "0.95rem",
+  fontWeight: 500,
 };
 
 export function PmsNav() {
@@ -32,7 +33,7 @@ export function PmsNav() {
         gap: "0.75rem 1rem",
         marginBottom: "1.25rem",
         paddingBottom: "1rem",
-        borderBottom: "1px solid #e4e4e7",
+        borderBottom: "1px solid var(--pc-border)",
       }}
     >
       {links.map(([href, label]) => (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
 import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -27,38 +28,31 @@ export default function UsersPage() {
 
   if (!ready || !isAuthenticated) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        Loading…
+      <main className="pc-app-main">
+        <p className="pc-muted">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: "1.5rem",
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: 900,
-        margin: "0 auto",
-      }}
-    >
+    <main className="pc-app-main" style={{ maxWidth: 900 }}>
       <PmsNav />
-      <h1 style={{ marginTop: 0 }}>Users</h1>
-      {err ? <p style={{ color: "#b91c1c" }}>{err}</p> : null}
+      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Users</h1>
+      {err ? <Alert variant="error">{err}</Alert> : null}
       <ul style={{ listStyle: "none", padding: 0 }}>
         {users.map((u) => (
           <li
             key={u.id}
             style={{
-              border: "1px solid #e4e4e7",
-              borderRadius: 6,
+              border: "1px solid var(--pc-border)",
+              borderRadius: "var(--pc-radius-sm)",
               padding: "0.75rem",
               marginBottom: 8,
+              background: "var(--pc-background)",
             }}
           >
             <strong>{u.fullName}</strong> — {u.email}
-            <div style={{ fontSize: "0.85rem", color: "#666", marginTop: 6 }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--pc-muted-fg)", marginTop: 6 }}>
               {u.userBranchRoles.map((r) => (
                 <span key={r.id} style={{ marginRight: 8 }}>
                   {r.role} @ <code>{r.branchId.slice(0, 8)}…</code>

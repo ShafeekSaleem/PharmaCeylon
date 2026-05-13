@@ -1,7 +1,157 @@
-* {
+/* PharmaCeylon design tokens — keep in sync across the web app */
+:root {
+  --pc-primary: #0d9488;
+  --pc-primary-hover: #0f766e;
+  --pc-secondary-cyan: #0891b2;
+  --pc-secondary-cyan-hover: #0e7490;
+  --pc-accent-navy: #1e40af;
+  --pc-background: #ffffff;
+  --pc-page-bg: #f8fafc;
+  --pc-card-bg: #ffffff;
+  --pc-foreground: #0f172a;
+  --pc-muted-bg: #f1f5f9;
+  --pc-muted-fg: #64748b;
+  --pc-border: rgba(0, 0, 0, 0.1);
+  --pc-input-bg: #f8fafc;
+  --pc-destructive: #dc2626;
+  --pc-destructive-soft: rgba(220, 38, 38, 0.08);
+  --pc-ring: #0d9488;
+  --pc-gradient-main: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+  --pc-gradient-hover: linear-gradient(135deg, #0f766e 0%, #0e7490 100%);
+  --pc-primary-soft: rgba(13, 148, 136, 0.12);
+  --pc-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --pc-radius-sm: 8px;
+  --pc-radius-md: 12px;
+  --pc-shadow-card: 0 25px 50px -12px rgba(15, 23, 42, 0.12);
+
+  /* Brand panel (login card right side) */
+  --pc-brand-text: #ffffff;
+  --pc-brand-text-muted: rgba(255, 255, 255, 0.92);
+  --pc-brand-bubble-bg: rgba(255, 255, 255, 0.2);
+
+  /* Button colors */
+  --pc-btn-primary-text: #ffffff;
+
+  /* Toggle / icon hover overlays */
+  --pc-hover-overlay: rgba(0, 0, 0, 0.04);
+
+  /* Alert colors */
+  --pc-alert-error-bg: #fef2f2;
+  --pc-alert-error-border: #fecaca;
+  --pc-alert-error-text: #991b1b;
+  --pc-alert-error-icon: #dc2626;
+  --pc-alert-warning-bg: #fffbeb;
+  --pc-alert-warning-border: #fde68a;
+  --pc-alert-warning-text: #92400e;
+  --pc-alert-warning-icon: #d97706;
+  --pc-alert-info-bg: #eff6ff;
+  --pc-alert-info-border: #bfdbfe;
+  --pc-alert-info-text: #1e40af;
+  --pc-alert-info-icon: #2563eb;
+  --pc-alert-success-bg: #f0fdf4;
+  --pc-alert-success-border: #bbf7d0;
+  --pc-alert-success-text: #166534;
+  --pc-alert-success-icon: #16a34a;
+
+  /* Focus rings */
+  --pc-focus-ring: rgba(13, 148, 136, 0.25);
+  --pc-focus-ring-destructive: rgba(220, 38, 38, 0.15);
+
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  font-family: var(--pc-font);
+  color: var(--pc-foreground);
+  background: var(--pc-page-bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--pc-primary);
+}
+
+a:hover {
+  color: var(--pc-primary-hover);
+}
+
+/* Visually hidden — keep labels for screen readers */
+.pc-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Shared app chrome (dashboard, CRUD pages) */
+.pc-app-main {
+  min-height: 100vh;
+  padding: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.pc-muted {
+  color: var(--pc-muted-fg);
+}
+
+.pc-error {
+  color: var(--pc-destructive);
+}
+
+.pc-panel {
+  background: var(--pc-muted-bg);
+  padding: 0.75rem;
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.85rem;
+  overflow: auto;
+}
+
+.pc-btn-outline {
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-background);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.pc-btn-outline:hover {
+  background: var(--pc-muted-bg);
+}
+
+.pc-btn-primary-sm {
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.pc-btn-primary-sm:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+}
+
+.pc-btn-primary-sm:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }

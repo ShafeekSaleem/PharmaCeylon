@@ -1,9 +1,20 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { FormEvent, useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
 import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
 import { useRequireAuth } from "@/lib/use-require-auth";
+
+const posInput: CSSProperties = {
+  padding: "0.45rem 0.6rem",
+  border: "1px solid var(--pc-border)",
+  borderRadius: "var(--pc-radius-sm)",
+  background: "var(--pc-input-bg)",
+  color: "var(--pc-foreground)",
+  fontFamily: "inherit",
+};
 
 type BatchRow = {
   id: string;
@@ -52,29 +63,23 @@ export default function PosPage() {
 
   if (!ready || !isAuthenticated) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        Loading…
+      <main className="pc-app-main">
+        <p className="pc-muted">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: "1.5rem",
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: 800,
-        margin: "0 auto",
-      }}
-    >
+    <main className="pc-app-main" style={{ maxWidth: 800 }}>
       <PmsNav />
-      <h1 style={{ marginTop: 0 }}>POS checkout</h1>
-      <p style={{ color: "#555", fontSize: "0.9rem" }}>Requires branch with stock. Pick batch IDs from the list or paste UUIDs.</p>
-      {err ? <p style={{ color: "#b91c1c" }}>{err}</p> : null}
+      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>POS checkout</h1>
+      <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
+        Requires branch with stock. Pick batch IDs from the list or paste UUIDs.
+      </p>
+      {err ? <Alert variant="error">{err}</Alert> : null}
 
       <section style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.05rem" }}>Batches at branch</h2>
+        <h2 style={{ fontSize: "1.05rem", color: "var(--pc-foreground)" }}>Batches at branch</h2>
         <ul style={{ fontSize: "0.85rem", paddingLeft: "1.1rem", maxHeight: 180, overflow: "auto" }}>
           {batches.map((b) => (
             <li key={b.id} style={{ marginBottom: 4 }}>
@@ -85,31 +90,40 @@ export default function PosPage() {
       </section>
 
       <form onSubmit={checkout} style={{ display: "grid", gap: 8, maxWidth: 480 }}>
-        <input placeholder="Product ID" value={productId} onChange={(e) => setProductId(e.target.value)} required style={{ padding: "0.35rem" }} />
-        <input placeholder="Batch ID" value={batchId} onChange={(e) => setBatchId(e.target.value)} required style={{ padding: "0.35rem" }} />
+        <input
+          placeholder="Product ID"
+          value={productId}
+          onChange={(e) => setProductId(e.target.value)}
+          required
+          style={posInput}
+        />
+        <input
+          placeholder="Batch ID"
+          value={batchId}
+          onChange={(e) => setBatchId(e.target.value)}
+          required
+          style={posInput}
+        />
         <div style={{ display: "flex", gap: 8 }}>
-          <input placeholder="Qty" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 80, padding: "0.35rem" }} />
-          <input placeholder="Unit price" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} style={{ flex: 1, padding: "0.35rem" }} />
+          <input
+            placeholder="Qty"
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            style={{ ...posInput, width: 80 }}
+          />
+          <input
+            placeholder="Unit price"
+            value={unitPrice}
+            onChange={(e) => setUnitPrice(e.target.value)}
+            style={{ ...posInput, flex: 1 }}
+          />
         </div>
-        <button type="submit" style={{ padding: "0.45rem 1rem", width: "fit-content", cursor: "pointer" }}>
+        <button type="submit" className="pc-btn-primary-sm" style={{ width: "fit-content" }}>
           Post sale
         </button>
       </form>
 
-      {invoice ? (
-        <pre
-          style={{
-            marginTop: "1.25rem",
-            background: "#f4f4f5",
-            padding: "0.75rem",
-            borderRadius: 6,
-            fontSize: "0.85rem",
-            overflow: "auto",
-          }}
-        >
-          {JSON.stringify(invoice, null, 2)}
-        </pre>
-      ) : null}
+      {invoice ? <pre className="pc-panel" style={{ marginTop: "1.25rem" }}>{JSON.stringify(invoice, null, 2)}</pre> : null}
     </main>
   );
 }

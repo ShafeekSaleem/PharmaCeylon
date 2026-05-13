@@ -1,0 +1,342 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.25rem 1rem 0;
+  background: var(--pc-page-bg);
+}
+
+.cardCenter {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 0;
+}
+
+.card {
+  display: flex;
+  width: 100%;
+  max-width: 840px;
+  min-height: 480px;
+  background: var(--pc-card-bg);
+  border-radius: var(--pc-radius-md);
+  box-shadow: var(--pc-shadow-card);
+  overflow: hidden;
+  border: 1px solid var(--pc-border);
+}
+
+.formColumn {
+  flex: 1;
+  min-width: 0;
+  padding: 2.5rem 2.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.title {
+  margin: 0 0 1.75rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--pc-primary);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.formLoading {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.fieldLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.fieldWrap {
+  position: relative;
+}
+
+.fieldIcon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--pc-muted-fg);
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  transition: color 0.15s;
+}
+
+.fieldWrap:focus-within .fieldIcon {
+  color: var(--pc-primary);
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem 1rem 0.75rem 2.5rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--pc-foreground);
+  background: var(--pc-input-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.input::placeholder {
+  color: var(--pc-muted-fg);
+}
+
+.input:focus {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.inputError {
+  border-color: var(--pc-destructive);
+}
+
+.inputError:focus {
+  border-color: var(--pc-destructive);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring-destructive);
+}
+
+.fieldError {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--pc-destructive);
+  line-height: 1.3;
+}
+
+.fieldErrorHidden {
+  visibility: hidden;
+}
+
+.passwordRow .input {
+  padding-right: 2.75rem;
+}
+
+.togglePw {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.togglePw:hover {
+  color: var(--pc-foreground);
+  background: var(--pc-hover-overlay);
+}
+
+.togglePw:focus-visible {
+  outline: 2px solid var(--pc-ring);
+  outline-offset: 2px;
+}
+
+.errorSlot {
+  min-height: 4.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* ── Submit button ── */
+
+.submit {
+  margin-top: 0.25rem;
+  width: 100%;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--pc-btn-primary-text);
+  background: var(--pc-primary);
+  border: none;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+}
+
+.submit:focus-visible {
+  outline: 2px solid var(--pc-ring);
+  outline-offset: 2px;
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255, 255, 255, 0.3);
+  border-top-color: var(--pc-btn-primary-text);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Forgot password ── */
+
+.forgotWrap {
+  text-align: center;
+  margin-top: 0.25rem;
+}
+
+.forgot {
+  display: inline-block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--pc-primary);
+  text-decoration: none;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.forgot:hover {
+  color: var(--pc-primary-hover);
+  text-decoration: underline;
+}
+
+/* ── Brand column ── */
+
+.brandColumn {
+  flex: 1;
+  min-width: 0;
+  padding: 2.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: var(--pc-gradient-main);
+  color: var(--pc-brand-text);
+}
+
+.iconBubble {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--pc-brand-bubble-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.brandName {
+  margin: 0 0 0.75rem;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--pc-brand-text);
+}
+
+.tagline {
+  margin: 0;
+  max-width: 280px;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--pc-brand-text-muted);
+  font-weight: 400;
+}
+
+/* ── Footer ── */
+
+.footer {
+  flex-shrink: 0;
+  width: 100%;
+  margin-top: auto;
+  padding: 0.5rem 1rem 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--pc-muted-fg);
+  text-align: center;
+}
+
+/* ── Loading skeleton ── */
+
+.loadingPage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pc-page-bg);
+}
+
+.loadingSpinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--pc-border);
+  border-top-color: var(--pc-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 900px) {
+  .card {
+    flex-direction: column;
+    min-height: unset;
+  }
+
+  .brandColumn {
+    order: -1;
+    padding: 2rem 1.5rem;
+  }
+
+  .iconBubble {
+    margin-bottom: 1rem;
+  }
+
+  .formColumn {
+    padding: 2rem 1.5rem;
+  }
+}

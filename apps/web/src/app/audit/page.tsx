@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
 import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -28,36 +29,28 @@ export default function AuditPage() {
 
   if (!ready || !isAuthenticated) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        Loading…
+      <main className="pc-app-main">
+        <p className="pc-muted">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: "1.5rem",
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: 960,
-        margin: "0 auto",
-      }}
-    >
+    <main className="pc-app-main" style={{ maxWidth: 960 }}>
       <PmsNav />
-      <h1 style={{ marginTop: 0 }}>Audit trail</h1>
-      {err ? <p style={{ color: "#b91c1c" }}>{err}</p> : null}
+      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Audit trail</h1>
+      {err ? <Alert variant="error">{err}</Alert> : null}
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
         <thead>
-          <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
-            <th style={{ padding: "0.4rem" }}>When</th>
-            <th style={{ padding: "0.4rem" }}>Event</th>
-            <th style={{ padding: "0.4rem" }}>Entity</th>
+          <tr style={{ textAlign: "left", borderBottom: "1px solid var(--pc-border)" }}>
+            <th style={{ padding: "0.4rem", color: "var(--pc-muted-fg)" }}>When</th>
+            <th style={{ padding: "0.4rem", color: "var(--pc-muted-fg)" }}>Event</th>
+            <th style={{ padding: "0.4rem", color: "var(--pc-muted-fg)" }}>Entity</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} style={{ borderBottom: "1px solid #f4f4f5" }}>
+            <tr key={r.id} style={{ borderBottom: "1px solid var(--pc-border)" }}>
               <td style={{ padding: "0.4rem", whiteSpace: "nowrap" }}>{new Date(r.createdAt).toLocaleString()}</td>
               <td style={{ padding: "0.4rem" }}>{r.eventName}</td>
               <td style={{ padding: "0.4rem" }}>

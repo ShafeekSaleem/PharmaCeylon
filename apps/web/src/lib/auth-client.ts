@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from "./api-base";
+import { parseApiError } from "./api-error";
 import type { AuthResponse, AuthUser } from "./auth-types";
 import { clearSession, getBranchId, persistUser, readCsrfToken } from "./auth-session";
 
@@ -92,7 +93,7 @@ export async function loginRequest(input: { email: string; password: string }): 
   }
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `Login failed (${res.status})`);
+    throw new Error(parseApiError(text, `Login failed (${res.status})`));
   }
   const data = (await res.json()) as AuthResponse;
   persistUser(data.user);
@@ -168,7 +169,7 @@ export async function fetchTenantContext(): Promise<unknown> {
   const res = await apiFetch("/tenant/context");
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `Context failed (${res.status})`);
+    throw new Error(parseApiError(text, `Context failed (${res.status})`));
   }
   return res.json();
 }
@@ -179,7 +180,7 @@ export async function fetchTenantBranches(): Promise<TenantBranch[]> {
   const res = await apiFetch("/tenant/branches");
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `Branches failed (${res.status})`);
+    throw new Error(parseApiError(text, `Branches failed (${res.status})`));
   }
   return (await res.json()) as TenantBranch[];
 }
@@ -188,7 +189,7 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   const res = await apiFetch(path, init);
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(text || `Request failed (${res.status})`);
+    throw new Error(parseApiError(text, `Request failed (${res.status})`));
   }
   if (!text.trim()) {
     return {} as T;

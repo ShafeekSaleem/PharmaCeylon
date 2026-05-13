@@ -1,0 +1,63 @@
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Variants ── */
+
+.error {
+  background: var(--pc-alert-error-bg);
+  border: 1px solid var(--pc-alert-error-border);
+  color: var(--pc-alert-error-text);
+}
+
+.error .icon {
+  color: var(--pc-alert-error-icon);
+}
+
+.warning {
+  background: var(--pc-alert-warning-bg);
+  border: 1px solid var(--pc-alert-warning-border);
+  color: var(--pc-alert-warning-text);
+}
+
+.warning .icon {
+  color: var(--pc-alert-warning-icon);
+}
+
+.info {
+  background: var(--pc-alert-info-bg);
+  border: 1px solid var(--pc-alert-info-border);
+  color: var(--pc-alert-info-text);
+}
+
+.info .icon {
+  color: var(--pc-alert-info-icon);
+}
+
+.success {
+  background: var(--pc-alert-success-bg);
+  border: 1px solid var(--pc-alert-success-border);
+  color: var(--pc-alert-success-text);
+}
+
+.success .icon {
+  color: var(--pc-alert-success-icon);
+}

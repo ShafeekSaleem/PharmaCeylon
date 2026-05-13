@@ -2,6 +2,7 @@ import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import type { NextFunction, Request, Response } from "express";
 import { AppModule } from "./app.module";
 
@@ -31,7 +32,8 @@ async function bootstrap() {
     }),
   );
 
-  // Parse cookies before guards run so they can read pc_access / pc_refresh / pc_csrf.
+  app.use(helmet());
+
   app.use(cookieParser());
 
   app.enableCors({

@@ -59,6 +59,9 @@ export class AuthService {
   // Public flows
   // ---------------------------------------------------------------------------
 
+  private static readonly MAX_FAILED_ATTEMPTS = 5;
+  private static readonly LOCKOUT_MINUTES = 15;
+
   async login(dto: LoginDto, meta: RequestMeta = {}): Promise<LoginResult> {
     const emailNorm = dto.email.trim().toLowerCase();
 
@@ -76,9 +79,38 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
 
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      const remainingMs = user.lockedUntil.getTime() - Date.now();
+      const remainingMin = Math.ceil(remainingMs / 60_000);
+      throw new UnauthorizedException(
+        `Account temporarily locked. Try again in ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.`,
+      );
+    }
+
     const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordValid) {
+      const attempts = user.failedLoginAttempts + 1;
+      const lockout =
+        attempts >= AuthService.MAX_FAILED_ATTEMPTS
+          ? new Date(Date.now() + AuthService.LOCKOUT_MINUTES * 60_000)
+          : null;
+
+      await this.prisma.appUser.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: attempts,
+          ...(lockout ? { lockedUntil: lockout } : {}),
+        },
+      });
+
       throw new UnauthorizedException("Invalid credentials");
+    }
+
+    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+      await this.prisma.appUser.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
     }
 
     return this.issueAndPersist({

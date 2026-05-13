@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
 import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -27,34 +28,24 @@ export default function AnalyticsPage() {
 
   if (!ready || !isAuthenticated) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        Loading…
+      <main className="pc-app-main">
+        <p className="pc-muted">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: "1.5rem",
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: 900,
-        margin: "0 auto",
-      }}
-    >
+    <main className="pc-app-main" style={{ maxWidth: 900 }}>
       <PmsNav />
-      <h1 style={{ marginTop: 0 }}>Analytics</h1>
-      <p style={{ color: "#555", fontSize: "0.9rem" }}>Rule-based reorder suggestions and a lightweight sales window summary.</p>
-      {err ? <p style={{ color: "#b91c1c" }}>{err}</p> : null}
-      <h2 style={{ fontSize: "1.05rem" }}>Reorder recommendations</h2>
-      <pre style={{ background: "#f4f4f5", padding: "0.75rem", borderRadius: 6, fontSize: "0.85rem", overflow: "auto" }}>
-        {reorder ? JSON.stringify(reorder, null, 2) : "…"}
-      </pre>
-      <h2 style={{ fontSize: "1.05rem", marginTop: "1.5rem" }}>Forecast summary</h2>
-      <pre style={{ background: "#f4f4f5", padding: "0.75rem", borderRadius: 6, fontSize: "0.85rem", overflow: "auto" }}>
-        {forecast ? JSON.stringify(forecast, null, 2) : "…"}
-      </pre>
+      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Analytics</h1>
+      <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
+        Rule-based reorder suggestions and a lightweight sales window summary.
+      </p>
+      {err ? <Alert variant="error">{err}</Alert> : null}
+      <h2 style={{ fontSize: "1.05rem", color: "var(--pc-foreground)" }}>Reorder recommendations</h2>
+      <pre className="pc-panel">{reorder ? JSON.stringify(reorder, null, 2) : "…"}</pre>
+      <h2 style={{ fontSize: "1.05rem", marginTop: "1.5rem", color: "var(--pc-foreground)" }}>Forecast summary</h2>
+      <pre className="pc-panel">{forecast ? JSON.stringify(forecast, null, 2) : "…"}</pre>
     </main>
   );
 }

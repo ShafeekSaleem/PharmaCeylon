@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
 import { PmsNav } from "@/components/pms-nav";
 import { apiFetch, fetchTenantBranches, fetchTenantContext } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
@@ -59,8 +60,8 @@ export default function DashboardPage() {
 
   if (!ready) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        Loading…
+      <main className="pc-app-main">
+        <p className="pc-muted">Loading…</p>
       </main>
     );
   }
@@ -70,41 +71,31 @@ export default function DashboardPage() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: "1.5rem",
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: 720,
-        margin: "0 auto",
-      }}
-    >
+    <main className="pc-app-main" style={{ maxWidth: 720 }}>
       <PmsNav />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <h1 style={{ margin: 0 }}>Dashboard</h1>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <Link href="/" style={{ color: "#2563eb" }}>
-            Home
-          </Link>
+        <h1 style={{ margin: 0, color: "var(--pc-foreground)" }}>Dashboard</h1>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <Link href="/">Home</Link>
           <button
             type="button"
+            className="pc-btn-outline"
             onClick={async () => {
               await logout();
               router.push("/login");
             }}
-            style={{ padding: "0.35rem 0.75rem", cursor: "pointer" }}
           >
             Log out
           </button>
           <button
             type="button"
+            className="pc-btn-outline"
             onClick={async () => {
               await logoutAll();
               router.push("/login");
             }}
             title="Sign out from every device and invalidate all tokens"
-            style={{ padding: "0.35rem 0.75rem", cursor: "pointer" }}
           >
             Log out everywhere
           </button>
@@ -112,16 +103,26 @@ export default function DashboardPage() {
       </div>
 
       <section style={{ marginTop: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.1rem" }}>Session</h2>
+        <h2 style={{ fontSize: "1.1rem", color: "var(--pc-foreground)" }}>Session</h2>
         <p style={{ margin: "0.25rem 0" }}>
           <strong>{user?.fullName}</strong> ({user?.email})
         </p>
         <label style={{ display: "block", marginTop: "0.75rem" }}>
-          <span style={{ display: "block", marginBottom: 4 }}>Branch for API calls (x-branch-id)</span>
+          <span style={{ display: "block", marginBottom: 4, color: "var(--pc-muted-fg)", fontSize: "0.9rem" }}>
+            Branch for API calls (x-branch-id)
+          </span>
           <select
             value={branchId ?? ""}
             onChange={(e) => setBranchId(e.target.value || null)}
-            style={{ minWidth: 280, padding: "0.35rem 0.5rem", fontSize: "1rem" }}
+            style={{
+              minWidth: 280,
+              padding: "0.45rem 0.6rem",
+              fontSize: "1rem",
+              border: "1px solid var(--pc-border)",
+              borderRadius: "var(--pc-radius-sm)",
+              background: "var(--pc-input-bg)",
+              color: "var(--pc-foreground)",
+            }}
           >
             <option value="">None</option>
             {(user?.branchRoles ?? []).map((br) => {
@@ -138,39 +139,23 @@ export default function DashboardPage() {
       </section>
 
       <section style={{ marginTop: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.1rem" }}>GET /tenant/context</h2>
-        {loadError ? <p style={{ color: "#b91c1c" }}>{loadError}</p> : null}
-        <pre
-          style={{
-            background: "#f4f4f5",
-            padding: "0.75rem",
-            borderRadius: 6,
-            overflow: "auto",
-            fontSize: "0.85rem",
-          }}
-        >
+        <h2 style={{ fontSize: "1.1rem", color: "var(--pc-foreground)" }}>GET /tenant/context</h2>
+        {loadError ? <Alert variant="error">{loadError}</Alert> : null}
+        <pre className="pc-panel" style={{ marginTop: 8 }}>
           {context ? JSON.stringify(context, null, 2) : "Loading…"}
         </pre>
       </section>
 
       <section style={{ marginTop: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.1rem" }}>Role check</h2>
-        <p style={{ color: "#555", fontSize: "0.9rem" }}>
+        <h2 style={{ fontSize: "1.1rem", color: "var(--pc-foreground)" }}>Role check</h2>
+        <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
           Calls <code>/tenant/management</code> (manager or owner). Pick a branch above if you are not owner.
         </p>
-        <button type="button" onClick={probeManagement} style={{ marginTop: 8, padding: "0.4rem 0.9rem" }}>
+        <button type="button" className="pc-btn-primary-sm" onClick={probeManagement} style={{ marginTop: 8 }}>
           Call management endpoint
         </button>
         {management ? (
-          <pre
-            style={{
-              marginTop: 8,
-              background: "#f4f4f5",
-              padding: "0.75rem",
-              borderRadius: 6,
-              fontSize: "0.85rem",
-            }}
-          >
+          <pre className="pc-panel" style={{ marginTop: 8 }}>
             {management}
           </pre>
         ) : null}

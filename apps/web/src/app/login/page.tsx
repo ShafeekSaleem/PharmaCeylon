@@ -1,116 +1,235 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/lib/use-auth";
+import { Alert } from "@/components/alert";
+import { IconMail, IconLock, IconEye, IconEyeOff } from "@/components/icons";
+import styles from "./login.module.css";
+
+const EMAIL_STORAGE_KEY = "pc_last_email";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function TempBrandMark() {
+  return (
+    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden>
+      <rect x="8" y="12" width="28" height="22" rx="3" stroke="white" strokeWidth="2.5" />
+      <path d="M16 12V9a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M24 22v8M20 26h8" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function getSavedEmail(): string {
+  try {
+    return localStorage.getItem(EMAIL_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className={styles.loadingPage}>
+          <div className={styles.loadingSpinner} />
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/dashboard";
+  const emailId = useId();
+  const passwordId = useId();
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
   const { login, isAuthenticated, ready } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [navigating, setNavigating] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ email: string | null; password: string | null }>({
+    email: null,
+    password: null,
+  });
 
   useEffect(() => {
     if (ready && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace(redirectTo);
     }
-  }, [ready, isAuthenticated, router]);
+  }, [ready, isAuthenticated, router, redirectTo]);
+
+  useEffect(() => {
+    if (ready && emailRef.current && !emailRef.current.value) {
+      emailRef.current.value = getSavedEmail();
+    }
+  }, [ready]);
+
+  const readFields = useCallback(() => {
+    const email = (emailRef.current?.value ?? "").trim();
+    const password = passwordRef.current?.value ?? "";
+    return { email, password };
+  }, []);
+
+  function validate(): { email: string; password: string } | null {
+    const { email, password } = readFields();
+    const errs = {
+      email: !email
+        ? "Email cannot be empty."
+        : !EMAIL_RE.test(email)
+          ? "Please enter a valid email address."
+          : null,
+      password: !password ? "Password cannot be empty." : null,
+    };
+    setFieldErrors(errs);
+    if (errs.email || errs.password) return null;
+    return { email, password };
+  }
+
+  function clearFieldError(field: "email" | "password") {
+    setFieldErrors((prev) => (prev[field] ? { ...prev, [field]: null } : prev));
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const fields = validate();
+    if (!fields) return;
+
     setError(null);
     setLoading(true);
     try {
-      await login({
-        email: email.trim(),
-        password,
-      });
-      router.push("/dashboard");
+      await login(fields);
+      try { localStorage.setItem(EMAIL_STORAGE_KEY, fields.email); } catch {}
+      setNavigating(true);
+      router.push(redirectTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
       setLoading(false);
     }
   }
 
+  if (!ready || navigating) {
+    return (
+      <div className={styles.loadingPage}>
+        <div className={styles.loadingSpinner} />
+      </div>
+    );
+  }
+
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "1.5rem",
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      <Link href="/" style={{ marginBottom: "1.5rem", color: "#2563eb" }}>
-        ← Home
-      </Link>
-      <h1 style={{ marginBottom: "0.5rem" }}>Sign in</h1>
-      <p style={{ color: "#555", marginBottom: "1.25rem", maxWidth: 360, textAlign: "center" }}>
-        Use the email and password from <code>npm run prisma:seed -w api</code> (tenant is detected from your
-        account).
-      </p>
-      <form
-        onSubmit={onSubmit}
-        style={{
-          width: "100%",
-          maxWidth: 360,
-          display: "flex",
-          flexDirection: "column",
-          gap: "0.75rem",
-        }}
-      >
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span>Email</span>
-          <input
-            name="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="username"
-            required
-            style={{ padding: "0.5rem 0.6rem", fontSize: "1rem" }}
-          />
-        </label>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span>Password</span>
-          <input
-            name="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-            minLength={8}
-            style={{ padding: "0.5rem 0.6rem", fontSize: "1rem" }}
-          />
-        </label>
-        {error ? (
-          <p style={{ color: "#b91c1c", fontSize: "0.9rem", margin: 0 }}>{error}</p>
-        ) : null}
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            marginTop: "0.25rem",
-            padding: "0.6rem 1rem",
-            fontSize: "1rem",
-            cursor: loading ? "wait" : "pointer",
-            background: "#111827",
-            color: "#fff",
-            border: "none",
-            borderRadius: 6,
-          }}
-        >
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+    <main className={styles.page}>
+      <div className={styles.cardCenter}>
+        <div className={styles.card}>
+          <div className={styles.formColumn}>
+            <h1 className={styles.title}>Login</h1>
+            <form
+              className={`${styles.form}${loading ? ` ${styles.formLoading}` : ""}`}
+              onSubmit={onSubmit}
+              noValidate
+            >
+              <div className={styles.fieldGroup}>
+                <label htmlFor={emailId} className={styles.fieldLabel}>
+                  Email
+                </label>
+                <div className={styles.fieldWrap}>
+                  <span className={styles.fieldIcon}><IconMail size={16} /></span>
+                  <input
+                    ref={emailRef}
+                    id={emailId}
+                    name="email"
+                    type="email"
+                    className={`${styles.input}${fieldErrors.email ? ` ${styles.inputError}` : ""}`}
+                    placeholder="Email"
+                    defaultValue=""
+                    onChange={() => clearFieldError("email")}
+                    autoComplete="username"
+                    required
+                  />
+                </div>
+                <p className={`${styles.fieldError}${fieldErrors.email ? "" : ` ${styles.fieldErrorHidden}`}`}>
+                  {fieldErrors.email || "\u00A0"}
+                </p>
+              </div>
+
+              <div className={styles.fieldGroup}>
+                <label htmlFor={passwordId} className={styles.fieldLabel}>
+                  Password
+                </label>
+                <div className={`${styles.fieldWrap} ${styles.passwordRow}`}>
+                  <span className={styles.fieldIcon}><IconLock size={16} /></span>
+                  <input
+                    ref={passwordRef}
+                    id={passwordId}
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    className={`${styles.input}${fieldErrors.password ? ` ${styles.inputError}` : ""}`}
+                    placeholder="Password"
+                    onChange={() => clearFieldError("password")}
+                    autoComplete="current-password"
+                    required
+                    minLength={8}
+                  />
+                  <button
+                    type="button"
+                    className={styles.togglePw}
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <IconEyeOff size={20} /> : <IconEye size={20} />}
+                  </button>
+                </div>
+                <p className={`${styles.fieldError}${fieldErrors.password ? "" : ` ${styles.fieldErrorHidden}`}`}>
+                  {fieldErrors.password || "\u00A0"}
+                </p>
+              </div>
+
+              <div className={styles.errorSlot}>
+                {error ? <Alert variant="error">{error}</Alert> : null}
+              </div>
+
+              <button type="submit" className={styles.submit} disabled={loading}>
+                {loading ? (
+                  <>
+                    <span className={styles.spinner} />
+                    Logging in…
+                  </>
+                ) : (
+                  "Login"
+                )}
+              </button>
+              <div className={styles.forgotWrap}>
+                <button
+                  type="button"
+                  className={styles.forgot}
+                  onClick={(e) => {
+                    e.preventDefault();
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            </form>
+          </div>
+          <div className={styles.brandColumn}>
+            <div className={styles.iconBubble}>
+              <TempBrandMark />
+            </div>
+            <h2 className={styles.brandName}>PharmaCeylon</h2>
+            <p className={styles.tagline}>Intelligent inventory management with AI-powered insights.</p>
+          </div>
+        </div>
+      </div>
+      <footer className={styles.footer}>
+        © 2026 PharmaCeylon. All rights reserved.
+      </footer>
     </main>
   );
 }

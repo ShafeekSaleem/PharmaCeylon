@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
 import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -26,28 +27,20 @@ export default function TransfersPage() {
 
   if (!ready || !isAuthenticated) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        Loading…
+      <main className="pc-app-main">
+        <p className="pc-muted">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: "1.5rem",
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: 800,
-        margin: "0 auto",
-      }}
-    >
+    <main className="pc-app-main" style={{ maxWidth: 800 }}>
       <PmsNav />
-      <h1 style={{ marginTop: 0 }}>Transfers</h1>
-      <p style={{ color: "#555", fontSize: "0.9rem" }}>
+      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Transfers</h1>
+      <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
         Listing for the active branch. Create/approve/ship/receive via API or extend this UI later.
       </p>
-      {err ? <p style={{ color: "#b91c1c" }}>{err}</p> : null}
+      {err ? <Alert variant="error">{err}</Alert> : null}
       <ul style={{ paddingLeft: "1.1rem" }}>
         {rows.map((t) => (
           <li key={t.id} style={{ marginBottom: 6 }}>

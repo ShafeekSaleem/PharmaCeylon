@@ -2,12 +2,10 @@ import Link from "next/link";
 
 export default function NotFound() {
   return (
-    <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif", textAlign: "center" }}>
-      <h1>Page not found</h1>
+    <main className="pc-app-main" style={{ textAlign: "center" }}>
+      <h1 style={{ color: "var(--pc-foreground)" }}>Page not found</h1>
       <p>
-        <Link href="/" style={{ color: "#2563eb" }}>
-          Back to home
-        </Link>
+        <Link href="/">Back to home</Link>
       </p>
     </main>
   );

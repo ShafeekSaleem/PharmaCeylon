@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
 import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -47,38 +48,57 @@ export default function SuppliersPage() {
 
   if (!ready || !isAuthenticated) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        Loading…
+      <main className="pc-app-main">
+        <p className="pc-muted">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: "1.5rem",
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: 720,
-        margin: "0 auto",
-      }}
-    >
+    <main className="pc-app-main" style={{ maxWidth: 720 }}>
       <PmsNav />
-      <h1 style={{ marginTop: 0 }}>Suppliers</h1>
-      {err ? <p style={{ color: "#b91c1c" }}>{err}</p> : null}
+      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Suppliers</h1>
+      {err ? <Alert variant="error">{err}</Alert> : null}
 
       <section style={{ marginBottom: "2rem" }}>
-        <h2 style={{ fontSize: "1.05rem" }}>Add supplier</h2>
+        <h2 style={{ fontSize: "1.05rem", color: "var(--pc-foreground)" }}>Add supplier</h2>
         <form onSubmit={onCreate} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
-          <label>
+          <label style={{ color: "var(--pc-muted-fg)", fontSize: "0.9rem" }}>
             Code
-            <input value={code} onChange={(e) => setCode(e.target.value)} required style={{ display: "block", marginTop: 4, padding: "0.35rem" }} />
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              required
+              style={{
+                display: "block",
+                marginTop: 4,
+                padding: "0.4rem 0.5rem",
+                border: "1px solid var(--pc-border)",
+                borderRadius: "var(--pc-radius-sm)",
+                background: "var(--pc-input-bg)",
+                color: "var(--pc-foreground)",
+              }}
+            />
           </label>
-          <label>
+          <label style={{ color: "var(--pc-muted-fg)", fontSize: "0.9rem" }}>
             Name
-            <input value={name} onChange={(e) => setName(e.target.value)} required style={{ display: "block", marginTop: 4, padding: "0.35rem", minWidth: 220 }} />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              style={{
+                display: "block",
+                marginTop: 4,
+                padding: "0.4rem 0.5rem",
+                minWidth: 220,
+                border: "1px solid var(--pc-border)",
+                borderRadius: "var(--pc-radius-sm)",
+                background: "var(--pc-input-bg)",
+                color: "var(--pc-foreground)",
+              }}
+            />
           </label>
-          <button type="submit" style={{ padding: "0.4rem 0.9rem", cursor: "pointer" }}>
+          <button type="submit" className="pc-btn-primary-sm">
             Save
           </button>
         </form>
@@ -87,10 +107,10 @@ export default function SuppliersPage() {
       <ul style={{ paddingLeft: "1.1rem" }}>
         {items.map((s) => (
           <li key={s.id} style={{ marginBottom: 8 }}>
-            <code style={{ fontSize: "0.75rem", color: "#666" }}>{s.id}</code>
+            <code style={{ fontSize: "0.75rem", color: "var(--pc-muted-fg)" }}>{s.id}</code>
             <br />
             <strong>{s.code}</strong> — {s.name}{" "}
-            <span style={{ color: "#666", fontSize: "0.9rem" }}>(lead {s.leadTimeDays}d)</span>
+            <span style={{ color: "var(--pc-muted-fg)", fontSize: "0.9rem" }}>(lead {s.leadTimeDays}d)</span>
           </li>
         ))}
       </ul>

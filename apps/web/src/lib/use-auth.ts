@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { loginRequest, logoutAllRequest, logoutRequest } from "./auth-client";
 import type { AuthUser } from "./auth-types";
 import {
@@ -25,15 +25,19 @@ function getSnapshot() {
   return loadStoredSession();
 }
 
+const SERVER_SNAPSHOT: { user: AuthUser | null; branchId: string | null } = {
+  user: null,
+  branchId: null,
+};
+
 function getServerSnapshot() {
-  return {
-    user: null as AuthUser | null,
-    branchId: null as string | null,
-  };
+  return SERVER_SNAPSHOT;
 }
 
 export function useAuth() {
   const s = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
 
   const login = useCallback(
     async (input: { email: string; password: string }) => {
@@ -59,16 +63,14 @@ export function useAuth() {
   return useMemo(
     () => ({
       user: s.user,
-      /** Best-effort indicator. Source of truth is the server — any 401 clears this. */
       isAuthenticated: s.user !== null,
       branchId: s.branchId,
-      /** True after client hydration (used to avoid SSR/client flash for redirects). */
-      ready: typeof window !== "undefined",
+      ready: hydrated,
       login,
       logout,
       logoutAll,
       setBranchId,
     }),
-    [s.user, s.branchId, login, logout, logoutAll, setBranchId],
+    [s.user, s.branchId, hydrated, login, logout, logoutAll, setBranchId],
   );
 }
