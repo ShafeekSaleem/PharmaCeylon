@@ -32,8 +32,9 @@ import styles from "./app-shell.module.css";
 
 type RoleName = "owner" | "manager" | "pharmacist" | "cashier" | "inventory_clerk" | "analyst";
 
-const ALL_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "cashier", "inventory_clerk", "analyst"];
 const ADMIN_ROLES: RoleName[] = ["owner", "manager"];
+const POS_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "cashier"];
+const CATALOG_ROLES: RoleName[] = ["owner", "manager", "cashier", "inventory_clerk"];
 const OPERATIONS_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "inventory_clerk"];
 const INSIGHTS_ROLES: RoleName[] = ["owner", "manager", "analyst"];
 
@@ -51,13 +52,13 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Main",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: <IconGrid size={18} /> },
-      { href: "/pos", label: "POS / Checkout", icon: <IconShoppingCart size={18} />, roles: [...ALL_ROLES] },
+      { href: "/pos", label: "POS / Checkout", icon: <IconShoppingCart size={18} />, roles: POS_ROLES },
     ],
   },
   {
     label: "Catalog",
     items: [
-      { href: "/products", label: "Products", icon: <IconPackage size={18} /> },
+      { href: "/products", label: "Products", icon: <IconPackage size={18} />, roles: CATALOG_ROLES },
       { href: "/catalog", label: "Search Catalog", icon: <IconSearch size={18} /> },
       { href: "/suppliers", label: "Suppliers", icon: <IconShoppingBag size={18} />, roles: OPERATIONS_ROLES },
     ],
