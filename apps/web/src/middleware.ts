@@ -6,7 +6,8 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/") {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const dest = request.cookies.has("pc_csrf") ? "/dashboard" : "/login";
+    return NextResponse.redirect(new URL(dest, request.url));
   }
 
   if (pathname.startsWith("/_next") || pathname.startsWith("/api") || pathname.includes(".")) {

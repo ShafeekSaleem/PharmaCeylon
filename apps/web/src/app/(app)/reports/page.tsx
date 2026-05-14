@@ -2,18 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
-import { useRequireAuth } from "@/lib/use-require-auth";
 
 export default function ReportsPage() {
-  const { ready, isAuthenticated } = useRequireAuth();
   const [tab, setTab] = useState<"sales" | "margin" | "expiry" | "dead">("sales");
   const [out, setOut] = useState<unknown>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!ready || !isAuthenticated) return;
     const path =
       tab === "sales"
         ? "/reports/sales-summary"
@@ -27,19 +23,10 @@ export default function ReportsPage() {
     apiJson(path)
       .then(setOut)
       .catch((e) => setErr(e instanceof Error ? e.message : "Failed"));
-  }, [ready, isAuthenticated, tab]);
-
-  if (!ready || !isAuthenticated) {
-    return (
-      <main className="pc-app-main">
-        <p className="pc-muted">Loading…</p>
-      </main>
-    );
-  }
+  }, [tab]);
 
   return (
-    <main className="pc-app-main" style={{ maxWidth: 900 }}>
-      <PmsNav />
+    <div style={{ maxWidth: 900 }}>
       <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Reports</h1>
       <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
         Select a branch on the Dashboard.
@@ -74,6 +61,6 @@ export default function ReportsPage() {
       </div>
       {err ? <Alert variant="error">{err}</Alert> : null}
       <pre className="pc-panel">{out ? JSON.stringify(out, null, 2) : "Loading…"}</pre>
-    </main>
+    </div>
   );
 }

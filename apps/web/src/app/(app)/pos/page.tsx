@@ -3,9 +3,7 @@
 import type { CSSProperties } from "react";
 import { FormEvent, useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
-import { useRequireAuth } from "@/lib/use-require-auth";
 
 const posInput: CSSProperties = {
   padding: "0.45rem 0.6rem",
@@ -23,7 +21,6 @@ type BatchRow = {
 };
 
 export default function PosPage() {
-  const { ready, isAuthenticated } = useRequireAuth();
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [invoice, setInvoice] = useState<unknown>(null);
@@ -33,7 +30,6 @@ export default function PosPage() {
   const [unitPrice, setUnitPrice] = useState("0.00");
 
   useEffect(() => {
-    if (!ready || !isAuthenticated) return;
     (async () => {
       try {
         setBatches(await apiJson<BatchRow[]>("/inventory/batches"));
@@ -41,7 +37,7 @@ export default function PosPage() {
         setErr(e instanceof Error ? e.message : "Could not load batches");
       }
     })();
-  }, [ready, isAuthenticated]);
+  }, []);
 
   async function checkout(e: FormEvent) {
     e.preventDefault();
@@ -61,17 +57,8 @@ export default function PosPage() {
     }
   }
 
-  if (!ready || !isAuthenticated) {
-    return (
-      <main className="pc-app-main">
-        <p className="pc-muted">Loading…</p>
-      </main>
-    );
-  }
-
   return (
-    <main className="pc-app-main" style={{ maxWidth: 800 }}>
-      <PmsNav />
+    <div style={{ maxWidth: 800 }}>
       <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>POS checkout</h1>
       <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
         Requires branch with stock. Pick batch IDs from the list or paste UUIDs.
@@ -124,6 +111,6 @@ export default function PosPage() {
       </form>
 
       {invoice ? <pre className="pc-panel" style={{ marginTop: "1.25rem" }}>{JSON.stringify(invoice, null, 2)}</pre> : null}
-    </main>
+    </div>
   );
 }

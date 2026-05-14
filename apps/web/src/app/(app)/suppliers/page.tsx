@@ -2,51 +2,39 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
-import { useRequireAuth } from "@/lib/use-require-auth";
 
-type Product = {
-  id: string;
-  sku: string;
-  name: string;
-  brandName: string | null;
-  isActive: boolean;
-};
+type Supplier = { id: string; code: string; name: string; leadTimeDays: number };
 
-type ProductList = { items: Product[]; total: number };
-
-export default function ProductsPage() {
-  const { ready, isAuthenticated } = useRequireAuth();
-  const [data, setData] = useState<ProductList | null>(null);
+export default function SuppliersPage() {
+  const [items, setItems] = useState<Supplier[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [sku, setSku] = useState("");
+  const [code, setCode] = useState("");
   const [name, setName] = useState("");
 
   async function load() {
     setErr(null);
     try {
-      setData(await apiJson<ProductList>("/products"));
+      setItems(await apiJson<Supplier[]>("/suppliers"));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load");
     }
   }
 
   useEffect(() => {
-    if (!ready || !isAuthenticated) return;
     void load();
-  }, [ready, isAuthenticated]);
+  }, []);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setErr(null);
     try {
-      await apiJson("/products", {
+      await apiJson("/suppliers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sku, name }),
+        body: JSON.stringify({ code, name }),
       });
-      setSku("");
+      setCode("");
       setName("");
       await load();
     } catch (e) {
@@ -54,28 +42,19 @@ export default function ProductsPage() {
     }
   }
 
-  if (!ready || !isAuthenticated) {
-    return (
-      <main className="pc-app-main">
-        <p className="pc-muted">Loading…</p>
-      </main>
-    );
-  }
-
   return (
-    <main className="pc-app-main" style={{ maxWidth: 960 }}>
-      <PmsNav />
-      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Products</h1>
+    <div style={{ maxWidth: 720 }}>
+      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Suppliers</h1>
       {err ? <Alert variant="error">{err}</Alert> : null}
 
       <section style={{ marginBottom: "2rem" }}>
-        <h2 style={{ fontSize: "1.05rem", color: "var(--pc-foreground)" }}>Add product</h2>
+        <h2 style={{ fontSize: "1.05rem", color: "var(--pc-foreground)" }}>Add supplier</h2>
         <form onSubmit={onCreate} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
           <label style={{ color: "var(--pc-muted-fg)", fontSize: "0.9rem" }}>
-            SKU
+            Code
             <input
-              value={sku}
-              onChange={(e) => setSku(e.target.value)}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
               required
               style={{
                 display: "block",
@@ -98,7 +77,7 @@ export default function ProductsPage() {
                 display: "block",
                 marginTop: 4,
                 padding: "0.4rem 0.5rem",
-                minWidth: 240,
+                minWidth: 220,
                 border: "1px solid var(--pc-border)",
                 borderRadius: "var(--pc-radius-sm)",
                 background: "var(--pc-input-bg)",
@@ -112,19 +91,16 @@ export default function ProductsPage() {
         </form>
       </section>
 
-      <section>
-        <h2 style={{ fontSize: "1.05rem", color: "var(--pc-foreground)" }}>Catalog ({data?.total ?? "…"})</h2>
-        <ul style={{ paddingLeft: "1.1rem" }}>
-          {(data?.items ?? []).map((p) => (
-            <li key={p.id} style={{ marginBottom: 6 }}>
-              <code style={{ fontSize: "0.75rem", color: "var(--pc-muted-fg)" }}>{p.id}</code>
-              <br />
-              <strong>{p.sku}</strong> — {p.name}
-              {p.brandName ? <span style={{ color: "var(--pc-muted-fg)" }}> ({p.brandName})</span> : null}
-            </li>
-          ))}
-        </ul>
-      </section>
-    </main>
+      <ul style={{ paddingLeft: "1.1rem" }}>
+        {items.map((s) => (
+          <li key={s.id} style={{ marginBottom: 8 }}>
+            <code style={{ fontSize: "0.75rem", color: "var(--pc-muted-fg)" }}>{s.id}</code>
+            <br />
+            <strong>{s.code}</strong> — {s.name}{" "}
+            <span style={{ color: "var(--pc-muted-fg)", fontSize: "0.9rem" }}>(lead {s.leadTimeDays}d)</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

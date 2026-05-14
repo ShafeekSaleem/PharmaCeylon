@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
-import { useRequireAuth } from "@/lib/use-require-auth";
 
 type AuditRow = {
   id: string;
@@ -16,28 +14,17 @@ type AuditRow = {
 };
 
 export default function AuditPage() {
-  const { ready, isAuthenticated } = useRequireAuth();
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!ready || !isAuthenticated) return;
     apiJson<AuditRow[]>("/audit/events?take=80")
       .then(setRows)
       .catch((e) => setErr(e instanceof Error ? e.message : "Failed"));
-  }, [ready, isAuthenticated]);
-
-  if (!ready || !isAuthenticated) {
-    return (
-      <main className="pc-app-main">
-        <p className="pc-muted">Loading…</p>
-      </main>
-    );
-  }
+  }, []);
 
   return (
-    <main className="pc-app-main" style={{ maxWidth: 960 }}>
-      <PmsNav />
+    <div style={{ maxWidth: 960 }}>
       <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Audit trail</h1>
       {err ? <Alert variant="error">{err}</Alert> : null}
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
@@ -61,6 +48,6 @@ export default function AuditPage() {
           ))}
         </tbody>
       </table>
-    </main>
+    </div>
   );
 }

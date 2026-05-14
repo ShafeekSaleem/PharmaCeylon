@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
-import { useRequireAuth } from "@/lib/use-require-auth";
 
 type TransferRow = {
   id: string;
@@ -14,28 +12,17 @@ type TransferRow = {
 };
 
 export default function TransfersPage() {
-  const { ready, isAuthenticated } = useRequireAuth();
   const [rows, setRows] = useState<TransferRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!ready || !isAuthenticated) return;
     apiJson<TransferRow[]>("/transfers")
       .then(setRows)
       .catch((e) => setErr(e instanceof Error ? e.message : "Failed (branch required)"));
-  }, [ready, isAuthenticated]);
-
-  if (!ready || !isAuthenticated) {
-    return (
-      <main className="pc-app-main">
-        <p className="pc-muted">Loading…</p>
-      </main>
-    );
-  }
+  }, []);
 
   return (
-    <main className="pc-app-main" style={{ maxWidth: 800 }}>
-      <PmsNav />
+    <div style={{ maxWidth: 800 }}>
       <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Transfers</h1>
       <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
         Listing for the active branch. Create/approve/ship/receive via API or extend this UI later.
@@ -49,6 +36,6 @@ export default function TransfersPage() {
           </li>
         ))}
       </ul>
-    </main>
+    </div>
   );
 }

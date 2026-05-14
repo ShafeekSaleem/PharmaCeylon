@@ -3,9 +3,7 @@
 import type { CSSProperties } from "react";
 import { FormEvent, useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PmsNav } from "@/components/pms-nav";
 import { apiJson } from "@/lib/auth-client";
-import { useRequireAuth } from "@/lib/use-require-auth";
 
 const pchInput: CSSProperties = {
   padding: "0.45rem 0.6rem",
@@ -24,7 +22,6 @@ type Po = {
 };
 
 export default function PurchasingPage() {
-  const { ready, isAuthenticated } = useRequireAuth();
   const [orders, setOrders] = useState<Po[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState("");
@@ -43,9 +40,8 @@ export default function PurchasingPage() {
   }
 
   useEffect(() => {
-    if (!ready || !isAuthenticated) return;
     void load();
-  }, [ready, isAuthenticated]);
+  }, []);
 
   async function createPo(e: FormEvent) {
     e.preventDefault();
@@ -77,17 +73,8 @@ export default function PurchasingPage() {
     }
   }
 
-  if (!ready || !isAuthenticated) {
-    return (
-      <main className="pc-app-main">
-        <p className="pc-muted">Loading…</p>
-      </main>
-    );
-  }
-
   return (
-    <main className="pc-app-main" style={{ maxWidth: 900 }}>
-      <PmsNav />
+    <div style={{ maxWidth: 900 }}>
       <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Purchasing</h1>
       <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
         Select a branch on the Dashboard first (<code>x-branch-id</code>). Use Products and Suppliers pages to copy UUIDs.
@@ -164,6 +151,6 @@ export default function PurchasingPage() {
           ))}
         </ul>
       </section>
-    </main>
+    </div>
   );
 }
