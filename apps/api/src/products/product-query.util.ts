@@ -1,0 +1,146 @@
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+
+export type ProductFilterQuery = {
+  q?: string;
+  dosageForm?: string;
+  brandName?: string;
+  isControlled?: string;
+  status?: string;
+  lowStock?: boolean;
+};
+
+export type FacetExclude = "dosageForm" | "brandName" | "status" | "isControlled";
+
+export type ProductWhereResult = {
+  where: Prisma.ProductWhereInput;
+  isEmpty: boolean;
+};
+
+const EMPTY_WHERE = (tenantId: string): ProductWhereResult => ({
+  where: { tenantId, id: { in: [] } },
+  isEmpty: true,
+});
+
+export function parseCsv(value?: string): string[] {
+  if (!value?.trim()) return [];
+  return [...new Set(value.split(",").map((s) => s.trim()).filter(Boolean))];
+}
+
+async function lowStockProductIds(
+  prisma: PrismaService,
+  tenantId: string,
+  branchId: string,
+): Promise<string[]> {
+  const grouped = await prisma.stockLedger.groupBy({
+    by: ["productId"],
+    where: { tenantId, branchId },
+    _sum: { qtyDelta: true },
+  });
+  const products = await prisma.product.findMany({
+    where: { tenantId },
+    select: { id: true, reorderLevel: true },
+  });
+  const qtyMap = new Map(
+    grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]),
+  );
+  const ids: string[] = [];
+  for (const p of products) {
+    const qty = qtyMap.get(p.id) ?? 0;
+    if (qty > 0 && qty <= p.reorderLevel) {
+      ids.push(p.id);
+    }
+  }
+  return ids;
+}
+
+function resolveStatusFilter(
+  statusValues: string[],
+  statusParam?: string,
+): Prisma.ProductWhereInput {
+  if (statusValues.length === 1) {
+    if (statusValues[0] === "inactive") return { isActive: false };
+    if (statusValues[0] === "active") return { isActive: true };
+    return {};
+  }
+  if (statusParam === "inactive") return { isActive: false };
+  if (statusParam === "active") return { isActive: true };
+  return {};
+}
+
+function resolveControlledFilter(
+  controlledValues: string[],
+  isControlledParam?: string,
+): Prisma.ProductWhereInput {
+  if (controlledValues.length === 1 && controlledValues[0] === "true") {
+    return { isControlled: true };
+  }
+  if (controlledValues.length === 1 && controlledValues[0] === "false") {
+    return { isControlled: false };
+  }
+  if (isControlledParam === "true") return { isControlled: true };
+  if (isControlledParam === "false") return { isControlled: false };
+  return {};
+}
+
+export async function buildProductWhere(
+  prisma: PrismaService,
+  tenantId: string,
+  branchId: string | undefined,
+  query: ProductFilterQuery,
+  exclude?: FacetExclude,
+): Promise<ProductWhereResult> {
+  const dosageForms = parseCsv(query.dosageForm);
+  const brandNames = parseCsv(query.brandName);
+  const statusValues = parseCsv(query.status);
+  const controlledValues = parseCsv(query.isControlled);
+
+  let lowStockIds: string[] | undefined;
+  if (query.lowStock) {
+    if (!branchId) {
+      return EMPTY_WHERE(tenantId);
+    }
+    lowStockIds = await lowStockProductIds(prisma, tenantId, branchId);
+    if (lowStockIds.length === 0) {
+      return EMPTY_WHERE(tenantId);
+    }
+  }
+
+  const where: Prisma.ProductWhereInput = {
+    tenantId,
+    ...(exclude !== "status"
+      ? resolveStatusFilter(statusValues, query.status)
+      : {}),
+    ...(exclude !== "dosageForm"
+      ? dosageForms.length === 1
+        ? { dosageForm: dosageForms[0] }
+        : dosageForms.length > 1
+          ? { dosageForm: { in: dosageForms } }
+          : {}
+      : {}),
+    ...(exclude !== "brandName"
+      ? brandNames.length === 1
+        ? { brandName: brandNames[0] }
+        : brandNames.length > 1
+          ? { brandName: { in: brandNames } }
+          : {}
+      : {}),
+    ...(exclude !== "isControlled"
+      ? resolveControlledFilter(controlledValues, query.isControlled)
+      : {}),
+    ...(lowStockIds ? { id: { in: lowStockIds } } : {}),
+    ...(query.q?.trim()
+      ? {
+          OR: [
+            { name: { contains: query.q.trim(), mode: "insensitive" } },
+            { sku: { contains: query.q.trim(), mode: "insensitive" } },
+            { barcode: { contains: query.q.trim(), mode: "insensitive" } },
+            { brandName: { contains: query.q.trim(), mode: "insensitive" } },
+            { genericName: { contains: query.q.trim(), mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
+
+  return { where, isEmpty: false };
+}

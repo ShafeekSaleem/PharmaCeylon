@@ -8,6 +8,16 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
+import { buildProductWhere } from "./product-query.util";
+
+const SORTABLE_FIELDS = new Set([
+  "name",
+  "sku",
+  "brandName",
+  "reorderLevel",
+  "createdAt",
+  "updatedAt",
+]);
 
 @Injectable()
 export class ProductsService {
@@ -18,29 +28,44 @@ export class ProductsService {
 
   async list(
     tenantId: string,
-    query: { q?: string; skip?: number; take?: number },
+    branchId: string | undefined,
+    query: {
+      q?: string;
+      skip?: number;
+      take?: number;
+      dosageForm?: string;
+      brandName?: string;
+      isControlled?: string;
+      status?: string;
+      lowStock?: boolean;
+      sortBy?: string;
+      sortDir?: string;
+    },
   ) {
     const take = Math.min(query.take ?? 50, 200);
     const skip = query.skip ?? 0;
-    const where: Prisma.ProductWhereInput = {
+
+    const { where, isEmpty } = await buildProductWhere(
+      this.prisma,
       tenantId,
-      isActive: true,
-      ...(query.q?.trim()
-        ? {
-            OR: [
-              { name: { contains: query.q.trim(), mode: "insensitive" } },
-              { sku: { contains: query.q.trim(), mode: "insensitive" } },
-              { barcode: { contains: query.q.trim(), mode: "insensitive" } },
-              { brandName: { contains: query.q.trim(), mode: "insensitive" } },
-              { genericName: { contains: query.q.trim(), mode: "insensitive" } },
-            ],
-          }
-        : {}),
-    };
+      branchId,
+      query,
+    );
+
+    if (isEmpty) {
+      return { items: [], total: 0, skip, take };
+    }
+
+    const sortField = SORTABLE_FIELDS.has(query.sortBy ?? "")
+      ? query.sortBy!
+      : "name";
+    const sortDirection: Prisma.SortOrder =
+      query.sortDir === "desc" ? "desc" : "asc";
+
     const [items, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
-        orderBy: { name: "asc" },
+        orderBy: { [sortField]: sortDirection },
         skip,
         take,
       }),
@@ -73,6 +98,7 @@ export class ProductsService {
           dosageForm: dto.dosageForm?.trim() || null,
           strength: dto.strength?.trim() || null,
           unit: dto.unit?.trim() || null,
+          imageUrl: dto.imageUrl?.trim() || null,
           isControlled: dto.isControlled ?? false,
           reorderLevel: dto.reorderLevel ?? 0,
         },
@@ -107,6 +133,7 @@ export class ProductsService {
         ...(dto.dosageForm !== undefined ? { dosageForm: dto.dosageForm?.trim() || null } : {}),
         ...(dto.strength !== undefined ? { strength: dto.strength?.trim() || null } : {}),
         ...(dto.unit !== undefined ? { unit: dto.unit?.trim() || null } : {}),
+        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
         ...(dto.isControlled !== undefined ? { isControlled: dto.isControlled } : {}),
         ...(dto.reorderLevel !== undefined ? { reorderLevel: dto.reorderLevel } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
@@ -120,5 +147,28 @@ export class ProductsService {
       entityId: product.id,
     });
     return product;
+  }
+
+  async remove(tenantId: string, userId: string, id: string) {
+    const existing = await this.getById(tenantId, id);
+    try {
+      await this.prisma.product.delete({ where: { id } });
+      await this.audit.log({
+        tenantId,
+        actorUserId: userId,
+        eventName: "product.deleted",
+        entityName: "product",
+        entityId: id,
+        payload: { sku: existing.sku },
+      });
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+        throw new ConflictException(
+          "Product cannot be deleted because it is referenced by inventory or sales records",
+        );
+      }
+      throw e;
+    }
   }
 }

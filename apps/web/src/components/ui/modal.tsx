@@ -1,0 +1,131 @@
+"use client";
+
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import styles from "./modal.module.css";
+
+export type ModalProps = {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  size?: "sm" | "md" | "lg";
+  closeOnBackdrop?: boolean;
+  closeOnEsc?: boolean;
+};
+
+export function Modal({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  size = "md",
+  closeOnBackdrop = true,
+  closeOnEsc = true,
+}: ModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open || !closeOnEsc) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose, closeOnEsc]);
+
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = ""; };
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => {
+        const first = dialogRef.current?.querySelector<HTMLElement>(
+          "input:not([type=hidden]),select,textarea,button:not([data-dismiss])",
+        );
+        first?.focus();
+      });
+    }
+  }, [open]);
+
+  const handleBackdrop = useCallback(() => {
+    if (closeOnBackdrop) onClose();
+  }, [closeOnBackdrop, onClose]);
+
+  if (!open) return null;
+
+  const sizeCls = size === "sm" ? styles.sm : size === "lg" ? styles.lg : styles.md;
+
+  return (
+    <div className={styles.overlay} onClick={handleBackdrop}>
+      <div
+        ref={dialogRef}
+        className={`${styles.dialog} ${sizeCls}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={styles.header}>
+          <div>
+            <h2 id="modal-title" className={styles.title}>{title}</h2>
+            {description && <p className={styles.description}>{description}</p>}
+          </div>
+          <button
+            type="button"
+            className={styles.closeBtn}
+            onClick={onClose}
+            data-dismiss
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className={styles.body}>{children}</div>
+        {footer && <div className={styles.footer}>{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ── Convenience buttons ── */
+
+export function ModalFooter({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <div className={`${styles.footerButtons}${className ? ` ${className}` : ""}`}>{children}</div>;
+}
+
+type BtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: "primary" | "secondary" | "danger";
+  loading?: boolean;
+};
+
+export function ModalButton({ variant = "secondary", loading, children, disabled, className, ...rest }: BtnProps) {
+  const cls = [
+    styles.btn,
+    variant === "primary" ? styles.btnPrimary : variant === "danger" ? styles.btnDanger : styles.btnSecondary,
+    className ?? "",
+  ].filter(Boolean).join(" ");
+
+  return (
+    <button type="button" className={cls} disabled={disabled || loading} {...rest}>
+      {loading && <span className={styles.spinner} />}
+      {children}
+    </button>
+  );
+}

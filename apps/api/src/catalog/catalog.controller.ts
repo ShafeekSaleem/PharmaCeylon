@@ -47,8 +47,24 @@ export class CatalogController {
     RoleName.analyst,
   )
   @Get("facets")
-  facets(@CurrentUser() user: RequestUser, @Req() req: AuthenticatedRequest, @Query("q") q?: string) {
-    return this.catalog.facets(user.tenantId, req.branchId, q);
+  facets(
+    @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
+    @Query("q") q?: string,
+    @Query("dosageForm") dosageForm?: string,
+    @Query("brandName") brandName?: string,
+    @Query("isControlled") isControlled?: string,
+    @Query("status") status?: string,
+    @Query("lowStock") lowStock?: string,
+  ) {
+    return this.catalog.facets(user.tenantId, req.branchId, {
+      q,
+      dosageForm,
+      brandName,
+      isControlled,
+      status: status || "all",
+      lowStock: lowStock === "true",
+    });
   }
 
   @Roles(

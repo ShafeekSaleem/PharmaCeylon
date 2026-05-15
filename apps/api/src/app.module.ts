@@ -22,6 +22,7 @@ import { TenantBranchGuard } from "./security/guards/tenant-branch.guard";
 import { SuppliersModule } from "./suppliers/suppliers.module";
 import { TenantModule } from "./tenant/tenant.module";
 import { TransfersModule } from "./transfers/transfers.module";
+import { UploadsModule } from "./uploads/uploads.module";
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { TransfersModule } from "./transfers/transfers.module";
     ReportsModule,
     CatalogModule,
     AnalyticsModule,
+    UploadsModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1,9 +1,11 @@
 import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import type { NextFunction, Request, Response } from "express";
+import { join } from "path";
 import { AppModule } from "./app.module";
 
 function parseWebOrigins(): string[] {
@@ -19,7 +21,7 @@ function parseWebOrigins(): string[] {
 
 async function bootstrap() {
   const logger = new Logger("Bootstrap");
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
   });
   app.useLogger(logger);
@@ -33,6 +35,10 @@ async function bootstrap() {
   );
 
   app.use(helmet());
+
+  app.useStaticAssets(join(process.cwd(), 'storage', 'uploads'), {
+    prefix: '/uploads/',
+  });
 
   app.use(cookieParser());
 

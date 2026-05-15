@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  buildProductWhere,
+  type ProductFilterQuery,
+} from "../products/product-query.util";
 
 @Injectable()
 export class CatalogService {
@@ -60,40 +64,80 @@ export class CatalogService {
     };
   }
 
-  async facets(tenantId: string, branchId: string | undefined, q?: string) {
-    const baseWhere: Prisma.ProductWhereInput = {
+  async facets(
+    tenantId: string,
+    branchId: string | undefined,
+    query: ProductFilterQuery = {},
+  ) {
+    const { where: summaryWhere } = await buildProductWhere(
+      this.prisma,
       tenantId,
-      isActive: true,
-      ...(q?.trim()
-        ? {
-            OR: [
-              { name: { contains: q.trim(), mode: "insensitive" } },
-              { sku: { contains: q.trim(), mode: "insensitive" } },
-            ],
-          }
-        : {}),
-    };
+      branchId,
+      query,
+    );
 
-    const [brands, forms, controlled] = await this.prisma.$transaction([
-      this.prisma.product.groupBy({
-        by: ["brandName"],
-        where: { ...baseWhere, brandName: { not: null } },
-        orderBy: { brandName: "asc" },
-        _count: true,
-      }),
-      this.prisma.product.groupBy({
-        by: ["dosageForm"],
-        where: { ...baseWhere, dosageForm: { not: null } },
-        orderBy: { dosageForm: "asc" },
-        _count: true,
-      }),
-      this.prisma.product.groupBy({
-        by: ["isControlled"],
-        where: baseWhere,
-        orderBy: { isControlled: "asc" },
-        _count: true,
-      }),
-    ]);
+    const { where: brandWhere } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      branchId,
+      query,
+      "brandName",
+    );
+    const { where: dosageWhere } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      branchId,
+      query,
+      "dosageForm",
+    );
+    const { where: statusWhere } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      branchId,
+      query,
+      "status",
+    );
+    const { where: controlledWhere } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      branchId,
+      query,
+      "isControlled",
+    );
+
+    const [brands, forms, statusGroups, controlledGroups] =
+      await this.prisma.$transaction([
+        this.prisma.product.groupBy({
+          by: ["brandName"],
+          where: { ...brandWhere, brandName: { not: null } },
+          orderBy: { brandName: "asc" },
+          _count: true,
+        }),
+        this.prisma.product.groupBy({
+          by: ["dosageForm"],
+          where: { ...dosageWhere, dosageForm: { not: null } },
+          orderBy: { dosageForm: "asc" },
+          _count: true,
+        }),
+        this.prisma.product.groupBy({
+          by: ["isActive"],
+          where: statusWhere,
+          orderBy: { isActive: "asc" },
+          _count: true,
+        }),
+        this.prisma.product.groupBy({
+          by: ["isControlled"],
+          where: controlledWhere,
+          orderBy: { isControlled: "asc" },
+          _count: true,
+        }),
+      ]);
+
+    const statusCount = (active: boolean) =>
+      statusGroups.find((s) => s.isActive === active)?._count ?? 0;
+
+    const controlledCount = (controlled: boolean) =>
+      controlledGroups.find((c) => c.isControlled === controlled)?._count ?? 0;
 
     let inStock = 0;
     let lowStock = 0;
@@ -104,11 +148,12 @@ export class CatalogService {
         _sum: { qtyDelta: true },
       });
       const products = await this.prisma.product.findMany({
-        where: baseWhere,
+        where: summaryWhere,
         select: { id: true, reorderLevel: true },
       });
-      const pmap = new Map(products.map((p) => [p.id, p.reorderLevel]));
-      const qtyMap = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+      const qtyMap = new Map(
+        grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]),
+      );
       for (const p of products) {
         const qty = qtyMap.get(p.id) ?? 0;
         if (qty > 0) inStock += 1;
@@ -117,10 +162,19 @@ export class CatalogService {
     }
 
     return {
-      brands: brands.map((b) => ({ value: b.brandName, count: b._count })),
-      dosageForms: forms.map((f) => ({ value: f.dosageForm, count: f._count })),
-      controlled: controlled.map((c) => ({ value: c.isControlled, count: c._count })),
-      branchStockSummary: branchId ? { inStockProductCount: inStock, lowStockProductCount: lowStock } : null,
+      brands: brands.map((b) => ({ value: b.brandName!, count: b._count })),
+      dosageForms: forms.map((f) => ({ value: f.dosageForm!, count: f._count })),
+      status: [
+        { value: "active", count: statusCount(true) },
+        { value: "inactive", count: statusCount(false) },
+      ],
+      controlled: [
+        { value: true, count: controlledCount(true) },
+        { value: false, count: controlledCount(false) },
+      ],
+      branchStockSummary: branchId
+        ? { inStockProductCount: inStock, lowStockProductCount: lowStock }
+        : null,
     };
   }
 

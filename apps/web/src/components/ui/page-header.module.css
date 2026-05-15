@@ -1,0 +1,98 @@
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.left {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  line-height: 1.3;
+}
+
+.description {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.4;
+}
+
+.subtitleLead {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* ── Action buttons ── */
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--pc-radius-sm);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+  white-space: nowrap;
+}
+
+.actionBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.actionIcon {
+  display: flex;
+  align-items: center;
+}
+
+.actionPrimary {
+  background: var(--pc-primary);
+  color: #fff;
+}
+
+.actionPrimary:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+}
+
+.actionSecondary {
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  border-color: var(--pc-border);
+}
+
+.actionSecondary:hover:not(:disabled) {
+  background: var(--pc-muted-bg);
+}
+
+.actionDanger {
+  background: var(--pc-destructive);
+  color: #fff;
+}
+
+.actionDanger:hover:not(:disabled) {
+  opacity: 0.9;
+}

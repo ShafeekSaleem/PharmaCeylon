@@ -1,0 +1,137 @@
+.card {
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  padding: 1.15rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 0 0 1px transparent;
+}
+
+.card:hover {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.clickable {
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.clickable:hover {
+  border-color: var(--pc-primary);
+}
+
+.clickable:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 2px;
+}
+
+.active {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 1px var(--pc-primary);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--pc-radius-sm);
+  flex-shrink: 0;
+}
+
+.icon_primary {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.icon_success {
+  background: color-mix(in srgb, var(--pc-alert-success-text, #16a34a) 14%, transparent);
+  color: var(--pc-alert-success-text, #16a34a);
+}
+
+.icon_warning {
+  background: color-mix(in srgb, var(--pc-warning, #d97706) 14%, transparent);
+  color: var(--pc-warning, #d97706);
+}
+
+.icon_danger {
+  background: color-mix(in srgb, var(--pc-destructive) 12%, transparent);
+  color: var(--pc-destructive);
+}
+
+.icon_info {
+  background: color-mix(in srgb, #0ea5e9 14%, transparent);
+  color: #0ea5e9;
+}
+
+.value {
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.15rem;
+}
+
+.trendUp {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pc-alert-success-text);
+}
+
+.trendDown {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pc-alert-error-text);
+}
+
+.subtitle {
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Grid layout ── */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--stat-cols, 4), 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -53,6 +53,11 @@ export class CreateProductDto {
   unit?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  imageUrl?: string | null;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   isControlled?: boolean;

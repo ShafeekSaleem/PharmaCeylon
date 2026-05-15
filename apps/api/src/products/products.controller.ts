@@ -1,17 +1,22 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  Req,
 } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { Roles } from "../security/decorators/roles.decorator";
-import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import {
+  AuthenticatedRequest,
+  RequestUser,
+} from "../security/interfaces/authenticated-request.interface";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { ProductsService } from "./products.service";
@@ -31,14 +36,29 @@ export class ProductsController {
   @Get()
   list(
     @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
     @Query("q") q?: string,
     @Query("skip") skip?: string,
     @Query("take") take?: string,
+    @Query("dosageForm") dosageForm?: string,
+    @Query("brandName") brandName?: string,
+    @Query("isControlled") isControlled?: string,
+    @Query("status") status?: string,
+    @Query("lowStock") lowStock?: string,
+    @Query("sortBy") sortBy?: string,
+    @Query("sortDir") sortDir?: string,
   ) {
-    return this.products.list(user.tenantId, {
+    return this.products.list(user.tenantId, req.branchId, {
       q,
       skip: skip ? Number(skip) : undefined,
       take: take ? Number(take) : undefined,
+      dosageForm,
+      brandName,
+      isControlled,
+      status: status || "all",
+      lowStock: lowStock === "true",
+      sortBy,
+      sortDir,
     });
   }
 
@@ -69,5 +89,11 @@ export class ProductsController {
     @Body() dto: UpdateProductDto,
   ) {
     return this.products.update(user.tenantId, user.userId, id, dto);
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Delete(":id")
+  remove(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+    return this.products.remove(user.tenantId, user.userId, id);
   }
 }
