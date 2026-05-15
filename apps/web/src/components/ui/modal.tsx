@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import styles from "./modal.module.css";
 
 export type ModalProps = {
@@ -40,12 +41,7 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose, closeOnEsc]);
 
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = ""; };
-    }
-  }, [open]);
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (open) {

@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { Alert } from "@/components/alert";
+import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import {
   IconPackage,
   IconPlus,
@@ -289,13 +290,7 @@ export default function ProductsPage() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [columnsOpen]);
 
-  useEffect(() => {
-    if (!viewProduct) return;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [viewProduct]);
+  useBodyScrollLock(!!viewProduct);
 
   useEffect(() => {
     const t = setTimeout(() => {

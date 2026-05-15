@@ -514,7 +514,7 @@
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(15, 23, 42, 0.32);
+  background: var(--pc-overlay-scrim);
   backdrop-filter: blur(1px);
 }
 
