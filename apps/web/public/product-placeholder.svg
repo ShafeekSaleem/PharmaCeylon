@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none" role="img" aria-label="Default product image">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="240" y2="240" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f1f5f9"/>
+      <stop offset="1" stop-color="#e2e8f0"/>
+    </linearGradient>
+    <linearGradient id="cap-a" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="cap-b" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="240" height="240" fill="url(#bg)"/>
+  <circle cx="120" cy="128" r="78" fill="#fff" opacity="0.65"/>
+  <g filter="url(#soft)">
+    <g transform="translate(34 96)">
+      <rect x="48" y="20" width="104" height="48" fill="url(#cap-a)"/>
+      <circle cx="48" cy="44" r="24" fill="#0f766e"/>
+      <circle cx="152" cy="44" r="24" fill="#0f766e"/>
+      <ellipse cx="100" cy="32" rx="36" ry="9" fill="#fff" opacity="0.22"/>
+    </g>
+    <g transform="translate(138 58) rotate(28 28 20)">
+      <rect x="0" y="12" width="64" height="28" rx="14" fill="url(#cap-b)"/>
+      <circle cx="0" cy="26" r="14" fill="#0e7490"/>
+      <circle cx="64" cy="26" r="14" fill="#0e7490"/>
+      <ellipse cx="32" cy="18" rx="18" ry="5" fill="#fff" opacity="0.2"/>
+    </g>
+  </g>
+</svg>

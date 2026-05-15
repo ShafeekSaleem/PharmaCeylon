@@ -221,7 +221,7 @@ export function DataTable<T>({
           <span className={styles.pageInfo}>
             {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, total)} of {total}
           </span>
-          <div className={styles.pageButtons}>
+          <div className={styles.pageControls}>
             <button
               type="button"
               disabled={page <= 1}

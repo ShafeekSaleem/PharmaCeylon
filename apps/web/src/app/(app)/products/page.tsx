@@ -37,8 +37,9 @@ import {
   StatGrid,
   ImageUpload,
 } from "@/components/ui";
-import { apiJson } from "@/lib/auth-client";
+import { apiFetch, apiJson } from "@/lib/auth-client";
 import { getBranchId } from "@/lib/auth-session";
+import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { useAuth } from "@/lib/use-auth";
 import css from "./products.module.css";
 import {
@@ -139,12 +140,6 @@ const INITIAL_FORM: ProductForm = {
   isActive: true,
 };
 
-const AVATAR_COLORS = [
-  "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e",
-  "#f97316", "#eab308", "#22c55e", "#14b8a6",
-  "#06b6d4", "#3b82f6",
-];
-
 type StatFilter = "all" | "active" | "controlled" | "lowStock";
 
 const COLUMN_META: { key: ColumnKey; label: string; hideable: boolean }[] = [
@@ -172,16 +167,6 @@ const DEFAULT_VISIBLE = new Set<ColumnKey>([
 ]);
 
 /* ── Helpers ── */
-
-function getInitials(name: string): string {
-  return (name.charAt(0) || "?").toUpperCase();
-}
-
-function getAvatarColor(name: string): string {
-  let sum = 0;
-  for (let i = 0; i < name.length; i++) sum += name.charCodeAt(i);
-  return AVATAR_COLORS[sum % AVATAR_COLORS.length]!;
-}
 
 function hasWriteAccess(user: { roles: string[]; branchRoles: { role: string }[] } | null): boolean {
   if (!user) return false;
@@ -829,6 +814,12 @@ export default function ProductsPage() {
             setDeleteError(null);
             setDeleteTarget(p);
           }}
+          onImageUpdated={(updated) => {
+            setViewProduct(updated);
+            setProducts((prev) =>
+              prev.map((p) => (p.id === updated.id ? updated : p)),
+            );
+          }}
         />
       )}
 
@@ -1005,18 +996,15 @@ export default function ProductsPage() {
 }
 
 function ProductThumb({ row }: { row: Product }) {
+  const src = row.imageUrl ?? PRODUCT_PLACEHOLDER_SRC;
   return (
     <div className={css.thumbCell}>
-      {row.imageUrl ? (
-        <img src={row.imageUrl} alt={row.name} className={css.thumb} />
-      ) : (
-        <div
-          className={css.initials}
-          style={{ backgroundColor: getAvatarColor(row.name) }}
-        >
-          {getInitials(row.name)}
-        </div>
-      )}
+      <img
+        src={src}
+        alt={row.imageUrl ? row.name : ""}
+        className={row.imageUrl ? css.thumb : `${css.thumb} ${css.thumbPlaceholder}`}
+        aria-hidden={!row.imageUrl}
+      />
     </div>
   );
 }
@@ -1052,23 +1040,71 @@ function ProductActions({
   );
 }
 
+const PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const PRODUCT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
 function ProductDetailOverlay({
   product,
   canWrite,
   onClose,
   onEdit,
+  onImageUpdated,
 }: {
   product: Product;
   canWrite: boolean;
   onClose: () => void;
   onEdit: (p: Product) => void;
   onDelete: (p: Product) => void;
+  onImageUpdated: (p: Product) => void;
 }) {
   const [imageZoomed, setImageZoomed] = useState(false);
+  const [savingImage, setSavingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const imageZoomedRef = useRef(imageZoomed);
   const onCloseRef = useRef(onClose);
   imageZoomedRef.current = imageZoomed;
   onCloseRef.current = onClose;
+
+  const showQuickAddImage = canWrite && !product.imageUrl;
+
+  const handleQuickImage = async (file: File) => {
+    if (!PRODUCT_IMAGE_TYPES.includes(file.type)) {
+      setImageError("Only JPEG, PNG, or WebP images are allowed.");
+      return;
+    }
+    if (file.size > PRODUCT_IMAGE_MAX_BYTES) {
+      setImageError("File must be under 2 MB.");
+      return;
+    }
+
+    setImageError(null);
+    setSavingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await apiFetch("/uploads/image?context=products", {
+        method: "POST",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const body = await uploadRes.json().catch(() => null);
+        throw new Error(body?.message || `Upload failed (${uploadRes.status})`);
+      }
+      const { url } = (await uploadRes.json()) as { url: string };
+      const updated = await apiJson<Product>(`/products/${product.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl: url }),
+      });
+      onImageUpdated(updated);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : "Failed to add image.");
+    } finally {
+      setSavingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1089,35 +1125,7 @@ function ProductDetailOverlay({
         aria-labelledby="product-view-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className={css.viewLeft}>
-          <div className={css.viewImageWrap}>
-            <div className={css.viewImageFrame}>
-              {product.imageUrl ? (
-                <img src={product.imageUrl} alt={product.name} className={css.viewImage} />
-              ) : (
-                <div
-                  className={css.viewImagePlaceholder}
-                  style={{ backgroundColor: getAvatarColor(product.name) }}
-                >
-                  {getInitials(product.name)}
-                </div>
-              )}
-              {product.imageUrl && (
-                <button
-                  type="button"
-                  className={css.viewZoomBtn}
-                  onClick={() => setImageZoomed(true)}
-                  aria-label="View larger image"
-                >
-                  <IconZoomIn size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className={css.viewRight}>
-          <div className={css.viewHeader}>
+        <header className={css.viewTop}>
             <div className={css.viewHeaderText}>
               <h2 id="product-view-title" className={css.viewTitle}>
                 {product.name}
@@ -1155,10 +1163,74 @@ function ProductDetailOverlay({
                 <IconX size={16} />
               </button>
             </div>
-          </div>
+        </header>
 
-          <section className={css.viewSection}>
-            <h3 className={css.viewSectionTitle}>Basic Information</h3>
+        <div className={css.viewBody}>
+          <div className={css.viewLeft}>
+            <div className={css.viewImageWrap}>
+              <div className={css.viewImageFrame}>
+                <img
+                  src={product.imageUrl ?? PRODUCT_PLACEHOLDER_SRC}
+                  alt={product.imageUrl ? product.name : ""}
+                  className={
+                    product.imageUrl
+                      ? css.viewImage
+                      : `${css.viewImage} ${css.viewImagePlaceholder}`
+                  }
+                  aria-hidden={!product.imageUrl}
+                />
+                {savingImage && (
+                  <div className={css.viewImageBusy} aria-live="polite">
+                    <span className={css.viewImageSpinner} />
+                    <span className={css.viewImageBusyText}>Uploading…</span>
+                  </div>
+                )}
+                {showQuickAddImage && !savingImage && (
+                  <>
+                    <button
+                      type="button"
+                      className={css.viewImageAddBtn}
+                      onClick={() => imageInputRef.current?.click()}
+                      aria-label={`Add image for ${product.name}`}
+                    >
+                      <IconPlus size={18} />
+                      Add image
+                    </button>
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className={css.viewImageFileInput}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleQuickImage(file);
+                      }}
+                    />
+                  </>
+                )}
+                {product.imageUrl && (
+                  <button
+                    type="button"
+                    className={css.viewZoomBtn}
+                    onClick={() => setImageZoomed(true)}
+                    aria-label="View larger image"
+                  >
+                    <IconZoomIn size={16} />
+                  </button>
+                )}
+                {imageError && (
+                  <p className={css.viewImageError} role="alert">
+                    {imageError}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className={css.viewDetails}>
+            <section className={css.viewSection} aria-labelledby="product-basic-heading">
+            <h3 id="product-basic-heading" className={css.viewSectionTitle}>
+              Basic Information
+            </h3>
             <div className={css.viewFieldGrid}>
               <ViewField label="SKU" value={product.sku} />
               <ViewField label="Barcode" value={product.barcode} />
@@ -1167,8 +1239,10 @@ function ProductDetailOverlay({
             </div>
           </section>
 
-          <section className={css.viewSection}>
-            <h3 className={css.viewSectionTitle}>Specifications</h3>
+          <section className={css.viewSection} aria-labelledby="product-spec-heading">
+            <h3 id="product-spec-heading" className={css.viewSectionTitle}>
+              Specifications
+            </h3>
             <div className={css.viewFieldGrid}>
               <ViewField label="Dosage Form" value={product.dosageForm} />
               <ViewField label="Strength" value={product.strength} />
@@ -1176,6 +1250,7 @@ function ProductDetailOverlay({
               <ViewField label="Reorder Level" value={product.reorderLevel} />
             </div>
           </section>
+          </div>
         </div>
       </div>
 
