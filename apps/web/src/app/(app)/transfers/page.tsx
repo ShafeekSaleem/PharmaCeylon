@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
+import { ProductContextBanner } from "@/components/product-context-banner";
 import { apiJson } from "@/lib/auth-client";
 
 type TransferRow = {
@@ -23,6 +24,7 @@ export default function TransfersPage() {
 
   return (
     <div style={{ maxWidth: 800 }}>
+      <ProductContextBanner />
       <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Transfers</h1>
       <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
         Listing for the active branch. Create/approve/ship/receive via API or extend this UI later.

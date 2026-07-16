@@ -9,11 +9,13 @@ import {
 } from "@/components/icons";
 import css from "./products-filter-panel.module.css";
 
-export type FacetEntry = { value: string; count: number };
+export type FacetEntry = { value: string; count: number; label?: string };
 
 export type ProductFilters = {
   dosageForms: string[];
   brands: string[];
+  categories: string[];
+  tags: string[];
   status: ("active" | "inactive")[];
   controlled: ("true" | "false")[];
   lowStock: boolean;
@@ -22,6 +24,8 @@ export type ProductFilters = {
 export const EMPTY_PRODUCT_FILTERS: ProductFilters = {
   dosageForms: [],
   brands: [],
+  categories: [],
+  tags: [],
   status: [],
   controlled: [],
   lowStock: false,
@@ -31,6 +35,8 @@ export function productFiltersAreActive(filters: ProductFilters): boolean {
   return (
     filters.dosageForms.length > 0 ||
     filters.brands.length > 0 ||
+    filters.categories.length > 0 ||
+    filters.tags.length > 0 ||
     filters.status.length > 0 ||
     filters.controlled.length > 0 ||
     filters.lowStock
@@ -41,6 +47,8 @@ export function productFiltersToQueryParams(filters: ProductFilters): {
   status: string;
   dosageForm?: string;
   brandName?: string;
+  categoryId?: string;
+  tagId?: string;
   isControlled?: string;
   lowStock?: boolean;
 } {
@@ -48,6 +56,8 @@ export function productFiltersToQueryParams(filters: ProductFilters): {
     status: string;
     dosageForm?: string;
     brandName?: string;
+    categoryId?: string;
+    tagId?: string;
     isControlled?: string;
     lowStock?: boolean;
   } = { status: "all" };
@@ -58,11 +68,17 @@ export function productFiltersToQueryParams(filters: ProductFilters): {
   if (filters.brands.length) {
     params.brandName = filters.brands.join(",");
   }
-  if (filters.status.length === 1) {
-    params.status = filters.status[0]!;
+  if (filters.categories.length) {
+    params.categoryId = filters.categories.join(",");
   }
-  if (filters.controlled.length === 1) {
-    params.isControlled = filters.controlled[0];
+  if (filters.tags.length) {
+    params.tagId = filters.tags.join(",");
+  }
+  if (filters.status.length > 0) {
+    params.status = filters.status.join(",");
+  }
+  if (filters.controlled.length > 0) {
+    params.isControlled = filters.controlled.join(",");
   }
   if (filters.lowStock) {
     params.lowStock = true;
@@ -73,6 +89,8 @@ export function productFiltersToQueryParams(filters: ProductFilters): {
 export type FilterFacets = {
   brands: FacetEntry[];
   dosageForms: FacetEntry[];
+  categories?: FacetEntry[];
+  tags?: FacetEntry[];
   status: FacetEntry[];
   controlled: { value: boolean; count: number }[];
 };
@@ -81,6 +99,7 @@ type ProductsFilterPanelProps = {
   facets: FilterFacets | null;
   applied: ProductFilters;
   onApply: (filters: ProductFilters) => void;
+  hasBranch?: boolean;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -99,7 +118,7 @@ function facetOptions(
 ): { value: string; label: string }[] {
   return entries.map((e) => ({
     value: e.value,
-    label: `${labelMap?.[e.value] ?? e.value} (${e.count})`,
+    label: `${labelMap?.[e.value] ?? e.label ?? e.value} (${e.count})`,
   }));
 }
 
@@ -119,6 +138,7 @@ export function ProductsFilterPanel({
   facets,
   applied,
   onApply,
+  hasBranch = false,
 }: ProductsFilterPanelProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -188,6 +208,32 @@ export function ProductsFilterPanel({
           </FilterRow>
 
           <FilterRow
+            label="Category"
+            hasSelection={applied.categories.length > 0}
+            onClear={() => patch((d) => ({ ...d, categories: [] }))}
+          >
+            <MultiSelectDropdown
+              options={facetOptions(facets?.categories ?? [])}
+              selected={applied.categories}
+              onChange={(categories) => patch((d) => ({ ...d, categories }))}
+              searchPlaceholder="Search categories…"
+            />
+          </FilterRow>
+
+          <FilterRow
+            label="Tag"
+            hasSelection={applied.tags.length > 0}
+            onClear={() => patch((d) => ({ ...d, tags: [] }))}
+          >
+            <MultiSelectDropdown
+              options={facetOptions(facets?.tags ?? [])}
+              selected={applied.tags}
+              onChange={(tags) => patch((d) => ({ ...d, tags }))}
+              searchPlaceholder="Search tags…"
+            />
+          </FilterRow>
+
+          <FilterRow
             label="Controlled"
             hasSelection={applied.controlled.length > 0}
             onClear={() => patch((d) => ({ ...d, controlled: [] }))}
@@ -224,6 +270,22 @@ export function ProductsFilterPanel({
               searchable={false}
             />
           </FilterRow>
+
+          <FilterRow
+            label="Low stock"
+            hasSelection={applied.lowStock}
+            onClear={() => patch((d) => ({ ...d, lowStock: false }))}
+          >
+            <label className={css.lowStockToggle}>
+              <input
+                type="checkbox"
+                checked={applied.lowStock}
+                disabled={!hasBranch}
+                onChange={(e) => patch((d) => ({ ...d, lowStock: e.target.checked }))}
+              />
+              <span>{hasBranch ? "Below reorder level at branch" : "Select a branch first"}</span>
+            </label>
+          </FilterRow>
         </div>
       )}
     </div>
@@ -251,6 +313,7 @@ function FilterRow({
         onClick={onClear}
         disabled={!hasSelection}
         aria-label={`Clear ${label} filter`}
+        data-tooltip={`Clear ${label} filter`}
       >
         <IconTrash size={15} />
       </button>

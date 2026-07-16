@@ -41,6 +41,30 @@
   flex-shrink: 0;
 }
 
+.floatingActions {
+  position: relative;
+}
+
+.floatingActions .left {
+  padding-right: 11rem;
+}
+
+.floatingActions .actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+@media (max-width: 640px) {
+  .floatingActions .left {
+    padding-right: 0;
+  }
+
+  .floatingActions .actions {
+    position: static;
+  }
+}
+
 /* ── Action buttons ── */
 
 .actionBtn {

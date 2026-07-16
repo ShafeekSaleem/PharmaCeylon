@@ -5,9 +5,8 @@ export class StockAdjustmentDto {
   @IsUUID()
   productId!: string;
 
-  @IsOptional()
   @IsUUID()
-  batchId?: string | null;
+  batchId!: string;
 
   @IsIn(["adjustment_in", "adjustment_out"])
   movementType!: "adjustment_in" | "adjustment_out";

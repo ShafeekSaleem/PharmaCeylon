@@ -34,6 +34,7 @@ export type DataTableProps<T> = {
   compact?: boolean;
   className?: string;
   stickyHeader?: boolean;
+  noHorizontalScroll?: boolean;
 };
 
 function defaultCompare(a: unknown, b: unknown, dir: SortDir): number {
@@ -67,6 +68,7 @@ export function DataTable<T>({
   compact = false,
   className,
   stickyHeader = false,
+  noHorizontalScroll = false,
 }: DataTableProps<T>) {
   const [internalSortKey, setInternalSortKey] = useState<string | undefined>();
   const [internalSortDir, setInternalSortDir] = useState<SortDir>("asc");
@@ -171,7 +173,11 @@ export function DataTable<T>({
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.scrollArea}>
+      <div
+        className={`${styles.scrollArea}${
+          noHorizontalScroll ? ` ${styles.noHorizontalScroll}` : ""
+        }`}
+      >
         <table className={tableCls}>
           <thead>
             <tr>

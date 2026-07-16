@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import { FormEvent, useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
+import { ProductContextBanner } from "@/components/product-context-banner";
 import { apiJson } from "@/lib/auth-client";
 
 const pchInput: CSSProperties = {
@@ -75,6 +76,7 @@ export default function PurchasingPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
+      <ProductContextBanner />
       <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>Purchasing</h1>
       <p className="pc-muted" style={{ fontSize: "0.9rem" }}>
         Select a branch on the Dashboard first (<code>x-branch-id</code>). Use Products and Suppliers pages to copy UUIDs.

@@ -14,6 +14,8 @@ export type ModalProps = {
   size?: "sm" | "md" | "lg";
   closeOnBackdrop?: boolean;
   closeOnEsc?: boolean;
+  /** Raise overlay above another open modal (nested confirms). */
+  elevated?: boolean;
 };
 
 export function Modal({
@@ -26,6 +28,7 @@ export function Modal({
   size = "md",
   closeOnBackdrop = true,
   closeOnEsc = true,
+  elevated = false,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -63,8 +66,10 @@ export function Modal({
   const sizeCls = size === "sm" ? styles.sm : size === "lg" ? styles.lg : styles.md;
 
   return (
-    <div className={styles.overlay} onClick={handleBackdrop}>
-      <div
+    <div
+      className={`${styles.overlay}${elevated ? ` ${styles.overlayElevated}` : ""}`}
+      onClick={handleBackdrop}
+    >      <div
         ref={dialogRef}
         className={`${styles.dialog} ${sizeCls}`}
         role="dialog"

@@ -56,6 +56,8 @@ export class CatalogController {
     @Query("isControlled") isControlled?: string,
     @Query("status") status?: string,
     @Query("lowStock") lowStock?: string,
+    @Query("categoryId") categoryId?: string,
+    @Query("tagId") tagId?: string,
   ) {
     return this.catalog.facets(user.tenantId, req.branchId, {
       q,
@@ -64,6 +66,8 @@ export class CatalogController {
       isControlled,
       status: status || "all",
       lowStock: lowStock === "true",
+      categoryId,
+      tagId,
     });
   }
 

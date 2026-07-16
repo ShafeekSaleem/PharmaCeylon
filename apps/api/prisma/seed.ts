@@ -1,7 +1,16 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient, RoleName } from "@prisma/client";
+import {
+  PoStatus,
+  Prisma,
+  PrismaClient,
+  RoleName,
+  SaleStatus,
+  StockMovementType,
+  TransferStatus,
+} from "@prisma/client";
 import * as bcrypt from "bcrypt";
+import { dateOnly, daysAgo, dec, seedReceiveStock, seedSale } from "./seed-helpers";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl?.trim()) {
@@ -15,20 +24,109 @@ const prisma = new PrismaClient({ adapter });
 
 const TENANT_CODE = "demo";
 
+async function clearOperationalData(tenantId: string) {
+  await prisma.idempotencyRecord.deleteMany({ where: { tenantId } });
+  await prisma.sale.deleteMany({ where: { tenantId } });
+  await prisma.goodsReceipt.deleteMany({ where: { tenantId } });
+  await prisma.stockLedger.deleteMany({ where: { tenantId } });
+  await prisma.transfer.deleteMany({ where: { tenantId } });
+  await prisma.batch.deleteMany({ where: { tenantId } });
+  await prisma.purchaseOrder.deleteMany({ where: { tenantId } });
+  await prisma.auditEvent.deleteMany({ where: { tenantId } });
+  await prisma.productAlias.deleteMany({ where: { tenantId } });
+  await prisma.productTagMap.deleteMany({ where: { tenantId } });
+  await prisma.productCategoryMap.deleteMany({ where: { tenantId } });
+  await prisma.productSimilarity.deleteMany({ where: { tenantId } });
+}
+
+const PRODUCTS = [
+  { sku: "PCL-0001", barcode: "4790012345671", name: "Paracetamol 500mg Tablets", genericName: "Paracetamol", brandName: "Panadol", manufacturer: "GlaxoSmithKline", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 50 },
+  { sku: "PCL-0002", barcode: "4790012345672", name: "Amoxicillin 500mg Capsules", genericName: "Amoxicillin", brandName: "Amoxil", manufacturer: "Pfizer", dosageForm: "Capsule", strength: "500mg", unit: "strip", reorderLevel: 30 },
+  { sku: "PCL-0003", barcode: "4790012345673", name: "Metformin 500mg Tablets", genericName: "Metformin HCl", brandName: "Glucophage", manufacturer: "Merck", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 40 },
+  { sku: "PCL-0004", barcode: "4790012345674", name: "Omeprazole 20mg Capsules", genericName: "Omeprazole", brandName: "Losec", manufacturer: "AstraZeneca", dosageForm: "Capsule", strength: "20mg", unit: "strip", reorderLevel: 25 },
+  { sku: "PCL-0005", barcode: "4790012345675", name: "Cetirizine 10mg Tablets", genericName: "Cetirizine HCl", brandName: "Zyrtec", manufacturer: "UCB Pharma", dosageForm: "Tablet", strength: "10mg", unit: "strip", reorderLevel: 20 },
+  { sku: "PCL-0006", barcode: "4790012345676", name: "Atorvastatin 20mg Tablets", genericName: "Atorvastatin Calcium", brandName: "Lipitor", manufacturer: "Pfizer", dosageForm: "Tablet", strength: "20mg", unit: "strip", reorderLevel: 15 },
+  { sku: "PCL-0007", barcode: "4790012345677", name: "Losartan 50mg Tablets", genericName: "Losartan Potassium", brandName: "Cozaar", manufacturer: "Merck", dosageForm: "Tablet", strength: "50mg", unit: "strip", reorderLevel: 20 },
+  { sku: "PCL-0008", barcode: "4790012345678", name: "Amlodipine 5mg Tablets", genericName: "Amlodipine Besylate", brandName: "Norvasc", manufacturer: "Pfizer", dosageForm: "Tablet", strength: "5mg", unit: "strip", reorderLevel: 25 },
+  { sku: "PCL-0009", barcode: "4790012345679", name: "Ibuprofen 400mg Tablets", genericName: "Ibuprofen", brandName: "Brufen", manufacturer: "Abbott", dosageForm: "Tablet", strength: "400mg", unit: "strip", reorderLevel: 35 },
+  { sku: "PCL-0010", barcode: "4790012345680", name: "Azithromycin 500mg Tablets", genericName: "Azithromycin", brandName: "Zithromax", manufacturer: "Pfizer", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 15 },
+  { sku: "PCL-0011", barcode: "4790012345681", name: "Salbutamol Inhaler 100mcg", genericName: "Salbutamol", brandName: "Ventolin", manufacturer: "GlaxoSmithKline", dosageForm: "Inhaler", strength: "100mcg", unit: "piece", reorderLevel: 10 },
+  { sku: "PCL-0012", barcode: "4790012345682", name: "Metoprolol 50mg Tablets", genericName: "Metoprolol Tartrate", brandName: "Lopressor", manufacturer: "Novartis", dosageForm: "Tablet", strength: "50mg", unit: "strip", reorderLevel: 20 },
+  { sku: "PCL-0013", barcode: "4790012345683", name: "Diclofenac Sodium Gel 1%", genericName: "Diclofenac Sodium", brandName: "Voltaren", manufacturer: "Novartis", dosageForm: "Gel", strength: "1%", unit: "tube", reorderLevel: 15 },
+  { sku: "PCL-0014", barcode: "4790012345684", name: "Clopidogrel 75mg Tablets", genericName: "Clopidogrel", brandName: "Plavix", manufacturer: "Sanofi", dosageForm: "Tablet", strength: "75mg", unit: "strip", reorderLevel: 10 },
+  { sku: "PCL-0015", barcode: "4790012345685", name: "Pantoprazole 40mg Tablets", genericName: "Pantoprazole Sodium", brandName: "Protonix", manufacturer: "Pfizer", dosageForm: "Tablet", strength: "40mg", unit: "strip", reorderLevel: 20 },
+  { sku: "PCL-0016", barcode: "4790012345686", name: "Ciprofloxacin 500mg Tablets", genericName: "Ciprofloxacin HCl", brandName: "Cipro", manufacturer: "Bayer", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 15 },
+  { sku: "PCL-0017", barcode: "4790012345687", name: "Levothyroxine 50mcg Tablets", genericName: "Levothyroxine Sodium", brandName: "Synthroid", manufacturer: "AbbVie", dosageForm: "Tablet", strength: "50mcg", unit: "strip", reorderLevel: 10 },
+  { sku: "PCL-0018", barcode: "4790012345688", name: "Prednisolone 5mg Tablets", genericName: "Prednisolone", brandName: "Prelone", manufacturer: "Sanofi", dosageForm: "Tablet", strength: "5mg", unit: "strip", reorderLevel: 15 },
+  { sku: "PCL-0019", barcode: "4790012345689", name: "Cephalexin 500mg Capsules", genericName: "Cephalexin", brandName: "Keflex", manufacturer: "Shionogi", dosageForm: "Capsule", strength: "500mg", unit: "strip", reorderLevel: 20 },
+  { sku: "PCL-0020", barcode: "4790012345690", name: "Furosemide 40mg Tablets", genericName: "Furosemide", brandName: "Lasix", manufacturer: "Sanofi", dosageForm: "Tablet", strength: "40mg", unit: "strip", reorderLevel: 15 },
+  { sku: "PCL-0021", barcode: "4790012345691", name: "Morphine Sulfate 10mg Tablets", genericName: "Morphine Sulfate", brandName: "MS Contin", manufacturer: "Purdue Pharma", dosageForm: "Tablet", strength: "10mg", unit: "strip", isControlled: true, reorderLevel: 5 },
+  { sku: "PCL-0022", barcode: "4790012345692", name: "Diazepam 5mg Tablets", genericName: "Diazepam", brandName: "Valium", manufacturer: "Roche", dosageForm: "Tablet", strength: "5mg", unit: "strip", isControlled: true, reorderLevel: 5 },
+  { sku: "PCL-0023", barcode: "4790012345693", name: "Codeine Phosphate 30mg Tablets", genericName: "Codeine Phosphate", brandName: "Codeine", manufacturer: "Johnson & Johnson", dosageForm: "Tablet", strength: "30mg", unit: "strip", isControlled: true, reorderLevel: 5 },
+  { sku: "PCL-0024", barcode: "4790012345694", name: "Betadine Solution 10%", genericName: "Povidone Iodine", brandName: "Betadine", manufacturer: "Mundipharma", dosageForm: "Solution", strength: "10%", unit: "bottle", reorderLevel: 10 },
+  { sku: "PCL-0025", barcode: "4790012345695", name: "Chlorhexidine Mouthwash", genericName: "Chlorhexidine Gluconate", brandName: "Savacol", manufacturer: "Colgate", dosageForm: "Solution", strength: "0.2%", unit: "bottle", reorderLevel: 8 },
+  { sku: "PCL-0026", barcode: "4790012345696", name: "Insulin Glargine 100IU/mL", genericName: "Insulin Glargine", brandName: "Lantus", manufacturer: "Sanofi", dosageForm: "Injection", strength: "100IU/mL", unit: "vial", reorderLevel: 5 },
+  { sku: "PCL-0027", barcode: "4790012345697", name: "Multivitamin Tablets", genericName: "Multivitamins", brandName: "Centrum", manufacturer: "Pfizer", dosageForm: "Tablet", strength: null, unit: "bottle", reorderLevel: 15 },
+  { sku: "PCL-0028", barcode: "4790012345698", name: "Vitamin D3 1000IU Soft Capsules", genericName: "Cholecalciferol", brandName: "D-Cal", manufacturer: "Herbalife", dosageForm: "Soft Capsule", strength: "1000IU", unit: "bottle", reorderLevel: 10 },
+  { sku: "PCL-0029", barcode: "4790012345699", name: "Ranitidine 150mg Tablets", genericName: "Ranitidine HCl", brandName: "Zantac", manufacturer: "GlaxoSmithKline", dosageForm: "Tablet", strength: "150mg", unit: "strip", reorderLevel: 20, isActive: false },
+  { sku: "PCL-0030", barcode: "4790012345700", name: "Clotrimazole Cream 1%", genericName: "Clotrimazole", brandName: "Canesten", manufacturer: "Bayer", dosageForm: "Cream", strength: "1%", unit: "tube", reorderLevel: 10 },
+];
+
+/** MAIN branch on-hand targets after seed stock (before sales). */
+const MAIN_STOCK: Array<{ sku: string; qty: number; cost: number; sell: number }> = [
+  { sku: "PCL-0001", qty: 180, cost: 42, sell: 55 },
+  { sku: "PCL-0002", qty: 95, cost: 120, sell: 165 },
+  { sku: "PCL-0003", qty: 110, cost: 18, sell: 28 },
+  { sku: "PCL-0004", qty: 75, cost: 55, sell: 72 },
+  { sku: "PCL-0005", qty: 8, cost: 12, sell: 22 },
+  { sku: "PCL-0006", qty: 45, cost: 88, sell: 115 },
+  { sku: "PCL-0007", qty: 60, cost: 35, sell: 48 },
+  { sku: "PCL-0008", qty: 88, cost: 22, sell: 32 },
+  { sku: "PCL-0009", qty: 140, cost: 28, sell: 38 },
+  { sku: "PCL-0010", qty: 40, cost: 210, sell: 285 },
+  { sku: "PCL-0011", qty: 22, cost: 450, sell: 620 },
+  { sku: "PCL-0012", qty: 55, cost: 32, sell: 45 },
+  { sku: "PCL-0013", qty: 35, cost: 95, sell: 130 },
+  { sku: "PCL-0014", qty: 28, cost: 75, sell: 98 },
+  { sku: "PCL-0015", qty: 65, cost: 48, sell: 65 },
+  { sku: "PCL-0016", qty: 42, cost: 65, sell: 85 },
+  { sku: "PCL-0017", qty: 25, cost: 15, sell: 25 },
+  { sku: "PCL-0018", qty: 38, cost: 8, sell: 15 },
+  { sku: "PCL-0019", qty: 72, cost: 95, sell: 125 },
+  { sku: "PCL-0020", qty: 48, cost: 12, sell: 20 },
+  { sku: "PCL-0021", qty: 12, cost: 180, sell: 240 },
+  { sku: "PCL-0022", qty: 10, cost: 25, sell: 38 },
+  { sku: "PCL-0023", qty: 8, cost: 45, sell: 62 },
+  { sku: "PCL-0024", qty: 30, cost: 85, sell: 115 },
+  { sku: "PCL-0025", qty: 24, cost: 120, sell: 165 },
+  { sku: "PCL-0026", qty: 15, cost: 1200, sell: 1580 },
+  { sku: "PCL-0027", qty: 50, cost: 180, sell: 250 },
+  { sku: "PCL-0028", qty: 40, cost: 95, sell: 135 },
+  { sku: "PCL-0030", qty: 55, cost: 65, sell: 88 },
+];
+
+const BRANCH2_STOCK: Array<{ sku: string; qty: number; cost: number; sell: number }> = [
+  { sku: "PCL-0001", qty: 45, cost: 42, sell: 55 },
+  { sku: "PCL-0003", qty: 35, cost: 18, sell: 28 },
+  { sku: "PCL-0005", qty: 5, cost: 12, sell: 22 },
+  { sku: "PCL-0009", qty: 60, cost: 28, sell: 38 },
+  { sku: "PCL-0027", qty: 20, cost: 180, sell: 250 },
+];
+
 async function main() {
   const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "ChangeMe123!";
   const cashierPassword = process.env.SEED_CASHIER_PASSWORD ?? "Cashier123!";
+  const managerPassword = process.env.SEED_MANAGER_PASSWORD ?? "Manager123!";
+  const pharmacistPassword = process.env.SEED_PHARMACIST_PASSWORD ?? "Pharmacist123!";
+  const clerkPassword = process.env.SEED_CLERK_PASSWORD ?? "Clerk123!";
 
-  if (adminPassword.length < 8 || cashierPassword.length < 8) {
-    throw new Error("SEED_*_PASSWORD values must be at least 8 characters");
+  for (const p of [adminPassword, cashierPassword, managerPassword, pharmacistPassword, clerkPassword]) {
+    if (p.length < 8) throw new Error("SEED_*_PASSWORD values must be at least 8 characters");
   }
 
   const tenant = await prisma.tenant.upsert({
     where: { code: TENANT_CODE },
-    update: {
-      displayName: "PharmaCeylon Demo Pharmacy",
-      isActive: true,
-    },
+    update: { displayName: "PharmaCeylon Demo Pharmacy", isActive: true },
     create: {
       code: TENANT_CODE,
       legalName: "Demo Pharmacy (Private) Limited",
@@ -38,140 +136,113 @@ async function main() {
     },
   });
 
+  await clearOperationalData(tenant.id);
+
   const mainBranch = await prisma.branch.upsert({
     where: { tenantId_code: { tenantId: tenant.id, code: "MAIN" } },
-    update: {
-      name: "Colombo — Main",
-      isActive: true,
-      timezone: "Asia/Colombo",
-    },
+    update: { name: "Colombo — Main", isActive: true, timezone: "Asia/Colombo" },
     create: {
       tenantId: tenant.id,
       code: "MAIN",
       name: "Colombo — Main",
       timezone: "Asia/Colombo",
       city: "Colombo",
-      addressLine1: "Demo Street 1",
+      addressLine1: "42 Galle Road",
+      phone: "+94 11 234 5678",
     },
   });
 
   const secondBranch = await prisma.branch.upsert({
     where: { tenantId_code: { tenantId: tenant.id, code: "BRANCH2" } },
-    update: {
-      name: "Kandy — Branch 2",
-      isActive: true,
-      timezone: "Asia/Colombo",
-    },
+    update: { name: "Kandy — Branch 2", isActive: true, timezone: "Asia/Colombo" },
     create: {
       tenantId: tenant.id,
       code: "BRANCH2",
       name: "Kandy — Branch 2",
       timezone: "Asia/Colombo",
       city: "Kandy",
+      addressLine1: "18 Peradeniya Road",
+      phone: "+94 81 222 3344",
     },
   });
 
-  const adminHash = await bcrypt.hash(adminPassword, 10);
-  const cashierHash = await bcrypt.hash(cashierPassword, 10);
+  const [adminHash, cashierHash, managerHash, pharmacistHash, clerkHash] = await Promise.all([
+    bcrypt.hash(adminPassword, 10),
+    bcrypt.hash(cashierPassword, 10),
+    bcrypt.hash(managerPassword, 10),
+    bcrypt.hash(pharmacistPassword, 10),
+    bcrypt.hash(clerkPassword, 10),
+  ]);
 
   const admin = await prisma.appUser.upsert({
     where: { email: "admin@pharmaceylon.demo" },
-    update: {
-      tenantId: tenant.id,
-      fullName: "Seed Administrator",
-      isActive: true,
-      passwordHash: adminHash,
-    },
-    create: {
-      tenantId: tenant.id,
-      email: "admin@pharmaceylon.demo",
-      fullName: "Seed Administrator",
-      passwordHash: adminHash,
-    },
+    update: { tenantId: tenant.id, fullName: "Seed Administrator", isActive: true, passwordHash: adminHash },
+    create: { tenantId: tenant.id, email: "admin@pharmaceylon.demo", fullName: "Seed Administrator", passwordHash: adminHash },
+  });
+
+  const manager = await prisma.appUser.upsert({
+    where: { email: "manager@pharmaceylon.demo" },
+    update: { tenantId: tenant.id, fullName: "Nimal Perera", isActive: true, passwordHash: managerHash },
+    create: { tenantId: tenant.id, email: "manager@pharmaceylon.demo", fullName: "Nimal Perera", passwordHash: managerHash },
+  });
+
+  const pharmacist = await prisma.appUser.upsert({
+    where: { email: "pharmacist@pharmaceylon.demo" },
+    update: { tenantId: tenant.id, fullName: "Dr. Anjali Fernando", isActive: true, passwordHash: pharmacistHash },
+    create: { tenantId: tenant.id, email: "pharmacist@pharmaceylon.demo", fullName: "Dr. Anjali Fernando", passwordHash: pharmacistHash },
   });
 
   const cashier = await prisma.appUser.upsert({
     where: { email: "cashier@pharmaceylon.demo" },
-    update: {
-      tenantId: tenant.id,
-      fullName: "Seed Cashier",
-      isActive: true,
-      passwordHash: cashierHash,
-    },
-    create: {
-      tenantId: tenant.id,
-      email: "cashier@pharmaceylon.demo",
-      fullName: "Seed Cashier",
-      passwordHash: cashierHash,
-    },
+    update: { tenantId: tenant.id, fullName: "Seed Cashier", isActive: true, passwordHash: cashierHash },
+    create: { tenantId: tenant.id, email: "cashier@pharmaceylon.demo", fullName: "Kamal Silva", passwordHash: cashierHash },
+  });
+
+  const inventoryClerk = await prisma.appUser.upsert({
+    where: { email: "clerk@pharmaceylon.demo" },
+    update: { tenantId: tenant.id, fullName: "Priya Jayawardena", isActive: true, passwordHash: clerkHash },
+    create: { tenantId: tenant.id, email: "clerk@pharmaceylon.demo", fullName: "Priya Jayawardena", passwordHash: clerkHash },
   });
 
   await prisma.userBranchRole.deleteMany({
-    where: {
-      tenantId: tenant.id,
-      userId: { in: [admin.id, cashier.id] },
-    },
+    where: { tenantId: tenant.id, userId: { in: [admin.id, manager.id, pharmacist.id, cashier.id, inventoryClerk.id] } },
   });
 
   await prisma.userBranchRole.createMany({
     data: [
       { tenantId: tenant.id, userId: admin.id, branchId: mainBranch.id, role: RoleName.owner },
       { tenantId: tenant.id, userId: admin.id, branchId: secondBranch.id, role: RoleName.owner },
-      {
-        tenantId: tenant.id,
-        userId: cashier.id,
-        branchId: mainBranch.id,
-        role: RoleName.cashier,
-      },
-      {
-        tenantId: tenant.id,
-        userId: cashier.id,
-        branchId: secondBranch.id,
-        role: RoleName.cashier,
-      },
+      { tenantId: tenant.id, userId: manager.id, branchId: mainBranch.id, role: RoleName.manager },
+      { tenantId: tenant.id, userId: manager.id, branchId: secondBranch.id, role: RoleName.manager },
+      { tenantId: tenant.id, userId: pharmacist.id, branchId: mainBranch.id, role: RoleName.pharmacist },
+      { tenantId: tenant.id, userId: cashier.id, branchId: mainBranch.id, role: RoleName.cashier },
+      { tenantId: tenant.id, userId: cashier.id, branchId: secondBranch.id, role: RoleName.cashier },
+      { tenantId: tenant.id, userId: inventoryClerk.id, branchId: mainBranch.id, role: RoleName.inventory_clerk },
+      { tenantId: tenant.id, userId: inventoryClerk.id, branchId: secondBranch.id, role: RoleName.inventory_clerk },
     ],
   });
 
-  const PRODUCTS = [
-    { sku: "PCL-0001", name: "Paracetamol 500mg Tablets", genericName: "Paracetamol", brandName: "Panadol", manufacturer: "GlaxoSmithKline", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 50 },
-    { sku: "PCL-0002", name: "Amoxicillin 500mg Capsules", genericName: "Amoxicillin", brandName: "Amoxil", manufacturer: "Pfizer", dosageForm: "Capsule", strength: "500mg", unit: "strip", reorderLevel: 30 },
-    { sku: "PCL-0003", name: "Metformin 500mg Tablets", genericName: "Metformin HCl", brandName: "Glucophage", manufacturer: "Merck", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 40 },
-    { sku: "PCL-0004", name: "Omeprazole 20mg Capsules", genericName: "Omeprazole", brandName: "Losec", manufacturer: "AstraZeneca", dosageForm: "Capsule", strength: "20mg", unit: "strip", reorderLevel: 25 },
-    { sku: "PCL-0005", name: "Cetirizine 10mg Tablets", genericName: "Cetirizine HCl", brandName: "Zyrtec", manufacturer: "UCB Pharma", dosageForm: "Tablet", strength: "10mg", unit: "strip", reorderLevel: 20 },
-    { sku: "PCL-0006", name: "Atorvastatin 20mg Tablets", genericName: "Atorvastatin Calcium", brandName: "Lipitor", manufacturer: "Pfizer", dosageForm: "Tablet", strength: "20mg", unit: "strip", reorderLevel: 15 },
-    { sku: "PCL-0007", name: "Losartan 50mg Tablets", genericName: "Losartan Potassium", brandName: "Cozaar", manufacturer: "Merck", dosageForm: "Tablet", strength: "50mg", unit: "strip", reorderLevel: 20 },
-    { sku: "PCL-0008", name: "Amlodipine 5mg Tablets", genericName: "Amlodipine Besylate", brandName: "Norvasc", manufacturer: "Pfizer", dosageForm: "Tablet", strength: "5mg", unit: "strip", reorderLevel: 25 },
-    { sku: "PCL-0009", name: "Ibuprofen 400mg Tablets", genericName: "Ibuprofen", brandName: "Brufen", manufacturer: "Abbott", dosageForm: "Tablet", strength: "400mg", unit: "strip", reorderLevel: 35 },
-    { sku: "PCL-0010", name: "Azithromycin 500mg Tablets", genericName: "Azithromycin", brandName: "Zithromax", manufacturer: "Pfizer", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 15 },
-    { sku: "PCL-0011", name: "Salbutamol Inhaler 100mcg", genericName: "Salbutamol", brandName: "Ventolin", manufacturer: "GlaxoSmithKline", dosageForm: "Inhaler", strength: "100mcg", unit: "piece", reorderLevel: 10 },
-    { sku: "PCL-0012", name: "Metoprolol 50mg Tablets", genericName: "Metoprolol Tartrate", brandName: "Lopressor", manufacturer: "Novartis", dosageForm: "Tablet", strength: "50mg", unit: "strip", reorderLevel: 20 },
-    { sku: "PCL-0013", name: "Diclofenac Sodium Gel 1%", genericName: "Diclofenac Sodium", brandName: "Voltaren", manufacturer: "Novartis", dosageForm: "Gel", strength: "1%", unit: "tube", reorderLevel: 15 },
-    { sku: "PCL-0014", name: "Clopidogrel 75mg Tablets", genericName: "Clopidogrel", brandName: "Plavix", manufacturer: "Sanofi", dosageForm: "Tablet", strength: "75mg", unit: "strip", reorderLevel: 10 },
-    { sku: "PCL-0015", name: "Pantoprazole 40mg Tablets", genericName: "Pantoprazole Sodium", brandName: "Protonix", manufacturer: "Pfizer", dosageForm: "Tablet", strength: "40mg", unit: "strip", reorderLevel: 20 },
-    { sku: "PCL-0016", name: "Ciprofloxacin 500mg Tablets", genericName: "Ciprofloxacin HCl", brandName: "Cipro", manufacturer: "Bayer", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 15 },
-    { sku: "PCL-0017", name: "Levothyroxine 50mcg Tablets", genericName: "Levothyroxine Sodium", brandName: "Synthroid", manufacturer: "AbbVie", dosageForm: "Tablet", strength: "50mcg", unit: "strip", reorderLevel: 10 },
-    { sku: "PCL-0018", name: "Prednisolone 5mg Tablets", genericName: "Prednisolone", brandName: "Prelone", manufacturer: "Sanofi", dosageForm: "Tablet", strength: "5mg", unit: "strip", reorderLevel: 15, isControlled: false },
-    { sku: "PCL-0019", name: "Cephalexin 500mg Capsules", genericName: "Cephalexin", brandName: "Keflex", manufacturer: "Shionogi", dosageForm: "Capsule", strength: "500mg", unit: "strip", reorderLevel: 20 },
-    { sku: "PCL-0020", name: "Furosemide 40mg Tablets", genericName: "Furosemide", brandName: "Lasix", manufacturer: "Sanofi", dosageForm: "Tablet", strength: "40mg", unit: "strip", reorderLevel: 15 },
-    { sku: "PCL-0021", name: "Morphine Sulfate 10mg Tablets", genericName: "Morphine Sulfate", brandName: "MS Contin", manufacturer: "Purdue Pharma", dosageForm: "Tablet", strength: "10mg", unit: "strip", isControlled: true, reorderLevel: 5 },
-    { sku: "PCL-0022", name: "Diazepam 5mg Tablets", genericName: "Diazepam", brandName: "Valium", manufacturer: "Roche", dosageForm: "Tablet", strength: "5mg", unit: "strip", isControlled: true, reorderLevel: 5 },
-    { sku: "PCL-0023", name: "Codeine Phosphate 30mg Tablets", genericName: "Codeine Phosphate", brandName: "Codeine", manufacturer: "Johnson & Johnson", dosageForm: "Tablet", strength: "30mg", unit: "strip", isControlled: true, reorderLevel: 5 },
-    { sku: "PCL-0024", name: "Betadine Solution 10%", genericName: "Povidone Iodine", brandName: "Betadine", manufacturer: "Mundipharma", dosageForm: "Solution", strength: "10%", unit: "bottle", reorderLevel: 10 },
-    { sku: "PCL-0025", name: "Chlorhexidine Mouthwash", genericName: "Chlorhexidine Gluconate", brandName: "Savacol", manufacturer: "Colgate", dosageForm: "Solution", strength: "0.2%", unit: "bottle", reorderLevel: 8 },
-    { sku: "PCL-0026", name: "Insulin Glargine 100IU/mL", genericName: "Insulin Glargine", brandName: "Lantus", manufacturer: "Sanofi", dosageForm: "Injection", strength: "100IU/mL", unit: "vial", reorderLevel: 5 },
-    { sku: "PCL-0027", name: "Multivitamin Tablets", genericName: "Multivitamins", brandName: "Centrum", manufacturer: "Pfizer", dosageForm: "Tablet", strength: null, unit: "bottle", reorderLevel: 15 },
-    { sku: "PCL-0028", name: "Vitamin D3 1000IU Soft Capsules", genericName: "Cholecalciferol", brandName: "D-Cal", manufacturer: "Herbalife", dosageForm: "Soft Capsule", strength: "1000IU", unit: "bottle", reorderLevel: 10 },
-    { sku: "PCL-0029", name: "Ranitidine 150mg Tablets", genericName: "Ranitidine HCl", brandName: "Zantac", manufacturer: "GlaxoSmithKline", dosageForm: "Tablet", strength: "150mg", unit: "strip", reorderLevel: 20, isActive: false },
-    { sku: "PCL-0030", name: "Clotrimazole Cream 1%", genericName: "Clotrimazole", brandName: "Canesten", manufacturer: "Bayer", dosageForm: "Cream", strength: "1%", unit: "tube", reorderLevel: 10 },
-  ];
-
+  const productBySku = new Map<string, string>();
   for (const p of PRODUCTS) {
-    await prisma.product.upsert({
+    const row = await prisma.product.upsert({
       where: { tenantId_sku: { tenantId: tenant.id, sku: p.sku } },
-      update: { name: p.name, brandName: p.brandName, genericName: p.genericName },
+      update: {
+        name: p.name,
+        barcode: p.barcode ?? null,
+        brandName: p.brandName ?? null,
+        genericName: p.genericName ?? null,
+        manufacturer: p.manufacturer ?? null,
+        dosageForm: p.dosageForm ?? null,
+        strength: p.strength ?? null,
+        unit: p.unit ?? null,
+        isControlled: p.isControlled ?? false,
+        reorderLevel: p.reorderLevel ?? 0,
+        isActive: (p as { isActive?: boolean }).isActive ?? true,
+      },
       create: {
         tenantId: tenant.id,
         sku: p.sku,
+        barcode: p.barcode ?? null,
         name: p.name,
         genericName: p.genericName ?? null,
         brandName: p.brandName ?? null,
@@ -184,51 +255,532 @@ async function main() {
         isActive: (p as { isActive?: boolean }).isActive ?? true,
       },
     });
+    productBySku.set(p.sku, row.id);
   }
 
-  const supplier = await prisma.supplier.upsert({
+  const supplier1 = await prisma.supplier.upsert({
     where: { tenantId_code: { tenantId: tenant.id, code: "SUP-001" } },
     update: { name: "Lanka Pharma Distributors" },
-    create: {
-      tenantId: tenant.id,
-      code: "SUP-001",
-      name: "Lanka Pharma Distributors",
-      leadTimeDays: 3,
-      paymentTermsDays: 30,
-    },
+    create: { tenantId: tenant.id, code: "SUP-001", name: "Lanka Pharma Distributors", leadTimeDays: 3, paymentTermsDays: 30 },
   });
 
-  await prisma.supplier.upsert({
+  const supplier2 = await prisma.supplier.upsert({
     where: { tenantId_code: { tenantId: tenant.id, code: "SUP-002" } },
     update: { name: "MediCare Imports (Pvt) Ltd" },
-    create: {
-      tenantId: tenant.id,
-      code: "SUP-002",
-      name: "MediCare Imports (Pvt) Ltd",
-      leadTimeDays: 5,
-      paymentTermsDays: 45,
-    },
+    create: { tenantId: tenant.id, code: "SUP-002", name: "MediCare Imports (Pvt) Ltd", leadTimeDays: 5, paymentTermsDays: 45 },
   });
 
   await prisma.supplier.upsert({
     where: { tenantId_code: { tenantId: tenant.id, code: "SUP-003" } },
     update: { name: "Colombo Medical Supplies" },
-    create: {
+    create: { tenantId: tenant.id, code: "SUP-003", name: "Colombo Medical Supplies", leadTimeDays: 2, paymentTermsDays: 14 },
+  });
+
+  const categoryDefs = [
+    { name: "Pain Relief", skus: ["PCL-0001", "PCL-0009", "PCL-0013"] },
+    { name: "Antibiotics", skus: ["PCL-0002", "PCL-0010", "PCL-0016", "PCL-0019"] },
+    { name: "Cardiovascular", skus: ["PCL-0006", "PCL-0007", "PCL-0008", "PCL-0012", "PCL-0014"] },
+    { name: "Gastrointestinal", skus: ["PCL-0004", "PCL-0015"] },
+    { name: "Controlled Substances", skus: ["PCL-0021", "PCL-0022", "PCL-0023"] },
+    { name: "OTC & Wellness", skus: ["PCL-0024", "PCL-0025", "PCL-0027", "PCL-0028", "PCL-0030"] },
+  ];
+
+  const tagDefs = [
+    { name: "Fast-moving", skus: ["PCL-0001", "PCL-0009", "PCL-0003"] },
+    { name: "Prescription", skus: ["PCL-0002", "PCL-0010", "PCL-0026"] },
+    { name: "OTC", skus: ["PCL-0005", "PCL-0024", "PCL-0027"] },
+    { name: "Low-stock-demo", skus: ["PCL-0005", "PCL-0022"] },
+  ];
+
+  for (const c of categoryDefs) {
+    let cat = await prisma.productCategory.findFirst({
+      where: { tenantId: tenant.id, name: c.name, parentCategoryId: null },
+    });
+    if (!cat) {
+      cat = await prisma.productCategory.create({
+        data: { tenantId: tenant.id, name: c.name },
+      });
+    }
+    for (const sku of c.skus) {
+      const productId = productBySku.get(sku);
+      if (!productId) continue;
+      await prisma.productCategoryMap.create({
+        data: { tenantId: tenant.id, productId, categoryId: cat.id },
+      });
+    }
+  }
+
+  for (const t of tagDefs) {
+    const tag = await prisma.productTag.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: t.name } },
+      update: {},
+      create: { tenantId: tenant.id, name: t.name },
+    });
+    for (const sku of t.skus) {
+      const productId = productBySku.get(sku);
+      if (!productId) continue;
+      await prisma.productTagMap.create({
+        data: { tenantId: tenant.id, productId, tagId: tag.id },
+      });
+    }
+  }
+
+  const aliasDefs = [
+    { sku: "PCL-0001", aliases: ["Panadol", "Paracetamol 500", "PCM 500"] },
+    { sku: "PCL-0002", aliases: ["Amoxil", "Amoxicillin caps"] },
+    { sku: "PCL-0005", aliases: ["Zyrtec", "Cetirizine"] },
+    { sku: "PCL-0021", aliases: ["MS Contin", "Morphine 10mg"] },
+  ];
+
+  for (const a of aliasDefs) {
+    const productId = productBySku.get(a.sku)!;
+    for (const text of a.aliases) {
+      await prisma.productAlias.create({
+        data: { tenantId: tenant.id, productId, aliasText: text, aliasType: "synonym" },
+      });
+    }
+  }
+
+  const batchByKey = new Map<string, { batchId: string; productId: string; sellingPrice: Prisma.Decimal }>();
+  const seedGrId = "00000000-0000-4000-8000-000000000001";
+
+  for (const line of MAIN_STOCK) {
+    const productId = productBySku.get(line.sku)!;
+    const ref = await seedReceiveStock(prisma, {
       tenantId: tenant.id,
-      code: "SUP-003",
-      name: "Colombo Medical Supplies",
-      leadTimeDays: 2,
-      paymentTermsDays: 14,
+      branchId: mainBranch.id,
+      productId,
+      userId: inventoryClerk.id,
+      batchNo: `SEED-${line.sku}-A`,
+      expiryDate: dateOnly(2026, 8, 15),
+      qty: line.qty,
+      costPrice: line.cost,
+      sellingPrice: line.sell,
+      referenceId: seedGrId,
+      receivedAt: daysAgo(45),
+    });
+    batchByKey.set(`MAIN:${line.sku}`, ref);
+  }
+
+  const seedGr2Id = "00000000-0000-4000-8000-000000000002";
+  for (const line of BRANCH2_STOCK) {
+    const productId = productBySku.get(line.sku)!;
+    const ref = await seedReceiveStock(prisma, {
+      tenantId: tenant.id,
+      branchId: secondBranch.id,
+      productId,
+      userId: inventoryClerk.id,
+      batchNo: `SEED-${line.sku}-KDY`,
+      expiryDate: dateOnly(2026, 10, 1),
+      qty: line.qty,
+      costPrice: line.cost,
+      sellingPrice: line.sell,
+      referenceId: seedGr2Id,
+      receivedAt: daysAgo(30),
+    });
+    batchByKey.set(`BRANCH2:${line.sku}`, ref);
+  }
+
+  const poIssued = await prisma.purchaseOrder.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      supplierId: supplier1.id,
+      poNumber: "PO-MAIN-SEED-001",
+      status: PoStatus.partially_received,
+      expectedOn: dateOnly(2026, 6, 1),
+      notes: "Demo PO — partially received for testing",
+      createdBy: manager.id,
+      items: {
+        create: [
+          { tenantId: tenant.id, productId: productBySku.get("PCL-0010")!, orderedQty: 50, unitCost: dec(200) },
+          { tenantId: tenant.id, productId: productBySku.get("PCL-0016")!, orderedQty: 40, unitCost: dec(60) },
+          { tenantId: tenant.id, productId: productBySku.get("PCL-0026")!, orderedQty: 20, unitCost: dec(1150) },
+        ],
+      },
+    },
+    include: { items: true },
+  });
+
+  const grPartial = await prisma.goodsReceipt.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      purchaseOrderId: poIssued.id,
+      grnNumber: "GRN-MAIN-SEED-001",
+      receivedOn: dateOnly(2026, 4, 10),
+      receivedBy: inventoryClerk.id,
     },
   });
 
-  console.log("Seed completed.");
-  console.log(`  Tenant code: ${TENANT_CODE}  (${tenant.displayName})`);
-  console.log(`  Branches: ${mainBranch.code} (${mainBranch.id}), ${secondBranch.code} (${secondBranch.id})`);
-  console.log(`  Admin:    admin@pharmaceylon.demo    (password from SEED_ADMIN_PASSWORD or default)`);
-  console.log(`  Cashier:  cashier@pharmaceylon.demo  (password from SEED_CASHIER_PASSWORD or default)`);
-  console.log(`  Products: ${PRODUCTS.length} pharmacy products seeded`);
-  console.log(`  Suppliers: 3 suppliers seeded`);
+  const poLineAzith = poIssued.items.find((i) => i.productId === productBySku.get("PCL-0010"))!;
+  const extraBatchAzith = await prisma.batch.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      productId: poLineAzith.productId,
+      batchNo: "PO-BATCH-AZITH-001",
+      expiryDate: dateOnly(2027, 3, 1),
+      costPrice: dec(205),
+      sellingPrice: dec(290),
+    },
+  });
+  await prisma.goodsReceiptItem.create({
+    data: {
+      tenantId: tenant.id,
+      goodsReceiptId: grPartial.id,
+      productId: poLineAzith.productId,
+      batchId: extraBatchAzith.id,
+      receivedQty: 25,
+    },
+  });
+  await prisma.stockLedger.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      productId: poLineAzith.productId,
+      batchId: extraBatchAzith.id,
+      movementType: StockMovementType.purchase_in,
+      qtyDelta: 25,
+      referenceType: "goods_receipt",
+      referenceId: grPartial.id,
+      createdBy: inventoryClerk.id,
+    },
+  });
+
+  await prisma.purchaseOrder.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      supplierId: supplier2.id,
+      poNumber: "PO-MAIN-SEED-DRAFT",
+      status: PoStatus.draft,
+      expectedOn: dateOnly(2026, 7, 15),
+      notes: "Draft PO for purchasing UI testing",
+      createdBy: inventoryClerk.id,
+      items: {
+        create: [
+          { tenantId: tenant.id, productId: productBySku.get("PCL-0004")!, orderedQty: 100, unitCost: dec(52) },
+          { tenantId: tenant.id, productId: productBySku.get("PCL-0011")!, orderedQty: 15, unitCost: dec(440) },
+        ],
+      },
+    },
+  });
+
+  const salesDefs: Array<{
+    invoiceNo: string;
+    daysAgo: number;
+    lines: Array<{ sku: string; qty: number }>;
+    voided?: boolean;
+  }> = [
+    { invoiceNo: "INV-SEED-0001", daysAgo: 14, lines: [{ sku: "PCL-0001", qty: 2 }, { sku: "PCL-0009", qty: 1 }] },
+    { invoiceNo: "INV-SEED-0002", daysAgo: 12, lines: [{ sku: "PCL-0003", qty: 3 }] },
+    { invoiceNo: "INV-SEED-0003", daysAgo: 10, lines: [{ sku: "PCL-0002", qty: 1 }, { sku: "PCL-0019", qty: 2 }] },
+    { invoiceNo: "INV-SEED-0004", daysAgo: 9, lines: [{ sku: "PCL-0005", qty: 4 }] },
+    { invoiceNo: "INV-SEED-0005", daysAgo: 8, lines: [{ sku: "PCL-0006", qty: 2 }, { sku: "PCL-0007", qty: 1 }] },
+    { invoiceNo: "INV-SEED-0006", daysAgo: 7, lines: [{ sku: "PCL-0024", qty: 2 }, { sku: "PCL-0025", qty: 1 }] },
+    { invoiceNo: "INV-SEED-0007", daysAgo: 6, lines: [{ sku: "PCL-0011", qty: 1 }] },
+    { invoiceNo: "INV-SEED-0008", daysAgo: 5, lines: [{ sku: "PCL-0021", qty: 1 }] },
+    { invoiceNo: "INV-SEED-0009", daysAgo: 4, lines: [{ sku: "PCL-0008", qty: 5 }, { sku: "PCL-0015", qty: 2 }] },
+    { invoiceNo: "INV-SEED-0010", daysAgo: 3, lines: [{ sku: "PCL-0027", qty: 2 }, { sku: "PCL-0028", qty: 1 }] },
+    { invoiceNo: "INV-SEED-0011", daysAgo: 2, lines: [{ sku: "PCL-0001", qty: 5 }, { sku: "PCL-0009", qty: 3 }] },
+    { invoiceNo: "INV-SEED-0012", daysAgo: 1, lines: [{ sku: "PCL-0013", qty: 2 }] },
+    { invoiceNo: "INV-SEED-0013", daysAgo: 0, lines: [{ sku: "PCL-0030", qty: 1 }, { sku: "PCL-0004", qty: 2 }] },
+    { invoiceNo: "INV-SEED-VOID-01", daysAgo: 11, lines: [{ sku: "PCL-0001", qty: 10 }], voided: true },
+  ];
+
+  let saleCount = 0;
+  for (const s of salesDefs) {
+    const lines = s.lines.map((l) => {
+      const ref = batchByKey.get(`MAIN:${l.sku}`)!;
+      return {
+        productId: ref.productId,
+        batchId: ref.batchId,
+        qty: l.qty,
+        unitPrice: ref.sellingPrice,
+        discountAmount: 0,
+        taxAmount: 0,
+      };
+    });
+    const sale = await seedSale(prisma, {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      soldBy: s.voided ? pharmacist.id : cashier.id,
+      invoiceNo: s.invoiceNo,
+      soldAt: daysAgo(s.daysAgo),
+      lines,
+    });
+    if (s.voided) {
+      await prisma.sale.update({
+        where: { id: sale.id },
+        data: { status: SaleStatus.voided },
+      });
+      for (const l of lines) {
+        await prisma.stockLedger.create({
+          data: {
+            tenantId: tenant.id,
+            branchId: mainBranch.id,
+            productId: l.productId,
+            batchId: l.batchId,
+            movementType: StockMovementType.sale_void_in,
+            qtyDelta: l.qty,
+            referenceType: "sale",
+            referenceId: sale.id,
+            createdBy: manager.id,
+            occurredAt: daysAgo(s.daysAgo - 1),
+          },
+        });
+      }
+    }
+    saleCount++;
+  }
+
+  await seedSale(prisma, {
+    tenantId: tenant.id,
+    branchId: secondBranch.id,
+    soldBy: cashier.id,
+    invoiceNo: "INV-SEED-KDY-001",
+    soldAt: daysAgo(2),
+    lines: [
+      {
+        productId: batchByKey.get("BRANCH2:PCL-0001")!.productId,
+        batchId: batchByKey.get("BRANCH2:PCL-0001")!.batchId,
+        qty: 3,
+        unitPrice: batchByKey.get("BRANCH2:PCL-0001")!.sellingPrice,
+      },
+      {
+        productId: batchByKey.get("BRANCH2:PCL-0009")!.productId,
+        batchId: batchByKey.get("BRANCH2:PCL-0009")!.batchId,
+        qty: 2,
+        unitPrice: batchByKey.get("BRANCH2:PCL-0009")!.sellingPrice,
+      },
+    ],
+  });
+  saleCount++;
+
+  const transferRequested = await prisma.transfer.create({
+    data: {
+      tenantId: tenant.id,
+      fromBranchId: mainBranch.id,
+      toBranchId: secondBranch.id,
+      status: TransferStatus.requested,
+      requestedBy: inventoryClerk.id,
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0003")!,
+            batchId: batchByKey.get("MAIN:PCL-0003")!.batchId,
+            qty: 10,
+          },
+        ],
+      },
+    },
+  });
+
+  await prisma.transfer.create({
+    data: {
+      tenantId: tenant.id,
+      fromBranchId: mainBranch.id,
+      toBranchId: secondBranch.id,
+      status: TransferStatus.approved,
+      requestedBy: inventoryClerk.id,
+      approvedBy: manager.id,
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0027")!,
+            batchId: batchByKey.get("MAIN:PCL-0027")!.batchId,
+            qty: 5,
+          },
+        ],
+      },
+    },
+  });
+
+  const transferInTransit = await prisma.transfer.create({
+    data: {
+      tenantId: tenant.id,
+      fromBranchId: mainBranch.id,
+      toBranchId: secondBranch.id,
+      status: TransferStatus.in_transit,
+      requestedBy: inventoryClerk.id,
+      approvedBy: manager.id,
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0009")!,
+            batchId: batchByKey.get("MAIN:PCL-0009")!.batchId,
+            qty: 15,
+          },
+        ],
+      },
+    },
+    include: { items: true },
+  });
+
+  for (const line of transferInTransit.items) {
+    if (!line.batchId) continue;
+    await prisma.stockLedger.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        productId: line.productId,
+        batchId: line.batchId,
+        movementType: StockMovementType.transfer_out,
+        qtyDelta: -line.qty,
+        referenceType: "transfer",
+        referenceId: transferInTransit.id,
+        createdBy: manager.id,
+        occurredAt: daysAgo(3),
+      },
+    });
+  }
+
+  const transferReceived = await prisma.transfer.create({
+    data: {
+      tenantId: tenant.id,
+      fromBranchId: mainBranch.id,
+      toBranchId: secondBranch.id,
+      status: TransferStatus.received,
+      requestedBy: inventoryClerk.id,
+      approvedBy: manager.id,
+      receivedBy: manager.id,
+      createdAt: daysAgo(20),
+      updatedAt: daysAgo(5),
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0001")!,
+            batchId: batchByKey.get("MAIN:PCL-0001")!.batchId,
+            qty: 20,
+          },
+        ],
+      },
+    },
+    include: { items: true },
+  });
+
+  const mainParacetamolBatch = await prisma.batch.findFirst({
+    where: { id: batchByKey.get("MAIN:PCL-0001")!.batchId },
+  });
+  for (const line of transferReceived.items) {
+    if (!line.batchId || !mainParacetamolBatch) continue;
+    await prisma.stockLedger.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        productId: line.productId,
+        batchId: line.batchId,
+        movementType: StockMovementType.transfer_out,
+        qtyDelta: -line.qty,
+        referenceType: "transfer",
+        referenceId: transferReceived.id,
+        createdBy: manager.id,
+        occurredAt: daysAgo(8),
+      },
+    });
+    const destBatch = await prisma.batch.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: secondBranch.id,
+        productId: line.productId,
+        batchNo: "SEED-PCL-0001-TR-RCV",
+        expiryDate: mainParacetamolBatch.expiryDate,
+        costPrice: mainParacetamolBatch.costPrice,
+        sellingPrice: mainParacetamolBatch.sellingPrice,
+      },
+    });
+    await prisma.stockLedger.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: secondBranch.id,
+        productId: line.productId,
+        batchId: destBatch.id,
+        movementType: StockMovementType.transfer_in,
+        qtyDelta: line.qty,
+        referenceType: "transfer",
+        referenceId: transferReceived.id,
+        createdBy: manager.id,
+        occurredAt: daysAgo(5),
+      },
+    });
+  }
+
+  await prisma.stockLedger.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      productId: productBySku.get("PCL-0018")!,
+      batchId: batchByKey.get("MAIN:PCL-0018")!.batchId,
+      movementType: StockMovementType.adjustment_out,
+      qtyDelta: -3,
+      referenceType: "stock_adjustment",
+      referenceId: "00000000-0000-4000-8000-000000000099",
+      createdBy: manager.id,
+      occurredAt: daysAgo(2),
+    },
+  });
+
+  const sampleProductId = productBySku.get("PCL-0001")!;
+  await prisma.auditEvent.createMany({
+    data: [
+      {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        actorUserId: manager.id,
+        eventName: "product.updated",
+        entityName: "product",
+        entityId: sampleProductId,
+        payload: { sku: "PCL-0001", field: "reorderLevel", from: 40, to: 50 },
+        createdAt: daysAgo(7),
+      },
+      {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        actorUserId: inventoryClerk.id,
+        eventName: "goods_receipt.created",
+        entityName: "goods_receipt",
+        entityId: grPartial.id,
+        payload: { grnNumber: "GRN-MAIN-SEED-001" },
+        createdAt: daysAgo(20),
+      },
+      {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        actorUserId: inventoryClerk.id,
+        eventName: "transfer.created",
+        entityName: "transfer",
+        entityId: transferRequested.id,
+        payload: { status: "requested" },
+        createdAt: daysAgo(4),
+      },
+    ],
+  });
+
+  const batchCount = await prisma.batch.count({ where: { tenantId: tenant.id } });
+  const ledgerCount = await prisma.stockLedger.count({ where: { tenantId: tenant.id } });
+
+  console.log("\n=== PharmaCeylon demo seed complete ===\n");
+  console.log(`Tenant:     ${TENANT_CODE} (${tenant.displayName})`);
+  console.log(`Branches:   ${mainBranch.code}, ${secondBranch.code}`);
+  console.log(`Products:   ${PRODUCTS.length}`);
+  console.log(`Batches:    ${batchCount}`);
+  console.log(`Ledger:     ${ledgerCount} movements`);
+  console.log(`Sales:      ${saleCount} invoices`);
+  console.log(`POs:        2 (1 partial + 1 draft)`);
+  console.log(`Transfers:  4 (requested, approved, in_transit, received)`);
+  console.log("\nLogins (passwords from SEED_*_PASSWORD or defaults):");
+  console.log("  admin@pharmaceylon.demo      — owner");
+  console.log("  manager@pharmaceylon.demo    — manager");
+  console.log("  pharmacist@pharmaceylon.demo — pharmacist");
+  console.log("  cashier@pharmaceylon.demo    — cashier");
+  console.log("  clerk@pharmaceylon.demo      — inventory_clerk");
+  console.log("\nDefaults: ChangeMe123! / Manager123! / Pharmacist123! / Cashier123! / Clerk123!");
+  console.log("\nTip: select MAIN branch in the app header to see stock, batches, and low-stock filters.\n");
 }
 
 main()

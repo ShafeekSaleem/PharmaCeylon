@@ -4,6 +4,7 @@
   gap: 0.35rem;
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
+  border: 1px solid transparent;
   font-size: 0.7rem;
   font-weight: 600;
   text-transform: capitalize;
@@ -35,16 +36,27 @@
 .success {
   background: var(--pc-alert-success-bg);
   color: var(--pc-alert-success-text);
+  border-color: var(--pc-alert-success-border);
+}
+
+.success .dot {
+  background: var(--pc-alert-success-icon);
 }
 
 .warning {
   background: var(--pc-alert-warning-bg);
   color: var(--pc-alert-warning-text);
+  border-color: var(--pc-alert-warning-border);
 }
 
 .danger {
   background: var(--pc-alert-error-bg);
   color: var(--pc-alert-error-text);
+  border-color: var(--pc-alert-error-border);
+}
+
+.danger .dot {
+  background: var(--pc-alert-error-icon);
 }
 
 .info {

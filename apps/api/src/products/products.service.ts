@@ -8,7 +8,12 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
+import { ProductMetaService } from "./product-meta.service";
 import { buildProductWhere } from "./product-query.util";
+import {
+  attachStockFields,
+  stockQtyByProductId,
+} from "./stock-qty.util";
 
 const SORTABLE_FIELDS = new Set([
   "name",
@@ -19,11 +24,18 @@ const SORTABLE_FIELDS = new Set([
   "updatedAt",
 ]);
 
+const productInclude = {
+  categoryMaps: { include: { category: true } },
+  tagMaps: { include: { tag: true } },
+  aliases: { orderBy: { aliasText: "asc" as const } },
+};
+
 @Injectable()
 export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly meta: ProductMetaService,
   ) {}
 
   async list(
@@ -38,6 +50,8 @@ export class ProductsService {
       isControlled?: string;
       status?: string;
       lowStock?: boolean;
+      categoryId?: string;
+      tagId?: string;
       sortBy?: string;
       sortDir?: string;
     },
@@ -62,26 +76,112 @@ export class ProductsService {
     const sortDirection: Prisma.SortOrder =
       query.sortDir === "desc" ? "desc" : "asc";
 
-    const [items, total] = await this.prisma.$transaction([
+    const [rows, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
         orderBy: { [sortField]: sortDirection },
         skip,
         take,
+        include: {
+          categoryMaps: { include: { category: true } },
+          tagMaps: { include: { tag: true } },
+        },
       }),
       this.prisma.product.count({ where }),
     ]);
+
+    const stockMap = branchId
+      ? await stockQtyByProductId(
+          this.prisma,
+          tenantId,
+          branchId,
+          rows.map((r) => r.id),
+        )
+      : null;
+
+    const items = attachStockFields(
+      rows.map((p) => this.mapProductWithRelations({ ...p, aliases: [] })),
+      stockMap,
+    );
+
     return { items, total, skip, take };
   }
 
   async getById(tenantId: string, id: string) {
     const product = await this.prisma.product.findFirst({
       where: { id, tenantId },
+      include: productInclude,
     });
     if (!product) {
       throw new NotFoundException("Product not found");
     }
-    return product;
+    return this.mapProductWithRelations(product);
+  }
+
+  async getDetail(tenantId: string, branchId: string | undefined, id: string) {
+    const product = await this.getById(tenantId, id);
+
+    let qtyOnHand: number | null = null;
+    let stockStatus: "out" | "low" | "ok" | null = null;
+    let reorderGapVal: number | null = null;
+    let batches: Awaited<ReturnType<typeof this.prisma.batch.findMany>> = [];
+    let pricing: {
+      minSellingPrice: string | null;
+      maxSellingPrice: string | null;
+      minCostPrice: string | null;
+      maxCostPrice: string | null;
+      batchCount: number;
+    } = {
+      minSellingPrice: null,
+      maxSellingPrice: null,
+      minCostPrice: null,
+      maxCostPrice: null,
+      batchCount: 0,
+    };
+
+    if (branchId) {
+      const stockMap = await stockQtyByProductId(this.prisma, tenantId, branchId, [id]);
+      qtyOnHand = stockMap.get(id) ?? 0;
+      const attached = attachStockFields([{ ...product, reorderLevel: product.reorderLevel }], stockMap)[0]!;
+      stockStatus = attached.stockStatus;
+      reorderGapVal = attached.reorderGap;
+
+      batches = await this.prisma.batch.findMany({
+        where: { tenantId, branchId, productId: id },
+        orderBy: { expiryDate: "asc" },
+      });
+
+      if (batches.length) {
+        const selling = batches.map((b) => Number(b.sellingPrice));
+        const cost = batches.map((b) => Number(b.costPrice));
+        pricing = {
+          minSellingPrice: String(Math.min(...selling)),
+          maxSellingPrice: String(Math.max(...selling)),
+          minCostPrice: String(Math.min(...cost)),
+          maxCostPrice: String(Math.max(...cost)),
+          batchCount: batches.length,
+        };
+      }
+    }
+
+    const history = await this.prisma.auditEvent.findMany({
+      where: { tenantId, entityName: "product", entityId: id },
+      orderBy: { createdAt: "desc" },
+      take: 25,
+      include: {
+        actor: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+
+    return {
+      product,
+      qtyOnHand,
+      stockStatus,
+      reorderGap: reorderGapVal,
+      batches,
+      pricing,
+      history,
+    };
   }
 
   async create(tenantId: string, userId: string, dto: CreateProductDto) {
@@ -103,6 +203,8 @@ export class ProductsService {
           reorderLevel: dto.reorderLevel ?? 0,
         },
       });
+      await this.meta.syncProductCategories(tenantId, product.id, dto.categoryIds);
+      await this.meta.syncProductTags(tenantId, product.id, dto.tagIds);
       await this.audit.log({
         tenantId,
         actorUserId: userId,
@@ -111,7 +213,7 @@ export class ProductsService {
         entityId: product.id,
         payload: { sku: product.sku },
       });
-      return product;
+      return this.getById(tenantId, product.id);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
         throw new ConflictException("SKU must be unique within the tenant");
@@ -122,7 +224,7 @@ export class ProductsService {
 
   async update(tenantId: string, userId: string, id: string, dto: UpdateProductDto) {
     await this.getById(tenantId, id);
-    const product = await this.prisma.product.update({
+    await this.prisma.product.update({
       where: { id },
       data: {
         ...(dto.barcode !== undefined ? { barcode: dto.barcode?.trim() || null } : {}),
@@ -139,18 +241,21 @@ export class ProductsService {
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
+    await this.meta.syncProductCategories(tenantId, id, dto.categoryIds);
+    await this.meta.syncProductTags(tenantId, id, dto.tagIds);
     await this.audit.log({
       tenantId,
       actorUserId: userId,
       eventName: "product.updated",
       entityName: "product",
-      entityId: product.id,
+      entityId: id,
     });
-    return product;
+    return this.getById(tenantId, id);
   }
 
   async remove(tenantId: string, userId: string, id: string) {
-    const existing = await this.getById(tenantId, id);
+    const existing = await this.prisma.product.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new NotFoundException("Product not found");
     try {
       await this.prisma.product.delete({ where: { id } });
       await this.audit.log({
@@ -170,5 +275,17 @@ export class ProductsService {
       }
       throw e;
     }
+  }
+
+  private mapProductWithRelations(
+    product: Prisma.ProductGetPayload<{ include: typeof productInclude }>,
+  ) {
+    const { categoryMaps, tagMaps, aliases, ...rest } = product;
+    return {
+      ...rest,
+      categories: categoryMaps.map((m) => m.category),
+      tags: tagMaps.map((m) => m.tag),
+      aliases: aliases ?? [],
+    };
   }
 }

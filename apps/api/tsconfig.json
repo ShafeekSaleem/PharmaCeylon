@@ -20,5 +20,5 @@
     "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*", "prisma/seed.ts"]
+  "include": ["src/**/*", "prisma/seed.ts", "prisma/seed-helpers.ts"]
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import {
@@ -94,6 +95,8 @@ for (const g of NAV_GROUPS) {
     PAGE_TITLES[item.href] = item.label;
   }
 }
+PAGE_TITLES["/inventory/batches"] = "Batch stock";
+PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
 
 const COLLAPSE_KEY = "pc_sidebar_collapsed";
 
@@ -121,16 +124,19 @@ function hasAccess(userRoles: string[], allowedRoles?: RoleName[]): boolean {
 
 function resolvePageTitle(pathname: string): string {
   if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname];
-  for (const key of Object.keys(PAGE_TITLES)) {
-    if (pathname.startsWith(key + "/")) return PAGE_TITLES[key];
-  }
-  return "Page";
+  // Prefer longest matching path (e.g. /inventory/batches over /inventory)
+  const match = Object.keys(PAGE_TITLES)
+    .filter((key) => pathname === key || pathname.startsWith(key + "/"))
+    .sort((a, b) => b.length - a.length)[0];
+  return match ? PAGE_TITLES[match] : "Page";
 }
 
-function buildBreadcrumbs(pathname: string): { label: string; href?: string }[] {
-  const base = Object.keys(PAGE_TITLES).find(
-    (k) => pathname === k || pathname.startsWith(k + "/"),
-  );
+function buildBreadcrumbs(
+  pathname: string,
+  lastSegmentLabel?: string | null,
+): { label: string; href?: string }[] {
+  const navBases = new Set(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href)));
+  const base = [...navBases].find((k) => pathname === k || pathname.startsWith(k + "/"));
   if (!base) return [{ label: resolvePageTitle(pathname) }];
 
   const crumbs: { label: string; href?: string }[] = [{ label: PAGE_TITLES[base], href: base }];
@@ -138,9 +144,14 @@ function buildBreadcrumbs(pathname: string): { label: string; href?: string }[] 
   if (rest) {
     const segments = rest.split("/").filter(Boolean);
     let path = base;
-    for (const seg of segments) {
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]!;
       path += `/${seg}`;
-      crumbs.push({ label: seg, href: path });
+      const isLast = i === segments.length - 1;
+      const known = PAGE_TITLES[path];
+      const label =
+        isLast && lastSegmentLabel ? lastSegmentLabel : known ?? seg.replace(/-/g, " ");
+      crumbs.push(isLast ? { label } : { label, href: path });
     }
   }
   if (crumbs.length === 1) delete crumbs[0].href;
@@ -151,6 +162,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, ready, isAuthenticated, branchId, setBranchId, logout } = useAuth();
+  const { extraCrumbs, lastSegmentLabel } = usePageChrome();
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -256,7 +268,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const currentBranch = branches.find((b) => b.id === branchId);
   const branchName = currentBranch?.name ?? "Select Branch";
   const pageTitle = resolvePageTitle(pathname);
-  const breadcrumbs = buildBreadcrumbs(pathname);
+  const breadcrumbs = [...buildBreadcrumbs(pathname, lastSegmentLabel), ...extraCrumbs];
   const initials = user ? getInitials(user.fullName) : "??";
 
   const sidebarCls = [

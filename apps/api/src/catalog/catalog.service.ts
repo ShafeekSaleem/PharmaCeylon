@@ -161,9 +161,48 @@ export class CatalogService {
       }
     }
 
+    const [categoryGroups, tagGroups] = await this.prisma.$transaction([
+      this.prisma.productCategoryMap.groupBy({
+        by: ["categoryId"],
+        where: { tenantId, product: summaryWhere },
+        orderBy: { categoryId: "asc" },
+        _count: true,
+      }),
+      this.prisma.productTagMap.groupBy({
+        by: ["tagId"],
+        where: { tenantId, product: summaryWhere },
+        orderBy: { tagId: "asc" },
+        _count: true,
+      }),
+    ]);
+
+    const [categoryRows, tagRows] = await this.prisma.$transaction([
+      this.prisma.productCategory.findMany({
+        where: { tenantId, id: { in: categoryGroups.map((g) => g.categoryId) } },
+        orderBy: { name: "asc" },
+      }),
+      this.prisma.productTag.findMany({
+        where: { tenantId, id: { in: tagGroups.map((g) => g.tagId) } },
+        orderBy: { name: "asc" },
+      }),
+    ]);
+
+    const categoryCountMap = new Map(categoryGroups.map((g) => [g.categoryId, g._count]));
+    const tagCountMap = new Map(tagGroups.map((g) => [g.tagId, g._count]));
+
     return {
       brands: brands.map((b) => ({ value: b.brandName!, count: b._count })),
       dosageForms: forms.map((f) => ({ value: f.dosageForm!, count: f._count })),
+      categories: categoryRows.map((c) => ({
+        value: c.id,
+        label: c.name,
+        count: categoryCountMap.get(c.id) ?? 0,
+      })),
+      tags: tagRows.map((t) => ({
+        value: t.id,
+        label: t.name,
+        count: tagCountMap.get(t.id) ?? 0,
+      })),
       status: [
         { value: "active", count: statusCount(true) },
         { value: "inactive", count: statusCount(false) },

@@ -8,6 +8,8 @@ export type ProductFilterQuery = {
   isControlled?: string;
   status?: string;
   lowStock?: boolean;
+  categoryId?: string;
+  tagId?: string;
 };
 
 export type FacetExclude = "dosageForm" | "brandName" | "status" | "isControlled";
@@ -94,6 +96,8 @@ export async function buildProductWhere(
   const brandNames = parseCsv(query.brandName);
   const statusValues = parseCsv(query.status);
   const controlledValues = parseCsv(query.isControlled);
+  const categoryIds = parseCsv(query.categoryId);
+  const tagIds = parseCsv(query.tagId);
 
   let lowStockIds: string[] | undefined;
   if (query.lowStock) {
@@ -129,6 +133,16 @@ export async function buildProductWhere(
       ? resolveControlledFilter(controlledValues, query.isControlled)
       : {}),
     ...(lowStockIds ? { id: { in: lowStockIds } } : {}),
+    ...(categoryIds.length === 1
+      ? { categoryMaps: { some: { tenantId, categoryId: categoryIds[0] } } }
+      : categoryIds.length > 1
+        ? { categoryMaps: { some: { tenantId, categoryId: { in: categoryIds } } } }
+        : {}),
+    ...(tagIds.length === 1
+      ? { tagMaps: { some: { tenantId, tagId: tagIds[0] } } }
+      : tagIds.length > 1
+        ? { tagMaps: { some: { tenantId, tagId: { in: tagIds } } } }
+        : {}),
     ...(query.q?.trim()
       ? {
           OR: [
@@ -137,6 +151,14 @@ export async function buildProductWhere(
             { barcode: { contains: query.q.trim(), mode: "insensitive" } },
             { brandName: { contains: query.q.trim(), mode: "insensitive" } },
             { genericName: { contains: query.q.trim(), mode: "insensitive" } },
+            {
+              aliases: {
+                some: {
+                  tenantId,
+                  aliasText: { contains: query.q.trim(), mode: "insensitive" },
+                },
+              },
+            },
           ],
         }
       : {}),

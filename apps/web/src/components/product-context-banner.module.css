@@ -1,0 +1,84 @@
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  background: color-mix(in srgb, var(--pc-primary) 8%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 25%, var(--pc-border));
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.icon {
+  color: var(--pc-primary);
+  flex-shrink: 0;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-muted-fg);
+}
+
+.name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+}
+
+.sku {
+  font-weight: 400;
+  color: var(--pc-muted-fg);
+}
+
+.link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+}
+
+.clearBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.clearBtn:hover {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+  background: var(--pc-muted-bg);
+}

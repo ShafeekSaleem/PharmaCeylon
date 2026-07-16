@@ -7,8 +7,9 @@ import {
   MaxLength,
   Min,
 } from "class-validator";
+import { ProductRelationsDto } from "./product-relations.dto";
 
-export class UpdateProductDto {
+export class UpdateProductDto extends ProductRelationsDto {
   @IsOptional()
   @IsString()
   @MaxLength(64)

@@ -9,6 +9,8 @@ type Props = {
   actions?: ReactNode;
   children?: ReactNode;
   className?: string;
+  /** Position actions over the header so they do not change its height. */
+  floatingActions?: boolean;
 };
 
 export function PageHeader({
@@ -18,16 +20,22 @@ export function PageHeader({
   actions,
   children,
   className,
+  floatingActions = false,
 }: Props) {
+  const hasActions = Boolean(actions);
   return (
-    <div className={`${styles.header}${className ? ` ${className}` : ""}`}>
+    <div
+      className={`${styles.header}${
+        floatingActions && hasActions ? ` ${styles.floatingActions}` : ""
+      }${className ? ` ${className}` : ""}`}
+    >
       <div className={styles.left}>
         {!subtitleOnly && title ? <h1 className={styles.title}>{title}</h1> : null}
         {description ? (
           <p className={subtitleOnly ? styles.subtitleLead : styles.description}>{description}</p>
         ) : null}
       </div>
-      {actions && <div className={styles.actions}>{actions}</div>}
+      {hasActions && <div className={styles.actions}>{actions}</div>}
       {children}
     </div>
   );

@@ -45,6 +45,8 @@ export class ProductsController {
     @Query("isControlled") isControlled?: string,
     @Query("status") status?: string,
     @Query("lowStock") lowStock?: string,
+    @Query("categoryId") categoryId?: string,
+    @Query("tagId") tagId?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDir") sortDir?: string,
   ) {
@@ -57,9 +59,28 @@ export class ProductsController {
       isControlled,
       status: status || "all",
       lowStock: lowStock === "true",
+      categoryId,
+      tagId,
       sortBy,
       sortDir,
     });
+  }
+
+  @Roles(
+    RoleName.owner,
+    RoleName.manager,
+    RoleName.pharmacist,
+    RoleName.cashier,
+    RoleName.inventory_clerk,
+    RoleName.analyst,
+  )
+  @Get(":id/detail")
+  detail(
+    @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.products.getDetail(user.tenantId, req.branchId, id);
   }
 
   @Roles(
