@@ -193,13 +193,12 @@ function AdjustmentsContent() {
             <InventoryFilterSelect
               label="Product"
               value={productId}
-              options={[
-                { value: "", label: "Select product…" },
-                ...stock.rows.map((row) => ({
-                  value: row.productId,
-                  label: `${row.product.sku} — ${row.product.name} (${row.qtyOnHand} on hand)`,
-                })),
-              ]}
+              placeholder="Select product…"
+              allowDeselect
+              options={stock.rows.map((row) => ({
+                value: row.productId,
+                label: `${row.product.sku} — ${row.product.name} (${row.qtyOnHand} on hand)`,
+              }))}
               searchable
               searchPlaceholder="Search by product or SKU…"
               onChange={(value) => {
@@ -214,18 +213,14 @@ function AdjustmentsContent() {
             <InventoryFilterSelect
               label="Batch (required)"
               value={batchId}
-              options={[
-                {
-                  value: "",
-                  label: "Select batch…",
-                },
-                ...batches.rows.map((batch) => ({
-                  value: batch.id,
-                  label: `${batch.batchNo} · ${batch.qtyOnHand} units · exp ${new Date(
-                    batch.expiryDate,
-                  ).toLocaleDateString()}`,
-                })),
-              ]}
+              placeholder="Select batch…"
+              allowDeselect
+              options={batches.rows.map((batch) => ({
+                value: batch.id,
+                label: `${batch.batchNo} · ${batch.qtyOnHand} units · exp ${new Date(
+                  batch.expiryDate,
+                ).toLocaleDateString()}`,
+              }))}
               searchable
               searchPlaceholder="Search batches…"
               onChange={setBatchId}

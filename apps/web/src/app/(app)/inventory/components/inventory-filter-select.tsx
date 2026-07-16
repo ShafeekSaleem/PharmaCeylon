@@ -17,6 +17,11 @@ type Props = {
   disabled?: boolean;
   searchable?: boolean;
   searchPlaceholder?: string;
+  /** Shown on the trigger when value is empty; not listed as an option. */
+  placeholder?: string;
+  /** Clicking the selected option again clears to `deselectValue`. */
+  allowDeselect?: boolean;
+  deselectValue?: string;
 };
 
 export function InventoryFilterSelect({
@@ -27,6 +32,9 @@ export function InventoryFilterSelect({
   disabled = false,
   searchable = false,
   searchPlaceholder = "Search…",
+  placeholder = "All",
+  allowDeselect = false,
+  deselectValue = "",
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -35,7 +43,7 @@ export function InventoryFilterSelect({
   const filtered = value !== "all" && value !== "";
   const displayLabel =
     selected?.label ??
-    (value ? (options.length === 0 ? "Loading…" : "Selected") : "All");
+    (value ? (options.length === 0 ? "Loading…" : "Selected") : placeholder);
   const visibleOptions =
     searchable && query.trim()
       ? options.filter((option) =>
@@ -97,30 +105,36 @@ export function InventoryFilterSelect({
               />
             </div>
           )}
-          {visibleOptions.map((option) => {
-            const active = option.value === value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={active}
-                className={`${css.inventoryFilterOption} ${
-                  active ? css.inventoryFilterOptionActive : ""
-                }`}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
-                }}
-              >
-                <span>{option.label}</span>
-                {active && <IconCheck size={14} />}
-              </button>
-            );
-          })}
-          {visibleOptions.length === 0 && (
-            <div className={css.inventoryFilterEmpty}>No matching options</div>
-          )}
+          <div className={css.inventoryFilterOptions}>
+            {visibleOptions.map((option) => {
+              const active = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  className={`${css.inventoryFilterOption} ${
+                    active ? css.inventoryFilterOptionActive : ""
+                  }`}
+                  onClick={() => {
+                    if (allowDeselect && active) {
+                      onChange(deselectValue);
+                    } else {
+                      onChange(option.value);
+                    }
+                    setOpen(false);
+                  }}
+                >
+                  <span>{option.label}</span>
+                  {active && <IconCheck size={14} />}
+                </button>
+              );
+            })}
+            {visibleOptions.length === 0 && (
+              <div className={css.inventoryFilterEmpty}>No matching options</div>
+            )}
+          </div>
         </div>
       )}
     </div>
