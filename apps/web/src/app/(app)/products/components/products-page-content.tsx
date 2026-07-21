@@ -48,8 +48,8 @@ import { ProductTable } from "./product-table";
 export function ProductsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
-  const canWrite = hasWriteAccess(user);
+  const { user, branchId } = useAuth();
+  const canWrite = hasWriteAccess(user, branchId);
   const hasBranch = !!getBranchId();
 
   const {

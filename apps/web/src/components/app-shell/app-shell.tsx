@@ -37,6 +37,7 @@ const ADMIN_ROLES: RoleName[] = ["owner", "manager"];
 const POS_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "cashier"];
 const CATALOG_ROLES: RoleName[] = ["owner", "manager", "cashier", "inventory_clerk"];
 const OPERATIONS_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "inventory_clerk"];
+const PURCHASING_ROLES: RoleName[] = ["owner", "manager", "inventory_clerk"];
 const INSIGHTS_ROLES: RoleName[] = ["owner", "manager", "analyst"];
 
 type NavEntry = {
@@ -68,7 +69,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Operations",
     items: [
       { href: "/inventory", label: "Inventory", icon: <IconBox size={18} />, roles: OPERATIONS_ROLES },
-      { href: "/purchasing", label: "Purchasing", icon: <IconClipboardList size={18} />, roles: OPERATIONS_ROLES },
+      { href: "/purchasing", label: "Purchasing", icon: <IconClipboardList size={18} />, roles: PURCHASING_ROLES },
       { href: "/transfers", label: "Transfers", icon: <IconTruck size={18} />, roles: OPERATIONS_ROLES },
     ],
   },
@@ -97,6 +98,7 @@ for (const g of NAV_GROUPS) {
 }
 PAGE_TITLES["/inventory/batches"] = "Batch stock";
 PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
+PAGE_TITLES["/inventory/movements"] = "Stock movements";
 
 const COLLAPSE_KEY = "pc_sidebar_collapsed";
 

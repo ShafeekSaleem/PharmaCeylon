@@ -11,9 +11,11 @@ export type ModalProps = {
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   closeOnBackdrop?: boolean;
   closeOnEsc?: boolean;
+  /** When false, blocks backdrop, Esc, and the header close button (e.g. while saving). */
+  canDismiss?: boolean;
   /** Raise overlay above another open modal (nested confirms). */
   elevated?: boolean;
 };
@@ -28,12 +30,14 @@ export function Modal({
   size = "md",
   closeOnBackdrop = true,
   closeOnEsc = true,
+  canDismiss = true,
   elevated = false,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const allowDismiss = canDismiss;
 
   useEffect(() => {
-    if (!open || !closeOnEsc) return;
+    if (!open || !closeOnEsc || !allowDismiss) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -42,7 +46,7 @@ export function Modal({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, closeOnEsc]);
+  }, [open, onClose, closeOnEsc, allowDismiss]);
 
   useBodyScrollLock(open);
 
@@ -58,18 +62,26 @@ export function Modal({
   }, [open]);
 
   const handleBackdrop = useCallback(() => {
-    if (closeOnBackdrop) onClose();
-  }, [closeOnBackdrop, onClose]);
+    if (closeOnBackdrop && allowDismiss) onClose();
+  }, [closeOnBackdrop, allowDismiss, onClose]);
 
   if (!open) return null;
 
-  const sizeCls = size === "sm" ? styles.sm : size === "lg" ? styles.lg : styles.md;
+  const sizeCls =
+    size === "sm"
+      ? styles.sm
+      : size === "lg"
+        ? styles.lg
+        : size === "xl"
+          ? styles.xl
+          : styles.md;
 
   return (
     <div
       className={`${styles.overlay}${elevated ? ` ${styles.overlayElevated}` : ""}`}
       onClick={handleBackdrop}
-    >      <div
+    >
+      <div
         ref={dialogRef}
         className={`${styles.dialog} ${sizeCls}`}
         role="dialog"
@@ -88,6 +100,7 @@ export function Modal({
             onClick={onClose}
             data-dismiss
             aria-label="Close"
+            disabled={!allowDismiss}
           >
             ×
           </button>

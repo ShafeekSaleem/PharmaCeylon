@@ -21,6 +21,39 @@ export type BatchListQuery = {
   includeZero?: boolean;
 };
 
+export type MovementCategory =
+  | "all"
+  | "adjustments"
+  | "sales"
+  | "purchases"
+  | "transfers"
+  | "returns";
+
+export type MovementListQuery = {
+  productId?: string;
+  category?: MovementCategory;
+  skip?: number;
+  take?: number;
+};
+
+const MOVEMENT_CATEGORY_TYPES: Record<
+  Exclude<MovementCategory, "all">,
+  StockMovementType[]
+> = {
+  adjustments: [StockMovementType.adjustment_in, StockMovementType.adjustment_out],
+  sales: [
+    StockMovementType.sale_out,
+    StockMovementType.sale_void_in,
+    StockMovementType.sale_refund_in,
+  ],
+  purchases: [StockMovementType.purchase_in],
+  transfers: [StockMovementType.transfer_in, StockMovementType.transfer_out],
+  returns: [
+    StockMovementType.customer_return_in,
+    StockMovementType.supplier_return_out,
+  ],
+};
+
 export type SummaryPeriod =
   | "this_month"
   | "last_month"
@@ -132,13 +165,17 @@ export class InventoryService {
       }
     }
 
-    const now = Date.now();
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const nearWindowDays =
+      query.nearExpiryDays != null && query.nearExpiryDays > 0 ? query.nearExpiryDays : 30;
     const mapped = batches.map((b) => {
       const qtyOnHand = qtyMap.get(b.id) ?? 0;
-      const expiryMs = b.expiryDate.getTime();
-      const daysToExpiry = Math.ceil((expiryMs - now) / (1000 * 60 * 60 * 24));
+      const exp = new Date(b.expiryDate);
+      exp.setHours(0, 0, 0, 0);
+      const daysToExpiry = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       const expired = daysToExpiry < 0;
-      const nearExpiry = !expired && daysToExpiry <= 30;
+      const nearExpiry = !expired && daysToExpiry <= nearWindowDays;
       return {
         id: b.id,
         batchNo: b.batchNo,
@@ -155,7 +192,11 @@ export class InventoryService {
       };
     });
 
-    return includeZero ? mapped : mapped.filter((b) => b.qtyOnHand > 0);
+    let result = includeZero ? mapped : mapped.filter((b) => b.qtyOnHand > 0);
+    if (query.nearExpiryDays != null && query.nearExpiryDays > 0) {
+      result = result.filter((b) => b.nearExpiry && !b.expired);
+    }
+    return result;
   }
 
   async stockByProduct(tenantId: string, branchId: string, query: StockListQuery = {}) {
@@ -165,7 +206,19 @@ export class InventoryService {
       _sum: { qtyDelta: true },
     });
 
-    const productIds = grouped.map((g) => g.productId);
+    const qtyByProduct = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+
+    // Include active catalog products with no ledger history (qty 0) so they appear
+    // on stock overview and can be selected for opening-stock adjustments.
+    const catalogProducts = await this.prisma.product.findMany({
+      where: { tenantId, isActive: true },
+      select: { id: true },
+    });
+    for (const p of catalogProducts) {
+      if (!qtyByProduct.has(p.id)) qtyByProduct.set(p.id, 0);
+    }
+
+    const productIds = [...qtyByProduct.keys()];
     if (productIds.length === 0) return [];
 
     const products = await this.prisma.product.findMany({
@@ -227,21 +280,21 @@ export class InventoryService {
     const q = query.q?.trim().toLowerCase() ?? "";
     const statusFilter = query.status && query.status !== "all" ? query.status : null;
 
-    const rows = grouped
-      .map((g) => {
-        const product = pmap.get(g.productId);
+    const rows = productIds
+      .map((productId) => {
+        const product = pmap.get(productId);
         if (!product) return null;
-        const qtyOnHand = g._sum.qtyDelta ?? 0;
+        const qtyOnHand = qtyByProduct.get(productId) ?? 0;
         const stockStatus = resolveStockStatus(qtyOnHand, product.reorderLevel);
-        const last = lastMoveByProduct.get(g.productId) ?? null;
+        const last = lastMoveByProduct.get(productId) ?? null;
         const { categoryMaps, tagMaps, ...productFields } = product;
         return {
-          productId: g.productId,
+          productId,
           qtyOnHand,
           stockStatus,
           reorderGap: reorderGap(qtyOnHand, product.reorderLevel),
-          batchCount: batchCountByProduct.get(g.productId) ?? 0,
-          nearExpiryBatchCount: nearExpiryByProduct.get(g.productId) ?? 0,
+          batchCount: batchCountByProduct.get(productId) ?? 0,
+          nearExpiryBatchCount: nearExpiryByProduct.get(productId) ?? 0,
           lastMovementAt: last?.at ?? null,
           lastMovementType: last?.type ?? null,
           product: {
@@ -388,39 +441,79 @@ export class InventoryService {
       throw new ForbiddenException("Insufficient role for stock increase");
     }
 
+    if (dto.newBatch && dto.movementType !== "adjustment_in") {
+      throw new BadRequestException("New batches can only be created with stock increases");
+    }
+    if (!dto.batchId && !dto.newBatch) {
+      throw new BadRequestException("Select an existing batch or provide new batch details");
+    }
+    if (dto.batchId && dto.newBatch) {
+      throw new BadRequestException("Provide either an existing batch or new batch details, not both");
+    }
+
     const product = await this.prisma.product.findFirst({
       where: { id: dto.productId, tenantId, isActive: true },
     });
     if (!product) throw new BadRequestException("Invalid product");
 
-    const batchId = dto.batchId;
-    const batch = await this.prisma.batch.findFirst({
-      where: { id: batchId, tenantId, branchId, productId: dto.productId },
-    });
-    if (!batch) throw new BadRequestException("Batch does not match product/branch");
-
     const qtyDelta = dto.movementType === "adjustment_in" ? dto.qty : -dto.qty;
-
-    if (dto.movementType === "adjustment_out") {
-      const available = await this.stock.qtyForBatch(tenantId, branchId, batchId);
-      if (available < dto.qty) {
-        throw new BadRequestException("Insufficient stock for adjustment out");
-      }
-    }
-
+    const reason = dto.reason?.trim() || null;
     const referenceId = randomUUID();
-    await this.prisma.stockLedger.create({
-      data: {
-        tenantId,
-        branchId,
-        productId: dto.productId,
-        batchId,
-        movementType: dto.movementType as StockMovementType,
-        qtyDelta,
-        referenceType: "adjustment",
-        referenceId,
-        createdBy: userId,
-      },
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      let batchId = dto.batchId;
+
+      if (dto.newBatch) {
+        const expiryDate = new Date(dto.newBatch.expiryDate);
+        if (Number.isNaN(expiryDate.getTime())) {
+          throw new BadRequestException("Invalid expiry date");
+        }
+        const created = await tx.batch.create({
+          data: {
+            tenantId,
+            branchId,
+            productId: dto.productId,
+            batchNo: dto.newBatch.batchNo.trim(),
+            expiryDate,
+            costPrice: dto.newBatch.costPrice,
+            sellingPrice: dto.newBatch.sellingPrice,
+          },
+        });
+        batchId = created.id;
+      } else {
+        const batch = await tx.batch.findFirst({
+          where: { id: batchId!, tenantId, branchId, productId: dto.productId },
+        });
+        if (!batch) throw new BadRequestException("Batch does not match product/branch");
+      }
+
+      if (dto.movementType === "adjustment_out") {
+        const availableAgg = await tx.stockLedger.aggregate({
+          where: { tenantId, branchId, batchId: batchId! },
+          _sum: { qtyDelta: true },
+        });
+        const available = availableAgg._sum.qtyDelta ?? 0;
+        if (available < dto.qty) {
+          throw new BadRequestException("Insufficient stock for adjustment out");
+        }
+      }
+
+      await tx.stockLedger.create({
+        data: {
+          tenantId,
+          branchId,
+          productId: dto.productId,
+          batchId: batchId!,
+          movementType: dto.movementType as StockMovementType,
+          qtyDelta,
+          referenceType: "adjustment",
+          referenceId,
+          reason,
+          createdBy: userId,
+        },
+      });
+
+      return { batchId: batchId! };
     });
 
     await this.audit.log({
@@ -428,12 +521,19 @@ export class InventoryService {
       branchId,
       actorUserId: userId,
       eventName: "inventory.adjustment",
-      entityName: "stock_ledger",
-      entityId: referenceId,
-      payload: { movementType: dto.movementType, qty: dto.qty, reason: dto.reason ?? null },
+      entityName: "product",
+      entityId: dto.productId,
+      payload: {
+        movementType: dto.movementType,
+        qty: dto.qty,
+        reason,
+        batchId: result.batchId,
+        referenceId,
+        openedNewBatch: Boolean(dto.newBatch),
+      },
     });
 
-    return { ok: true, referenceId };
+    return { ok: true, referenceId, batchId: result.batchId };
   }
 
   async customerReturn(tenantId: string, branchId: string, userId: string, dto: CustomerReturnDto) {
@@ -451,6 +551,44 @@ export class InventoryService {
     });
     if (!batch) throw new BadRequestException("Invalid batch");
 
+    const priorReturned = await this.prisma.stockLedger.aggregate({
+      where: {
+        tenantId,
+        branchId,
+        productId: dto.productId,
+        batchId: dto.batchId,
+        movementType: StockMovementType.customer_return_in,
+        OR: [
+          { reason: `sale:${dto.saleId}` },
+          { reason: { startsWith: `sale:${dto.saleId}` } },
+        ],
+      },
+      _sum: { qtyDelta: true },
+    });
+    // Fallback for legacy returns without sale-tagged reason: cap by returns since sale for this line.
+    const legacyReturned = await this.prisma.stockLedger.aggregate({
+      where: {
+        tenantId,
+        branchId,
+        productId: dto.productId,
+        batchId: dto.batchId,
+        movementType: StockMovementType.customer_return_in,
+        occurredAt: { gte: sale.createdAt },
+        reason: null,
+      },
+      _sum: { qtyDelta: true },
+    });
+    const alreadyReturned =
+      (priorReturned._sum.qtyDelta ?? 0) + (legacyReturned._sum.qtyDelta ?? 0);
+    const remaining = line.qty - alreadyReturned;
+    if (dto.qty > remaining) {
+      throw new BadRequestException(
+        remaining <= 0
+          ? "This sale line has already been fully returned"
+          : `Only ${remaining} unit(s) remain returnable on this sale line`,
+      );
+    }
+
     const referenceId = randomUUID();
     await this.prisma.stockLedger.create({
       data: {
@@ -462,6 +600,7 @@ export class InventoryService {
         qtyDelta: dto.qty,
         referenceType: "customer_return",
         referenceId,
+        reason: `sale:${dto.saleId}`,
         createdBy: userId,
       },
     });
@@ -471,9 +610,9 @@ export class InventoryService {
       branchId,
       actorUserId: userId,
       eventName: "inventory.customer_return",
-      entityName: "stock_ledger",
-      entityId: referenceId,
-      payload: { saleId: dto.saleId, qty: dto.qty },
+      entityName: "product",
+      entityId: dto.productId,
+      payload: { saleId: dto.saleId, qty: dto.qty, batchId: dto.batchId, referenceId },
     });
 
     return { ok: true, referenceId };
@@ -485,24 +624,30 @@ export class InventoryService {
     });
     if (!batch) throw new BadRequestException("Invalid batch");
 
-    const available = await this.stock.qtyForBatch(tenantId, branchId, dto.batchId);
-    if (available < dto.qty) {
-      throw new BadRequestException("Insufficient stock for supplier return");
-    }
-
     const referenceId = randomUUID();
-    await this.prisma.stockLedger.create({
-      data: {
-        tenantId,
-        branchId,
-        productId: dto.productId,
-        batchId: dto.batchId,
-        movementType: StockMovementType.supplier_return_out,
-        qtyDelta: -dto.qty,
-        referenceType: "supplier_return",
-        referenceId,
-        createdBy: userId,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const availableAgg = await tx.stockLedger.aggregate({
+        where: { tenantId, branchId, batchId: dto.batchId },
+        _sum: { qtyDelta: true },
+      });
+      const available = availableAgg._sum.qtyDelta ?? 0;
+      if (available < dto.qty) {
+        throw new BadRequestException("Insufficient stock for supplier return");
+      }
+
+      await tx.stockLedger.create({
+        data: {
+          tenantId,
+          branchId,
+          productId: dto.productId,
+          batchId: dto.batchId,
+          movementType: StockMovementType.supplier_return_out,
+          qtyDelta: -dto.qty,
+          referenceType: "supplier_return",
+          referenceId,
+          createdBy: userId,
+        },
+      });
     });
 
     await this.audit.log({
@@ -510,11 +655,112 @@ export class InventoryService {
       branchId,
       actorUserId: userId,
       eventName: "inventory.supplier_return",
-      entityName: "stock_ledger",
-      entityId: referenceId,
-      payload: { qty: dto.qty },
+      entityName: "product",
+      entityId: dto.productId,
+      payload: { qty: dto.qty, batchId: dto.batchId, referenceId },
     });
 
     return { ok: true, referenceId };
+  }
+
+  async listMovements(
+    tenantId: string,
+    branchId: string,
+    query: MovementListQuery = {},
+  ) {
+    const take = Math.min(Math.max(query.take ?? 50, 1), 100);
+    const skip = Math.max(query.skip ?? 0, 0);
+    const category = query.category ?? "all";
+
+    const movementTypes =
+      category !== "all" ? MOVEMENT_CATEGORY_TYPES[category] : undefined;
+
+    const where = {
+      tenantId,
+      branchId,
+      ...(query.productId ? { productId: query.productId } : {}),
+      ...(movementTypes ? { movementType: { in: movementTypes } } : {}),
+    };
+
+    const [rawItems, total, positiveAgg, negativeAgg] = await Promise.all([
+      this.prisma.stockLedger.findMany({
+        where,
+        orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+        skip,
+        take,
+        include: {
+          batch: { select: { batchNo: true } },
+          actor: { select: { fullName: true } },
+          product: { select: { id: true, sku: true, name: true } },
+        },
+      }),
+      this.prisma.stockLedger.count({ where }),
+      this.prisma.stockLedger.aggregate({
+        where: { ...where, qtyDelta: { gt: 0 } },
+        _sum: { qtyDelta: true },
+      }),
+      this.prisma.stockLedger.aggregate({
+        where: { ...where, qtyDelta: { lt: 0 } },
+        _sum: { qtyDelta: true },
+      }),
+    ]);
+
+    let runningBalance: number | null = null;
+    if (query.productId) {
+      runningBalance = await this.stock.qtyForProductBranch(
+        tenantId,
+        branchId,
+        query.productId,
+      );
+      if (skip > 0) {
+        const newer = await this.prisma.stockLedger.findMany({
+          where,
+          orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+          take: skip,
+          select: { qtyDelta: true },
+        });
+        const newerSum = newer.reduce((acc, row) => acc + row.qtyDelta, 0);
+        runningBalance -= newerSum;
+      }
+    }
+
+    const items = rawItems.map((m) => {
+      let balanceBefore: number | null = null;
+      let balanceAfter: number | null = null;
+      if (runningBalance != null) {
+        balanceAfter = runningBalance;
+        balanceBefore = runningBalance - m.qtyDelta;
+        runningBalance = balanceBefore;
+      }
+      return {
+        id: m.id,
+        occurredAt: m.occurredAt.toISOString(),
+        movementType: m.movementType,
+        referenceType: m.referenceType,
+        referenceId: m.referenceId,
+        reason: m.reason ?? null,
+        batchNo: m.batch?.batchNo ?? null,
+        qtyDelta: m.qtyDelta,
+        balanceBefore,
+        balanceAfter,
+        actorName: m.actor?.fullName ?? null,
+        product: m.product,
+      };
+    });
+
+    const unitsIn = positiveAgg._sum.qtyDelta ?? 0;
+    const unitsOut = Math.abs(negativeAgg._sum.qtyDelta ?? 0);
+
+    return {
+      items,
+      total,
+      skip,
+      take,
+      summary: {
+        unitsIn,
+        unitsOut,
+        netDelta: unitsIn - unitsOut,
+      },
+    };
   }
 }

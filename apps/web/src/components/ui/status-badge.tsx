@@ -17,6 +17,7 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   paid: "success",
   draft: "muted",
   pending: "warning",
+  pending_approval: "warning",
   requested: "warning",
   partially_received: "warning",
   in_transit: "info",
@@ -30,6 +31,7 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   refunded: "danger",
   inactive: "muted",
   expired: "danger",
+  overdue: "danger",
 };
 
 type Props = {

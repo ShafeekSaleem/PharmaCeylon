@@ -20,20 +20,36 @@ const TABS = [
     label: "Adjustments",
     match: (p: string) => p.startsWith("/inventory/adjustments"),
   },
+  {
+    href: "/inventory/movements",
+    label: "Movements",
+    match: (p: string) => p.startsWith("/inventory/movements"),
+  },
 ] as const;
 
 export function InventorySubnav() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const productId = searchParams.get("productId");
+  const category = searchParams.get("category");
+  const querySuffix = (() => {
+    const params = new URLSearchParams();
+    if (productId) params.set("productId", productId);
+    if (category) params.set("category", category);
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  })();
 
   return (
     <nav className={css.subnav} aria-label="Inventory sections">
       {TABS.map((tab) => {
         const active = tab.match(pathname);
-        const href = productId
-          ? `${tab.href}?productId=${encodeURIComponent(productId)}`
-          : tab.href;
+        const href =
+          tab.href === "/inventory/movements" && category
+            ? `${tab.href}${querySuffix}`
+            : productId
+              ? `${tab.href}?productId=${encodeURIComponent(productId)}`
+              : tab.href;
         return (
           <Link
             key={tab.href}

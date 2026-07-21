@@ -38,6 +38,10 @@ export type Product = {
   dosageForm: string | null;
   strength: string | null;
   unit: string | null;
+  packSize: string | null;
+  storage: string | null;
+  shelfLife: string | null;
+  taxCategory: string | null;
   imageUrl: string | null;
   isControlled: boolean;
   reorderLevel: number;
@@ -61,6 +65,52 @@ export type ProductBatch = {
   costPrice: string;
   sellingPrice: string;
   receivedAt: string;
+  qtyOnHand: number;
+  daysToExpiry: number;
+  nearExpiry: boolean;
+  expired: boolean;
+  fefoPriority: number;
+};
+
+export type ProductBranchStockRow = {
+  branchId: string;
+  branchName: string;
+  qtyOnHand: number;
+  availableQty: number;
+  reservedQty: number;
+  reorderLevel: number;
+  stockStatus: StockStatus;
+  lastMovementAt: string | null;
+  lastMovementType: string | null;
+  isCurrentBranch: boolean;
+};
+
+export type ProductStockMovement = {
+  id: string;
+  occurredAt: string;
+  movementType: string;
+  referenceType: string;
+  referenceId: string;
+  reason?: string | null;
+  batchNo: string | null;
+  qtyDelta: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  actorName: string | null;
+};
+
+export type ProductBranchSummary = {
+  branchId: string;
+  branchName: string;
+  lastMovementAt: string | null;
+  nextExpiryBatchNo: string | null;
+  nextExpiryDate: string | null;
+  nextExpiryDays: number | null;
+  nearExpiryBatchCount: number;
+  primarySellingPrice: string | null;
+  primaryCostPrice: string | null;
+  marginPercent: number | null;
+  avgMonthlyUsage?: number | null;
 };
 
 export type ProductPricing = {
@@ -86,7 +136,11 @@ export type ProductDetail = {
   qtyOnHand: number | null;
   stockStatus: StockStatus | null;
   reorderGap: number | null;
+  branchName: string | null;
   batches: ProductBatch[];
+  branchStock: ProductBranchStockRow[];
+  movements: ProductStockMovement[];
+  branchSummary: ProductBranchSummary | null;
   pricing: ProductPricing;
   history: AuditHistoryItem[];
 };
@@ -116,6 +170,10 @@ export type ProductForm = {
   dosageForm: string;
   strength: string;
   unit: string;
+  packSize: string;
+  storage: string;
+  shelfLife: string;
+  taxCategory: string;
   imageUrl: string | null;
   reorderLevel: number;
   isControlled: boolean;

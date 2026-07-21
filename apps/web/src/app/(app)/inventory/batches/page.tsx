@@ -30,8 +30,8 @@ function BatchesContent() {
     const n = Number(nearExpiryParam);
     return Number.isFinite(n) && n > 0 ? n : null;
   })();
-  const { user } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user);
+  const { user, branchId } = useAuth();
+  const canWrite = hasInventoryWriteAccess(user, branchId);
 
   const [search, setSearch] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");

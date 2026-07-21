@@ -6,6 +6,7 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CreatePurchaseOrderDto } from "./dto/create-purchase-order.dto";
 import { ReceiveGoodsDto } from "./dto/receive-goods.dto";
+import { UpdatePurchaseOrderDto } from "./dto/update-purchase-order.dto";
 import { PurchasingService } from "./purchasing.service";
 
 @Controller("purchasing")
@@ -49,6 +50,17 @@ export class PurchasingController {
     @Param("id", ParseUUIDPipe) id: string,
   ) {
     return this.purchasing.issuePurchaseOrder(user.tenantId, branchId, user.userId, id);
+  }
+
+  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @Patch("purchase-orders/:id")
+  update(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePurchaseOrderDto,
+  ) {
+    return this.purchasing.updatePurchaseOrder(user.tenantId, branchId, user.userId, id, dto);
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)

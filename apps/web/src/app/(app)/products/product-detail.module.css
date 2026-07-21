@@ -15,7 +15,16 @@
 }
 
 .page {
-  max-width: 1280px;
+  width: 100%;
+  max-width: none;
+}
+
+.shell {
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .pageTop {
@@ -42,18 +51,872 @@
 }
 
 .hero {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 1.1rem 1.25rem 0.85rem;
+  margin-bottom: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--pc-border);
+  border-radius: 0;
+}
+
+.heroTop {
   display: grid;
-  grid-template-columns: minmax(140px, 200px) 1fr auto;
-  gap: 1.25rem 1.5rem;
-  padding: 1.35rem 1.5rem;
-  margin-bottom: 1rem;
-  background: var(--pc-card-bg);
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 8px);
+  grid-template-columns: minmax(120px, 168px) minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 0.55rem 1.15rem;
+  align-items: start;
 }
 
 .heroImageCol {
+  grid-row: 1 / 3;
   position: relative;
+}
+
+.heroMain {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  align-self: end;
+  padding-bottom: 0.15rem;
+}
+
+.heroActions {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: start;
+}
+
+.heroChangeImageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  margin-top: 0.45rem;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.heroChangeImageBtn:hover:not(:disabled) {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.heroEditBtn,
+.heroDeleteBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.48rem 0.85rem;
+  border-radius: var(--pc-radius-sm);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.heroEditBtn {
+  border: none;
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text, #fff);
+}
+
+.heroEditBtn:hover {
+  background: var(--pc-primary-hover, var(--pc-primary));
+}
+
+.heroDeleteBtn {
+  border: 1px solid #ef4444;
+  background: var(--pc-card-bg);
+  color: #dc2626;
+}
+
+.heroDeleteBtn:hover {
+  background: color-mix(in srgb, #ef4444 8%, var(--pc-card-bg));
+  border-color: #dc2626;
+}
+
+.heroDeleteBtn svg {
+  color: #dc2626;
+}
+
+.heroMetrics {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  overflow: hidden;
+  margin-bottom: 0;
+}
+
+.heroMetricTile {
+  position: relative;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.08rem;
+  min-width: 0;
+  padding: 0.55rem 0.65rem 0.55rem 0.7rem;
+  border: none;
+  border-right: 1px solid var(--pc-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.heroMetricTile:last-child {
+  border-right: none;
+}
+
+.heroMetricLabel {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-muted-fg);
+}
+
+.heroMetricValue {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.heroMetricSub {
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+}
+
+.heroMetricIcon {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--pc-radius-sm);
+}
+
+.heroMetricIconPrimary {
+  background: color-mix(in srgb, var(--pc-primary) 12%, transparent);
+  color: var(--pc-primary);
+}
+
+.heroMetricIconInfo {
+  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+  color: #0ea5e9;
+}
+
+.heroMetricIconSuccess {
+  background: color-mix(in srgb, var(--pc-success) 12%, transparent);
+  color: var(--pc-success);
+}
+
+.sectionNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin-right: 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-primary) 12%, var(--pc-card-bg));
+  color: var(--pc-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.standardBadge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.06rem 0.38rem;
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.kpiGrid {
+  margin-top: 0.25rem;
+}
+
+.stockKpiRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.stockKpiTile {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+}
+
+.stockKpiIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: var(--pc-radius-sm);
+  flex-shrink: 0;
+}
+
+.stockKpiIcon_success {
+  background: color-mix(in srgb, var(--pc-alert-success-text, #16a34a) 12%, transparent);
+  color: var(--pc-alert-success-text, #16a34a);
+}
+
+.stockKpiIcon_warning {
+  background: color-mix(in srgb, var(--pc-warning, #d97706) 12%, transparent);
+  color: var(--pc-warning, #d97706);
+}
+
+.stockKpiIcon_danger {
+  background: color-mix(in srgb, var(--pc-destructive, #dc2626) 12%, transparent);
+  color: var(--pc-destructive, #dc2626);
+}
+
+.stockKpiIcon_info {
+  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+  color: #0ea5e9;
+}
+
+.stockKpiIcon_primary {
+  background: color-mix(in srgb, var(--pc-primary) 12%, transparent);
+  color: var(--pc-primary);
+}
+
+.stockKpiBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.stockKpiLabel {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted-fg);
+  line-height: 1.2;
+}
+
+.stockKpiValue {
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.stockKpiSub {
+  font-size: 0.65rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.2;
+}
+
+.stockTable td {
+  font-size: 0.82rem;
+}
+
+.numCell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+.movementMetaCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  font-size: 0.8rem;
+  color: var(--pc-foreground);
+}
+
+.movementMetaType {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.batchNoLink {
+  font-weight: 600;
+  color: var(--pc-primary);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.batchNoLink:hover {
+  text-decoration: underline;
+}
+
+.expirySub {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.expirySub.expiry_warn {
+  color: var(--pc-warning, #d97706);
+}
+
+.expirySub.expiry_danger {
+  color: var(--pc-destructive, #dc2626);
+}
+
+.expirySub.expiry_ok {
+  color: var(--pc-muted-fg);
+}
+
+.qtyPositive {
+  color: var(--pc-alert-success-text, #16a34a);
+  font-variant-numeric: tabular-nums;
+}
+
+.qtyNegative {
+  color: var(--pc-destructive, #dc2626);
+  font-variant-numeric: tabular-nums;
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.dataTable th,
+.dataTable td {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--pc-border);
+  vertical-align: middle;
+}
+
+.dataTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.dataTable th {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+  background: transparent;
+}
+
+.sectionHeadFilter {
+  flex-shrink: 0;
+  min-width: 11rem;
+}
+
+.branchNameCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.branchPill {
+  display: inline-flex;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 28%, transparent);
+  color: var(--pc-primary);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.statusDot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.statusDot::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pc-muted-fg);
+}
+
+.status_ok::before {
+  background: var(--pc-success);
+}
+
+.status_low::before {
+  background: var(--pc-warning);
+}
+
+.status_out::before {
+  background: var(--pc-danger);
+}
+
+.expiryCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.fefoBadge {
+  display: inline-flex;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.fefoHighest {
+  background: color-mix(in srgb, var(--pc-warning) 12%, var(--pc-card-bg));
+  border-color: var(--pc-alert-warning-border);
+  color: var(--pc-alert-warning-text);
+}
+
+.activeBadge,
+.primaryBadge {
+  display: inline-flex;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.activeBadge {
+  background: color-mix(in srgb, var(--pc-success) 12%, transparent);
+  color: var(--pc-success);
+}
+
+.primaryBadge {
+  margin-left: 0.35rem;
+  background: color-mix(in srgb, var(--pc-primary) 12%, transparent);
+  color: var(--pc-primary);
+}
+
+.pricingFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.batchNoCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+
+.tableActionCell {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.tableActionCell .sectionActionBtn {
+  padding: 0.28rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+.tableMenuBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tableMenuBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.historyDateFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2rem;
+  padding: 0 0.55rem 0 0.7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.historyDateSelect {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding-right: 0.15rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.historyActivityCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.historyActivityIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.historyActivityIcon_primary {
+  background: color-mix(in srgb, var(--pc-primary) 12%, transparent);
+  color: var(--pc-primary);
+}
+
+.historyActivityIcon_success {
+  background: color-mix(in srgb, var(--pc-success, #16a34a) 12%, transparent);
+  color: var(--pc-success, #16a34a);
+}
+
+.historyActivityIcon_warning {
+  background: color-mix(in srgb, var(--pc-warning, #d97706) 12%, transparent);
+  color: var(--pc-warning, #d97706);
+}
+
+.historyActivityIcon_danger {
+  background: color-mix(in srgb, var(--pc-destructive, #dc2626) 12%, transparent);
+  color: var(--pc-destructive, #dc2626);
+}
+
+.historyActivityIcon_info {
+  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+  color: #0ea5e9;
+}
+
+.sideCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.sideCardHead .sideCardTitle {
+  margin-bottom: 0;
+}
+
+.sideCardLink {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  text-decoration: none;
+}
+
+.sideCardLink:hover {
+  text-decoration: underline;
+}
+
+.sideNoteText {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--pc-muted-fg);
+}
+
+.sideEmptyText {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.sideChangeList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sideChangeItem {
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.sideChangeItem:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.sideChangeHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.sideChangeEvent {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.sideChangeTime {
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.sideChangeSummary {
+  margin: 0 0 0.2rem;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.4;
+}
+
+.sideChangeActor {
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+}
+
+.pricingStrip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.pricingStripItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-muted-bg);
+}
+
+.pricingStripItem span {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted-fg);
+}
+
+.pricingStripItem strong {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.historyToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.filterPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.filterPill {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filterPill:hover {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.filterPillActive {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
+  color: var(--pc-primary);
+}
+
+.paginationBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.paginationControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pageBtn {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.pageBtn:hover:not(:disabled) {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.pageBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pageBtnActive {
+  border-color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
+  color: var(--pc-primary);
+  font-weight: 700;
+}
+
+.paginationMeta {
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.navChevron {
+  color: var(--pc-muted-fg);
+  flex-shrink: 0;
+}
+
+.navSoonBadge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  border: 1px solid var(--pc-border);
+}
+
+.branchSummaryList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0 0 0.85rem;
+}
+
+.branchSummaryRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.2rem;
+}
+
+.branchSummaryRow dt {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted-fg);
+}
+
+.branchSummaryRow dd {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--pc-foreground);
+}
+
+.sidebarColumn .branchSummaryRow dd {
+  font-size: 0.78rem;
+}
+
+.sidebarColumn .branchSummaryRow dt {
+  font-size: 0.68rem;
+}
+
+.nextExpiryCell {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  color: var(--pc-alert-warning-text);
+}
+
+.sectionLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  flex-shrink: 0;
 }
 
 .heroImageFrame {
@@ -118,20 +981,16 @@
   justify-content: center;
 }
 
-.heroMain {
-  min-width: 0;
-}
-
 .heroTitle {
-  margin: 0 0 0.25rem;
-  font-size: 1.5rem;
+  margin: 0 0 0.2rem;
+  font-size: 1.35rem;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 .heroGeneric {
-  margin: 0 0 0.65rem;
-  font-size: 0.95rem;
+  margin: 0 0 0.45rem;
+  font-size: 0.88rem;
   color: var(--pc-muted-fg);
 }
 
@@ -139,14 +998,14 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
 }
 
 .heroSku {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--pc-muted-fg);
-  margin: 0 0 0.65rem;
+  margin: 0;
 }
 
 .heroStats {
@@ -257,6 +1116,173 @@
   color: var(--pc-btn-primary-text, #fff);
 }
 
+.bodyLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 28%);
+  align-items: start;
+}
+
+.pageLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 22%);
+  align-items: start;
+}
+
+.mainColumn {
+  min-width: 0;
+  border-right: 1px solid var(--pc-border);
+}
+
+.sidebarColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1.1rem 0.85rem 1rem 0.75rem;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: calc(100vh - 6rem);
+  overflow-y: auto;
+}
+
+.tabPanel {
+  min-width: 0;
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.tabPanelCompact {
+  padding: 0.7rem 1.25rem 0.75rem;
+}
+
+.tabPanelCompact .section {
+  margin-bottom: 0.6rem;
+}
+
+.tabPanelCompact .sectionHead {
+  margin-bottom: 0.45rem;
+  padding-bottom: 0.3rem;
+}
+
+.tabPanelCompact .sectionTitle {
+  margin-bottom: 0.45rem;
+  padding-bottom: 0.3rem;
+  font-size: 0.72rem;
+}
+
+.tabPanelCompact .fieldGrid,
+.tabPanelCompact .recordGrid {
+  gap: 0.45rem;
+}
+
+.tabPanelCompact .field {
+  padding: 0.42rem 0.55rem;
+  gap: 0.12rem;
+}
+
+.tabPanelCompact .fieldLabel {
+  font-size: 0.62rem;
+}
+
+.tabPanelCompact .fieldValue {
+  font-size: 0.82rem;
+}
+
+.tabPanelCompact .taxonomyGrid {
+  gap: 0.55rem;
+}
+
+.tabPanelCompact .taxonomyCard {
+  padding: 0.6rem 0.7rem;
+  gap: 0.45rem;
+}
+
+.tabPanelCompact .taxonomyCardTitle {
+  font-size: 0.82rem;
+}
+
+.tabPanelCompact .taxonomyChip {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.tabPanelCompact .sectionNumber {
+  width: 1.15rem;
+  height: 1.15rem;
+  font-size: 0.65rem;
+  margin-right: 0.35rem;
+}
+
+.controlledFieldBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.06rem 0.38rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.35;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  color: var(--pc-muted-fg);
+}
+
+.controlledFieldBadgeYes {
+  color: #fff;
+  background: #f59e0b;
+  border-color: #f59e0b;
+}
+
+.sectionActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.6rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  cursor: pointer;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.sectionActionBtn:hover {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.sectionActionBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sectionActionBtn:disabled:hover {
+  border-color: var(--pc-border);
+  color: var(--pc-foreground);
+}
+
+.nextExpiryBadge {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.28rem;
+  padding: 0.28rem 0.45rem;
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, #f59e0b 14%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
+  color: var(--pc-foreground);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.nextExpiryBadge svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: #d97706;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 1fr minmax(260px, 300px);
@@ -266,16 +1292,13 @@
 
 .mainCol {
   min-width: 0;
-  background: var(--pc-card-bg);
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 8px);
   overflow: hidden;
 }
 
 .tabs {
   display: flex;
   gap: 0;
-  padding: 0 1rem;
+  padding: 0 1.25rem;
   border-bottom: 1px solid var(--pc-border);
   overflow-x: auto;
   scrollbar-width: none;
@@ -292,12 +1315,12 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.75rem 1rem;
+  padding: 0.6rem 0.85rem;
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 500;
   color: var(--pc-muted-fg);
   cursor: pointer;
@@ -342,10 +1365,6 @@
   border-bottom-color: var(--pc-primary);
 }
 
-.tabPanel {
-  padding: 1.25rem 1.5rem 1.5rem;
-}
-
 .section {
   margin-bottom: 1.5rem;
 }
@@ -370,19 +1389,6 @@
   border-bottom: none;
 }
 
-.sectionLink {
-  border: none;
-  background: transparent;
-  padding: 0;
-  font-family: inherit;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--pc-primary);
-  cursor: pointer;
-  text-decoration: underline;
-  flex-shrink: 0;
-}
-
 .sectionTitle {
   margin: 0 0 0.75rem;
   padding-bottom: 0.45rem;
@@ -396,8 +1402,18 @@
 
 .fieldGrid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.65rem;
+}
+
+.recordGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.fieldWide {
+  grid-column: 1 / -1;
 }
 
 .field {
@@ -406,8 +1422,18 @@
   gap: 0.2rem;
   padding: 0.65rem 0.75rem;
   border-radius: var(--pc-radius-sm);
-  background: var(--pc-muted-bg);
-  border: 1px solid color-mix(in srgb, var(--pc-border) 80%, transparent);
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+}
+
+.fieldWithBadge {
+  align-items: flex-start;
+}
+
+.fieldWithBadge .controlledFieldBadge,
+.fieldWithBadge .standardBadge {
+  width: auto;
+  max-width: max-content;
 }
 
 .fieldLabel {
@@ -494,18 +1520,18 @@
 
 .taxonomyGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.85rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
 }
 
 .taxonomyCard {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.55rem;
   min-width: 0;
-  padding: 0.9rem 1rem;
+  padding: 0.75rem 0.85rem;
   border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 10px);
+  border-radius: var(--pc-radius-sm);
   background: var(--pc-card-bg);
 }
 
@@ -803,21 +1829,25 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.85rem;
+  padding: 1rem 1rem 1.25rem;
   position: sticky;
-  top: 1rem;
+  top: 0;
+  align-self: start;
+  max-height: calc(100vh - 8rem);
+  overflow-y: auto;
 }
 
 .sideCard {
-  padding: 1rem 1.1rem;
+  padding: 0.65rem 0.75rem;
   background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 8px);
+  border-radius: var(--pc-radius-sm);
 }
 
 .sideCardTitle {
-  margin: 0 0 0.75rem;
-  font-size: 0.78rem;
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -827,23 +1857,23 @@
 .navGrid {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
 }
 
 .navItem {
   display: block;
-  padding: 0.65rem 0.75rem;
+  padding: 0.42rem 0.5rem;
   border-radius: var(--pc-radius-sm);
-  border: 1px solid var(--pc-border);
-  background: var(--pc-muted-bg);
+  border: 1px solid transparent;
+  background: transparent;
   text-decoration: none;
   color: inherit;
   transition: border-color 0.15s, background 0.15s;
 }
 
 .navItem:hover {
-  border-color: color-mix(in srgb, var(--pc-primary) 40%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-card-bg));
+  border-color: var(--pc-border);
+  background: var(--pc-card-bg);
 }
 
 .navItemDisabled {
@@ -899,6 +1929,15 @@
   font-size: 0.78rem;
   color: var(--pc-muted-fg);
   line-height: 1.35;
+}
+
+.sidebarColumn .navItemDesc {
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.sidebarColumn .navItemLabelRow {
+  font-size: 0.82rem;
 }
 
 .chipList {
@@ -1179,14 +2218,46 @@
   height: 1rem;
 }
 
+.skeletonShell {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  overflow: hidden;
+  background: var(--pc-card-bg);
+}
+
+.skeletonMetrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 0 1.5rem 1rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.skeletonMetric {
+  height: 4.5rem;
+  border-radius: var(--pc-radius-sm);
+}
+
+.skeletonBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 22%);
+  gap: 0;
+  align-items: start;
+}
+
+.skeletonMainCol {
+  border-right: 1px solid var(--pc-border);
+}
+
+.skeletonSideCol {
+  padding: 1.1rem 0.85rem 1rem 0.75rem;
+}
+
 .skeletonHero {
   display: grid;
   grid-template-columns: 160px 1fr;
   gap: 1.25rem;
-  padding: 1.35rem 1.5rem;
-  background: var(--pc-card-bg);
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 8px);
+  padding: 1.35rem 1.5rem 1rem;
 }
 
 .skeletonImage {
@@ -1226,18 +2297,13 @@
   height: 2.25rem;
 }
 
-.skeletonLayout {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 1rem;
-}
-
 .skeletonMain {
-  height: 420px;
+  height: 360px;
 }
 
 .skeletonSide {
-  height: 320px;
+  height: 280px;
+  border-radius: var(--pc-radius-sm);
 }
 
 .imageZoomBackdrop {
@@ -1266,34 +2332,85 @@
   right: 1rem;
 }
 
+@media (max-width: 1100px) {
+  .heroMetrics {
+    flex-wrap: wrap;
+  }
+
+  .heroMetricTile {
+    flex: 1 1 calc(33.333% - 1px);
+    min-width: 7.5rem;
+    border-bottom: 1px solid var(--pc-border);
+  }
+
+  .stockKpiRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fieldGrid,
+  .recordGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pageLayout,
+  .bodyLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .mainColumn {
+    border-right: none;
+    border-bottom: 1px solid var(--pc-border);
+  }
+
+  .sidebarColumn {
+    position: static;
+    max-height: none;
+  }
+}
+
 @media (max-width: 900px) {
-  .hero {
+  .heroTop {
     grid-template-columns: 120px 1fr;
+  }
+  .heroMetrics {
+    grid-column: 1 / -1;
   }
   .heroActions {
     grid-column: 1 / -1;
     flex-direction: row;
     justify-content: flex-end;
   }
-  .layout {
-    grid-template-columns: 1fr;
-  }
-  .sidebar {
-    position: static;
-  }
-  .skeletonLayout {
-    grid-template-columns: 1fr;
+  .pricingStrip,
+  .pricingFieldGrid {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
 @media (max-width: 640px) {
-  .hero {
+  .heroTop {
     grid-template-columns: 1fr;
   }
   .heroImageCol {
     max-width: 200px;
   }
-  .fieldGrid {
+  .heroMetrics {
+    flex-direction: column;
+  }
+
+  .heroMetricTile {
+    border-right: none;
+    border-bottom: 1px solid var(--pc-border);
+  }
+
+  .heroMetricTile:last-child {
+    border-bottom: none;
+  }
+
+  .pricingStrip {
+    grid-template-columns: 1fr;
+  }
+  .fieldGrid,
+  .recordGrid {
     grid-template-columns: 1fr;
   }
   .metaPanels,

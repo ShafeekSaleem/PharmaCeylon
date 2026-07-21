@@ -1,21 +1,30 @@
 import type { AuthUser } from "@/lib/auth-types";
 import { ADJUST_OUT_ROLES, WRITE_ROLES, type StockStatus } from "./types";
 
-export function hasInventoryWriteAccess(user: AuthUser | null): boolean {
+export function hasInventoryWriteAccess(
+  user: AuthUser | null,
+  branchId?: string | null,
+): boolean {
   if (!user) return false;
-  if (user.roles.some((r) => WRITE_ROLES.has(r))) return true;
-  return user.branchRoles.some((br) => WRITE_ROLES.has(br.role));
+  if (user.branchRoles.some((br) => br.role === "owner")) return true;
+  const scoped = branchId
+    ? user.branchRoles.filter((br) => br.branchId === branchId)
+    : user.branchRoles;
+  return scoped.some((br) => WRITE_ROLES.has(br.role));
 }
 
-export function canAdjustOut(user: AuthUser | null): boolean {
+export function canAdjustOut(user: AuthUser | null, branchId?: string | null): boolean {
   if (!user) return false;
-  if (user.roles.some((r) => ADJUST_OUT_ROLES.has(r))) return true;
-  return user.branchRoles.some((br) => ADJUST_OUT_ROLES.has(br.role));
+  if (user.branchRoles.some((br) => br.role === "owner")) return true;
+  const scoped = branchId
+    ? user.branchRoles.filter((br) => br.branchId === branchId)
+    : user.branchRoles;
+  return scoped.some((br) => ADJUST_OUT_ROLES.has(br.role));
 }
 
 export function stockStatusLabel(status: StockStatus | null | undefined): string {
   if (status === "out") return "Out of stock";
-  if (status === "low") return "Low";
+  if (status === "low") return "Low stock";
   if (status === "ok") return "Healthy";
   return "—";
 }

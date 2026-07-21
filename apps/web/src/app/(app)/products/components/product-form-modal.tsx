@@ -99,7 +99,7 @@ export function ProductFormModal({
             value={form.barcode}
             onChange={(e) => onFieldChange("barcode", (e.target as HTMLInputElement).value)}
             disabled={saving}
-            placeholder="Optional"
+            placeholder="Scan or enter barcode"
           />
           <FormField
             label="Name"
@@ -111,11 +111,12 @@ export function ProductFormModal({
             placeholder="Product name"
           />
           <FormField
-            label="Generic Name"
+            label="Generic name"
             value={form.genericName}
             onChange={(e) => onFieldChange("genericName", (e.target as HTMLInputElement).value)}
+            error={fieldErrors.genericName}
             disabled={saving}
-            placeholder="Optional"
+            placeholder="e.g. Paracetamol"
           />
         </div>
       </div>
@@ -127,19 +128,20 @@ export function ProductFormModal({
           value={form.brandName}
           onChange={(e) => onFieldChange("brandName", (e.target as HTMLInputElement).value)}
           disabled={saving}
-          placeholder="Brand name"
+          placeholder="e.g. Panadol"
         />
         <FormField
           label="Manufacturer"
           value={form.manufacturer}
           onChange={(e) => onFieldChange("manufacturer", (e.target as HTMLInputElement).value)}
           disabled={saving}
-          placeholder="Manufacturer"
+          placeholder="e.g. GlaxoSmithKline"
         />
         <FormField
-          label="Dosage Form"
+          label="Dosage form"
           value={form.dosageForm}
           onChange={(e) => onFieldChange("dosageForm", (e.target as HTMLInputElement).value)}
+          error={fieldErrors.dosageForm}
           disabled={saving}
           placeholder="e.g. Tablet, Capsule"
         />
@@ -147,6 +149,7 @@ export function ProductFormModal({
           label="Strength"
           value={form.strength}
           onChange={(e) => onFieldChange("strength", (e.target as HTMLInputElement).value)}
+          error={fieldErrors.strength}
           disabled={saving}
           placeholder="e.g. 500mg"
         />
@@ -154,8 +157,46 @@ export function ProductFormModal({
           label="Unit"
           value={form.unit}
           onChange={(e) => onFieldChange("unit", (e.target as HTMLInputElement).value)}
+          error={fieldErrors.unit}
           disabled={saving}
-          placeholder="e.g. Strip, Bottle"
+          placeholder="e.g. strip, bottle"
+        />
+      </div>
+
+      <h3 className={css.sectionTitle}>Specifications &amp; compliance</h3>
+      <div className={css.twoCol}>
+        <FormField
+          label="Pack size"
+          value={form.packSize}
+          onChange={(e) => onFieldChange("packSize", (e.target as HTMLInputElement).value)}
+          error={fieldErrors.packSize}
+          disabled={saving}
+          placeholder="e.g. 30 tablets"
+        />
+        <FormField
+          label="Shelf life"
+          value={form.shelfLife}
+          onChange={(e) => onFieldChange("shelfLife", (e.target as HTMLInputElement).value)}
+          error={fieldErrors.shelfLife}
+          disabled={saving}
+          placeholder="e.g. 24 months"
+        />
+        <FormField
+          label="Storage"
+          value={form.storage}
+          onChange={(e) => onFieldChange("storage", (e.target as HTMLInputElement).value)}
+          error={fieldErrors.storage}
+          disabled={saving}
+          placeholder="e.g. Store below 25°C"
+          as="textarea"
+          rows={2}
+        />
+        <FormField
+          label="Tax category"
+          value={form.taxCategory}
+          onChange={(e) => onFieldChange("taxCategory", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+          placeholder="e.g. Standard rate"
         />
       </div>
 
@@ -204,7 +245,7 @@ export function ProductFormModal({
         </>
       )}
 
-      <h3 className={css.sectionTitle}>Inventory &amp; compliance</h3>
+      <h3 className={css.sectionTitle}>Inventory</h3>
       <div className={css.complianceGrid}>
         <div className={css.formBox}>
           <div className={css.formBoxLabelRow}>

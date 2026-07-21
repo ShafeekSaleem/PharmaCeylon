@@ -98,5 +98,40 @@ export type StockView = "all" | "ok" | "low" | "out" | "expiring";
 export type StockStatusFilter = "all" | "ok" | "low" | "out";
 export type ExpiryFilter = "all" | "near" | "expired" | "ok";
 
+export type MovementCategory =
+  | "all"
+  | "adjustments"
+  | "sales"
+  | "purchases"
+  | "transfers"
+  | "returns";
+
+export type MovementRow = {
+  id: string;
+  occurredAt: string;
+  movementType: string;
+  referenceType: string;
+  referenceId: string;
+  reason?: string | null;
+  batchNo: string | null;
+  qtyDelta: number;
+  balanceBefore: number | null;
+  balanceAfter: number | null;
+  actorName: string | null;
+  product: { id: string; sku: string; name: string };
+};
+
+export type MovementList = {
+  items: MovementRow[];
+  total: number;
+  skip: number;
+  take: number;
+  summary: {
+    unitsIn: number;
+    unitsOut: number;
+    netDelta: number;
+  };
+};
+
 export const WRITE_ROLES = new Set(["owner", "manager", "inventory_clerk"]);
 export const ADJUST_OUT_ROLES = new Set(["owner", "manager"]);

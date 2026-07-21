@@ -52,6 +52,26 @@ export class UpdateProductDto extends ProductRelationsDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(128)
+  packSize?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  storage?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  shelfLife?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  taxCategory?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(512)
   imageUrl?: string | null;
 

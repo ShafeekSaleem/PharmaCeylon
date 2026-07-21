@@ -58,7 +58,7 @@ function tabCount(detail: ProductDetail | null, key?: string): number | undefine
 export function ProductDetailPage({ productId }: { productId: string }) {
   const router = useRouter();
   const { user, branchId } = useAuth();
-  const canWrite = hasWriteAccess(user);
+  const canWrite = hasWriteAccess(user, branchId);
   const { setLastSegmentLabel, setExtraCrumbs } = usePageChrome();
   const { tab, setTab, returnTo } = useProductDetailUrl(productId);
   const { categories, tags, refresh: refreshMeta } = useProductMeta();
@@ -129,66 +129,83 @@ export function ProductDetailPage({ productId }: { productId: string }) {
 
   return (
     <div className={detailCss.page}>
-      <div className={detailCss.pageTop}>
-        <Link href={returnTo} className={detailCss.backLink}>
-          ← Back to products
-        </Link>
-      </div>
-
       <ProductBranchNotice />
 
-      <ProductDetailHero
-        product={product}
-        detail={detail}
-        canWrite={canWrite}
-        onEdit={() => mutations.openEdit(product)}
-        onDelete={() => mutations.openDelete(product)}
-        onImageChanged={() => void reloadDetail()}
-      />
+      <div className={detailCss.shell}>
+        <div className={detailCss.pageLayout}>
+          <div className={detailCss.mainColumn}>
+            <ProductDetailHero
+              product={product}
+              detail={detail}
+              canWrite={canWrite}
+              onEdit={() => mutations.openEdit(product)}
+              onDelete={() => mutations.openDelete(product)}
+              onImageChanged={() => void reloadDetail()}
+            />
 
-      <div className={detailCss.layout}>
-        <div className={detailCss.mainCol}>
-          <div className={detailCss.tabs} role="tablist">
-            {TAB_DEFS.map((t) => {
-              const count = tabCount(detail, t.countKey);
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === t.id}
-                  className={`${detailCss.tab} ${tab === t.id ? detailCss.tabActive : ""}`}
-                  onClick={() => setTab(t.id)}
-                >
-                  <span className={detailCss.tabIcon}>{t.icon}</span>
-                  {t.label}
-                  {count != null && count > 0 && (
-                    <span className={detailCss.tabCount}>{count}</span>
-                  )}
-                </button>
-              );
-            })}
+            <div className={detailCss.tabs} role="tablist">
+              {TAB_DEFS.map((t) => {
+                const count = tabCount(detail, t.countKey);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t.id}
+                    className={`${detailCss.tab} ${tab === t.id ? detailCss.tabActive : ""}`}
+                    onClick={() => setTab(t.id)}
+                  >
+                    <span className={detailCss.tabIcon}>{t.icon}</span>
+                    {t.label}
+                    {count != null && count > 0 && (
+                      <span className={detailCss.tabCount}>{count}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div
+              className={`${detailCss.tabPanel}${
+                tab === "overview" ? ` ${detailCss.tabPanelCompact}` : ""
+              }`}
+              role="tabpanel"
+            >
+              {tab === "overview" && (
+                <ProductDetailOverviewTab
+                  product={product}
+                  canWrite={canWrite}
+                  onEditAssignments={() => mutations.openEdit(product)}
+                  onAliasesChanged={() => void reloadDetail()}
+                />
+              )}
+              {tab === "stock" && (
+                <ProductDetailStockTab product={product} detail={detail} />
+              )}
+              {tab === "pricing" && (
+                <ProductDetailPricingTab
+                  product={product}
+                  detail={detail}
+                  branchName={detail.branchName}
+                />
+              )}
+              {tab === "history" && (
+                <ProductDetailHistoryTab
+                  history={detail.history}
+                  onSelectTab={setTab}
+                />
+              )}
+            </div>
           </div>
 
-          <div className={detailCss.tabPanel} role="tabpanel">
-            {tab === "overview" && (
-              <ProductDetailOverviewTab
-                product={product}
-                canWrite={canWrite}
-                onAliasesChanged={() => void reloadDetail()}
-              />
-            )}
-            {tab === "stock" && (
-              <ProductDetailStockTab product={product} detail={detail} />
-            )}
-            {tab === "pricing" && <ProductDetailPricingTab detail={detail} />}
-            {tab === "history" && (
-              <ProductDetailHistoryTab product={product} history={detail.history} />
-            )}
-          </div>
+          <ProductDetailSidebar
+            activeTab={tab}
+            navLinks={navLinks}
+            detail={detail}
+            product={product}
+            productId={productId}
+          />
         </div>
-
-        <ProductDetailSidebar navLinks={navLinks} />
       </div>
 
       <ProductMetaManagerModal

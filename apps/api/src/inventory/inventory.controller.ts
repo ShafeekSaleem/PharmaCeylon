@@ -7,7 +7,7 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import { CustomerReturnDto } from "./dto/customer-return.dto";
 import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
 import { SupplierReturnDto } from "./dto/supplier-return.dto";
-import { InventoryService, type SummaryPeriod } from "./inventory.service";
+import { InventoryService, type MovementCategory, type SummaryPeriod } from "./inventory.service";
 
 @Controller("inventory")
 export class InventoryController {
@@ -84,6 +84,43 @@ export class InventoryController {
         ? (period as SummaryPeriod)
         : "this_month";
     return this.inventory.summary(user.tenantId, branchId, key);
+  }
+
+  @Roles(
+    RoleName.owner,
+    RoleName.manager,
+    RoleName.pharmacist,
+    RoleName.cashier,
+    RoleName.inventory_clerk,
+    RoleName.analyst,
+  )
+  @Get("movements")
+  movements(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("productId") productId?: string,
+    @Query("category") category?: string,
+    @Query("skip") skip?: string,
+    @Query("take") take?: string,
+  ) {
+    const allowed = new Set<MovementCategory>([
+      "all",
+      "adjustments",
+      "sales",
+      "purchases",
+      "transfers",
+      "returns",
+    ]);
+    const cat: MovementCategory =
+      category && allowed.has(category as MovementCategory)
+        ? (category as MovementCategory)
+        : "all";
+    return this.inventory.listMovements(user.tenantId, branchId, {
+      productId: productId || undefined,
+      category: cat,
+      skip: skip ? Number(skip) : undefined,
+      take: take ? Number(take) : undefined,
+    });
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)

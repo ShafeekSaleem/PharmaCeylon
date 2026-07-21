@@ -2,10 +2,17 @@ import type { AuthUser } from "@/lib/auth-types";
 import { COLUMN_META, DEFAULT_VISIBLE, WRITE_ROLES } from "./constants";
 import type { ColumnKey, Product, ProductForm } from "./types";
 
-export function hasWriteAccess(user: { roles: string[]; branchRoles: { role: string }[] } | null): boolean {
+export function hasWriteAccess(
+  user: { roles: string[]; branchRoles: { branchId: string; role: string }[] } | null,
+  branchId?: string | null,
+): boolean {
   if (!user) return false;
   if (user.roles.some((r) => WRITE_ROLES.has(r))) return true;
-  return user.branchRoles.some((br) => WRITE_ROLES.has(br.role));
+  const scoped = branchId
+    ? user.branchRoles.filter((br) => br.branchId === branchId)
+    : user.branchRoles;
+  if (user.branchRoles.some((br) => br.role === "owner")) return true;
+  return scoped.some((br) => WRITE_ROLES.has(br.role));
 }
 
 export function formToBody(form: ProductForm, isEdit: boolean) {
@@ -18,6 +25,10 @@ export function formToBody(form: ProductForm, isEdit: boolean) {
     dosageForm: form.dosageForm.trim() || null,
     strength: form.strength.trim() || null,
     unit: form.unit.trim() || null,
+    packSize: form.packSize.trim() || null,
+    storage: form.storage.trim() || null,
+    shelfLife: form.shelfLife.trim() || null,
+    taxCategory: form.taxCategory.trim() || null,
     imageUrl: form.imageUrl || null,
     reorderLevel: form.reorderLevel,
     isControlled: form.isControlled,
@@ -43,6 +54,10 @@ export function productToForm(product: Product): ProductForm {
     dosageForm: product.dosageForm ?? "",
     strength: product.strength ?? "",
     unit: product.unit ?? "",
+    packSize: product.packSize ?? "",
+    storage: product.storage ?? "",
+    shelfLife: product.shelfLife ?? "",
+    taxCategory: product.taxCategory ?? "",
     imageUrl: product.imageUrl,
     reorderLevel: product.reorderLevel,
     isControlled: product.isControlled,

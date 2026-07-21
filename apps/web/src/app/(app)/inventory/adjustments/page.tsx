@@ -17,11 +17,25 @@ import { canAdjustOut, hasInventoryWriteAccess } from "../utils";
 
 type MovementType = "adjustment_in" | "adjustment_out";
 
+type NewBatchForm = {
+  batchNo: string;
+  expiryDate: string;
+  costPrice: string;
+  sellingPrice: string;
+};
+
+const EMPTY_NEW_BATCH: NewBatchForm = {
+  batchNo: "",
+  expiryDate: "",
+  costPrice: "",
+  sellingPrice: "",
+};
+
 function AdjustmentsContent() {
   const searchParams = useSearchParams();
-  const { user } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user);
-  const allowOut = canAdjustOut(user);
+  const { user, branchId } = useAuth();
+  const canWrite = hasInventoryWriteAccess(user, branchId);
+  const allowOut = canAdjustOut(user, branchId);
 
   const initialProductId = searchParams.get("productId") ?? "";
   const initialBatchId = searchParams.get("batchId") ?? "";
@@ -31,6 +45,8 @@ function AdjustmentsContent() {
   );
   const [productId, setProductId] = useState(initialProductId);
   const [batchId, setBatchId] = useState(initialBatchId);
+  const [useNewBatch, setUseNewBatch] = useState(false);
+  const [newBatch, setNewBatch] = useState<NewBatchForm>(EMPTY_NEW_BATCH);
   const [qty, setQty] = useState(1);
   const [reason, setReason] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -53,12 +69,29 @@ function AdjustmentsContent() {
   useEffect(() => {
     if (!productId) {
       setBatchId("");
+      setUseNewBatch(false);
+      setNewBatch(EMPTY_NEW_BATCH);
       return;
     }
     if (batchId && !batches.rows.some((b) => b.id === batchId)) {
       setBatchId("");
     }
   }, [productId, batchId, batches.rows]);
+
+  // Opening stock: no batches yet + increase → create a new batch.
+  useEffect(() => {
+    if (
+      movementType === "adjustment_in" &&
+      productId &&
+      !batches.loading &&
+      batches.rows.length === 0
+    ) {
+      setUseNewBatch(true);
+      setBatchId("");
+    } else if (movementType === "adjustment_out") {
+      setUseNewBatch(false);
+    }
+  }, [movementType, productId, batches.loading, batches.rows.length]);
 
   const selectedProduct = useMemo(
     () => stock.rows.find((r) => r.productId === productId) ?? null,
@@ -70,6 +103,17 @@ function AdjustmentsContent() {
     [batches.rows, batchId],
   );
 
+  const isOpeningStock =
+    movementType === "adjustment_in" && (useNewBatch || batches.rows.length === 0);
+
+  const newBatchValid =
+    !!newBatch.batchNo.trim() &&
+    !!newBatch.expiryDate &&
+    Number(newBatch.costPrice) >= 0 &&
+    newBatch.costPrice !== "" &&
+    Number(newBatch.sellingPrice) >= 0 &&
+    newBatch.sellingPrice !== "";
+
   const available =
     movementType === "adjustment_out"
       ? (selectedBatch?.qtyOnHand ?? 0)
@@ -78,34 +122,51 @@ function AdjustmentsContent() {
   const canSubmit =
     canWrite &&
     !!productId &&
-    !!batchId &&
     qty >= 1 &&
-    (movementType === "adjustment_in" || (available != null && qty <= available));
+    (isOpeningStock
+      ? newBatchValid
+      : !!batchId &&
+        (movementType === "adjustment_in" || (available != null && qty <= available)));
 
   const submit = async () => {
     setSaving(true);
     setError(null);
     setSuccess(null);
     try {
+      const body: Record<string, unknown> = {
+        productId,
+        movementType,
+        qty,
+        reason: reason.trim() || undefined,
+      };
+      if (isOpeningStock) {
+        body.newBatch = {
+          batchNo: newBatch.batchNo.trim(),
+          expiryDate: newBatch.expiryDate,
+          costPrice: Number(newBatch.costPrice),
+          sellingPrice: Number(newBatch.sellingPrice),
+        };
+      } else {
+        body.batchId = batchId;
+      }
+
       await apiJson("/inventory/adjustments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId,
-          batchId,
-          movementType,
-          qty,
-          reason: reason.trim() || undefined,
-        }),
+        body: JSON.stringify(body),
       });
       setConfirmOpen(false);
       setSuccess(
-        movementType === "adjustment_in"
-          ? `Added ${qty} unit${qty === 1 ? "" : "s"} to stock.`
-          : `Removed ${qty} unit${qty === 1 ? "" : "s"} from stock.`,
+        isOpeningStock
+          ? `Opened stock with ${qty} unit${qty === 1 ? "" : "s"} on new batch ${newBatch.batchNo.trim()}.`
+          : movementType === "adjustment_in"
+            ? `Added ${qty} unit${qty === 1 ? "" : "s"} to stock.`
+            : `Removed ${qty} unit${qty === 1 ? "" : "s"} from stock.`,
       );
       setQty(1);
       setReason("");
+      setNewBatch(EMPTY_NEW_BATCH);
+      setUseNewBatch(false);
       void stock.reload();
       void batches.reload();
     } catch (err) {
@@ -135,7 +196,7 @@ function AdjustmentsContent() {
       <ProductContextBanner />
       <PageHeader
         subtitleOnly
-        description="Post stock increases (found / cycle count) or decreases (damage / write-off). Every adjustment must target a batch. Decreases require manager/owner approval."
+        description="Increase or decrease on-hand stock by batch. Decreases require manager or owner approval."
       />
 
       {!stock.hasBranch && (
@@ -204,38 +265,160 @@ function AdjustmentsContent() {
               onChange={(value) => {
                 setProductId(value);
                 setBatchId("");
+                setUseNewBatch(false);
+                setNewBatch(EMPTY_NEW_BATCH);
               }}
               disabled={stock.loading}
             />
           </div>
 
-          <div className={`${css.field} ${css.fullWidth}`}>
-            <InventoryFilterSelect
-              label="Batch (required)"
-              value={batchId}
-              placeholder="Select batch…"
-              allowDeselect
-              options={batches.rows.map((batch) => ({
-                value: batch.id,
-                label: `${batch.batchNo} · ${batch.qtyOnHand} units · exp ${new Date(
-                  batch.expiryDate,
-                ).toLocaleDateString()}`,
-              }))}
-              searchable
-              searchPlaceholder="Search batches…"
-              onChange={setBatchId}
-              disabled={!productId || batches.loading}
-            />
-            {selectedProduct && (
-              <span className={css.fieldHint}>
-                Product on hand: {selectedProduct.qtyOnHand}
-                {selectedBatch ? ` · Batch on hand: ${selectedBatch.qtyOnHand}` : ""}
-                {!batchId
-                  ? " · Choose a batch so quantity stays tied to FEFO tracking."
-                  : ""}
-              </span>
-            )}
-          </div>
+          {isOpeningStock ? (
+            <>
+              <div className={`${css.field} ${css.fullWidth}`}>
+                <span className={css.fieldHint}>
+                  No batches at this branch yet — enter opening stock on a new batch.
+                </span>
+              </div>
+              <div className={css.field}>
+                <label className={css.fieldLabel} htmlFor="adj-batch-no">
+                  Batch no.
+                </label>
+                <input
+                  id="adj-batch-no"
+                  className={css.formControl}
+                  value={newBatch.batchNo}
+                  onChange={(e) =>
+                    setNewBatch((prev) => ({ ...prev, batchNo: e.target.value }))
+                  }
+                  placeholder="e.g. OPEN-001"
+                  required
+                />
+              </div>
+              <div className={css.field}>
+                <label className={css.fieldLabel} htmlFor="adj-expiry">
+                  Expiry date
+                </label>
+                <input
+                  id="adj-expiry"
+                  type="date"
+                  className={css.formControl}
+                  value={newBatch.expiryDate}
+                  onChange={(e) =>
+                    setNewBatch((prev) => ({ ...prev, expiryDate: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div className={css.field}>
+                <label className={css.fieldLabel} htmlFor="adj-cost">
+                  Cost price
+                </label>
+                <input
+                  id="adj-cost"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className={css.formControl}
+                  value={newBatch.costPrice}
+                  onChange={(e) =>
+                    setNewBatch((prev) => ({ ...prev, costPrice: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div className={css.field}>
+                <label className={css.fieldLabel} htmlFor="adj-sell">
+                  Selling price
+                </label>
+                <input
+                  id="adj-sell"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className={css.formControl}
+                  value={newBatch.sellingPrice}
+                  onChange={(e) =>
+                    setNewBatch((prev) => ({ ...prev, sellingPrice: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+            </>
+          ) : (
+            <div className={`${css.field} ${css.fullWidth}`}>
+              <InventoryFilterSelect
+                label="Batch (required)"
+                value={batchId}
+                placeholder="Select batch…"
+                allowDeselect
+                options={batches.rows.map((batch) => ({
+                  value: batch.id,
+                  label: `${batch.batchNo} · ${batch.qtyOnHand} units · exp ${new Date(
+                    batch.expiryDate,
+                  ).toLocaleDateString()}`,
+                }))}
+                searchable
+                searchPlaceholder="Search batches…"
+                onChange={setBatchId}
+                disabled={!productId || batches.loading}
+              />
+              {selectedProduct && (
+                <span className={css.fieldHint}>
+                  Product on hand: {selectedProduct.qtyOnHand}
+                  {selectedBatch ? ` · Batch on hand: ${selectedBatch.qtyOnHand}` : ""}
+                  {!batchId
+                    ? " · Choose a batch so quantity stays tied to FEFO tracking."
+                    : ""}
+                </span>
+              )}
+              {movementType === "adjustment_in" && batches.rows.length > 0 && (
+                <button
+                  type="button"
+                  style={{
+                    marginTop: "0.35rem",
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: "var(--pc-primary)",
+                    cursor: "pointer",
+                    font: "inherit",
+                    fontSize: "0.8rem",
+                    textDecoration: "underline",
+                  }}
+                  onClick={() => {
+                    setUseNewBatch(true);
+                    setBatchId("");
+                  }}
+                >
+                  Or create a new batch instead
+                </button>
+              )}
+            </div>
+          )}
+
+          {isOpeningStock && batches.rows.length > 0 && (
+            <div className={`${css.field} ${css.fullWidth}`}>
+              <button
+                type="button"
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--pc-primary)",
+                  cursor: "pointer",
+                  font: "inherit",
+                  fontSize: "0.8rem",
+                  textDecoration: "underline",
+                }}
+                onClick={() => {
+                  setUseNewBatch(false);
+                  setNewBatch(EMPTY_NEW_BATCH);
+                }}
+              >
+                Use an existing batch instead
+              </button>
+            </div>
+          )}
 
           <div className={css.field}>
             <label className={css.fieldLabel} htmlFor="adj-qty">
@@ -256,15 +439,18 @@ function AdjustmentsContent() {
 
           <div className={`${css.field} ${css.fullWidth}`}>
             <label className={css.fieldLabel} htmlFor="adj-reason">
-              Reason
+              Reason <span className={css.fieldHint}>(recommended)</span>
             </label>
             <textarea
               id="adj-reason"
               className={css.textarea}
-              placeholder="e.g. Cycle count correction, damaged stock, found stock…"
+              placeholder="e.g. Cycle count correction, damaged stock, opening stock…"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
+            <span className={css.fieldHint}>
+              A clear reason helps audit reviews — still optional but strongly recommended.
+            </span>
           </div>
         </div>
 
@@ -296,13 +482,19 @@ function AdjustmentsContent() {
                   stockStatus={selectedProduct.stockStatus}
                   variant="inline"
                 />
-                {selectedBatch && (
+                {isOpeningStock ? (
+                  <div className={css.adjustmentBatchSummary}>
+                    <span>New batch</span>
+                    <strong>{newBatch.batchNo.trim() || "—"}</strong>
+                    <span>Opening stock</span>
+                  </div>
+                ) : selectedBatch ? (
                   <div className={css.adjustmentBatchSummary}>
                     <span>Batch</span>
                     <strong>{selectedBatch.batchNo}</strong>
                     <span>{selectedBatch.qtyOnHand} units available</span>
                   </div>
-                )}
+                ) : null}
               </div>
             ) : (
               <p className={css.fieldHint}>
@@ -314,9 +506,11 @@ function AdjustmentsContent() {
           <div className={css.sideCard}>
             <h3 className={css.sideCardTitle}>Adjustment guidance</h3>
             <ul className={css.guidanceList}>
-              <li>Use Increase for found stock or positive cycle-count corrections.</li>
+              <li>Use Increase for found stock, opening stock, or positive cycle-count corrections.</li>
               <li>Use Decrease for damage, loss, expiry, or negative corrections.</li>
-              <li>Always select a batch so FEFO and expiry stay accurate.</li>
+              <li>
+                Prefer an existing batch when available so FEFO and expiry stay accurate.
+              </li>
               <li>Always include a clear reason for audit traceability.</li>
             </ul>
           </div>
@@ -338,11 +532,23 @@ function AdjustmentsContent() {
         <p>
           {movementType === "adjustment_in" ? "Increase" : "Decrease"} stock by{" "}
           <strong>{qty}</strong> for{" "}
-          <strong>{selectedProduct?.product.name ?? "product"}</strong> on batch{" "}
-          <strong>{selectedBatch?.batchNo ?? "—"}</strong>.
+          <strong>{selectedProduct?.product.name ?? "product"}</strong>
+          {isOpeningStock ? (
+            <>
+              {" "}
+              on new batch <strong>{newBatch.batchNo.trim() || "—"}</strong>.
+            </>
+          ) : (
+            <>
+              {" "}
+              on batch <strong>{selectedBatch?.batchNo ?? "—"}</strong>.
+            </>
+          )}
         </p>
-        {reason.trim() && (
+        {reason.trim() ? (
           <p className={css.fieldHint}>Reason: {reason.trim()}</p>
+        ) : (
+          <p className={css.fieldHint}>No reason provided — consider adding one for the audit log.</p>
         )}
       </ConfirmDialog>
     </>

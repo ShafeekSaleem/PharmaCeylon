@@ -1,12 +1,51 @@
 import { Type } from "class-transformer";
-import { IsIn, IsInt, IsOptional, IsString, IsUUID, Min } from "class-validator";
+import {
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  ValidateIf,
+  ValidateNested,
+} from "class-validator";
+
+export class NewBatchForAdjustmentDto {
+  @IsString()
+  @MaxLength(64)
+  batchNo!: string;
+
+  @IsDateString()
+  expiryDate!: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  costPrice!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  sellingPrice!: number;
+}
 
 export class StockAdjustmentDto {
   @IsUUID()
   productId!: string;
 
+  /** Existing batch. Required for adjustment_out; optional for adjustment_in when newBatch is provided. */
+  @ValidateIf((o: StockAdjustmentDto) => !o.newBatch)
   @IsUUID()
-  batchId!: string;
+  batchId?: string;
+
+  /** Create a batch and post opening stock (adjustment_in only). */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => NewBatchForAdjustmentDto)
+  newBatch?: NewBatchForAdjustmentDto;
 
   @IsIn(["adjustment_in", "adjustment_out"])
   movementType!: "adjustment_in" | "adjustment_out";
@@ -18,5 +57,6 @@ export class StockAdjustmentDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   reason?: string;
 }

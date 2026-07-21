@@ -17,10 +17,18 @@ enum RoleName {
 
 enum PoStatus {
   draft
+  pending_approval
   issued
   partially_received
   received
   cancelled
+}
+
+enum PoPriority {
+  low
+  normal
+  high
+  urgent
 }
 
 enum SaleStatus {
@@ -220,6 +228,10 @@ model Product {
   dosageForm   String?  @map("dosage_form")
   strength     String?
   unit         String?
+  packSize     String?  @map("pack_size")
+  storage      String?
+  shelfLife    String?  @map("shelf_life")
+  taxCategory  String?  @map("tax_category")
   imageUrl     String?  @map("image_url")
   isControlled Boolean  @default(false) @map("is_controlled")
   reorderLevel Int      @default(0) @map("reorder_level")
@@ -362,17 +374,22 @@ model Batch {
 }
 
 model PurchaseOrder {
-  id         String    @id @default(uuid()) @db.Uuid
-  tenantId   String    @map("tenant_id") @db.Uuid
-  branchId   String    @map("branch_id") @db.Uuid
-  supplierId String    @map("supplier_id") @db.Uuid
-  poNumber   String    @map("po_number")
-  status     PoStatus  @default(draft)
-  expectedOn DateTime? @db.Date @map("expected_on")
-  notes      String?
-  createdBy  String    @map("created_by") @db.Uuid
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  id                   String     @id @default(uuid()) @db.Uuid
+  tenantId             String     @map("tenant_id") @db.Uuid
+  branchId             String     @map("branch_id") @db.Uuid
+  supplierId           String     @map("supplier_id") @db.Uuid
+  poNumber             String     @map("po_number")
+  status               PoStatus   @default(draft)
+  priority             PoPriority @default(normal)
+  expectedOn           DateTime?  @db.Date @map("expected_on")
+  supplierReference    String?    @map("supplier_reference") @db.VarChar(128)
+  notes                String?
+  deliveryInstructions String?    @map("delivery_instructions")
+  paymentTermsDays     Int        @default(30) @map("payment_terms_days")
+  shippingCharges      Decimal    @default(0) @db.Decimal(12, 2) @map("shipping_charges")
+  createdBy            String     @map("created_by") @db.Uuid
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
 
   branch   Branch   @relation(fields: [branchId], references: [id])
   supplier Supplier @relation(fields: [supplierId], references: [id])
@@ -387,12 +404,14 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
-  productId       String   @map("product_id") @db.Uuid
-  orderedQty      Int      @map("ordered_qty")
-  unitCost        Decimal  @db.Decimal(12, 2) @map("unit_cost")
+  id              String  @id @default(uuid()) @db.Uuid
+  tenantId        String  @map("tenant_id") @db.Uuid
+  purchaseOrderId String  @map("purchase_order_id") @db.Uuid
+  productId       String  @map("product_id") @db.Uuid
+  orderedQty      Int     @map("ordered_qty")
+  unitCost        Decimal @db.Decimal(12, 2) @map("unit_cost")
+  discountPercent Decimal @default(0) @db.Decimal(5, 2) @map("discount_percent")
+  taxPercent      Decimal @default(18) @db.Decimal(5, 2) @map("tax_percent")
   createdAt       DateTime @default(now()) @map("created_at")
 
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
@@ -491,6 +510,7 @@ model StockLedger {
   qtyDelta      Int               @map("qty_delta")
   referenceType String            @map("reference_type")
   referenceId   String            @map("reference_id") @db.Uuid
+  reason        String?           @db.VarChar(512)
   occurredAt    DateTime          @default(now()) @map("occurred_at")
   createdBy     String?           @map("created_by") @db.Uuid
   createdAt     DateTime          @default(now()) @map("created_at")

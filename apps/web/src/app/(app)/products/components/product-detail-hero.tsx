@@ -3,8 +3,10 @@
 import { useRef, useState } from "react";
 import {
   IconAlertTriangle,
+  IconBox,
+  IconDollarSign,
   IconEdit,
-  IconPlus,
+  IconPackage,
   IconTrash,
   IconX,
   IconZoomIn,
@@ -13,15 +15,14 @@ import { StatusBadge } from "@/components/ui";
 import { apiFetch, apiJson } from "@/lib/auth-client";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES } from "../constants";
-import listCss from "../products.module.css";
 import detailCss from "../product-detail.module.css";
+import listCss from "../products.module.css";
 import type { Product, ProductDetail } from "../types";
-import { ProductStockBadge } from "./product-stock-badge";
-import { ConfirmDialog } from "./confirm-dialog";
+import { computeMarginPercent, formatCurrency } from "../utils/format";
 
 type Props = {
   product: Product;
-  detail: ProductDetail | null;
+  detail: ProductDetail;
   canWrite: boolean;
   onEdit: () => void;
   onDelete: () => void;
@@ -40,7 +41,15 @@ export function ProductDetailHero({
   const [imageZoomed, setImageZoomed] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [confirmRemoveImage, setConfirmRemoveImage] = useState(false);
+
+  const summary = detail.branchSummary;
+  const sellPrice =
+    summary?.primarySellingPrice ?? detail.pricing.minSellingPrice;
+  const costPrice = summary?.primaryCostPrice ?? detail.pricing.minCostPrice;
+  const margin =
+    summary?.marginPercent ??
+    (sellPrice && costPrice ? computeMarginPercent(sellPrice, costPrice) : null);
+  const activeBatches = detail.batches.filter((b) => b.qtyOnHand > 0).length;
 
   const uploadAndPatch = async (file: File) => {
     if (!PRODUCT_IMAGE_TYPES.includes(file.type)) {
@@ -79,47 +88,44 @@ export function ProductDetailHero({
     }
   };
 
-  const removeImage = async () => {
-    setImageError(null);
-    setSavingImage(true);
-    try {
-      await apiJson<Product>(`/products/${product.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrl: null }),
-      });
-      setConfirmRemoveImage(false);
-      onImageChanged();
-    } catch (err) {
-      setImageError(err instanceof Error ? err.message : "Failed to remove image.");
-    } finally {
-      setSavingImage(false);
-    }
-  };
-
   return (
     <>
       <section className={detailCss.hero}>
-        <div className={detailCss.heroImageCol}>
-          <div className={detailCss.heroImageFrame}>
-            <img
-              src={product.imageUrl ?? PRODUCT_PLACEHOLDER_SRC}
-              alt={product.imageUrl ? product.name : ""}
-              className={
-                product.imageUrl
-                  ? detailCss.heroImage
-                  : `${detailCss.heroImage} ${detailCss.heroImagePlaceholder}`
-              }
-            />
-            {canWrite && !savingImage && (
+        <div className={detailCss.heroTop}>
+          <div className={detailCss.heroImageCol}>
+            <div className={detailCss.heroImageFrame}>
+              <img
+                src={product.imageUrl ?? PRODUCT_PLACEHOLDER_SRC}
+                alt={product.imageUrl ? product.name : ""}
+                className={
+                  product.imageUrl
+                    ? detailCss.heroImage
+                    : `${detailCss.heroImage} ${detailCss.heroImagePlaceholder}`
+                }
+              />
+              {savingImage && <div className={detailCss.heroImageOverlay}>Uploading…</div>}
+              {product.imageUrl && !savingImage && (
+                <button
+                  type="button"
+                  className={detailCss.heroZoomBtn}
+                  onClick={() => setImageZoomed(true)}
+                  aria-label="View larger image"
+                  data-tooltip="View larger image"
+                >
+                  <IconZoomIn size={14} />
+                </button>
+              )}
+            </div>
+            {canWrite && (
               <>
                 <button
                   type="button"
-                  className={detailCss.heroImageAddBtn}
+                  className={detailCss.heroChangeImageBtn}
                   onClick={() => fileInputRef.current?.click()}
+                  disabled={savingImage}
                 >
-                  <IconPlus size={16} />
-                  {product.imageUrl ? "Change" : "Add image"}
+                  <IconEdit size={14} />
+                  Change image
                 </button>
                 <input
                   ref={fileInputRef}
@@ -133,80 +139,92 @@ export function ProductDetailHero({
                 />
               </>
             )}
-            {savingImage && <div className={detailCss.heroImageOverlay}>Uploading…</div>}
-            {product.imageUrl && !savingImage && (
-              <button
-                type="button"
-                className={detailCss.heroZoomBtn}
-                onClick={() => setImageZoomed(true)}
-                aria-label="View larger image"
-                data-tooltip="View larger image"
-              >
-                <IconZoomIn size={14} />
+            {imageError && <p className={detailCss.error}>{imageError}</p>}
+          </div>
+
+          <div className={detailCss.heroMain}>
+            <h1 className={detailCss.heroTitle}>{product.name}</h1>
+            {product.genericName && (
+              <p className={detailCss.heroGeneric}>{product.genericName}</p>
+            )}
+            <div className={detailCss.heroMeta}>
+              <StatusBadge status={product.isActive ? "active" : "inactive"} dot />
+              {product.isControlled && (
+                <span className={listCss.controlledTag}>
+                  <IconAlertTriangle size={11} />
+                  Controlled
+                </span>
+              )}
+            </div>
+            <p className={detailCss.heroSku}>
+              SKU {product.sku}
+              {product.barcode ? ` · Barcode ${product.barcode}` : ""}
+            </p>
+          </div>
+
+          {canWrite && (
+            <div className={detailCss.heroActions}>
+              <button type="button" className={detailCss.heroEditBtn} onClick={onEdit}>
+                <IconEdit size={16} />
+                Edit product
               </button>
-            )}
-          </div>
-          {canWrite && product.imageUrl && !savingImage && (
-            <button
-              type="button"
-              className={detailCss.heroImageRemove}
-              onClick={() => setConfirmRemoveImage(true)}
-            >
-              Remove image
-            </button>
+              <button type="button" className={detailCss.heroDeleteBtn} onClick={onDelete}>
+                <IconTrash size={16} />
+                Delete
+              </button>
+            </div>
           )}
-          {imageError && <p className={detailCss.error}>{imageError}</p>}
-        </div>
 
-        <div className={detailCss.heroMain}>
-          <h1 className={detailCss.heroTitle}>{product.name}</h1>
-          {product.genericName && <p className={detailCss.heroGeneric}>{product.genericName}</p>}
-          <div className={detailCss.heroMeta}>
-            <StatusBadge status={product.isActive ? "active" : "inactive"} dot />
-            {product.isControlled && (
-              <span className={listCss.controlledTag}>
-                <IconAlertTriangle size={11} />
-                Controlled
+          <div className={detailCss.heroMetrics}>
+            <div className={detailCss.heroMetricTile}>
+              <span className={detailCss.heroMetricLabel}>On-hand stock</span>
+              <strong className={detailCss.heroMetricValue}>
+                {detail.qtyOnHand != null ? `${detail.qtyOnHand} units` : "—"}
+              </strong>
+              <span className={`${detailCss.heroMetricIcon} ${detailCss.heroMetricIconPrimary}`}>
+                <IconPackage size={15} />
               </span>
-            )}
-            {detail && (
-              <ProductStockBadge
-                qtyOnHand={detail.qtyOnHand}
-                stockStatus={detail.stockStatus}
-                reorderGap={detail.reorderGap}
-                reorderLevel={product.reorderLevel}
-                variant="inline"
-              />
-            )}
+            </div>
+            <div className={detailCss.heroMetricTile}>
+              <span className={detailCss.heroMetricLabel}>Reorder level</span>
+              <strong className={detailCss.heroMetricValue}>{product.reorderLevel} units</strong>
+              <span className={`${detailCss.heroMetricIcon} ${detailCss.heroMetricIconInfo}`}>
+                <IconBox size={15} />
+              </span>
+            </div>
+            <div className={detailCss.heroMetricTile}>
+              <span className={detailCss.heroMetricLabel}>Batches</span>
+              <strong className={detailCss.heroMetricValue}>
+                {activeBatches || detail.batches.length}
+              </strong>
+              <span className={detailCss.heroMetricSub}>
+                {activeBatches > 0 ? "Active" : "None"}
+              </span>
+              <span className={`${detailCss.heroMetricIcon} ${detailCss.heroMetricIconSuccess}`}>
+                <IconBox size={15} />
+              </span>
+            </div>
+            <div className={detailCss.heroMetricTile}>
+              <span className={detailCss.heroMetricLabel}>Sell price</span>
+              <strong className={detailCss.heroMetricValue}>
+                {sellPrice ? formatCurrency(sellPrice) : "—"}
+              </strong>
+              <span className={detailCss.heroMetricSub}>Per unit</span>
+              <span className={`${detailCss.heroMetricIcon} ${detailCss.heroMetricIconPrimary}`}>
+                <IconDollarSign size={15} />
+              </span>
+            </div>
+            <div className={detailCss.heroMetricTile}>
+              <span className={detailCss.heroMetricLabel}>Margin</span>
+              <strong className={detailCss.heroMetricValue}>
+                {margin != null ? `${margin}%` : "—"}
+              </strong>
+              <span className={`${detailCss.heroMetricIcon} ${detailCss.heroMetricIconSuccess}`}>
+                <IconDollarSign size={15} />
+              </span>
+            </div>
           </div>
-          <p className={detailCss.heroSku}>
-            SKU {product.sku}
-            {product.barcode ? ` · Barcode ${product.barcode}` : ""}
-          </p>
         </div>
-
-        {canWrite && (
-          <div className={detailCss.heroActions}>
-            <button
-              type="button"
-              className={`${listCss.actionIcon} ${listCss.actionIconEdit}`}
-              aria-label={`Edit ${product.name}`}
-              data-tooltip="Edit product"
-              onClick={onEdit}
-            >
-              <IconEdit size={17} />
-            </button>
-            <button
-              type="button"
-              className={`${listCss.actionIcon} ${listCss.actionIconDelete}`}
-              aria-label={`Delete ${product.name}`}
-              data-tooltip="Delete product"
-              onClick={onDelete}
-            >
-              <IconTrash size={17} />
-            </button>
-          </div>
-        )}
       </section>
 
       {imageZoomed && product.imageUrl && (
@@ -233,24 +251,6 @@ export function ProductDetailHero({
           />
         </div>
       )}
-
-      <ConfirmDialog
-        open={confirmRemoveImage}
-        title="Remove product image?"
-        confirmLabel="Remove"
-        loading={savingImage}
-        onCancel={() => {
-          if (!savingImage) setConfirmRemoveImage(false);
-        }}
-        onConfirm={() => void removeImage()}
-      >
-        <p>
-          Remove the image for <strong>{product.name}</strong>?
-        </p>
-        <p className={listCss.confirmDialogHint}>
-          You can upload a new image afterward. This cannot be undone from here.
-        </p>
-      </ConfirmDialog>
     </>
   );
 }

@@ -14,6 +14,7 @@ import {
   attachStockFields,
   stockQtyByProductId,
 } from "./stock-qty.util";
+import { buildProductDetailExtras } from "./product-detail.util";
 
 const SORTABLE_FIELDS = new Set([
   "name",
@@ -124,7 +125,6 @@ export class ProductsService {
     let qtyOnHand: number | null = null;
     let stockStatus: "out" | "low" | "ok" | null = null;
     let reorderGapVal: number | null = null;
-    let batches: Awaited<ReturnType<typeof this.prisma.batch.findMany>> = [];
     let pricing: {
       minSellingPrice: string | null;
       maxSellingPrice: string | null;
@@ -139,46 +139,106 @@ export class ProductsService {
       batchCount: 0,
     };
 
+    const extras = await buildProductDetailExtras(
+      this.prisma,
+      tenantId,
+      branchId,
+      id,
+      product.reorderLevel,
+    );
+
     if (branchId) {
       const stockMap = await stockQtyByProductId(this.prisma, tenantId, branchId, [id]);
       qtyOnHand = stockMap.get(id) ?? 0;
-      const attached = attachStockFields([{ ...product, reorderLevel: product.reorderLevel }], stockMap)[0]!;
+      const attached = attachStockFields(
+        [{ ...product, reorderLevel: product.reorderLevel }],
+        stockMap,
+      )[0]!;
       stockStatus = attached.stockStatus;
       reorderGapVal = attached.reorderGap;
 
-      batches = await this.prisma.batch.findMany({
-        where: { tenantId, branchId, productId: id },
-        orderBy: { expiryDate: "asc" },
-      });
-
-      if (batches.length) {
-        const selling = batches.map((b) => Number(b.sellingPrice));
-        const cost = batches.map((b) => Number(b.costPrice));
+      if (extras.batches.length) {
+        const selling = extras.batches.map((b) => Number(b.sellingPrice));
+        const cost = extras.batches.map((b) => Number(b.costPrice));
         pricing = {
           minSellingPrice: String(Math.min(...selling)),
           maxSellingPrice: String(Math.max(...selling)),
           minCostPrice: String(Math.min(...cost)),
           maxCostPrice: String(Math.max(...cost)),
-          batchCount: batches.length,
+          batchCount: extras.batches.length,
         };
       }
     }
 
-    const history = await this.prisma.auditEvent.findMany({
-      where: { tenantId, entityName: "product", entityId: id },
-      orderBy: { createdAt: "desc" },
-      take: 25,
-      include: {
-        actor: { select: { id: true, fullName: true, email: true } },
+    const [productHistory, ledgerHistory] = await Promise.all([
+      this.prisma.auditEvent.findMany({
+        where: { tenantId, entityName: "product", entityId: id },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        include: {
+          actor: { select: { id: true, fullName: true, email: true } },
+        },
+      }),
+      branchId
+        ? this.prisma.stockLedger.findMany({
+            where: { tenantId, branchId, productId: id },
+            orderBy: { occurredAt: "desc" },
+            take: 40,
+            include: {
+              actor: { select: { id: true, fullName: true, email: true } },
+              batch: { select: { batchNo: true } },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const ledgerAsHistory = ledgerHistory.map((m) => ({
+      id: `ledger:${m.id}`,
+      eventName: `stock.${m.movementType}`,
+      createdAt: m.occurredAt,
+      payload: {
+        qty: m.qtyDelta,
+        batchNo: m.batch?.batchNo ?? null,
+        referenceType: m.referenceType,
+        referenceId: m.referenceId,
+        reason: m.reason ?? null,
       },
-    });
+      actor: m.actor,
+    }));
+
+    const historyMap = new Map<
+      string,
+      (typeof productHistory)[number] | (typeof ledgerAsHistory)[number]
+    >();
+    for (const item of [...productHistory, ...ledgerAsHistory]) {
+      historyMap.set(item.id, item);
+    }
+    const history = [...historyMap.values()]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 60)
+      .map((item) => ({
+        id: item.id,
+        eventName: item.eventName,
+        createdAt:
+          item.createdAt instanceof Date
+            ? item.createdAt.toISOString()
+            : String(item.createdAt),
+        payload: item.payload,
+        actor: item.actor,
+      }));
 
     return {
       product,
       qtyOnHand,
       stockStatus,
       reorderGap: reorderGapVal,
-      batches,
+      branchName: extras.branchName,
+      batches: extras.batches,
+      branchStock: extras.branchStock,
+      movements: extras.movements,
+      branchSummary: extras.branchSummary
+        ? { ...extras.branchSummary, avgMonthlyUsage: extras.avgMonthlyUsage }
+        : null,
       pricing,
       history,
     };
@@ -198,6 +258,10 @@ export class ProductsService {
           dosageForm: dto.dosageForm?.trim() || null,
           strength: dto.strength?.trim() || null,
           unit: dto.unit?.trim() || null,
+          packSize: dto.packSize?.trim() || null,
+          storage: dto.storage?.trim() || null,
+          shelfLife: dto.shelfLife?.trim() || null,
+          taxCategory: dto.taxCategory?.trim() || null,
           imageUrl: dto.imageUrl?.trim() || null,
           isControlled: dto.isControlled ?? false,
           reorderLevel: dto.reorderLevel ?? 0,
@@ -223,7 +287,7 @@ export class ProductsService {
   }
 
   async update(tenantId: string, userId: string, id: string, dto: UpdateProductDto) {
-    await this.getById(tenantId, id);
+    const before = await this.getById(tenantId, id);
     await this.prisma.product.update({
       where: { id },
       data: {
@@ -235,6 +299,10 @@ export class ProductsService {
         ...(dto.dosageForm !== undefined ? { dosageForm: dto.dosageForm?.trim() || null } : {}),
         ...(dto.strength !== undefined ? { strength: dto.strength?.trim() || null } : {}),
         ...(dto.unit !== undefined ? { unit: dto.unit?.trim() || null } : {}),
+        ...(dto.packSize !== undefined ? { packSize: dto.packSize?.trim() || null } : {}),
+        ...(dto.storage !== undefined ? { storage: dto.storage?.trim() || null } : {}),
+        ...(dto.shelfLife !== undefined ? { shelfLife: dto.shelfLife?.trim() || null } : {}),
+        ...(dto.taxCategory !== undefined ? { taxCategory: dto.taxCategory?.trim() || null } : {}),
         ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
         ...(dto.isControlled !== undefined ? { isControlled: dto.isControlled } : {}),
         ...(dto.reorderLevel !== undefined ? { reorderLevel: dto.reorderLevel } : {}),
@@ -243,14 +311,49 @@ export class ProductsService {
     });
     await this.meta.syncProductCategories(tenantId, id, dto.categoryIds);
     await this.meta.syncProductTags(tenantId, id, dto.tagIds);
+
+    const after = await this.getById(tenantId, id);
+    const tracked = [
+      "name",
+      "barcode",
+      "genericName",
+      "brandName",
+      "manufacturer",
+      "dosageForm",
+      "strength",
+      "unit",
+      "packSize",
+      "storage",
+      "shelfLife",
+      "taxCategory",
+      "reorderLevel",
+      "isControlled",
+      "isActive",
+    ] as const;
+    const changes: { field: string; from: unknown; to: unknown }[] = [];
+    for (const field of tracked) {
+      const from = (before as Record<string, unknown>)[field];
+      const to = (after as Record<string, unknown>)[field];
+      if (String(from ?? "") !== String(to ?? "")) {
+        changes.push({ field, from: from ?? null, to: to ?? null });
+      }
+    }
+
     await this.audit.log({
       tenantId,
       actorUserId: userId,
       eventName: "product.updated",
       entityName: "product",
       entityId: id,
+      payload: {
+        sku: after.sku,
+        changes,
+        ...(changes.length === 1
+          ? { field: changes[0].field, from: changes[0].from, to: changes[0].to }
+          : {}),
+      } as Prisma.InputJsonValue,
     });
-    return this.getById(tenantId, id);
+    return after;
   }
 
   async remove(tenantId: string, userId: string, id: string) {

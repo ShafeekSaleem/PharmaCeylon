@@ -62,11 +62,18 @@ export function productOperationalLinks(
       ready: true,
     },
     {
+      id: "movements",
+      label: "Movement history",
+      description: "Sales, receipts, transfers, and adjustments",
+      href: `/inventory/movements?${q}`,
+      ready: true,
+    },
+    {
       id: "purchasing",
       label: "Create purchase order",
       description: "Order more stock from a supplier",
       href: `/purchasing?${q}&action=create-po`,
-      ready: false,
+      ready: true,
     },
     {
       id: "transfers",
@@ -80,7 +87,7 @@ export function productOperationalLinks(
       label: "POS / checkout",
       description: "Sell this product at the register",
       href: `/pos?${q}`,
-      ready: true,
+      ready: false,
     },
     {
       id: "catalog",

@@ -1,6 +1,6 @@
 "use client";
 
-import { IconTag } from "@/components/icons";
+import { IconEdit, IconTag } from "@/components/icons";
 import detailCss from "../product-detail.module.css";
 import type { Product } from "../types";
 import { formatDateTime } from "../utils/format";
@@ -10,15 +10,30 @@ import { ProductAliasesEditor } from "./product-aliases-editor";
 function Field({
   label,
   value,
+  badge,
 }: {
   label: string;
   value: string | number | null | undefined;
+  badge?: "controlled" | "standard";
 }) {
   const display = value === null || value === undefined || value === "" ? "—" : String(value);
+  const isBadge = badge === "controlled" || badge === "standard";
   return (
-    <div className={detailCss.field}>
+    <div className={`${detailCss.field}${isBadge ? ` ${detailCss.fieldWithBadge}` : ""}`}>
       <span className={detailCss.fieldLabel}>{label}</span>
-      <span className={detailCss.fieldValue}>{display}</span>
+      {badge === "controlled" ? (
+        <span
+          className={`${detailCss.controlledFieldBadge}${
+            display === "Yes" ? ` ${detailCss.controlledFieldBadgeYes}` : ""
+          }`}
+        >
+          {display}
+        </span>
+      ) : badge === "standard" ? (
+        <span className={detailCss.standardBadge}>{display}</span>
+      ) : (
+        <span className={detailCss.fieldValue}>{display}</span>
+      )}
     </div>
   );
 }
@@ -26,12 +41,14 @@ function Field({
 type Props = {
   product: Product;
   canWrite: boolean;
+  onEditAssignments: () => void;
   onAliasesChanged: () => void;
 };
 
 export function ProductDetailOverviewTab({
   product,
   canWrite,
+  onEditAssignments,
   onAliasesChanged,
 }: Props) {
   const categories = product.categories ?? [];
@@ -41,7 +58,10 @@ export function ProductDetailOverviewTab({
   return (
     <>
       <section className={detailCss.section}>
-        <h2 className={detailCss.sectionTitle}>Basic information</h2>
+        <h2 className={detailCss.sectionTitle}>
+          <span className={detailCss.sectionNumber}>1</span>
+          Basic information
+        </h2>
         <div className={detailCss.fieldGrid}>
           <Field label="Product name" value={product.name} />
           <Field label="Generic name" value={product.genericName} />
@@ -53,28 +73,62 @@ export function ProductDetailOverviewTab({
       </section>
 
       <section className={detailCss.section}>
-        <h2 className={detailCss.sectionTitle}>Specifications</h2>
+        <h2 className={detailCss.sectionTitle}>
+          <span className={detailCss.sectionNumber}>2</span>
+          Specifications &amp; compliance
+        </h2>
         <div className={detailCss.fieldGrid}>
           <Field label="Dosage form" value={product.dosageForm} />
           <Field label="Strength" value={product.strength} />
           <Field label="Unit" value={product.unit} />
-          <Field label="Reorder level" value={product.reorderLevel} />
+          <Field label="Pack size" value={product.packSize} />
+          <Field label="Storage" value={product.storage} />
+          <Field label="Shelf life" value={product.shelfLife} />
+          <Field
+            label="Controlled substance"
+            value={product.isControlled ? "Yes" : "No"}
+            badge="controlled"
+          />
+          <Field
+            label="Tax category"
+            value={product.taxCategory ?? "—"}
+            badge={product.taxCategory ? "standard" : undefined}
+          />
         </div>
       </section>
 
       <section className={detailCss.section}>
-        <h2 className={detailCss.sectionTitle}>Catalog</h2>
+        <div className={detailCss.sectionHead}>
+          <h2 className={detailCss.sectionTitle}>
+            <span className={detailCss.sectionNumber}>3</span>
+            Catalog organization
+          </h2>
+          {canWrite && (
+            <button
+              type="button"
+              className={detailCss.sectionActionBtn}
+              onClick={onEditAssignments}
+            >
+              <IconEdit size={14} />
+              Edit assignments
+            </button>
+          )}
+        </div>
         <div className={detailCss.taxonomyGrid}>
           <div className={detailCss.taxonomyCard}>
             <h3 className={detailCss.taxonomyCardTitle}>
-              Categories <span className={detailCss.taxonomyCount}>({categories.length})</span>
+              Categories
+              <span className={detailCss.taxonomyCount}>({categories.length})</span>
             </h3>
             {categories.length === 0 ? (
               <p className={detailCss.muted}>No categories assigned.</p>
             ) : (
               <div className={detailCss.taxonomyChipList}>
                 {categories.map((c) => (
-                  <span key={c.id} className={`${detailCss.taxonomyChip} ${detailCss.taxonomyChipCategory}`}>
+                  <span
+                    key={c.id}
+                    className={`${detailCss.taxonomyChip} ${detailCss.taxonomyChipCategory}`}
+                  >
                     <IconTag size={12} />
                     {c.name}
                   </span>
@@ -85,14 +139,18 @@ export function ProductDetailOverviewTab({
 
           <div className={detailCss.taxonomyCard}>
             <h3 className={detailCss.taxonomyCardTitle}>
-              Tags <span className={detailCss.taxonomyCount}>({tags.length})</span>
+              Tags
+              <span className={detailCss.taxonomyCount}>({tags.length})</span>
             </h3>
             {tags.length === 0 ? (
               <p className={detailCss.muted}>No tags assigned.</p>
             ) : (
               <div className={detailCss.taxonomyChipList}>
                 {tags.map((t) => (
-                  <span key={t.id} className={`${detailCss.taxonomyChip} ${detailCss.taxonomyChipTag}`}>
+                  <span
+                    key={t.id}
+                    className={`${detailCss.taxonomyChip} ${detailCss.taxonomyChipTag}`}
+                  >
                     <IconTag size={12} />
                     {t.name}
                   </span>
@@ -101,9 +159,10 @@ export function ProductDetailOverviewTab({
             )}
           </div>
 
-          <div className={`${detailCss.taxonomyCard} ${detailCss.taxonomyCardWide}`}>
+          <div className={detailCss.taxonomyCard}>
             <h3 className={detailCss.taxonomyCardTitle}>
-              Search aliases <span className={detailCss.taxonomyCount}>({aliases.length})</span>
+              Search aliases
+              <span className={detailCss.taxonomyCount}>({aliases.length})</span>
               <FieldHint text="Alternate names that improve search and catalog lookup." />
             </h3>
             <ProductAliasesEditor
@@ -118,10 +177,14 @@ export function ProductDetailOverviewTab({
       </section>
 
       <section className={detailCss.section}>
-        <h2 className={detailCss.sectionTitle}>Record info</h2>
-        <div className={detailCss.fieldGrid}>
-          <Field label="Created" value={formatDateTime(product.createdAt)} />
-          <Field label="Last updated" value={formatDateTime(product.updatedAt)} />
+        <h2 className={detailCss.sectionTitle}>
+          <span className={detailCss.sectionNumber}>4</span>
+          Record info
+        </h2>
+        <div className={detailCss.recordGrid}>
+          <Field label="Created on" value={formatDateTime(product.createdAt)} />
+          <Field label="Last updated on" value={formatDateTime(product.updatedAt)} />
+          <Field label="Product ID" value={product.id} />
         </div>
       </section>
     </>

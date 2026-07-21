@@ -39,8 +39,8 @@ import {
 function StockOverviewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user);
+  const { user, branchId } = useAuth();
+  const canWrite = hasInventoryWriteAccess(user, branchId);
 
   const productIdFilter = searchParams.get("productId");
   const initialView = (searchParams.get("view") as StockView | null) ?? "all";
@@ -426,25 +426,29 @@ function StockOverviewContent() {
             <div className={css.monthGrid}>
               <div className={css.monthRow}>
                 <span>Received</span>
-                <strong className={css.metricIn}>+{received}</strong>
+                <span className={`${css.summaryValue} ${css.metricIn}`}>+{received}</span>
               </div>
               <div className={css.monthRow}>
                 <span>Issued</span>
-                <strong className={css.metricOut}>−{issued}</strong>
+                <span className={`${css.summaryValue} ${css.metricOut}`}>−{issued}</span>
               </div>
               <div className={css.monthRow}>
                 <span>Adjustments</span>
-                <strong className={adjustments >= 0 ? css.metricIn : css.metricOut}>
+                <span
+                  className={`${css.summaryValue} ${
+                    adjustments >= 0 ? css.metricIn : css.metricOut
+                  }`}
+                >
                   {adjustments > 0 ? "+" : ""}
                   {adjustments}
-                </strong>
+                </span>
               </div>
               <div className={`${css.monthRow} ${css.monthRowNet}`}>
                 <span>Net change</span>
-                <strong className={net >= 0 ? css.metricIn : css.metricOut}>
+                <span className={`${css.summaryValue} ${net >= 0 ? css.metricIn : css.metricOut}`}>
                   {net > 0 ? "+" : ""}
                   {net}
-                </strong>
+                </span>
               </div>
             </div>
           </div>

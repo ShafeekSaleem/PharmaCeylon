@@ -1,80 +1,232 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { IconChevronDown, IconChevronRight } from "@/components/icons";
+import { useMemo, useState } from "react";
+import {
+  IconActivity,
+  IconAlertTriangle,
+  IconBox,
+  IconCalendar,
+  IconDollarSign,
+  IconEdit,
+  IconPackage,
+  IconTruck,
+} from "@/components/icons";
 import detailCss from "../product-detail.module.css";
-import type { AuditHistoryItem, Product } from "../types";
+import type { AuditHistoryItem, ProductDetailTab } from "../types";
 import {
   formatAuditEventName,
   formatDateTime,
-  summarizeAuditPayload,
+  formatHistoryReference,
+  formatHistorySummary,
+  historyActionLabel,
+  historyActivityTone,
+  historyEventCategory,
+  historyTargetTab,
+  type HistoryDatePreset,
+  type HistoryFilter,
 } from "../utils/format";
 
-function HistoryRow({ item }: { item: AuditHistoryItem }) {
-  const [expanded, setExpanded] = useState(false);
-  const summary = summarizeAuditPayload(item.payload);
-  const hasPayload = item.payload !== null && item.payload !== undefined;
+const FILTERS: { id: HistoryFilter; label: string }[] = [
+  { id: "all", label: "All activity" },
+  { id: "product", label: "Product updates" },
+  { id: "stock", label: "Stock & batch" },
+  { id: "pricing", label: "Pricing" },
+];
 
-  return (
-    <li className={detailCss.historyItem}>
-      <div className={detailCss.historyHead}>
-        <span className={detailCss.historyEvent}>{formatAuditEventName(item.eventName)}</span>
-        <time className={detailCss.historyTime}>{formatDateTime(item.createdAt)}</time>
-      </div>
-      {item.actor && <span className={detailCss.historyActor}>by {item.actor.fullName}</span>}
-      {summary && !expanded && <p className={detailCss.historySummary}>{summary}</p>}
-      {hasPayload && (
-        <button
-          type="button"
-          className={detailCss.historyToggle}
-          onClick={() => setExpanded((e) => !e)}
-        >
-          {expanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-          {expanded ? "Hide details" : "Show details"}
-        </button>
-      )}
-      {expanded && hasPayload && (
-        <pre className={detailCss.historyPayload}>
-          {JSON.stringify(item.payload, null, 2)}
-        </pre>
-      )}
-    </li>
-  );
-}
+const DATE_PRESETS: { id: HistoryDatePreset; label: string }[] = [
+  { id: "all", label: "All dates" },
+  { id: "7", label: "Last 7 days" },
+  { id: "30", label: "Last 30 days" },
+  { id: "90", label: "Last 90 days" },
+];
 
-type Props = {
-  product: Product;
-  history: AuditHistoryItem[];
+const ACTIVITY_ICONS: Record<HistoryFilter, typeof IconPackage> = {
+  all: IconActivity,
+  product: IconEdit,
+  stock: IconBox,
+  pricing: IconDollarSign,
 };
 
-export function ProductDetailHistoryTab({ product, history }: Props) {
+type Props = {
+  history: AuditHistoryItem[];
+  onSelectTab: (tab: ProductDetailTab) => void;
+};
+
+function activityIcon(eventName: string, payload?: unknown) {
+  const category = historyEventCategory(eventName, payload);
+  const name = eventName.toLowerCase();
+  if (name.includes("expir")) return IconAlertTriangle;
+  if (name.includes("receipt") || name.includes("purchase")) return IconTruck;
+  if (category === "pricing") return IconDollarSign;
+  if (category === "stock") return IconBox;
+  if (category === "product") return IconEdit;
+  return ACTIVITY_ICONS[category];
+}
+
+function withinDatePreset(iso: string, preset: HistoryDatePreset): boolean {
+  if (preset === "all") return true;
+  const days = Number(preset);
+  const created = new Date(iso).getTime();
+  if (Number.isNaN(created)) return false;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return created >= cutoff;
+}
+
+export function ProductDetailHistoryTab({ history, onSelectTab }: Props) {
+  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [datePreset, setDatePreset] = useState<HistoryDatePreset>("all");
+  const [page, setPage] = useState(1);
+  const pageSize = 8;
+
+  const filtered = useMemo(() => {
+    return history.filter((item) => {
+      if (!withinDatePreset(item.createdAt, datePreset)) return false;
+      if (filter === "all") return true;
+      return historyEventCategory(item.eventName, item.payload) === filter;
+    });
+  }, [filter, datePreset, history]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+
   return (
     <section className={detailCss.section}>
-      <div className={detailCss.sectionHead}>
-        <h2 className={detailCss.sectionTitle}>Recent changes</h2>
-        {history.length > 0 && (
-          <span className={detailCss.sectionCount}>{history.length} entries</span>
-        )}
+      <div className={detailCss.historyToolbar}>
+        <div className={detailCss.filterPills} role="tablist" aria-label="History filters">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.id}
+              className={`${detailCss.filterPill} ${
+                filter === f.id ? detailCss.filterPillActive : ""
+              }`}
+              onClick={() => {
+                setFilter(f.id);
+                setPage(1);
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <label className={detailCss.historyDateFilter}>
+          <IconCalendar size={14} />
+          <select
+            className={detailCss.historyDateSelect}
+            value={datePreset}
+            aria-label="Filter by date"
+            onChange={(e) => {
+              setDatePreset(e.target.value as HistoryDatePreset);
+              setPage(1);
+            }}
+          >
+            {DATE_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
-      {history.length === 0 ? (
+
+      {filtered.length === 0 ? (
         <div className={detailCss.emptyState}>
-          <p className={detailCss.muted}>No audit history recorded for this product yet.</p>
+          <p className={detailCss.muted}>No activity matches this filter.</p>
         </div>
       ) : (
-        <ul className={detailCss.historyList}>
-          {history.map((h) => (
-            <HistoryRow key={h.id} item={h} />
-          ))}
-        </ul>
+        <>
+          <div className={detailCss.tableWrap}>
+            <table className={`${detailCss.dataTable} ${detailCss.stockTable}`}>
+              <thead>
+                <tr>
+                  <th>Date &amp; time</th>
+                  <th>Activity</th>
+                  <th>Summary</th>
+                  <th>Performed by</th>
+                  <th>Reference / source</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {paged.map((item) => {
+                  const summary = formatHistorySummary(item.eventName, item.payload);
+                  const tone = historyActivityTone(item.eventName);
+                  const Icon = activityIcon(item.eventName, item.payload);
+                  const targetTab = historyTargetTab(item.eventName, item.payload);
+                  return (
+                    <tr key={item.id}>
+                      <td className={detailCss.mutedCell}>{formatDateTime(item.createdAt)}</td>
+                      <td>
+                        <span className={detailCss.historyActivityCell}>
+                          <span
+                            className={`${detailCss.historyActivityIcon} ${detailCss[`historyActivityIcon_${tone}`]}`}
+                          >
+                            <Icon size={13} />
+                          </span>
+                          {formatAuditEventName(item.eventName)}
+                        </span>
+                      </td>
+                      <td>{summary}</td>
+                      <td>{item.actor?.fullName ?? "System"}</td>
+                      <td className={detailCss.mutedCell}>
+                        {formatHistoryReference(item.eventName, item.payload)}
+                      </td>
+                      <td className={detailCss.tableActionCell}>
+                        <button
+                          type="button"
+                          className={detailCss.sectionActionBtn}
+                          onClick={() => onSelectTab(targetTab)}
+                        >
+                          {historyActionLabel(item.eventName, item.payload)}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {filtered.length > pageSize && (
+            <div className={detailCss.paginationBar}>
+              <div className={detailCss.paginationControls}>
+                <button
+                  type="button"
+                  className={detailCss.pageBtn}
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`${detailCss.pageBtn} ${page === n ? detailCss.pageBtnActive : ""}`}
+                    onClick={() => setPage(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={detailCss.pageBtn}
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
+              <span className={detailCss.paginationMeta}>
+                Showing {(page - 1) * pageSize + 1} to{" "}
+                {Math.min(page * pageSize, filtered.length)} of {filtered.length} entries
+              </span>
+            </div>
+          )}
+        </>
       )}
-      <Link
-        href={`/audit?entityName=product&entityId=${product.id}`}
-        className={detailCss.footerLink}
-      >
-        View full audit log
-        <IconChevronRight size={14} />
-      </Link>
     </section>
   );
 }

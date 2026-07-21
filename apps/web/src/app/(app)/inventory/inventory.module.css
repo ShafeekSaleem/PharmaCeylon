@@ -588,20 +588,24 @@
 }
 
 .stockOverviewTable,
-.batchInventoryTable {
+.batchInventoryTable,
+.movementsTable {
   table-layout: fixed;
 }
 
 .stockOverviewTable th,
 .stockOverviewTable td,
 .batchInventoryTable th,
-.batchInventoryTable td {
+.batchInventoryTable td,
+.movementsTable th,
+.movementsTable td {
   padding-right: 0.8rem;
   padding-left: 0.8rem;
 }
 
 .stockOverviewTable td,
-.batchInventoryTable td {
+.batchInventoryTable td,
+.movementsTable td {
   overflow: hidden;
 }
 
@@ -940,6 +944,55 @@
   align-items: start;
 }
 
+.movementsToolbar .movementsProductFilter {
+  flex: 1 1 320px;
+  min-width: 260px;
+  max-width: 440px;
+}
+
+.movementsToolbar .movementsProductFilter .inventoryFilterMenu {
+  width: max(100%, 360px);
+  max-width: min(440px, 92vw);
+}
+
+.movementSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+  font-size: 0.85rem;
+  color: var(--pc-muted-fg);
+}
+
+.movementSummary strong {
+  color: var(--pc-foreground);
+  font-weight: 600;
+}
+
+.movementSummaryIn {
+  color: var(--pc-success, #15803d);
+  font-weight: 600;
+}
+
+.movementSummaryOut {
+  color: var(--pc-danger, #b91c1c);
+  font-weight: 600;
+}
+
+.movementSummaryNetPositive {
+  color: var(--pc-success, #15803d);
+  font-weight: 600;
+}
+
+.movementSummaryNetNegative {
+  color: var(--pc-danger, #b91c1c);
+  font-weight: 600;
+}
+
 .adjustmentForm .inventoryFilter {
   width: 100%;
   min-width: 0;
@@ -1260,20 +1313,6 @@
   color: var(--pc-primary);
 }
 
-.metricIn {
-  color: var(--pc-alert-success-text);
-}
-
-.metricOut {
-  color: var(--pc-alert-error-text);
-}
-
-.monthRowNet {
-  margin-top: 0.25rem;
-  padding-top: 0.55rem;
-  border-top: 1px solid var(--pc-border);
-}
-
 .alertList {
   list-style: none;
   margin: 0;
@@ -1370,8 +1409,24 @@
   color: var(--pc-muted-fg);
 }
 
-.monthRow strong {
+.summaryValue {
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--pc-foreground);
+}
+
+.metricIn {
+  color: var(--pc-alert-success-text);
+}
+
+.metricOut {
+  color: var(--pc-alert-error-text);
+}
+
+.monthRowNet {
+  margin-top: 0.25rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--pc-border);
 }
 
 .activeFilter {

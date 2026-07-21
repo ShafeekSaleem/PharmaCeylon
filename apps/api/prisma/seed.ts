@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
+  PoPriority,
   PoStatus,
   Prisma,
   PrismaClient,
@@ -39,7 +40,95 @@ async function clearOperationalData(tenantId: string) {
   await prisma.productSimilarity.deleteMany({ where: { tenantId } });
 }
 
-const PRODUCTS = [
+const PRODUCT_SPEC_DEFAULTS: Record<
+  string,
+  { packSize: string; storage: string; shelfLife: string; taxCategory: string }
+> = {
+  Tablet: {
+    packSize: "10 tablets",
+    storage: "Store below 30°C in a dry place",
+    shelfLife: "36 months",
+    taxCategory: "Standard rate",
+  },
+  Capsule: {
+    packSize: "10 capsules",
+    storage: "Store below 30°C in a dry place",
+    shelfLife: "24 months",
+    taxCategory: "Standard rate",
+  },
+  "Soft Capsule": {
+    packSize: "30 soft capsules",
+    storage: "Store below 25°C, protect from light",
+    shelfLife: "24 months",
+    taxCategory: "Standard rate",
+  },
+  Inhaler: {
+    packSize: "1 inhaler (200 doses)",
+    storage: "Store below 25°C, do not freeze",
+    shelfLife: "24 months",
+    taxCategory: "Standard rate",
+  },
+  Gel: {
+    packSize: "30 g tube",
+    storage: "Store below 25°C",
+    shelfLife: "24 months",
+    taxCategory: "Standard rate",
+  },
+  Cream: {
+    packSize: "15 g tube",
+    storage: "Store below 25°C",
+    shelfLife: "24 months",
+    taxCategory: "Standard rate",
+  },
+  Solution: {
+    packSize: "100 mL bottle",
+    storage: "Store below 25°C, protect from light",
+    shelfLife: "24 months",
+    taxCategory: "Standard rate",
+  },
+  Injection: {
+    packSize: "1 vial",
+    storage: "Refrigerate at 2–8°C, do not freeze",
+    shelfLife: "24 months",
+    taxCategory: "Standard rate",
+  },
+};
+
+const PRODUCT_SPEC_OVERRIDES: Record<
+  string,
+  Partial<{ packSize: string; storage: string; shelfLife: string; taxCategory: string }>
+> = {
+  "PCL-0008": {
+    packSize: "30 tablets",
+    storage: "Store below 25°C in a dry place",
+    shelfLife: "24 months",
+    taxCategory: "Standard rate",
+  },
+};
+
+type ProductSeed = {
+  sku: string;
+  barcode?: string;
+  name: string;
+  genericName?: string | null;
+  brandName?: string | null;
+  manufacturer?: string | null;
+  dosageForm?: string | null;
+  strength?: string | null;
+  unit?: string | null;
+  isControlled?: boolean;
+  reorderLevel?: number;
+  isActive?: boolean;
+};
+
+function resolveProductSpecs(product: ProductSeed) {
+  const defaults =
+    PRODUCT_SPEC_DEFAULTS[product.dosageForm ?? "Tablet"] ?? PRODUCT_SPEC_DEFAULTS.Tablet;
+  const overrides = PRODUCT_SPEC_OVERRIDES[product.sku] ?? {};
+  return { ...defaults, ...overrides };
+}
+
+const PRODUCTS: ProductSeed[] = [
   { sku: "PCL-0001", barcode: "4790012345671", name: "Paracetamol 500mg Tablets", genericName: "Paracetamol", brandName: "Panadol", manufacturer: "GlaxoSmithKline", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 50 },
   { sku: "PCL-0002", barcode: "4790012345672", name: "Amoxicillin 500mg Capsules", genericName: "Amoxicillin", brandName: "Amoxil", manufacturer: "Pfizer", dosageForm: "Capsule", strength: "500mg", unit: "strip", reorderLevel: 30 },
   { sku: "PCL-0003", barcode: "4790012345673", name: "Metformin 500mg Tablets", genericName: "Metformin HCl", brandName: "Glucophage", manufacturer: "Merck", dosageForm: "Tablet", strength: "500mg", unit: "strip", reorderLevel: 40 },
@@ -224,6 +313,7 @@ async function main() {
 
   const productBySku = new Map<string, string>();
   for (const p of PRODUCTS) {
+    const specs = resolveProductSpecs(p);
     const row = await prisma.product.upsert({
       where: { tenantId_sku: { tenantId: tenant.id, sku: p.sku } },
       update: {
@@ -235,6 +325,10 @@ async function main() {
         dosageForm: p.dosageForm ?? null,
         strength: p.strength ?? null,
         unit: p.unit ?? null,
+        packSize: specs.packSize,
+        storage: specs.storage,
+        shelfLife: specs.shelfLife,
+        taxCategory: specs.taxCategory,
         isControlled: p.isControlled ?? false,
         reorderLevel: p.reorderLevel ?? 0,
         isActive: (p as { isActive?: boolean }).isActive ?? true,
@@ -250,6 +344,10 @@ async function main() {
         dosageForm: p.dosageForm ?? null,
         strength: p.strength ?? null,
         unit: p.unit ?? null,
+        packSize: specs.packSize,
+        storage: specs.storage,
+        shelfLife: specs.shelfLife,
+        taxCategory: specs.taxCategory,
         isControlled: p.isControlled ?? false,
         reorderLevel: p.reorderLevel ?? 0,
         isActive: (p as { isActive?: boolean }).isActive ?? true,
@@ -388,8 +486,11 @@ async function main() {
       supplierId: supplier1.id,
       poNumber: "PO-MAIN-SEED-001",
       status: PoStatus.partially_received,
-      expectedOn: dateOnly(2026, 6, 1),
+      priority: PoPriority.normal,
+      expectedOn: daysAgo(-10),
+      createdAt: daysAgo(20),
       notes: "Demo PO — partially received for testing",
+      paymentTermsDays: supplier1.paymentTermsDays,
       createdBy: manager.id,
       items: {
         create: [
@@ -455,13 +556,85 @@ async function main() {
       supplierId: supplier2.id,
       poNumber: "PO-MAIN-SEED-DRAFT",
       status: PoStatus.draft,
-      expectedOn: dateOnly(2026, 7, 15),
+      priority: PoPriority.normal,
+      expectedOn: daysAgo(-14),
+      createdAt: daysAgo(2),
       notes: "Draft PO for purchasing UI testing",
+      paymentTermsDays: supplier2.paymentTermsDays,
       createdBy: inventoryClerk.id,
       items: {
         create: [
-          { tenantId: tenant.id, productId: productBySku.get("PCL-0004")!, orderedQty: 100, unitCost: dec(52) },
-          { tenantId: tenant.id, productId: productBySku.get("PCL-0011")!, orderedQty: 15, unitCost: dec(440) },
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0004")!,
+            orderedQty: 100,
+            unitCost: dec(52),
+            taxPercent: dec(18),
+          },
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0011")!,
+            orderedQty: 15,
+            unitCost: dec(440),
+            taxPercent: dec(18),
+          },
+        ],
+      },
+    },
+  });
+
+  await prisma.purchaseOrder.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      supplierId: supplier1.id,
+      poNumber: "PO-MAIN-SEED-PENDING",
+      status: PoStatus.pending_approval,
+      priority: PoPriority.high,
+      expectedOn: daysAgo(-21),
+      createdAt: daysAgo(3),
+      supplierReference: "CMS-Q-2026-SEED",
+      notes: "Awaiting manager approval",
+      deliveryInstructions: "Deliver to main warehouse receiving bay.",
+      paymentTermsDays: 30,
+      shippingCharges: dec(500),
+      createdBy: inventoryClerk.id,
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0001")!,
+            orderedQty: 200,
+            unitCost: dec(32),
+            taxPercent: dec(18),
+          },
+        ],
+      },
+    },
+  });
+
+  await prisma.purchaseOrder.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      supplierId: supplier1.id,
+      poNumber: "PO-MAIN-SEED-OVERDUE",
+      status: PoStatus.issued,
+      priority: PoPriority.urgent,
+      expectedOn: daysAgo(12),
+      createdAt: daysAgo(40),
+      notes: "Issued but past expected delivery — overdue demo",
+      paymentTermsDays: 30,
+      createdBy: manager.id,
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0009")!,
+            orderedQty: 80,
+            unitCost: dec(45),
+            taxPercent: dec(18),
+          },
         ],
       },
     },
