@@ -4,7 +4,9 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { ProductContextBanner } from "@/components/product-context-banner";
+import { RoleAccessDenied } from "@/components/role-access";
 import { ActionButton, PageHeader } from "@/components/ui";
+import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
@@ -32,6 +34,26 @@ const EMPTY_NEW_BATCH: NewBatchForm = {
 };
 
 function AdjustmentsContent() {
+  const { user, branchId } = useAuth();
+  const canWrite = hasInventoryWriteAccess(user, branchId);
+
+  if (!canWrite) {
+    return (
+      <>
+        <ProductContextBanner />
+        <PageHeader
+          subtitleOnly
+          description="Stock quantity corrections require inventory write access."
+        />
+        <RoleAccessDenied allowedRoles={INVENTORY_WRITE_ROLES} />
+      </>
+    );
+  }
+
+  return <AdjustmentsForm />;
+}
+
+function AdjustmentsForm() {
   const searchParams = useSearchParams();
   const { user, branchId } = useAuth();
   const canWrite = hasInventoryWriteAccess(user, branchId);
@@ -175,21 +197,6 @@ function AdjustmentsContent() {
       setSaving(false);
     }
   };
-
-  if (!canWrite) {
-    return (
-      <>
-        <ProductContextBanner />
-        <PageHeader
-          subtitleOnly
-          description="Stock quantity corrections require inventory write access."
-        />
-        <Alert variant="error">
-          Your role cannot post stock adjustments. Ask a manager or inventory clerk.
-        </Alert>
-      </>
-    );
-  }
 
   return (
     <>

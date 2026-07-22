@@ -9,6 +9,7 @@ import {
   IconPackage,
   IconShoppingCart,
 } from "@/components/icons";
+import { RoleLink } from "@/components/role-access";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
 import detailCss from "../product-detail.module.css";
 import type { Product, ProductDetail } from "../types";
@@ -197,12 +198,12 @@ export function ProductDetailStockTab({ product, detail }: Props) {
             {detail.batches.length === 0 ? (
               <div className={detailCss.emptyState}>
                 <p className={detailCss.muted}>No batches received at this branch yet.</p>
-                <Link
+                <RoleLink
                   href={`/purchasing?productId=${product.id}&action=create-po`}
                   className={detailCss.inlineLink}
                 >
                   Create a purchase order
-                </Link>
+                </RoleLink>
               </div>
             ) : (
               <div className={detailCss.tableWrap}>
@@ -225,12 +226,12 @@ export function ProductDetailStockTab({ product, detail }: Props) {
                       return (
                         <tr key={b.id}>
                           <td>
-                            <Link
+                            <RoleLink
                               href={`/inventory/batches?productId=${product.id}`}
                               className={detailCss.batchNoLink}
                             >
                               {b.batchNo}
-                            </Link>
+                            </RoleLink>
                           </td>
                           <td className={detailCss.mutedCell}>{formatDate(b.receivedAt)}</td>
                           <td>
@@ -287,12 +288,12 @@ export function ProductDetailStockTab({ product, detail }: Props) {
                 Recent stock movements
                 {detail.branchName ? ` (${detail.branchName})` : ""}
               </h2>
-              <Link
+              <RoleLink
                 href={`/inventory/movements?productId=${product.id}`}
                 className={detailCss.sectionActionBtn}
               >
                 View all movements
-              </Link>
+              </RoleLink>
             </div>
             {detail.movements.length === 0 ? (
               <div className={detailCss.emptyState}>

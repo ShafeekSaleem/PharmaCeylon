@@ -28,17 +28,18 @@ import {
   IconChevronRight,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
-
-/* ── Role-based access ── */
-
-type RoleName = "owner" | "manager" | "pharmacist" | "cashier" | "inventory_clerk" | "analyst";
-
-const ADMIN_ROLES: RoleName[] = ["owner", "manager"];
-const POS_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "cashier"];
-const CATALOG_ROLES: RoleName[] = ["owner", "manager", "cashier", "inventory_clerk"];
-const OPERATIONS_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "inventory_clerk"];
-const PURCHASING_ROLES: RoleName[] = ["owner", "manager", "inventory_clerk"];
-const INSIGHTS_ROLES: RoleName[] = ["owner", "manager", "analyst"];
+import {
+  ADMIN_ROLES,
+  CATALOG_ROLES,
+  INSIGHTS_ROLES,
+  OPERATIONS_ROLES,
+  POS_ROLES,
+  PURCHASING_ROLES,
+  collectUserRoles,
+  hasRoleAccess,
+  roleDeniedMessage,
+  type RoleName,
+} from "@/lib/role-access";
 
 type NavEntry = {
   href: string;
@@ -120,8 +121,7 @@ function readCollapsed(): boolean {
 }
 
 function hasAccess(userRoles: string[], allowedRoles?: RoleName[]): boolean {
-  if (!allowedRoles) return true;
-  return userRoles.some((r) => allowedRoles.includes(r as RoleName));
+  return hasRoleAccess(userRoles, allowedRoles);
 }
 
 function resolvePageTitle(pathname: string): string {
@@ -172,7 +172,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [branchOpen, setBranchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [branches, setBranches] = useState<TenantBranch[]>([]);
-  const [tooltipState, setTooltipState] = useState<{ label: string; top: number; left: number } | null>(null);
   const avatarRef = useRef<HTMLDivElement>(null);
   const branchRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -183,7 +182,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const toggleCollapsed = useCallback(() => {
     setCollapsed((v) => {
       const next = !v;
-      if (!next) setTooltipState(null);
       try { localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0"); } catch {}
       return next;
     });
@@ -245,19 +243,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.push("/login");
   }, [logout, router]);
 
-  const userRoles = useMemo(() => {
-    if (!user) return [] as string[];
-    const roles = new Set<string>(user.roles ?? []);
-    for (const br of user.branchRoles ?? []) roles.add(br.role);
-    return Array.from(roles);
-  }, [user]);
+  const userRoles = useMemo(() => collectUserRoles(user), [user]);
 
-  const filteredGroups = useMemo(() => {
-    return NAV_GROUPS.map((g) => ({
-      ...g,
-      items: g.items.filter((item) => hasAccess(userRoles, item.roles)),
-    })).filter((g) => g.items.length > 0);
-  }, [userRoles]);
+  const navGroups = NAV_GROUPS;
 
   if (!ready || !isAuthenticated) {
     return (
@@ -300,23 +288,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className={styles.sidebarNav}>
-          {filteredGroups.map((group) => (
+          {navGroups.map((group) => (
             <div key={group.label} className={styles.navGroup}>
               <span className={styles.navGroupLabel}>{group.label}</span>
               {group.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                const allowed = hasAccess(userRoles, item.roles);
+                const deniedTip = roleDeniedMessage(item.roles);
+
+                if (!allowed) {
+                  return (
+                    <span
+                      key={item.href}
+                      className={`${styles.navItem} ${styles.navItemRestricted}`}
+                      aria-disabled="true"
+                      data-tooltip={deniedTip}
+                      data-tooltip-placement="right"
+                    >
+                      <span className={styles.navItemIcon}>{item.icon}</span>
+                      <span className={styles.navItemLabel}>{item.label}</span>
+                    </span>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     className={`${styles.navItem}${active ? ` ${styles.navItemActive}` : ""}`}
                     onClick={() => setMobileOpen(false)}
-                    onMouseEnter={(e) => {
-                      if (!collapsed) return;
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setTooltipState({ label: item.label, top: rect.top + rect.height / 2, left: rect.right + 12 });
-                    }}
-                    onMouseLeave={() => setTooltipState(null)}
+                    {...(collapsed
+                      ? {
+                          "data-tooltip": item.label,
+                          "data-tooltip-placement": "right",
+                        }
+                      : {})}
                   >
                     <span className={styles.navItemIcon}>{item.icon}</span>
                     <span className={styles.navItemLabel}>{item.label}</span>
@@ -495,15 +501,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
       )}
 
-      {/* Tooltip for collapsed sidebar */}
-      {tooltipState && (
-        <div
-          className={styles.tooltip}
-          style={{ top: tooltipState.top, left: tooltipState.left, transform: "translateY(-50%)" }}
-        >
-          {tooltipState.label}
-        </div>
-      )}
     </div>
   );
 }

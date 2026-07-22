@@ -15,7 +15,6 @@
   text-align: left;
   white-space: normal;
   pointer-events: none;
-  transform: translateX(-50%);
 }
 
 .top {
@@ -26,24 +25,51 @@
   transform: translateX(-50%);
 }
 
+.right {
+  transform: translateY(-50%);
+}
+
+.left {
+  transform: translate(-100%, -50%);
+}
+
 .top::after,
-.bottom::after {
+.bottom::after,
+.right::after,
+.left::after {
   content: "";
   position: absolute;
-  left: 50%;
   border: 5px solid transparent;
   filter: drop-shadow(0 1px 0 #d1d5db);
 }
 
 .top::after {
   top: 100%;
+  left: 50%;
   transform: translateX(-50%);
   border-top-color: #fff;
 }
 
 .bottom::after {
   bottom: 100%;
+  left: 50%;
   transform: translateX(-50%);
   border-bottom-color: #fff;
   filter: drop-shadow(0 -1px 0 #d1d5db);
+}
+
+.right::after {
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-right-color: #fff;
+  filter: drop-shadow(-1px 0 0 #d1d5db);
+}
+
+.left::after {
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left-color: #fff;
+  filter: drop-shadow(1px 0 0 #d1d5db);
 }

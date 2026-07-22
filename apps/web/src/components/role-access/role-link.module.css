@@ -1,0 +1,10 @@
+.restricted {
+  opacity: 0.48;
+  cursor: not-allowed;
+  pointer-events: auto;
+  text-decoration: none;
+}
+
+.restricted:hover {
+  text-decoration: none;
+}

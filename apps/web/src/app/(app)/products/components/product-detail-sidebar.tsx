@@ -1,7 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -14,6 +14,8 @@ import {
   IconShoppingCart,
   IconTruck,
 } from "@/components/icons";
+import { RoleLink } from "@/components/role-access";
+import { useRoleAccess } from "@/lib/use-role-access";
 import detailCss from "../product-detail.module.css";
 import type { AuditHistoryItem, Product, ProductDetail, ProductDetailTab } from "../types";
 import {
@@ -60,6 +62,7 @@ export function ProductDetailSidebar({
   product,
   productId,
 }: Props) {
+  const { canAccess } = useRoleAccess();
   const summary = detail.branchSummary;
   const hasBranch = detail.qtyOnHand !== null;
   const latest = detail.history[0] ?? null;
@@ -70,31 +73,53 @@ export function ProductDetailSidebar({
       <div className={detailCss.sideCard}>
         <h3 className={detailCss.sideCardTitle}>Related workflows</h3>
         <nav className={detailCss.navGrid} aria-label="Product operations">
-          {navLinks.map((link) =>
-            link.ready ? (
-              <Link key={link.id} href={link.href} className={detailCss.navItem}>
+          {navLinks.map((link) => {
+            if (!link.ready) {
+              return (
+                <div key={link.id} className={`${detailCss.navItem} ${detailCss.navItemDisabled}`}>
+                  <div className={detailCss.navItemHead}>
+                    <span className={detailCss.navItemLabelRow}>
+                      <span className={detailCss.navItemIcon}>{WORKFLOW_ICONS[link.id]}</span>
+                      {link.label}
+                    </span>
+                    <span className={detailCss.navSoonBadge}>Soon</span>
+                  </div>
+                  <p className={detailCss.navItemDesc}>{link.description}</p>
+                </div>
+              );
+            }
+
+            const allowed = canAccess(link.roles);
+            const itemClass = `${detailCss.navItem}${allowed ? "" : ` ${detailCss.navItemRestricted}`}`;
+
+            if (allowed) {
+              return (
+                <Link key={link.id} href={link.href} className={itemClass}>
+                  <div className={detailCss.navItemHead}>
+                    <span className={detailCss.navItemLabelRow}>
+                      <span className={detailCss.navItemIcon}>{WORKFLOW_ICONS[link.id]}</span>
+                      {link.label}
+                    </span>
+                    <IconChevronRight size={14} className={detailCss.navChevron} />
+                  </div>
+                  <p className={detailCss.navItemDesc}>{link.description}</p>
+                </Link>
+              );
+            }
+
+            return (
+              <RoleLink key={link.id} href={link.href} roles={link.roles} className={itemClass}>
                 <div className={detailCss.navItemHead}>
                   <span className={detailCss.navItemLabelRow}>
                     <span className={detailCss.navItemIcon}>{WORKFLOW_ICONS[link.id]}</span>
                     {link.label}
                   </span>
-                  <IconChevronRight size={14} className={detailCss.navChevron} />
+                  <span className={detailCss.navRestrictedBadge}>Restricted</span>
                 </div>
                 <p className={detailCss.navItemDesc}>{link.description}</p>
-              </Link>
-            ) : (
-              <div key={link.id} className={`${detailCss.navItem} ${detailCss.navItemDisabled}`}>
-                <div className={detailCss.navItemHead}>
-                  <span className={detailCss.navItemLabelRow}>
-                    <span className={detailCss.navItemIcon}>{WORKFLOW_ICONS[link.id]}</span>
-                    {link.label}
-                  </span>
-                  <span className={detailCss.navSoonBadge}>Soon</span>
-                </div>
-                <p className={detailCss.navItemDesc}>{link.description}</p>
-              </div>
-            ),
-          )}
+              </RoleLink>
+            );
+          })}
         </nav>
       </div>
 
@@ -242,10 +267,10 @@ export function ProductDetailSidebar({
               </dd>
             </div>
           </dl>
-          <Link href={`/inventory/movements?productId=${productId}`} className={detailCss.footerLink}>
+          <RoleLink href={`/inventory/movements?productId=${productId}`} className={detailCss.footerLink}>
             View inventory details
             <IconChevronRight size={14} />
-          </Link>
+          </RoleLink>
         </div>
       )}
     </aside>

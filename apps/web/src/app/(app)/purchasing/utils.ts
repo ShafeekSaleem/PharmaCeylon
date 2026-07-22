@@ -8,6 +8,66 @@ import {
   type PurchaseOrderItem,
   type PurchaseOrderListItem,
 } from "./types";
+import type { SummaryPeriod } from "./types";
+
+export function resolveSummaryPeriod(period: SummaryPeriod): {
+  from: Date;
+  to: Date;
+  label: string;
+} {
+  const now = new Date();
+  const to = new Date(now);
+  to.setHours(23, 59, 59, 999);
+  const from = new Date(now);
+  from.setHours(0, 0, 0, 0);
+
+  switch (period) {
+    case "last_7_days":
+      from.setDate(from.getDate() - 6);
+      return { from, to, label: "Last 7 days" };
+    case "last_30_days":
+      from.setDate(from.getDate() - 29);
+      return { from, to, label: "Last 30 days" };
+    case "last_month": {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      return {
+        from: start,
+        to: end,
+        label: start.toLocaleString(undefined, { month: "long", year: "numeric" }),
+      };
+    }
+    case "this_quarter": {
+      const q = Math.floor(now.getMonth() / 3);
+      const start = new Date(now.getFullYear(), q * 3, 1);
+      return { from: start, to, label: `Q${q + 1} ${now.getFullYear()}` };
+    }
+    case "this_year": {
+      const start = new Date(now.getFullYear(), 0, 1);
+      return { from: start, to, label: String(now.getFullYear()) };
+    }
+    case "this_month":
+    default: {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return {
+        from: start,
+        to,
+        label: start.toLocaleString(undefined, { month: "long", year: "numeric" }),
+      };
+    }
+  }
+}
+
+export function isDateInSummaryPeriod(
+  iso: string | null | undefined,
+  period: SummaryPeriod,
+): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  const { from, to } = resolveSummaryPeriod(period);
+  return d >= from && d <= to;
+}
 
 export function hasPurchasingWriteAccess(
   user: AuthUser | null,
@@ -261,9 +321,5 @@ export function startOfMonthIso(): string {
 }
 
 export function isInCurrentMonth(iso: string | null | undefined): boolean {
-  if (!iso) return false;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return false;
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  return isDateInSummaryPeriod(iso, "this_month");
 }

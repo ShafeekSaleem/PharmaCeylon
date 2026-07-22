@@ -11,7 +11,14 @@ import {
   TransferStatus,
 } from "@prisma/client";
 import * as bcrypt from "bcrypt";
-import { dateOnly, daysAgo, dec, seedReceiveStock, seedSale } from "./seed-helpers";
+import {
+  dateOnly,
+  daysAgo,
+  daysFromNow,
+  dec,
+  seedReceiveStock,
+  seedSale,
+} from "./seed-helpers";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl?.trim()) {
@@ -460,6 +467,48 @@ async function main() {
     batchByKey.set(`MAIN:${line.sku}`, ref);
   }
 
+  const seedGrNearId = "00000000-0000-4000-8000-000000000003";
+  const nearExpiryLines: Array<{ sku: string; qty: number; daysUntilExpiry: number; suffix: string }> =
+    [
+      { sku: "PCL-0005", qty: 12, daysUntilExpiry: 8, suffix: "NEAR-A" },
+      { sku: "PCL-0017", qty: 6, daysUntilExpiry: 14, suffix: "NEAR-B" },
+      { sku: "PCL-0024", qty: 4, daysUntilExpiry: 22, suffix: "NEAR-C" },
+      { sku: "PCL-0013", qty: 8, daysUntilExpiry: 5, suffix: "NEAR-D" },
+    ];
+  for (const line of nearExpiryLines) {
+    const productId = productBySku.get(line.sku)!;
+    const stock = MAIN_STOCK.find((s) => s.sku === line.sku);
+    await seedReceiveStock(prisma, {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      productId,
+      userId: inventoryClerk.id,
+      batchNo: `SEED-${line.sku}-${line.suffix}`,
+      expiryDate: daysFromNow(line.daysUntilExpiry),
+      qty: line.qty,
+      costPrice: stock?.cost ?? 50,
+      sellingPrice: stock?.sell ?? 75,
+      referenceId: seedGrNearId,
+      receivedAt: daysAgo(60),
+    });
+  }
+
+  const expiredLine = { sku: "PCL-0018", qty: 5 };
+  const expiredStock = MAIN_STOCK.find((s) => s.sku === expiredLine.sku);
+  await seedReceiveStock(prisma, {
+    tenantId: tenant.id,
+    branchId: mainBranch.id,
+    productId: productBySku.get(expiredLine.sku)!,
+    userId: inventoryClerk.id,
+    batchNo: "SEED-PCL-0018-EXPIRED",
+    expiryDate: daysFromNow(-18),
+    qty: expiredLine.qty,
+    costPrice: expiredStock?.cost ?? 8,
+    sellingPrice: expiredStock?.sell ?? 15,
+    referenceId: seedGrNearId,
+    receivedAt: daysAgo(120),
+  });
+
   const seedGr2Id = "00000000-0000-4000-8000-000000000002";
   for (const line of BRANCH2_STOCK) {
     const productId = productBySku.get(line.sku)!;
@@ -640,6 +689,67 @@ async function main() {
     },
   });
 
+  await prisma.purchaseOrder.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      supplierId: supplier2.id,
+      poNumber: "PO-MAIN-SEED-RECEIVED",
+      status: PoStatus.received,
+      priority: PoPriority.normal,
+      expectedOn: daysAgo(18),
+      createdAt: daysAgo(35),
+      notes: "Fully received PO for dashboard demo",
+      paymentTermsDays: supplier2.paymentTermsDays,
+      createdBy: manager.id,
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0012")!,
+            orderedQty: 60,
+            unitCost: dec(30),
+            taxPercent: dec(18),
+          },
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0015")!,
+            orderedQty: 40,
+            unitCost: dec(45),
+            taxPercent: dec(18),
+          },
+        ],
+      },
+    },
+  });
+
+  await prisma.purchaseOrder.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      supplierId: supplier1.id,
+      poNumber: "PO-MAIN-SEED-CANCELLED",
+      status: PoStatus.cancelled,
+      priority: PoPriority.low,
+      expectedOn: daysAgo(5),
+      createdAt: daysAgo(25),
+      notes: "Cancelled after supplier stock-out",
+      paymentTermsDays: 30,
+      createdBy: manager.id,
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0011")!,
+            orderedQty: 10,
+            unitCost: dec(430),
+            taxPercent: dec(18),
+          },
+        ],
+      },
+    },
+  });
+
   const salesDefs: Array<{
     invoiceNo: string;
     daysAgo: number;
@@ -659,8 +769,34 @@ async function main() {
     { invoiceNo: "INV-SEED-0011", daysAgo: 2, lines: [{ sku: "PCL-0001", qty: 5 }, { sku: "PCL-0009", qty: 3 }] },
     { invoiceNo: "INV-SEED-0012", daysAgo: 1, lines: [{ sku: "PCL-0013", qty: 2 }] },
     { invoiceNo: "INV-SEED-0013", daysAgo: 0, lines: [{ sku: "PCL-0030", qty: 1 }, { sku: "PCL-0004", qty: 2 }] },
+    { invoiceNo: "INV-SEED-0014", daysAgo: 0, lines: [{ sku: "PCL-0001", qty: 3 }, { sku: "PCL-0005", qty: 2 }] },
+    { invoiceNo: "INV-SEED-0015", daysAgo: 0, lines: [{ sku: "PCL-0027", qty: 1 }, { sku: "PCL-0009", qty: 2 }] },
     { invoiceNo: "INV-SEED-VOID-01", daysAgo: 11, lines: [{ sku: "PCL-0001", qty: 10 }], voided: true },
   ];
+
+  const extraSaleSkus: Array<{ sku: string; qty: number }> = [
+    { sku: "PCL-0001", qty: 2 },
+    { sku: "PCL-0003", qty: 1 },
+    { sku: "PCL-0008", qty: 3 },
+    { sku: "PCL-0009", qty: 2 },
+    { sku: "PCL-0015", qty: 1 },
+    { sku: "PCL-0027", qty: 1 },
+  ];
+  for (let day = 1; day <= 29; day++) {
+    if (day % 2 !== 0) continue;
+    const pick = extraSaleSkus[Math.floor(day / 2) % extraSaleSkus.length];
+    salesDefs.push({
+      invoiceNo: `INV-SEED-D${String(day).padStart(2, "0")}`,
+      daysAgo: day,
+      lines: [{ sku: pick.sku, qty: pick.qty }],
+    });
+  }
+
+  salesDefs.push({
+    invoiceNo: "INV-SEED-OUT-01",
+    daysAgo: 1,
+    lines: [{ sku: "PCL-0023", qty: 8 }],
+  });
 
   let saleCount = 0;
   for (const s of salesDefs) {
@@ -899,6 +1035,10 @@ async function main() {
   });
 
   const sampleProductId = productBySku.get("PCL-0001")!;
+  const latestSale = await prisma.sale.findFirst({
+    where: { tenantId: tenant.id, branchId: mainBranch.id, status: SaleStatus.posted },
+    orderBy: { soldAt: "desc" },
+  });
   await prisma.auditEvent.createMany({
     data: [
       {
@@ -931,11 +1071,42 @@ async function main() {
         payload: { status: "requested" },
         createdAt: daysAgo(4),
       },
+      {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        actorUserId: cashier.id,
+        eventName: "sale.posted",
+        entityName: "sale",
+        entityId: latestSale?.id ?? sampleProductId,
+        payload: { invoiceNo: latestSale?.invoiceNo ?? "INV-SEED-0015" },
+        createdAt: daysAgo(0),
+      },
+      {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        actorUserId: manager.id,
+        eventName: "purchase_order.approved",
+        entityName: "purchase_order",
+        entityId: poIssued.id,
+        payload: { poNumber: "PO-MAIN-SEED-001", status: "partially_received" },
+        createdAt: daysAgo(18),
+      },
+      {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        actorUserId: inventoryClerk.id,
+        eventName: "stock_adjustment.posted",
+        entityName: "stock_ledger",
+        entityId: productBySku.get("PCL-0018")!,
+        payload: { movementType: "adjustment_out", qty: 3 },
+        createdAt: daysAgo(2),
+      },
     ],
   });
 
   const batchCount = await prisma.batch.count({ where: { tenantId: tenant.id } });
   const ledgerCount = await prisma.stockLedger.count({ where: { tenantId: tenant.id } });
+  const poCount = await prisma.purchaseOrder.count({ where: { tenantId: tenant.id } });
 
   console.log("\n=== PharmaCeylon demo seed complete ===\n");
   console.log(`Tenant:     ${TENANT_CODE} (${tenant.displayName})`);
@@ -944,7 +1115,7 @@ async function main() {
   console.log(`Batches:    ${batchCount}`);
   console.log(`Ledger:     ${ledgerCount} movements`);
   console.log(`Sales:      ${saleCount} invoices`);
-  console.log(`POs:        2 (1 partial + 1 draft)`);
+  console.log(`POs:        ${poCount} (draft, pending, issued, partial, received, cancelled)`);
   console.log(`Transfers:  4 (requested, approved, in_transit, received)`);
   console.log("\nLogins (passwords from SEED_*_PASSWORD or defaults):");
   console.log("  admin@pharmaceylon.demo      — owner");

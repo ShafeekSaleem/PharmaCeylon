@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import styles from "./floating-tooltip.module.css";
 
+type Placement = "top" | "bottom" | "right" | "left";
+
 type TooltipState = {
   text: string;
   top: number;
   left: number;
-  placement: "top" | "bottom";
+  placement: Placement;
 };
 
 function resolveTarget(node: EventTarget | null): HTMLElement | null {
@@ -20,17 +22,46 @@ function resolveTarget(node: EventTarget | null): HTMLElement | null {
   return el;
 }
 
+function readPlacement(el: HTMLElement): Placement | "auto" {
+  const attr = el.getAttribute("data-tooltip-placement");
+  if (attr === "top" || attr === "bottom" || attr === "right" || attr === "left") {
+    return attr;
+  }
+  return "auto";
+}
+
 function measure(el: HTMLElement): TooltipState {
   const text = el.getAttribute("data-tooltip")!.trim();
   const rect = el.getBoundingClientRect();
   const gap = 8;
-  const estimatedHeight = 36;
-  const spaceAbove = rect.top;
-  const placement: "top" | "bottom" =
-    spaceAbove < estimatedHeight + gap + 4 ? "bottom" : "top";
+  const forced = readPlacement(el);
 
-  const top =
-    placement === "top" ? rect.top - gap : rect.bottom + gap;
+  if (forced === "right") {
+    return {
+      text,
+      top: rect.top + rect.height / 2,
+      left: rect.right + gap,
+      placement: "right",
+    };
+  }
+
+  if (forced === "left") {
+    return {
+      text,
+      top: rect.top + rect.height / 2,
+      left: rect.left - gap,
+      placement: "left",
+    };
+  }
+
+  const placement: Placement =
+    forced === "top" || forced === "bottom"
+      ? forced
+      : rect.top < 36 + gap + 4
+        ? "bottom"
+        : "top";
+
+  const top = placement === "top" ? rect.top - gap : rect.bottom + gap;
   const left = Math.min(
     Math.max(rect.left + rect.width / 2, 12),
     window.innerWidth - 12,
@@ -118,11 +149,18 @@ export function FloatingTooltipHost() {
 
   if (!mounted || !state) return null;
 
+  const placementClass =
+    state.placement === "bottom"
+      ? styles.bottom
+      : state.placement === "right"
+        ? styles.right
+        : state.placement === "left"
+          ? styles.left
+          : styles.top;
+
   return createPortal(
     <div
-      className={`${styles.tooltip} ${
-        state.placement === "bottom" ? styles.bottom : styles.top
-      }`}
+      className={`${styles.tooltip} ${placementClass}`}
       style={{ top: state.top, left: state.left }}
       role="tooltip"
     >

@@ -8,6 +8,14 @@ export type PoStatus =
 
 export type PoPriority = "low" | "normal" | "high" | "urgent";
 
+export type SummaryPeriod =
+  | "this_month"
+  | "last_month"
+  | "last_7_days"
+  | "last_30_days"
+  | "this_quarter"
+  | "this_year";
+
 export type SupplierOption = {
   id: string;
   code: string;

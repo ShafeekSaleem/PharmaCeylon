@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
 import { ProductContextBanner } from "@/components/product-context-banner";
+import { RoleLink } from "@/components/role-access";
 import { PageHeader } from "@/components/ui";
 import { MovementsTable } from "../components/movements-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
@@ -156,9 +156,9 @@ function MovementsContent() {
               <p>No stock movements match your filters.</p>
               <p>
                 Post a new adjustment from the{" "}
-                <Link href={`/inventory/adjustments${productId ? `?productId=${productId}` : ""}`}>
+                <RoleLink href={`/inventory/adjustments${productId ? `?productId=${productId}` : ""}`}>
                   Adjustments
-                </Link>{" "}
+                </RoleLink>{" "}
                 tab.
               </p>
             </div>

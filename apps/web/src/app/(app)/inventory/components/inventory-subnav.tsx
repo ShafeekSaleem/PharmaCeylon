@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { RoleLink } from "@/components/role-access";
+import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import css from "../inventory.module.css";
 
 const TABS = [
@@ -19,6 +21,7 @@ const TABS = [
     href: "/inventory/adjustments",
     label: "Adjustments",
     match: (p: string) => p.startsWith("/inventory/adjustments"),
+    roles: INVENTORY_WRITE_ROLES,
   },
   {
     href: "/inventory/movements",
@@ -50,6 +53,21 @@ export function InventorySubnav() {
             : productId
               ? `${tab.href}?productId=${encodeURIComponent(productId)}`
               : tab.href;
+        const roles = "roles" in tab ? tab.roles : undefined;
+
+        if (roles) {
+          return (
+            <RoleLink
+              key={tab.href}
+              href={href}
+              roles={roles}
+              className={`${css.subnavLink}${active ? ` ${css.subnavLinkActive}` : ""}`}
+            >
+              {tab.label}
+            </RoleLink>
+          );
+        }
+
         return (
           <Link
             key={tab.href}

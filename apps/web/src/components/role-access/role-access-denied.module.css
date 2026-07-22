@@ -1,0 +1,46 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 2.5rem 1.5rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+  text-align: center;
+  max-width: 28rem;
+  margin: 1.5rem auto;
+}
+
+.iconWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-muted-fg) 12%, transparent);
+  color: var(--pc-muted-fg);
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.description {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--pc-muted-fg);
+  max-width: 22rem;
+}
+
+.hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}

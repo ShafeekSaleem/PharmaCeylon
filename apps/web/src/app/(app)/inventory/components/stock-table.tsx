@@ -8,7 +8,9 @@ import {
   IconEye,
   IconPackage,
 } from "@/components/icons";
+import { RoleLink } from "@/components/role-access";
 import { DataTable, type Column } from "@/components/ui";
+import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { ProductStockBadge } from "../../products/components/product-stock-badge";
 import { PAGE_SIZE } from "../constants";
@@ -16,41 +18,34 @@ import css from "../inventory.module.css";
 import type { StockRow } from "../types";
 import { formatRelativeTime } from "../utils";
 
-function RowActions({
-  row,
-  canWrite,
-}: {
-  row: StockRow;
-  canWrite: boolean;
-}) {
+function RowActions({ row }: { row: StockRow }) {
   return (
     <div className={css.actionsCell}>
-      <Link
+      <RoleLink
         href={`/products/${row.productId}`}
         className={`${css.actionIcon} ${css.actionIconView}`}
         aria-label={`View ${row.product.name}`}
         data-tooltip="View product"
       >
         <IconEye size={17} />
-      </Link>
-      <Link
+      </RoleLink>
+      <RoleLink
         href={`/inventory/batches?productId=${row.productId}`}
         className={`${css.actionIcon} ${css.actionIconBatches}`}
         aria-label={`View batches for ${row.product.name}`}
         data-tooltip="View batches"
       >
         <IconPackage size={16} />
-      </Link>
-      {canWrite && (
-        <Link
-          href={`/inventory/adjustments?productId=${row.productId}`}
-          className={`${css.actionIcon} ${css.actionIconAdjust}`}
-          aria-label={`Adjust stock for ${row.product.name}`}
-          data-tooltip="Adjust stock"
-        >
-          <IconActivity size={17} />
-        </Link>
-      )}
+      </RoleLink>
+      <RoleLink
+        href={`/inventory/adjustments?productId=${row.productId}`}
+        roles={INVENTORY_WRITE_ROLES}
+        className={`${css.actionIcon} ${css.actionIconAdjust}`}
+        aria-label={`Adjust stock for ${row.product.name}`}
+        data-tooltip="Adjust stock"
+      >
+        <IconActivity size={17} />
+      </RoleLink>
     </div>
   );
 }
@@ -156,12 +151,12 @@ export function StockTable({
       {
         key: "actions",
         header: "Actions",
-        width: canWrite ? "116px" : "82px",
+        width: "116px",
         align: "right",
-        render: (row) => <RowActions row={row} canWrite={canWrite} />,
+        render: (row) => <RowActions row={row} />,
       },
     ],
-    [canWrite],
+    [],
   );
 
   const pageSize = PAGE_SIZE;

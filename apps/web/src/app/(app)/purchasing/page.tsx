@@ -25,11 +25,13 @@ import { ActionButton, DataTable, PageHeader, StatCard, StatusBadge, type Column
 import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
+import inventoryCss from "../inventory/inventory.module.css";
 import { CreatePoModal } from "./components/create-po-modal";
 import { PoDetailModal } from "./components/po-detail-modal";
+import { SUMMARY_PERIOD_OPTIONS } from "./constants";
 import { usePurchaseOrders } from "./hooks/use-purchase-orders";
 import css from "./purchasing.module.css";
-import { PAGE_SIZE, type PoStatusFilter, type PurchaseOrderListItem } from "./types";
+import { PAGE_SIZE, type PoStatusFilter, type PurchaseOrderListItem, type SummaryPeriod } from "./types";
 import {
   canCancelPurchaseOrder,
   canEditPo,
@@ -38,12 +40,13 @@ import {
   formatDate,
   formatMoney,
   hasPurchasingWriteAccess,
-  isInCurrentMonth,
+  isDateInSummaryPeriod,
   isPoOverdue,
   parseDateOnlyLocal,
   poEstimatedValue,
   poLineCount,
   receivedPercent,
+  resolveSummaryPeriod,
   startOfMonthIso,
   todayIsoDate,
 } from "./utils";
@@ -77,6 +80,7 @@ function PurchasingContent() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
+  const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>("this_month");
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailStartInEdit, setDetailStartInEdit] = useState(false);
@@ -140,12 +144,14 @@ function PurchasingContent() {
     return counts;
   }, [orders.rows]);
 
-  const monthSummary = useMemo(() => {
-    const monthRows = orders.rows.filter((row) => isInCurrentMonth(row.createdAt));
+  const periodSummary = useMemo(() => {
+    const periodRows = orders.rows.filter((row) =>
+      isDateInSummaryPeriod(row.createdAt, summaryPeriod),
+    );
     let totalOrdered = 0;
     let totalReceived = 0;
     let outstanding = 0;
-    for (const row of monthRows) {
+    for (const row of periodRows) {
       if (row.status === "cancelled") continue;
       const value = poEstimatedValue(row.items, row.shippingCharges);
       totalOrdered += value;
@@ -164,8 +170,14 @@ function PurchasingContent() {
       totalOrdered,
       totalReceived,
       outstanding,
+      orderCount: periodRows.length,
     };
-  }, [orders.rows]);
+  }, [orders.rows, summaryPeriod]);
+
+  const summaryPeriodLabel = useMemo(
+    () => resolveSummaryPeriod(summaryPeriod).label,
+    [summaryPeriod],
+  );
 
   const alerts = useMemo(() => {
     const overdue = orders.rows.filter(isPoOverdue).length;
@@ -641,22 +653,42 @@ function PurchasingContent() {
 
           <aside className={css.sideCol}>
             <div className={css.sideCard}>
-              <h3 className={css.sideCardTitle}>Purchasing summary</h3>
-              <p className={css.periodLabel}>This month</p>
+              <div className={inventoryCss.summaryHeader}>
+                <h3 className={`${css.sideCardTitle} ${css.sideCardTitleFlush}`}>
+                  Purchasing summary
+                </h3>
+                <InventoryFilterSelect
+                  label="Period"
+                  value={summaryPeriod}
+                  options={SUMMARY_PERIOD_OPTIONS}
+                  onChange={(value) => setSummaryPeriod(value as SummaryPeriod)}
+                />
+              </div>
+              <p className={css.periodLabel}>{summaryPeriodLabel}</p>
               <div className={css.summaryGrid}>
                 <div className={css.summaryRow}>
                   <span>Total ordered</span>
-                  <span className={css.summaryValue}>{formatMoney(monthSummary.totalOrdered)}</span>
+                  <span className={css.summaryValue}>
+                    {formatMoney(periodSummary.totalOrdered)}
+                  </span>
                 </div>
                 <div className={css.summaryRow}>
                   <span>Total received</span>
-                  <span className={css.summaryValue}>{formatMoney(monthSummary.totalReceived)}</span>
+                  <span className={css.summaryValue}>
+                    {formatMoney(periodSummary.totalReceived)}
+                  </span>
                 </div>
                 <div className={`${css.summaryRow} ${css.summaryHighlight}`}>
                   <span>Outstanding (on order)</span>
-                  <span className={css.summaryValue}>{formatMoney(monthSummary.outstanding)}</span>
+                  <span className={css.summaryValue}>
+                    {formatMoney(periodSummary.outstanding)}
+                  </span>
                 </div>
               </div>
+              <p className={css.fieldHint}>
+                {periodSummary.orderCount} purchase order
+                {periodSummary.orderCount === 1 ? "" : "s"} in period
+              </p>
               <Link href="/inventory/movements?category=purchases" className={css.sideLink}>
                 View purchase movements →
               </Link>

@@ -16,6 +16,13 @@ export function daysAgo(n: number): Date {
   return d;
 }
 
+/** Calendar date n days from today (UTC), for relative expiry in seed data. */
+export function daysFromNow(n: number): Date {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + n);
+  return dateOnly(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+}
+
 export type SeedBatchRef = {
   batchId: string;
   productId: string;

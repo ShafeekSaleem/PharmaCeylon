@@ -8,7 +8,9 @@ import {
   IconCalendar,
   IconPackage,
 } from "@/components/icons";
+import { RoleLink } from "@/components/role-access";
 import { DataTable, type Column } from "@/components/ui";
+import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { PAGE_SIZE } from "../constants";
 import css from "../inventory.module.css";
@@ -120,29 +122,28 @@ export function BatchesTable({
       },
     ];
 
-    if (canWrite) {
-      cols.push({
-        key: "actions",
-        header: "Actions",
-        width: "64px",
-        align: "right",
-        render: (row) => (
-          <div className={css.actionsCell}>
-            <Link
-              href={`/inventory/adjustments?productId=${row.productId}&batchId=${row.id}`}
-              className={`${css.actionIcon} ${css.actionIconAdjust}`}
-              aria-label={`Adjust ${row.product.name}, batch ${row.batchNo}`}
-              data-tooltip="Adjust stock"
-            >
-              <IconActivity size={17} />
-            </Link>
-          </div>
-        ),
-      });
-    }
+    cols.push({
+      key: "actions",
+      header: "Actions",
+      width: "64px",
+      align: "right",
+      render: (row) => (
+        <div className={css.actionsCell}>
+          <RoleLink
+            href={`/inventory/adjustments?productId=${row.productId}&batchId=${row.id}`}
+            roles={INVENTORY_WRITE_ROLES}
+            className={`${css.actionIcon} ${css.actionIconAdjust}`}
+            aria-label={`Adjust ${row.product.name}, batch ${row.batchNo}`}
+            data-tooltip="Adjust stock"
+          >
+            <IconActivity size={17} />
+          </RoleLink>
+        </div>
+      ),
+    });
 
     return cols;
-  }, [canWrite]);
+  }, []);
 
   const pageSize = PAGE_SIZE;
   const paged = useMemo(() => {

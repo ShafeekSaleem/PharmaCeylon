@@ -1881,6 +1881,22 @@
   cursor: default;
 }
 
+.navItemRestricted {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.navRestrictedBadge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--pc-muted-fg) 10%, transparent);
+  color: var(--pc-muted-fg);
+  border: 1px solid var(--pc-border);
+}
+
 .navItemHead {
   display: flex;
   align-items: center;

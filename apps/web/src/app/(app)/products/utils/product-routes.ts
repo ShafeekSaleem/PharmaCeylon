@@ -1,4 +1,13 @@
-/** Deep links from a product detail page to operational modules (placeholders until built). */
+/** Deep links from a product detail page to operational modules. */
+
+import type { RoleName } from "@/lib/role-access";
+import {
+  ADMIN_ROLES,
+  INVENTORY_WRITE_ROLES,
+  OPERATIONS_ROLES,
+  POS_ROLES,
+  PURCHASING_ROLES,
+} from "@/lib/role-access";
 
 export type ProductNavLink = {
   id: string;
@@ -6,6 +15,7 @@ export type ProductNavLink = {
   description: string;
   href: string;
   ready: boolean;
+  roles?: RoleName[];
 };
 
 export function productDetailPath(productId: string, query?: Record<string, string>): string {
@@ -46,6 +56,7 @@ export function productOperationalLinks(
       description: "Stock levels and ledger for this product",
       href: `/inventory?${q}`,
       ready: true,
+      roles: OPERATIONS_ROLES,
     },
     {
       id: "batches",
@@ -53,6 +64,7 @@ export function productOperationalLinks(
       description: "Receive, adjust, and trace batches",
       href: `/inventory/batches?${q}`,
       ready: true,
+      roles: OPERATIONS_ROLES,
     },
     {
       id: "adjustments",
@@ -60,6 +72,7 @@ export function productOperationalLinks(
       description: "Correct on-hand quantity at this branch",
       href: `/inventory/adjustments?${q}`,
       ready: true,
+      roles: INVENTORY_WRITE_ROLES,
     },
     {
       id: "movements",
@@ -67,6 +80,7 @@ export function productOperationalLinks(
       description: "Sales, receipts, transfers, and adjustments",
       href: `/inventory/movements?${q}`,
       ready: true,
+      roles: OPERATIONS_ROLES,
     },
     {
       id: "purchasing",
@@ -74,6 +88,7 @@ export function productOperationalLinks(
       description: "Order more stock from a supplier",
       href: `/purchasing?${q}&action=create-po`,
       ready: true,
+      roles: PURCHASING_ROLES,
     },
     {
       id: "transfers",
@@ -81,6 +96,7 @@ export function productOperationalLinks(
       description: "Move stock between branches",
       href: `/transfers?${q}&action=add-line`,
       ready: false,
+      roles: OPERATIONS_ROLES,
     },
     {
       id: "pos",
@@ -88,6 +104,7 @@ export function productOperationalLinks(
       description: "Sell this product at the register",
       href: `/pos?${q}`,
       ready: false,
+      roles: POS_ROLES,
     },
     {
       id: "catalog",
@@ -102,6 +119,7 @@ export function productOperationalLinks(
       description: "Full change history for this product",
       href: `/audit?entityName=product&entityId=${productId}`,
       ready: true,
+      roles: ADMIN_ROLES,
     },
   ];
 }
