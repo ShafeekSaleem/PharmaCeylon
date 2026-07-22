@@ -47,6 +47,21 @@ enum TransferStatus {
   cancelled
 }
 
+enum GoodsReturnType {
+  customer
+  supplier
+}
+
+enum GoodsReturnStatus {
+  draft
+  pending_approval
+  awaiting_logistics
+  in_review
+  completed
+  rejected
+  cancelled
+}
+
 enum StockMovementType {
   purchase_in
   sale_out
@@ -116,6 +131,7 @@ model Branch {
   ledgerEntries   StockLedger[]
   transfersFrom   Transfer[]       @relation("TransferFromBranch")
   transfersTo     Transfer[]       @relation("TransferToBranch")
+  goodsReturns    GoodsReturn[]
   auditEvents     AuditEvent[]
 
   @@unique([tenantId, code])
@@ -149,6 +165,9 @@ model AppUser {
   transfersRequested   Transfer[]       @relation("TransferRequester")
   transfersApproved    Transfer[]       @relation("TransferApprover")
   transfersReceived    Transfer[]       @relation("TransferReceiver")
+  goodsReturnsRequested GoodsReturn[]   @relation("GoodsReturnRequester")
+  goodsReturnsApproved  GoodsReturn[]   @relation("GoodsReturnApprover")
+  goodsReturnsProcessed GoodsReturn[]   @relation("GoodsReturnProcessor")
   auditEvents          AuditEvent[]     @relation("AuditActor")
 
   @@index([tenantId])
@@ -212,6 +231,7 @@ model Supplier {
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   purchaseOrders PurchaseOrder[]
+  goodsReturns   GoodsReturn[]
 
   @@unique([tenantId, code])
   @@map("supplier")
@@ -246,6 +266,7 @@ model Product {
   saleItems     SaleItem[]
   ledgerEntries StockLedger[]
   transferItems TransferItem[]
+  returnItems   GoodsReturnItem[]
   tagMaps       ProductTagMap[]
   aliases       ProductAlias[]
   categoryMaps  ProductCategoryMap[]
@@ -368,6 +389,7 @@ model Batch {
   saleItems     SaleItem[]
   ledgerEntries StockLedger[]
   transferItems TransferItem[]
+  returnItems   GoodsReturnItem[]
 
   @@unique([tenantId, branchId, productId, batchNo])
   @@index([tenantId, branchId, productId])
@@ -474,7 +496,8 @@ model Sale {
   branch Branch  @relation(fields: [branchId], references: [id])
   seller AppUser @relation("SaleSeller", fields: [soldBy], references: [id])
 
-  items SaleItem[]
+  items        SaleItem[]
+  goodsReturns GoodsReturn[]
 
   @@unique([tenantId, branchId, invoiceNo])
   @@index([tenantId, branchId, soldAt(sort: Desc)])
@@ -566,6 +589,56 @@ model TransferItem {
   batch    Batch?   @relation(fields: [batchId], references: [id])
 
   @@map("transfer_item")
+}
+
+model GoodsReturn {
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  branchId       String            @map("branch_id") @db.Uuid
+  returnNumber   String            @map("return_number")
+  type           GoodsReturnType
+  status         GoodsReturnStatus @default(draft)
+  customerName   String?           @map("customer_name")
+  saleId         String?           @map("sale_id") @db.Uuid
+  supplierId     String?           @map("supplier_id") @db.Uuid
+  reason         String?
+  notes          String?
+  amount         Decimal           @default(0) @db.Decimal(12, 2)
+  requestedBy    String            @map("requested_by") @db.Uuid
+  approvedBy     String?           @map("approved_by") @db.Uuid
+  processedBy    String?           @map("processed_by") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  branch    Branch    @relation(fields: [branchId], references: [id])
+  sale      Sale?     @relation(fields: [saleId], references: [id])
+  supplier  Supplier? @relation(fields: [supplierId], references: [id])
+  requester AppUser   @relation("GoodsReturnRequester", fields: [requestedBy], references: [id])
+  approver  AppUser?  @relation("GoodsReturnApprover", fields: [approvedBy], references: [id])
+  processor AppUser?  @relation("GoodsReturnProcessor", fields: [processedBy], references: [id])
+
+  items GoodsReturnItem[]
+
+  @@unique([tenantId, branchId, returnNumber])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, branchId, createdAt(sort: Desc)])
+  @@map("goods_return")
+}
+
+model GoodsReturnItem {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
+  returnId  String  @map("return_id") @db.Uuid
+  productId String  @map("product_id") @db.Uuid
+  batchId   String? @map("batch_id") @db.Uuid
+  qty       Int
+  unitPrice Decimal @default(0) @db.Decimal(12, 2) @map("unit_price")
+
+  goodsReturn GoodsReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id])
+  batch       Batch?      @relation(fields: [batchId], references: [id])
+
+  @@map("goods_return_item")
 }
 
 model AuditEvent {

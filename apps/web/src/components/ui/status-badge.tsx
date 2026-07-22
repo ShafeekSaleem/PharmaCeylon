@@ -21,6 +21,8 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   requested: "warning",
   partially_received: "warning",
   in_transit: "info",
+  awaiting_logistics: "info",
+  in_review: "primary",
   issued: "info",
   processing: "info",
   shipped: "info",
@@ -40,18 +42,23 @@ const STATUS_LABELS: Record<string, string> = {
   in_transit: "In transit",
   partially_received: "Partially received",
   overdue: "Overdue",
+  pending_approval: "Pending approval",
+  awaiting_logistics: "Awaiting pickup/dispatch",
+  in_review: "In review",
 };
 
 type Props = {
   status: string;
+  /** Override the default mapped label. */
+  label?: string;
   variant?: BadgeVariant;
   dot?: boolean;
   className?: string;
 };
 
-export function StatusBadge({ status, variant, dot = false, className }: Props) {
+export function StatusBadge({ status, label, variant, dot = false, className }: Props) {
   const resolved = variant ?? STATUS_MAP[status.toLowerCase()] ?? "default";
-  const label = STATUS_LABELS[status.toLowerCase()] ?? status.replace(/_/g, " ");
+  const text = label ?? STATUS_LABELS[status.toLowerCase()] ?? status.replace(/_/g, " ");
 
   const cls = [
     styles.badge,
@@ -62,7 +69,7 @@ export function StatusBadge({ status, variant, dot = false, className }: Props) 
   return (
     <span className={cls}>
       {dot && <span className={styles.dot} />}
-      {label}
+      {text}
     </span>
   );
 }

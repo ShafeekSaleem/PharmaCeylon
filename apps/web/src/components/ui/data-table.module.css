@@ -58,10 +58,10 @@
 .table thead th {
   padding: 0.7rem 0.85rem;
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--pc-foreground);
+  color: var(--pc-muted-fg);
   background: var(--pc-muted-bg);
   border-bottom: 2px solid var(--pc-border);
   text-align: left;

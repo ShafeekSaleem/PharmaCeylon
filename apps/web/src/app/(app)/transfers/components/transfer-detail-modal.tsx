@@ -337,7 +337,9 @@ export function TransferDetailModal({
             return (
               <tr key={line.id}>
                 <td>
-                  <strong>{line.product.sku}</strong> — {line.product.name}
+                  <span className={layoutCss.muted}>{line.product.sku}</span>
+                  {" — "}
+                  {line.product.name}
                 </td>
                 <td>{line.batch?.batchNo ?? "—"}</td>
                 <td>{line.qty}</td>

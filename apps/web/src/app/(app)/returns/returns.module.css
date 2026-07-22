@@ -1,0 +1,214 @@
+.returnNo {
+  font-weight: 500;
+  color: var(--pc-primary);
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.returnNo:hover {
+  text-decoration: underline;
+}
+
+.typeTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.typeTagCustomer {
+  color: #1d4ed8;
+  background: color-mix(in srgb, #3b82f6 12%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, #3b82f6 28%, var(--pc-border));
+}
+
+.typeTagSupplier {
+  color: #15803d;
+  background: color-mix(in srgb, #22c55e 12%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, #22c55e 28%, var(--pc-border));
+}
+
+.partyCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.partyName {
+  font-weight: 400;
+  color: var(--pc-foreground);
+}
+
+.partyMeta {
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  font-weight: 400;
+}
+
+.dateStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+.notesBlock {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-muted-fg) 6%, var(--pc-card-bg));
+  font-size: 0.85rem;
+  color: var(--pc-foreground);
+  line-height: 1.45;
+  font-weight: 400;
+}
+
+.notesLabel {
+  color: var(--pc-muted-fg);
+  font-weight: 500;
+  margin-right: 0.25rem;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.detailField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.detailLabel {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.detailValue {
+  font-size: 0.88rem;
+  font-weight: 400;
+  color: var(--pc-foreground);
+}
+
+.linesTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.linesTable th,
+.linesTable td {
+  padding: 0.5rem 0.35rem;
+  text-align: left;
+  border-bottom: 1px solid var(--pc-border);
+  font-weight: 400;
+}
+
+.linesTable th {
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted-fg);
+}
+
+.lineSku {
+  color: var(--pc-muted-fg);
+  font-weight: 400;
+}
+
+.quickActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.quickAction {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.quickAction:hover {
+  border-color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-card-bg));
+}
+
+.quickAction span:first-of-type {
+  flex: 1;
+  text-align: left;
+}
+
+.quickAction svg:last-child {
+  margin-left: auto;
+  color: var(--pc-muted-fg);
+}
+
+.typeSegmented {
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.2rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-muted-fg) 5%, var(--pc-card-bg));
+}
+
+.typeSegmentBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.45rem 0.85rem;
+  border-radius: calc(var(--pc-radius-sm) - 2px);
+  cursor: pointer;
+}
+
+.typeSegmentBtnActive {
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pc-primary) 25%, var(--pc-border));
+}
+
+.typeSegmentBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}

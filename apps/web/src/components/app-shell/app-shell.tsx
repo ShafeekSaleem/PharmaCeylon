@@ -14,6 +14,7 @@ import {
   IconShoppingBag,
   IconClipboardList,
   IconTruck,
+  IconRefresh,
   IconBarChart,
   IconActivity,
   IconFileText,
@@ -35,6 +36,7 @@ import {
   OPERATIONS_ROLES,
   POS_ROLES,
   PURCHASING_ROLES,
+  RETURNS_ROLES,
   collectUserRoles,
   hasRoleAccess,
   roleDeniedMessage,
@@ -72,6 +74,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/inventory", label: "Inventory", icon: <IconBox size={18} />, roles: OPERATIONS_ROLES },
       { href: "/purchasing", label: "Purchasing", icon: <IconClipboardList size={18} />, roles: PURCHASING_ROLES },
       { href: "/transfers", label: "Transfers", icon: <IconTruck size={18} />, roles: OPERATIONS_ROLES },
+      { href: "/returns", label: "Returns", icon: <IconRefresh size={18} />, roles: RETURNS_ROLES },
     ],
   },
   {

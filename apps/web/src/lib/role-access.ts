@@ -12,6 +12,13 @@ export const ADMIN_ROLES: RoleName[] = ["owner", "manager"];
 export const POS_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "cashier"];
 export const CATALOG_ROLES: RoleName[] = ["owner", "manager", "cashier", "inventory_clerk"];
 export const OPERATIONS_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "inventory_clerk"];
+export const RETURNS_ROLES: RoleName[] = [
+  "owner",
+  "manager",
+  "pharmacist",
+  "cashier",
+  "inventory_clerk",
+];
 export const PURCHASING_ROLES: RoleName[] = ["owner", "manager", "inventory_clerk"];
 export const INSIGHTS_ROLES: RoleName[] = ["owner", "manager", "analyst"];
 export const INVENTORY_WRITE_ROLES: RoleName[] = ["owner", "manager", "inventory_clerk"];
@@ -62,6 +69,7 @@ export function rolesForPath(pathname: string): RoleName[] | undefined {
     { prefix: "/purchasing", roles: PURCHASING_ROLES },
     { prefix: "/suppliers", roles: OPERATIONS_ROLES },
     { prefix: "/transfers", roles: OPERATIONS_ROLES },
+    { prefix: "/returns", roles: RETURNS_ROLES },
     { prefix: "/pos", roles: POS_ROLES },
     { prefix: "/products", roles: CATALOG_ROLES },
     { prefix: "/reports", roles: INSIGHTS_ROLES },

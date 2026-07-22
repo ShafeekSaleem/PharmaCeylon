@@ -14,6 +14,7 @@ import { PricingModule } from "./pricing/pricing.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { PurchasingModule } from "./purchasing/purchasing.module";
 import { ReportsModule } from "./reports/reports.module";
+import { ReturnsModule } from "./returns/returns.module";
 import { SalesModule } from "./sales/sales.module";
 import { CsrfGuard } from "./security/guards/csrf.guard";
 import { JwtAuthGuard } from "./security/guards/jwt-auth.guard";
@@ -44,6 +45,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     InventoryModule,
     SalesModule,
     TransfersModule,
+    ReturnsModule,
     ReportsModule,
     CatalogModule,
     AnalyticsModule,

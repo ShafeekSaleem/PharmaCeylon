@@ -9,6 +9,8 @@ import {
   SaleStatus,
   StockMovementType,
   TransferStatus,
+  GoodsReturnStatus,
+  GoodsReturnType,
 } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import {
@@ -34,6 +36,7 @@ const TENANT_CODE = "demo";
 
 async function clearOperationalData(tenantId: string) {
   await prisma.idempotencyRecord.deleteMany({ where: { tenantId } });
+  await prisma.goodsReturn.deleteMany({ where: { tenantId } });
   await prisma.sale.deleteMany({ where: { tenantId } });
   await prisma.goodsReceipt.deleteMany({ where: { tenantId } });
   await prisma.stockLedger.deleteMany({ where: { tenantId } });
@@ -1309,6 +1312,139 @@ async function main() {
     ],
   });
 
+  // ── Goods returns (customer + supplier, all workflow statuses) ───────────
+  type ReturnSeedDef = {
+    number: string;
+    type: GoodsReturnType;
+    status: GoodsReturnStatus;
+    daysAgo: number;
+    reason: string;
+    customerName?: string;
+    supplierId?: string;
+    saleId?: string;
+    amount: number;
+    lines: { sku: string; qty: number; unitPrice: number }[];
+    notes?: string;
+  };
+
+  const returnDefs: ReturnSeedDef[] = [
+    { number: "RET-2026-00001", type: GoodsReturnType.customer, status: GoodsReturnStatus.draft, daysAgo: 1, reason: "Wrong strength dispensed", customerName: "Walk-in customer", amount: 450, lines: [{ sku: "PCL-0001", qty: 2, unitPrice: 225 }] },
+    { number: "RET-2026-00002", type: GoodsReturnType.customer, status: GoodsReturnStatus.draft, daysAgo: 2, reason: "Customer changed mind", customerName: "Saman Perera", amount: 890, lines: [{ sku: "PCL-0009", qty: 1, unitPrice: 890 }] },
+    { number: "RET-2026-00003", type: GoodsReturnType.supplier, status: GoodsReturnStatus.draft, daysAgo: 3, reason: "Damaged outer packaging", supplierId: supplier1.id, amount: 2400, lines: [{ sku: "PCL-0003", qty: 10, unitPrice: 240 }] },
+    { number: "RET-2026-00004", type: GoodsReturnType.customer, status: GoodsReturnStatus.draft, daysAgo: 4, reason: "Duplicate purchase", customerName: "Nadeesha Fernando", amount: 320, lines: [{ sku: "PCL-0015", qty: 4, unitPrice: 80 }] },
+    { number: "RET-2026-00005", type: GoodsReturnType.supplier, status: GoodsReturnStatus.draft, daysAgo: 5, reason: "Short-dated stock", supplierId: supplier2.id, amount: 1800, lines: [{ sku: "PCL-0012", qty: 6, unitPrice: 300 }] },
+    { number: "RET-2026-00006", type: GoodsReturnType.customer, status: GoodsReturnStatus.pending_approval, daysAgo: 2, reason: "Suspected adverse reaction", customerName: "Kamani Jayasuriya", amount: 1250, lines: [{ sku: "PCL-0004", qty: 1, unitPrice: 1250 }], notes: "Pharmacist review required" },
+    { number: "RET-2026-00007", type: GoodsReturnType.customer, status: GoodsReturnStatus.pending_approval, daysAgo: 3, reason: "Incorrect item on invoice", customerName: "Ruwan Silva", amount: 560, lines: [{ sku: "PCL-0008", qty: 2, unitPrice: 280 }] },
+    { number: "RET-2026-00008", type: GoodsReturnType.supplier, status: GoodsReturnStatus.pending_approval, daysAgo: 4, reason: "Quality complaint", supplierId: supplier1.id, amount: 3600, lines: [{ sku: "PCL-0007", qty: 12, unitPrice: 300 }] },
+    { number: "RET-2026-00009", type: GoodsReturnType.customer, status: GoodsReturnStatus.pending_approval, daysAgo: 6, reason: "Expired before use", customerName: "Priya Wickramasinghe", amount: 410, lines: [{ sku: "PCL-0010", qty: 2, unitPrice: 205 }] },
+    { number: "RET-2026-00010", type: GoodsReturnType.supplier, status: GoodsReturnStatus.pending_approval, daysAgo: 7, reason: "Wrong product shipped", supplierId: supplier2.id, amount: 2100, lines: [{ sku: "PCL-0019", qty: 5, unitPrice: 420 }] },
+    { number: "RET-2026-00011", type: GoodsReturnType.customer, status: GoodsReturnStatus.pending_approval, daysAgo: 8, reason: "Packaging incomplete", customerName: "Ashan Mendis", amount: 175, lines: [{ sku: "PCL-0022", qty: 1, unitPrice: 175 }] },
+    { number: "RET-2026-00012", type: GoodsReturnType.customer, status: GoodsReturnStatus.pending_approval, daysAgo: 1, reason: "Doctor changed prescription", customerName: "Fathima Rizwan", amount: 980, lines: [{ sku: "PCL-0006", qty: 2, unitPrice: 490 }] },
+    { number: "RET-2026-00013", type: GoodsReturnType.customer, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 5, reason: "Home delivery return pickup", customerName: "Dilani Gunasekara", amount: 640, lines: [{ sku: "PCL-0011", qty: 2, unitPrice: 320 }] },
+    { number: "RET-2026-00014", type: GoodsReturnType.supplier, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 6, reason: "Recall — batch hold", supplierId: supplier1.id, amount: 5200, lines: [{ sku: "PCL-0027", qty: 8, unitPrice: 650 }] },
+    { number: "RET-2026-00015", type: GoodsReturnType.customer, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 9, reason: "Customer bringing unused pack", customerName: "Heshan Bandara", amount: 295, lines: [{ sku: "PCL-0018", qty: 1, unitPrice: 295 }] },
+    { number: "RET-2026-00016", type: GoodsReturnType.supplier, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 10, reason: "Overstock return to supplier", supplierId: supplier2.id, amount: 1500, lines: [{ sku: "PCL-0003", qty: 5, unitPrice: 300 }] },
+    { number: "RET-2026-00017", type: GoodsReturnType.customer, status: GoodsReturnStatus.in_review, daysAgo: 4, reason: "Condition check after pickup", customerName: "Malsha Perera", amount: 720, lines: [{ sku: "PCL-0009", qty: 1, unitPrice: 720 }] },
+    { number: "RET-2026-00018", type: GoodsReturnType.customer, status: GoodsReturnStatus.in_review, daysAgo: 7, reason: "Verify batch before refund", customerName: "Tharindu Jay", amount: 1100, lines: [{ sku: "PCL-0004", qty: 1, unitPrice: 1100 }] },
+    { number: "RET-2026-00019", type: GoodsReturnType.supplier, status: GoodsReturnStatus.in_review, daysAgo: 8, reason: "Awaiting supplier RMA confirmation", supplierId: supplier1.id, amount: 2800, lines: [{ sku: "PCL-0012", qty: 7, unitPrice: 400 }] },
+    { number: "RET-2026-00020", type: GoodsReturnType.customer, status: GoodsReturnStatus.in_review, daysAgo: 11, reason: "Cold-chain product inspection", customerName: "Clinic walk-in", amount: 1950, lines: [{ sku: "PCL-0015", qty: 3, unitPrice: 650 }] },
+    { number: "RET-2026-00021", type: GoodsReturnType.supplier, status: GoodsReturnStatus.in_review, daysAgo: 12, reason: "Credit note pending", supplierId: supplier2.id, amount: 900, lines: [{ sku: "PCL-0008", qty: 3, unitPrice: 300 }] },
+    { number: "RET-2026-00022", type: GoodsReturnType.customer, status: GoodsReturnStatus.in_review, daysAgo: 3, reason: "Photo evidence under review", customerName: "Ishara Fonseka", amount: 430, lines: [{ sku: "PCL-0010", qty: 2, unitPrice: 215 }] },
+    { number: "RET-2026-00023", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 20, reason: "Unused sealed pack", customerName: "Gayani Silva", amount: 540, lines: [{ sku: "PCL-0001", qty: 2, unitPrice: 270 }] },
+    { number: "RET-2026-00024", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 25, reason: "Refund processed at counter", customerName: "Counter refund", amount: 380, lines: [{ sku: "PCL-0009", qty: 1, unitPrice: 380 }] },
+    { number: "RET-2026-00025", type: GoodsReturnType.supplier, status: GoodsReturnStatus.completed, daysAgo: 28, reason: "Supplier credit received", supplierId: supplier1.id, amount: 4200, lines: [{ sku: "PCL-0007", qty: 10, unitPrice: 420 }] },
+    { number: "RET-2026-00026", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 15, reason: "Exchange completed", customerName: "Nimali Ratnayake", amount: 260, lines: [{ sku: "PCL-0015", qty: 2, unitPrice: 130 }] },
+    { number: "RET-2026-00027", type: GoodsReturnType.supplier, status: GoodsReturnStatus.completed, daysAgo: 18, reason: "Damaged carton credited", supplierId: supplier2.id, amount: 1600, lines: [{ sku: "PCL-0019", qty: 4, unitPrice: 400 }] },
+    { number: "RET-2026-00028", type: GoodsReturnType.customer, status: GoodsReturnStatus.rejected, daysAgo: 9, reason: "Opened pack — policy decline", customerName: "Opened pack claim", amount: 890, lines: [{ sku: "PCL-0006", qty: 1, unitPrice: 890 }], notes: "Rejected — seal broken" },
+    { number: "RET-2026-00029", type: GoodsReturnType.supplier, status: GoodsReturnStatus.rejected, daysAgo: 14, reason: "Outside return window", supplierId: supplier1.id, amount: 3000, lines: [{ sku: "PCL-0027", qty: 5, unitPrice: 600 }] },
+    { number: "RET-2026-00030", type: GoodsReturnType.customer, status: GoodsReturnStatus.rejected, daysAgo: 16, reason: "No proof of purchase", customerName: "Unknown walk-in", amount: 210, lines: [{ sku: "PCL-0022", qty: 1, unitPrice: 210 }] },
+  ];
+
+  for (const def of returnDefs) {
+    const approved =
+      def.status !== GoodsReturnStatus.draft &&
+      def.status !== GoodsReturnStatus.pending_approval &&
+      def.status !== GoodsReturnStatus.rejected;
+    const processed =
+      def.status === GoodsReturnStatus.in_review ||
+      def.status === GoodsReturnStatus.completed;
+
+    const created = await prisma.goodsReturn.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        returnNumber: def.number,
+        type: def.type,
+        status: def.status,
+        customerName: def.customerName ?? null,
+        supplierId: def.supplierId ?? null,
+        saleId: null,
+        reason: def.reason,
+        notes: def.notes ?? null,
+        amount: dec(def.amount),
+        requestedBy: def.type === GoodsReturnType.customer ? cashier.id : inventoryClerk.id,
+        approvedBy: approved || def.status === GoodsReturnStatus.rejected ? manager.id : null,
+        processedBy: processed ? manager.id : null,
+        createdAt: daysAgo(def.daysAgo),
+        updatedAt: daysAgo(Math.max(0, def.daysAgo - 1)),
+        items: {
+          create: def.lines.map((line) => {
+            const ref = batchByKey.get(`MAIN:${line.sku}`);
+            return {
+              tenantId: tenant.id,
+              productId: productBySku.get(line.sku)!,
+              batchId: ref?.batchId ?? null,
+              qty: line.qty,
+              unitPrice: dec(line.unitPrice),
+            };
+          }),
+        },
+      },
+      include: { items: true },
+    });
+
+    if (def.status === GoodsReturnStatus.completed) {
+      for (const item of created.items) {
+        if (!item.batchId) continue;
+        if (def.type === GoodsReturnType.customer) {
+          await prisma.stockLedger.create({
+            data: {
+              tenantId: tenant.id,
+              branchId: mainBranch.id,
+              productId: item.productId,
+              batchId: item.batchId,
+              movementType: StockMovementType.customer_return_in,
+              qtyDelta: item.qty,
+              referenceType: "goods_return",
+              referenceId: created.id,
+              reason: def.reason,
+              createdBy: manager.id,
+              occurredAt: daysAgo(Math.max(0, def.daysAgo - 2)),
+            },
+          });
+        } else {
+          await prisma.stockLedger.create({
+            data: {
+              tenantId: tenant.id,
+              branchId: mainBranch.id,
+              productId: item.productId,
+              batchId: item.batchId,
+              movementType: StockMovementType.supplier_return_out,
+              qtyDelta: -item.qty,
+              referenceType: "goods_return",
+              referenceId: created.id,
+              reason: def.reason,
+              createdBy: manager.id,
+              occurredAt: daysAgo(Math.max(0, def.daysAgo - 2)),
+            },
+          });
+        }
+      }
+    }
+  }
+
+  const returnCount = await prisma.goodsReturn.count({ where: { tenantId: tenant.id } });
+
   const batchCount = await prisma.batch.count({ where: { tenantId: tenant.id } });
   const ledgerCount = await prisma.stockLedger.count({ where: { tenantId: tenant.id } });
   const poCount = await prisma.purchaseOrder.count({ where: { tenantId: tenant.id } });
@@ -1323,6 +1459,7 @@ async function main() {
   console.log(`Sales:      ${saleCount} invoices`);
   console.log(`POs:        ${poCount} (draft, pending, issued, partial, received, cancelled)`);
   console.log(`Transfers:  ${transferCount} (requested → approved → in transit → partial/received)`);
+  console.log(`Returns:    ${returnCount} (customer + supplier across workflow statuses)`);
   console.log("\nLogins (passwords from SEED_*_PASSWORD or defaults):");
   console.log("  admin@pharmaceylon.demo      — owner");
   console.log("  manager@pharmaceylon.demo    — manager");
