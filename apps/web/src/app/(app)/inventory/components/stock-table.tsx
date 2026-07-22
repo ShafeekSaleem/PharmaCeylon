@@ -127,6 +127,13 @@ export function StockTable({
                   : css.batchBadgeEmpty
             }`}
             aria-label={`View batches for ${row.product.name}`}
+            data-tooltip={
+              row.nearExpiryBatchCount > 0
+                ? "View batches · some near expiry"
+                : row.batchCount > 0
+                  ? "View product batches"
+                  : "No batches yet — open batches view"
+            }
           >
             {row.nearExpiryBatchCount > 0 && <IconAlertTriangle size={11} />}
             <span>

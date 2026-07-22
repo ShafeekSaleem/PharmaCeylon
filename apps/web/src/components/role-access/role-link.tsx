@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import type { AnchorHTMLAttributes, ReactNode } from "react";
+import type { AnchorHTMLAttributes, MouseEvent, ReactNode } from "react";
 import { roleDeniedMessage, rolesForHref, type RoleName } from "@/lib/role-access";
 import { useRoleAccess } from "@/lib/use-role-access";
 import styles from "./role-link.module.css";
 
-type Props = Omit<AnchorHTMLAttributes<HTMLSpanElement>, "href"> & {
+type Props = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
   href: string;
   roles?: RoleName[];
   deniedMessage?: string;
@@ -25,11 +25,11 @@ export function RoleLink({
   const { canAccess } = useRoleAccess();
   const required = roles ?? rolesForHref(href);
   const allowed = canAccess(required);
-  const tooltip = deniedMessage ?? roleDeniedMessage(required);
+  const deniedTip = deniedMessage ?? roleDeniedMessage(required);
 
   if (allowed) {
     return (
-      <Link href={href} className={className} onClick={onClick}>
+      <Link href={href} className={className} onClick={onClick} {...rest}>
         {children}
       </Link>
     );
@@ -42,13 +42,13 @@ export function RoleLink({
       role="link"
       aria-disabled="true"
       className={mergedClass}
-      data-tooltip={tooltip}
+      {...rest}
+      data-tooltip={deniedTip}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onClick?.(e);
+        onClick?.(e as unknown as MouseEvent<HTMLAnchorElement>);
       }}
-      {...rest}
     >
       {children}
     </span>

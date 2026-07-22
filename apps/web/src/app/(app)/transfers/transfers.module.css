@@ -1,0 +1,208 @@
+.notesBlock {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-muted-fg) 6%, var(--pc-card-bg));
+  font-size: 0.85rem;
+  color: var(--pc-foreground);
+  line-height: 1.45;
+}
+
+.notesBlock strong {
+  color: var(--pc-muted-fg);
+  font-weight: 600;
+}
+
+.branchPair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.82rem;
+}
+
+.branchFrom {
+  color: var(--pc-foreground);
+  font-weight: 500;
+}
+
+.branchArrow {
+  color: var(--pc-muted-fg);
+  font-size: 0.72rem;
+}
+
+.branchTo {
+  color: var(--pc-muted-fg);
+}
+
+.transferNo {
+  font-weight: 600;
+  color: var(--pc-primary);
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.transferNo:hover {
+  text-decoration: underline;
+}
+
+.receivedCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 6.5rem;
+}
+
+.receivedMeta {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.progressFillDanger {
+  background: var(--pc-destructive);
+}
+
+.quickActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.quickAction {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.quickAction:hover {
+  border-color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-card-bg));
+}
+
+.quickAction span:first-of-type {
+  flex: 1;
+  text-align: left;
+}
+
+.quickAction svg:last-child {
+  margin-left: auto;
+  color: var(--pc-muted-fg);
+}
+
+.statusCell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.dateStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.8rem;
+}
+
+.dateStackLabel {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.detailField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.detailLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.detailValue {
+  font-size: 0.88rem;
+  color: var(--pc-foreground);
+}
+
+.linesTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.linesTable th,
+.linesTable td {
+  padding: 0.5rem 0.35rem;
+  text-align: left;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.linesTable th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.createLines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.createLineRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.createLineRow input,
+.createLineRow select {
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-input-bg, var(--pc-card-bg));
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 720px) {
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}

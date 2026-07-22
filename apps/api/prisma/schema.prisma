@@ -41,6 +41,7 @@ enum TransferStatus {
   requested
   approved
   in_transit
+  partially_received
   received
   rejected
   cancelled
@@ -530,6 +531,8 @@ model Transfer {
   fromBranchId String         @map("from_branch_id") @db.Uuid
   toBranchId   String         @map("to_branch_id") @db.Uuid
   status       TransferStatus @default(requested)
+  notes        String?
+  expectedOn   DateTime?      @map("expected_on") @db.Date
   requestedBy  String         @map("requested_by") @db.Uuid
   approvedBy   String?        @map("approved_by") @db.Uuid
   receivedBy   String?        @map("received_by") @db.Uuid
@@ -544,16 +547,19 @@ model Transfer {
 
   items TransferItem[]
 
+  @@index([tenantId, fromBranchId, status])
+  @@index([tenantId, toBranchId, status])
   @@map("transfer")
 }
 
 model TransferItem {
-  id         String  @id @default(uuid()) @db.Uuid
-  tenantId   String  @map("tenant_id") @db.Uuid
-  transferId String  @map("transfer_id") @db.Uuid
-  productId  String  @map("product_id") @db.Uuid
-  batchId    String? @map("batch_id") @db.Uuid
-  qty        Int
+  id          String  @id @default(uuid()) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid
+  transferId  String  @map("transfer_id") @db.Uuid
+  productId   String  @map("product_id") @db.Uuid
+  batchId     String? @map("batch_id") @db.Uuid
+  qty         Int
+  receivedQty Int     @default(0) @map("received_qty")
 
   transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
   product  Product  @relation(fields: [productId], references: [id])

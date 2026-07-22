@@ -873,6 +873,8 @@ async function main() {
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
       status: TransferStatus.requested,
+      notes: "Restock Metformin for weekend demand",
+      expectedOn: daysFromNow(5),
       requestedBy: inventoryClerk.id,
       items: {
         create: [
@@ -893,6 +895,8 @@ async function main() {
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
       status: TransferStatus.approved,
+      notes: "Approved multivitamin top-up",
+      expectedOn: daysFromNow(3),
       requestedBy: inventoryClerk.id,
       approvedBy: manager.id,
       items: {
@@ -914,6 +918,8 @@ async function main() {
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
       status: TransferStatus.in_transit,
+      notes: "Ibuprofen dispatch in progress",
+      expectedOn: daysFromNow(2),
       requestedBy: inventoryClerk.id,
       approvedBy: manager.id,
       items: {
@@ -948,12 +954,87 @@ async function main() {
     });
   }
 
+  const transferPartial = await prisma.transfer.create({
+    data: {
+      tenantId: tenant.id,
+      fromBranchId: mainBranch.id,
+      toBranchId: secondBranch.id,
+      status: TransferStatus.partially_received,
+      notes: "Partial receipt — remaining units still in transit",
+      expectedOn: daysAgo(-1),
+      requestedBy: inventoryClerk.id,
+      approvedBy: manager.id,
+      receivedBy: manager.id,
+      createdAt: daysAgo(10),
+      updatedAt: daysAgo(2),
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0008")!,
+            batchId: batchByKey.get("MAIN:PCL-0008")!.batchId,
+            qty: 20,
+            receivedQty: 8,
+          },
+        ],
+      },
+    },
+    include: { items: true },
+  });
+
+  for (const line of transferPartial.items) {
+    if (!line.batchId) continue;
+    await prisma.stockLedger.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        productId: line.productId,
+        batchId: line.batchId,
+        movementType: StockMovementType.transfer_out,
+        qtyDelta: -line.qty,
+        referenceType: "transfer",
+        referenceId: transferPartial.id,
+        createdBy: manager.id,
+        occurredAt: daysAgo(8),
+      },
+    });
+    const src = await prisma.batch.findFirst({ where: { id: line.batchId } });
+    if (!src) continue;
+    const destPartial = await prisma.batch.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: secondBranch.id,
+        productId: line.productId,
+        batchNo: "SEED-PCL-0008-TR-PARTIAL",
+        expiryDate: src.expiryDate,
+        costPrice: src.costPrice,
+        sellingPrice: src.sellingPrice,
+      },
+    });
+    await prisma.stockLedger.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: secondBranch.id,
+        productId: line.productId,
+        batchId: destPartial.id,
+        movementType: StockMovementType.transfer_in,
+        qtyDelta: line.receivedQty,
+        referenceType: "transfer",
+        referenceId: transferPartial.id,
+        createdBy: manager.id,
+        occurredAt: daysAgo(2),
+      },
+    });
+  }
+
   const transferReceived = await prisma.transfer.create({
     data: {
       tenantId: tenant.id,
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
       status: TransferStatus.received,
+      notes: "Paracetamol restock completed",
+      expectedOn: daysAgo(6),
       requestedBy: inventoryClerk.id,
       approvedBy: manager.id,
       receivedBy: manager.id,
@@ -966,6 +1047,7 @@ async function main() {
             productId: productBySku.get("PCL-0001")!,
             batchId: batchByKey.get("MAIN:PCL-0001")!.batchId,
             qty: 20,
+            receivedQty: 20,
           },
         ],
       },
@@ -1017,6 +1099,129 @@ async function main() {
         occurredAt: daysAgo(5),
       },
     });
+  }
+
+  type TransferSeedDef = {
+    from: "MAIN" | "BRANCH2";
+    to: "MAIN" | "BRANCH2";
+    status: TransferStatus;
+    daysAgo: number;
+    lines: Array<{ sku: string; qty: number }>;
+    staleDays?: number;
+    expectedInDays?: number;
+    notes?: string;
+  };
+
+  const extraTransferDefs: TransferSeedDef[] = [
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.requested, daysAgo: 2, lines: [{ sku: "PCL-0001", qty: 8 }], expectedInDays: 4, notes: "Paracetamol request" },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.requested, daysAgo: 6, lines: [{ sku: "PCL-0006", qty: 4 }], expectedInDays: 2 },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.requested, daysAgo: 9, lines: [{ sku: "PCL-0015", qty: 6 }], expectedInDays: 1 },
+    { from: "BRANCH2", to: "MAIN", status: TransferStatus.requested, daysAgo: 3, lines: [{ sku: "PCL-0009", qty: 10 }], expectedInDays: 5 },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.approved, daysAgo: 4, lines: [{ sku: "PCL-0004", qty: 12 }], expectedInDays: 3 },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.approved, daysAgo: 7, lines: [{ sku: "PCL-0012", qty: 8 }], expectedInDays: 2 },
+    { from: "BRANCH2", to: "MAIN", status: TransferStatus.approved, daysAgo: 5, lines: [{ sku: "PCL-0003", qty: 6 }], expectedInDays: 4 },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.in_transit, daysAgo: 8, lines: [{ sku: "PCL-0007", qty: 10 }], staleDays: 14, expectedInDays: -5, notes: "Overdue Losartan shipment" },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.in_transit, daysAgo: 10, lines: [{ sku: "PCL-0010", qty: 5 }], staleDays: 11, expectedInDays: -3 },
+    { from: "BRANCH2", to: "MAIN", status: TransferStatus.in_transit, daysAgo: 6, lines: [{ sku: "PCL-0001", qty: 4 }], expectedInDays: 1 },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.received, daysAgo: 25, lines: [{ sku: "PCL-0008", qty: 20 }], expectedInDays: -20 },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.received, daysAgo: 18, lines: [{ sku: "PCL-0019", qty: 15 }], expectedInDays: -14 },
+    { from: "BRANCH2", to: "MAIN", status: TransferStatus.received, daysAgo: 12, lines: [{ sku: "PCL-0027", qty: 8 }], expectedInDays: -8 },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.cancelled, daysAgo: 15, lines: [{ sku: "PCL-0011", qty: 3 }], notes: "Cancelled — stock no longer needed" },
+    { from: "MAIN", to: "BRANCH2", status: TransferStatus.rejected, daysAgo: 11, lines: [{ sku: "PCL-0022", qty: 2 }], notes: "Rejected — insufficient controlled-substance justification" },
+  ];
+
+  for (const def of extraTransferDefs) {
+    const fromBranch = def.from === "MAIN" ? mainBranch : secondBranch;
+    const toBranch = def.to === "MAIN" ? mainBranch : secondBranch;
+    const prefix = def.from === "MAIN" ? "MAIN" : "BRANCH2";
+    const createdAt = daysAgo(def.daysAgo);
+    const needsApproval =
+      def.status !== TransferStatus.requested &&
+      def.status !== TransferStatus.cancelled &&
+      def.status !== TransferStatus.rejected;
+    const isReceived = def.status === TransferStatus.received;
+    const transfer = await prisma.transfer.create({
+      data: {
+        tenantId: tenant.id,
+        fromBranchId: fromBranch.id,
+        toBranchId: toBranch.id,
+        status: def.status,
+        notes: def.notes ?? null,
+        expectedOn:
+          def.expectedInDays != null ? daysFromNow(def.expectedInDays) : null,
+        requestedBy: inventoryClerk.id,
+        approvedBy: needsApproval ? manager.id : null,
+        receivedBy: isReceived ? manager.id : null,
+        createdAt,
+        updatedAt: def.staleDays ? daysAgo(def.staleDays) : createdAt,
+        items: {
+          create: def.lines.map((line) => ({
+            tenantId: tenant.id,
+            productId: productBySku.get(line.sku)!,
+            batchId: batchByKey.get(`${prefix}:${line.sku}`)!.batchId,
+            qty: line.qty,
+            receivedQty: isReceived ? line.qty : 0,
+          })),
+        },
+      },
+      include: { items: true },
+    });
+
+    if (
+      def.status === TransferStatus.in_transit ||
+      def.status === TransferStatus.received
+    ) {
+      for (const line of transfer.items) {
+        if (!line.batchId) continue;
+        await prisma.stockLedger.create({
+          data: {
+            tenantId: tenant.id,
+            branchId: fromBranch.id,
+            productId: line.productId,
+            batchId: line.batchId,
+            movementType: StockMovementType.transfer_out,
+            qtyDelta: -line.qty,
+            referenceType: "transfer",
+            referenceId: transfer.id,
+            createdBy: manager.id,
+            occurredAt: daysAgo(def.daysAgo - 1),
+          },
+        });
+      }
+    }
+
+    if (def.status === TransferStatus.received) {
+      for (const line of transfer.items) {
+        if (!line.batchId) continue;
+        const sourceBatch = await prisma.batch.findFirst({ where: { id: line.batchId } });
+        if (!sourceBatch) continue;
+        const destBatch = await prisma.batch.create({
+          data: {
+            tenantId: tenant.id,
+            branchId: toBranch.id,
+            productId: line.productId,
+            batchNo: `SEED-TR-${line.productId.slice(0, 6)}-${def.daysAgo}`,
+            expiryDate: sourceBatch.expiryDate,
+            costPrice: sourceBatch.costPrice,
+            sellingPrice: sourceBatch.sellingPrice,
+          },
+        });
+        await prisma.stockLedger.create({
+          data: {
+            tenantId: tenant.id,
+            branchId: toBranch.id,
+            productId: line.productId,
+            batchId: destBatch.id,
+            movementType: StockMovementType.transfer_in,
+            qtyDelta: line.qty,
+            referenceType: "transfer",
+            referenceId: transfer.id,
+            createdBy: manager.id,
+            occurredAt: daysAgo(Math.max(0, def.daysAgo - 3)),
+          },
+        });
+      }
+    }
   }
 
   await prisma.stockLedger.create({
@@ -1107,6 +1312,7 @@ async function main() {
   const batchCount = await prisma.batch.count({ where: { tenantId: tenant.id } });
   const ledgerCount = await prisma.stockLedger.count({ where: { tenantId: tenant.id } });
   const poCount = await prisma.purchaseOrder.count({ where: { tenantId: tenant.id } });
+  const transferCount = await prisma.transfer.count({ where: { tenantId: tenant.id } });
 
   console.log("\n=== PharmaCeylon demo seed complete ===\n");
   console.log(`Tenant:     ${TENANT_CODE} (${tenant.displayName})`);
@@ -1116,7 +1322,7 @@ async function main() {
   console.log(`Ledger:     ${ledgerCount} movements`);
   console.log(`Sales:      ${saleCount} invoices`);
   console.log(`POs:        ${poCount} (draft, pending, issued, partial, received, cancelled)`);
-  console.log(`Transfers:  4 (requested, approved, in_transit, received)`);
+  console.log(`Transfers:  ${transferCount} (requested → approved → in transit → partial/received)`);
   console.log("\nLogins (passwords from SEED_*_PASSWORD or defaults):");
   console.log("  admin@pharmaceylon.demo      — owner");
   console.log("  manager@pharmaceylon.demo    — manager");

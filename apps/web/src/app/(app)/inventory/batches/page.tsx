@@ -1,6 +1,6 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import {
@@ -9,10 +9,11 @@ import {
   IconCheck,
   IconDownload,
   IconPackage,
+  IconPlus,
   IconSearch,
 } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
-import { PageHeader, StatCard } from "@/components/ui";
+import { ActionButton, PageHeader, StatCard } from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
 import { BatchesTable } from "../components/batches-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
@@ -22,6 +23,7 @@ import type { ExpiryFilter } from "../types";
 import { hasInventoryWriteAccess } from "../utils";
 
 function BatchesContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const productId = searchParams.get("productId");
   const nearExpiryParam = searchParams.get("nearExpiryDays");
@@ -122,7 +124,23 @@ function BatchesContent() {
       <ProductContextBanner />
       <PageHeader
         subtitleOnly
+        floatingActions
         description="Batch-level stock ordered by expiry (FEFO). Filter near-expiry and zero-qty lots."
+        actions={
+          canWrite ? (
+            <ActionButton
+              icon={<IconPlus size={16} />}
+              tooltip="Post a stock quantity correction"
+              onClick={() =>
+                router.push(
+                  `/inventory/adjustments${productId ? `?productId=${productId}` : ""}`,
+                )
+              }
+            >
+              New adjustment
+            </ActionButton>
+          ) : null
+        }
       />
 
       {!batches.hasBranch && (
@@ -216,6 +234,11 @@ function BatchesContent() {
           className={css.exportButton}
           onClick={exportRows}
           disabled={rows.length === 0}
+          data-tooltip={
+            rows.length === 0
+              ? "Nothing to export for the current filters"
+              : "Download filtered batches as CSV"
+          }
         >
           <IconDownload size={15} />
           Export

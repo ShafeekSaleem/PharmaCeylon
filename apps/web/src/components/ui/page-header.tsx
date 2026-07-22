@@ -46,6 +46,8 @@ export function PageHeader({
 type ActionBtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "danger";
   icon?: ReactNode;
+  /** Shown via FloatingTooltipHost (`data-tooltip`). */
+  tooltip?: string;
 };
 
 export function ActionButton({
@@ -53,6 +55,7 @@ export function ActionButton({
   icon,
   children,
   className,
+  tooltip,
   ...rest
 }: ActionBtnProps) {
   const cls = [
@@ -66,7 +69,12 @@ export function ActionButton({
   ].filter(Boolean).join(" ");
 
   return (
-    <button type="button" className={cls} {...rest}>
+    <button
+      type="button"
+      className={cls}
+      {...rest}
+      {...(tooltip ? { "data-tooltip": tooltip } : null)}
+    >
       {icon && <span className={styles.actionIcon}>{icon}</span>}
       {children}
     </button>

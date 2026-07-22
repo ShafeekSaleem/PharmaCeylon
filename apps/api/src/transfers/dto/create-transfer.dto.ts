@@ -2,9 +2,12 @@ import { Type } from "class-transformer";
 import {
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
+  MaxLength,
   Min,
   ValidateNested,
 } from "class-validator";
@@ -13,9 +16,8 @@ export class TransferLineDto {
   @IsUUID()
   productId!: string;
 
-  @IsOptional()
   @IsUUID()
-  batchId?: string | null;
+  batchId!: string;
 
   @Type(() => Number)
   @IsInt()
@@ -26,6 +28,15 @@ export class TransferLineDto {
 export class CreateTransferDto {
   @IsUUID()
   toBranchId!: string;
+
+  @IsOptional()
+  @IsDateString()
+  expectedOn?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string | null;
 
   @IsArray()
   @ArrayMinSize(1)

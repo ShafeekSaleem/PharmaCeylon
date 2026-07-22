@@ -262,6 +262,7 @@ function StockOverviewContent() {
           canWrite ? (
             <ActionButton
               icon={<IconPlus size={16} />}
+              tooltip="Post a stock quantity correction"
               onClick={() => router.push("/inventory/adjustments")}
             >
               New adjustment
@@ -379,6 +380,11 @@ function StockOverviewContent() {
               className={css.exportButton}
               onClick={exportRows}
               disabled={rows.length === 0}
+              data-tooltip={
+                rows.length === 0
+                  ? "Nothing to export for the current filters"
+                  : "Download filtered stock as CSV"
+              }
             >
               <IconDownload size={15} />
               Export
@@ -392,7 +398,12 @@ function StockOverviewContent() {
               <span>
                 Filtered inventory · {rows.length} item{rows.length === 1 ? "" : "s"}
               </span>
-              <button type="button" className={css.clearFilter} onClick={clearFilters}>
+              <button
+                type="button"
+                className={css.clearFilter}
+                onClick={clearFilters}
+                data-tooltip="Reset all inventory filters"
+              >
                 Clear filter
               </button>
             </div>

@@ -179,13 +179,15 @@
 }
 
 .btnDanger {
-  background: var(--pc-destructive);
-  color: #fff;
-  border-color: var(--pc-destructive);
+  background: var(--pc-card-bg);
+  color: var(--pc-destructive);
+  border-color: color-mix(in srgb, var(--pc-destructive) 40%, var(--pc-border));
 }
 
 .btnDanger:hover:not(:disabled) {
-  opacity: 0.9;
+  background: var(--pc-destructive-soft, rgba(220, 38, 38, 0.08));
+  border-color: var(--pc-destructive);
+  color: var(--pc-destructive);
 }
 
 .spinner {

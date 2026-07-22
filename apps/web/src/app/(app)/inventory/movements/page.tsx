@@ -3,15 +3,18 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
+import { IconPlus } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
 import { RoleLink } from "@/components/role-access";
-import { PageHeader } from "@/components/ui";
+import { ActionButton, PageHeader } from "@/components/ui";
+import { useAuth } from "@/lib/use-auth";
 import { MovementsTable } from "../components/movements-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
 import { useInventoryMovements } from "../hooks/use-inventory-movements";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
 import type { MovementCategory } from "../types";
+import { hasInventoryWriteAccess } from "../utils";
 
 const PAGE_SIZE = 15;
 
@@ -28,6 +31,8 @@ function MovementsContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { user, branchId } = useAuth();
+  const canWrite = hasInventoryWriteAccess(user, branchId);
   const productId = searchParams.get("productId");
   const initialCategory = (searchParams.get("category") as MovementCategory | null) ?? "all";
   const [category, setCategory] = useState<MovementCategory>(
@@ -81,7 +86,23 @@ function MovementsContent() {
 
       <PageHeader
         subtitleOnly
+        floatingActions
         description="Full ledger of stock changes at this branch — sales, receipts, transfers, adjustments, and returns."
+        actions={
+          canWrite ? (
+            <ActionButton
+              icon={<IconPlus size={16} />}
+              tooltip="Post a stock quantity correction"
+              onClick={() =>
+                router.push(
+                  `/inventory/adjustments${productId ? `?productId=${productId}` : ""}`,
+                )
+              }
+            >
+              New adjustment
+            </ActionButton>
+          ) : null
+        }
       />
 
       {!movements.hasBranch && (

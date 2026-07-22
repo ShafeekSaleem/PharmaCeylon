@@ -6,6 +6,7 @@ import {
   IconActivity,
   IconAlertTriangle,
   IconCalendar,
+  IconEye,
   IconPackage,
 } from "@/components/icons";
 import { RoleLink } from "@/components/role-access";
@@ -24,6 +25,30 @@ type BatchesTableProps = {
   canWrite: boolean;
   onPageChange: (page: number) => void;
 };
+
+function RowActions({ row }: { row: BatchRow }) {
+  return (
+    <div className={css.actionsCell}>
+      <RoleLink
+        href={`/products/${row.productId}`}
+        className={`${css.actionIcon} ${css.actionIconView}`}
+        aria-label={`View ${row.product.name}`}
+        data-tooltip="View product"
+      >
+        <IconEye size={17} />
+      </RoleLink>
+      <RoleLink
+        href={`/inventory/adjustments?productId=${row.productId}&batchId=${row.id}`}
+        roles={INVENTORY_WRITE_ROLES}
+        className={`${css.actionIcon} ${css.actionIconAdjust}`}
+        aria-label={`Adjust ${row.product.name}, batch ${row.batchNo}`}
+        data-tooltip="Adjust this batch"
+      >
+        <IconActivity size={17} />
+      </RoleLink>
+    </div>
+  );
+}
 
 export function BatchesTable({
   rows,
@@ -125,21 +150,9 @@ export function BatchesTable({
     cols.push({
       key: "actions",
       header: "Actions",
-      width: "64px",
+      width: "96px",
       align: "right",
-      render: (row) => (
-        <div className={css.actionsCell}>
-          <RoleLink
-            href={`/inventory/adjustments?productId=${row.productId}&batchId=${row.id}`}
-            roles={INVENTORY_WRITE_ROLES}
-            className={`${css.actionIcon} ${css.actionIconAdjust}`}
-            aria-label={`Adjust ${row.product.name}, batch ${row.batchNo}`}
-            data-tooltip="Adjust stock"
-          >
-            <IconActivity size={17} />
-          </RoleLink>
-        </div>
-      ),
+      render: (row) => <RowActions row={row} />,
     });
 
     return cols;

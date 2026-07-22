@@ -34,6 +34,14 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   overdue: "danger",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  requested: "Pending approval",
+  approved: "Ready to ship",
+  in_transit: "In transit",
+  partially_received: "Partially received",
+  overdue: "Overdue",
+};
+
 type Props = {
   status: string;
   variant?: BadgeVariant;
@@ -43,7 +51,7 @@ type Props = {
 
 export function StatusBadge({ status, variant, dot = false, className }: Props) {
   const resolved = variant ?? STATUS_MAP[status.toLowerCase()] ?? "default";
-  const label = status.replace(/_/g, " ");
+  const label = STATUS_LABELS[status.toLowerCase()] ?? status.replace(/_/g, " ");
 
   const cls = [
     styles.badge,

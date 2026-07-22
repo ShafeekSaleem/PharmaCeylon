@@ -81,6 +81,11 @@ export function InventoryMoreFilters({ value, options, onChange }: Props) {
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-haspopup="dialog"
+        data-tooltip={
+          active
+            ? "Edit catalog filters (filters active)"
+            : "Filter by category, brand, tags, or dosage form"
+        }
       >
         <IconFilter size={15} />
         More filters
@@ -99,6 +104,9 @@ export function InventoryMoreFilters({ value, options, onChange }: Props) {
               className={css.moreFiltersClear}
               onClick={() => onChange(EMPTY_INVENTORY_CATALOG_FILTERS)}
               disabled={!active}
+              data-tooltip={
+                active ? "Clear all catalog filters" : "No catalog filters to clear"
+              }
             >
               <IconTrash size={14} />
               Clear all

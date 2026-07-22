@@ -228,13 +228,16 @@ function AdjustmentsForm() {
                 movementType === "adjustment_in" ? ` ${css.segmentBtnIncreaseActive}` : ""
               }`}
               onClick={() => setMovementType("adjustment_in")}
+              data-tooltip="Add stock (found stock, opening, or positive correction)"
             >
               Increase (+)
             </button>
             <span
               className={css.segmentBtnWrap}
               data-tooltip={
-                !allowOut ? "Only a manager or owner may decrease stock" : undefined
+                !allowOut
+                  ? "Only a manager or owner may decrease stock"
+                  : "Remove stock (damage, loss, expiry, or negative correction)"
               }
             >
               <button
@@ -465,6 +468,11 @@ function AdjustmentsForm() {
           <ActionButton
             variant="primary"
             disabled={!canSubmit || saving}
+            tooltip={
+              !canSubmit
+                ? "Complete product, batch, and quantity to continue"
+                : "Review details before posting this adjustment"
+            }
             onClick={() => {
               setError(null);
               setConfirmOpen(true);
