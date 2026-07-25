@@ -11,7 +11,6 @@ import {
   IconShoppingCart,
   IconPackage,
   IconBox,
-  IconShoppingBag,
   IconClipboardList,
   IconTruck,
   IconRefresh,
@@ -27,6 +26,7 @@ import {
   IconUser,
   IconChevronDown,
   IconChevronRight,
+  IconClipboard,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
 import {
@@ -37,6 +37,7 @@ import {
   POS_ROLES,
   PURCHASING_ROLES,
   RETURNS_ROLES,
+  STOCKTAKE_ROLES,
   collectUserRoles,
   hasRoleAccess,
   roleDeniedMessage,
@@ -64,8 +65,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Catalog",
     items: [
       { href: "/products", label: "Products", icon: <IconPackage size={18} />, roles: CATALOG_ROLES },
-      { href: "/catalog", label: "Search Catalog", icon: <IconSearch size={18} /> },
-      { href: "/suppliers", label: "Suppliers", icon: <IconShoppingBag size={18} />, roles: OPERATIONS_ROLES },
+      { href: "/catalog", label: "Search Catalog", icon: <IconSearch size={18} />, roles: CATALOG_ROLES },
     ],
   },
   {
@@ -73,8 +73,10 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/inventory", label: "Inventory", icon: <IconBox size={18} />, roles: OPERATIONS_ROLES },
       { href: "/purchasing", label: "Purchasing", icon: <IconClipboardList size={18} />, roles: PURCHASING_ROLES },
+      { href: "/suppliers", label: "Suppliers", icon: <IconUsers size={18} />, roles: OPERATIONS_ROLES },
       { href: "/transfers", label: "Transfers", icon: <IconTruck size={18} />, roles: OPERATIONS_ROLES },
       { href: "/returns", label: "Returns", icon: <IconRefresh size={18} />, roles: RETURNS_ROLES },
+      { href: "/stocktakes", label: "Stocktakes", icon: <IconClipboard size={18} />, roles: STOCKTAKE_ROLES },
     ],
   },
   {

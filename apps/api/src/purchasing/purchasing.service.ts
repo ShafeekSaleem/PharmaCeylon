@@ -4,16 +4,28 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { PoPriority, PoStatus, Prisma, StockMovementType } from "@prisma/client";
+import { nextDocumentNumber } from "../common/document-sequence.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { createInvoiceFromGoodsReceipt } from "../suppliers/suppliers.service";
 import { CreatePurchaseOrderDto } from "./dto/create-purchase-order.dto";
 import { ReceiveGoodsDto } from "./dto/receive-goods.dto";
 import { UpdatePurchaseOrderDto } from "./dto/update-purchase-order.dto";
 
 function decimal(value: string | number): Prisma.Decimal {
   return new Prisma.Decimal(value);
+}
+
+function assertNoDuplicateProductIds(productIds: string[], label: string) {
+  const seen = new Set<string>();
+  for (const id of productIds) {
+    if (seen.has(id)) {
+      throw new BadRequestException(`Duplicate product in ${label}: ${id}`);
+    }
+    seen.add(id);
+  }
 }
 
 @Injectable()
@@ -24,13 +36,11 @@ export class PurchasingService {
   ) {}
 
   private async nextPoNumber(tx: Prisma.TransactionClient, tenantId: string, branchId: string) {
-    const n = await tx.purchaseOrder.count({ where: { tenantId, branchId } });
-    return `PO-${String(n + 1).padStart(5, "0")}`;
+    return nextDocumentNumber(tx, tenantId, branchId, "po", "PO-");
   }
 
   private async nextGrnNumber(tx: Prisma.TransactionClient, tenantId: string, branchId: string) {
-    const n = await tx.goodsReceipt.count({ where: { tenantId, branchId } });
-    return `GRN-${String(n + 1).padStart(5, "0")}`;
+    return nextDocumentNumber(tx, tenantId, branchId, "grn", "GRN-");
   }
 
   async listPurchaseOrders(tenantId: string, branchId: string) {
@@ -68,8 +78,13 @@ export class PurchasingService {
     userId: string,
     dto: CreatePurchaseOrderDto,
   ) {
+    assertNoDuplicateProductIds(
+      dto.items.map((i) => i.productId),
+      "purchase order",
+    );
+
     const supplier = await this.prisma.supplier.findFirst({
-      where: { id: dto.supplierId, tenantId, isActive: true },
+      where: { id: dto.supplierId, tenantId, status: "active" },
     });
     if (!supplier) throw new NotFoundException("Supplier not found");
 
@@ -143,7 +158,11 @@ export class PurchasingService {
     if (po.status === PoStatus.cancelled) {
       return this.prisma.purchaseOrder.findFirst({ where: { id } });
     }
-    if (po.status === PoStatus.received || po.status === PoStatus.partially_received) {
+    if (
+      po.status === PoStatus.received ||
+      po.status === PoStatus.partially_received ||
+      po.status === PoStatus.short_closed
+    ) {
       throw new BadRequestException("Cannot cancel a PO that already has receipts");
     }
     const updated = await this.prisma.purchaseOrder.update({
@@ -171,9 +190,12 @@ export class PurchasingService {
     const po = await this.getPurchaseOrder(tenantId, branchId, id);
     if (
       po.status === PoStatus.cancelled ||
-      po.status === PoStatus.received
+      po.status === PoStatus.received ||
+      po.status === PoStatus.short_closed
     ) {
-      throw new BadRequestException("Cannot update a cancelled or fully received PO");
+      throw new BadRequestException(
+        "Cannot update a cancelled, fully received, or short-closed PO",
+      );
     }
 
     const isOpenHeader =
@@ -251,6 +273,11 @@ export class PurchasingService {
     dto: ReceiveGoodsDto,
     idempotencyKeyRaw?: string,
   ) {
+    assertNoDuplicateProductIds(
+      dto.lines.map((l) => l.productId),
+      "goods receipt",
+    );
+
     const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
     if (idemKey) {
       const existing = await this.prisma.idempotencyRecord.findUnique({
@@ -287,6 +314,9 @@ export class PurchasingService {
       include: { items: true },
     });
     if (!po) throw new NotFoundException("Purchase order not found");
+    if (po.status === PoStatus.short_closed) {
+      throw new BadRequestException("Cannot receive against a short-closed purchase order");
+    }
     if (
       po.status === PoStatus.cancelled ||
       po.status === PoStatus.draft ||
@@ -299,7 +329,6 @@ export class PurchasingService {
     }
 
     const poItemsByProduct = new Map(po.items.map((i) => [i.productId, i]));
-
     for (const line of dto.lines) {
       if (!poItemsByProduct.has(line.productId)) {
         throw new BadRequestException(`Product ${line.productId} is not on this PO`);
@@ -308,17 +337,83 @@ export class PurchasingService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`
+          SELECT id FROM purchase_order
+          WHERE id = ${dto.purchaseOrderId}::uuid
+            AND tenant_id = ${tenantId}::uuid
+            AND branch_id = ${branchId}::uuid
+          FOR UPDATE
+        `;
+
+        const locked = await tx.purchaseOrder.findFirst({
+          where: { id: dto.purchaseOrderId, tenantId, branchId },
+          include: { items: true },
+        });
+        if (!locked) throw new NotFoundException("Purchase order not found");
+        if (locked.status === PoStatus.short_closed) {
+          throw new BadRequestException("Cannot receive against a short-closed purchase order");
+        }
+        if (
+          locked.status !== PoStatus.issued &&
+          locked.status !== PoStatus.partially_received
+        ) {
+          throw new BadRequestException("PO is not open for receiving");
+        }
+
+        const orderedByProduct = new Map<string, number>();
+        for (const item of locked.items) {
+          orderedByProduct.set(
+            item.productId,
+            (orderedByProduct.get(item.productId) ?? 0) + item.orderedQty,
+          );
+        }
+
+        const alreadyReceivedByProduct = new Map<string, number>();
+        const priorReceipts = await tx.goodsReceipt.findMany({
+          where: { purchaseOrderId: locked.id },
+          include: { items: true },
+        });
+        for (const r of priorReceipts) {
+          for (const it of r.items) {
+            alreadyReceivedByProduct.set(
+              it.productId,
+              (alreadyReceivedByProduct.get(it.productId) ?? 0) + it.receivedQty,
+            );
+          }
+        }
+
+        const incomingByProduct = new Map<string, number>();
+        for (const line of dto.lines) {
+          incomingByProduct.set(
+            line.productId,
+            (incomingByProduct.get(line.productId) ?? 0) + line.receivedQty,
+          );
+        }
+
+        for (const [productId, incomingQty] of incomingByProduct) {
+          const ordered = orderedByProduct.get(productId) ?? 0;
+          const already = alreadyReceivedByProduct.get(productId) ?? 0;
+          const remaining = ordered - already;
+          if (incomingQty > remaining) {
+            throw new BadRequestException(
+              `Received quantity exceeds remaining for product ${productId} (remaining ${remaining})`,
+            );
+          }
+        }
+
         const grnNumber = await this.nextGrnNumber(tx, tenantId, branchId);
         const gr = await tx.goodsReceipt.create({
           data: {
             tenantId,
             branchId,
-            purchaseOrderId: po.id,
+            purchaseOrderId: locked.id,
             grnNumber,
             receivedOn: new Date(dto.receivedOn),
             receivedBy: userId,
           },
         });
+
+        let receiptValue = new Prisma.Decimal(0);
 
         for (const line of dto.lines) {
           const batchNo = line.batchNo.trim();
@@ -369,6 +464,10 @@ export class PurchasingService {
             },
           });
 
+          receiptValue = receiptValue.plus(
+            decimal(line.costPrice).mul(line.receivedQty),
+          );
+
           await tx.stockLedger.create({
             data: {
               tenantId,
@@ -379,36 +478,48 @@ export class PurchasingService {
               qtyDelta: line.receivedQty,
               referenceType: "goods_receipt",
               referenceId: gr.id,
-              reason: `${po.poNumber} / ${grnNumber}`,
+              reason: `${locked.poNumber} / ${grnNumber}`,
               createdBy: userId,
             },
           });
         }
 
-        const receivedByProduct = new Map<string, number>();
-        const receipts = await tx.goodsReceipt.findMany({
-          where: { purchaseOrderId: po.id },
-          include: { items: true },
+        const termsDays =
+          locked.paymentTermsDays ??
+          (
+            await tx.supplier.findFirst({
+              where: { id: locked.supplierId, tenantId },
+              select: { paymentTermsDays: true },
+            })
+          )?.paymentTermsDays ??
+          30;
+
+        await createInvoiceFromGoodsReceipt(tx, {
+          tenantId,
+          branchId,
+          supplierId: locked.supplierId,
+          goodsReceiptId: gr.id,
+          grnNumber,
+          invoiceDate: new Date(dto.receivedOn),
+          paymentTermsDays: termsDays,
+          totalAmount: receiptValue,
         });
-        for (const r of receipts) {
-          for (const it of r.items) {
-            receivedByProduct.set(
-              it.productId,
-              (receivedByProduct.get(it.productId) ?? 0) + it.receivedQty,
-            );
-          }
+
+        const receivedByProduct = new Map(alreadyReceivedByProduct);
+        for (const [productId, qty] of incomingByProduct) {
+          receivedByProduct.set(productId, (receivedByProduct.get(productId) ?? 0) + qty);
         }
 
         let allFullyReceived = true;
         let anyReceived = false;
-        for (const item of po.items) {
-          const rec = receivedByProduct.get(item.productId) ?? 0;
-          if (rec > item.orderedQty) {
+        for (const [productId, ordered] of orderedByProduct) {
+          const rec = receivedByProduct.get(productId) ?? 0;
+          if (rec > ordered) {
             throw new BadRequestException(
-              `Received quantity exceeds ordered for product ${item.productId}`,
+              `Received quantity exceeds ordered for product ${productId}`,
             );
           }
-          if (rec < item.orderedQty) allFullyReceived = false;
+          if (rec < ordered) allFullyReceived = false;
           if (rec > 0) anyReceived = true;
         }
 
@@ -416,10 +527,10 @@ export class PurchasingService {
           ? PoStatus.received
           : anyReceived
             ? PoStatus.partially_received
-            : po.status;
+            : locked.status;
 
         await tx.purchaseOrder.update({
-          where: { id: po.id },
+          where: { id: locked.id },
           data: { status: newStatus },
         });
 
@@ -430,7 +541,7 @@ export class PurchasingService {
           eventName: "goods_receipt.posted",
           entityName: "goods_receipt",
           entityId: gr.id,
-          payload: { grnNumber, purchaseOrderId: po.id },
+          payload: { grnNumber, purchaseOrderId: locked.id },
         });
 
         if (idemKey) {
@@ -478,11 +589,16 @@ export class PurchasingService {
     }
   }
 
-  /** Issue a draft or pending_approval PO → issued. */
+  /** Issue a draft PO → issued. Clerks may issue drafts; pending_approval requires approve. */
   async issuePurchaseOrder(tenantId: string, branchId: string, userId: string, id: string) {
     const po = await this.getPurchaseOrder(tenantId, branchId, id);
-    if (po.status !== PoStatus.draft && po.status !== PoStatus.pending_approval) {
-      throw new BadRequestException("Only draft or pending approval POs can be issued");
+    if (po.status === PoStatus.pending_approval) {
+      throw new BadRequestException(
+        "Pending approval POs must be approved by an owner or manager",
+      );
+    }
+    if (po.status !== PoStatus.draft) {
+      throw new BadRequestException("Only draft POs can be issued");
     }
     const updated = await this.prisma.purchaseOrder.update({
       where: { id },
@@ -493,6 +609,69 @@ export class PurchasingService {
       branchId,
       actorUserId: userId,
       eventName: "purchase_order.issued",
+      entityName: "purchase_order",
+      entityId: id,
+    });
+    return updated;
+  }
+
+  /** Approve a pending_approval PO → issued. Owner/manager only (enforced by controller). */
+  async approvePurchaseOrder(tenantId: string, branchId: string, userId: string, id: string) {
+    const po = await this.getPurchaseOrder(tenantId, branchId, id);
+    if (po.status !== PoStatus.pending_approval) {
+      throw new BadRequestException("Only pending approval POs can be approved");
+    }
+    const updated = await this.prisma.purchaseOrder.update({
+      where: { id },
+      data: { status: PoStatus.issued },
+    });
+    await this.audit.log({
+      tenantId,
+      branchId,
+      actorUserId: userId,
+      eventName: "purchase_order.approved",
+      entityName: "purchase_order",
+      entityId: id,
+    });
+    return updated;
+  }
+
+  /** Reject a pending_approval PO → cancelled. Owner/manager only (enforced by controller). */
+  async rejectPurchaseOrder(tenantId: string, branchId: string, userId: string, id: string) {
+    const po = await this.getPurchaseOrder(tenantId, branchId, id);
+    if (po.status !== PoStatus.pending_approval) {
+      throw new BadRequestException("Only pending approval POs can be rejected");
+    }
+    const updated = await this.prisma.purchaseOrder.update({
+      where: { id },
+      data: { status: PoStatus.cancelled },
+    });
+    await this.audit.log({
+      tenantId,
+      branchId,
+      actorUserId: userId,
+      eventName: "purchase_order.rejected",
+      entityName: "purchase_order",
+      entityId: id,
+    });
+    return updated;
+  }
+
+  /** Short-close a partially_received PO → short_closed. Owner/manager only. */
+  async shortClosePurchaseOrder(tenantId: string, branchId: string, userId: string, id: string) {
+    const po = await this.getPurchaseOrder(tenantId, branchId, id);
+    if (po.status !== PoStatus.partially_received) {
+      throw new BadRequestException("Only partially received POs can be short-closed");
+    }
+    const updated = await this.prisma.purchaseOrder.update({
+      where: { id },
+      data: { status: PoStatus.short_closed },
+    });
+    await this.audit.log({
+      tenantId,
+      branchId,
+      actorUserId: userId,
+      eventName: "purchase_order.short_closed",
       entityName: "purchase_order",
       entityId: id,
     });

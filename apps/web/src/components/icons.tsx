@@ -394,3 +394,21 @@ export function IconChevronUp(props: IconProps) {
     </svg>
   );
 }
+
+/** Barcode with scan beam — distinct from IconSearch. */
+export function IconBarcodeScan(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+      <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+      <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+      <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M7 8v8" />
+      <path d="M10 8v8" />
+      <path d="M13 8v5" />
+      <path d="M16 8v8" />
+      <path d="M4 12h16" strokeDasharray="2 2" />
+    </svg>
+  );
+}
+

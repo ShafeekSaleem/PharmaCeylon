@@ -4,6 +4,7 @@ export type PoStatus =
   | "issued"
   | "partially_received"
   | "received"
+  | "short_closed"
   | "cancelled";
 
 export type PoPriority = "low" | "normal" | "high" | "urgent";
@@ -115,6 +116,7 @@ export type PoStatusFilter = "all" | "overdue" | "receivable" | PoStatus;
 
 export const WRITE_ROLES = new Set(["owner", "manager", "inventory_clerk"]);
 export const CANCEL_ROLES = new Set(["owner", "manager"]);
+export const APPROVE_ROLES = new Set(["owner", "manager"]);
 
 export const PAGE_SIZE = 10;
 

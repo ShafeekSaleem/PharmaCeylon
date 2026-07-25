@@ -158,7 +158,8 @@ export function periodSummaryFromReturns(rows: ReturnListItem[], period: Summary
   let supplierCredits = 0;
 
   for (const row of inPeriod) {
-    if (row.status === "cancelled" || row.status === "rejected") continue;
+    // Amount KPIs only count completed returns (avoid overstating drafts/open).
+    if (row.status !== "completed") continue;
     const amt = amountNumber(row.amount);
     totalValue += amt;
     if (row.type === "customer") refundedCustomer += amt;
@@ -170,6 +171,8 @@ export function periodSummaryFromReturns(rows: ReturnListItem[], period: Summary
     refundedCustomer,
     supplierCredits,
     net: refundedCustomer - supplierCredits,
-    returnCount: inPeriod.length,
+    returnCount: inPeriod.filter(
+      (row) => row.status !== "cancelled" && row.status !== "rejected",
+    ).length,
   };
 }

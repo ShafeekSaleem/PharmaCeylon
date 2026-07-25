@@ -22,6 +22,7 @@ import { RolesGuard } from "./security/guards/roles.guard";
 import { TenantBranchGuard } from "./security/guards/tenant-branch.guard";
 import { SuppliersModule } from "./suppliers/suppliers.module";
 import { TenantModule } from "./tenant/tenant.module";
+import { StocktakesModule } from "./stocktakes/stocktakes.module";
 import { TransfersModule } from "./transfers/transfers.module";
 import { UploadsModule } from "./uploads/uploads.module";
 
@@ -45,6 +46,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     InventoryModule,
     SalesModule,
     TransfersModule,
+    StocktakesModule,
     ReturnsModule,
     ReportsModule,
     CatalogModule,

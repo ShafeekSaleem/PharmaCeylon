@@ -1,0 +1,351 @@
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 12%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 22%, var(--pc-border));
+}
+
+.supplierCell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.supplierText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.supplierName {
+  font-weight: 500;
+  color: var(--pc-foreground);
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.supplierName:hover {
+  color: var(--pc-primary);
+  text-decoration: underline;
+}
+
+.supplierMeta {
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  font-weight: 400;
+}
+
+.typeTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* Soft semantic tints aligned with catalog chips (teal/sky/amber/rose/slate — no violet) */
+.typeDistributor {
+  color: #0369a1;
+  background: color-mix(in srgb, #0284c7 13%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, #0284c7 28%, var(--pc-border));
+}
+
+.typeImporter {
+  color: #be123c;
+  background: color-mix(in srgb, #e11d48 11%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, #e11d48 26%, var(--pc-border));
+}
+
+.typeManufacturer {
+  color: #b45309;
+  background: color-mix(in srgb, #d97706 14%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, #d97706 32%, var(--pc-border));
+}
+
+.typeWholesaler {
+  color: color-mix(in srgb, var(--pc-primary) 85%, #0f172a);
+  background: color-mix(in srgb, var(--pc-primary) 14%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
+}
+
+.typeOther {
+  color: #475569;
+  background: color-mix(in srgb, #64748b 12%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, #64748b 28%, var(--pc-border));
+}
+
+.outstandingCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.dueLabel {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.dueOverdue {
+  color: var(--pc-destructive, #dc2626);
+  font-weight: 600;
+}
+
+.activityList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.activityItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.activityTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.activityLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.activityKind {
+  display: inline-flex;
+  margin-right: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 22%, var(--pc-border));
+  vertical-align: middle;
+}
+
+.activityAmount {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-muted-fg);
+}
+
+.activityMeta {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.topList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.topItem {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.topName {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.topName:hover {
+  color: var(--pc-primary);
+  text-decoration: underline;
+}
+
+.topMeta {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.topValue {
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+}
+
+.detailSection {
+  margin-top: 1rem;
+}
+
+.detailSectionTitle {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.detailSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.detailSectionHeader .detailSectionTitle {
+  margin: 0;
+}
+
+.invoiceTableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+}
+
+.invoiceTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.invoiceTable th,
+.invoiceTable td {
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid var(--pc-border);
+  vertical-align: top;
+}
+
+.invoiceTable th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+  background: color-mix(in srgb, var(--pc-muted-fg) 5%, var(--pc-card-bg));
+}
+
+.invoiceTable tr:last-child td {
+  border-bottom: none;
+}
+
+.invoiceActions {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.payBtn {
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+}
+
+.payBtn:hover {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-primary) 8%, var(--pc-card-bg));
+}
+
+.profileGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.profileField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.profileLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.profileValue {
+  font-size: 0.88rem;
+  color: var(--pc-foreground);
+}
+
+.modalAlert {
+  margin-bottom: 0.85rem;
+}
+
+.poLink {
+  color: var(--pc-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.poLink:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 1100px) {
+  .kpiRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .kpiRow,
+  .profileGrid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -36,17 +36,17 @@ export function Modal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const allowDismiss = canDismiss;
 
+  // Prefer capture for elevated (nested) modals so Esc closes the top overlay first.
   useEffect(() => {
     if (!open || !closeOnEsc || !allowDismiss) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
     }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, closeOnEsc, allowDismiss]);
+    document.addEventListener("keydown", onKey, { capture: elevated });
+    return () => document.removeEventListener("keydown", onKey, { capture: elevated });
+  }, [open, onClose, closeOnEsc, allowDismiss, elevated]);
 
   useBodyScrollLock(open);
 

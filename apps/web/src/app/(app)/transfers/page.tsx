@@ -181,7 +181,7 @@ function TransfersContent() {
       }
       if (!q) return true;
       const hay = [
-        formatTransferNo(row.id),
+        formatTransferNo(row),
         row.fromBranch.name,
         row.toBranch.name,
         row.requester.fullName,
@@ -262,7 +262,7 @@ function TransfersContent() {
       "Created by",
     ];
     const lines = filtered.map((row) => [
-      formatTransferNo(row.id),
+      formatTransferNo(row),
       row.fromBranch.name,
       row.toBranch.name,
       displayTransferStatus(row),
@@ -295,7 +295,7 @@ function TransfersContent() {
             className={tcss.transferNo}
             onClick={() => setDetailTransfer(row)}
           >
-            {formatTransferNo(row.id)}
+            {formatTransferNo(row)}
           </button>
         ),
       },
@@ -394,7 +394,7 @@ function TransfersContent() {
               type="button"
               className={`${layoutCss.actionIcon} ${layoutCss.actionIconView}`}
               onClick={() => setDetailTransfer(row)}
-              aria-label={`View ${formatTransferNo(row.id)}`}
+              aria-label={`View ${formatTransferNo(row)}`}
               data-tooltip="View transfer"
             >
               <IconEye size={17} />

@@ -33,6 +33,7 @@ import { usePurchaseOrders } from "./hooks/use-purchase-orders";
 import css from "./purchasing.module.css";
 import { PAGE_SIZE, type PoStatusFilter, type PurchaseOrderListItem, type SummaryPeriod } from "./types";
 import {
+  canApprovePurchaseOrder,
   canCancelPurchaseOrder,
   canEditPo,
   canAdjustExpected,
@@ -59,6 +60,7 @@ const STATUS_OPTIONS = [
   { value: "partially_received", label: "Partially received" },
   { value: "receivable", label: "Ready to receive" },
   { value: "received", label: "Received" },
+  { value: "short_closed", label: "Short closed" },
   { value: "overdue", label: "Overdue" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
@@ -69,6 +71,7 @@ function PurchasingContent() {
   const { user, branchId, setBranchId } = useAuth();
   const canWrite = hasPurchasingWriteAccess(user, branchId);
   const canCancel = canCancelPurchaseOrder(user, branchId);
+  const canApprove = canApprovePurchaseOrder(user, branchId);
   const orders = usePurchaseOrders();
 
   const productId = searchParams.get("productId");
@@ -152,7 +155,7 @@ function PurchasingContent() {
     let totalReceived = 0;
     let outstanding = 0;
     for (const row of periodRows) {
-      if (row.status === "cancelled") continue;
+      if (row.status === "cancelled" || row.status === "short_closed") continue;
       const value = poEstimatedValue(row.items, row.shippingCharges);
       totalOrdered += value;
       const pct = receivedPercent(row) / 100;
@@ -811,6 +814,7 @@ function PurchasingContent() {
         poId={detailId}
         canWrite={canWrite}
         canCancelPo={canCancel}
+        canApprovePo={canApprove}
         startInEdit={detailStartInEdit}
         onClose={() => {
           setDetailId(null);

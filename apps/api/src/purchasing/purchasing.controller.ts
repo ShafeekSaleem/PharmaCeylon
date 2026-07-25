@@ -52,6 +52,36 @@ export class PurchasingController {
     return this.purchasing.issuePurchaseOrder(user.tenantId, branchId, user.userId, id);
   }
 
+  @Roles(RoleName.owner, RoleName.manager)
+  @Post("purchase-orders/:id/approve")
+  approve(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.purchasing.approvePurchaseOrder(user.tenantId, branchId, user.userId, id);
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Post("purchase-orders/:id/reject")
+  reject(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.purchasing.rejectPurchaseOrder(user.tenantId, branchId, user.userId, id);
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Post("purchase-orders/:id/short-close")
+  shortClose(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.purchasing.shortClosePurchaseOrder(user.tenantId, branchId, user.userId, id);
+  }
+
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
   @Patch("purchase-orders/:id")
   update(

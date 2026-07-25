@@ -21,6 +21,7 @@ enum PoStatus {
   issued
   partially_received
   received
+  short_closed
   cancelled
 }
 
@@ -69,10 +70,53 @@ enum StockMovementType {
   supplier_return_out
   transfer_out
   transfer_in
+  transfer_reserve_out
+  transfer_reserve_release
   adjustment_in
   adjustment_out
   sale_void_in
   sale_refund_in
+  quarantine_hold
+  quarantine_release
+  stocktake_in
+  stocktake_out
+}
+
+enum StocktakeStatus {
+  draft
+  in_progress
+  completed
+  cancelled
+}
+
+enum StocktakeScope {
+  full
+  cycle
+  near_expiry
+  quarantined
+  zero_stock
+  custom
+}
+
+enum SupplierType {
+  distributor
+  importer
+  manufacturer
+  wholesaler
+  other
+}
+
+enum SupplierStatus {
+  active
+  on_hold
+  inactive
+}
+
+enum SupplierInvoiceStatus {
+  open
+  partial
+  paid
+  voided
 }
 
 /// Client-supplied idempotency keys (e.g. `Idempotency-Key` header) to avoid duplicate money mutations.
@@ -101,10 +145,12 @@ model Tenant {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  branches        Branch[]
-  users           AppUser[]
-  userBranchRoles UserBranchRole[]
-  auditEvents     AuditEvent[]
+  branches          Branch[]
+  users             AppUser[]
+  userBranchRoles   UserBranchRole[]
+  auditEvents       AuditEvent[]
+  suppliers         Supplier[]
+  supplierInvoices  SupplierInvoice[]
 
   @@map("tenant")
 }
@@ -131,8 +177,11 @@ model Branch {
   ledgerEntries   StockLedger[]
   transfersFrom   Transfer[]       @relation("TransferFromBranch")
   transfersTo     Transfer[]       @relation("TransferToBranch")
-  goodsReturns    GoodsReturn[]
-  auditEvents     AuditEvent[]
+  goodsReturns      GoodsReturn[]
+  stocktakes        Stocktake[]
+  documentSequences DocumentSequence[]
+  supplierInvoices  SupplierInvoice[]
+  auditEvents       AuditEvent[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -168,6 +217,8 @@ model AppUser {
   goodsReturnsRequested GoodsReturn[]   @relation("GoodsReturnRequester")
   goodsReturnsApproved  GoodsReturn[]   @relation("GoodsReturnApprover")
   goodsReturnsProcessed GoodsReturn[]   @relation("GoodsReturnProcessor")
+  stocktakesCounted     Stocktake[]     @relation("StocktakeCounter")
+  stocktakesCompleted   Stocktake[]     @relation("StocktakeCompleter")
   auditEvents          AuditEvent[]     @relation("AuditActor")
 
   @@index([tenantId])
@@ -220,21 +271,58 @@ model UserBranchRole {
 }
 
 model Supplier {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @map("tenant_id") @db.Uuid
+  id               String         @id @default(uuid()) @db.Uuid
+  tenantId         String         @map("tenant_id") @db.Uuid
   code             String
   name             String
-  leadTimeDays     Int      @default(2) @map("lead_time_days")
-  paymentTermsDays Int      @default(30) @map("payment_terms_days")
-  isActive         Boolean  @default(true) @map("is_active")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  type             SupplierType   @default(distributor)
+  status           SupplierStatus @default(active)
+  phone            String?
+  email            String?
+  contactName      String?        @map("contact_name")
+  leadTimeDays     Int            @default(2) @map("lead_time_days")
+  paymentTermsDays Int            @default(30) @map("payment_terms_days")
+  isActive         Boolean        @default(true) @map("is_active")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
 
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
   purchaseOrders PurchaseOrder[]
   goodsReturns   GoodsReturn[]
+  invoices       SupplierInvoice[]
 
   @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([tenantId, type])
   @@map("supplier")
+}
+
+model SupplierInvoice {
+  id             String                @id @default(uuid()) @db.Uuid
+  tenantId       String                @map("tenant_id") @db.Uuid
+  supplierId     String                @map("supplier_id") @db.Uuid
+  branchId       String?               @map("branch_id") @db.Uuid
+  invoiceNumber  String                @map("invoice_number")
+  goodsReceiptId String?               @unique @map("goods_receipt_id") @db.Uuid
+  invoiceDate    DateTime              @map("invoice_date") @db.Date
+  dueDate        DateTime              @map("due_date") @db.Date
+  totalAmount    Decimal               @map("total_amount") @db.Decimal(14, 2)
+  paidAmount     Decimal               @default(0) @map("paid_amount") @db.Decimal(14, 2)
+  status         SupplierInvoiceStatus @default(open)
+  notes          String?
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  supplier     Supplier      @relation(fields: [supplierId], references: [id])
+  branch       Branch?       @relation(fields: [branchId], references: [id])
+  goodsReceipt GoodsReceipt? @relation(fields: [goodsReceiptId], references: [id])
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, supplierId])
+  @@index([tenantId, status])
+  @@index([tenantId, dueDate])
+  @@map("supplier_invoice")
 }
 
 model Product {
@@ -267,6 +355,7 @@ model Product {
   ledgerEntries StockLedger[]
   transferItems TransferItem[]
   returnItems   GoodsReturnItem[]
+  stocktakeLines StocktakeLine[]
   tagMaps       ProductTagMap[]
   aliases       ProductAlias[]
   categoryMaps  ProductCategoryMap[]
@@ -370,29 +459,48 @@ model ProductCategoryMap {
   @@map("product_category_map")
 }
 
+model DocumentSequence {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  docType   String   @map("doc_type") @db.VarChar(32)
+  nextValue Int      @default(1) @map("next_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  @@unique([tenantId, branchId, docType])
+  @@map("document_sequence")
+}
+
 model Batch {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @map("tenant_id") @db.Uuid
-  branchId     String   @map("branch_id") @db.Uuid
-  productId    String   @map("product_id") @db.Uuid
-  batchNo      String   @map("batch_no")
-  expiryDate   DateTime @db.Date @map("expiry_date")
-  costPrice    Decimal  @db.Decimal(12, 2) @map("cost_price")
-  sellingPrice Decimal  @db.Decimal(12, 2) @map("selling_price")
-  receivedAt   DateTime @default(now()) @map("received_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  branchId         String    @map("branch_id") @db.Uuid
+  productId        String    @map("product_id") @db.Uuid
+  batchNo          String    @map("batch_no")
+  expiryDate       DateTime  @db.Date @map("expiry_date")
+  costPrice        Decimal   @db.Decimal(12, 2) @map("cost_price")
+  sellingPrice     Decimal   @db.Decimal(12, 2) @map("selling_price")
+  isQuarantined    Boolean   @default(false) @map("is_quarantined")
+  quarantinedAt    DateTime? @map("quarantined_at")
+  quarantineReason String?   @map("quarantine_reason") @db.VarChar(512)
+  receivedAt       DateTime  @default(now()) @map("received_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   branch  Branch  @relation(fields: [branchId], references: [id])
   product Product @relation(fields: [productId], references: [id])
 
-  receiptItems  GoodsReceiptItem[]
-  saleItems     SaleItem[]
-  ledgerEntries StockLedger[]
-  transferItems TransferItem[]
-  returnItems   GoodsReturnItem[]
+  receiptItems   GoodsReceiptItem[]
+  saleItems      SaleItem[]
+  ledgerEntries  StockLedger[]
+  transferItems  TransferItem[]
+  returnItems    GoodsReturnItem[]
+  stocktakeLines StocktakeLine[]
 
   @@unique([tenantId, branchId, productId, batchNo])
   @@index([tenantId, branchId, productId])
+  @@index([tenantId, branchId, isQuarantined])
   @@map("batch")
 }
 
@@ -420,6 +528,7 @@ model PurchaseOrder {
 
   items         PurchaseOrderItem[]
   goodsReceipts GoodsReceipt[]
+  goodsReturns  GoodsReturn[]
 
   @@unique([tenantId, branchId, poNumber])
   @@index([tenantId, branchId, status])
@@ -427,19 +536,20 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id              String  @id @default(uuid()) @db.Uuid
-  tenantId        String  @map("tenant_id") @db.Uuid
-  purchaseOrderId String  @map("purchase_order_id") @db.Uuid
-  productId       String  @map("product_id") @db.Uuid
-  orderedQty      Int     @map("ordered_qty")
-  unitCost        Decimal @db.Decimal(12, 2) @map("unit_cost")
-  discountPercent Decimal @default(0) @db.Decimal(5, 2) @map("discount_percent")
-  taxPercent      Decimal @default(18) @db.Decimal(5, 2) @map("tax_percent")
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  orderedQty      Int      @map("ordered_qty")
+  unitCost        Decimal  @db.Decimal(12, 2) @map("unit_cost")
+  discountPercent Decimal  @default(0) @db.Decimal(5, 2) @map("discount_percent")
+  taxPercent      Decimal  @default(18) @db.Decimal(5, 2) @map("tax_percent")
   createdAt       DateTime @default(now()) @map("created_at")
 
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   product       Product       @relation(fields: [productId], references: [id])
 
+  @@unique([purchaseOrderId, productId])
   @@map("purchase_order_item")
 }
 
@@ -457,7 +567,9 @@ model GoodsReceipt {
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
   receiver      AppUser       @relation("GoodsReceiptReceiver", fields: [receivedBy], references: [id])
 
-  items GoodsReceiptItem[]
+  items           GoodsReceiptItem[]
+  goodsReturns    GoodsReturn[]
+  supplierInvoice SupplierInvoice?
 
   @@unique([tenantId, branchId, grnNumber])
   @@map("goods_receipt")
@@ -549,18 +661,19 @@ model StockLedger {
 }
 
 model Transfer {
-  id           String         @id @default(uuid()) @db.Uuid
-  tenantId     String         @map("tenant_id") @db.Uuid
-  fromBranchId String         @map("from_branch_id") @db.Uuid
-  toBranchId   String         @map("to_branch_id") @db.Uuid
-  status       TransferStatus @default(requested)
-  notes        String?
-  expectedOn   DateTime?      @map("expected_on") @db.Date
-  requestedBy  String         @map("requested_by") @db.Uuid
-  approvedBy   String?        @map("approved_by") @db.Uuid
-  receivedBy   String?        @map("received_by") @db.Uuid
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
+  id             String         @id @default(uuid()) @db.Uuid
+  tenantId       String         @map("tenant_id") @db.Uuid
+  fromBranchId   String         @map("from_branch_id") @db.Uuid
+  toBranchId     String         @map("to_branch_id") @db.Uuid
+  transferNumber String         @map("transfer_number")
+  status         TransferStatus @default(requested)
+  notes          String?
+  expectedOn     DateTime?      @map("expected_on") @db.Date
+  requestedBy    String         @map("requested_by") @db.Uuid
+  approvedBy     String?        @map("approved_by") @db.Uuid
+  receivedBy     String?        @map("received_by") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
 
   fromBranch Branch   @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
   toBranch   Branch   @relation("TransferToBranch", fields: [toBranchId], references: [id])
@@ -570,6 +683,7 @@ model Transfer {
 
   items TransferItem[]
 
+  @@unique([tenantId, transferNumber])
   @@index([tenantId, fromBranchId, status])
   @@index([tenantId, toBranchId, status])
   @@map("transfer")
@@ -592,30 +706,34 @@ model TransferItem {
 }
 
 model GoodsReturn {
-  id             String            @id @default(uuid()) @db.Uuid
-  tenantId       String            @map("tenant_id") @db.Uuid
-  branchId       String            @map("branch_id") @db.Uuid
-  returnNumber   String            @map("return_number")
-  type           GoodsReturnType
-  status         GoodsReturnStatus @default(draft)
-  customerName   String?           @map("customer_name")
-  saleId         String?           @map("sale_id") @db.Uuid
-  supplierId     String?           @map("supplier_id") @db.Uuid
-  reason         String?
-  notes          String?
-  amount         Decimal           @default(0) @db.Decimal(12, 2)
-  requestedBy    String            @map("requested_by") @db.Uuid
-  approvedBy     String?           @map("approved_by") @db.Uuid
-  processedBy    String?           @map("processed_by") @db.Uuid
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
+  id              String            @id @default(uuid()) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  branchId        String            @map("branch_id") @db.Uuid
+  returnNumber    String            @map("return_number")
+  type            GoodsReturnType
+  status          GoodsReturnStatus @default(draft)
+  customerName    String?           @map("customer_name")
+  saleId          String?           @map("sale_id") @db.Uuid
+  supplierId      String?           @map("supplier_id") @db.Uuid
+  purchaseOrderId String?           @map("purchase_order_id") @db.Uuid
+  goodsReceiptId  String?           @map("goods_receipt_id") @db.Uuid
+  reason          String?
+  notes           String?
+  amount          Decimal           @default(0) @db.Decimal(12, 2)
+  requestedBy     String            @map("requested_by") @db.Uuid
+  approvedBy      String?           @map("approved_by") @db.Uuid
+  processedBy     String?           @map("processed_by") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
-  branch    Branch    @relation(fields: [branchId], references: [id])
-  sale      Sale?     @relation(fields: [saleId], references: [id])
-  supplier  Supplier? @relation(fields: [supplierId], references: [id])
-  requester AppUser   @relation("GoodsReturnRequester", fields: [requestedBy], references: [id])
-  approver  AppUser?  @relation("GoodsReturnApprover", fields: [approvedBy], references: [id])
-  processor AppUser?  @relation("GoodsReturnProcessor", fields: [processedBy], references: [id])
+  branch        Branch         @relation(fields: [branchId], references: [id])
+  sale          Sale?          @relation(fields: [saleId], references: [id])
+  supplier      Supplier?      @relation(fields: [supplierId], references: [id])
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  goodsReceipt  GoodsReceipt?  @relation(fields: [goodsReceiptId], references: [id])
+  requester     AppUser        @relation("GoodsReturnRequester", fields: [requestedBy], references: [id])
+  approver      AppUser?       @relation("GoodsReturnApprover", fields: [approvedBy], references: [id])
+  processor     AppUser?       @relation("GoodsReturnProcessor", fields: [processedBy], references: [id])
 
   items GoodsReturnItem[]
 
@@ -639,6 +757,56 @@ model GoodsReturnItem {
   batch       Batch?      @relation(fields: [batchId], references: [id])
 
   @@map("goods_return_item")
+}
+
+model Stocktake {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  branchId        String          @map("branch_id") @db.Uuid
+  stocktakeNumber String          @map("stocktake_number")
+  status          StocktakeStatus @default(draft)
+  scope           StocktakeScope  @default(full)
+  /// When true, counters do not see system qty until complete (blind count).
+  blindCount      Boolean         @default(false) @map("blind_count")
+  /// Snapshot time when counting started (system qty frozen at start/refresh).
+  frozenAt        DateTime?       @map("frozen_at")
+  nearExpiryDays  Int?            @map("near_expiry_days")
+  notes           String?
+  countedBy       String          @map("counted_by") @db.Uuid
+  completedBy     String?         @map("completed_by") @db.Uuid
+  completedAt     DateTime?       @map("completed_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  branch    Branch  @relation(fields: [branchId], references: [id])
+  counter   AppUser @relation("StocktakeCounter", fields: [countedBy], references: [id])
+  completer AppUser? @relation("StocktakeCompleter", fields: [completedBy], references: [id])
+
+  lines StocktakeLine[]
+
+  @@unique([tenantId, branchId, stocktakeNumber])
+  @@index([tenantId, branchId, status])
+  @@map("stocktake")
+}
+
+model StocktakeLine {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  stocktakeId String   @map("stocktake_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  systemQty   Int      @map("system_qty")
+  countedQty  Int?     @map("counted_qty")
+  varianceQty Int?     @map("variance_qty")
+  note        String?  @db.VarChar(512)
+  countedAt   DateTime? @map("counted_at")
+
+  stocktake Stocktake @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id])
+  batch     Batch     @relation(fields: [batchId], references: [id])
+
+  @@unique([stocktakeId, batchId])
+  @@map("stocktake_line")
 }
 
 model AuditEvent {

@@ -31,6 +31,14 @@ export class UpdateReturnDto {
   supplierId?: string | null;
 
   @IsOptional()
+  @IsUUID()
+  purchaseOrderId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  goodsReceiptId?: string | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(2000)
   reason?: string | null;

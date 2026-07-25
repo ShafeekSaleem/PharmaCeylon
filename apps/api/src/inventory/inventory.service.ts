@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { RoleName, StockMovementType } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
@@ -19,6 +24,10 @@ export type BatchListQuery = {
   nearExpiryDays?: number;
   /** When false, hide batches with qtyOnHand <= 0. Default true for API compatibility. */
   includeZero?: boolean;
+  /** When set, filter by quarantine flag. */
+  quarantined?: boolean;
+  /** When true, only expired batches; when false, only non-expired. */
+  expired?: boolean;
 };
 
 export type MovementCategory =
@@ -125,12 +134,21 @@ export class InventoryService {
           })()
         : undefined;
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const batches = await this.prisma.batch.findMany({
       where: {
         tenantId,
         branchId,
         ...(query.productId ? { productId: query.productId } : {}),
         ...(expiryLimit ? { expiryDate: { lte: expiryLimit } } : {}),
+        ...(query.quarantined != null ? { isQuarantined: query.quarantined } : {}),
+        ...(query.expired === true
+          ? { expiryDate: { lt: today } }
+          : query.expired === false
+            ? { expiryDate: { gte: today } }
+            : {}),
       },
       include: {
         product: {
@@ -188,6 +206,9 @@ export class InventoryService {
         daysToExpiry,
         expired,
         nearExpiry,
+        isQuarantined: b.isQuarantined,
+        quarantinedAt: b.quarantinedAt?.toISOString() ?? null,
+        quarantineReason: b.quarantineReason,
         product: b.product,
       };
     });
@@ -196,7 +217,183 @@ export class InventoryService {
     if (query.nearExpiryDays != null && query.nearExpiryDays > 0) {
       result = result.filter((b) => b.nearExpiry && !b.expired);
     }
+    if (query.expired === true) {
+      result = result.filter((b) => b.expired);
+    } else if (query.expired === false) {
+      result = result.filter((b) => !b.expired);
+    }
     return result;
+  }
+
+  async listExpiredBatches(tenantId: string, branchId: string) {
+    return this.listBatches(tenantId, branchId, {
+      expired: true,
+      includeZero: true,
+    });
+  }
+
+  async quarantineBatch(
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    batchId: string,
+    reason: string,
+  ) {
+    const trimmed = reason.trim();
+    if (!trimmed) throw new BadRequestException("Quarantine reason is required");
+
+    const batch = await this.prisma.batch.findFirst({
+      where: { id: batchId, tenantId, branchId },
+    });
+    if (!batch) throw new NotFoundException("Batch not found");
+    if (batch.isQuarantined) {
+      throw new BadRequestException("Batch is already quarantined");
+    }
+
+    const now = new Date();
+    const updated = await this.prisma.batch.update({
+      where: { id: batch.id },
+      data: {
+        isQuarantined: true,
+        quarantinedAt: now,
+        quarantineReason: trimmed,
+      },
+    });
+
+    await this.audit.log({
+      tenantId,
+      branchId,
+      actorUserId: userId,
+      eventName: "batch.quarantined",
+      entityName: "batch",
+      entityId: batch.id,
+      payload: {
+        productId: batch.productId,
+        batchNo: batch.batchNo,
+        reason: trimmed,
+        quarantinedAt: now.toISOString(),
+      },
+    });
+
+    return {
+      id: updated.id,
+      productId: updated.productId,
+      batchNo: updated.batchNo,
+      isQuarantined: updated.isQuarantined,
+      quarantinedAt: updated.quarantinedAt?.toISOString() ?? null,
+      quarantineReason: updated.quarantineReason,
+    };
+  }
+
+  async releaseQuarantine(
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    batchId: string,
+  ) {
+    const batch = await this.prisma.batch.findFirst({
+      where: { id: batchId, tenantId, branchId },
+    });
+    if (!batch) throw new NotFoundException("Batch not found");
+    if (!batch.isQuarantined) {
+      throw new BadRequestException("Batch is not quarantined");
+    }
+
+    const updated = await this.prisma.batch.update({
+      where: { id: batch.id },
+      data: {
+        isQuarantined: false,
+        quarantinedAt: null,
+        quarantineReason: null,
+      },
+    });
+
+    await this.audit.log({
+      tenantId,
+      branchId,
+      actorUserId: userId,
+      eventName: "batch.quarantine_released",
+      entityName: "batch",
+      entityId: batch.id,
+      payload: {
+        productId: batch.productId,
+        batchNo: batch.batchNo,
+        previousReason: batch.quarantineReason,
+      },
+    });
+
+    return {
+      id: updated.id,
+      productId: updated.productId,
+      batchNo: updated.batchNo,
+      isQuarantined: updated.isQuarantined,
+      quarantinedAt: null,
+      quarantineReason: null,
+    };
+  }
+
+  async quarantineExpired(tenantId: string, branchId: string, userId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const candidates = await this.prisma.batch.findMany({
+      where: {
+        tenantId,
+        branchId,
+        isQuarantined: false,
+        expiryDate: { lt: today },
+      },
+      select: {
+        id: true,
+        productId: true,
+        batchNo: true,
+        expiryDate: true,
+      },
+    });
+
+    if (candidates.length === 0) {
+      return { quarantined: 0, batchIds: [] as string[] };
+    }
+
+    const now = new Date();
+    const reason = "Auto-quarantined: expired";
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const batch of candidates) {
+        await tx.batch.update({
+          where: { id: batch.id },
+          data: {
+            isQuarantined: true,
+            quarantinedAt: now,
+            quarantineReason: reason,
+          },
+        });
+      }
+    });
+
+    for (const batch of candidates) {
+      await this.audit.log({
+        tenantId,
+        branchId,
+        actorUserId: userId,
+        eventName: "batch.quarantined",
+        entityName: "batch",
+        entityId: batch.id,
+        payload: {
+          productId: batch.productId,
+          batchNo: batch.batchNo,
+          reason,
+          auto: true,
+          expiryDate: batch.expiryDate.toISOString(),
+          quarantinedAt: now.toISOString(),
+        },
+      });
+    }
+
+    return {
+      quarantined: candidates.length,
+      batchIds: candidates.map((b) => b.id),
+    };
   }
 
   async stockByProduct(tenantId: string, branchId: string, query: StockListQuery = {}) {

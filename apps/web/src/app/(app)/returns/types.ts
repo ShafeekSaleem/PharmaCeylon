@@ -37,8 +37,20 @@ export type ReturnSaleRef = {
   invoiceNo: string;
 };
 
+export type ReturnPoRef = {
+  id: string;
+  poNumber: string;
+};
+
+export type ReturnGrnRef = {
+  id: string;
+  grnNumber: string;
+};
+
 export type ReturnItem = {
   id: string;
+  productId?: string;
+  batchId?: string | null;
   qty: number;
   unitPrice: string | number;
   product: { id: string; sku: string; name: string };
@@ -56,6 +68,8 @@ export type ReturnListItem = {
   amount: string | number;
   saleId?: string | null;
   supplierId?: string | null;
+  purchaseOrderId?: string | null;
+  goodsReceiptId?: string | null;
   branchId: string;
   requestedBy: string;
   approvedBy?: string | null;
@@ -63,6 +77,8 @@ export type ReturnListItem = {
   createdAt: string;
   updatedAt: string;
   sale?: ReturnSaleRef | null;
+  purchaseOrder?: ReturnPoRef | null;
+  goodsReceipt?: ReturnGrnRef | null;
   supplier?: ReturnSupplierRef | null;
   requester: ReturnUserRef;
   approver?: ReturnUserRef | null;
@@ -76,13 +92,30 @@ export type CreateReturnLine = {
   batchId: string;
   qty: string;
   unitPrice: string;
+  maxQty?: number;
 };
 
 export type CreateReturnLinePayload = {
   productId: string;
-  batchId?: string | null;
+  batchId: string;
   qty: number;
   unitPrice?: number;
+};
+
+export type SaleListItem = {
+  id: string;
+  invoiceNo: string;
+  soldAt: string;
+  grandTotal: string | number;
+  customerName?: string | null;
+  items: {
+    productId: string;
+    batchId: string;
+    qty: number;
+    unitPrice: string | number;
+    product?: { id: string; sku: string; name: string };
+    batch?: { id: string; batchNo: string };
+  }[];
 };
 
 export const PAGE_SIZE = 10;

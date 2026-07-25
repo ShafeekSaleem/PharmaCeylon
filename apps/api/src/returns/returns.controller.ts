@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -65,7 +66,6 @@ export class ReturnsController {
     RoleName.manager,
     RoleName.pharmacist,
     RoleName.inventory_clerk,
-    RoleName.cashier,
   )
   @Post()
   create(
@@ -87,7 +87,6 @@ export class ReturnsController {
     RoleName.manager,
     RoleName.pharmacist,
     RoleName.inventory_clerk,
-    RoleName.cashier,
   )
   @Patch(":id")
   update(
@@ -104,7 +103,6 @@ export class ReturnsController {
     RoleName.manager,
     RoleName.pharmacist,
     RoleName.inventory_clerk,
-    RoleName.cashier,
   )
   @Post(":id/submit")
   submit(
@@ -158,7 +156,6 @@ export class ReturnsController {
     RoleName.manager,
     RoleName.pharmacist,
     RoleName.inventory_clerk,
-    RoleName.cashier,
   )
   @Post(":id/mark-logistics")
   markLogistics(
@@ -180,15 +177,21 @@ export class ReturnsController {
     RoleName.manager,
     RoleName.pharmacist,
     RoleName.inventory_clerk,
-    RoleName.cashier,
   )
   @Post(":id/complete")
   complete(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
   ) {
-    return this.returns.complete(user.tenantId, branchId, user.userId, id);
+    return this.returns.complete(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      idempotencyKey,
+    );
   }
 
   @Roles(
@@ -196,7 +199,6 @@ export class ReturnsController {
     RoleName.manager,
     RoleName.pharmacist,
     RoleName.inventory_clerk,
-    RoleName.cashier,
   )
   @Post(":id/cancel")
   cancel(

@@ -1,11 +1,48 @@
 import { Type } from "class-transformer";
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from "class-validator";
+import {
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from "class-validator";
+import { SupplierStatus, SupplierType } from "@prisma/client";
 
 export class UpdateSupplierDto {
   @IsOptional()
   @IsString()
   @MaxLength(256)
   name?: string;
+
+  @IsOptional()
+  @IsEnum(SupplierType)
+  type?: SupplierType;
+
+  @IsOptional()
+  @IsEnum(SupplierStatus)
+  status?: SupplierStatus;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== "")
+  @IsString()
+  @MaxLength(64)
+  phone?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== "")
+  @IsEmail()
+  @MaxLength(256)
+  email?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== "")
+  @IsString()
+  @MaxLength(128)
+  contactName?: string | null;
 
   @IsOptional()
   @Type(() => Number)
@@ -19,6 +56,7 @@ export class UpdateSupplierDto {
   @Min(0)
   paymentTermsDays?: number;
 
+  /** Legacy; prefer `status`. When set, maps active↔inactive. */
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()

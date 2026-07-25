@@ -11,10 +11,13 @@ import css from "../purchasing.module.css";
 import type { ReceiveLineForm } from "../types";
 import {
   canAdjustExpected,
+  canApprove,
   canCancel,
   canEditPo,
   canIssue,
   canReceive,
+  canReject,
+  canShortClose,
   defaultExpiryIso,
   formatDate,
   formatDateTime,
@@ -32,6 +35,7 @@ type Props = {
   poId: string | null;
   canWrite: boolean;
   canCancelPo: boolean;
+  canApprovePo: boolean;
   startInEdit?: boolean;
   onClose: () => void;
   onChanged: () => void;
@@ -68,6 +72,7 @@ export function PoDetailModal({
   poId,
   canWrite,
   canCancelPo,
+  canApprovePo,
   startInEdit = false,
   onClose,
   onChanged,
@@ -81,6 +86,8 @@ export function PoDetailModal({
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
+  const [confirmShortCloseOpen, setConfirmShortCloseOpen] = useState(false);
 
   useEffect(() => {
     setActionError(null);
@@ -89,6 +96,8 @@ export function PoDetailModal({
     setEditMode(false);
     setEditForm(null);
     setConfirmCancelOpen(false);
+    setConfirmRejectOpen(false);
+    setConfirmShortCloseOpen(false);
   }, [poId]);
 
   useEffect(() => {
@@ -163,6 +172,47 @@ export function PoDetailModal({
       await completeAndReturnToList();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Issue failed");
+      setBusy(false);
+    }
+  }
+
+  async function approve() {
+    if (!detail) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiJson(`/purchasing/purchase-orders/${detail.id}/approve`, { method: "POST" });
+      await completeAndReturnToList();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Approve failed");
+      setBusy(false);
+    }
+  }
+
+  async function reject() {
+    if (!detail) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiJson(`/purchasing/purchase-orders/${detail.id}/reject`, { method: "POST" });
+      setConfirmRejectOpen(false);
+      await completeAndReturnToList();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Reject failed");
+      setBusy(false);
+    }
+  }
+
+  async function shortClose() {
+    if (!detail) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiJson(`/purchasing/purchase-orders/${detail.id}/short-close`, { method: "POST" });
+      setConfirmShortCloseOpen(false);
+      await completeAndReturnToList();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Short-close failed");
       setBusy(false);
     }
   }
@@ -317,6 +367,24 @@ export function PoDetailModal({
                       Cancel PO
                     </ModalButton>
                   )}
+                  {canApprovePo && canReject(detail.status) && (
+                    <ModalButton
+                      variant="danger"
+                      onClick={() => setConfirmRejectOpen(true)}
+                      disabled={busy}
+                    >
+                      Reject
+                    </ModalButton>
+                  )}
+                  {canApprovePo && canShortClose(detail.status) && (
+                    <ModalButton
+                      variant="secondary"
+                      onClick={() => setConfirmShortCloseOpen(true)}
+                      disabled={busy}
+                    >
+                      Short-close
+                    </ModalButton>
+                  )}
                   {canWrite && canIssue(detail.status) && (
                     <ModalButton
                       variant="primary"
@@ -324,11 +392,17 @@ export function PoDetailModal({
                       loading={busy}
                       disabled={busy}
                     >
-                      {detail.status === "pending_approval"
-                        ? "Approve & issue"
-                        : detail.status === "draft"
-                          ? "Issue draft"
-                          : "Issue PO"}
+                      Issue draft
+                    </ModalButton>
+                  )}
+                  {canApprovePo && canApprove(detail.status) && (
+                    <ModalButton
+                      variant="primary"
+                      onClick={() => void approve()}
+                      loading={busy}
+                      disabled={busy}
+                    >
+                      Approve
                     </ModalButton>
                   )}
                   {canWrite && canReceive(detail.status) && (
@@ -809,6 +883,42 @@ export function PoDetailModal({
       <p>
         This will cancel <strong>{detail?.poNumber}</strong>. Cancelled orders stay in history
         and cannot be issued or received.
+      </p>
+    </ConfirmDialog>
+
+    <ConfirmDialog
+      open={confirmRejectOpen}
+      title="Reject purchase order?"
+      confirmLabel="Reject PO"
+      cancelLabel="Keep pending"
+      variant="danger"
+      loading={busy}
+      onCancel={() => {
+        if (!busy) setConfirmRejectOpen(false);
+      }}
+      onConfirm={() => void reject()}
+    >
+      <p>
+        This will reject <strong>{detail?.poNumber}</strong> and mark it cancelled. It cannot be
+        issued afterwards.
+      </p>
+    </ConfirmDialog>
+
+    <ConfirmDialog
+      open={confirmShortCloseOpen}
+      title="Short-close purchase order?"
+      confirmLabel="Short-close"
+      cancelLabel="Keep open"
+      variant="danger"
+      loading={busy}
+      onCancel={() => {
+        if (!busy) setConfirmShortCloseOpen(false);
+      }}
+      onConfirm={() => void shortClose()}
+    >
+      <p>
+        This will short-close <strong>{detail?.poNumber}</strong>. Remaining quantities will
+        not be receivable afterwards.
       </p>
     </ConfirmDialog>
     </>

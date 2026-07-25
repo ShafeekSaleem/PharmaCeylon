@@ -63,9 +63,8 @@ export function canCancelTransfer(
   return canApproveTransfer(user, branchId ?? transfer.fromBranchId);
 }
 
-export function formatTransferNo(id: string): string {
-  const num = parseInt(id.replace(/-/g, "").slice(0, 10), 16) % 100000;
-  return `TR-${String(num).padStart(5, "0")}`;
+export function formatTransferNo(row: Pick<TransferListItem, "transferNumber">): string {
+  return row.transferNumber;
 }
 
 export function transferLineCount(items: { qty: number }[]): number {

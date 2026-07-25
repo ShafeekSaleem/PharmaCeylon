@@ -18,9 +18,8 @@ export class ReturnLineDto {
   @IsUUID()
   productId!: string;
 
-  @IsOptional()
   @IsUUID()
-  batchId?: string | null;
+  batchId!: string;
 
   @Type(() => Number)
   @IsInt()
@@ -50,6 +49,14 @@ export class CreateReturnDto {
   @IsOptional()
   @IsUUID()
   supplierId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  purchaseOrderId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  goodsReceiptId?: string | null;
 
   @IsOptional()
   @IsString()

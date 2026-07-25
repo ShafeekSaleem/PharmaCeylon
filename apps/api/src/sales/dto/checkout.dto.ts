@@ -14,8 +14,10 @@ export class CheckoutLineDto {
   @IsUUID()
   productId!: string;
 
+  /** When omitted, checkout auto-picks FEFO (earliest non-expired, non-quarantined batch with stock). */
+  @IsOptional()
   @IsUUID()
-  batchId!: string;
+  batchId?: string;
 
   @Type(() => Number)
   @IsInt()

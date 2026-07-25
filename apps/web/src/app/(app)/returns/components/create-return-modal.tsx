@@ -9,8 +9,15 @@ import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
 import { useProductOptions, useSuppliers } from "../../purchasing/hooks/use-suppliers";
+import type { PurchaseOrderDetail, PurchaseOrderListItem } from "../../purchasing/types";
 import css from "../../purchasing/purchasing.module.css";
-import type { CreateReturnLine, CreateReturnLinePayload, GoodsReturnType } from "../types";
+import type {
+  CreateReturnLine,
+  CreateReturnLinePayload,
+  GoodsReturnType,
+  ReturnListItem,
+  SaleListItem,
+} from "../types";
 import { canApproveReturn, formatMoney, formatDate } from "../utils";
 import rcss from "../returns.module.css";
 
@@ -35,6 +42,14 @@ type FieldErrors = {
   lineErrors?: Record<string, LineErrors>;
 };
 
+const OPEN_STATUSES = new Set([
+  "draft",
+  "pending_approval",
+  "awaiting_logistics",
+  "in_review",
+  "completed",
+]);
+
 function newLine(): CreateReturnLine {
   return {
     key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -50,12 +65,40 @@ function isCompleteLine(line: CreateReturnLine): boolean {
   const price = Number(line.unitPrice);
   return (
     !!line.productId &&
+    !!line.batchId &&
     Number.isInteger(qty) &&
     qty >= 1 &&
     line.unitPrice.trim() !== "" &&
     !Number.isNaN(price) &&
     price >= 0
   );
+}
+
+function remainingBySaleLine(
+  sale: SaleListItem,
+  returns: ReturnListItem[],
+): Map<string, number> {
+  const sold = new Map<string, number>();
+  for (const item of sale.items) {
+    const key = `${item.productId}:${item.batchId}`;
+    sold.set(key, (sold.get(key) ?? 0) + item.qty);
+  }
+  const used = new Map<string, number>();
+  for (const gr of returns) {
+    if (gr.saleId !== sale.id) continue;
+    if (!OPEN_STATUSES.has(gr.status)) continue;
+    for (const item of gr.items) {
+      const batchId = item.batchId ?? item.batch?.id ?? "";
+      const productId = item.productId ?? item.product.id;
+      const key = `${productId}:${batchId}`;
+      used.set(key, (used.get(key) ?? 0) + item.qty);
+    }
+  }
+  const remaining = new Map<string, number>();
+  for (const [key, qty] of sold) {
+    remaining.set(key, Math.max(0, qty - (used.get(key) ?? 0)));
+  }
+  return remaining;
 }
 
 export function CreateReturnModal({ open, onClose, onCreated }: Props) {
@@ -66,27 +109,42 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
 
   const [type, setType] = useState<GoodsReturnType>("customer");
   const [customerName, setCustomerName] = useState("");
+  const [saleId, setSaleId] = useState("");
   const [supplierId, setSupplierId] = useState("");
+  const [purchaseOrderId, setPurchaseOrderId] = useState("");
+  const [goodsReceiptId, setGoodsReceiptId] = useState("");
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<CreateReturnLine[]>([newLine()]);
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [batchesLoading, setBatchesLoading] = useState(false);
+  const [sales, setSales] = useState<SaleListItem[]>([]);
+  const [salesLoading, setSalesLoading] = useState(false);
+  const [pos, setPos] = useState<PurchaseOrderListItem[]>([]);
+  const [posLoading, setPosLoading] = useState(false);
+  const [poDetail, setPoDetail] = useState<PurchaseOrderDetail | null>(null);
+  const [poDetailLoading, setPoDetailLoading] = useState(false);
+  const [branchReturns, setBranchReturns] = useState<ReturnListItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [touched, setTouched] = useState(false);
 
   const batchById = useMemo(() => new Map(batches.map((b) => [b.id, b])), [batches]);
+  const saleById = useMemo(() => new Map(sales.map((s) => [s.id, s])), [sales]);
 
   useEffect(() => {
     if (!open) return;
     setType("customer");
     setCustomerName("");
+    setSaleId("");
     setSupplierId("");
+    setPurchaseOrderId("");
+    setGoodsReceiptId("");
     setReason("");
     setNotes("");
     setLines([newLine()]);
+    setPoDetail(null);
     setError(null);
     setFieldErrors({});
     setTouched(false);
@@ -99,6 +157,9 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
   useEffect(() => {
     if (!open || !branchId) {
       setBatches([]);
+      setSales([]);
+      setPos([]);
+      setBranchReturns([]);
       return;
     }
     setBatchesLoading(true);
@@ -106,7 +167,35 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
       .then(setBatches)
       .catch(() => setBatches([]))
       .finally(() => setBatchesLoading(false));
+
+    setSalesLoading(true);
+    apiJson<SaleListItem[]>("/sales")
+      .then(setSales)
+      .catch(() => setSales([]))
+      .finally(() => setSalesLoading(false));
+
+    setPosLoading(true);
+    apiJson<PurchaseOrderListItem[]>("/purchasing/purchase-orders")
+      .then(setPos)
+      .catch(() => setPos([]))
+      .finally(() => setPosLoading(false));
+
+    apiJson<ReturnListItem[]>("/returns")
+      .then(setBranchReturns)
+      .catch(() => setBranchReturns([]));
   }, [open, branchId]);
+
+  useEffect(() => {
+    if (!open || !purchaseOrderId || !branchId) {
+      setPoDetail(null);
+      return;
+    }
+    setPoDetailLoading(true);
+    apiJson<PurchaseOrderDetail>(`/purchasing/purchase-orders/${purchaseOrderId}`)
+      .then(setPoDetail)
+      .catch(() => setPoDetail(null))
+      .finally(() => setPoDetailLoading(false));
+  }, [open, purchaseOrderId, branchId]);
 
   const supplierOptions = useMemo(
     () =>
@@ -126,6 +215,39 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
         meta: p.sku,
       })),
     [products.rows],
+  );
+
+  const saleOptions = useMemo(
+    () =>
+      sales.map((s) => ({
+        value: s.id,
+        label: s.invoiceNo,
+        meta: `${formatDate(s.soldAt)} · ${formatMoney(s.grandTotal)}`,
+      })),
+    [sales],
+  );
+
+  const poOptions = useMemo(
+    () =>
+      pos
+        .filter((po) => !supplierId || po.supplier.id === supplierId)
+        .filter((po) => po.status !== "cancelled" && po.status !== "draft")
+        .map((po) => ({
+          value: po.id,
+          label: po.poNumber,
+          meta: po.supplier.name,
+        })),
+    [pos, supplierId],
+  );
+
+  const grnOptions = useMemo(
+    () =>
+      (poDetail?.goodsReceipts ?? []).map((grn) => ({
+        value: grn.id,
+        label: grn.grnNumber,
+        meta: formatDate(grn.receivedOn || grn.createdAt),
+      })),
+    [poDetail],
   );
 
   function batchOptionsForLine(line: CreateReturnLine) {
@@ -148,10 +270,37 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
     [completeLines],
   );
 
+  function applySale(nextSaleId: string) {
+    setSaleId(nextSaleId);
+    setFieldErrors((prev) => ({ ...prev, customerName: undefined }));
+    if (!nextSaleId) {
+      setLines([newLine()]);
+      return;
+    }
+    const sale = saleById.get(nextSaleId);
+    if (!sale) return;
+    const remaining = remainingBySaleLine(sale, branchReturns);
+    const prefill: CreateReturnLine[] = [];
+    for (const item of sale.items) {
+      const key = `${item.productId}:${item.batchId}`;
+      const rem = remaining.get(key) ?? 0;
+      if (rem <= 0) continue;
+      prefill.push({
+        key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${item.batchId}`,
+        productId: item.productId,
+        batchId: item.batchId,
+        qty: String(rem),
+        unitPrice: String(Number(item.unitPrice)),
+        maxQty: rem,
+      });
+    }
+    setLines(prefill.length > 0 ? prefill : [newLine()]);
+  }
+
   function validate(): FieldErrors {
     const next: FieldErrors = {};
-    if (type === "customer" && !customerName.trim()) {
-      next.customerName = "Enter a customer name";
+    if (type === "customer" && !customerName.trim() && !saleId) {
+      next.customerName = "Enter a customer name or select a sale";
     }
     if (type === "supplier" && !supplierId) {
       next.supplierId = "Select a supplier";
@@ -174,12 +323,13 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
       const price = Number(line.unitPrice);
 
       if (!line.productId) errs.productId = "Select a product";
+      if (!line.batchId) errs.batchId = "Select a batch";
       if (!Number.isInteger(qty) || qty < 1) errs.qty = "Enter a valid quantity";
       if (line.unitPrice.trim() === "" || Number.isNaN(price) || price < 0) {
         errs.unitPrice = "Enter a valid unit price";
       }
-      if (type === "supplier" && !line.batchId) {
-        errs.batchId = "Select a batch";
+      if (line.maxQty != null && Number.isInteger(qty) && qty > line.maxQty) {
+        errs.qty = `Max ${line.maxQty} remaining on sale`;
       }
       if (type === "supplier" && line.batchId) {
         const batch = batchById.get(line.batchId);
@@ -193,7 +343,7 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
     }
 
     if (completeCount === 0) {
-      next.lines = "Add at least one line with product, qty, and unit price";
+      next.lines = "Add at least one line with product, batch, qty, and unit price";
     }
     if (Object.keys(lineErrors).length > 0) next.lineErrors = lineErrors;
     return next;
@@ -208,6 +358,7 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
         const next = { ...line, ...patch };
         if (patch.productId !== undefined && patch.productId !== line.productId) {
           next.batchId = "";
+          next.maxQty = undefined;
         }
         if (patch.batchId) {
           const batch = batchById.get(patch.batchId);
@@ -249,7 +400,7 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
 
     const payload: CreateReturnLinePayload[] = completeLines.map((line) => ({
       productId: line.productId,
-      batchId: line.batchId || null,
+      batchId: line.batchId,
       qty: Number(line.qty),
       unitPrice: Number(line.unitPrice),
     }));
@@ -262,8 +413,13 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type,
-          customerName: type === "customer" ? customerName.trim() : null,
+          customerName: type === "customer" ? customerName.trim() || null : null,
+          saleId: type === "customer" && saleId ? saleId : null,
           supplierId: type === "supplier" ? supplierId : null,
+          purchaseOrderId:
+            type === "supplier" && purchaseOrderId ? purchaseOrderId : null,
+          goodsReceiptId:
+            type === "supplier" && goodsReceiptId ? goodsReceiptId : null,
           reason: reason.trim(),
           notes: notes.trim() || null,
           submit,
@@ -286,7 +442,7 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
       title="New return"
       description={
         canAutoSubmit
-          ? "As owner/manager, Create & submit moves this return to awaiting pickup/dispatch."
+          ? "Create saves as draft. Create & submit auto-approves to awaiting pickup/dispatch."
           : "Save as draft, or submit for manager approval."
       }
       size="xl"
@@ -339,6 +495,9 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
                 onClick={() => {
                   setType("customer");
                   setSupplierId("");
+                  setPurchaseOrderId("");
+                  setGoodsReceiptId("");
+                  setPoDetail(null);
                   setFieldErrors((prev) => ({
                     ...prev,
                     supplierId: undefined,
@@ -355,6 +514,7 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
                 onClick={() => {
                   setType("supplier");
                   setCustomerName("");
+                  setSaleId("");
                   setFieldErrors((prev) => ({
                     ...prev,
                     supplierId: undefined,
@@ -369,40 +529,92 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
           </div>
 
           {type === "customer" ? (
-            <div className={css.field}>
-              <label className={css.fieldLabel} htmlFor="return-customer">
-                Customer name <span aria-hidden>*</span>
-              </label>
-              <input
-                id="return-customer"
-                className={`${css.input} ${errors.customerName ? css.inputError : ""}`}
-                value={customerName}
-                onChange={(e) => {
-                  setCustomerName(e.target.value);
-                  setFieldErrors((prev) => ({ ...prev, customerName: undefined }));
-                }}
-                disabled={saving}
-                placeholder="Walk-in customer name"
+            <>
+              <PurchasingSelect
+                label="Sale (optional)"
+                value={saleId}
+                options={saleOptions}
+                placeholder={salesLoading ? "Loading sales…" : "Select sale to prefill…"}
+                searchPlaceholder="Search invoice…"
+                onChange={(value) => applySale(value)}
+                disabled={saving || salesLoading}
+                allowClear
               />
-              {errors.customerName && (
-                <span className={css.fieldError}>{errors.customerName}</span>
-              )}
-            </div>
+              <div className={css.field}>
+                <label className={css.fieldLabel} htmlFor="return-customer">
+                  Customer name {!saleId ? <span aria-hidden>*</span> : null}
+                </label>
+                <input
+                  id="return-customer"
+                  className={`${css.input} ${errors.customerName ? css.inputError : ""}`}
+                  value={customerName}
+                  onChange={(e) => {
+                    setCustomerName(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, customerName: undefined }));
+                  }}
+                  disabled={saving}
+                  placeholder="Walk-in customer name"
+                />
+                {errors.customerName && (
+                  <span className={css.fieldError}>{errors.customerName}</span>
+                )}
+              </div>
+            </>
           ) : (
-            <PurchasingSelect
-              label="Supplier"
-              required
-              value={supplierId}
-              options={supplierOptions}
-              placeholder="Select supplier…"
-              searchPlaceholder="Search suppliers…"
-              onChange={(value) => {
-                setSupplierId(value);
-                setFieldErrors((prev) => ({ ...prev, supplierId: undefined }));
-              }}
-              disabled={saving || suppliers.loading}
-              error={errors.supplierId}
-            />
+            <>
+              <PurchasingSelect
+                label="Supplier"
+                required
+                value={supplierId}
+                options={supplierOptions}
+                placeholder="Select supplier…"
+                searchPlaceholder="Search suppliers…"
+                onChange={(value) => {
+                  setSupplierId(value);
+                  setPurchaseOrderId("");
+                  setGoodsReceiptId("");
+                  setPoDetail(null);
+                  setFieldErrors((prev) => ({ ...prev, supplierId: undefined }));
+                }}
+                disabled={saving || suppliers.loading}
+                error={errors.supplierId}
+              />
+              <PurchasingSelect
+                label="Purchase order (optional)"
+                value={purchaseOrderId}
+                options={poOptions}
+                placeholder={
+                  !supplierId
+                    ? "Select supplier first"
+                    : posLoading
+                      ? "Loading…"
+                      : "Select PO…"
+                }
+                searchPlaceholder="Search PO…"
+                onChange={(value) => {
+                  setPurchaseOrderId(value);
+                  setGoodsReceiptId("");
+                }}
+                disabled={saving || !supplierId || posLoading}
+                allowClear
+              />
+              <PurchasingSelect
+                label="Goods receipt (optional)"
+                value={goodsReceiptId}
+                options={grnOptions}
+                placeholder={
+                  !purchaseOrderId
+                    ? "Select PO first"
+                    : poDetailLoading
+                      ? "Loading…"
+                      : "Select GRN…"
+                }
+                searchPlaceholder="Search GRN…"
+                onChange={setGoodsReceiptId}
+                disabled={saving || !purchaseOrderId || poDetailLoading}
+                allowClear
+              />
+            </>
           )}
 
           <div className={`${css.field} ${css.fullWidth}`}>
@@ -487,15 +699,16 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
                           updateLine(line.key, { productId: value });
                           clearLineError(line.key, "productId");
                         }}
-                        disabled={products.loading || saving}
+                        disabled={products.loading || saving || !!saleId}
                         error={lineErr?.productId}
-                        allowClear
+                        allowClear={!saleId}
                       />
                     </td>
                     <td style={{ minWidth: 180 }}>
                       <PurchasingSelect
                         label="Batch"
                         hideLabel
+                        required
                         value={line.batchId}
                         options={batchOptionsForLine(line)}
                         placeholder={
@@ -510,15 +723,16 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
                           updateLine(line.key, { batchId: value });
                           clearLineError(line.key, "batchId");
                         }}
-                        disabled={!line.productId || batchesLoading || saving}
+                        disabled={!line.productId || batchesLoading || saving || !!saleId}
                         error={lineErr?.batchId}
-                        allowClear
+                        allowClear={!saleId}
                       />
                     </td>
                     <td style={{ width: 88 }}>
                       <input
                         type="number"
                         min={1}
+                        max={line.maxQty}
                         step={1}
                         className={`${css.input} ${lineErr?.qty ? css.inputError : ""}`}
                         value={line.qty}
@@ -575,9 +789,7 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
 
         <div className={css.createTotalsBar}>
           <span className={css.currencyNote}>
-            {type === "customer"
-              ? "Customer returns restock inventory when completed."
-              : "Supplier returns deduct stock when completed — batch required."}
+            Batch is required on every line. Stock moves when the return is completed.
           </span>
           <div className={css.totalsGrid}>
             <div className={css.totalItem}>

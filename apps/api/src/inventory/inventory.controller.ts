@@ -1,13 +1,26 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  GoneException,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { Roles } from "../security/decorators/roles.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CustomerReturnDto } from "./dto/customer-return.dto";
+import { QuarantineBatchDto } from "./dto/quarantine-batch.dto";
 import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
 import { SupplierReturnDto } from "./dto/supplier-return.dto";
 import { InventoryService, type MovementCategory, type SummaryPeriod } from "./inventory.service";
+
+const RETURNS_DEPRECATED =
+  "Use POST /returns instead. This endpoint is deprecated.";
 
 @Controller("inventory")
 export class InventoryController {
@@ -28,12 +41,69 @@ export class InventoryController {
     @Query("productId") productId?: string,
     @Query("nearExpiryDays") nearExpiryDays?: string,
     @Query("includeZero") includeZero?: string,
+    @Query("quarantined") quarantined?: string,
+    @Query("expired") expired?: string,
   ) {
     return this.inventory.listBatches(user.tenantId, branchId, {
       productId: productId || undefined,
       nearExpiryDays: nearExpiryDays ? Number(nearExpiryDays) : undefined,
       includeZero: includeZero === "false" ? false : true,
+      quarantined:
+        quarantined === "true" ? true : quarantined === "false" ? false : undefined,
+      expired: expired === "true" ? true : expired === "false" ? false : undefined,
     });
+  }
+
+  @Roles(
+    RoleName.owner,
+    RoleName.manager,
+    RoleName.pharmacist,
+    RoleName.cashier,
+    RoleName.inventory_clerk,
+    RoleName.analyst,
+  )
+  @Get("batches/expired")
+  expiredBatches(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+  ) {
+    return this.inventory.listExpiredBatches(user.tenantId, branchId);
+  }
+
+  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @Post("batches/:id/quarantine")
+  quarantine(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: QuarantineBatchDto,
+  ) {
+    return this.inventory.quarantineBatch(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      dto.reason,
+    );
+  }
+
+  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @Post("batches/:id/release-quarantine")
+  releaseQuarantine(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.inventory.releaseQuarantine(user.tenantId, branchId, user.userId, id);
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Post("quarantine-expired")
+  quarantineExpired(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+  ) {
+    return this.inventory.quarantineExpired(user.tenantId, branchId, user.userId);
   }
 
   @Roles(
@@ -139,20 +209,20 @@ export class InventoryController {
   @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist, RoleName.cashier)
   @Post("customer-returns")
   customerReturn(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-    @Body() dto: CustomerReturnDto,
+    @CurrentUser() _user: RequestUser,
+    @RequireBranchId() _branchId: string,
+    @Body() _dto: CustomerReturnDto,
   ) {
-    return this.inventory.customerReturn(user.tenantId, branchId, user.userId, dto);
+    throw new GoneException(RETURNS_DEPRECATED);
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
   @Post("supplier-returns")
   supplierReturn(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-    @Body() dto: SupplierReturnDto,
+    @CurrentUser() _user: RequestUser,
+    @RequireBranchId() _branchId: string,
+    @Body() _dto: SupplierReturnDto,
   ) {
-    return this.inventory.supplierReturn(user.tenantId, branchId, user.userId, dto);
+    throw new GoneException(RETURNS_DEPRECATED);
   }
 }

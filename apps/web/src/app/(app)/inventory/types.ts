@@ -42,6 +42,9 @@ export type BatchRow = {
   daysToExpiry: number;
   expired: boolean;
   nearExpiry: boolean;
+  isQuarantined: boolean;
+  quarantinedAt: string | null;
+  quarantineReason: string | null;
   product: {
     id: string;
     sku: string;

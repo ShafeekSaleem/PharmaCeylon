@@ -13,6 +13,8 @@ import {
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
+import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
+import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateReturnDto, ReturnLineDto } from "./dto/create-return.dto";
 import { UpdateReturnDto } from "./dto/update-return.dto";
@@ -26,11 +28,24 @@ const LIST_INCLUDE = {
   },
   supplier: { select: { id: true, code: true, name: true } },
   sale: { select: { id: true, invoiceNo: true } },
+  purchaseOrder: { select: { id: true, poNumber: true } },
+  goodsReceipt: { select: { id: true, grnNumber: true } },
   requester: { select: { id: true, fullName: true } },
   approver: { select: { id: true, fullName: true } },
   processor: { select: { id: true, fullName: true } },
   branch: { select: { id: true, code: true, name: true } },
 } as const;
+
+const OPEN_RETURN_STATUSES: GoodsReturnStatus[] = [
+  GoodsReturnStatus.draft,
+  GoodsReturnStatus.pending_approval,
+  GoodsReturnStatus.awaiting_logistics,
+  GoodsReturnStatus.in_review,
+];
+
+function lineKey(productId: string, batchId: string | null | undefined): string {
+  return `${productId}:${batchId ?? ""}`;
+}
 
 @Injectable()
 export class ReturnsService {
@@ -80,7 +95,9 @@ export class ReturnsService {
     items: ReturnLineDto[],
   ) {
     for (const line of items) {
-      if (!line.batchId) continue;
+      if (!line.batchId) {
+        throw new BadRequestException("batchId is required on all return lines");
+      }
       const batch = await this.prisma.batch.findFirst({
         where: {
           id: line.batchId,
@@ -108,12 +125,18 @@ export class ReturnsService {
     userId: string,
   ): { status: GoodsReturnStatus; approvedBy: string | null; autoApproved: boolean } {
     const isMgr = this.isOwnerOrManager(rolesAtBranch);
-    // Owner/manager (or submit=true as owner/manager): awaiting_logistics, auto-approved.
     if (isMgr) {
+      if (submit === true) {
+        return {
+          status: GoodsReturnStatus.awaiting_logistics,
+          approvedBy: userId,
+          autoApproved: true,
+        };
+      }
       return {
-        status: GoodsReturnStatus.awaiting_logistics,
-        approvedBy: userId,
-        autoApproved: true,
+        status: GoodsReturnStatus.draft,
+        approvedBy: null,
+        autoApproved: false,
       };
     }
     if (submit) {
@@ -127,6 +150,213 @@ export class ReturnsService {
       status: GoodsReturnStatus.draft,
       approvedBy: null,
       autoApproved: false,
+    };
+  }
+
+  /**
+   * Cap customer return lines against remaining sale qty:
+   * sold − completed GoodsReturns − sale_refund_in − open GoodsReturns − inventory customer_return_in (sale: tagged).
+   */
+  private async assertSaleLineCaps(
+    tenantId: string,
+    branchId: string,
+    saleId: string,
+    items: ReturnLineDto[],
+    excludeReturnId?: string,
+  ) {
+    const sale = await this.prisma.sale.findFirst({
+      where: { id: saleId, tenantId, branchId },
+      include: { items: true },
+    });
+    if (!sale) throw new BadRequestException("Sale not found for this branch");
+
+    const soldByKey = new Map<string, number>();
+    for (const si of sale.items) {
+      const key = lineKey(si.productId, si.batchId);
+      soldByKey.set(key, (soldByKey.get(key) ?? 0) + si.qty);
+    }
+
+    const usedByKey = new Map<string, number>();
+    const addUsed = (productId: string, batchId: string | null | undefined, qty: number) => {
+      const key = lineKey(productId, batchId);
+      usedByKey.set(key, (usedByKey.get(key) ?? 0) + qty);
+    };
+
+    const completedReturns = await this.prisma.goodsReturn.findMany({
+      where: {
+        tenantId,
+        branchId,
+        saleId,
+        status: GoodsReturnStatus.completed,
+        ...(excludeReturnId ? { id: { not: excludeReturnId } } : {}),
+      },
+      include: { items: true },
+    });
+    for (const gr of completedReturns) {
+      for (const item of gr.items) {
+        addUsed(item.productId, item.batchId, item.qty);
+      }
+    }
+
+    const openReturns = await this.prisma.goodsReturn.findMany({
+      where: {
+        tenantId,
+        branchId,
+        saleId,
+        status: { in: OPEN_RETURN_STATUSES },
+        ...(excludeReturnId ? { id: { not: excludeReturnId } } : {}),
+      },
+      include: { items: true },
+    });
+    for (const gr of openReturns) {
+      for (const item of gr.items) {
+        addUsed(item.productId, item.batchId, item.qty);
+      }
+    }
+
+    const refundLedger = await this.prisma.stockLedger.groupBy({
+      by: ["productId", "batchId"],
+      where: {
+        tenantId,
+        branchId,
+        movementType: StockMovementType.sale_refund_in,
+        referenceId: saleId,
+      },
+      _sum: { qtyDelta: true },
+    });
+    for (const row of refundLedger) {
+      addUsed(row.productId, row.batchId, row._sum.qtyDelta ?? 0);
+    }
+
+    // Legacy inventory customer-returns tagged reason sale:{saleId} (not goods_return ledger rows).
+    const inventoryTagged = await this.prisma.stockLedger.groupBy({
+      by: ["productId", "batchId"],
+      where: {
+        tenantId,
+        branchId,
+        movementType: StockMovementType.customer_return_in,
+        referenceType: { not: "goods_return" },
+        OR: [
+          { reason: `sale:${saleId}` },
+          { reason: { startsWith: `sale:${saleId}` } },
+        ],
+      },
+      _sum: { qtyDelta: true },
+    });
+    for (const row of inventoryTagged) {
+      addUsed(row.productId, row.batchId, row._sum.qtyDelta ?? 0);
+    }
+
+    const requestedByKey = new Map<string, number>();
+    for (const line of items) {
+      const key = lineKey(line.productId, line.batchId);
+      if (!soldByKey.has(key)) {
+        throw new BadRequestException(
+          "Return line product/batch must match a line on the referenced sale",
+        );
+      }
+      requestedByKey.set(key, (requestedByKey.get(key) ?? 0) + line.qty);
+    }
+
+    for (const [key, requested] of requestedByKey) {
+      const sold = soldByKey.get(key) ?? 0;
+      const used = usedByKey.get(key) ?? 0;
+      const remaining = sold - used;
+      if (requested > remaining) {
+        throw new BadRequestException(
+          remaining <= 0
+            ? "This sale line has already been fully returned"
+            : `Only ${remaining} unit(s) remain returnable on this sale line`,
+        );
+      }
+    }
+  }
+
+  private async validateSupplierPoGrn(
+    tenantId: string,
+    branchId: string,
+    supplierId: string | null | undefined,
+    purchaseOrderId: string | null | undefined,
+    goodsReceiptId: string | null | undefined,
+  ): Promise<{ purchaseOrderId: string | null; goodsReceiptId: string | null }> {
+    if (!purchaseOrderId && !goodsReceiptId) {
+      return { purchaseOrderId: null, goodsReceiptId: null };
+    }
+
+    if (goodsReceiptId && !purchaseOrderId) {
+      throw new BadRequestException("goodsReceiptId requires purchaseOrderId");
+    }
+
+    if (!purchaseOrderId) {
+      return { purchaseOrderId: null, goodsReceiptId: null };
+    }
+
+    const po = await this.prisma.purchaseOrder.findFirst({
+      where: { id: purchaseOrderId, tenantId, branchId },
+    });
+    if (!po) {
+      throw new BadRequestException("Purchase order not found for this branch");
+    }
+    if (supplierId && po.supplierId !== supplierId) {
+      throw new BadRequestException("Purchase order supplier does not match return supplier");
+    }
+
+    if (goodsReceiptId) {
+      const grn = await this.prisma.goodsReceipt.findFirst({
+        where: {
+          id: goodsReceiptId,
+          tenantId,
+          purchaseOrderId,
+        },
+      });
+      if (!grn) {
+        throw new BadRequestException("Goods receipt not found for this purchase order");
+      }
+    }
+
+    return {
+      purchaseOrderId,
+      goodsReceiptId: goodsReceiptId ?? null,
+    };
+  }
+
+  private createData(
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    returnNumber: string,
+    dto: CreateReturnDto,
+    status: GoodsReturnStatus,
+    approvedBy: string | null,
+    amount: Prisma.Decimal,
+    purchaseOrderId: string | null,
+    goodsReceiptId: string | null,
+  ) {
+    return {
+      tenantId,
+      branchId,
+      returnNumber,
+      type: dto.type as GoodsReturnType,
+      status,
+      customerName: dto.customerName?.trim() || null,
+      saleId: dto.saleId ?? null,
+      supplierId: dto.supplierId ?? null,
+      purchaseOrderId,
+      goodsReceiptId,
+      reason: dto.reason?.trim() || null,
+      notes: dto.notes?.trim() || null,
+      amount,
+      requestedBy: userId,
+      approvedBy,
+      items: {
+        create: dto.items.map((line) => ({
+          tenantId,
+          productId: line.productId,
+          batchId: line.batchId,
+          qty: line.qty,
+          unitPrice: new Prisma.Decimal(line.unitPrice ?? 0),
+        })),
+      },
     };
   }
 
@@ -162,13 +392,25 @@ export class ReturnsService {
         where: { id: dto.saleId, tenantId, branchId },
       });
       if (!sale) throw new BadRequestException("Sale not found for this branch");
+      await this.assertSaleLineCaps(tenantId, branchId, dto.saleId, dto.items);
     }
     if (dto.supplierId) {
       const supplier = await this.prisma.supplier.findFirst({
-        where: { id: dto.supplierId, tenantId, isActive: true },
+        where: { id: dto.supplierId, tenantId, status: "active" },
       });
       if (!supplier) throw new NotFoundException("Supplier not found");
     }
+
+    const poGrn =
+      dto.type === "supplier"
+        ? await this.validateSupplierPoGrn(
+            tenantId,
+            branchId,
+            dto.supplierId,
+            dto.purchaseOrderId,
+            dto.goodsReceiptId,
+          )
+        : { purchaseOrderId: null, goodsReceiptId: null };
 
     const amount = this.lineAmount(dto.items);
     const resolved = this.resolveCreateStatus(rolesAtBranch, dto.submit, userId);
@@ -178,30 +420,18 @@ export class ReturnsService {
     let created;
     try {
       created = await this.prisma.goodsReturn.create({
-        data: {
+        data: this.createData(
           tenantId,
           branchId,
+          userId,
           returnNumber,
-          type: dto.type as GoodsReturnType,
+          dto,
           status,
-          customerName: dto.customerName?.trim() || null,
-          saleId: dto.saleId ?? null,
-          supplierId: dto.supplierId ?? null,
-          reason: dto.reason?.trim() || null,
-          notes: dto.notes?.trim() || null,
-          amount,
-          requestedBy: userId,
           approvedBy,
-          items: {
-            create: dto.items.map((line) => ({
-              tenantId,
-              productId: line.productId,
-              batchId: line.batchId ?? null,
-              qty: line.qty,
-              unitPrice: new Prisma.Decimal(line.unitPrice ?? 0),
-            })),
-          },
-        },
+          amount,
+          poGrn.purchaseOrderId,
+          poGrn.goodsReceiptId,
+        ),
         include: LIST_INCLUDE,
       });
     } catch (e) {
@@ -211,30 +441,18 @@ export class ReturnsService {
       ) {
         const fallback = `RET-${randomUUID().replace(/-/g, "").slice(0, 5).toUpperCase()}`;
         created = await this.prisma.goodsReturn.create({
-          data: {
+          data: this.createData(
             tenantId,
             branchId,
-            returnNumber: fallback,
-            type: dto.type as GoodsReturnType,
+            userId,
+            fallback,
+            dto,
             status,
-            customerName: dto.customerName?.trim() || null,
-            saleId: dto.saleId ?? null,
-            supplierId: dto.supplierId ?? null,
-            reason: dto.reason?.trim() || null,
-            notes: dto.notes?.trim() || null,
-            amount,
-            requestedBy: userId,
             approvedBy,
-            items: {
-              create: dto.items.map((line) => ({
-                tenantId,
-                productId: line.productId,
-                batchId: line.batchId ?? null,
-                qty: line.qty,
-                unitPrice: new Prisma.Decimal(line.unitPrice ?? 0),
-              })),
-            },
-          },
+            amount,
+            poGrn.purchaseOrderId,
+            poGrn.goodsReceiptId,
+          ),
           include: LIST_INCLUDE,
         });
       } else {
@@ -273,6 +491,14 @@ export class ReturnsService {
     const saleId = dto.saleId !== undefined ? dto.saleId : existing.saleId;
     const supplierId =
       dto.supplierId !== undefined ? dto.supplierId : existing.supplierId;
+    const purchaseOrderId =
+      dto.purchaseOrderId !== undefined
+        ? dto.purchaseOrderId
+        : existing.purchaseOrderId;
+    const goodsReceiptId =
+      dto.goodsReceiptId !== undefined
+        ? dto.goodsReceiptId
+        : existing.goodsReceiptId;
 
     this.validateTypeFields(type, { customerName, saleId, supplierId });
 
@@ -284,13 +510,27 @@ export class ReturnsService {
         where: { id: saleId, tenantId, branchId },
       });
       if (!sale) throw new BadRequestException("Sale not found for this branch");
+      if (dto.items) {
+        await this.assertSaleLineCaps(tenantId, branchId, saleId, dto.items, id);
+      }
     }
     if (supplierId) {
       const supplier = await this.prisma.supplier.findFirst({
-        where: { id: supplierId, tenantId, isActive: true },
+        where: { id: supplierId, tenantId, status: "active" },
       });
       if (!supplier) throw new NotFoundException("Supplier not found");
     }
+
+    const poGrn =
+      type === GoodsReturnType.supplier
+        ? await this.validateSupplierPoGrn(
+            tenantId,
+            branchId,
+            supplierId,
+            purchaseOrderId,
+            goodsReceiptId,
+          )
+        : { purchaseOrderId: null, goodsReceiptId: null };
 
     const amount = dto.items ? this.lineAmount(dto.items) : existing.amount;
 
@@ -302,7 +542,7 @@ export class ReturnsService {
             tenantId,
             returnId: id,
             productId: line.productId,
-            batchId: line.batchId ?? null,
+            batchId: line.batchId,
             qty: line.qty,
             unitPrice: new Prisma.Decimal(line.unitPrice ?? 0),
           })),
@@ -316,6 +556,8 @@ export class ReturnsService {
           customerName: customerName?.trim() || null,
           saleId: saleId ?? null,
           supplierId: supplierId ?? null,
+          purchaseOrderId: poGrn.purchaseOrderId,
+          goodsReceiptId: poGrn.goodsReceiptId,
           reason:
             dto.reason !== undefined ? dto.reason?.trim() || null : undefined,
           notes: dto.notes !== undefined ? dto.notes?.trim() || null : undefined,
@@ -502,81 +744,131 @@ export class ReturnsService {
     branchId: string,
     userId: string,
     id: string,
+    idempotencyKeyRaw?: string,
   ) {
-    await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.goodsReturn.updateMany({
+    const existing = await this.prisma.goodsReturn.findFirst({
+      where: { id, tenantId, branchId },
+    });
+    if (!existing) throw new NotFoundException("Return not found");
+    if (existing.status === GoodsReturnStatus.completed) {
+      return this.getOne(tenantId, branchId, id);
+    }
+
+    const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
+    if (idemKey) {
+      const row = await this.prisma.idempotencyRecord.findUnique({
         where: {
-          id,
-          tenantId,
-          branchId,
-          status: {
-            in: [GoodsReturnStatus.in_review, GoodsReturnStatus.awaiting_logistics],
+          tenantId_userId_scope_idempotencyKey: {
+            tenantId,
+            userId,
+            scope: IDEMPOTENCY_SCOPE.returnComplete,
+            idempotencyKey: idemKey,
           },
         },
-        data: {
-          status: GoodsReturnStatus.completed,
-          processedBy: userId,
-        },
       });
-      if (claimed.count !== 1) {
-        throw new BadRequestException(
-          "Return must be in review or awaiting logistics to complete",
-        );
+      if (row) {
+        if (row.resourceId !== id) {
+          throw new BadRequestException(
+            "Idempotency-Key already used for a different return",
+          );
+        }
+        return this.getOne(tenantId, branchId, id);
       }
+    }
 
-      const row = await tx.goodsReturn.findFirst({
-        where: { id, tenantId, branchId },
-        include: { items: true },
-      });
-      if (!row) throw new NotFoundException("Return not found");
-
-      for (const line of row.items) {
-        if (!line.batchId) {
-          throw new BadRequestException("batchId is required on all items to complete a return");
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const claimed = await tx.goodsReturn.updateMany({
+          where: {
+            id,
+            tenantId,
+            branchId,
+            status: {
+              in: [GoodsReturnStatus.in_review, GoodsReturnStatus.awaiting_logistics],
+            },
+          },
+          data: {
+            status: GoodsReturnStatus.completed,
+            processedBy: userId,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new BadRequestException(
+            "Return must be in review or awaiting logistics to complete",
+          );
         }
 
-        if (row.type === GoodsReturnType.supplier) {
-          const agg = await tx.stockLedger.aggregate({
-            where: { tenantId, branchId, batchId: line.batchId },
-            _sum: { qtyDelta: true },
-          });
-          const available = agg._sum.qtyDelta ?? 0;
-          if (available < line.qty) {
-            throw new BadRequestException(
-              `Insufficient stock for supplier return line (need ${line.qty}, have ${available})`,
-            );
+        const row = await tx.goodsReturn.findFirst({
+          where: { id, tenantId, branchId },
+          include: { items: true },
+        });
+        if (!row) throw new NotFoundException("Return not found");
+
+        for (const line of row.items) {
+          if (!line.batchId) {
+            throw new BadRequestException("batchId is required on all items to complete a return");
           }
 
-          await tx.stockLedger.create({
+          if (row.type === GoodsReturnType.supplier) {
+            const agg = await tx.stockLedger.aggregate({
+              where: { tenantId, branchId, batchId: line.batchId },
+              _sum: { qtyDelta: true },
+            });
+            const available = agg._sum.qtyDelta ?? 0;
+            if (available < line.qty) {
+              throw new BadRequestException(
+                `Insufficient stock for supplier return line (need ${line.qty}, have ${available})`,
+              );
+            }
+
+            await tx.stockLedger.create({
+              data: {
+                tenantId,
+                branchId,
+                productId: line.productId,
+                batchId: line.batchId,
+                movementType: StockMovementType.supplier_return_out,
+                qtyDelta: -line.qty,
+                referenceType: "goods_return",
+                referenceId: row.id,
+                createdBy: userId,
+              },
+            });
+          } else {
+            await tx.stockLedger.create({
+              data: {
+                tenantId,
+                branchId,
+                productId: line.productId,
+                batchId: line.batchId,
+                movementType: StockMovementType.customer_return_in,
+                qtyDelta: line.qty,
+                referenceType: "goods_return",
+                referenceId: row.id,
+                createdBy: userId,
+              },
+            });
+          }
+        }
+
+        if (idemKey) {
+          await tx.idempotencyRecord.create({
             data: {
               tenantId,
-              branchId,
-              productId: line.productId,
-              batchId: line.batchId,
-              movementType: StockMovementType.supplier_return_out,
-              qtyDelta: -line.qty,
-              referenceType: "goods_return",
-              referenceId: row.id,
-              createdBy: userId,
-            },
-          });
-        } else {
-          await tx.stockLedger.create({
-            data: {
-              tenantId,
-              branchId,
-              productId: line.productId,
-              batchId: line.batchId,
-              movementType: StockMovementType.customer_return_in,
-              qtyDelta: line.qty,
-              referenceType: "goods_return",
-              referenceId: row.id,
-              createdBy: userId,
+              userId,
+              scope: IDEMPOTENCY_SCOPE.returnComplete,
+              idempotencyKey: idemKey,
+              resourceId: row.id,
             },
           });
         }
+      });
+    } catch (e) {
+      if (idemKey && isPrismaUniqueFieldError(e, "idempotency")) {
+        return this.getOne(tenantId, branchId, id);
       }
-    });
+      throw e;
+    }
 
     await this.audit.log({
       tenantId,

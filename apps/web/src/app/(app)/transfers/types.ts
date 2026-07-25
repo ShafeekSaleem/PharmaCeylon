@@ -49,6 +49,7 @@ export type TransferItem = {
 
 export type TransferListItem = {
   id: string;
+  transferNumber: string;
   status: TransferStatus;
   fromBranchId: string;
   toBranchId: string;

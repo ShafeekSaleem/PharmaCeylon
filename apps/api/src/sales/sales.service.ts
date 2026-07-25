@@ -30,6 +30,18 @@ function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
 }
 
+/** UTC calendar date at 00:00:00.000Z for "today". */
+function startOfTodayUtc(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function isBatchExpired(expiryDate: Date, todayUtc = startOfTodayUtc()): boolean {
+  const exp = new Date(expiryDate);
+  const expUtc = new Date(Date.UTC(exp.getUTCFullYear(), exp.getUTCMonth(), exp.getUTCDate()));
+  return expUtc < todayUtc;
+}
+
 /** Collision-resistant invoice number (avoids race on per-branch counters). */
 function nextInvoiceNo(): string {
   const stamp = Date.now().toString(36).toUpperCase();
@@ -145,17 +157,62 @@ export class SalesService {
           lineTotal: Prisma.Decimal;
         }> = [];
 
+        const todayUtc = startOfTodayUtc();
+
         for (const item of dto.items) {
-          const batch = await tx.batch.findFirst({
-            where: { id: item.batchId, tenantId, branchId, productId: item.productId },
-          });
+          let batch =
+            item.batchId != null && String(item.batchId).trim() !== ""
+              ? await tx.batch.findFirst({
+                  where: {
+                    id: item.batchId,
+                    tenantId,
+                    branchId,
+                    productId: item.productId,
+                  },
+                })
+              : null;
+
+          if (!batch && (item.batchId == null || String(item.batchId).trim() === "")) {
+            // FEFO: earliest expiry among non-expired, non-quarantined batches with enough qty
+            const candidates = await tx.batch.findMany({
+              where: {
+                tenantId,
+                branchId,
+                productId: item.productId,
+                isQuarantined: false,
+                expiryDate: { gte: todayUtc },
+              },
+              orderBy: { expiryDate: "asc" },
+            });
+            for (const candidate of candidates) {
+              const available = await qtyForBatchTx(tx, tenantId, branchId, candidate.id);
+              if (available >= item.qty) {
+                batch = candidate;
+                break;
+              }
+            }
+            if (!batch) {
+              throw new BadRequestException(
+                "No sellable batch with sufficient quantity (FEFO auto-pick)",
+              );
+            }
+          }
+
           if (!batch) {
             throw new BadRequestException("Invalid batch for checkout line");
           }
 
-          const available = await qtyForBatchTx(tx, tenantId, branchId, item.batchId);
+          if (batch.isQuarantined) {
+            throw new BadRequestException("Batch is quarantined and cannot be sold");
+          }
+
+          if (isBatchExpired(batch.expiryDate, todayUtc)) {
+            throw new BadRequestException(`Cannot sell expired batch ${batch.batchNo}`);
+          }
+
+          const available = await qtyForBatchTx(tx, tenantId, branchId, batch.id);
           if (available < item.qty) {
-            throw new BadRequestException(`Insufficient stock for batch ${item.batchId}`);
+            throw new BadRequestException(`Insufficient stock for batch ${batch.id}`);
           }
 
           const unitPrice = d(item.unitPrice);
@@ -169,7 +226,7 @@ export class SalesService {
 
           lines.push({
             productId: item.productId,
-            batchId: item.batchId,
+            batchId: batch.id,
             qty: item.qty,
             unitPrice,
             discountAmount,

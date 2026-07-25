@@ -21,6 +21,12 @@ describe("PurchasingService", () => {
       goodsReceipt: { count: jest.fn(), findFirst: jest.fn() },
       $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
+          $queryRaw: jest.fn().mockResolvedValue([{ id: "po-1" }]),
+          documentSequence: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn(),
+            update: jest.fn(),
+          },
           purchaseOrder: prisma.purchaseOrder,
           goodsReceipt: {
             ...(prisma.goodsReceipt as object),
@@ -74,6 +80,60 @@ describe("PurchasingService", () => {
     expect(res).not.toBeNull();
     expect(res!.status).toBe(PoStatus.cancelled);
     expect(audit.log as jest.Mock).toHaveBeenCalled();
+  });
+
+  it("cancelPurchaseOrder rejects when PO is short-closed", async () => {
+    (prisma.purchaseOrder as { findFirst: jest.Mock }).findFirst.mockResolvedValue({
+      id: "po-1",
+      tenantId: "t1",
+      branchId: "b1",
+      status: PoStatus.short_closed,
+      items: [],
+      supplier: {},
+      goodsReceipts: [{ id: "gr-1" }],
+    });
+
+    await expect(service.cancelPurchaseOrder("t1", "b1", "u1", "po-1")).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it("issuePurchaseOrder rejects pending_approval", async () => {
+    (prisma.purchaseOrder as { findFirst: jest.Mock }).findFirst.mockResolvedValue({
+      id: "po-1",
+      tenantId: "t1",
+      branchId: "b1",
+      status: PoStatus.pending_approval,
+      items: [],
+      supplier: {},
+      goodsReceipts: [],
+    });
+
+    await expect(service.issuePurchaseOrder("t1", "b1", "u1", "po-1")).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it("approvePurchaseOrder issues pending_approval PO", async () => {
+    (prisma.purchaseOrder as { findFirst: jest.Mock }).findFirst.mockResolvedValue({
+      id: "po-1",
+      tenantId: "t1",
+      branchId: "b1",
+      status: PoStatus.pending_approval,
+      items: [],
+      supplier: {},
+      goodsReceipts: [],
+    });
+    (prisma.purchaseOrder as { update: jest.Mock }).update.mockResolvedValue({
+      id: "po-1",
+      status: PoStatus.issued,
+    });
+
+    const res = await service.approvePurchaseOrder("t1", "b1", "u1", "po-1");
+    expect(res!.status).toBe(PoStatus.issued);
+    expect(audit.log as jest.Mock).toHaveBeenCalledWith(
+      expect.objectContaining({ eventName: "purchase_order.approved" }),
+    );
   });
 
   it("receiveGoods returns replay when idempotency key already committed", async () => {

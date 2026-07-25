@@ -228,6 +228,18 @@ export function ReturnDetailModal({
             <span className={rcss.detailValue}>{returnItem.sale.invoiceNo}</span>
           </div>
         ) : null}
+        {returnItem.purchaseOrder?.poNumber ? (
+          <div className={rcss.detailField}>
+            <span className={rcss.detailLabel}>Purchase order</span>
+            <span className={rcss.detailValue}>{returnItem.purchaseOrder.poNumber}</span>
+          </div>
+        ) : null}
+        {returnItem.goodsReceipt?.grnNumber ? (
+          <div className={rcss.detailField}>
+            <span className={rcss.detailLabel}>Goods receipt</span>
+            <span className={rcss.detailValue}>{returnItem.goodsReceipt.grnNumber}</span>
+          </div>
+        ) : null}
         <div className={rcss.detailField}>
           <span className={rcss.detailLabel}>Items / qty</span>
           <span className={rcss.detailValue}>

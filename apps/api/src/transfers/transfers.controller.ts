@@ -24,13 +24,13 @@ export class TransfersController {
     return [...new Set(atBranch)];
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk, RoleName.pharmacist)
   @Get()
   list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.transfers.list(user.tenantId, branchId);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk, RoleName.pharmacist)
   @Get(":id")
   getOne(
     @CurrentUser() user: RequestUser,

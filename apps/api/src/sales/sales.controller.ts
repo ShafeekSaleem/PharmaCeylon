@@ -72,13 +72,27 @@ export class SalesController {
     return this.sales.refundSale(user.tenantId, branchId, user.userId, user.branchRoles, id, dto.reason);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist, RoleName.cashier, RoleName.analyst)
+  @Roles(
+    RoleName.owner,
+    RoleName.manager,
+    RoleName.pharmacist,
+    RoleName.inventory_clerk,
+    RoleName.cashier,
+    RoleName.analyst,
+  )
   @Get()
   list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.sales.listSales(user.tenantId, branchId);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist, RoleName.cashier, RoleName.analyst)
+  @Roles(
+    RoleName.owner,
+    RoleName.manager,
+    RoleName.pharmacist,
+    RoleName.inventory_clerk,
+    RoleName.cashier,
+    RoleName.analyst,
+  )
   @Get(":id")
   getOne(
     @CurrentUser() user: RequestUser,

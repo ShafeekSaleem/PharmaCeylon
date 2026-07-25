@@ -13,7 +13,10 @@ export function useSuppliers() {
     setLoading(true);
     setError(null);
     try {
-      setRows(await apiJson<SupplierOption[]>("/suppliers"));
+      const data = await apiJson<(SupplierOption & { status?: string })[]>(
+        "/suppliers?status=active",
+      );
+      setRows(data.filter((s) => s.isActive !== false));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load suppliers");
       setRows([]);

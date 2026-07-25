@@ -1,5 +1,6 @@
 import type { AuthUser } from "@/lib/auth-types";
 import {
+  APPROVE_ROLES,
   CANCEL_ROLES,
   WRITE_ROLES,
   type CreatePoLine,
@@ -91,6 +92,18 @@ export function canCancelPurchaseOrder(
     ? user.branchRoles.filter((br) => br.branchId === branchId)
     : user.branchRoles;
   return scoped.some((br) => CANCEL_ROLES.has(br.role));
+}
+
+export function canApprovePurchaseOrder(
+  user: AuthUser | null,
+  branchId?: string | null,
+): boolean {
+  if (!user) return false;
+  if (user.branchRoles.some((br) => br.role === "owner")) return true;
+  const scoped = branchId
+    ? user.branchRoles.filter((br) => br.branchId === branchId)
+    : user.branchRoles;
+  return scoped.some((br) => APPROVE_ROLES.has(br.role));
 }
 
 export function formatPoStatus(status: PoStatus | string): string {
@@ -261,12 +274,25 @@ export function displayPoStatus(po: PurchaseOrderListItem): string {
   return po.status;
 }
 
+/** Clerks may issue drafts only; pending_approval requires approve. */
 export function canIssue(status: PoStatus): boolean {
-  return status === "draft" || status === "pending_approval";
+  return status === "draft";
+}
+
+export function canApprove(status: PoStatus): boolean {
+  return status === "pending_approval";
+}
+
+export function canReject(status: PoStatus): boolean {
+  return status === "pending_approval";
 }
 
 export function canReceive(status: PoStatus): boolean {
   return status === "issued" || status === "partially_received";
+}
+
+export function canShortClose(status: PoStatus): boolean {
+  return status === "partially_received";
 }
 
 export function canCancel(status: PoStatus): boolean {

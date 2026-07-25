@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -11,6 +11,7 @@ import {
 } from "@/components/icons";
 import { RoleLink } from "@/components/role-access";
 import { DataTable, type Column } from "@/components/ui";
+import { apiJson } from "@/lib/auth-client";
 import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { PAGE_SIZE } from "../constants";
@@ -24,9 +25,23 @@ type BatchesTableProps = {
   page: number;
   canWrite: boolean;
   onPageChange: (page: number) => void;
+  onChanged?: () => void;
 };
 
-function RowActions({ row }: { row: BatchRow }) {
+function RowActions({
+  row,
+  canWrite,
+  busyId,
+  onQuarantine,
+  onRelease,
+}: {
+  row: BatchRow;
+  canWrite: boolean;
+  busyId: string | null;
+  onQuarantine: (row: BatchRow) => void;
+  onRelease: (row: BatchRow) => void;
+}) {
+  const busy = busyId === row.id;
   return (
     <div className={css.actionsCell}>
       <RoleLink
@@ -46,6 +61,30 @@ function RowActions({ row }: { row: BatchRow }) {
       >
         <IconActivity size={17} />
       </RoleLink>
+      {canWrite && !row.isQuarantined && (
+        <button
+          type="button"
+          className={`${css.actionIcon} ${css.actionIconQuarantine}`}
+          onClick={() => onQuarantine(row)}
+          disabled={busy}
+          aria-label={`Quarantine batch ${row.batchNo}`}
+          data-tooltip="Quarantine batch"
+        >
+          <IconAlertTriangle size={17} />
+        </button>
+      )}
+      {canWrite && row.isQuarantined && (
+        <button
+          type="button"
+          className={`${css.actionIcon} ${css.actionIconRelease}`}
+          onClick={() => onRelease(row)}
+          disabled={busy}
+          aria-label={`Release quarantine on batch ${row.batchNo}`}
+          data-tooltip="Release quarantine"
+        >
+          <IconPackage size={17} />
+        </button>
+      )}
     </div>
   );
 }
@@ -56,7 +95,54 @@ export function BatchesTable({
   page,
   canWrite,
   onPageChange,
+  onChanged,
 }: BatchesTableProps) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function quarantine(row: BatchRow) {
+    const reason = window.prompt(
+      `Quarantine reason for ${row.product.name} / ${row.batchNo}:`,
+      row.expired ? "Expired" : "",
+    );
+    if (reason == null) return;
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      setActionError("Quarantine reason is required");
+      return;
+    }
+    setBusyId(row.id);
+    setActionError(null);
+    try {
+      await apiJson(`/inventory/batches/${row.id}/quarantine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: trimmed }),
+      });
+      onChanged?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Quarantine failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function release(row: BatchRow) {
+    if (!window.confirm(`Release quarantine on batch ${row.batchNo}?`)) return;
+    setBusyId(row.id);
+    setActionError(null);
+    try {
+      await apiJson(`/inventory/batches/${row.id}/release-quarantine`, {
+        method: "POST",
+      });
+      onChanged?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Release failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const columns: Column<BatchRow>[] = useMemo(() => {
     const cols: Column<BatchRow>[] = [
       {
@@ -83,9 +169,21 @@ export function BatchesTable({
       {
         key: "batch",
         header: "Batch",
-        width: "100px",
+        width: "120px",
         getValue: (row) => row.batchNo,
-        render: (row) => <span className={css.batchNumber}>{row.batchNo}</span>,
+        render: (row) => (
+          <div className={css.batchCell}>
+            <span className={css.batchNumber}>{row.batchNo}</span>
+            {row.isQuarantined && (
+              <span
+                className={css.quarantineBadge}
+                title={row.quarantineReason ?? "Quarantined"}
+              >
+                Quarantined
+              </span>
+            )}
+          </div>
+        ),
       },
       {
         key: "expiry",
@@ -150,13 +248,21 @@ export function BatchesTable({
     cols.push({
       key: "actions",
       header: "Actions",
-      width: "96px",
+      width: canWrite ? "128px" : "96px",
       align: "right",
-      render: (row) => <RowActions row={row} />,
+      render: (row) => (
+        <RowActions
+          row={row}
+          canWrite={canWrite}
+          busyId={busyId}
+          onQuarantine={(r) => void quarantine(r)}
+          onRelease={(r) => void release(r)}
+        />
+      ),
     });
 
     return cols;
-  }, []);
+  }, [canWrite, busyId]);
 
   const pageSize = PAGE_SIZE;
   const paged = useMemo(() => {
@@ -165,21 +271,28 @@ export function BatchesTable({
   }, [rows, page, pageSize]);
 
   return (
-    <DataTable<BatchRow>
-      columns={columns}
-      data={paged}
-      rowKey={(r) => r.id}
-      loading={loading}
-      page={page}
-      pageSize={pageSize}
-      total={rows.length}
-      onPageChange={onPageChange}
-      emptyTitle="No batches match your filters"
-      emptyDescription="Try another expiry filter or search"
-      emptyIcon={<IconPackage size={48} />}
-      compact
-      className={css.batchInventoryTable}
-      noHorizontalScroll
-    />
+    <>
+      {actionError && (
+        <p className={css.tableActionError} role="alert">
+          {actionError}
+        </p>
+      )}
+      <DataTable<BatchRow>
+        columns={columns}
+        data={paged}
+        rowKey={(r) => r.id}
+        loading={loading}
+        page={page}
+        pageSize={pageSize}
+        total={rows.length}
+        onPageChange={onPageChange}
+        emptyTitle="No batches match your filters"
+        emptyDescription="Try another expiry filter or search"
+        emptyIcon={<IconPackage size={48} />}
+        compact
+        className={css.batchInventoryTable}
+        noHorizontalScroll
+      />
+    </>
   );
 }

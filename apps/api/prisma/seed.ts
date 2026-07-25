@@ -11,6 +11,11 @@ import {
   TransferStatus,
   GoodsReturnStatus,
   GoodsReturnType,
+  StocktakeStatus,
+  StocktakeScope,
+  SupplierInvoiceStatus,
+  SupplierStatus,
+  SupplierType,
 } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import {
@@ -38,11 +43,14 @@ async function clearOperationalData(tenantId: string) {
   await prisma.idempotencyRecord.deleteMany({ where: { tenantId } });
   await prisma.goodsReturn.deleteMany({ where: { tenantId } });
   await prisma.sale.deleteMany({ where: { tenantId } });
+  await prisma.supplierInvoice.deleteMany({ where: { tenantId } });
   await prisma.goodsReceipt.deleteMany({ where: { tenantId } });
+  await prisma.stocktake.deleteMany({ where: { tenantId } });
   await prisma.stockLedger.deleteMany({ where: { tenantId } });
   await prisma.transfer.deleteMany({ where: { tenantId } });
   await prisma.batch.deleteMany({ where: { tenantId } });
   await prisma.purchaseOrder.deleteMany({ where: { tenantId } });
+  await prisma.documentSequence.deleteMany({ where: { tenantId } });
   await prisma.auditEvent.deleteMany({ where: { tenantId } });
   await prisma.productAlias.deleteMany({ where: { tenantId } });
   await prisma.productTagMap.deleteMany({ where: { tenantId } });
@@ -366,23 +374,186 @@ async function main() {
     productBySku.set(p.sku, row.id);
   }
 
-  const supplier1 = await prisma.supplier.upsert({
-    where: { tenantId_code: { tenantId: tenant.id, code: "SUP-001" } },
-    update: { name: "Lanka Pharma Distributors" },
-    create: { tenantId: tenant.id, code: "SUP-001", name: "Lanka Pharma Distributors", leadTimeDays: 3, paymentTermsDays: 30 },
-  });
+  const supplierDefs: Array<{
+    code: string;
+    name: string;
+    type: SupplierType;
+    status: SupplierStatus;
+    phone?: string;
+    email?: string;
+    contactName?: string;
+    leadTimeDays: number;
+    paymentTermsDays: number;
+  }> = [
+    {
+      code: "SUP-001",
+      name: "Lanka Pharma Distributors",
+      type: SupplierType.distributor,
+      status: SupplierStatus.active,
+      phone: "+94 11 234 5601",
+      email: "orders@lankapharma.lk",
+      contactName: "Nimal Perera",
+      leadTimeDays: 3,
+      paymentTermsDays: 30,
+    },
+    {
+      code: "SUP-002",
+      name: "MediCare Imports (Pvt) Ltd",
+      type: SupplierType.importer,
+      status: SupplierStatus.active,
+      phone: "+94 11 255 7800",
+      email: "ap@medicareimports.lk",
+      contactName: "Shalini Fernando",
+      leadTimeDays: 5,
+      paymentTermsDays: 45,
+    },
+    {
+      code: "SUP-003",
+      name: "Colombo Medical Supplies",
+      type: SupplierType.wholesaler,
+      status: SupplierStatus.active,
+      phone: "+94 11 268 3344",
+      email: "sales@colombomedical.lk",
+      contactName: "Ruwan Silva",
+      leadTimeDays: 2,
+      paymentTermsDays: 14,
+    },
+    {
+      code: "SUP-004",
+      name: "Ceylon Generics Manufacturing",
+      type: SupplierType.manufacturer,
+      status: SupplierStatus.active,
+      phone: "+94 81 222 1100",
+      email: "supply@ceylongenerics.lk",
+      contactName: "Anusha Jayawardena",
+      leadTimeDays: 7,
+      paymentTermsDays: 30,
+    },
+    {
+      code: "SUP-005",
+      name: "Island OTC Wholesalers",
+      type: SupplierType.wholesaler,
+      status: SupplierStatus.active,
+      phone: "+94 11 250 9911",
+      email: "desk@islandotc.lk",
+      contactName: "Kasun Bandara",
+      leadTimeDays: 2,
+      paymentTermsDays: 7,
+    },
+    {
+      code: "SUP-006",
+      name: "Hemas Pharmaceuticals",
+      type: SupplierType.distributor,
+      status: SupplierStatus.active,
+      phone: "+94 11 473 0730",
+      email: "pharma.orders@hemas.com",
+      contactName: "Dilani Wickramasinghe",
+      leadTimeDays: 4,
+      paymentTermsDays: 30,
+    },
+    {
+      code: "SUP-007",
+      name: "Astron Limited",
+      type: SupplierType.manufacturer,
+      status: SupplierStatus.on_hold,
+      phone: "+94 11 258 8444",
+      email: "accounts@astron.lk",
+      contactName: "Pradeep Gunasekara",
+      leadTimeDays: 10,
+      paymentTermsDays: 60,
+    },
+    {
+      code: "SUP-008",
+      name: "Softlogic Pharma Hub",
+      type: SupplierType.distributor,
+      status: SupplierStatus.active,
+      phone: "+94 11 557 5000",
+      email: "pharmacy@softlogic.lk",
+      contactName: "Mevan Cooray",
+      leadTimeDays: 3,
+      paymentTermsDays: 21,
+    },
+    {
+      code: "SUP-009",
+      name: "Global Med Asia Imports",
+      type: SupplierType.importer,
+      status: SupplierStatus.active,
+      phone: "+94 11 230 6677",
+      email: "finance@globalmedasia.com",
+      contactName: "Farah Ismail",
+      leadTimeDays: 14,
+      paymentTermsDays: 45,
+    },
+    {
+      code: "SUP-010",
+      name: "Kandy Drug Store Supplies",
+      type: SupplierType.other,
+      status: SupplierStatus.inactive,
+      phone: "+94 81 223 4455",
+      email: "info@kandydrugs.lk",
+      contactName: "Chaminda Rathnayake",
+      leadTimeDays: 5,
+      paymentTermsDays: 30,
+    },
+    {
+      code: "SUP-011",
+      name: "Sunrise Nutraceuticals",
+      type: SupplierType.wholesaler,
+      status: SupplierStatus.active,
+      phone: "+94 11 276 8800",
+      email: "b2b@sunrisenutra.lk",
+      contactName: "Ishara Mendis",
+      leadTimeDays: 3,
+      paymentTermsDays: 15,
+    },
+    {
+      code: "SUP-012",
+      name: "Pacific Biotech Lanka",
+      type: SupplierType.importer,
+      status: SupplierStatus.active,
+      phone: "+94 11 269 1200",
+      email: "ap@pacificbiotech.lk",
+      contactName: "Tharindu Perera",
+      leadTimeDays: 8,
+      paymentTermsDays: 30,
+    },
+  ];
 
-  const supplier2 = await prisma.supplier.upsert({
-    where: { tenantId_code: { tenantId: tenant.id, code: "SUP-002" } },
-    update: { name: "MediCare Imports (Pvt) Ltd" },
-    create: { tenantId: tenant.id, code: "SUP-002", name: "MediCare Imports (Pvt) Ltd", leadTimeDays: 5, paymentTermsDays: 45 },
-  });
+  const supplierByCode = new Map<string, string>();
+  for (const s of supplierDefs) {
+    const isActive = s.status !== SupplierStatus.inactive;
+    const row = await prisma.supplier.upsert({
+      where: { tenantId_code: { tenantId: tenant.id, code: s.code } },
+      update: {
+        name: s.name,
+        type: s.type,
+        status: s.status,
+        phone: s.phone,
+        email: s.email,
+        contactName: s.contactName,
+        leadTimeDays: s.leadTimeDays,
+        paymentTermsDays: s.paymentTermsDays,
+        isActive,
+      },
+      create: {
+        tenantId: tenant.id,
+        code: s.code,
+        name: s.name,
+        type: s.type,
+        status: s.status,
+        phone: s.phone,
+        email: s.email,
+        contactName: s.contactName,
+        leadTimeDays: s.leadTimeDays,
+        paymentTermsDays: s.paymentTermsDays,
+        isActive,
+      },
+    });
+    supplierByCode.set(s.code, row.id);
+  }
 
-  await prisma.supplier.upsert({
-    where: { tenantId_code: { tenantId: tenant.id, code: "SUP-003" } },
-    update: { name: "Colombo Medical Supplies" },
-    create: { tenantId: tenant.id, code: "SUP-003", name: "Colombo Medical Supplies", leadTimeDays: 2, paymentTermsDays: 14 },
-  });
+  const supplier1 = { id: supplierByCode.get("SUP-001")!, paymentTermsDays: 30 };
+  const supplier2 = { id: supplierByCode.get("SUP-002")!, paymentTermsDays: 45 };
 
   const categoryDefs = [
     { name: "Pain Relief", skus: ["PCL-0001", "PCL-0009", "PCL-0013"] },
@@ -452,7 +623,12 @@ async function main() {
   const batchByKey = new Map<string, { batchId: string; productId: string; sellingPrice: Prisma.Decimal }>();
   const seedGrId = "00000000-0000-4000-8000-000000000001";
 
-  for (const line of MAIN_STOCK) {
+  for (let i = 0; i < MAIN_STOCK.length; i++) {
+    const line = MAIN_STOCK[i];
+    // Stagger primary expiries ~4–18 months ahead (2026-11 … 2027-12), not a near-expiry flood.
+    const monthsAhead = 4 + Math.round((i / Math.max(1, MAIN_STOCK.length - 1)) * 14);
+    const expiry = new Date(Date.UTC(2026, 6, 15));
+    expiry.setUTCMonth(expiry.getUTCMonth() + monthsAhead);
     const productId = productBySku.get(line.sku)!;
     const ref = await seedReceiveStock(prisma, {
       tenantId: tenant.id,
@@ -460,7 +636,7 @@ async function main() {
       productId,
       userId: inventoryClerk.id,
       batchNo: `SEED-${line.sku}-A`,
-      expiryDate: dateOnly(2026, 8, 15),
+      expiryDate: dateOnly(expiry.getUTCFullYear(), expiry.getUTCMonth() + 1, 15),
       qty: line.qty,
       costPrice: line.cost,
       sellingPrice: line.sell,
@@ -498,7 +674,7 @@ async function main() {
 
   const expiredLine = { sku: "PCL-0018", qty: 5 };
   const expiredStock = MAIN_STOCK.find((s) => s.sku === expiredLine.sku);
-  await seedReceiveStock(prisma, {
+  const expiredRef = await seedReceiveStock(prisma, {
     tenantId: tenant.id,
     branchId: mainBranch.id,
     productId: productBySku.get(expiredLine.sku)!,
@@ -511,6 +687,14 @@ async function main() {
     referenceId: seedGrNearId,
     receivedAt: daysAgo(120),
   });
+  await prisma.batch.update({
+    where: { id: expiredRef.batchId },
+    data: {
+      isQuarantined: true,
+      quarantinedAt: new Date(),
+      quarantineReason: "Expired — auto seed quarantine",
+    },
+  });
 
   const seedGr2Id = "00000000-0000-4000-8000-000000000002";
   for (const line of BRANCH2_STOCK) {
@@ -521,7 +705,7 @@ async function main() {
       productId,
       userId: inventoryClerk.id,
       batchNo: `SEED-${line.sku}-KDY`,
-      expiryDate: dateOnly(2026, 10, 1),
+      expiryDate: dateOnly(2027, 3, 1),
       qty: line.qty,
       costPrice: line.cost,
       sellingPrice: line.sell,
@@ -692,7 +876,7 @@ async function main() {
     },
   });
 
-  await prisma.purchaseOrder.create({
+  const poReceived = await prisma.purchaseOrder.create({
     data: {
       tenantId: tenant.id,
       branchId: mainBranch.id,
@@ -724,6 +908,152 @@ async function main() {
         ],
       },
     },
+    include: { items: true },
+  });
+
+  const grReceived = await prisma.goodsReceipt.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      purchaseOrderId: poReceived.id,
+      grnNumber: "GRN-MAIN-SEED-RECEIVED",
+      receivedOn: daysAgo(18),
+      receivedBy: manager.id,
+    },
+  });
+
+  const receivedBatchSpecs: Array<{
+    sku: string;
+    batchNo: string;
+    expiry: Date;
+    cost: number;
+    sell: number;
+  }> = [
+    {
+      sku: "PCL-0012",
+      batchNo: "PO-BATCH-METO-RCV",
+      expiry: dateOnly(2027, 6, 1),
+      cost: 30,
+      sell: 45,
+    },
+    {
+      sku: "PCL-0015",
+      batchNo: "PO-BATCH-PANT-RCV",
+      expiry: dateOnly(2027, 8, 1),
+      cost: 45,
+      sell: 65,
+    },
+  ];
+  for (const spec of receivedBatchSpecs) {
+    const poLine = poReceived.items.find((i) => i.productId === productBySku.get(spec.sku))!;
+    const batch = await prisma.batch.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        productId: poLine.productId,
+        batchNo: spec.batchNo,
+        expiryDate: spec.expiry,
+        costPrice: dec(spec.cost),
+        sellingPrice: dec(spec.sell),
+      },
+    });
+    await prisma.goodsReceiptItem.create({
+      data: {
+        tenantId: tenant.id,
+        goodsReceiptId: grReceived.id,
+        productId: poLine.productId,
+        batchId: batch.id,
+        receivedQty: poLine.orderedQty,
+      },
+    });
+    await prisma.stockLedger.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        productId: poLine.productId,
+        batchId: batch.id,
+        movementType: StockMovementType.purchase_in,
+        qtyDelta: poLine.orderedQty,
+        referenceType: "goods_receipt",
+        referenceId: grReceived.id,
+        createdBy: manager.id,
+        occurredAt: daysAgo(18),
+      },
+    });
+  }
+
+  const poShort = await prisma.purchaseOrder.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      supplierId: supplier1.id,
+      poNumber: "PO-MAIN-SEED-SHORT",
+      status: PoStatus.short_closed,
+      priority: PoPriority.normal,
+      expectedOn: daysAgo(8),
+      createdAt: daysAgo(28),
+      notes: "Short-closed — supplier could not fulfill remainder",
+      paymentTermsDays: 30,
+      createdBy: manager.id,
+      items: {
+        create: [
+          {
+            tenantId: tenant.id,
+            productId: productBySku.get("PCL-0020")!,
+            orderedQty: 100,
+            unitCost: dec(12),
+            taxPercent: dec(18),
+          },
+        ],
+      },
+    },
+    include: { items: true },
+  });
+
+  const grShort = await prisma.goodsReceipt.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      purchaseOrderId: poShort.id,
+      grnNumber: "GRN-MAIN-SEED-SHORT",
+      receivedOn: daysAgo(10),
+      receivedBy: inventoryClerk.id,
+    },
+  });
+  const shortLine = poShort.items[0]!;
+  const shortBatch = await prisma.batch.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      productId: shortLine.productId,
+      batchNo: "PO-BATCH-SHORT-001",
+      expiryDate: dateOnly(2027, 11, 1),
+      costPrice: dec(12),
+      sellingPrice: dec(20),
+    },
+  });
+  await prisma.goodsReceiptItem.create({
+    data: {
+      tenantId: tenant.id,
+      goodsReceiptId: grShort.id,
+      productId: shortLine.productId,
+      batchId: shortBatch.id,
+      receivedQty: 40,
+    },
+  });
+  await prisma.stockLedger.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      productId: shortLine.productId,
+      batchId: shortBatch.id,
+      movementType: StockMovementType.purchase_in,
+      qtyDelta: 40,
+      referenceType: "goods_receipt",
+      referenceId: grShort.id,
+      createdBy: inventoryClerk.id,
+      occurredAt: daysAgo(10),
+    },
   });
 
   await prisma.purchaseOrder.create({
@@ -752,6 +1082,176 @@ async function main() {
       },
     },
   });
+
+  // ── Supplier invoices (AP) ────────────────────────────────────────────────
+  const invoiceSeeds: Array<{
+    code: string;
+    invoiceNumber: string;
+    invoiceDaysAgo: number;
+    dueDaysFromInvoice: number;
+    total: number;
+    paid: number;
+    status: SupplierInvoiceStatus;
+    notes?: string;
+    goodsReceiptId?: string;
+  }> = [
+    {
+      code: "SUP-001",
+      invoiceNumber: "SINV-SEED-0001",
+      invoiceDaysAgo: 40,
+      dueDaysFromInvoice: 30,
+      total: 185000,
+      paid: 185000,
+      status: SupplierInvoiceStatus.paid,
+      notes: "Settled April cycle",
+    },
+    {
+      code: "SUP-001",
+      invoiceNumber: "SINV-SEED-0002",
+      invoiceDaysAgo: 20,
+      dueDaysFromInvoice: 30,
+      total: 94250.5,
+      paid: 40000,
+      status: SupplierInvoiceStatus.partial,
+      notes: "Partial payment on GRN-MAIN-SEED-001",
+      goodsReceiptId: grPartial.id,
+    },
+    {
+      code: "SUP-001",
+      invoiceNumber: "SINV-SEED-0003",
+      invoiceDaysAgo: 5,
+      dueDaysFromInvoice: 30,
+      total: 67200,
+      paid: 0,
+      status: SupplierInvoiceStatus.open,
+    },
+    {
+      code: "SUP-002",
+      invoiceNumber: "SINV-SEED-0004",
+      invoiceDaysAgo: 50,
+      dueDaysFromInvoice: 45,
+      total: 210400,
+      paid: 0,
+      status: SupplierInvoiceStatus.open,
+      notes: "Overdue import shipment",
+    },
+    {
+      code: "SUP-002",
+      invoiceNumber: "SINV-SEED-0005",
+      invoiceDaysAgo: 18,
+      dueDaysFromInvoice: 45,
+      total: 52800,
+      paid: 52800,
+      status: SupplierInvoiceStatus.paid,
+      goodsReceiptId: grReceived.id,
+    },
+    {
+      code: "SUP-003",
+      invoiceNumber: "SINV-SEED-0006",
+      invoiceDaysAgo: 25,
+      dueDaysFromInvoice: 14,
+      total: 31800,
+      paid: 10000,
+      status: SupplierInvoiceStatus.partial,
+    },
+    {
+      code: "SUP-004",
+      invoiceNumber: "SINV-SEED-0007",
+      invoiceDaysAgo: 12,
+      dueDaysFromInvoice: 30,
+      total: 145600,
+      paid: 0,
+      status: SupplierInvoiceStatus.open,
+    },
+    {
+      code: "SUP-005",
+      invoiceNumber: "SINV-SEED-0008",
+      invoiceDaysAgo: 16,
+      dueDaysFromInvoice: 7,
+      total: 22450,
+      paid: 0,
+      status: SupplierInvoiceStatus.open,
+      notes: "OTC restock — overdue",
+    },
+    {
+      code: "SUP-006",
+      invoiceNumber: "SINV-SEED-0009",
+      invoiceDaysAgo: 8,
+      dueDaysFromInvoice: 30,
+      total: 88900,
+      paid: 25000,
+      status: SupplierInvoiceStatus.partial,
+    },
+    {
+      code: "SUP-008",
+      invoiceNumber: "SINV-SEED-0010",
+      invoiceDaysAgo: 3,
+      dueDaysFromInvoice: 21,
+      total: 45600,
+      paid: 0,
+      status: SupplierInvoiceStatus.open,
+    },
+    {
+      code: "SUP-009",
+      invoiceNumber: "SINV-SEED-0011",
+      invoiceDaysAgo: 60,
+      dueDaysFromInvoice: 45,
+      total: 99000,
+      paid: 99000,
+      status: SupplierInvoiceStatus.paid,
+    },
+    {
+      code: "SUP-011",
+      invoiceNumber: "SINV-SEED-0012",
+      invoiceDaysAgo: 10,
+      dueDaysFromInvoice: 15,
+      total: 15600,
+      paid: 0,
+      status: SupplierInvoiceStatus.open,
+    },
+    {
+      code: "SUP-012",
+      invoiceNumber: "SINV-SEED-0013",
+      invoiceDaysAgo: 2,
+      dueDaysFromInvoice: 30,
+      total: 73400,
+      paid: 0,
+      status: SupplierInvoiceStatus.open,
+    },
+    {
+      code: "SUP-007",
+      invoiceNumber: "SINV-SEED-0014",
+      invoiceDaysAgo: 90,
+      dueDaysFromInvoice: 60,
+      total: 12000,
+      paid: 0,
+      status: SupplierInvoiceStatus.voided,
+      notes: "Voided — credit note pending",
+    },
+  ];
+
+  for (const inv of invoiceSeeds) {
+    const supplierId = supplierByCode.get(inv.code);
+    if (!supplierId) continue;
+    const invoiceDate = daysAgo(inv.invoiceDaysAgo);
+    const dueDate = new Date(invoiceDate);
+    dueDate.setUTCDate(dueDate.getUTCDate() + inv.dueDaysFromInvoice);
+    await prisma.supplierInvoice.create({
+      data: {
+        tenantId: tenant.id,
+        supplierId,
+        branchId: mainBranch.id,
+        invoiceNumber: inv.invoiceNumber,
+        goodsReceiptId: inv.goodsReceiptId,
+        invoiceDate,
+        dueDate,
+        totalAmount: dec(inv.total),
+        paidAmount: dec(inv.paid),
+        status: inv.status,
+        notes: inv.notes,
+      },
+    });
+  }
 
   const salesDefs: Array<{
     invoiceNo: string;
@@ -870,11 +1370,15 @@ async function main() {
   });
   saleCount++;
 
+  let transferSeq = 1;
+  const nextTransferNumber = () => `TR-SEED-${String(transferSeq++).padStart(3, "0")}`;
+
   const transferRequested = await prisma.transfer.create({
     data: {
       tenantId: tenant.id,
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
+      transferNumber: nextTransferNumber(),
       status: TransferStatus.requested,
       notes: "Restock Metformin for weekend demand",
       expectedOn: daysFromNow(5),
@@ -892,11 +1396,12 @@ async function main() {
     },
   });
 
-  await prisma.transfer.create({
+  const transferApproved = await prisma.transfer.create({
     data: {
       tenantId: tenant.id,
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
+      transferNumber: nextTransferNumber(),
       status: TransferStatus.approved,
       notes: "Approved multivitamin top-up",
       expectedOn: daysFromNow(3),
@@ -913,13 +1418,32 @@ async function main() {
         ],
       },
     },
+    include: { items: true },
   });
+  for (const line of transferApproved.items) {
+    if (!line.batchId) continue;
+    await prisma.stockLedger.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        productId: line.productId,
+        batchId: line.batchId,
+        movementType: StockMovementType.transfer_reserve_out,
+        qtyDelta: -line.qty,
+        referenceType: "transfer",
+        referenceId: transferApproved.id,
+        createdBy: manager.id,
+        occurredAt: daysAgo(1),
+      },
+    });
+  }
 
   const transferInTransit = await prisma.transfer.create({
     data: {
       tenantId: tenant.id,
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
+      transferNumber: nextTransferNumber(),
       status: TransferStatus.in_transit,
       notes: "Ibuprofen dispatch in progress",
       expectedOn: daysFromNow(2),
@@ -962,6 +1486,7 @@ async function main() {
       tenantId: tenant.id,
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
+      transferNumber: nextTransferNumber(),
       status: TransferStatus.partially_received,
       notes: "Partial receipt — remaining units still in transit",
       expectedOn: daysAgo(-1),
@@ -1035,6 +1560,7 @@ async function main() {
       tenantId: tenant.id,
       fromBranchId: mainBranch.id,
       toBranchId: secondBranch.id,
+      transferNumber: nextTransferNumber(),
       status: TransferStatus.received,
       notes: "Paracetamol restock completed",
       expectedOn: daysAgo(6),
@@ -1148,6 +1674,7 @@ async function main() {
         tenantId: tenant.id,
         fromBranchId: fromBranch.id,
         toBranchId: toBranch.id,
+        transferNumber: nextTransferNumber(),
         status: def.status,
         notes: def.notes ?? null,
         expectedOn:
@@ -1169,6 +1696,26 @@ async function main() {
       },
       include: { items: true },
     });
+
+    if (def.status === TransferStatus.approved) {
+      for (const line of transfer.items) {
+        if (!line.batchId) continue;
+        await prisma.stockLedger.create({
+          data: {
+            tenantId: tenant.id,
+            branchId: fromBranch.id,
+            productId: line.productId,
+            batchId: line.batchId,
+            movementType: StockMovementType.transfer_reserve_out,
+            qtyDelta: -line.qty,
+            referenceType: "transfer",
+            referenceId: transfer.id,
+            createdBy: manager.id,
+            occurredAt: daysAgo(Math.max(0, def.daysAgo - 1)),
+          },
+        });
+      }
+    }
 
     if (
       def.status === TransferStatus.in_transit ||
@@ -1313,6 +1860,13 @@ async function main() {
   });
 
   // ── Goods returns (customer + supplier, all workflow statuses) ───────────
+  const saleInv0001 = await prisma.sale.findFirst({
+    where: { tenantId: tenant.id, invoiceNo: "INV-SEED-0001" },
+  });
+  const saleInv0002 = await prisma.sale.findFirst({
+    where: { tenantId: tenant.id, invoiceNo: "INV-SEED-0002" },
+  });
+
   type ReturnSeedDef = {
     number: string;
     type: GoodsReturnType;
@@ -1321,7 +1875,9 @@ async function main() {
     reason: string;
     customerName?: string;
     supplierId?: string;
-    saleId?: string;
+    saleId?: string | null;
+    purchaseOrderId?: string;
+    branchId?: string;
     amount: number;
     lines: { sku: string; qty: number; unitPrice: number }[];
     notes?: string;
@@ -1341,30 +1897,58 @@ async function main() {
     { number: "RET-2026-00011", type: GoodsReturnType.customer, status: GoodsReturnStatus.pending_approval, daysAgo: 8, reason: "Packaging incomplete", customerName: "Ashan Mendis", amount: 175, lines: [{ sku: "PCL-0022", qty: 1, unitPrice: 175 }] },
     { number: "RET-2026-00012", type: GoodsReturnType.customer, status: GoodsReturnStatus.pending_approval, daysAgo: 1, reason: "Doctor changed prescription", customerName: "Fathima Rizwan", amount: 980, lines: [{ sku: "PCL-0006", qty: 2, unitPrice: 490 }] },
     { number: "RET-2026-00013", type: GoodsReturnType.customer, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 5, reason: "Home delivery return pickup", customerName: "Dilani Gunasekara", amount: 640, lines: [{ sku: "PCL-0011", qty: 2, unitPrice: 320 }] },
-    { number: "RET-2026-00014", type: GoodsReturnType.supplier, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 6, reason: "Recall — batch hold", supplierId: supplier1.id, amount: 5200, lines: [{ sku: "PCL-0027", qty: 8, unitPrice: 650 }] },
+    { number: "RET-2026-00014", type: GoodsReturnType.supplier, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 6, reason: "Recall — batch hold", supplierId: supplier1.id, purchaseOrderId: poIssued.id, amount: 5200, lines: [{ sku: "PCL-0027", qty: 8, unitPrice: 650 }] },
     { number: "RET-2026-00015", type: GoodsReturnType.customer, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 9, reason: "Customer bringing unused pack", customerName: "Heshan Bandara", amount: 295, lines: [{ sku: "PCL-0018", qty: 1, unitPrice: 295 }] },
     { number: "RET-2026-00016", type: GoodsReturnType.supplier, status: GoodsReturnStatus.awaiting_logistics, daysAgo: 10, reason: "Overstock return to supplier", supplierId: supplier2.id, amount: 1500, lines: [{ sku: "PCL-0003", qty: 5, unitPrice: 300 }] },
     { number: "RET-2026-00017", type: GoodsReturnType.customer, status: GoodsReturnStatus.in_review, daysAgo: 4, reason: "Condition check after pickup", customerName: "Malsha Perera", amount: 720, lines: [{ sku: "PCL-0009", qty: 1, unitPrice: 720 }] },
     { number: "RET-2026-00018", type: GoodsReturnType.customer, status: GoodsReturnStatus.in_review, daysAgo: 7, reason: "Verify batch before refund", customerName: "Tharindu Jay", amount: 1100, lines: [{ sku: "PCL-0004", qty: 1, unitPrice: 1100 }] },
-    { number: "RET-2026-00019", type: GoodsReturnType.supplier, status: GoodsReturnStatus.in_review, daysAgo: 8, reason: "Awaiting supplier RMA confirmation", supplierId: supplier1.id, amount: 2800, lines: [{ sku: "PCL-0012", qty: 7, unitPrice: 400 }] },
+    { number: "RET-2026-00019", type: GoodsReturnType.supplier, status: GoodsReturnStatus.in_review, daysAgo: 8, reason: "Awaiting supplier RMA confirmation", supplierId: supplier1.id, purchaseOrderId: poReceived.id, amount: 2800, lines: [{ sku: "PCL-0012", qty: 7, unitPrice: 400 }] },
     { number: "RET-2026-00020", type: GoodsReturnType.customer, status: GoodsReturnStatus.in_review, daysAgo: 11, reason: "Cold-chain product inspection", customerName: "Clinic walk-in", amount: 1950, lines: [{ sku: "PCL-0015", qty: 3, unitPrice: 650 }] },
     { number: "RET-2026-00021", type: GoodsReturnType.supplier, status: GoodsReturnStatus.in_review, daysAgo: 12, reason: "Credit note pending", supplierId: supplier2.id, amount: 900, lines: [{ sku: "PCL-0008", qty: 3, unitPrice: 300 }] },
     { number: "RET-2026-00022", type: GoodsReturnType.customer, status: GoodsReturnStatus.in_review, daysAgo: 3, reason: "Photo evidence under review", customerName: "Ishara Fonseka", amount: 430, lines: [{ sku: "PCL-0010", qty: 2, unitPrice: 215 }] },
-    { number: "RET-2026-00023", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 20, reason: "Unused sealed pack", customerName: "Gayani Silva", amount: 540, lines: [{ sku: "PCL-0001", qty: 2, unitPrice: 270 }] },
-    { number: "RET-2026-00024", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 25, reason: "Refund processed at counter", customerName: "Counter refund", amount: 380, lines: [{ sku: "PCL-0009", qty: 1, unitPrice: 380 }] },
+    // Linked to INV-SEED-0001 (Paracetamol ×2 + Ibuprofen ×1)
+    { number: "RET-2026-00023", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 20, reason: "Unused sealed pack", customerName: "Gayani Silva", saleId: saleInv0001?.id ?? null, amount: 110, lines: [{ sku: "PCL-0001", qty: 2, unitPrice: 55 }] },
+    { number: "RET-2026-00024", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 25, reason: "Refund processed at counter", customerName: "Counter refund", saleId: saleInv0001?.id ?? null, amount: 38, lines: [{ sku: "PCL-0009", qty: 1, unitPrice: 38 }] },
     { number: "RET-2026-00025", type: GoodsReturnType.supplier, status: GoodsReturnStatus.completed, daysAgo: 28, reason: "Supplier credit received", supplierId: supplier1.id, amount: 4200, lines: [{ sku: "PCL-0007", qty: 10, unitPrice: 420 }] },
-    { number: "RET-2026-00026", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 15, reason: "Exchange completed", customerName: "Nimali Ratnayake", amount: 260, lines: [{ sku: "PCL-0015", qty: 2, unitPrice: 130 }] },
+    // Linked to INV-SEED-0002 (Metformin ×3)
+    { number: "RET-2026-00026", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 15, reason: "Exchange completed", customerName: "Nimali Ratnayake", saleId: saleInv0002?.id ?? null, amount: 56, lines: [{ sku: "PCL-0003", qty: 2, unitPrice: 28 }] },
     { number: "RET-2026-00027", type: GoodsReturnType.supplier, status: GoodsReturnStatus.completed, daysAgo: 18, reason: "Damaged carton credited", supplierId: supplier2.id, amount: 1600, lines: [{ sku: "PCL-0019", qty: 4, unitPrice: 400 }] },
     { number: "RET-2026-00028", type: GoodsReturnType.customer, status: GoodsReturnStatus.rejected, daysAgo: 9, reason: "Opened pack — policy decline", customerName: "Opened pack claim", amount: 890, lines: [{ sku: "PCL-0006", qty: 1, unitPrice: 890 }], notes: "Rejected — seal broken" },
     { number: "RET-2026-00029", type: GoodsReturnType.supplier, status: GoodsReturnStatus.rejected, daysAgo: 14, reason: "Outside return window", supplierId: supplier1.id, amount: 3000, lines: [{ sku: "PCL-0027", qty: 5, unitPrice: 600 }] },
     { number: "RET-2026-00030", type: GoodsReturnType.customer, status: GoodsReturnStatus.rejected, daysAgo: 16, reason: "No proof of purchase", customerName: "Unknown walk-in", amount: 210, lines: [{ sku: "PCL-0022", qty: 1, unitPrice: 210 }] },
+    { number: "RET-2026-00031", type: GoodsReturnType.customer, status: GoodsReturnStatus.cancelled, daysAgo: 3, reason: "Customer withdrew claim", customerName: "Cancelled walk-in", amount: 110, lines: [{ sku: "PCL-0001", qty: 2, unitPrice: 55 }], notes: "Cancelled before approval" },
+    { number: "RET-2026-00032", type: GoodsReturnType.supplier, status: GoodsReturnStatus.cancelled, daysAgo: 5, reason: "Supplier RMA withdrawn", supplierId: supplier2.id, amount: 900, lines: [{ sku: "PCL-0012", qty: 3, unitPrice: 300 }] },
+    // BRANCH2 returns
+    { number: "RET-2026-KDY-01", type: GoodsReturnType.customer, status: GoodsReturnStatus.draft, daysAgo: 1, reason: "Wrong branch pickup", customerName: "Kandy walk-in", branchId: secondBranch.id, amount: 110, lines: [{ sku: "PCL-0001", qty: 2, unitPrice: 55 }] },
+    { number: "RET-2026-KDY-02", type: GoodsReturnType.customer, status: GoodsReturnStatus.pending_approval, daysAgo: 2, reason: "Sealed return at counter", customerName: "Kandy customer", branchId: secondBranch.id, amount: 76, lines: [{ sku: "PCL-0009", qty: 2, unitPrice: 38 }] },
+    { number: "RET-2026-KDY-03", type: GoodsReturnType.customer, status: GoodsReturnStatus.completed, daysAgo: 8, reason: "Completed Kandy refund", customerName: "Kandy refund", branchId: secondBranch.id, amount: 56, lines: [{ sku: "PCL-0003", qty: 2, unitPrice: 28 }] },
+    { number: "RET-2026-KDY-04", type: GoodsReturnType.supplier, status: GoodsReturnStatus.in_review, daysAgo: 4, reason: "Branch overstock to supplier", supplierId: supplier1.id, branchId: secondBranch.id, amount: 500, lines: [{ sku: "PCL-0027", qty: 2, unitPrice: 250 }] },
   ];
 
   for (const def of returnDefs) {
+    const branchId = def.branchId ?? mainBranch.id;
+    const batchPrefix = branchId === secondBranch.id ? "BRANCH2" : "MAIN";
+    const itemsData = def.lines
+      .map((line) => {
+        const ref = batchByKey.get(`${batchPrefix}:${line.sku}`);
+        if (!ref) return null;
+        return {
+          tenantId: tenant.id,
+          productId: productBySku.get(line.sku)!,
+          batchId: ref.batchId,
+          qty: line.qty,
+          unitPrice: dec(line.unitPrice),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null);
+
+    if (itemsData.length === 0) continue;
+
     const approved =
       def.status !== GoodsReturnStatus.draft &&
       def.status !== GoodsReturnStatus.pending_approval &&
-      def.status !== GoodsReturnStatus.rejected;
+      def.status !== GoodsReturnStatus.rejected &&
+      def.status !== GoodsReturnStatus.cancelled;
     const processed =
       def.status === GoodsReturnStatus.in_review ||
       def.status === GoodsReturnStatus.completed;
@@ -1372,13 +1956,14 @@ async function main() {
     const created = await prisma.goodsReturn.create({
       data: {
         tenantId: tenant.id,
-        branchId: mainBranch.id,
+        branchId,
         returnNumber: def.number,
         type: def.type,
         status: def.status,
         customerName: def.customerName ?? null,
         supplierId: def.supplierId ?? null,
-        saleId: null,
+        saleId: def.saleId ?? null,
+        purchaseOrderId: def.purchaseOrderId ?? null,
         reason: def.reason,
         notes: def.notes ?? null,
         amount: dec(def.amount),
@@ -1387,18 +1972,7 @@ async function main() {
         processedBy: processed ? manager.id : null,
         createdAt: daysAgo(def.daysAgo),
         updatedAt: daysAgo(Math.max(0, def.daysAgo - 1)),
-        items: {
-          create: def.lines.map((line) => {
-            const ref = batchByKey.get(`MAIN:${line.sku}`);
-            return {
-              tenantId: tenant.id,
-              productId: productBySku.get(line.sku)!,
-              batchId: ref?.batchId ?? null,
-              qty: line.qty,
-              unitPrice: dec(line.unitPrice),
-            };
-          }),
-        },
+        items: { create: itemsData },
       },
       include: { items: true },
     });
@@ -1410,7 +1984,7 @@ async function main() {
           await prisma.stockLedger.create({
             data: {
               tenantId: tenant.id,
-              branchId: mainBranch.id,
+              branchId,
               productId: item.productId,
               batchId: item.batchId,
               movementType: StockMovementType.customer_return_in,
@@ -1426,7 +2000,7 @@ async function main() {
           await prisma.stockLedger.create({
             data: {
               tenantId: tenant.id,
-              branchId: mainBranch.id,
+              branchId,
               productId: item.productId,
               batchId: item.batchId,
               movementType: StockMovementType.supplier_return_out,
@@ -1443,12 +2017,230 @@ async function main() {
     }
   }
 
+  // Draft stocktake on MAIN with a few systemQty lines from ledger
+  const stocktakeSkus = ["PCL-0001", "PCL-0005", "PCL-0009", "PCL-0018"];
+  const stocktakeLines: Array<{
+    productId: string;
+    batchId: string;
+    systemQty: number;
+  }> = [];
+  for (const sku of stocktakeSkus) {
+    const ref = batchByKey.get(`MAIN:${sku}`);
+    if (!ref) continue;
+    const agg = await prisma.stockLedger.aggregate({
+      where: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        batchId: ref.batchId,
+      },
+      _sum: { qtyDelta: true },
+    });
+    stocktakeLines.push({
+      productId: ref.productId,
+      batchId: ref.batchId,
+      systemQty: agg._sum.qtyDelta ?? 0,
+    });
+  }
+  if (stocktakeLines.length > 0) {
+    await prisma.stocktake.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        stocktakeNumber: "ST-SEED-001",
+        status: StocktakeStatus.draft,
+        scope: StocktakeScope.cycle,
+        blindCount: false,
+        notes: "Cycle count — demo draft (count a few lines, then Start)",
+        countedBy: inventoryClerk.id,
+        lines: {
+          create: stocktakeLines.map((line) => ({
+            tenantId: tenant.id,
+            productId: line.productId,
+            batchId: line.batchId,
+            systemQty: line.systemQty,
+          })),
+        },
+      },
+    });
+  }
+
+  // In-progress blind near-expiry stocktake with partial counts + variance note
+  const nearBatch = await prisma.batch.findFirst({
+    where: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      batchNo: { contains: "NEAR" },
+      isQuarantined: false,
+    },
+    orderBy: { expiryDate: "asc" },
+  });
+  if (nearBatch) {
+    const nearQty =
+      (
+        await prisma.stockLedger.aggregate({
+          where: {
+            tenantId: tenant.id,
+            branchId: mainBranch.id,
+            batchId: nearBatch.id,
+          },
+          _sum: { qtyDelta: true },
+        })
+      )._sum.qtyDelta ?? 0;
+
+    const extraNear = await prisma.batch.findMany({
+      where: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        batchNo: { contains: "NEAR" },
+        id: { not: nearBatch.id },
+      },
+      take: 3,
+    });
+
+    const nearLines: Array<{
+      productId: string;
+      batchId: string;
+      systemQty: number;
+      countedQty?: number;
+      varianceQty?: number;
+      note?: string;
+    }> = [
+      {
+        productId: nearBatch.productId,
+        batchId: nearBatch.id,
+        systemQty: nearQty,
+        countedQty: Math.max(0, nearQty - 2),
+        varianceQty: -2,
+        note: "Two packs damaged during count",
+      },
+    ];
+
+    for (const b of extraNear) {
+      const qty =
+        (
+          await prisma.stockLedger.aggregate({
+            where: {
+              tenantId: tenant.id,
+              branchId: mainBranch.id,
+              batchId: b.id,
+            },
+            _sum: { qtyDelta: true },
+          })
+        )._sum.qtyDelta ?? 0;
+      nearLines.push({
+        productId: b.productId,
+        batchId: b.id,
+        systemQty: qty,
+      });
+    }
+
+    await prisma.stocktake.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        stocktakeNumber: "ST-SEED-002",
+        status: StocktakeStatus.in_progress,
+        scope: StocktakeScope.near_expiry,
+        blindCount: true,
+        nearExpiryDays: 30,
+        frozenAt: daysAgo(0),
+        notes: "Blind near-expiry count — finish remaining lines then Complete",
+        countedBy: inventoryClerk.id,
+        createdAt: daysAgo(1),
+        lines: {
+          create: nearLines.map((line) => ({
+            tenantId: tenant.id,
+            productId: line.productId,
+            batchId: line.batchId,
+            systemQty: line.systemQty,
+            countedQty: line.countedQty ?? null,
+            varianceQty: line.varianceQty ?? null,
+            note: line.note ?? null,
+            countedAt: line.countedQty != null ? daysAgo(0) : null,
+          })),
+        },
+      },
+    });
+  }
+
+  // Completed full stocktake with posted variance ledger
+  const completedSku = "PCL-0002";
+  const completedRef = batchByKey.get(`MAIN:${completedSku}`);
+  if (completedRef) {
+    const sysQty =
+      (
+        await prisma.stockLedger.aggregate({
+          where: {
+            tenantId: tenant.id,
+            branchId: mainBranch.id,
+            batchId: completedRef.batchId,
+          },
+          _sum: { qtyDelta: true },
+        })
+      )._sum.qtyDelta ?? 0;
+    const counted = sysQty; // zero variance demo line
+    const stCompleted = await prisma.stocktake.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: mainBranch.id,
+        stocktakeNumber: "ST-SEED-003",
+        status: StocktakeStatus.completed,
+        scope: StocktakeScope.full,
+        blindCount: false,
+        frozenAt: daysAgo(12),
+        notes: "Completed full count — matched",
+        countedBy: inventoryClerk.id,
+        completedBy: manager.id,
+        completedAt: daysAgo(12),
+        createdAt: daysAgo(13),
+        lines: {
+          create: [
+            {
+              tenantId: tenant.id,
+              productId: completedRef.productId,
+              batchId: completedRef.batchId,
+              systemQty: sysQty,
+              countedQty: counted,
+              varianceQty: 0,
+              note: "Matched to system",
+              countedAt: daysAgo(12),
+            },
+          ],
+        },
+      },
+    });
+    void stCompleted;
+  }
+
+  // Document sequences — keep runtime next numbers above seed PO-/GRN-/TR-/ST- values
+  for (const branch of [mainBranch, secondBranch]) {
+    for (const docType of ["po", "grn", "stocktake"] as const) {
+      await prisma.documentSequence.create({
+        data: {
+          tenantId: tenant.id,
+          branchId: branch.id,
+          docType,
+          nextValue: 100,
+        },
+      });
+    }
+  }
+  await prisma.documentSequence.create({
+    data: {
+      tenantId: tenant.id,
+      branchId: mainBranch.id,
+      docType: "tenant:transfer",
+      nextValue: 100,
+    },
+  });
+
   const returnCount = await prisma.goodsReturn.count({ where: { tenantId: tenant.id } });
 
   const batchCount = await prisma.batch.count({ where: { tenantId: tenant.id } });
   const ledgerCount = await prisma.stockLedger.count({ where: { tenantId: tenant.id } });
   const poCount = await prisma.purchaseOrder.count({ where: { tenantId: tenant.id } });
   const transferCount = await prisma.transfer.count({ where: { tenantId: tenant.id } });
+  const stocktakeCount = await prisma.stocktake.count({ where: { tenantId: tenant.id } });
 
   console.log("\n=== PharmaCeylon demo seed complete ===\n");
   console.log(`Tenant:     ${TENANT_CODE} (${tenant.displayName})`);
@@ -1457,9 +2249,10 @@ async function main() {
   console.log(`Batches:    ${batchCount}`);
   console.log(`Ledger:     ${ledgerCount} movements`);
   console.log(`Sales:      ${saleCount} invoices`);
-  console.log(`POs:        ${poCount} (draft, pending, issued, partial, received, cancelled)`);
+  console.log(`POs:        ${poCount} (draft, pending, issued, partial, received, short_closed, cancelled)`);
   console.log(`Transfers:  ${transferCount} (requested → approved → in transit → partial/received)`);
   console.log(`Returns:    ${returnCount} (customer + supplier across workflow statuses)`);
+  console.log(`Stocktakes: ${stocktakeCount} (draft, in progress, completed)`);
   console.log("\nLogins (passwords from SEED_*_PASSWORD or defaults):");
   console.log("  admin@pharmaceylon.demo      — owner");
   console.log("  manager@pharmaceylon.demo    — manager");

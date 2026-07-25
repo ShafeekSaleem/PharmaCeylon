@@ -163,7 +163,7 @@ export function TransferDetailModal({
     <Modal
       open={!!transfer}
       onClose={onClose}
-      title={formatTransferNo(transfer.id)}
+      title={formatTransferNo(transfer)}
       description={`${transfer.fromBranch.name} → ${transfer.toBranch.name}`}
       size="lg"
       canDismiss={!busy}
