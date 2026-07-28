@@ -1,157 +1,182 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import {
+  IconActivity,
+  IconAlertTriangle,
+  IconCalendar,
   IconCheck,
   IconClipboardList,
+  IconEdit,
   IconEye,
   IconPlus,
   IconSearch,
 } from "@/components/icons";
 import { ActionButton, DataTable, PageHeader, StatCard, StatusBadge, type Column } from "@/components/ui";
-import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
-import inventoryCss from "../inventory/inventory.module.css";
 import layoutCss from "../purchasing/purchasing.module.css";
 import { CreateStocktakeModal } from "./components/create-stocktake-modal";
-import { StocktakeDetailModal } from "./components/stocktake-detail-modal";
+import { StocktakeSummaryDrawer } from "./components/stocktake-summary-drawer";
 import { STATUS_OPTIONS } from "./constants";
 import { useStocktakes } from "./hooks/use-stocktakes";
 import scss from "./stocktakes.module.css";
 import { PAGE_SIZE, type StocktakeListItem, type StocktakeStatusFilter } from "./types";
 import {
-  canCompleteStocktake,
-  countedProgress,
+  awaitingMyAction,
   formatDate,
+  formatMoney,
   formatSigned,
-  formatStocktakeNo,
   hasStocktakeWriteAccess,
   matchesStatusFilter,
   scopeLabel,
+  statusLabel,
+  stocktakeHref,
 } from "./utils";
 
-function StocktakesContent() {
+export default function StocktakesPage() {
   const { user, branchId } = useAuth();
   const canWrite = hasStocktakeWriteAccess(user, branchId);
-  const canManage = canCompleteStocktake(user, branchId);
   const stocktakes = useStocktakes();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StocktakeStatusFilter>("all");
+  const [onlyVariance, setOnlyVariance] = useState(false);
+  const [mineOnly, setMineOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
-  const [detail, setDetail] = useState<StocktakeListItem | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [selected, setSelected] = useState<StocktakeListItem | null>(null);
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, onlyVariance, mineOnly]);
 
   const summary = useMemo(() => {
-    const counts = {
-      draft: 0,
-      in_progress: 0,
-      completed: 0,
-      cancelled: 0,
-      openVarianceLines: 0,
-    };
+    let draft = 0;
+    let scheduled = 0;
+    let counting = 0;
+    let needsAttention = 0;
+    let completed = 0;
+    let openVariances = 0;
     for (const row of stocktakes.rows) {
-      if (row.status in counts) {
-        counts[row.status as "draft" | "in_progress" | "completed" | "cancelled"] += 1;
-      }
-      if (row.status === "draft" || row.status === "in_progress") {
-        counts.openVarianceLines += row.varianceLineCount ?? 0;
-      }
+      if (row.status === "draft") draft += 1;
+      if (row.status === "scheduled") scheduled += 1;
+      if (row.status === "counting") counting += 1;
+      if (matchesStatusFilter(row, "attention")) needsAttention += 1;
+      openVariances += row.varianceLineCount ?? 0;
+      if (row.status === "completed") completed += 1;
     }
-    return counts;
+    return { draft, scheduled, counting, needsAttention, completed, openVariances };
   }, [stocktakes.rows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return stocktakes.rows.filter((row) => {
       if (!matchesStatusFilter(row, statusFilter)) return false;
+      if (onlyVariance && !(row.varianceLineCount && row.varianceLineCount > 0)) return false;
+      if (mineOnly && !awaitingMyAction(row, user?.id)) return false;
       if (!q) return true;
       const hay = [
-        formatStocktakeNo(row),
+        row.stocktakeNumber,
+        row.title ?? "",
+        row.areaLabel ?? "",
         row.notes ?? "",
         row.counter.fullName,
+        row.reviewer?.fullName ?? "",
         scopeLabel(row.scope),
-        row.scope ?? "",
-        ...row.lines.map((l) => `${l.product.sku} ${l.product.name} ${l.batch.batchNo}`),
       ]
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [stocktakes.rows, search, statusFilter]);
+  }, [mineOnly, onlyVariance, search, statusFilter, stocktakes.rows, user?.id]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (filtered.length > 0 && page > totalPages) {
+      setPage(totalPages);
+    } else if (filtered.length === 0 && page !== 1) {
+      setPage(1);
+    }
+  }, [filtered.length, page]);
 
   const paged = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, page]);
 
-  function openDetail(row: StocktakeListItem) {
-    setDetail(row);
+  const hasActiveFilters =
+    !!search.trim() || statusFilter !== "all" || onlyVariance || mineOnly;
+
+  function clearFilters() {
+    setSearch("");
+    setStatusFilter("all");
+    setOnlyVariance(false);
+    setMineOnly(false);
   }
 
-  function handleChanged(updated?: StocktakeListItem) {
-    void stocktakes.reload().then(() => {
-      if (updated) {
-        setDetail(updated);
-      }
-    });
+  function toggleStatus(next: StocktakeStatusFilter) {
+    setOnlyVariance(false);
+    setStatusFilter((prev) => (prev === next ? "all" : next));
+  }
+
+  function toggleVarianceKpi() {
+    setStatusFilter("all");
+    setOnlyVariance((prev) => !prev);
   }
 
   const columns: Column<StocktakeListItem>[] = useMemo(
     () => [
       {
         key: "number",
-        header: "Stocktake no.",
+        header: "Stocktake",
         render: (row) => (
-          <button
-            type="button"
-            className={scss.stocktakeNo}
-            onClick={() => openDetail(row)}
-          >
-            {formatStocktakeNo(row)}
-          </button>
+          <div className={scss.productCell}>
+            <div className={scss.titleRow}>
+              <Link href={stocktakeHref(row.id)} className={scss.stocktakeNo}>
+                {row.stocktakeNumber}
+              </Link>
+              {row.blindCount ? <span className={scss.blindPill}>Blind</span> : null}
+            </div>
+            <span className={scss.productMeta}>{row.title || scopeLabel(row.scope)}</span>
+          </div>
         ),
       },
       {
         key: "status",
         header: "Status",
-        render: (row) => <StatusBadge status={row.status} />,
+        width: "130px",
+        render: (row) => <StatusBadge status={row.status} label={statusLabel(row.status)} />,
       },
       {
         key: "scope",
-        header: "Scope",
+        header: "Scope / area",
         render: (row) => (
-          <span className={scss.scopeBadge}>{scopeLabel(row.scope)}</span>
+          <div className={scss.productCell}>
+            <span className={scss.scopeBadge}>{scopeLabel(row.scope)}</span>
+            <span className={scss.productMeta}>{row.areaLabel || "Branch scope"}</span>
+          </div>
         ),
       },
       {
-        key: "lines",
+        key: "progress",
         header: "Progress",
+        width: "120px",
         render: (row) => {
-          const total = row.lineCount ?? row.lines.length;
-          const counted =
-            row.countedLineCount ?? row.lines.filter((l) => l.countedQty != null).length;
-          const pct = countedProgress(row);
+          const pct = row.progressPct ?? 0;
+          const tone =
+            pct >= 100 ? layoutCss.progressFillDone : pct > 0 ? layoutCss.progressFillWarn : "";
           return (
-            <div>
-              <span>
-                {counted}/{total} · {pct}%
+            <div className={layoutCss.receivedCell}>
+              <span className={layoutCss.receivedMeta}>
+                {row.countedLineCount}/{row.lineCount} · {pct}%
               </span>
               <div className={layoutCss.progressTrack} aria-hidden>
                 <div
-                  className={`${layoutCss.progressFill}${
-                    pct >= 100
-                      ? ` ${layoutCss.progressFillDone}`
-                      : pct > 0
-                        ? ` ${layoutCss.progressFillWarn}`
-                        : ""
-                  }`}
+                  className={`${layoutCss.progressFill}${tone ? ` ${tone}` : ""}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -163,44 +188,76 @@ function StocktakesContent() {
         key: "variance",
         header: "Variance",
         render: (row) => {
-          const lines = row.varianceLineCount ?? 0;
+          if (row.varianceLineCount == null) {
+            return (
+              <span className={layoutCss.muted}>
+                {row.blindCount ? "Hidden (blind)" : "Hidden"}
+              </span>
+            );
+          }
+          if (row.varianceLineCount === 0) {
+            return <span className={layoutCss.muted}>None</span>;
+          }
           const net = row.varianceUnitsNet ?? 0;
+          const netClass =
+            net > 0 ? scss.variancePos : net < 0 ? scss.varianceNeg : scss.varianceZero;
           return (
             <div className={scss.listVariance}>
               <span>
-                {lines} line{lines === 1 ? "" : "s"}
+                {row.varianceLineCount} line{row.varianceLineCount === 1 ? "" : "s"}
               </span>
               <span className={scss.listVarianceMeta}>
-                Net {formatSigned(net)} units
+                <span className={netClass}>Net {formatSigned(net)}</span>
+                {row.varianceValueApprox != null
+                  ? ` · ${formatMoney(row.varianceValueApprox)}`
+                  : ""}
               </span>
             </div>
           );
         },
       },
       {
-        key: "created",
-        header: "Created",
-        render: (row) => formatDate(row.createdAt),
+        key: "assigned",
+        header: "Assigned to",
+        render: (row) => {
+          const names =
+            row.assignments.map((entry) => entry.user.fullName).join(", ") || row.counter.fullName;
+          return <span className={layoutCss.muted}>{names || "—"}</span>;
+        },
       },
       {
-        key: "counter",
-        header: "Counter",
-        render: (row) => <span className={layoutCss.muted}>{row.counter.fullName}</span>,
+        key: "updated",
+        header: "Updated",
+        width: "110px",
+        render: (row) => <span className={layoutCss.muted}>{formatDate(row.updatedAt)}</span>,
       },
       {
         key: "actions",
         header: "Actions",
+        width: "88px",
+        align: "right",
         render: (row) => (
           <div className={layoutCss.actionsCell}>
             <button
               type="button"
               className={`${layoutCss.actionIcon} ${layoutCss.actionIconView}`}
-              onClick={() => openDetail(row)}
-              aria-label={`View ${formatStocktakeNo(row)}`}
-              data-tooltip="View stocktake"
+              onClick={() => {
+                setSelected(row);
+                setSummaryOpen(true);
+              }}
+              aria-label={`View summary for ${row.stocktakeNumber}`}
+              data-tooltip="Quick summary"
             >
               <IconEye size={17} />
             </button>
+            <Link
+              href={stocktakeHref(row.id)}
+              className={`${layoutCss.actionIcon} ${layoutCss.actionIconEdit}`}
+              aria-label={`Open workspace for ${row.stocktakeNumber}`}
+              data-tooltip="Open workspace"
+            >
+              <IconEdit size={17} />
+            </Link>
           </div>
         ),
       },
@@ -213,155 +270,172 @@ function StocktakesContent() {
       <PageHeader
         subtitleOnly
         floatingActions
-        description="Physical inventory counts with variance posting to stock ledger."
+        description="Schedule branch counts, submit blind counts, review variances, and post approved stocktake adjustments."
         actions={
           canWrite ? (
-            <ActionButton
-              icon={<IconPlus size={16} />}
-              tooltip="Start a new stocktake for this branch"
-              onClick={() => setCreateOpen(true)}
-            >
+            <ActionButton icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
               New stocktake
             </ActionButton>
           ) : null
         }
       />
 
-      {!stocktakes.hasBranch && (
-        <div className={inventoryCss.branchNotice}>
-          Select a branch in the header to view stocktakes for that location.
+      {!stocktakes.hasBranch ? (
+        <div className={layoutCss.branchNotice}>
+          Select a branch in the header to manage stocktakes for that location.
+        </div>
+      ) : (
+        <div className={layoutCss.mainCol}>
+          <div className={layoutCss.kpiRow}>
+            <StatCard
+              title="Draft"
+              value={summary.draft}
+              subtitle="Not scheduled"
+              icon={<IconClipboardList size={16} />}
+              iconTone="info"
+              active={statusFilter === "draft"}
+              onClick={() => toggleStatus("draft")}
+            />
+            <StatCard
+              title="Scheduled"
+              value={summary.scheduled}
+              subtitle="Ready to start"
+              icon={<IconCalendar size={16} />}
+              iconTone="primary"
+              active={statusFilter === "scheduled"}
+              onClick={() => toggleStatus("scheduled")}
+            />
+            <StatCard
+              title="Counting"
+              value={summary.counting}
+              subtitle="Active counts"
+              icon={<IconActivity size={16} />}
+              iconTone="warning"
+              active={statusFilter === "counting"}
+              onClick={() => toggleStatus("counting")}
+            />
+            <StatCard
+              title="Needs attention"
+              value={summary.needsAttention}
+              subtitle="Review queue or unfinished counts"
+              icon={<IconAlertTriangle size={16} />}
+              iconTone="danger"
+              active={statusFilter === "attention"}
+              onClick={() => toggleStatus("attention")}
+            />
+            <StatCard
+              title="Open variances"
+              value={summary.openVariances}
+              subtitle="Visible lines only"
+              icon={<IconEye size={16} />}
+              iconTone="danger"
+              active={onlyVariance}
+              onClick={toggleVarianceKpi}
+            />
+            <StatCard
+              title="Completed"
+              value={summary.completed}
+              subtitle="Posted and closed"
+              icon={<IconCheck size={16} />}
+              iconTone="success"
+              active={statusFilter === "completed"}
+              onClick={() => toggleStatus("completed")}
+            />
+          </div>
+
+          {stocktakes.error ? <Alert variant="error">{stocktakes.error}</Alert> : null}
+
+          <div className={layoutCss.toolbar}>
+            <div className={layoutCss.searchWrap}>
+              <IconSearch size={15} className={layoutCss.searchIcon} />
+              <input
+                type="search"
+                className={layoutCss.searchInput}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search number, title, area, assignee…"
+              />
+            </div>
+            <InventoryFilterSelect
+              label="Status"
+              value={statusFilter}
+              options={STATUS_OPTIONS}
+              onChange={(value) => setStatusFilter(value as StocktakeStatusFilter)}
+            />
+            <label className={scss.toolbarCheck}>
+              <input
+                type="checkbox"
+                checked={onlyVariance}
+                onChange={(event) => setOnlyVariance(event.target.checked)}
+              />
+              <span>Has variance</span>
+            </label>
+            <label className={scss.toolbarCheck}>
+              <input
+                type="checkbox"
+                checked={mineOnly}
+                onChange={(event) => setMineOnly(event.target.checked)}
+              />
+              <span>Awaiting my action</span>
+            </label>
+          </div>
+
+          {hasActiveFilters ? (
+            <div className={layoutCss.activeFilter}>
+              <span>
+                Filtered stocktakes · {filtered.length} result{filtered.length === 1 ? "" : "s"}
+              </span>
+              <button
+                type="button"
+                className={layoutCss.clearFilter}
+                onClick={clearFilters}
+                data-tooltip="Reset all stocktake filters"
+              >
+                Clear filter
+              </button>
+            </div>
+          ) : null}
+
+          <DataTable
+            columns={columns}
+            data={paged}
+            rowKey={(row) => row.id}
+            loading={stocktakes.loading}
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={filtered.length}
+            onPageChange={setPage}
+            emptyTitle={hasActiveFilters ? "No stocktakes match your filters" : "No stocktakes found"}
+            emptyDescription={
+              hasActiveFilters
+                ? "Try clearing filters or adjusting your search."
+                : canWrite
+                  ? "Create a stocktake to start branch-level counting and variance review."
+                  : "No stocktakes are available for this branch."
+            }
+            emptyIcon={<IconClipboardList size={46} />}
+            compact
+          />
         </div>
       )}
-
-      {stocktakes.hasBranch && (
-        <div className={inventoryCss.batchKpiRow}>
-          <StatCard
-            title="Draft"
-            value={summary.draft}
-            subtitle="Not started"
-            icon={<IconClipboardList size={16} />}
-            iconTone="primary"
-            active={statusFilter === "draft"}
-            onClick={() =>
-              setStatusFilter((cur) => (cur === "draft" ? "all" : "draft"))
-            }
-          />
-          <StatCard
-            title="In progress"
-            value={summary.in_progress}
-            subtitle="Counting underway"
-            icon={<IconClipboardList size={16} />}
-            iconTone="info"
-            active={statusFilter === "in_progress"}
-            onClick={() =>
-              setStatusFilter((cur) => (cur === "in_progress" ? "all" : "in_progress"))
-            }
-          />
-          <StatCard
-            title="Open variances"
-            value={summary.openVarianceLines}
-            subtitle="Lines with variance (open)"
-            icon={<IconClipboardList size={16} />}
-            iconTone="warning"
-            active={statusFilter === "draft" || statusFilter === "in_progress"}
-            onClick={() =>
-              setStatusFilter((cur) =>
-                cur === "in_progress" || cur === "draft" ? "all" : "in_progress",
-              )
-            }
-          />
-          <StatCard
-            title="Completed"
-            value={summary.completed}
-            subtitle="Variances posted"
-            icon={<IconCheck size={16} />}
-            iconTone="success"
-            active={statusFilter === "completed"}
-            onClick={() =>
-              setStatusFilter((cur) => (cur === "completed" ? "all" : "completed"))
-            }
-          />
-          <StatCard
-            title="Cancelled"
-            value={summary.cancelled}
-            subtitle="Abandoned counts"
-            icon={<IconClipboardList size={16} />}
-            iconTone="danger"
-            active={statusFilter === "cancelled"}
-            onClick={() =>
-              setStatusFilter((cur) => (cur === "cancelled" ? "all" : "cancelled"))
-            }
-          />
-        </div>
-      )}
-
-      <div className={inventoryCss.toolbar}>
-        <div className={inventoryCss.searchWrap}>
-          <IconSearch size={15} className={inventoryCss.searchIcon} />
-          <input
-            type="search"
-            className={inventoryCss.searchInput}
-            placeholder="Search stocktake no, notes, product…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <InventoryFilterSelect
-          label="Status"
-          value={statusFilter}
-          options={[...STATUS_OPTIONS]}
-          onChange={(value) => setStatusFilter(value as StocktakeStatusFilter)}
-        />
-      </div>
-
-      {stocktakes.error && <Alert variant="error">{stocktakes.error}</Alert>}
-
-      <DataTable<StocktakeListItem>
-        columns={columns}
-        data={paged}
-        rowKey={(r) => r.id}
-        loading={stocktakes.loading}
-        page={page}
-        pageSize={PAGE_SIZE}
-        total={filtered.length}
-        onPageChange={setPage}
-        emptyTitle="No stocktakes yet"
-        emptyDescription="Create a draft stocktake and count on-hand batches"
-        emptyIcon={<IconClipboardList size={48} />}
-        compact
-      />
 
       <CreateStocktakeModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        onCreated={(id) => {
-          void (async () => {
-            await stocktakes.reload();
-            try {
-              const row = await apiJson<StocktakeListItem>(`/stocktakes/${id}`);
-              setDetail(row);
-            } catch {
-              /* list reload is enough */
-            }
-          })();
+        onCreated={() => {
+          setCreateOpen(false);
+          void stocktakes.reload();
         }}
       />
 
-      <StocktakeDetailModal
-        stocktake={detail}
-        canWrite={canWrite}
-        canManage={canManage}
-        onClose={() => setDetail(null)}
-        onChanged={handleChanged}
+      <StocktakeSummaryDrawer
+        open={summaryOpen}
+        stocktake={selected}
+        onClose={() => {
+          setSummaryOpen(false);
+          setSelected(null);
+        }}
       />
     </div>
-  );
-}
-
-export default function StocktakesPage() {
-  return (
-    <Suspense fallback={<div className={inventoryCss.loading}>Loading stocktakes…</div>}>
-      <StocktakesContent />
-    </Suspense>
   );
 }

@@ -39,6 +39,12 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   on_hold: "warning",
   expired: "danger",
   overdue: "danger",
+  // Stocktakes
+  scheduled: "info",
+  counting: "info",
+  submitted: "warning",
+  under_review: "info",
+  posted: "info",
 };
 
 const STATUS_LABELS: Record<string, string> = {

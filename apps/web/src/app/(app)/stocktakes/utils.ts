@@ -1,16 +1,17 @@
 import type { AuthUser } from "@/lib/auth-types";
-import { formatDate, formatMoney } from "../purchasing/utils";
+import { formatDate, formatDateTime, formatMoney } from "../purchasing/utils";
 import { SCOPE_LABELS } from "./constants";
 import {
-  COMPLETE_ROLES,
+  REVIEW_ROLES,
   WRITE_ROLES,
   type StocktakeLine,
   type StocktakeLineFilter,
   type StocktakeListItem,
+  type StocktakeMovementRef,
   type StocktakeStatus,
 } from "./types";
 
-export { formatDate, formatMoney };
+export { formatDate, formatDateTime, formatMoney };
 
 export function hasStocktakeWriteAccess(
   user: AuthUser | null,
@@ -33,7 +34,7 @@ export function canCompleteStocktake(
   const scoped = branchId
     ? user.branchRoles.filter((br) => br.branchId === branchId)
     : user.branchRoles;
-  return scoped.some((br) => COMPLETE_ROLES.has(br.role));
+  return scoped.some((br) => REVIEW_ROLES.has(br.role));
 }
 
 export function formatStocktakeNo(row: Pick<StocktakeListItem, "stocktakeNumber">): string {
@@ -50,19 +51,72 @@ export function countedProgress(row: StocktakeListItem): number {
 }
 
 export function canStart(status: StocktakeStatus): boolean {
-  return status === "draft";
+  return status === "draft" || status === "scheduled";
 }
 
 export function canEditCounts(status: StocktakeStatus): boolean {
-  return status === "draft" || status === "in_progress";
+  return status === "counting";
+}
+
+/** Matches API HEADER_EDITABLE_STATUSES */
+export function canEditHeader(status: StocktakeStatus): boolean {
+  return (
+    status === "draft" ||
+    status === "scheduled" ||
+    status === "counting" ||
+    status === "submitted"
+  );
+}
+
+/** Matches API PRE_REVIEW_STATUSES — add/remove lines */
+export function canManageLines(status: StocktakeStatus): boolean {
+  return status === "draft" || status === "scheduled" || status === "counting";
+}
+
+export function isoToDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function datetimeLocalToIsoOrNull(localValue: string): string | null {
+  const trimmed = localValue.trim();
+  if (!trimmed) return null;
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
 }
 
 export function canComplete(status: StocktakeStatus): boolean {
-  return status === "draft" || status === "in_progress";
+  return status === "posted";
 }
 
 export function canCancel(status: StocktakeStatus): boolean {
-  return status === "draft" || status === "in_progress";
+  return (
+    status === "draft" ||
+    status === "scheduled" ||
+    status === "counting" ||
+    status === "submitted" ||
+    status === "under_review"
+  );
+}
+
+export function canSubmit(status: StocktakeStatus): boolean {
+  return status === "counting";
+}
+
+export function canStartReview(status: StocktakeStatus): boolean {
+  return status === "submitted";
+}
+
+export function canApprove(status: StocktakeStatus): boolean {
+  return status === "under_review";
+}
+
+export function canPost(status: StocktakeStatus): boolean {
+  return status === "approved";
 }
 
 export function matchesStatusFilter(
@@ -70,6 +124,17 @@ export function matchesStatusFilter(
   filter: string,
 ): boolean {
   if (filter === "all") return true;
+  if (filter === "active") {
+    return ["scheduled", "counting", "submitted", "under_review", "approved"].includes(row.status);
+  }
+  if (filter === "attention") {
+    return (
+      row.status === "submitted" ||
+      row.status === "under_review" ||
+      row.status === "approved" ||
+      (row.status === "counting" && row.uncountedLineCount > 0)
+    );
+  }
   return row.status === filter;
 }
 
@@ -94,17 +159,30 @@ export function isNearExpiry(
 }
 
 export function showSystemQty(
-  stocktake: Pick<StocktakeListItem, "blindCount" | "status">,
+  stocktake: Pick<StocktakeListItem, "blindCount" | "status" | "permissions">,
 ): boolean {
   if (!stocktake.blindCount) return true;
-  return stocktake.status === "completed" || stocktake.status === "cancelled";
+  if (
+    stocktake.status === "posted" ||
+    stocktake.status === "completed" ||
+    stocktake.status === "cancelled"
+  ) {
+    return true;
+  }
+  // Blind counts stay hidden through counting/submitted so counters (incl. supervisors
+  // who help count) cannot see expected qty. Reviewers unlock once review starts.
+  if (stocktake.permissions.canViewExpected) {
+    return stocktake.status === "under_review" || stocktake.status === "approved";
+  }
+  return false;
 }
 
 export function liveVariance(
-  systemQty: number,
+  systemQty: number | null,
   countedRaw: string,
   savedVariance: number | null,
 ): number | null {
+  if (systemQty == null) return null;
   const raw = countedRaw.trim();
   if (raw === "") return savedVariance;
   const qty = Number(raw);
@@ -123,16 +201,21 @@ export function filterStocktakeLines(
   const nearDays = opts?.nearExpiryDays ?? 90;
   return lines.filter((line) => {
     switch (filter) {
-      case "uncounted": {
+      case "pending": {
         const raw = opts?.counts?.[line.batchId];
         if (raw != null) return raw.trim() === "";
         return line.countedQty == null;
       }
+      case "counted":
+        return line.countedQty != null;
       case "variance": {
+        if (line.expectedAtReview == null) return false;
         const raw = opts?.counts?.[line.batchId] ?? "";
-        const v = liveVariance(line.systemQty, raw, line.varianceQty);
+        const v = liveVariance(line.expectedAtReview, raw, line.adjustedVariance);
         return v != null && v !== 0;
       }
+      case "recount":
+        return line.countStatus === "recount_requested" || line.countEntries.some((entry) => entry.isRecount);
       case "quarantined":
         return line.batch.isQuarantined;
       case "near_expiry":
@@ -151,7 +234,6 @@ export function completeBlockers(
 ): string[] {
   const blockers: string[] = [];
   let uncounted = 0;
-  let missingNotes = 0;
 
   for (const line of detail.lines) {
     const raw = (counts[line.batchId] ?? "").trim();
@@ -166,20 +248,62 @@ export function completeBlockers(
       uncounted += 1;
       continue;
     }
-
-    const variance = qty - line.systemQty;
-    if (variance !== 0) {
-      const note = (notes[line.batchId] ?? line.note ?? "").trim();
-      if (!note) missingNotes += 1;
-    }
   }
 
   if (uncounted > 0) {
     blockers.push(`${uncounted} line${uncounted === 1 ? "" : "s"} still uncounted`);
   }
-  if (missingNotes > 0) {
+  return blockers;
+}
+
+/** True when a variance line has both reason and resolution (draft or saved). */
+export function lineHasCompleteReview(
+  line: Pick<StocktakeLine, "reviewReason" | "reviewResolution">,
+  draft?: {
+    reviewReason?: string | null;
+    reviewResolution?: string | null;
+  },
+): boolean {
+  const reason = draft?.reviewReason || line.reviewReason;
+  const resolution = (draft?.reviewResolution || line.reviewResolution || "").trim();
+  return Boolean(reason && resolution);
+}
+
+/** Non-zero variance lines still missing reason + resolution (draft or saved). */
+export function reviewApprovalBlockers(
+  detail: StocktakeListItem,
+  drafts: Record<
+    string,
+    {
+      reviewReason?: string | null;
+      reviewResolution?: string | null;
+      selectedForRecount?: boolean;
+    }
+  >,
+): string[] {
+  const blockers: string[] = [];
+  let missing = 0;
+  let recountPending = 0;
+
+  for (const line of detail.lines) {
+    const variance = line.adjustedVariance;
+    const draft = drafts[line.id];
+    if (line.countStatus === "recount_requested" || draft?.selectedForRecount) {
+      recountPending += 1;
+      continue;
+    }
+    if (variance == null || variance === 0) continue;
+    if (!lineHasCompleteReview(line, draft)) missing += 1;
+  }
+
+  if (missing > 0) {
     blockers.push(
-      `${missingNotes} variance line${missingNotes === 1 ? "" : "s"} missing a note`,
+      `${missing} variance line${missing === 1 ? "" : "s"} need a reason and resolution before approve`,
+    );
+  }
+  if (recountPending > 0) {
+    blockers.push(
+      `${recountPending} line${recountPending === 1 ? "" : "s"} still marked for recount`,
     );
   }
   return blockers;
@@ -193,8 +317,9 @@ export function exportStocktakeCsv(detail: StocktakeListItem): void {
     "Batch",
     "Expiry",
     "Quarantined",
-    ...(showSys ? ["System qty"] : []),
+    ...(showSys ? ["Snapshot qty", "Movement delta", "Expected at review"] : []),
     "Counted qty",
+    "Condition",
     "Variance",
     "Note",
     "Cost price",
@@ -202,7 +327,11 @@ export function exportStocktakeCsv(detail: StocktakeListItem): void {
   ];
 
   const rows = detail.lines.map((line) => {
-    const variance = line.varianceQty ?? (line.countedQty != null ? line.countedQty - line.systemQty : null);
+    const variance =
+      line.adjustedVariance ??
+      (line.countedQty != null && line.expectedAtReview != null
+        ? line.countedQty - line.expectedAtReview
+        : null);
     const value =
       variance != null && Number.isFinite(line.batch.costPrice)
         ? Math.round(variance * line.batch.costPrice * 100) / 100
@@ -213,8 +342,15 @@ export function exportStocktakeCsv(detail: StocktakeListItem): void {
       line.batch.batchNo,
       formatDate(line.batch.expiryDate),
       line.batch.isQuarantined ? "yes" : "no",
-      ...(showSys ? [String(line.systemQty)] : []),
+      ...(showSys
+        ? [
+            String(line.snapshotQty ?? ""),
+            String(line.movementDeltaSinceSnapshot ?? ""),
+            String(line.expectedAtReview ?? ""),
+          ]
+        : []),
       line.countedQty == null ? "" : String(line.countedQty),
+      displayCondition(line.condition),
       variance == null ? "" : String(variance),
       line.note ?? "",
       String(line.batch.costPrice),
@@ -242,7 +378,85 @@ export function scopeLabel(scope: StocktakeListItem["scope"] | undefined): strin
   return SCOPE_LABELS[scope] ?? scope;
 }
 
+export function statusLabel(status: StocktakeStatus): string {
+  switch (status) {
+    case "under_review":
+      return "Under review";
+    case "draft":
+      return "Draft";
+    case "scheduled":
+      return "Scheduled";
+    case "counting":
+      return "In progress";
+    case "submitted":
+      return "Submitted";
+    case "approved":
+      return "Approved";
+    case "posted":
+      return "Posted";
+    case "completed":
+      return "Completed";
+    case "cancelled":
+      return "Cancelled";
+  }
+}
+
+export function movementModeLabel(mode: StocktakeListItem["movementMode"]): string {
+  switch (mode) {
+    case "freeze_transactions":
+      return "Freeze transactions";
+    case "continue_and_reconcile":
+    default:
+      return "Continue & reconcile";
+  }
+}
+
+export function displayCondition(condition: StocktakeLine["condition"]): string {
+  return condition.replace(/_/g, " ");
+}
+
+export function displayVarianceReason(reason: string | null | undefined): string {
+  if (!reason) return "—";
+  return reason.replace(/_/g, " ");
+}
+
 export function formatSigned(n: number): string {
   if (n > 0) return `+${n}`;
   return String(n);
+}
+
+export function awaitingMyAction(row: StocktakeListItem, userId?: string | null): boolean {
+  if (!userId) return false;
+  if (row.status === "counting") {
+    return row.assignments.some((assignment) => assignment.user.id === userId);
+  }
+  if (row.status === "submitted" || row.status === "under_review" || row.status === "approved") {
+    return row.reviewer?.id === userId || row.approver?.id === userId || row.counter.id === userId;
+  }
+  return false;
+}
+
+export function stocktakeHref(id: string): string {
+  return `/stocktakes/${id}`;
+}
+
+export function movementHref(ref: StocktakeMovementRef): string | null {
+  switch (ref.referenceType) {
+    case "stocktake":
+      return `/stocktakes/${ref.referenceId}`;
+    case "adjustment":
+      return `/inventory/adjustments`;
+    case "purchase":
+    case "goods_receipt":
+      return `/purchasing`;
+    case "customer_return":
+    case "supplier_return":
+      return `/returns`;
+    case "transfer":
+      return `/transfers`;
+    case "sale":
+      return `/pos`;
+    default:
+      return null;
+  }
 }

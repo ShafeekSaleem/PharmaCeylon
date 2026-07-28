@@ -17,6 +17,8 @@ import { UpsertStocktakeLinesDto } from "./dto/upsert-stocktake-lines.dto";
 import {
   AddStocktakeLinesDto,
   RemoveStocktakeLinesDto,
+  RequestRecountDto,
+  ReviewStocktakeLinesDto,
   UpdateStocktakeDto,
 } from "./dto/update-stocktake.dto";
 import { StocktakesService } from "./stocktakes.service";
@@ -39,7 +41,7 @@ export class StocktakesController {
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
   @Get()
   list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
-    return this.stocktakes.list(user.tenantId, branchId);
+    return this.stocktakes.list(user.tenantId, branchId, this.rolesAtBranch(user, branchId));
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
@@ -49,7 +51,7 @@ export class StocktakesController {
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.stocktakes.getOne(user.tenantId, branchId, id);
+    return this.stocktakes.getOne(user.tenantId, branchId, id, this.rolesAtBranch(user, branchId));
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
@@ -59,7 +61,13 @@ export class StocktakesController {
     @RequireBranchId() branchId: string,
     @Body() dto: CreateStocktakeDto,
   ) {
-    return this.stocktakes.create(user.tenantId, branchId, user.userId, dto);
+    return this.stocktakes.create(
+      user.tenantId,
+      branchId,
+      user.userId,
+      dto,
+      this.rolesAtBranch(user, branchId),
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
@@ -70,7 +78,14 @@ export class StocktakesController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateStocktakeDto,
   ) {
-    return this.stocktakes.updateHeader(user.tenantId, branchId, user.userId, id, dto);
+    return this.stocktakes.updateHeader(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      dto,
+      this.rolesAtBranch(user, branchId),
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
@@ -81,7 +96,14 @@ export class StocktakesController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpsertStocktakeLinesDto,
   ) {
-    return this.stocktakes.upsertLines(user.tenantId, branchId, user.userId, id, dto);
+    return this.stocktakes.upsertLines(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      dto,
+      this.rolesAtBranch(user, branchId),
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
@@ -92,7 +114,14 @@ export class StocktakesController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: AddStocktakeLinesDto,
   ) {
-    return this.stocktakes.addLines(user.tenantId, branchId, user.userId, id, dto);
+    return this.stocktakes.addLines(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      dto,
+      this.rolesAtBranch(user, branchId),
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
@@ -103,27 +132,30 @@ export class StocktakesController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: RemoveStocktakeLinesDto,
   ) {
-    return this.stocktakes.removeLines(user.tenantId, branchId, user.userId, id, dto);
+    return this.stocktakes.removeLines(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      dto,
+      this.rolesAtBranch(user, branchId),
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
-  @Post(":id/refresh-system")
-  refreshSystem(
+  @Post(":id/schedule")
+  schedule(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.stocktakes.refreshSystemQty(user.tenantId, branchId, user.userId, id);
-  }
-
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
-  @Post(":id/match-uncounted")
-  matchUncounted(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-    @Param("id", ParseUUIDPipe) id: string,
-  ) {
-    return this.stocktakes.matchUncounted(user.tenantId, branchId, user.userId, id);
+    return this.stocktakes.schedule(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      this.rolesAtBranch(user, branchId),
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
@@ -133,7 +165,113 @@ export class StocktakesController {
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.stocktakes.start(user.tenantId, branchId, user.userId, id);
+    return this.stocktakes.start(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      this.rolesAtBranch(user, branchId),
+    );
+  }
+
+  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @Post(":id/submit")
+  submit(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.stocktakes.submit(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      this.rolesAtBranch(user, branchId),
+    );
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Post(":id/review/start")
+  startReview(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.stocktakes.startReview(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      this.rolesAtBranch(user, branchId),
+    );
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Patch(":id/review-lines")
+  reviewLines(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ReviewStocktakeLinesDto,
+  ) {
+    return this.stocktakes.reviewLines(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      dto,
+      this.rolesAtBranch(user, branchId),
+    );
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Post(":id/request-recount")
+  requestRecount(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: RequestRecountDto,
+  ) {
+    return this.stocktakes.requestRecount(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      dto,
+      this.rolesAtBranch(user, branchId),
+    );
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Post(":id/approve")
+  approve(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.stocktakes.approve(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      this.rolesAtBranch(user, branchId),
+    );
+  }
+
+  @Roles(RoleName.owner, RoleName.manager)
+  @Post(":id/post")
+  post(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.stocktakes.post(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+      this.rolesAtBranch(user, branchId),
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager)

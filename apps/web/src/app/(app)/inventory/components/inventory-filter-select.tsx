@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { IconCheck, IconChevronDown, IconSearch } from "@/components/icons";
 import css from "../inventory.module.css";
 
@@ -22,6 +23,8 @@ type Props = {
   /** Clicking the selected option again clears to `deselectValue`. */
   allowDeselect?: boolean;
   deselectValue?: string;
+  /** Render the menu in a portal to escape overflow/stacking contexts (e.g. sticky side cards). */
+  portal?: boolean;
 };
 
 export function InventoryFilterSelect({
@@ -35,10 +38,14 @@ export function InventoryFilterSelect({
   placeholder = "All",
   allowDeselect = false,
   deselectValue = "",
+  portal = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
   const selected = options.find((option) => option.value === value);
   const filtered = value !== "all" && value !== "";
   const displayLabel =
@@ -51,30 +58,116 @@ export function InventoryFilterSelect({
         )
       : options;
 
+  useLayoutEffect(() => {
+    if (!open || !portal || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < 260 && rect.top > spaceBelow;
+    setMenuStyle({
+      position: "fixed",
+      left: rect.left,
+      width: Math.max(rect.width, 170),
+      zIndex: 200,
+      ...(openUp
+        ? { bottom: window.innerHeight - rect.top + 6, maxHeight: Math.min(280, rect.top - 16) }
+        : { top: rect.bottom + 6, maxHeight: Math.min(280, spaceBelow - 16) }),
+    });
+  }, [open, portal, options.length, query]);
+
   useEffect(() => {
     if (!open) {
       setQuery("");
       return;
     }
     function onDocumentClick(event: MouseEvent) {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (ref.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.stopPropagation();
         setOpen(false);
       }
     }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+    function onScroll(event: Event) {
+      if (!portal) return;
+      if (menuRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", onDocumentClick);
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, portal);
+    if (portal) {
+      window.addEventListener("scroll", onScroll, true);
+      window.addEventListener("resize", onScroll);
+    }
     return () => {
       document.removeEventListener("mousedown", onDocumentClick);
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown, portal);
+      if (portal) {
+        window.removeEventListener("scroll", onScroll, true);
+        window.removeEventListener("resize", onScroll);
+      }
     };
-  }, [open]);
+  }, [open, portal]);
+
+  const menu = (
+    <div
+      ref={portal ? menuRef : undefined}
+      className={css.inventoryFilterMenu}
+      style={portal ? menuStyle : undefined}
+      role="listbox"
+      aria-label={label}
+    >
+      {searchable && (
+        <div className={css.inventoryFilterSearch}>
+          <IconSearch size={14} />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={searchPlaceholder}
+            autoFocus
+          />
+        </div>
+      )}
+      <div className={css.inventoryFilterOptions}>
+        {visibleOptions.map((option) => {
+          const active = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={active}
+              className={`${css.inventoryFilterOption} ${
+                active ? css.inventoryFilterOptionActive : ""
+              }`}
+              onClick={() => {
+                if (allowDeselect && active) {
+                  onChange(deselectValue);
+                } else {
+                  onChange(option.value);
+                }
+                setOpen(false);
+              }}
+            >
+              <span>{option.label}</span>
+              {active && <IconCheck size={14} />}
+            </button>
+          );
+        })}
+        {visibleOptions.length === 0 && (
+          <div className={css.inventoryFilterEmpty}>No matching options</div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className={css.inventoryFilter} ref={ref}>
       <button
+        ref={triggerRef}
         type="button"
         className={`${css.inventoryFilterTrigger} ${
           open ? css.inventoryFilterTriggerOpen : ""
@@ -91,52 +184,10 @@ export function InventoryFilterSelect({
         <IconChevronDown size={14} className={css.inventoryFilterChevron} />
       </button>
 
-      {open && (
-        <div className={css.inventoryFilterMenu} role="listbox" aria-label={label}>
-          {searchable && (
-            <div className={css.inventoryFilterSearch}>
-              <IconSearch size={14} />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={searchPlaceholder}
-                autoFocus
-              />
-            </div>
-          )}
-          <div className={css.inventoryFilterOptions}>
-            {visibleOptions.map((option) => {
-              const active = option.value === value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  className={`${css.inventoryFilterOption} ${
-                    active ? css.inventoryFilterOptionActive : ""
-                  }`}
-                  onClick={() => {
-                    if (allowDeselect && active) {
-                      onChange(deselectValue);
-                    } else {
-                      onChange(option.value);
-                    }
-                    setOpen(false);
-                  }}
-                >
-                  <span>{option.label}</span>
-                  {active && <IconCheck size={14} />}
-                </button>
-              );
-            })}
-            {visibleOptions.length === 0 && (
-              <div className={css.inventoryFilterEmpty}>No matching options</div>
-            )}
-          </div>
-        </div>
-      )}
+      {open &&
+        (portal && typeof document !== "undefined"
+          ? createPortal(menu, document.body)
+          : menu)}
     </div>
   );
 }

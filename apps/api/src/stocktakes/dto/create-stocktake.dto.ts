@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsEnum,
   IsInt,
   IsOptional,
@@ -12,9 +13,19 @@ import {
   MaxLength,
   Min,
 } from "class-validator";
-import { StocktakeScope } from "@prisma/client";
+import { StocktakeMovementMode, StocktakeScope } from "@prisma/client";
 
 export class CreateStocktakeDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  title?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  areaLabel?: string | null;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)
@@ -35,6 +46,28 @@ export class CreateStocktakeDto {
   @Type(() => Boolean)
   @IsBoolean()
   blindCount?: boolean;
+
+  @IsOptional()
+  @IsEnum(StocktakeMovementMode)
+  movementMode?: StocktakeMovementMode;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledFor?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  expectedCompletionAt?: string | null;
+
+  @IsOptional()
+  @IsUUID("4")
+  reviewerId?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID("4", { each: true })
+  counterIds?: string[];
 
   /** Used when scope = near_expiry (default 90). */
   @IsOptional()

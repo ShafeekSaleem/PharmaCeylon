@@ -26,7 +26,7 @@ export const RETURNS_ROLES: RoleName[] = [
   "cashier",
   "inventory_clerk",
 ];
-export const PURCHASING_ROLES: RoleName[] = ["owner", "manager", "inventory_clerk"];
+export const PURCHASING_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "inventory_clerk"];
 export const STOCKTAKE_ROLES: RoleName[] = ["owner", "manager", "inventory_clerk"];
 export const INSIGHTS_ROLES: RoleName[] = ["owner", "manager", "analyst"];
 export const INVENTORY_WRITE_ROLES: RoleName[] = ["owner", "manager", "inventory_clerk"];

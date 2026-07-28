@@ -2,6 +2,7 @@ import { Type } from "class-transformer";
 import {
   ArrayMinSize,
   IsArray,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -10,6 +11,7 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
+import { StocktakeCondition } from "@prisma/client";
 
 export class StocktakeLineCountDto {
   @IsUUID()
@@ -24,6 +26,10 @@ export class StocktakeLineCountDto {
   @IsString()
   @MaxLength(512)
   note?: string | null;
+
+  @IsOptional()
+  @IsEnum(StocktakeCondition)
+  condition?: StocktakeCondition;
 }
 
 export class UpsertStocktakeLinesDto {

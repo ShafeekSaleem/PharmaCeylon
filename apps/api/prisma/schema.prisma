@@ -84,7 +84,12 @@ enum StockMovementType {
 
 enum StocktakeStatus {
   draft
-  in_progress
+  scheduled
+  counting
+  submitted
+  under_review
+  approved
+  posted
   completed
   cancelled
 }
@@ -96,6 +101,47 @@ enum StocktakeScope {
   quarantined
   zero_stock
   custom
+}
+
+enum StocktakeMovementMode {
+  continue_and_reconcile
+  freeze_transactions
+}
+
+enum StocktakeCountStatus {
+  pending
+  counted
+  submitted
+  recount_requested
+  recounted
+  reviewed
+  approved
+  posted
+}
+
+enum StocktakeCondition {
+  saleable
+  damaged
+  expired
+  quarantined
+  opened_pack
+  missing_label
+  temperature_affected
+}
+
+enum StocktakeVarianceReason {
+  unrecorded_sale
+  unrecorded_receipt
+  damaged_stock
+  expired_stock
+  supplier_shortage
+  wrong_batch_used
+  unit_conversion_error
+  transfer_not_recorded
+  return_not_recorded
+  counting_error
+  suspected_theft_loss
+  other
 }
 
 enum SupplierType {
@@ -218,7 +264,16 @@ model AppUser {
   goodsReturnsApproved  GoodsReturn[]   @relation("GoodsReturnApprover")
   goodsReturnsProcessed GoodsReturn[]   @relation("GoodsReturnProcessor")
   stocktakesCounted     Stocktake[]     @relation("StocktakeCounter")
+  stocktakesAssigned    StocktakeAssignment[]
+  stocktakesReviewed    Stocktake[]     @relation("StocktakeReviewer")
+  stocktakesApproved    Stocktake[]     @relation("StocktakeApprover")
+  stocktakesPosted      Stocktake[]     @relation("StocktakePoster")
   stocktakesCompleted   Stocktake[]     @relation("StocktakeCompleter")
+  stocktakeCountEntries StocktakeCountEntry[]
+  stocktakePostings     StocktakePosting[]
+  stocktakeLineReviews  StocktakeLine[] @relation("StocktakeLineReviewer")
+  stocktakeLineApprovals StocktakeLine[] @relation("StocktakeLineApprover")
+  stocktakePostingLines StocktakePostingLine[]
   auditEvents          AuditEvent[]     @relation("AuditActor")
 
   @@index([tenantId])
@@ -356,6 +411,7 @@ model Product {
   transferItems TransferItem[]
   returnItems   GoodsReturnItem[]
   stocktakeLines StocktakeLine[]
+  stocktakeSnapshotLines StocktakeSnapshotLine[]
   tagMaps       ProductTagMap[]
   aliases       ProductAlias[]
   categoryMaps  ProductCategoryMap[]
@@ -497,6 +553,7 @@ model Batch {
   transferItems  TransferItem[]
   returnItems    GoodsReturnItem[]
   stocktakeLines StocktakeLine[]
+  stocktakeSnapshotLines StocktakeSnapshotLine[]
 
   @@unique([tenantId, branchId, productId, batchNo])
   @@index([tenantId, branchId, productId])
@@ -760,53 +817,184 @@ model GoodsReturnItem {
 }
 
 model Stocktake {
-  id              String          @id @default(uuid()) @db.Uuid
-  tenantId        String          @map("tenant_id") @db.Uuid
-  branchId        String          @map("branch_id") @db.Uuid
-  stocktakeNumber String          @map("stocktake_number")
-  status          StocktakeStatus @default(draft)
-  scope           StocktakeScope  @default(full)
-  /// When true, counters do not see system qty until complete (blind count).
-  blindCount      Boolean         @default(false) @map("blind_count")
-  /// Snapshot time when counting started (system qty frozen at start/refresh).
-  frozenAt        DateTime?       @map("frozen_at")
-  nearExpiryDays  Int?            @map("near_expiry_days")
-  notes           String?
-  countedBy       String          @map("counted_by") @db.Uuid
-  completedBy     String?         @map("completed_by") @db.Uuid
-  completedAt     DateTime?       @map("completed_at")
-  createdAt       DateTime        @default(now()) @map("created_at")
-  updatedAt       DateTime        @updatedAt @map("updated_at")
+  id                   String                @id @default(uuid()) @db.Uuid
+  tenantId             String                @map("tenant_id") @db.Uuid
+  branchId             String                @map("branch_id") @db.Uuid
+  stocktakeNumber      String                @map("stocktake_number")
+  status               StocktakeStatus       @default(draft)
+  scope                StocktakeScope        @default(full)
+  movementMode         StocktakeMovementMode @default(continue_and_reconcile) @map("movement_mode")
+  /// When true, counters do not see system qty until supervisor review.
+  blindCount           Boolean               @default(false) @map("blind_count")
+  /// Legacy mutable snapshot time retained for backfill compatibility.
+  frozenAt             DateTime?             @map("frozen_at")
+  /// Immutable baseline snapshot time used for reconciliation.
+  snapshotAt           DateTime?             @map("snapshot_at")
+  scheduledFor         DateTime?             @map("scheduled_for")
+  expectedCompletionAt DateTime?             @map("expected_completion_at")
+  nearExpiryDays       Int?                  @map("near_expiry_days")
+  title                String?               @db.VarChar(160)
+  areaLabel            String?               @map("area_label") @db.VarChar(160)
+  notes                String?
+  countedBy            String                @map("counted_by") @db.Uuid
+  reviewerId           String?               @map("reviewer_id") @db.Uuid
+  approvedBy           String?               @map("approved_by") @db.Uuid
+  postedBy             String?               @map("posted_by") @db.Uuid
+  completedBy          String?               @map("completed_by") @db.Uuid
+  startedAt            DateTime?             @map("started_at")
+  submittedAt          DateTime?             @map("submitted_at")
+  reviewStartedAt      DateTime?             @map("review_started_at")
+  approvedAt           DateTime?             @map("approved_at")
+  postedAt             DateTime?             @map("posted_at")
+  completedAt          DateTime?             @map("completed_at")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
 
-  branch    Branch  @relation(fields: [branchId], references: [id])
-  counter   AppUser @relation("StocktakeCounter", fields: [countedBy], references: [id])
-  completer AppUser? @relation("StocktakeCompleter", fields: [completedBy], references: [id])
-
-  lines StocktakeLine[]
+  branch       Branch                  @relation(fields: [branchId], references: [id])
+  counter      AppUser                 @relation("StocktakeCounter", fields: [countedBy], references: [id])
+  reviewer     AppUser?                @relation("StocktakeReviewer", fields: [reviewerId], references: [id])
+  approver     AppUser?                @relation("StocktakeApprover", fields: [approvedBy], references: [id])
+  poster       AppUser?                @relation("StocktakePoster", fields: [postedBy], references: [id])
+  completer    AppUser?                @relation("StocktakeCompleter", fields: [completedBy], references: [id])
+  lines        StocktakeLine[]
+  assignments  StocktakeAssignment[]
+  snapshotLines StocktakeSnapshotLine[]
+  countEntries StocktakeCountEntry[]
+  postings     StocktakePosting[]
 
   @@unique([tenantId, branchId, stocktakeNumber])
   @@index([tenantId, branchId, status])
+  @@index([tenantId, branchId, scheduledFor])
   @@map("stocktake")
 }
 
 model StocktakeLine {
+  id               String                 @id @default(uuid()) @db.Uuid
+  tenantId         String                 @map("tenant_id") @db.Uuid
+  stocktakeId      String                 @map("stocktake_id") @db.Uuid
+  productId        String                 @map("product_id") @db.Uuid
+  batchId          String                 @map("batch_id") @db.Uuid
+  systemQty        Int                    @map("system_qty")
+  countedQty       Int?                   @map("counted_qty")
+  varianceQty      Int?                   @map("variance_qty")
+  status           StocktakeCountStatus   @default(pending)
+  condition        StocktakeCondition     @default(saleable)
+  note             String?                @db.VarChar(512)
+  reviewReason     StocktakeVarianceReason? @map("review_reason")
+  reviewResolution String?                @map("review_resolution") @db.VarChar(512)
+  reviewNote       String?                @map("review_note") @db.VarChar(512)
+  reviewedBy       String?                @map("reviewed_by") @db.Uuid
+  approvedBy       String?                @map("approved_by") @db.Uuid
+  countedAt        DateTime?              @map("counted_at")
+  reviewedAt       DateTime?              @map("reviewed_at")
+  approvedAt       DateTime?              @map("approved_at")
+  postedAt         DateTime?              @map("posted_at")
+
+  stocktake    Stocktake             @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  product      Product               @relation(fields: [productId], references: [id])
+  batch        Batch                 @relation(fields: [batchId], references: [id])
+  reviewer     AppUser?              @relation("StocktakeLineReviewer", fields: [reviewedBy], references: [id])
+  approver     AppUser?              @relation("StocktakeLineApprover", fields: [approvedBy], references: [id])
+  countEntries StocktakeCountEntry[]
+  snapshotLine StocktakeSnapshotLine?
+  postingLines StocktakePostingLine[]
+
+  @@unique([stocktakeId, batchId])
+  @@index([tenantId, stocktakeId, status])
+  @@map("stocktake_line")
+}
+
+model StocktakeAssignment {
   id          String   @id @default(uuid()) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
   stocktakeId String   @map("stocktake_id") @db.Uuid
-  productId   String   @map("product_id") @db.Uuid
-  batchId     String   @map("batch_id") @db.Uuid
-  systemQty   Int      @map("system_qty")
-  countedQty  Int?     @map("counted_qty")
-  varianceQty Int?     @map("variance_qty")
-  note        String?  @db.VarChar(512)
-  countedAt   DateTime? @map("counted_at")
+  userId      String   @map("user_id") @db.Uuid
+  areaLabel   String?  @map("area_label") @db.VarChar(160)
+  createdAt   DateTime @default(now()) @map("created_at")
 
   stocktake Stocktake @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
-  product   Product   @relation(fields: [productId], references: [id])
-  batch     Batch     @relation(fields: [batchId], references: [id])
+  user      AppUser   @relation(fields: [userId], references: [id])
+
+  @@unique([stocktakeId, userId])
+  @@index([tenantId, userId])
+  @@map("stocktake_assignment")
+}
+
+model StocktakeSnapshotLine {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  stocktakeId String   @map("stocktake_id") @db.Uuid
+  lineId      String   @unique @map("line_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  snapshotQty Int      @map("snapshot_qty")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  stocktake Stocktake    @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  line      StocktakeLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  product   Product      @relation(fields: [productId], references: [id])
+  batch     Batch        @relation(fields: [batchId], references: [id])
 
   @@unique([stocktakeId, batchId])
-  @@map("stocktake_line")
+  @@index([tenantId, stocktakeId])
+  @@map("stocktake_snapshot_line")
+}
+
+model StocktakeCountEntry {
+  id          String              @id @default(uuid()) @db.Uuid
+  tenantId    String              @map("tenant_id") @db.Uuid
+  stocktakeId String              @map("stocktake_id") @db.Uuid
+  lineId      String              @map("line_id") @db.Uuid
+  countedQty  Int                 @map("counted_qty")
+  condition   StocktakeCondition  @default(saleable)
+  note        String?             @db.VarChar(512)
+  isRecount   Boolean             @default(false) @map("is_recount")
+  countedBy   String              @map("counted_by") @db.Uuid
+  countedAt   DateTime            @default(now()) @map("counted_at")
+
+  stocktake Stocktake    @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  line      StocktakeLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  counter   AppUser      @relation(fields: [countedBy], references: [id])
+
+  @@index([tenantId, stocktakeId, lineId, countedAt(sort: Desc)])
+  @@map("stocktake_count_entry")
+}
+
+model StocktakePosting {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  stocktakeId String   @map("stocktake_id") @db.Uuid
+  postedBy    String   @map("posted_by") @db.Uuid
+  postedAt    DateTime @default(now()) @map("posted_at")
+  note        String?  @db.VarChar(512)
+
+  stocktake Stocktake             @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  poster    AppUser               @relation(fields: [postedBy], references: [id])
+  lines     StocktakePostingLine[]
+
+  @@index([tenantId, stocktakeId])
+  @@map("stocktake_posting")
+}
+
+model StocktakePostingLine {
+  id                String            @id @default(uuid()) @db.Uuid
+  tenantId          String            @map("tenant_id") @db.Uuid
+  postingId         String            @map("posting_id") @db.Uuid
+  lineId            String            @map("line_id") @db.Uuid
+  qtyDelta          Int               @map("qty_delta")
+  movementType      StockMovementType @map("movement_type")
+  ledgerReferenceId String            @map("ledger_reference_id") @db.Uuid
+  reason            String?           @db.VarChar(512)
+  createdAt         DateTime          @default(now()) @map("created_at")
+  createdBy         String            @map("created_by") @db.Uuid
+
+  posting StocktakePosting @relation(fields: [postingId], references: [id], onDelete: Cascade)
+  line    StocktakeLine    @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  actor   AppUser          @relation(fields: [createdBy], references: [id])
+
+  @@index([tenantId, postingId])
+  @@index([tenantId, lineId])
+  @@map("stocktake_posting_line")
 }
 
 model AuditEvent {

@@ -2139,7 +2139,7 @@ async function main() {
         tenantId: tenant.id,
         branchId: mainBranch.id,
         stocktakeNumber: "ST-SEED-002",
-        status: StocktakeStatus.in_progress,
+        status: StocktakeStatus.counting,
         scope: StocktakeScope.near_expiry,
         blindCount: true,
         nearExpiryDays: 30,
