@@ -234,7 +234,7 @@ export function DataTable<T>({
               onClick={() => handlePageChange(page - 1)}
               className={styles.pageBtn}
             >
-              ‹ Prev
+              Prev
             </button>
             {renderPageNumbers(page, totalPages, handlePageChange)}
             <button
@@ -243,7 +243,7 @@ export function DataTable<T>({
               onClick={() => handlePageChange(page + 1)}
               className={styles.pageBtn}
             >
-              Next ›
+              Next
             </button>
           </div>
         </div>

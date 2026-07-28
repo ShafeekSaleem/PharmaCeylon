@@ -212,9 +212,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.2rem;
   min-width: 32px;
   height: 32px;
-  padding: 0 0.5rem;
+  padding: 0 0.55rem;
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
   background: var(--pc-card-bg);
@@ -222,6 +223,8 @@
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }

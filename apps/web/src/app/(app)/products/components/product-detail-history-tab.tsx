@@ -198,7 +198,7 @@ export function ProductDetailHistoryTab({ history, onSelectTab }: Props) {
                   disabled={page <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                 >
-                  Previous
+                  Prev
                 </button>
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
                   <button

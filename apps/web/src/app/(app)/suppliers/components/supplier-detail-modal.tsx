@@ -24,6 +24,7 @@ import {
   formatDate,
   formatMoney,
   formatTerms,
+  purchasingPoHref,
 } from "../utils";
 import css from "../../purchasing/purchasing.module.css";
 import scss from "../suppliers.module.css";
@@ -608,7 +609,7 @@ export function SupplierDetailModal({
                   {detail.recentOrders.map((po) => (
                     <li key={po.id} className={scss.activityItem}>
                       <div className={scss.activityTop}>
-                        <Link href="/purchasing" className={scss.poLink}>
+                        <Link href={purchasingPoHref(po.id)} className={scss.poLink}>
                           {po.poNumber}
                         </Link>
                         <StatusBadge status={po.status} />

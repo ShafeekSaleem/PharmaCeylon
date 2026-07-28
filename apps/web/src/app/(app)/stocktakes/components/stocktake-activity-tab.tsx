@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   IconCheck,
@@ -12,7 +12,6 @@ import {
   IconTag,
   IconUser,
 } from "@/components/icons";
-import { StatCard } from "@/components/ui";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
 import type { StocktakeListItem } from "../types";
 import { PAGE_SIZE } from "../types";
@@ -23,6 +22,41 @@ import scss from "../stocktakes.module.css";
 type Props = {
   stocktake: StocktakeListItem;
 };
+
+type MetricTone = "info" | "success" | "warning" | "accent";
+
+function MetricTile({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  icon: ReactNode;
+  tone: MetricTone;
+}) {
+  const toneClass =
+    tone === "success"
+      ? scss.metricTileIconSuccess
+      : tone === "warning"
+        ? scss.metricTileIconWarning
+        : tone === "accent"
+          ? scss.metricTileIconAccent
+          : scss.metricTileIconInfo;
+
+  return (
+    <div className={scss.metricTile}>
+      <span className={`${scss.metricTileIcon} ${toneClass}`} aria-hidden>
+        {icon}
+      </span>
+      <div className={scss.metricTileBody}>
+        <span className={scss.metricTileValue}>{value}</span>
+        <span className={scss.metricTileLabel}>{label}</span>
+      </div>
+    </div>
+  );
+}
 
 type ActivityItem = NonNullable<StocktakeListItem["activity"]>[number];
 
@@ -335,35 +369,35 @@ export function StocktakeActivityTab({ stocktake }: Props) {
   return (
     <div className={scss.activityLayout}>
       <div className={scss.metricTiles}>
-        <StatCard
-          title="Lines generated"
+        <MetricTile
+          label="Lines generated"
           value={stocktake.lineCount}
-          icon={<IconFileText size={16} />}
-          iconTone="info"
+          icon={<IconFileText size={14} />}
+          tone="info"
         />
-        <StatCard
-          title="Lines counted"
+        <MetricTile
+          label="Lines counted"
           value={stocktake.countedLineCount}
-          icon={<IconCheck size={16} />}
-          iconTone="success"
+          icon={<IconCheck size={14} />}
+          tone="success"
         />
-        <StatCard
-          title="Recount requests"
+        <MetricTile
+          label="Recount requests"
           value={recountCount}
-          icon={<IconRefresh size={16} />}
-          iconTone="warning"
+          icon={<IconRefresh size={14} />}
+          tone="info"
         />
-        <StatCard
-          title="Approval pending"
+        <MetricTile
+          label="Approval pending"
           value={stocktake.status === "submitted" || stocktake.status === "under_review" ? 1 : 0}
-          icon={<IconUser size={16} />}
-          iconTone="warning"
+          icon={<IconUser size={14} />}
+          tone="warning"
         />
-        <StatCard
-          title="Notes added"
+        <MetricTile
+          label="Notes added"
           value={notesCount}
-          icon={<IconTag size={16} />}
-          iconTone="primary"
+          icon={<IconTag size={14} />}
+          tone="accent"
         />
       </div>
 

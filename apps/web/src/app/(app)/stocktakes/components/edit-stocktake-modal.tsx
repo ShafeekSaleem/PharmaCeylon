@@ -2,16 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
+import { IconSearch } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
 import css from "../../purchasing/purchasing.module.css";
 import type { StocktakeListItem, StocktakeUserRef, UpdateStocktakePayload } from "../types";
-import {
-  datetimeLocalToIsoOrNull,
-  isoToDatetimeLocal,
-} from "../utils";
+import { datetimeLocalToIsoOrNull, isoToDatetimeLocal } from "../utils";
 import scss from "../stocktakes.module.css";
 
 type Props = {
@@ -32,6 +30,7 @@ export function EditStocktakeModal({ open, stocktake, onClose, onSaved }: Props)
   const [expectedCompletionAt, setExpectedCompletionAt] = useState("");
   const [reviewerId, setReviewerId] = useState("");
   const [counterIds, setCounterIds] = useState<string[]>([]);
+  const [counterQuery, setCounterQuery] = useState("");
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
   const [directoryHint, setDirectoryHint] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -47,6 +46,7 @@ export function EditStocktakeModal({ open, stocktake, onClose, onSaved }: Props)
     setReviewerId(stocktake.reviewerId ?? stocktake.reviewer?.id ?? "");
     const assigned = stocktake.assignments.map((entry) => entry.user.id);
     setCounterIds(assigned.length > 0 ? assigned : [stocktake.countedBy || stocktake.counter.id]);
+    setCounterQuery("");
     setError(null);
     setSaving(false);
     setDirectoryHint(null);
@@ -94,6 +94,14 @@ export function EditStocktakeModal({ open, stocktake, onClose, onSaved }: Props)
     ],
     [directory],
   );
+
+  const visibleCounters = useMemo(() => {
+    const q = counterQuery.trim().toLowerCase();
+    if (!q) return directory;
+    return directory.filter((entry) =>
+      `${entry.fullName} ${entry.email ?? ""}`.toLowerCase().includes(q),
+    );
+  }, [counterQuery, directory]);
 
   function toggleCounter(id: string) {
     setCounterIds((current) =>
@@ -262,12 +270,33 @@ export function EditStocktakeModal({ open, stocktake, onClose, onSaved }: Props)
           placeholder="Unassigned"
         />
         <div className={css.field} style={{ marginTop: "0.85rem" }}>
-          <span className={css.fieldLabel}>Counters</span>
+          <span className={css.fieldLabel}>
+            Counters
+            {counterIds.length > 0 ? ` (${counterIds.length} selected)` : ""}
+          </span>
+          <div className={scss.pickerSearchWrap}>
+            <IconSearch size={14} className={scss.pickerSearchIcon} />
+            <input
+              className={scss.pickerSearch}
+              type="search"
+              value={counterQuery}
+              onChange={(e) => setCounterQuery(e.target.value)}
+              placeholder="Search counters…"
+              disabled={saving}
+              aria-label="Search counters"
+            />
+          </div>
           <div className={scss.pickerList} role="group" aria-label="Assigned counters">
             {directory.length === 0 ? (
-              <p className={scss.hintText}>No users available to assign.</p>
+              <p className={scss.hintText} style={{ padding: "0.65rem" }}>
+                No users available to assign.
+              </p>
+            ) : visibleCounters.length === 0 ? (
+              <p className={scss.hintText} style={{ padding: "0.65rem" }}>
+                No counters match “{counterQuery.trim()}”.
+              </p>
             ) : (
-              directory.map((entry) => {
+              visibleCounters.map((entry) => {
                 const checked = counterIds.includes(entry.id);
                 return (
                   <label key={entry.id} className={scss.pickerRow}>
@@ -277,8 +306,8 @@ export function EditStocktakeModal({ open, stocktake, onClose, onSaved }: Props)
                       onChange={() => toggleCounter(entry.id)}
                       disabled={saving}
                     />
-                    <span>
-                      <strong>{entry.fullName}</strong>
+                    <span className={scss.pickerRowBody}>
+                      <span className={scss.pickerTitle}>{entry.fullName}</span>
                       {entry.email ? (
                         <span className={scss.pickerMeta}>{entry.email}</span>
                       ) : null}

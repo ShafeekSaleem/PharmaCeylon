@@ -25,7 +25,6 @@ import { useStocktakes } from "./hooks/use-stocktakes";
 import scss from "./stocktakes.module.css";
 import { PAGE_SIZE, type StocktakeListItem, type StocktakeStatusFilter } from "./types";
 import {
-  awaitingMyAction,
   formatDate,
   formatMoney,
   formatSigned,
@@ -43,8 +42,6 @@ export default function StocktakesPage() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StocktakeStatusFilter>("all");
-  const [onlyVariance, setOnlyVariance] = useState(false);
-  const [mineOnly, setMineOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -52,7 +49,7 @@ export default function StocktakesPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, onlyVariance, mineOnly]);
+  }, [search, statusFilter]);
 
   const summary = useMemo(() => {
     let draft = 0;
@@ -76,8 +73,6 @@ export default function StocktakesPage() {
     const q = search.trim().toLowerCase();
     return stocktakes.rows.filter((row) => {
       if (!matchesStatusFilter(row, statusFilter)) return false;
-      if (onlyVariance && !(row.varianceLineCount && row.varianceLineCount > 0)) return false;
-      if (mineOnly && !awaitingMyAction(row, user?.id)) return false;
       if (!q) return true;
       const hay = [
         row.stocktakeNumber,
@@ -92,7 +87,7 @@ export default function StocktakesPage() {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [mineOnly, onlyVariance, search, statusFilter, stocktakes.rows, user?.id]);
+  }, [search, statusFilter, stocktakes.rows]);
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -108,24 +103,15 @@ export default function StocktakesPage() {
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, page]);
 
-  const hasActiveFilters =
-    !!search.trim() || statusFilter !== "all" || onlyVariance || mineOnly;
+  const hasActiveFilters = !!search.trim() || statusFilter !== "all";
 
   function clearFilters() {
     setSearch("");
     setStatusFilter("all");
-    setOnlyVariance(false);
-    setMineOnly(false);
   }
 
   function toggleStatus(next: StocktakeStatusFilter) {
-    setOnlyVariance(false);
     setStatusFilter((prev) => (prev === next ? "all" : next));
-  }
-
-  function toggleVarianceKpi() {
-    setStatusFilter("all");
-    setOnlyVariance((prev) => !prev);
   }
 
   const columns: Column<StocktakeListItem>[] = useMemo(
@@ -329,8 +315,6 @@ export default function StocktakesPage() {
               subtitle="Visible lines only"
               icon={<IconEye size={16} />}
               iconTone="danger"
-              active={onlyVariance}
-              onClick={toggleVarianceKpi}
             />
             <StatCard
               title="Completed"
@@ -362,22 +346,6 @@ export default function StocktakesPage() {
               options={STATUS_OPTIONS}
               onChange={(value) => setStatusFilter(value as StocktakeStatusFilter)}
             />
-            <label className={scss.toolbarCheck}>
-              <input
-                type="checkbox"
-                checked={onlyVariance}
-                onChange={(event) => setOnlyVariance(event.target.checked)}
-              />
-              <span>Has variance</span>
-            </label>
-            <label className={scss.toolbarCheck}>
-              <input
-                type="checkbox"
-                checked={mineOnly}
-                onChange={(event) => setMineOnly(event.target.checked)}
-              />
-              <span>Awaiting my action</span>
-            </label>
           </div>
 
           {hasActiveFilters ? (

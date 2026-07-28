@@ -92,6 +92,8 @@ export type SupplierSummary = {
     kind: "po" | "grn" | "invoice";
     label: string;
     supplierName: string;
+    supplierId?: string;
+    purchaseOrderId?: string;
     at: string;
     amount?: number;
   }>;

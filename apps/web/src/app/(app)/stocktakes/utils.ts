@@ -425,17 +425,6 @@ export function formatSigned(n: number): string {
   return String(n);
 }
 
-export function awaitingMyAction(row: StocktakeListItem, userId?: string | null): boolean {
-  if (!userId) return false;
-  if (row.status === "counting") {
-    return row.assignments.some((assignment) => assignment.user.id === userId);
-  }
-  if (row.status === "submitted" || row.status === "under_review" || row.status === "approved") {
-    return row.reviewer?.id === userId || row.approver?.id === userId || row.counter.id === userId;
-  }
-  return false;
-}
-
 export function stocktakeHref(id: string): string {
   return `/stocktakes/${id}`;
 }

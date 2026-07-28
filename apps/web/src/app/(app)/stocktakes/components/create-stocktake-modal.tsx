@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
+import { IconSearch } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
@@ -13,7 +14,7 @@ import {
   NEAR_EXPIRY_PRESETS,
   SCOPE_OPTIONS,
 } from "../constants";
-import type { StocktakeMovementMode, StocktakeScope } from "../types";
+import type { StocktakeMovementMode, StocktakeScope, StocktakeUserRef } from "../types";
 import scss from "../stocktakes.module.css";
 
 type Props = {
@@ -21,6 +22,8 @@ type Props = {
   onClose: () => void;
   onCreated: () => void;
 };
+
+type DirectoryUser = StocktakeUserRef & { email?: string };
 
 function toIsoOrNull(localValue: string): string | null {
   const trimmed = localValue.trim();
@@ -43,6 +46,11 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
   const [nearExpiryDays, setNearExpiryDays] = useState(DEFAULT_NEAR_EXPIRY_DAYS);
   const [scheduledFor, setScheduledFor] = useState("");
   const [expectedCompletionAt, setExpectedCompletionAt] = useState("");
+  const [reviewerId, setReviewerId] = useState("");
+  const [counterIds, setCounterIds] = useState<string[]>([]);
+  const [counterQuery, setCounterQuery] = useState("");
+  const [directory, setDirectory] = useState<DirectoryUser[]>([]);
+  const [directoryHint, setDirectoryHint] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,13 +66,66 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
     setNearExpiryDays(DEFAULT_NEAR_EXPIRY_DAYS);
     setScheduledFor("");
     setExpectedCompletionAt("");
+    setReviewerId("");
+    setCounterIds(user?.id ? [user.id] : []);
+    setCounterQuery("");
     setError(null);
     setSaving(false);
-  }, [open]);
+    setDirectoryHint(null);
+
+    const fallback: DirectoryUser[] = [];
+    if (user?.id) {
+      fallback.push({ id: user.id, fullName: user.fullName || user.email || "You", email: user.email });
+    }
+    setDirectory(fallback);
+
+    void apiJson<Array<{ id: string; fullName: string; email: string; isActive: boolean }>>(
+      "/admin/users",
+    )
+      .then((rows) => {
+        setDirectory(
+          rows
+            .filter((row) => row.isActive)
+            .map((row) => ({ id: row.id, fullName: row.fullName, email: row.email })),
+        );
+        setDirectoryHint(null);
+      })
+      .catch(() => {
+        setDirectoryHint(
+          "Full user directory needs manager/owner access. You can still assign yourself as counter.",
+        );
+      });
+  }, [open, user]);
 
   useEffect(() => {
     if (scope === "custom") setSeedLines(false);
   }, [scope]);
+
+  const reviewerOptions = useMemo(
+    () => [
+      { value: "", label: "Unassigned" },
+      ...directory.map((entry) => ({
+        value: entry.id,
+        label: entry.fullName,
+        meta: entry.email,
+      })),
+    ],
+    [directory],
+  );
+
+  const visibleCounters = useMemo(() => {
+    const q = counterQuery.trim().toLowerCase();
+    if (!q) return directory;
+    return directory.filter((entry) =>
+      `${entry.fullName} ${entry.email ?? ""}`.toLowerCase().includes(q),
+    );
+  }, [counterQuery, directory]);
+
+  function toggleCounter(id: string) {
+    setCounterIds((current) =>
+      current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
+    );
+  }
 
   async function submit() {
     if (scope === "near_expiry") {
@@ -89,6 +150,10 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
       setError("Expected completion must be after the scheduled time.");
       return;
     }
+    if (counterIds.length === 0) {
+      setError("Select at least one counter.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -103,7 +168,8 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
         movementMode,
         scheduledFor: scheduledIso,
         expectedCompletionAt: expectedIso,
-        counterIds: user?.id ? [user.id] : [],
+        reviewerId: reviewerId || null,
+        counterIds,
       };
       if (scope === "near_expiry") {
         body.nearExpiryDays = Number(nearExpiryDays);
@@ -127,7 +193,7 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
       open={open}
       onClose={onClose}
       title="New stocktake"
-      description="Pick a scope and schedule. You can count, review variances, and post from the workspace."
+      description="Pick a scope, schedule, and assignees. You can count, review variances, and post from the workspace."
       size="lg"
       canDismiss={!saving}
       footer={
@@ -144,6 +210,11 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
       {error ? (
         <div className={css.modalAlert}>
           <Alert variant="error">{error}</Alert>
+        </div>
+      ) : null}
+      {directoryHint ? (
+        <div className={css.modalAlert}>
+          <Alert variant="info">{directoryHint}</Alert>
         </div>
       ) : null}
 
@@ -316,6 +387,69 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
             maxLength={2000}
             disabled={saving}
           />
+        </div>
+      </section>
+
+      <section className={css.createSection}>
+        <h3 className={css.createSectionTitle}>Assignment</h3>
+        <PurchasingSelect
+          label="Reviewer"
+          value={reviewerId}
+          options={reviewerOptions}
+          onChange={setReviewerId}
+          allowClear
+          disabled={saving}
+          placeholder="Unassigned"
+        />
+        <div className={css.field} style={{ marginTop: "0.85rem" }}>
+          <span className={css.fieldLabel}>
+            Counters
+            {counterIds.length > 0 ? ` (${counterIds.length} selected)` : ""}
+          </span>
+          <div className={scss.pickerSearchWrap}>
+            <IconSearch size={14} className={scss.pickerSearchIcon} />
+            <input
+              className={scss.pickerSearch}
+              type="search"
+              value={counterQuery}
+              onChange={(e) => setCounterQuery(e.target.value)}
+              placeholder="Search counters…"
+              disabled={saving}
+              aria-label="Search counters"
+            />
+          </div>
+          <div className={scss.pickerList} role="group" aria-label="Assigned counters">
+            {directory.length === 0 ? (
+              <p className={scss.hintText} style={{ padding: "0.65rem" }}>
+                No users available to assign.
+              </p>
+            ) : visibleCounters.length === 0 ? (
+              <p className={scss.hintText} style={{ padding: "0.65rem" }}>
+                No counters match “{counterQuery.trim()}”.
+              </p>
+            ) : (
+              visibleCounters.map((entry) => {
+                const checked = counterIds.includes(entry.id);
+                return (
+                  <label key={entry.id} className={scss.pickerRow}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleCounter(entry.id)}
+                      disabled={saving}
+                    />
+                    <span className={scss.pickerRowBody}>
+                      <span className={scss.pickerTitle}>{entry.fullName}</span>
+                      {entry.email ? (
+                        <span className={scss.pickerMeta}>{entry.email}</span>
+                      ) : null}
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+          <p className={css.fieldHint}>You are selected by default — add other counters as needed.</p>
         </div>
       </section>
 

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Alert } from "@/components/alert";
 import {
   IconAlertTriangle,
@@ -41,6 +42,7 @@ import {
   type SupplierTypeFilter,
 } from "./types";
 import {
+  activityHref,
   displayStatusLabel,
   displayTypeLabel,
   exportSuppliersCsv,
@@ -63,6 +65,16 @@ const TOP_SUPPLIERS_VISIBLE = 5;
 const RECENT_ACTIVITY_VISIBLE = 6;
 
 export default function SuppliersPage() {
+  return (
+    <Suspense fallback={<div className={layoutCss.loading}>Loading suppliers…</div>}>
+      <SuppliersContent />
+    </Suspense>
+  );
+}
+
+function SuppliersContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, branchId } = useAuth();
   const canWrite = hasSupplierWriteAccess(user, branchId);
 
@@ -77,6 +89,22 @@ export default function SuppliersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailStartInEdit, setDetailStartInEdit] = useState(false);
+
+  useEffect(() => {
+    const supplierParam = searchParams.get("supplier");
+    if (supplierParam) {
+      setDetailStartInEdit(false);
+      setDetailId(supplierParam);
+    }
+  }, [searchParams]);
+
+  function clearSupplierParam() {
+    if (!searchParams.get("supplier")) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("supplier");
+    const qs = next.toString();
+    router.replace(qs ? `/suppliers?${qs}` : "/suppliers");
+  }
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -417,6 +445,7 @@ export default function SuppliersPage() {
                 value={summaryPeriod}
                 options={SUMMARY_PERIOD_OPTIONS}
                 onChange={(value) => setSummaryPeriod(value as SummaryPeriod)}
+                portal
               />
             </div>
             <p className={layoutCss.periodLabel}>{period?.label ?? "—"}</p>
@@ -494,22 +523,31 @@ export default function SuppliersPage() {
             ) : (
               <>
                 <ul className={scss.activityList}>
-                  {recentActivity.map((a) => (
-                    <li key={`${a.kind}-${a.id}`} className={scss.activityItem}>
-                      <div className={scss.activityTop}>
-                        <span className={scss.activityLabel}>
-                          <span className={scss.activityKind}>{a.kind.toUpperCase()}</span>
-                          {a.label}
+                  {recentActivity.map((a) => {
+                    const href = activityHref(a);
+                    return (
+                      <li key={`${a.kind}-${a.id}`} className={scss.activityItem}>
+                        <div className={scss.activityTop}>
+                          <span className={scss.activityLabel}>
+                            <span className={scss.activityKind}>{a.kind.toUpperCase()}</span>
+                            {href ? (
+                              <Link href={href} className={scss.poLink}>
+                                {a.label}
+                              </Link>
+                            ) : (
+                              a.label
+                            )}
+                          </span>
+                          {a.amount != null ? (
+                            <span className={scss.activityAmount}>{formatMoney(a.amount)}</span>
+                          ) : null}
+                        </div>
+                        <span className={scss.activityMeta}>
+                          {a.supplierName} · {formatDate(a.at)}
                         </span>
-                        {a.amount != null ? (
-                          <span className={scss.activityAmount}>{formatMoney(a.amount)}</span>
-                        ) : null}
-                      </div>
-                      <span className={scss.activityMeta}>
-                        {a.supplierName} · {formatDate(a.at)}
-                      </span>
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
                 <Link href="/purchasing" className={layoutCss.sideLink}>
                   View all activity →
@@ -539,6 +577,7 @@ export default function SuppliersPage() {
         onClose={() => {
           setDetailId(null);
           setDetailStartInEdit(false);
+          clearSupplierParam();
         }}
         onChanged={reloadAll}
       />

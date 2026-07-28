@@ -13,7 +13,7 @@ import { PurchasingService } from "./purchasing.service";
 export class PurchasingController {
   constructor(private readonly purchasing: PurchasingService) {}
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk, RoleName.pharmacist)
   @Get("purchase-orders")
   list(
     @CurrentUser() user: RequestUser,
@@ -22,7 +22,7 @@ export class PurchasingController {
     return this.purchasing.listPurchaseOrders(user.tenantId, branchId);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk, RoleName.pharmacist)
   @Get("purchase-orders/:id")
   getOne(
     @CurrentUser() user: RequestUser,

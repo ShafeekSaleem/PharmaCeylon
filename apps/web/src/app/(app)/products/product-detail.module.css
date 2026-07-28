@@ -810,15 +810,20 @@
 }
 
 .pageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 2rem;
   height: 2rem;
-  padding: 0 0.45rem;
+  padding: 0 0.55rem;
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
   background: var(--pc-card-bg);
   color: var(--pc-foreground);
   font-family: inherit;
   font-size: 0.82rem;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 

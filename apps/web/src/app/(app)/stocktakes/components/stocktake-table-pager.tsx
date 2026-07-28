@@ -79,7 +79,7 @@ export function StocktakeTablePager({ page, pageSize, total, onPageChange }: Pro
           onClick={() => onPageChange(page - 1)}
           className={tableStyles.pageBtn}
         >
-          ‹ Prev
+          Prev
         </button>
         {renderPageNumbers(page, totalPages, onPageChange)}
         <button
@@ -88,7 +88,7 @@ export function StocktakeTablePager({ page, pageSize, total, onPageChange }: Pro
           onClick={() => onPageChange(page + 1)}
           className={tableStyles.pageBtn}
         >
-          Next ›
+          Next
         </button>
       </div>
     </div>

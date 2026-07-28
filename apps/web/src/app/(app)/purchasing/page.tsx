@@ -76,6 +76,7 @@ function PurchasingContent() {
 
   const productId = searchParams.get("productId");
   const action = searchParams.get("action");
+  const poParam = searchParams.get("po");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PoStatusFilter>("all");
@@ -92,6 +93,13 @@ function PurchasingContent() {
   useEffect(() => {
     if (action === "create-po" && canWrite) setCreateOpen(true);
   }, [action, canWrite]);
+
+  useEffect(() => {
+    if (poParam) {
+      setDetailStartInEdit(false);
+      setDetailId(poParam);
+    }
+  }, [poParam]);
 
   useEffect(() => {
     let cancelled = false;
@@ -448,6 +456,14 @@ function PurchasingContent() {
     [canWrite],
   );
 
+  function clearPoParam() {
+    if (!searchParams.get("po")) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("po");
+    const qs = next.toString();
+    router.replace(qs ? `/purchasing?${qs}` : "/purchasing");
+  }
+
   function clearCreateAction() {
     if (action !== "create-po" && !productId) return;
     const next = new URLSearchParams(searchParams.toString());
@@ -665,6 +681,7 @@ function PurchasingContent() {
                   value={summaryPeriod}
                   options={SUMMARY_PERIOD_OPTIONS}
                   onChange={(value) => setSummaryPeriod(value as SummaryPeriod)}
+                  portal
                 />
               </div>
               <p className={css.periodLabel}>{summaryPeriodLabel}</p>
@@ -819,6 +836,7 @@ function PurchasingContent() {
         onClose={() => {
           setDetailId(null);
           setDetailStartInEdit(false);
+          clearPoParam();
         }}
         onChanged={() => void orders.reload()}
       />

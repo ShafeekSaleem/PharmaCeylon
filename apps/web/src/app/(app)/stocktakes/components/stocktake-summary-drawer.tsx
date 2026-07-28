@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { IconSearch } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
 import css from "../../purchasing/purchasing.module.css";
 import type { StocktakeListItem } from "../types";
@@ -29,10 +30,29 @@ type Props = {
 export function StocktakeSummaryDrawer({ open, stocktake, onClose }: Props) {
   const router = useRouter();
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
-    if (open) setPage(1);
+    if (open) {
+      setPage(1);
+      setQuery("");
+    }
   }, [open, stocktake?.id]);
+
+  const filteredLines = useMemo(() => {
+    if (!stocktake) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return stocktake.lines;
+    return stocktake.lines.filter((line) =>
+      `${line.product.name} ${line.product.sku} ${line.batch.batchNo}`
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [query, stocktake]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
 
   if (!stocktake) return null;
 
@@ -40,9 +60,9 @@ export function StocktakeSummaryDrawer({ open, stocktake, onClose }: Props) {
     stocktake.assignments.map((entry) => entry.user.fullName).join(", ") ||
     stocktake.counter.fullName ||
     "—";
-  const totalLines = stocktake.lines.length;
+  const totalLines = filteredLines.length;
   const start = (page - 1) * PREVIEW_PAGE_SIZE;
-  const previewLines = stocktake.lines.slice(start, start + PREVIEW_PAGE_SIZE);
+  const previewLines = filteredLines.slice(start, start + PREVIEW_PAGE_SIZE);
   const pct = stocktake.progressPct ?? 0;
   const tone = pct >= 100 ? css.progressFillDone : pct > 0 ? css.progressFillWarn : "";
 
@@ -155,7 +175,7 @@ export function StocktakeSummaryDrawer({ open, stocktake, onClose }: Props) {
       ) : null}
 
       <h3 className={css.sectionTitle}>Line preview</h3>
-      {totalLines === 0 ? (
+      {stocktake.lines.length === 0 ? (
         <p className={scss.emptyLines}>
           No lines yet
           {stocktake.scope === "custom"
@@ -165,41 +185,63 @@ export function StocktakeSummaryDrawer({ open, stocktake, onClose }: Props) {
               : "."}
         </p>
       ) : (
-        <div className={scss.linesTableWrap}>
-          <div className={scss.linesTableScroll}>
-            <table className={scss.linesTable}>
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Batch</th>
-                  <th>Expiry</th>
-                  <th className={scss.num}>Counted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {previewLines.map((line) => (
-                  <tr key={line.id}>
-                    <td>
-                      <div className={scss.productCell}>
-                        <span className={scss.productName}>{line.product.name}</span>
-                        <span className={scss.productMeta}>{line.product.sku}</span>
-                      </div>
-                    </td>
-                    <td>{line.batch.batchNo}</td>
-                    <td>{formatDate(line.batch.expiryDate)}</td>
-                    <td className={scss.num}>{line.countedQty ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <>
+          <div className={scss.previewToolbar}>
+            <div className={scss.pickerSearchWrap}>
+              <IconSearch size={14} className={scss.pickerSearchIcon} />
+              <input
+                className={scss.pickerSearch}
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search product, SKU, or batch…"
+                aria-label="Search line preview"
+              />
+            </div>
+            <span className={scss.previewCount}>
+              {totalLines} of {stocktake.lines.length}
+            </span>
           </div>
-          <StocktakeTablePager
-            page={page}
-            pageSize={PREVIEW_PAGE_SIZE}
-            total={totalLines}
-            onPageChange={setPage}
-          />
-        </div>
+          {totalLines === 0 ? (
+            <p className={scss.emptyLines}>No lines match “{query.trim()}”.</p>
+          ) : (
+            <div className={scss.linesTableWrap}>
+              <div className={scss.linesTableScroll}>
+                <table className={scss.linesTable}>
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Batch</th>
+                      <th>Expiry</th>
+                      <th className={scss.num}>Counted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewLines.map((line) => (
+                      <tr key={line.id}>
+                        <td>
+                          <div className={scss.productCell}>
+                            <span className={scss.productName}>{line.product.name}</span>
+                            <span className={scss.productMeta}>{line.product.sku}</span>
+                          </div>
+                        </td>
+                        <td>{line.batch.batchNo}</td>
+                        <td>{formatDate(line.batch.expiryDate)}</td>
+                        <td className={scss.num}>{line.countedQty ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <StocktakeTablePager
+                page={page}
+                pageSize={PREVIEW_PAGE_SIZE}
+                total={totalLines}
+                onPageChange={setPage}
+              />
+            </div>
+          )}
+        </>
       )}
     </Modal>
   );

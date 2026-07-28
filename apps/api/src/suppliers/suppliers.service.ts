@@ -215,6 +215,7 @@ export class SuppliersService {
             id: true,
             grnNumber: true,
             createdAt: true,
+            purchaseOrderId: true,
             purchaseOrder: {
               select: {
                 supplier: { select: { id: true, code: true, name: true } },
@@ -309,6 +310,8 @@ export class SuppliersService {
       kind: "po" | "grn" | "invoice";
       label: string;
       supplierName: string;
+      supplierId?: string;
+      purchaseOrderId?: string;
       at: string;
       amount?: number;
     };
@@ -321,6 +324,8 @@ export class SuppliersService {
         kind: "po",
         label: po.poNumber,
         supplierName: po.supplier.name,
+        supplierId: po.supplier.id,
+        purchaseOrderId: po.id,
         at: po.createdAt.toISOString(),
         amount: Number(amount.toFixed(2)),
       });
@@ -331,6 +336,8 @@ export class SuppliersService {
         kind: "grn",
         label: gr.grnNumber,
         supplierName: gr.purchaseOrder.supplier.name,
+        supplierId: gr.purchaseOrder.supplier.id,
+        purchaseOrderId: gr.purchaseOrderId,
         at: gr.createdAt.toISOString(),
       });
     }
@@ -340,6 +347,7 @@ export class SuppliersService {
         kind: "invoice",
         label: inv.invoiceNumber,
         supplierName: inv.supplier.name,
+        supplierId: inv.supplier.id,
         at: inv.createdAt.toISOString(),
         amount: money(inv.totalAmount),
       });

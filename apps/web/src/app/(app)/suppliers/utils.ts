@@ -101,6 +101,30 @@ export function buildSuppliersQuery(params: {
   return s ? `?${s}` : "";
 }
 
+export function purchasingPoHref(poId: string): string {
+  return `/purchasing?po=${encodeURIComponent(poId)}`;
+}
+
+export function supplierDetailHref(supplierId: string): string {
+  return `/suppliers?supplier=${encodeURIComponent(supplierId)}`;
+}
+
+export function activityHref(activity: {
+  kind: "po" | "grn" | "invoice";
+  id: string;
+  purchaseOrderId?: string;
+  supplierId?: string;
+}): string | null {
+  if (activity.kind === "po") return purchasingPoHref(activity.id);
+  if (activity.kind === "grn" && activity.purchaseOrderId) {
+    return purchasingPoHref(activity.purchaseOrderId);
+  }
+  if (activity.kind === "invoice" && activity.supplierId) {
+    return supplierDetailHref(activity.supplierId);
+  }
+  return null;
+}
+
 export function exportSuppliersCsv(rows: SupplierListItem[]) {
   const headers = [
     "Code",

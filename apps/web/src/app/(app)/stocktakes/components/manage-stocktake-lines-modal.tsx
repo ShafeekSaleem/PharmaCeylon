@@ -140,8 +140,12 @@ export function ManageStocktakeLinesModal({
             disabled={selected.length === 0}
           >
             {mode === "add"
-              ? `Add ${selected.length || ""}`.trim()
-              : `Remove ${selected.length || ""}`.trim()}
+              ? selected.length > 0
+                ? `Add (${selected.length})`
+                : "Add"
+              : selected.length > 0
+                ? `Remove (${selected.length})`
+                : "Remove"}
           </ModalButton>
         </ModalFooter>
       }
@@ -189,13 +193,10 @@ export function ManageStocktakeLinesModal({
                     onChange={() => toggle(batch.id)}
                     disabled={saving}
                   />
-                  <span>
-                    <strong>
-                      {batch.product.name}{" "}
-                      <span className={scss.pickerMeta}>· {batch.product.sku}</span>
-                    </strong>
+                  <span className={scss.pickerRowBody}>
+                    <span className={scss.pickerTitle}>{batch.product.name}</span>
                     <span className={scss.pickerMeta}>
-                      Batch {batch.batchNo} · Qty {batch.qtyOnHand}
+                      {batch.product.sku} · Batch {batch.batchNo} · Qty {batch.qtyOnHand}
                       {batch.isQuarantined ? " · Quarantined" : ""}
                     </span>
                   </span>
@@ -218,13 +219,10 @@ export function ManageStocktakeLinesModal({
                   onChange={() => toggle(line.batchId)}
                   disabled={saving}
                 />
-                <span>
-                  <strong>
-                    {line.product.name}{" "}
-                    <span className={scss.pickerMeta}>· {line.product.sku}</span>
-                  </strong>
+                <span className={scss.pickerRowBody}>
+                  <span className={scss.pickerTitle}>{line.product.name}</span>
                   <span className={scss.pickerMeta}>
-                    Batch {line.batch.batchNo}
+                    {line.product.sku} · Batch {line.batch.batchNo}
                     {line.countedQty != null ? ` · Counted ${line.countedQty}` : " · Not counted"}
                   </span>
                 </span>

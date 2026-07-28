@@ -43,6 +43,7 @@ export function PurchasingSelect({
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
 
   const selected = options.find((option) => option.value === value);
@@ -61,7 +62,8 @@ export function PurchasingSelect({
       position: "fixed",
       left: rect.left,
       width: Math.max(rect.width, 240),
-      zIndex: 200,
+      // Above modal overlays (z-index 100 / 130) without fighting nested dialogs.
+      zIndex: 140,
       ...(openUp
         ? { bottom: window.innerHeight - rect.top + 6, maxHeight: Math.min(280, rect.top - 16) }
         : { top: rect.bottom + 6, maxHeight: Math.min(280, spaceBelow - 16) }),
@@ -73,6 +75,9 @@ export function PurchasingSelect({
       setQuery("");
       return;
     }
+    // preventScroll avoids jumping the modal / page behind when focusing the portal input.
+    searchInputRef.current?.focus({ preventScroll: true });
+
     function onDoc(event: MouseEvent) {
       const target = event.target as Node;
       if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
@@ -157,11 +162,11 @@ export function PurchasingSelect({
             <div className={css.selectSearch}>
               <IconSearch size={14} />
               <input
+                ref={searchInputRef}
                 type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={searchPlaceholder}
-                autoFocus
               />
             </div>
             <div className={css.selectOptions}>
