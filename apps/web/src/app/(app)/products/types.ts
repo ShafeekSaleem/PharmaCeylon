@@ -195,4 +195,4 @@ export type ColumnKey =
   | "status"
   | "actions";
 
-export type StatFilter = "all" | "active" | "controlled" | "lowStock";
+export type StatFilter = "all" | "active" | "inactive" | "controlled" | "lowStock";

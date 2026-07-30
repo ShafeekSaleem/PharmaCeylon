@@ -499,7 +499,7 @@ function PurchasingContent() {
         <div className={css.dashboard}>
           <div className={css.mainCol}>
             <div className={css.kpiRow}>
-              <StatCard
+              <StatCard size="sm"
                 title="Draft"
                 value={summary.draft}
                 subtitle="Not yet issued"
@@ -508,7 +508,7 @@ function PurchasingContent() {
                 active={statusFilter === "draft"}
                 onClick={() => toggleStatus("draft")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Pending approval"
                 value={summary.pending_approval}
                 subtitle="Awaiting approval"
@@ -517,7 +517,7 @@ function PurchasingContent() {
                 active={statusFilter === "pending_approval"}
                 onClick={() => toggleStatus("pending_approval")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Issued"
                 value={summary.issued}
                 subtitle="With suppliers"
@@ -526,7 +526,7 @@ function PurchasingContent() {
                 active={statusFilter === "issued"}
                 onClick={() => toggleStatus("issued")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Partially received"
                 value={summary.partially_received}
                 subtitle="In progress"
@@ -535,7 +535,7 @@ function PurchasingContent() {
                 active={statusFilter === "partially_received"}
                 onClick={() => toggleStatus("partially_received")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Received"
                 value={summary.received}
                 subtitle="Fully received"
@@ -544,7 +544,7 @@ function PurchasingContent() {
                 active={statusFilter === "received"}
                 onClick={() => toggleStatus("received")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Overdue"
                 value={summary.overdue}
                 subtitle="Past due date"

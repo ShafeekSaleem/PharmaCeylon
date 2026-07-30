@@ -14,6 +14,8 @@ type Tab = "categories" | "tags";
 type ProductMetaManagerModalProps = {
   open: boolean;
   canWrite: boolean;
+  /** API restricts category/tag DELETE to owner/manager; defaults to `canWrite` when omitted. */
+  canDelete?: boolean;
   categories: ProductCategory[];
   tags: ProductTag[];
   onClose: () => void;
@@ -23,11 +25,13 @@ type ProductMetaManagerModalProps = {
 export function ProductMetaManagerModal({
   open,
   canWrite,
+  canDelete,
   categories,
   tags,
   onClose,
   onRefresh,
 }: ProductMetaManagerModalProps) {
+  const canDeleteMeta = canDelete ?? canWrite;
   const [tab, setTab] = useState<Tab>("categories");
   const [query, setQuery] = useState("");
   const [promptOpen, setPromptOpen] = useState(false);
@@ -273,26 +277,30 @@ export function ProductMetaManagerModal({
                         </span>
                       )}
                     </div>
-                    {canWrite && (
+                    {(canWrite || canDeleteMeta) && (
                       <div className={css.metaManagerItemActions}>
-                        <button
-                          type="button"
-                          className={`${css.actionIcon} ${css.actionIconEdit}`}
-                          onClick={() => startEdit(item.id, item.name)}
-                          aria-label={`Edit ${item.name}`}
-                          data-tooltip={`Edit ${singular}`}
-                        >
-                          <IconEdit size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          className={`${css.actionIcon} ${css.actionIconDelete}`}
-                          onClick={() => setDeleteTarget({ id: item.id, name: item.name })}
-                          aria-label={`Delete ${item.name}`}
-                          data-tooltip={`Delete ${singular}`}
-                        >
-                          <IconTrash size={15} />
-                        </button>
+                        {canWrite && (
+                          <button
+                            type="button"
+                            className={`${css.actionIcon} ${css.actionIconEdit}`}
+                            onClick={() => startEdit(item.id, item.name)}
+                            aria-label={`Edit ${item.name}`}
+                            data-tooltip={`Edit ${singular}`}
+                          >
+                            <IconEdit size={15} />
+                          </button>
+                        )}
+                        {canDeleteMeta && (
+                          <button
+                            type="button"
+                            className={`${css.actionIcon} ${css.actionIconDelete}`}
+                            onClick={() => setDeleteTarget({ id: item.id, name: item.name })}
+                            aria-label={`Delete ${item.name}`}
+                            data-tooltip={`Delete ${singular}`}
+                          >
+                            <IconTrash size={15} />
+                          </button>
+                        )}
                       </div>
                     )}
                   </>

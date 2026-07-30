@@ -38,6 +38,12 @@ enum SaleStatus {
   refunded
 }
 
+enum PaymentMethod {
+  cash
+  card
+  mobile_wallet
+}
+
 enum TransferStatus {
   requested
   approved
@@ -197,6 +203,7 @@ model Tenant {
   auditEvents       AuditEvent[]
   suppliers         Supplier[]
   supplierInvoices  SupplierInvoice[]
+  customers         Customer[]
 
   @@map("tenant")
 }
@@ -228,6 +235,8 @@ model Branch {
   documentSequences DocumentSequence[]
   supplierInvoices  SupplierInvoice[]
   auditEvents       AuditEvent[]
+  prescriptions     Prescription[]
+  heldSales         HeldSale[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -275,6 +284,8 @@ model AppUser {
   stocktakeLineApprovals StocktakeLine[] @relation("StocktakeLineApprover")
   stocktakePostingLines StocktakePostingLine[]
   auditEvents          AuditEvent[]     @relation("AuditActor")
+  prescriptionsCreated Prescription[]   @relation("PrescriptionCreator")
+  heldSales            HeldSale[]       @relation("HeldSaleHolder")
 
   @@index([tenantId])
   @@map("app_user")
@@ -649,28 +660,124 @@ model GoodsReceiptItem {
 }
 
 model Sale {
-  id            String     @id @default(uuid()) @db.Uuid
-  tenantId      String     @map("tenant_id") @db.Uuid
-  branchId      String     @map("branch_id") @db.Uuid
-  invoiceNo     String     @map("invoice_no")
-  status        SaleStatus @default(posted)
-  soldAt        DateTime   @default(now()) @map("sold_at")
-  subtotal      Decimal    @db.Decimal(12, 2)
-  discountTotal Decimal    @default(0) @db.Decimal(12, 2) @map("discount_total")
-  taxTotal      Decimal    @default(0) @db.Decimal(12, 2) @map("tax_total")
-  grandTotal    Decimal    @db.Decimal(12, 2) @map("grand_total")
-  soldBy        String     @map("sold_by") @db.Uuid
-  createdAt     DateTime   @default(now()) @map("created_at")
+  id             String     @id @default(uuid()) @db.Uuid
+  tenantId       String     @map("tenant_id") @db.Uuid
+  branchId       String     @map("branch_id") @db.Uuid
+  invoiceNo      String     @map("invoice_no")
+  status         SaleStatus @default(posted)
+  soldAt         DateTime   @default(now()) @map("sold_at")
+  subtotal       Decimal    @db.Decimal(12, 2)
+  discountTotal  Decimal    @default(0) @db.Decimal(12, 2) @map("discount_total")
+  taxTotal       Decimal    @default(0) @db.Decimal(12, 2) @map("tax_total")
+  grandTotal     Decimal    @db.Decimal(12, 2) @map("grand_total")
+  amountPaid     Decimal    @default(0) @db.Decimal(12, 2) @map("amount_paid")
+  changeDue      Decimal    @default(0) @db.Decimal(12, 2) @map("change_due")
+  customerId     String?    @map("customer_id") @db.Uuid
+  prescriptionId String?    @map("prescription_id") @db.Uuid
+  notes          String?    @db.VarChar(512)
+  soldBy         String     @map("sold_by") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at")
 
-  branch Branch  @relation(fields: [branchId], references: [id])
-  seller AppUser @relation("SaleSeller", fields: [soldBy], references: [id])
+  branch       Branch        @relation(fields: [branchId], references: [id])
+  seller       AppUser       @relation("SaleSeller", fields: [soldBy], references: [id])
+  customer     Customer?     @relation(fields: [customerId], references: [id])
+  prescription Prescription? @relation(fields: [prescriptionId], references: [id])
 
   items        SaleItem[]
+  payments     SalePayment[]
   goodsReturns GoodsReturn[]
 
   @@unique([tenantId, branchId, invoiceNo])
   @@index([tenantId, branchId, soldAt(sort: Desc)])
+  @@index([tenantId, customerId])
   @@map("sale")
+}
+
+/// Walk-in or registered buyer. Optional on a sale — POS defaults to walk-in.
+model Customer {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  fullName  String   @map("full_name")
+  phone     String?  @db.VarChar(32)
+  email     String?
+  address   String?  @db.VarChar(512)
+  notes     String?  @db.VarChar(512)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  sales         Sale[]
+  prescriptions Prescription[]
+
+  @@unique([tenantId, phone])
+  @@index([tenantId, fullName])
+  @@map("customer")
+}
+
+/// Doctor's prescription captured at the counter; required to dispense controlled medicines.
+model Prescription {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  branchId    String    @map("branch_id") @db.Uuid
+  rxNumber    String    @map("rx_number") @db.VarChar(64)
+  patientName String    @map("patient_name")
+  doctorName  String    @map("doctor_name")
+  doctorRegNo String?   @map("doctor_reg_no") @db.VarChar(64)
+  issuedOn    DateTime  @db.Date @map("issued_on")
+  validUntil  DateTime? @db.Date @map("valid_until")
+  notes       String?   @db.VarChar(512)
+  customerId  String?   @map("customer_id") @db.Uuid
+  createdBy   String    @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  branch   Branch    @relation(fields: [branchId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+  creator  AppUser   @relation("PrescriptionCreator", fields: [createdBy], references: [id])
+  sales    Sale[]
+
+  @@unique([tenantId, branchId, rxNumber])
+  @@index([tenantId, branchId, issuedOn(sort: Desc)])
+  @@map("prescription")
+}
+
+/// Tender lines for a posted sale — one row per method so split payments are auditable.
+model SalePayment {
+  id        String        @id @default(uuid()) @db.Uuid
+  tenantId  String        @map("tenant_id") @db.Uuid
+  saleId    String        @map("sale_id") @db.Uuid
+  method    PaymentMethod
+  amount    Decimal       @db.Decimal(12, 2)
+  reference String?       @db.VarChar(128)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, saleId])
+  @@map("sale_payment")
+}
+
+/// Parked cart (park/recall at the counter). No stock is reserved while held.
+model HeldSale {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  holdRef   String   @map("hold_ref") @db.VarChar(32)
+  label     String?  @db.VarChar(120)
+  itemCount Int      @default(0) @map("item_count")
+  total     Decimal  @default(0) @db.Decimal(12, 2)
+  payload   Json
+  heldBy    String   @map("held_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branch Branch  @relation(fields: [branchId], references: [id])
+  holder AppUser @relation("HeldSaleHolder", fields: [heldBy], references: [id])
+
+  @@unique([tenantId, branchId, holdRef])
+  @@index([tenantId, branchId, createdAt(sort: Desc)])
+  @@map("held_sale")
 }
 
 model SaleItem {

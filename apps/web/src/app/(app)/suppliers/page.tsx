@@ -308,14 +308,14 @@ function SuppliersContent() {
       <div className={layoutCss.dashboard}>
         <div className={layoutCss.mainCol}>
           <div className={scss.kpiRow}>
-            <StatCard
+            <StatCard size="sm"
               title="Total suppliers"
               value={totals?.supplierCount ?? "—"}
               subtitle="All statuses"
               icon={<IconBox size={16} />}
               iconTone="info"
             />
-            <StatCard
+            <StatCard size="sm"
               title="Active"
               value={totals?.activeCount ?? "—"}
               subtitle="Ready for POs"
@@ -326,14 +326,14 @@ function SuppliersContent() {
                 setStatusFilter((s) => (s === "active" ? "all" : "active"))
               }
             />
-            <StatCard
+            <StatCard size="sm"
               title="Total payable"
               value={totals ? formatMoney(totals.totalPayable) : "—"}
               subtitle="Open + partial"
               icon={<IconCalendar size={16} />}
               iconTone="primary"
             />
-            <StatCard
+            <StatCard size="sm"
               title="Overdue payable"
               value={totals ? formatMoney(totals.overduePayable) : "—"}
               subtitle="Past due balance"
@@ -342,7 +342,7 @@ function SuppliersContent() {
               active={overdueOnly}
               onClick={() => setOverdueOnly((v) => !v)}
             />
-            <StatCard
+            <StatCard size="sm"
               title="Orders this month"
               value={totals?.ordersThisMonth ?? "—"}
               subtitle="Excl. cancelled"

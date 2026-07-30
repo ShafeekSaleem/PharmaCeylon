@@ -19,6 +19,7 @@ type ProductTableProps = {
   sortDir: SortDir;
   visibleColumns: Set<ColumnKey>;
   canWrite: boolean;
+  canDelete?: boolean;
   onPageChange: (page: number) => void;
   onSort: (key: string, dir: SortDir) => void;
   onRowClick: (row: Product) => void;
@@ -35,6 +36,7 @@ export function ProductTable({
   sortDir,
   visibleColumns,
   canWrite,
+  canDelete = true,
   onPageChange,
   onSort,
   onRowClick,
@@ -46,38 +48,44 @@ export function ProductTable({
       {
         key: "image",
         header: "",
-        width: "56px",
+        width: "48px",
         render: (row) => <ProductThumb row={row} />,
+      },
+      {
+        key: "name",
+        header: "Product",
+        sortable: true,
+        getValue: (row) => row.name,
+        render: (row) => (
+          <div className={css.productCell}>
+            {!visibleColumns.has("image") ? <ProductThumb row={row} /> : null}
+            <div className={css.nameCell}>
+              <span className={css.productName}>{row.name}</span>
+              {row.genericName && row.genericName !== row.name ? (
+                <span className={css.genericName}>{row.genericName}</span>
+              ) : null}
+              {(row.categories?.length ?? 0) > 0 ? (
+                <span className={css.tagRow}>
+                  {row.categories!.slice(0, 2).map((c) => (
+                    <span key={c.id} className={css.metaChip}>
+                      {c.name}
+                    </span>
+                  ))}
+                  {(row.categories?.length ?? 0) > 2 ? (
+                    <span className={css.metaChip}>+{(row.categories?.length ?? 0) - 2}</span>
+                  ) : null}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ),
       },
       {
         key: "sku",
         header: "SKU",
         sortable: true,
-        width: "120px",
+        width: "110px",
         getValue: (row) => row.sku,
-      },
-      {
-        key: "name",
-        header: "Name",
-        sortable: true,
-        getValue: (row) => row.name,
-        render: (row) => (
-          <div className={css.nameCell}>
-            <span>{row.name}</span>
-            {row.genericName && row.genericName !== row.name && (
-              <span className={css.genericName}>{row.genericName}</span>
-            )}
-            {(row.categories?.length ?? 0) > 0 && (
-              <span className={css.tagRow}>
-                {row.categories!.map((c) => (
-                  <span key={c.id} className={css.metaChip}>
-                    {c.name}
-                  </span>
-                ))}
-              </span>
-            )}
-          </div>
-        ),
       },
       {
         key: "brandName",
@@ -106,7 +114,7 @@ export function ProductTable({
       {
         key: "unit",
         header: "Unit",
-        width: "90px",
+        width: "80px",
         getValue: (row) => row.unit ?? "",
         render: (row) => <>{row.unit ?? "—"}</>,
       },
@@ -114,7 +122,7 @@ export function ProductTable({
         key: "stock",
         header: "Stock",
         align: "left",
-        width: "190px",
+        width: "150px",
         render: (row) => (
           <ProductStockBadge
             qtyOnHand={row.qtyOnHand}
@@ -128,7 +136,7 @@ export function ProductTable({
         key: "reorderLevel",
         header: "Reorder Lvl",
         align: "right",
-        width: "110px",
+        width: "100px",
         sortable: true,
         getValue: (row) => row.reorderLevel,
         render: (row) => <>{row.reorderLevel}</>,
@@ -136,16 +144,16 @@ export function ProductTable({
       {
         key: "status",
         header: "Status",
-        width: "160px",
+        width: "120px",
         render: (row) => (
           <div className={css.statusCell}>
             <StatusBadge status={row.isActive ? "active" : "inactive"} dot />
-            {row.isControlled && (
+            {row.isControlled ? (
               <span className={css.controlledTag}>
                 <IconAlertTriangle size={11} />
                 Ctrl
               </span>
-            )}
+            ) : null}
           </div>
         ),
       },
@@ -156,11 +164,11 @@ export function ProductTable({
         align: "right",
         render: (row) =>
           canWrite ? (
-            <ProductActions row={row} onEdit={onEdit} onDelete={onDelete} />
+            <ProductActions row={row} canDelete={canDelete} onEdit={onEdit} onDelete={onDelete} />
           ) : null,
       },
     ],
-    [canWrite, onDelete, onEdit],
+    [canDelete, canWrite, onDelete, onEdit, visibleColumns],
   );
 
   const columns = useMemo(
@@ -182,9 +190,10 @@ export function ProductTable({
       sortDir={sortDir}
       onSort={onSort}
       onRowClick={onRowClick}
+      compact
       emptyTitle="No products found"
       emptyDescription="Try adjusting your search or filters"
-      emptyIcon={<IconPackage size={48} />}
+      emptyIcon={<IconPackage size={42} />}
     />
   );
 }

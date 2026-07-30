@@ -1,341 +1,659 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Alert } from "@/components/alert";
-import { apiJson } from "@/lib/auth-client";
-import type { BatchRow } from "@/app/(app)/inventory/types";
+import { Modal, ModalButton, ModalFooter } from "@/components/ui";
+import { RolePageGuard } from "@/components/role-access";
+import { POS_ROLES } from "@/lib/role-access";
+import { useAuth } from "@/lib/use-auth";
+import { useRoleAccess } from "@/lib/use-role-access";
+import { PosActionBar } from "./components/pos-action-bar";
+import { PosAlertsPanel } from "./components/pos-alerts-panel";
+import { PosBatchModal } from "./components/pos-batch-modal";
+import { PosCartPanel } from "./components/pos-cart-panel";
+import { PosCustomerModal } from "./components/pos-customer-modal";
+import { PosHoldsModal } from "./components/pos-holds-modal";
+import { PosLookupModal, type LookupMode } from "./components/pos-lookup-modal";
+import { PosPrescriptionModal } from "./components/pos-prescription-modal";
+import { PosQuickActions } from "./components/pos-quick-actions";
+import { PosQuickAdd } from "./components/pos-quick-add";
+import { PosReceiptModal } from "./components/pos-receipt-modal";
+import { PosReturnsPanel } from "./components/pos-returns-panel";
+import { PosSearchBar } from "./components/pos-search-bar";
+import { PosShortcutsModal } from "./components/pos-shortcuts-modal";
+import { PosSummaryPanel, type TenderMode } from "./components/pos-summary-panel";
+import { PosToasts } from "./components/pos-toasts";
+import { PAYMENT_METHODS, type QuickAddTab } from "./constants";
+import { usePosAlerts } from "./hooks/use-pos-alerts";
+import { usePosCart } from "./hooks/use-pos-cart";
+import { usePosCatalog } from "./hooks/use-pos-catalog";
+import { usePosHolds } from "./hooks/use-pos-holds";
+import { usePosShortcuts } from "./hooks/use-pos-shortcuts";
+import { usePosToasts } from "./hooks/use-pos-toasts";
+import { useScanBeep } from "./hooks/use-scan-beep";
+import { checkout, createHold, getCustomer, getPrescription } from "./services/pos-api";
+import type {
+  CartLine,
+  Customer,
+  PaymentMethod,
+  PosMode,
+  PosProduct,
+  Prescription,
+  RecentSale,
+  ResolvedCartLine,
+  SaleReceipt,
+  TenderLine,
+} from "./types";
+import { formatMoney, newIdempotencyKey } from "./utils";
+import css from "./pos.module.css";
 
-const posInput: CSSProperties = {
-  padding: "0.45rem 0.6rem",
-  border: "1px solid var(--pc-border)",
-  borderRadius: "var(--pc-radius-sm)",
-  background: "var(--pc-input-bg)",
-  color: "var(--pc-foreground)",
-  fontFamily: "inherit",
-  width: "100%",
-  boxSizing: "border-box",
+const RX_ROLES = ["owner", "manager", "pharmacist"] as const;
+
+const EMPTY_SPLIT: Record<PaymentMethod, string> = {
+  cash: "",
+  card: "",
+  mobile_wallet: "",
 };
 
-const labelStyle: CSSProperties = {
-  display: "block",
-  fontSize: "0.8rem",
-  fontWeight: 600,
-  color: "var(--pc-muted-fg)",
-  marginBottom: 4,
+type Confirm = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
 };
 
-type ProductOption = {
-  id: string;
-  sku: string;
-  name: string;
-};
-
-function isSellable(b: BatchRow): boolean {
-  return !b.expired && !b.isQuarantined && b.qtyOnHand > 0;
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "PC";
 }
 
-function blockedReason(b: BatchRow): string | null {
-  if (b.isQuarantined) return "Quarantined";
-  if (b.expired) return "Expired";
-  if (b.qtyOnHand <= 0) return "Out of stock";
-  return null;
+/** `INV-2507` — the real number is allocated by the API when the sale posts. */
+function draftInvoiceLabel(): string {
+  const now = new Date();
+  const period = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return `INV-${period} · draft`;
 }
 
-function formatExpiry(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-function PosPageContent() {
+function PosWorkspace() {
   const searchParams = useSearchParams();
   const deepProductId = searchParams.get("productId");
-  const [batches, setBatches] = useState<BatchRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-  const [invoice, setInvoice] = useState<unknown>(null);
-  const [productQuery, setProductQuery] = useState("");
-  const [productId, setProductId] = useState(deepProductId ?? "");
-  const [batchId, setBatchId] = useState("");
-  const [qty, setQty] = useState("1");
-  const [unitPrice, setUnitPrice] = useState("0.00");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const rows = await apiJson<BatchRow[]>("/inventory/batches?includeZero=true");
-        // FEFO sort (API already orders by expiry asc; keep stable)
-        const sorted = [...rows].sort(
-          (a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime(),
-        );
-        setBatches(sorted);
+  const { user } = useAuth();
+  const { canAccess } = useRoleAccess();
+  const toasts = usePosToasts();
+  const { beep, beepEnabled, toggleBeep } = useScanBeep();
 
-        const seedId = deepProductId ?? "";
-        if (seedId) {
-          setProductId(seedId);
-          const sellable = sorted
-            .filter((b) => b.productId === seedId && isSellable(b))
-            .sort(
-              (a, b) =>
-                new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime(),
-            );
-          const first = sellable[0];
-          if (first) {
-            setBatchId(first.id);
-            setUnitPrice(first.sellingPrice);
-            setProductQuery(first.product.name);
-          }
-        }
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : "Could not load batches");
-      } finally {
-        setLoading(false);
+  const {
+    products,
+    productsById,
+    vatRatePercent,
+    recentSales,
+    loading,
+    error,
+    hasBranch,
+    reload,
+  } = usePosCatalog();
+  const cart = usePosCart(productsById, vatRatePercent);
+  const holds = usePosHolds();
+
+  const [mode, setMode] = useState<PosMode>("retail");
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [prescription, setPrescription] = useState<Prescription | null>(null);
+  const [notes, setNotes] = useState("");
+  const [quickTab, setQuickTab] = useState<QuickAddTab>("top");
+
+  const [tenderMode, setTenderMode] = useState<TenderMode>("cash");
+  const [amountPaid, setAmountPaid] = useState("0.00");
+  const [paidTouched, setPaidTouched] = useState(false);
+  const [splitAmounts, setSplitAmounts] = useState<Record<PaymentMethod, string>>(EMPTY_SPLIT);
+
+  const [customerOpen, setCustomerOpen] = useState(false);
+  const [rxOpen, setRxOpen] = useState(false);
+  const [holdsOpen, setHoldsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [batchLine, setBatchLine] = useState<ResolvedCartLine | null>(null);
+  const [lookupMode, setLookupMode] = useState<LookupMode | null>(null);
+  const [receipt, setReceipt] = useState<SaleReceipt | null>(null);
+  const [lastReceipt, setLastReceipt] = useState<SaleReceipt | null>(null);
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
+  const [posting, setPosting] = useState(false);
+  /** Set while the cart holds an un-modified recall; cleared on any new hold/sale/reset. */
+  const [recalledHold, setRecalledHold] = useState<{ id: string; holdRef: string } | null>(null);
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  const idempotencyKey = useRef(newIdempotencyKey());
+  const seededDeepLink = useRef(false);
+
+  const { alerts, blockingAlerts } = usePosAlerts(cart.resolved, prescription);
+  const rxRequired = cart.resolved.some((line) => line.product.isControlled);
+  const canRecordRx = canAccess([...RX_ROLES]);
+  const cashierName = user?.fullName ?? "Cashier";
+
+  /* ── Cart operations ─────────────────────────────────────── */
+
+  const addProduct = useCallback(
+    (product: PosProduct, qty = 1) => {
+      const result = cart.addProduct(product, qty);
+      if (result.status === "no-stock") {
+        beep("error");
+        toasts.error(`${product.name} has no sellable stock at this branch.`);
+        return;
       }
-    })();
-  }, [deepProductId]);
-
-  const productsWithSellable = useMemo(() => {
-    const map = new Map<string, ProductOption>();
-    for (const b of batches) {
-      if (!isSellable(b)) continue;
-      if (!map.has(b.productId)) {
-        map.set(b.productId, {
-          id: b.productId,
-          sku: b.product.sku,
-          name: b.product.name,
-        });
+      if (result.status === "capped") {
+        beep("error");
+        toasts.warn(`Only ${result.available} of ${product.name} left in that batch.`);
+      } else {
+        beep("ok");
       }
-    }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [batches]);
-
-  const filteredProducts = useMemo(() => {
-    const q = productQuery.trim().toLowerCase();
-    if (!q) return productsWithSellable;
-    return productsWithSellable.filter(
-      (p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q),
-    );
-  }, [productsWithSellable, productQuery]);
-
-  const productBatches = useMemo(() => {
-    if (!productId) return [];
-    return batches.filter((b) => b.productId === productId);
-  }, [batches, productId]);
-
-  const selectedBatch = useMemo(
-    () => productBatches.find((b) => b.id === batchId) ?? null,
-    [productBatches, batchId],
+      searchRef.current?.focus();
+    },
+    [cart, beep, toasts],
   );
 
-  function selectProduct(id: string) {
-    setProductId(id);
-    setBatchId("");
-    setUnitPrice("0.00");
-    const sellable = batches
-      .filter((b) => b.productId === id && isSellable(b))
-      .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
-    const first = sellable[0];
-    if (first) {
-      setBatchId(first.id);
-      setUnitPrice(first.sellingPrice);
-    }
-  }
+  const resetSale = useCallback(() => {
+    cart.clear();
+    setCustomer(null);
+    setPrescription(null);
+    setNotes("");
+    setTenderMode("cash");
+    setAmountPaid("0.00");
+    setPaidTouched(false);
+    setSplitAmounts(EMPTY_SPLIT);
+    setRecalledHold(null);
+    idempotencyKey.current = newIdempotencyKey();
+    searchRef.current?.focus();
+  }, [cart]);
 
-  function selectBatch(id: string) {
-    setBatchId(id);
-    const b = batches.find((x) => x.id === id);
-    if (b && isSellable(b)) {
-      setUnitPrice(b.sellingPrice);
+  // Deep link from a product page: /pos?productId=…
+  useEffect(() => {
+    if (seededDeepLink.current || !deepProductId || products.length === 0) return;
+    const product = productsById.get(deepProductId);
+    seededDeepLink.current = true;
+    if (product) {
+      addProduct(product);
+    } else {
+      toasts.warn("That product has no sellable stock at this branch.");
     }
-  }
+  }, [deepProductId, products.length, productsById, addProduct, toasts]);
 
-  async function checkout(e: FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setInvoice(null);
-    if (!productId || !batchId) {
-      setErr("Select a product and batch");
-      return;
-    }
-    if (selectedBatch && !isSellable(selectedBatch)) {
-      setErr(blockedReason(selectedBatch) ?? "Batch cannot be sold");
-      return;
-    }
-    try {
-      const sale = await apiJson("/sales/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: [{ productId, batchId, qty: Number(qty), unitPrice }],
-        }),
-      });
-      setInvoice(sale);
-      // Refresh stock after sale
-      const rows = await apiJson<BatchRow[]>("/inventory/batches?includeZero=true");
-      setBatches(
-        [...rows].sort(
-          (a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime(),
-        ),
+  // Keep the tendered amount in step with the total until the cashier types.
+  useEffect(() => {
+    if (paidTouched) return;
+    setAmountPaid(cart.totals.grandTotal.toFixed(2));
+  }, [cart.totals.grandTotal, paidTouched]);
+
+  useEffect(() => {
+    if (cart.unresolvedCount > 0) {
+      toasts.warn(
+        `${cart.unresolvedCount} line(s) were dropped — that stock is no longer sellable.`,
       );
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Checkout failed");
     }
+    // Only announce when the count changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart.unresolvedCount]);
+
+  /* ── Hold / recall ───────────────────────────────────────── */
+
+  const holdSale = useCallback(async () => {
+    if (cart.resolved.length === 0) return;
+    try {
+      const label =
+        customer?.fullName ??
+        `${cart.resolved[0]!.product.name}${cart.resolved.length > 1 ? ` +${cart.resolved.length - 1}` : ""}`;
+      const created = await createHold({
+        label,
+        itemCount: cart.resolved.length,
+        total: cart.totals.grandTotal.toFixed(2),
+        lines: cart.lines as unknown as CartLine[],
+        meta: {
+          mode,
+          customerId: customer?.id ?? null,
+          prescriptionId: prescription?.id ?? null,
+          notes: notes || null,
+        },
+      });
+      toasts.success(`Parked as ${created.holdRef}.`);
+      resetSale();
+      void holds.reload();
+    } catch (e) {
+      toasts.error(e instanceof Error ? e.message : "Could not park this sale");
+    }
+  }, [cart, customer, prescription, notes, mode, toasts, resetSale, holds]);
+
+  const recallHold = useCallback(
+    async (id: string) => {
+      try {
+        // Consumes the hold server-side first — it's gone from the parked list
+        // the instant this resolves, so it can never be recalled a second time.
+        const detail = await holds.recall(id);
+        const restored = detail.payload.lines.filter((line) => {
+          const product = productsById.get(line.productId);
+          return Boolean(product?.batches.some((b) => b.id === line.batchId));
+        });
+        const dropped = detail.payload.lines.length - restored.length;
+        const meta = detail.payload.meta;
+
+        // The hold only stores ids — refetch the full customer/prescription so
+        // compliance state (e.g. controlled-item alerts) is correct after recall
+        // instead of silently falling back to "no customer / no prescription".
+        const [restoredCustomer, restoredPrescription] = await Promise.all([
+          meta.customerId ? getCustomer(meta.customerId).catch(() => null) : Promise.resolve(null),
+          meta.prescriptionId
+            ? getPrescription(meta.prescriptionId).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+
+        cart.replaceAll(restored);
+        setCustomer(restoredCustomer);
+        setPrescription(restoredPrescription);
+        setNotes(meta.notes ?? "");
+        setMode(meta.mode ?? "retail");
+        setRecalledHold({ id: detail.id, holdRef: detail.holdRef });
+        setPaidTouched(false);
+        setHoldsOpen(false);
+
+        const lostLinks =
+          (meta.customerId && !restoredCustomer ? 1 : 0) +
+          (meta.prescriptionId && !restoredPrescription ? 1 : 0);
+        toasts.success(
+          dropped > 0
+            ? `Recalled ${detail.holdRef}; ${dropped} line(s) are no longer sellable.`
+            : lostLinks > 0
+              ? `Recalled ${detail.holdRef}; the linked customer/prescription is no longer available.`
+              : `Recalled ${detail.holdRef}.`,
+        );
+        searchRef.current?.focus();
+      } catch (e) {
+        toasts.error(e instanceof Error ? e.message : "Could not recall that sale");
+      }
+    },
+    [holds, productsById, cart, toasts],
+  );
+
+  /* ── Checkout ────────────────────────────────────────────── */
+
+  const blockedReason = useMemo(() => {
+    if (cart.resolved.length === 0) return null;
+    if (blockingAlerts.length > 0) return blockingAlerts[0]!.title;
+    return null;
+  }, [cart.resolved.length, blockingAlerts]);
+
+  const buildPayments = useCallback((): TenderLine[] => {
+    const total = cart.totals.grandTotal;
+    if (tenderMode === "split") {
+      return PAYMENT_METHODS.map((method) => ({
+        method: method.value,
+        amount: (Number(splitAmounts[method.value]) || 0).toFixed(2),
+      })).filter((tender) => Number(tender.amount) > 0);
+    }
+    if (tenderMode === "cash") {
+      const paid = Math.max(Number(amountPaid) || 0, total);
+      return [{ method: "cash", amount: paid.toFixed(2) }];
+    }
+    return [{ method: tenderMode, amount: total.toFixed(2) }];
+  }, [tenderMode, splitAmounts, amountPaid, cart.totals.grandTotal]);
+
+  const completeSale = useCallback(async () => {
+    if (posting || cart.resolved.length === 0) return;
+    if (blockedReason) {
+      beep("error");
+      toasts.error(blockedReason);
+      return;
+    }
+    setPosting(true);
+    try {
+      const sale = await checkout(
+        {
+          items: cart.resolved.map((line) => ({
+            productId: line.productId,
+            batchId: line.batchId,
+            qty: line.qty,
+            unitPrice: line.unitPrice.toFixed(2),
+            discountAmount: line.discountAmount.toFixed(2),
+          })),
+          customerId: customer?.id,
+          prescriptionId: prescription?.id,
+          notes: notes.trim() || undefined,
+          payments: buildPayments(),
+          heldSaleId: recalledHold?.id ?? undefined,
+        },
+        idempotencyKey.current,
+      );
+      setReceipt(sale);
+      setLastReceipt(sale);
+      toasts.success(`${sale.invoiceNo} posted — ${formatMoney(sale.grandTotal)}.`);
+      resetSale();
+      void reload();
+      void holds.reload();
+    } catch (e) {
+      beep("error");
+      toasts.error(e instanceof Error ? e.message : "Checkout failed");
+    } finally {
+      setPosting(false);
+    }
+  }, [
+    posting,
+    cart.resolved,
+    blockedReason,
+    customer,
+    prescription,
+    notes,
+    buildPayments,
+    recalledHold,
+    toasts,
+    resetSale,
+    reload,
+    holds,
+    beep,
+  ]);
+
+  /* ── Confirm-guarded destructive actions ─────────────────── */
+
+  const guard = useCallback(
+    (next: Confirm) => {
+      if (cart.resolved.length === 0) {
+        next.onConfirm();
+        return;
+      }
+      setConfirm(next);
+    },
+    [cart.resolved.length],
+  );
+
+  const startNewSale = useCallback(() => {
+    guard({
+      title: "Start a new sale?",
+      message: "The current cart has unsold items. They will be discarded.",
+      confirmLabel: "Discard and start new",
+      onConfirm: resetSale,
+    });
+  }, [guard, resetSale]);
+
+  const clearCart = useCallback(() => {
+    guard({
+      title: "Clear the cart?",
+      message: "Every line, the customer, and the linked prescription will be removed.",
+      confirmLabel: "Clear cart",
+      onConfirm: resetSale,
+    });
+  }, [guard, resetSale]);
+
+  /* ── Keyboard map ────────────────────────────────────────── */
+
+  const anyOverlayOpen =
+    customerOpen ||
+    rxOpen ||
+    holdsOpen ||
+    shortcutsOpen ||
+    confirm !== null ||
+    batchLine !== null ||
+    lookupMode !== null ||
+    receipt !== null;
+
+  // Overlays own their keyboard: F4 must never post a sale from behind a modal.
+  usePosShortcuts(
+    {
+      focusSearch: () => searchRef.current?.focus(),
+      priceCheck: () => setLookupMode("price"),
+      completeSale: () => void completeSale(),
+      holdSale: () => void holdSale(),
+      recallSale: () => {
+        setHoldsOpen(true);
+        void holds.reload();
+      },
+      newSale: startNewSale,
+      cyclePayment: () =>
+        setTenderMode((prev) => {
+          const order: TenderMode[] = ["cash", "card", "mobile_wallet", "split"];
+          return order[(order.indexOf(prev) + 1) % order.length]!;
+        }),
+      customerLookup: () => setCustomerOpen(true),
+      linkPrescription: () => setRxOpen(true),
+      clearCart,
+      toggleShortcuts: () => setShortcutsOpen((prev) => !prev),
+      escape: () => searchRef.current?.focus(),
+    },
+    !anyOverlayOpen,
+  );
+
+  /* ── Render ──────────────────────────────────────────────── */
+
+  if (!hasBranch) {
+    return (
+      <p className={css.branchNotice}>
+        Select a branch from the top bar to open the counter. Stock, prices, and invoices are all
+        branch-scoped.
+      </p>
+    );
   }
 
   return (
-    <div style={{ maxWidth: 720 }}>
-      <h1 style={{ marginTop: 0, color: "var(--pc-foreground)" }}>POS checkout</h1>
-      <p className="pc-muted" style={{ fontSize: "0.9rem", marginTop: 0 }}>
-        FEFO picker — expired and quarantined batches cannot be sold. Near-expiry (&lt;30 days) is
-        allowed with a warning.
-      </p>
-      {err ? <Alert variant="error">{err}</Alert> : null}
+    <div className={css.page}>
+      <div className={css.topBar}>
+        <PosSearchBar
+          products={products}
+          mode={mode}
+          onModeChange={setMode}
+          onSelect={(product) => addProduct(product)}
+          inputRef={searchRef}
+          disabled={loading}
+        />
+        <PosActionBar
+          cartDirty={cart.resolved.length > 0}
+          holdCount={holds.holds.length}
+          busy={posting}
+          beepEnabled={beepEnabled}
+          onNewSale={startNewSale}
+          onHold={() => void holdSale()}
+          onRecall={() => {
+            setHoldsOpen(true);
+            void holds.reload();
+          }}
+          onClear={clearCart}
+          onShortcuts={() => setShortcutsOpen(true)}
+          onToggleBeep={toggleBeep}
+        />
+      </div>
 
-      <form
-        onSubmit={checkout}
-        className="pc-panel"
-        style={{ display: "grid", gap: 14, padding: "1.1rem 1.25rem", marginTop: "1rem" }}
+      {error && <p className={css.branchNotice}>{error}</p>}
+
+      {mode === "returns" ? (
+        <PosReturnsPanel
+          canRefund={canAccess([...POS_ROLES])}
+          onRefunded={() => void reload()}
+          onError={toasts.error}
+          onNotice={toasts.success}
+        />
+      ) : (
+        <div className={css.workspace}>
+          <div className={css.mainCol}>
+            <PosCartPanel
+              invoiceLabel={draftInvoiceLabel()}
+              lines={cart.resolved}
+              mode={mode}
+              customer={customer}
+              prescription={prescription}
+              cashierName={cashierName}
+              cashierInitials={initialsOf(cashierName)}
+              notes={notes}
+              rxRequired={rxRequired}
+              recalledHoldRef={recalledHold?.holdRef ?? null}
+              lastAddedKey={cart.lastTouchedKey}
+              addCount={cart.addCount}
+              onNotesChange={setNotes}
+              onOpenCustomer={() => setCustomerOpen(true)}
+              onOpenPrescription={() => setRxOpen(true)}
+              onOpenBatch={setBatchLine}
+              onStepQty={cart.stepQty}
+              onSetQty={cart.setQty}
+              onSetDiscount={cart.setDiscountPercent}
+              onRemove={cart.removeLine}
+            />
+
+            <PosQuickAdd
+              tab={quickTab}
+              onTabChange={setQuickTab}
+              products={products}
+              recentSales={recentSales}
+              cartLines={cart.resolved}
+              onAdd={(product) => addProduct(product)}
+              onRepeatSale={(sale: RecentSale) => {
+                let added = 0;
+                for (const id of sale.productIds) {
+                  const product = productsById.get(id);
+                  if (product) {
+                    cart.addProduct(product, 1);
+                    added += 1;
+                  }
+                }
+                if (added > 0) {
+                  beep("ok");
+                  toasts.success(`Loaded ${added} item(s) from ${sale.invoiceNo}.`);
+                } else {
+                  toasts.warn(`Nothing from ${sale.invoiceNo} is sellable right now.`);
+                }
+              }}
+            />
+          </div>
+
+          <div className={css.sideCol}>
+            <PosSummaryPanel
+              totals={cart.totals}
+              vatRatePercent={vatRatePercent}
+              tenderMode={tenderMode}
+              onTenderModeChange={setTenderMode}
+              amountPaid={amountPaid}
+              onAmountPaidChange={(value) => {
+                setPaidTouched(true);
+                setAmountPaid(value);
+              }}
+              splitAmounts={splitAmounts}
+              onSplitChange={(method, value) =>
+                setSplitAmounts((prev) => ({ ...prev, [method]: value }))
+              }
+              busy={posting}
+              blockedReason={blockedReason}
+              onComplete={() => void completeSale()}
+              onPrint={() => {
+                if (lastReceipt) setReceipt(lastReceipt);
+                else toasts.notify("Complete the sale to print its bill.");
+              }}
+              onHold={() => void holdSale()}
+            />
+
+            <PosAlertsPanel alerts={alerts} cartEmpty={cart.resolved.length === 0} />
+
+            <PosQuickActions
+              onScan={() => searchRef.current?.focus()}
+              onPriceCheck={() => setLookupMode("price")}
+              onOpenDrawer={() => toasts.notify("Cash drawer pulse sent to the till.")}
+              onCustomerLookup={() => setCustomerOpen(true)}
+              onLastReceipt={() => setReceipt(lastReceipt)}
+              onManualItem={() => setLookupMode("manual")}
+              hasLastReceipt={lastReceipt !== null}
+            />
+          </div>
+        </div>
+      )}
+
+      <PosCustomerModal
+        open={customerOpen}
+        selectedId={customer?.id ?? null}
+        onClose={() => setCustomerOpen(false)}
+        onSelect={setCustomer}
+        onError={toasts.error}
+      />
+
+      <PosPrescriptionModal
+        open={rxOpen}
+        selectedId={prescription?.id ?? null}
+        customer={customer}
+        canCreate={canRecordRx}
+        onClose={() => setRxOpen(false)}
+        onSelect={setPrescription}
+        onError={toasts.error}
+      />
+
+      <PosBatchModal
+        line={batchLine}
+        onClose={() => setBatchLine(null)}
+        onPick={(batch) => {
+          if (batchLine) cart.changeBatch(batchLine.key, batch, batchLine.productId);
+        }}
+      />
+
+      <PosHoldsModal
+        open={holdsOpen}
+        holds={holds.holds}
+        loading={holds.loading}
+        onClose={() => setHoldsOpen(false)}
+        onRecall={(hold) => void recallHold(hold.id)}
+        onDiscard={(hold) => {
+          void holds
+            .discard(hold.id)
+            .then(() => toasts.notify(`Discarded ${hold.holdRef}.`))
+            .catch((e: unknown) =>
+              toasts.error(e instanceof Error ? e.message : "Could not discard that hold"),
+            );
+        }}
+      />
+
+      <PosLookupModal
+        mode={lookupMode}
+        products={products}
+        onClose={() => setLookupMode(null)}
+        onAdd={(product) => addProduct(product)}
+        onAddManual={(product, qty, unitPrice) => {
+          const result = cart.addProduct(product, qty);
+          if (result.status === "no-stock") {
+            toasts.error(`${product.name} has no sellable stock.`);
+            return;
+          }
+          cart.setUnitPrice(result.key, unitPrice);
+          beep("ok");
+          toasts.success(`${product.name} added at ${formatMoney(unitPrice)}.`);
+        }}
+      />
+
+      <PosShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+      <PosReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
+
+      <Modal
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm?.title ?? ""}
+        size="sm"
+        elevated
+        footer={
+          <ModalFooter>
+            <ModalButton onClick={() => setConfirm(null)}>Keep the cart</ModalButton>
+            <ModalButton
+              variant="danger"
+              onClick={() => {
+                confirm?.onConfirm();
+                setConfirm(null);
+              }}
+            >
+              {confirm?.confirmLabel ?? "Confirm"}
+            </ModalButton>
+          </ModalFooter>
+        }
       >
-        <div>
-          <label style={labelStyle} htmlFor="pos-product-search">
-            Product
-          </label>
-          <input
-            id="pos-product-search"
-            placeholder="Search by name or SKU…"
-            value={productQuery}
-            onChange={(e) => setProductQuery(e.target.value)}
-            style={{ ...posInput, marginBottom: 8 }}
-            disabled={loading}
-          />
-          <select
-            aria-label="Select product"
-            value={productId}
-            onChange={(e) => selectProduct(e.target.value)}
-            required
-            style={posInput}
-            disabled={loading}
-          >
-            <option value="">{loading ? "Loading…" : "Select product with sellable stock"}</option>
-            {filteredProducts.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.sku})
-              </option>
-            ))}
-          </select>
-          {!loading && productsWithSellable.length === 0 ? (
-            <p className="pc-muted" style={{ fontSize: "0.8rem", margin: "6px 0 0" }}>
-              No sellable batches at this branch.
-            </p>
-          ) : null}
-        </div>
+        <p className={css.fieldHint}>{confirm?.message}</p>
+      </Modal>
 
-        <div>
-          <label style={labelStyle} htmlFor="pos-batch">
-            Batch (FEFO order)
-          </label>
-          <select
-            id="pos-batch"
-            aria-label="Select batch"
-            value={batchId}
-            onChange={(e) => selectBatch(e.target.value)}
-            required
-            style={posInput}
-            disabled={!productId}
-          >
-            <option value="">{productId ? "Select batch" : "Select a product first"}</option>
-            {productBatches.map((b) => {
-              const reason = blockedReason(b);
-              const near = !reason && b.nearExpiry;
-              const label = [
-                b.batchNo,
-                `exp ${formatExpiry(b.expiryDate)}`,
-                `qty ${b.qtyOnHand}`,
-                `LKR ${b.sellingPrice}`,
-                reason ? `— ${reason}` : near ? "— near expiry" : null,
-              ]
-                .filter(Boolean)
-                .join(" · ");
-              return (
-                <option key={b.id} value={b.id} disabled={!!reason}>
-                  {label}
-                </option>
-              );
-            })}
-          </select>
-        </div>
-
-        {selectedBatch?.nearExpiry && isSellable(selectedBatch) ? (
-          <Alert variant="warning">
-            Near expiry: {formatExpiry(selectedBatch.expiryDate)} (
-            {selectedBatch.daysToExpiry} day{selectedBatch.daysToExpiry === 1 ? "" : "s"} left). Sale
-            is still allowed.
-          </Alert>
-        ) : null}
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ width: 100 }}>
-            <label style={labelStyle} htmlFor="pos-qty">
-              Qty
-            </label>
-            <input
-              id="pos-qty"
-              type="number"
-              min={1}
-              max={selectedBatch?.qtyOnHand ?? undefined}
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              required
-              style={posInput}
-            />
-          </div>
-          <div style={{ flex: 1, minWidth: 140 }}>
-            <label style={labelStyle} htmlFor="pos-price">
-              Unit price
-            </label>
-            <input
-              id="pos-price"
-              value={unitPrice}
-              onChange={(e) => setUnitPrice(e.target.value)}
-              required
-              style={posInput}
-            />
-          </div>
-        </div>
-
-        {selectedBatch && isSellable(selectedBatch) ? (
-          <p className="pc-muted" style={{ fontSize: "0.8rem", margin: 0 }}>
-            Available: {selectedBatch.qtyOnHand}
-            {selectedBatch.product.unit ? ` ${selectedBatch.product.unit}` : ""} · Batch{" "}
-            {selectedBatch.batchNo}
-          </p>
-        ) : null}
-
-        <button
-          type="submit"
-          className="pc-btn-primary-sm"
-          style={{ width: "fit-content" }}
-          disabled={!productId || !batchId || loading}
-        >
-          Post sale
-        </button>
-      </form>
-
-      {invoice ? (
-        <pre className="pc-panel" style={{ marginTop: "1.25rem" }}>
-          {JSON.stringify(invoice, null, 2)}
-        </pre>
-      ) : null}
+      <PosToasts toasts={toasts.toasts} />
     </div>
   );
 }
 
 export default function PosPage() {
   return (
-    <Suspense fallback={<div className="pc-muted">Loading POS…</div>}>
-      <PosPageContent />
-    </Suspense>
+    <RolePageGuard roles={POS_ROLES}>
+      <Suspense fallback={<p className={css.loading}>Opening the counter…</p>}>
+        <PosWorkspace />
+      </Suspense>
+    </RolePageGuard>
   );
 }

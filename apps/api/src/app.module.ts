@@ -7,6 +7,7 @@ import { AnalyticsModule } from "./analytics/analytics.module";
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { CatalogModule } from "./catalog/catalog.module";
+import { CustomersModule } from "./customers/customers.module";
 import { HealthController } from "./health/health.controller";
 import { InventoryModule } from "./inventory/inventory.module";
 import { ProductsModule } from "./products/products.module";
@@ -44,6 +45,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     AdminModule,
     PurchasingModule,
     InventoryModule,
+    CustomersModule,
     SalesModule,
     TransfersModule,
     StocktakesModule,

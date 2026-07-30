@@ -5,12 +5,12 @@ import {
   IconActivity,
   IconAlertTriangle,
   IconBox,
-  IconCalendar,
   IconDollarSign,
   IconEdit,
   IconPackage,
   IconTruck,
 } from "@/components/icons";
+import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
 import detailCss from "../product-detail.module.css";
 import type { AuditHistoryItem, ProductDetailTab } from "../types";
 import {
@@ -111,24 +111,18 @@ export function ProductDetailHistoryTab({ history, onSelectTab }: Props) {
             </button>
           ))}
         </div>
-        <label className={detailCss.historyDateFilter}>
-          <IconCalendar size={14} />
-          <select
-            className={detailCss.historyDateSelect}
+        <div className={detailCss.historyDateFilter}>
+          <InventoryFilterSelect
+            label="Date range"
             value={datePreset}
-            aria-label="Filter by date"
-            onChange={(e) => {
-              setDatePreset(e.target.value as HistoryDatePreset);
+            options={DATE_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+            onChange={(value) => {
+              setDatePreset(value as HistoryDatePreset);
               setPage(1);
             }}
-          >
-            {DATE_PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            portal
+          />
+        </div>
       </div>
 
       {filtered.length === 0 ? (

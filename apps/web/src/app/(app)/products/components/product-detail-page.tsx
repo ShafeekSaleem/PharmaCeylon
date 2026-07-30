@@ -21,7 +21,7 @@ import { useProductMutations } from "../hooks/use-product-mutations";
 import detailCss from "../product-detail.module.css";
 import listCss from "../products.module.css";
 import type { ProductDetail, ProductDetailTab } from "../types";
-import { hasWriteAccess } from "../utils";
+import { hasDeleteAccess, hasWriteAccess } from "../utils";
 import { productOperationalLinks } from "../utils/product-routes";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ProductBranchNotice } from "./product-branch-notice";
@@ -59,6 +59,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const router = useRouter();
   const { user, branchId } = useAuth();
   const canWrite = hasWriteAccess(user, branchId);
+  const canDelete = hasDeleteAccess(user, branchId);
   const { setLastSegmentLabel, setExtraCrumbs } = usePageChrome();
   const { tab, setTab, returnTo } = useProductDetailUrl(productId);
   const { categories, tags, refresh: refreshMeta } = useProductMeta();
@@ -138,6 +139,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
               product={product}
               detail={detail}
               canWrite={canWrite}
+              canDelete={canDelete}
               onEdit={() => mutations.openEdit(product)}
               onDelete={() => mutations.openDelete(product)}
               onImageChanged={() => void reloadDetail()}
@@ -211,6 +213,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
       <ProductMetaManagerModal
         open={metaManagerOpen}
         canWrite={canWrite}
+        canDelete={canDelete}
         categories={categories}
         tags={tags}
         onClose={() => setMetaManagerOpen(false)}

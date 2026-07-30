@@ -40,11 +40,19 @@ const ROLE_LABELS: Record<RoleName, string> = {
   analyst: "Analyst",
 };
 
-export function collectUserRoles(user: AuthUser | null): string[] {
+/**
+ * Mirrors the API's `RolesGuard` exactly: owner on *any* branch bypasses all
+ * checks; otherwise roles are scoped to the currently selected branch (or all
+ * branches if none is selected yet). Pass the active `branchId` so a user who
+ * e.g. is `inventory_clerk` at Branch A and `cashier` at Branch B doesn't see
+ * nav items / buttons enabled while viewing Branch B that the API will 403 on.
+ */
+export function collectUserRoles(user: AuthUser | null, branchId?: string | null): string[] {
   if (!user) return [];
-  const roles = new Set<string>(user.roles ?? []);
-  for (const br of user.branchRoles ?? []) roles.add(br.role);
-  return Array.from(roles);
+  const branchRoles = user.branchRoles ?? [];
+  if (branchRoles.some((br) => br.role === "owner")) return ["owner"];
+  const scoped = branchId ? branchRoles.filter((br) => br.branchId === branchId) : branchRoles;
+  return Array.from(new Set(scoped.map((br) => br.role)));
 }
 
 export function hasRoleAccess(

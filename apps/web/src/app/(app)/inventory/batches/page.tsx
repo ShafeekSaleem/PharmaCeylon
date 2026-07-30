@@ -16,11 +16,12 @@ import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, PageHeader, StatCard } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
+import { AdjustmentModal } from "../components/adjustment-modal";
 import { BatchesTable } from "../components/batches-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
 import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import css from "../inventory.module.css";
-import type { ExpiryFilter } from "../types";
+import type { BatchRow, ExpiryFilter } from "../types";
 import { canAdjustOut, hasInventoryWriteAccess } from "../utils";
 
 function BatchesContent() {
@@ -47,6 +48,41 @@ function BatchesContent() {
   const [quarantineBusy, setQuarantineBusy] = useState(false);
   const [quarantineMsg, setQuarantineMsg] = useState<string | null>(null);
   const [quarantineError, setQuarantineError] = useState(false);
+  const [adjustmentOpen, setAdjustmentOpen] = useState(
+    searchParams.get("openAdjustment") === "1",
+  );
+  const [adjustmentContext, setAdjustmentContext] = useState<{
+    productId: string;
+    batchId: string;
+  }>({
+    productId: productId ?? "",
+    batchId: searchParams.get("batchId") ?? "",
+  });
+  const [adjustmentSuccess, setAdjustmentSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("openAdjustment") !== "1") return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("openAdjustment");
+    next.delete("batchId");
+    const qs = next.toString();
+    router.replace(qs ? `/inventory/batches?${qs}` : "/inventory/batches");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!adjustmentSuccess) return;
+    const t = setTimeout(() => setAdjustmentSuccess(null), 6000);
+    return () => clearTimeout(t);
+  }, [adjustmentSuccess]);
+
+  function openAdjustment(row?: BatchRow) {
+    setAdjustmentContext({
+      productId: row?.productId ?? productId ?? "",
+      batchId: row?.id ?? "",
+    });
+    setAdjustmentOpen(true);
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(search), 300);
@@ -192,11 +228,7 @@ function BatchesContent() {
               <ActionButton
                 icon={<IconPlus size={16} />}
                 tooltip="Post a stock quantity correction"
-                onClick={() =>
-                  router.push(
-                    `/inventory/adjustments${productId ? `?productId=${productId}` : ""}`,
-                  )
-                }
+                onClick={() => openAdjustment()}
               >
                 New adjustment
               </ActionButton>
@@ -204,6 +236,8 @@ function BatchesContent() {
           </>
         }
       />
+
+      {adjustmentSuccess && <Alert variant="success">{adjustmentSuccess}</Alert>}
 
       {!batches.hasBranch && (
         <div className={css.branchNotice}>
@@ -217,7 +251,7 @@ function BatchesContent() {
 
       {batches.hasBranch && (
         <div className={css.batchKpiRow}>
-          <StatCard
+          <StatCard size="sm"
             title="Active batches"
             value={summary.total}
             subtitle={`${summary.units} units on hand`}
@@ -226,7 +260,7 @@ function BatchesContent() {
             active={expiryFilter === "all"}
             onClick={() => setExpiryFilter("all")}
           />
-          <StatCard
+          <StatCard size="sm"
             title="Healthy expiry"
             value={summary.healthy}
             subtitle="Outside 30 days"
@@ -235,7 +269,7 @@ function BatchesContent() {
             active={expiryFilter === "ok"}
             onClick={() => setExpiryFilter("ok")}
           />
-          <StatCard
+          <StatCard size="sm"
             title="Expiring soon"
             value={summary.near}
             subtitle="Within 30 days"
@@ -244,7 +278,7 @@ function BatchesContent() {
             active={expiryFilter === "near"}
             onClick={() => setExpiryFilter("near")}
           />
-          <StatCard
+          <StatCard size="sm"
             title="Expired"
             value={summary.expired}
             subtitle={
@@ -257,7 +291,7 @@ function BatchesContent() {
             active={expiryFilter === "expired"}
             onClick={() => setExpiryFilter("expired")}
           />
-          <StatCard
+          <StatCard size="sm"
             title="Zero quantity"
             value={summary.zero}
             subtitle={includeZero ? "Included in this view" : "Currently hidden"}
@@ -324,6 +358,18 @@ function BatchesContent() {
         canWrite={canWrite}
         onPageChange={setPage}
         onChanged={() => void batches.reload()}
+        onAdjust={openAdjustment}
+      />
+
+      <AdjustmentModal
+        open={adjustmentOpen}
+        onClose={() => setAdjustmentOpen(false)}
+        initialProductId={adjustmentContext.productId}
+        initialBatchId={adjustmentContext.batchId}
+        onSuccess={(message) => {
+          setAdjustmentSuccess(message);
+          void batches.reload();
+        }}
       />
     </>
   );

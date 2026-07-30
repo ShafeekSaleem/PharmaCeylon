@@ -80,7 +80,7 @@ export function SearchHero({
       <div
         className={`${css.searchWrap}${scanArmed ? ` ${css.searchWrapScan}` : ""}`}
       >
-        <IconSearch size={20} className={css.searchIcon} />
+        <IconSearch size={18} className={css.searchIcon} />
         <input
           ref={inputRef}
           className={css.searchInput}

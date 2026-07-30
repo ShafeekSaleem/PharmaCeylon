@@ -572,31 +572,8 @@
 }
 
 .historyDateFilter {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  height: 2rem;
-  padding: 0 0.55rem 0 0.7rem;
-  border: 1px solid var(--pc-border);
-  border-radius: 999px;
-  background: var(--pc-card-bg);
-  color: var(--pc-muted-fg);
-  font-family: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.historyDateSelect {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-weight: 600;
-  padding-right: 0.15rem;
-  cursor: pointer;
-  outline: none;
+  display: block;
+  min-width: 11rem;
 }
 
 .historyActivityCell {

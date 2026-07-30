@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { RoleLink } from "@/components/role-access";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import css from "../inventory.module.css";
 
+// Adjustments no longer has its own sub-page — every tab below opens the same
+// "New adjustment" modal instead, so it isn't listed as a nav destination.
 const TABS = [
   {
     href: "/inventory",
@@ -16,12 +16,6 @@ const TABS = [
     href: "/inventory/batches",
     label: "Batches",
     match: (p: string) => p.startsWith("/inventory/batches"),
-  },
-  {
-    href: "/inventory/adjustments",
-    label: "Adjustments",
-    match: (p: string) => p.startsWith("/inventory/adjustments"),
-    roles: INVENTORY_WRITE_ROLES,
   },
   {
     href: "/inventory/movements",
@@ -53,20 +47,6 @@ export function InventorySubnav() {
             : productId
               ? `${tab.href}?productId=${encodeURIComponent(productId)}`
               : tab.href;
-        const roles = "roles" in tab ? tab.roles : undefined;
-
-        if (roles) {
-          return (
-            <RoleLink
-              key={tab.href}
-              href={href}
-              roles={roles}
-              className={`${css.subnavLink}${active ? ` ${css.subnavLinkActive}` : ""}`}
-            >
-              {tab.label}
-            </RoleLink>
-          );
-        }
 
         return (
           <Link

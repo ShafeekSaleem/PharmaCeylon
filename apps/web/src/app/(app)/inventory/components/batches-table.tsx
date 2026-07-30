@@ -9,7 +9,7 @@ import {
   IconEye,
   IconPackage,
 } from "@/components/icons";
-import { RoleLink } from "@/components/role-access";
+import { RoleButton, RoleLink } from "@/components/role-access";
 import { DataTable, type Column } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
@@ -26,6 +26,7 @@ type BatchesTableProps = {
   canWrite: boolean;
   onPageChange: (page: number) => void;
   onChanged?: () => void;
+  onAdjust: (row: BatchRow) => void;
 };
 
 function RowActions({
@@ -34,12 +35,14 @@ function RowActions({
   busyId,
   onQuarantine,
   onRelease,
+  onAdjust,
 }: {
   row: BatchRow;
   canWrite: boolean;
   busyId: string | null;
   onQuarantine: (row: BatchRow) => void;
   onRelease: (row: BatchRow) => void;
+  onAdjust: (row: BatchRow) => void;
 }) {
   const busy = busyId === row.id;
   return (
@@ -52,15 +55,15 @@ function RowActions({
       >
         <IconEye size={17} />
       </RoleLink>
-      <RoleLink
-        href={`/inventory/adjustments?productId=${row.productId}&batchId=${row.id}`}
+      <RoleButton
         roles={INVENTORY_WRITE_ROLES}
         className={`${css.actionIcon} ${css.actionIconAdjust}`}
         aria-label={`Adjust ${row.product.name}, batch ${row.batchNo}`}
         data-tooltip="Adjust this batch"
+        onClick={() => onAdjust(row)}
       >
         <IconActivity size={17} />
-      </RoleLink>
+      </RoleButton>
       {canWrite && !row.isQuarantined && (
         <button
           type="button"
@@ -96,6 +99,7 @@ export function BatchesTable({
   canWrite,
   onPageChange,
   onChanged,
+  onAdjust,
 }: BatchesTableProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -257,12 +261,13 @@ export function BatchesTable({
           busyId={busyId}
           onQuarantine={(r) => void quarantine(r)}
           onRelease={(r) => void release(r)}
+          onAdjust={onAdjust}
         />
       ),
     });
 
     return cols;
-  }, [canWrite, busyId]);
+  }, [canWrite, busyId, onAdjust]);
 
   const pageSize = PAGE_SIZE;
   const paged = useMemo(() => {

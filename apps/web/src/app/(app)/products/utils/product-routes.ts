@@ -70,7 +70,7 @@ export function productOperationalLinks(
       id: "adjustments",
       label: "Stock adjustment",
       description: "Correct on-hand quantity at this branch",
-      href: `/inventory/adjustments?${q}`,
+      href: `/inventory?${q}&openAdjustment=1`,
       ready: true,
       roles: INVENTORY_WRITE_ROLES,
     },
@@ -101,9 +101,9 @@ export function productOperationalLinks(
     {
       id: "pos",
       label: "POS / checkout",
-      description: "Sell this product at the register",
+      description: "Open the register with this product in the cart",
       href: `/pos?${q}`,
-      ready: false,
+      ready: true,
       roles: POS_ROLES,
     },
     {

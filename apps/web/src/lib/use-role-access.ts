@@ -9,9 +9,9 @@ import {
 } from "./role-access";
 
 export function useRoleAccess() {
-  const { user } = useAuth();
+  const { user, branchId } = useAuth();
 
-  const userRoles = useMemo(() => collectUserRoles(user), [user]);
+  const userRoles = useMemo(() => collectUserRoles(user, branchId), [user, branchId]);
 
   const canAccess = useMemo(
     () => (allowedRoles?: RoleName[]) => hasRoleAccess(userRoles, allowedRoles),

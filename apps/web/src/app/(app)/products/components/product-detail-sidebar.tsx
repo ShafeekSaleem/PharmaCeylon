@@ -67,9 +67,67 @@ export function ProductDetailSidebar({
   const hasBranch = detail.qtyOnHand !== null;
   const latest = detail.history[0] ?? null;
   const recentPriceChanges = pricingHistoryItems(detail.history).slice(0, 3);
+  const showBranchSummary =
+    hasBranch &&
+    !!summary &&
+    (activeTab === "history" || activeTab === "overview" || activeTab === "stock");
 
   return (
     <aside className={detailCss.sidebarColumn}>
+      {showBranchSummary ? (
+        <div className={detailCss.sideCard}>
+          <h3 className={detailCss.sideCardTitle}>
+            At this branch ({summary.branchName})
+          </h3>
+          <dl className={detailCss.branchSummaryList}>
+            <div className={detailCss.branchSummaryRow}>
+              <dt>Current stock</dt>
+              <dd>
+                <ProductStockBadge
+                  qtyOnHand={detail.qtyOnHand}
+                  stockStatus={detail.stockStatus}
+                  reorderGap={detail.reorderGap}
+                  reorderLevel={product.reorderLevel}
+                  variant="inline"
+                />
+              </dd>
+            </div>
+            <div className={detailCss.branchSummaryRow}>
+              <dt>Last movement</dt>
+              <dd>{formatRelativeTime(summary.lastMovementAt)}</dd>
+            </div>
+            {summary.nextExpiryBatchNo && (
+              <div className={detailCss.branchSummaryRow}>
+                <dt>Next expiry</dt>
+                <dd>
+                  <span className={detailCss.nextExpiryBadge}>
+                    <IconAlertTriangle size={11} />
+                    <span>
+                      <strong>{summary.nextExpiryBatchNo}</strong>
+                      {summary.nextExpiryDays != null && summary.nextExpiryDays >= 0 && (
+                        <> · {summary.nextExpiryDays}d left ({formatDate(summary.nextExpiryDate)})</>
+                      )}
+                    </span>
+                  </span>
+                </dd>
+              </div>
+            )}
+            <div className={detailCss.branchSummaryRow}>
+              <dt>Avg. monthly usage</dt>
+              <dd>
+                {summary.avgMonthlyUsage != null
+                  ? `${summary.avgMonthlyUsage} units/mo`
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+          <RoleLink href={`/inventory/movements?productId=${productId}`} className={detailCss.footerLink}>
+            View inventory details
+            <IconChevronRight size={14} />
+          </RoleLink>
+        </div>
+      ) : null}
+
       <div className={detailCss.sideCard}>
         <h3 className={detailCss.sideCardTitle}>Related workflows</h3>
         <nav className={detailCss.navGrid} aria-label="Product operations">
@@ -217,60 +275,6 @@ export function ProductDetailSidebar({
             View full audit log
             <IconChevronRight size={14} />
           </Link>
-        </div>
-      )}
-
-      {hasBranch && summary && (activeTab === "history" || activeTab === "overview" || activeTab === "stock") && (
-        <div className={detailCss.sideCard}>
-          <h3 className={detailCss.sideCardTitle}>
-            At this branch ({summary.branchName})
-          </h3>
-          <dl className={detailCss.branchSummaryList}>
-            <div className={detailCss.branchSummaryRow}>
-              <dt>Current stock</dt>
-              <dd>
-                <ProductStockBadge
-                  qtyOnHand={detail.qtyOnHand}
-                  stockStatus={detail.stockStatus}
-                  reorderGap={detail.reorderGap}
-                  reorderLevel={product.reorderLevel}
-                  variant="inline"
-                />
-              </dd>
-            </div>
-            <div className={detailCss.branchSummaryRow}>
-              <dt>Last movement</dt>
-              <dd>{formatRelativeTime(summary.lastMovementAt)}</dd>
-            </div>
-            {summary.nextExpiryBatchNo && (
-              <div className={detailCss.branchSummaryRow}>
-                <dt>Next expiry</dt>
-                <dd>
-                  <span className={detailCss.nextExpiryBadge}>
-                    <IconAlertTriangle size={11} />
-                    <span>
-                      <strong>{summary.nextExpiryBatchNo}</strong>
-                      {summary.nextExpiryDays != null && summary.nextExpiryDays >= 0 && (
-                        <> · {summary.nextExpiryDays}d left ({formatDate(summary.nextExpiryDate)})</>
-                      )}
-                    </span>
-                  </span>
-                </dd>
-              </div>
-            )}
-            <div className={detailCss.branchSummaryRow}>
-              <dt>Avg. monthly usage</dt>
-              <dd>
-                {summary.avgMonthlyUsage != null
-                  ? `${summary.avgMonthlyUsage} units/mo`
-                  : "—"}
-              </dd>
-            </div>
-          </dl>
-          <RoleLink href={`/inventory/movements?productId=${productId}`} className={detailCss.footerLink}>
-            View inventory details
-            <IconChevronRight size={14} />
-          </RoleLink>
         </div>
       )}
     </aside>

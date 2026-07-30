@@ -13,6 +13,8 @@ type Props = {
   className?: string;
   onClick?: () => void;
   active?: boolean;
+  /** Compact density for list dashboards. */
+  size?: "md" | "sm";
 };
 
 export function StatCard({
@@ -25,9 +27,11 @@ export function StatCard({
   className,
   onClick,
   active = false,
+  size = "md",
 }: Props) {
   const cardCls = [
     styles.card,
+    size === "sm" ? styles.cardSm : "",
     onClick ? styles.clickable : "",
     active ? styles.active : "",
     className ?? "",
@@ -35,7 +39,11 @@ export function StatCard({
     .filter(Boolean)
     .join(" ");
 
-  const iconCls = [styles.icon, styles[`icon_${iconTone}`]].join(" ");
+  const iconCls = [
+    styles.icon,
+    size === "sm" ? styles.iconSm : "",
+    styles[`icon_${iconTone}`],
+  ].join(" ");
 
   const inner = (
     <>
@@ -43,7 +51,7 @@ export function StatCard({
         <span className={styles.title}>{title}</span>
         {icon && <span className={iconCls}>{icon}</span>}
       </div>
-      <div className={styles.value}>{value}</div>
+      <div className={size === "sm" ? styles.valueSm : styles.value}>{value}</div>
       {(subtitle || trend) && (
         <div className={styles.bottom}>
           {trend && (
@@ -72,12 +80,13 @@ type GridProps = {
   children: ReactNode;
   columns?: 2 | 3 | 4;
   className?: string;
+  dense?: boolean;
 };
 
-export function StatGrid({ children, columns = 4, className }: GridProps) {
+export function StatGrid({ children, columns = 4, className, dense = false }: GridProps) {
   return (
     <div
-      className={`${styles.grid}${className ? ` ${className}` : ""}`}
+      className={`${styles.grid}${dense ? ` ${styles.gridSm}` : ""}${className ? ` ${className}` : ""}`}
       style={{ "--stat-cols": columns } as React.CSSProperties}
     >
       {children}

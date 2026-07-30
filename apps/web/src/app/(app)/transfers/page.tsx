@@ -433,7 +433,7 @@ function TransfersContent() {
         <div className={layoutCss.dashboard}>
           <div className={layoutCss.mainCol}>
             <div className={layoutCss.kpiRow}>
-              <StatCard
+              <StatCard size="sm"
                 title="Pending approval"
                 value={summary.requested}
                 subtitle="Awaiting approval"
@@ -442,7 +442,7 @@ function TransfersContent() {
                 active={statusFilter === "requested"}
                 onClick={() => toggleStatus("requested")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Ready to ship"
                 value={summary.approved}
                 subtitle="Approved, not dispatched"
@@ -451,7 +451,7 @@ function TransfersContent() {
                 active={statusFilter === "approved"}
                 onClick={() => toggleStatus("approved")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="In transit"
                 value={summary.in_transit}
                 subtitle="On the way"
@@ -460,7 +460,7 @@ function TransfersContent() {
                 active={statusFilter === "in_transit"}
                 onClick={() => toggleStatus("in_transit")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Partially received"
                 value={summary.partially_received}
                 subtitle="In progress"
@@ -469,7 +469,7 @@ function TransfersContent() {
                 active={statusFilter === "partially_received"}
                 onClick={() => toggleStatus("partially_received")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Completed"
                 value={summary.received}
                 subtitle="Fully received"
@@ -478,7 +478,7 @@ function TransfersContent() {
                 active={statusFilter === "received"}
                 onClick={() => toggleStatus("received")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Overdue"
                 value={summary.overdue}
                 subtitle="Past expected date"

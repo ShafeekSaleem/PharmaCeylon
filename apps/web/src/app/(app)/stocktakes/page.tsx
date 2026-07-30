@@ -8,9 +8,12 @@ import {
   IconAlertTriangle,
   IconCalendar,
   IconCheck,
+  IconChevronRight,
   IconClipboardList,
+  IconDownload,
   IconEdit,
   IconEye,
+  IconPackage,
   IconPlus,
   IconSearch,
 } from "@/components/icons";
@@ -69,6 +72,45 @@ export default function StocktakesPage() {
     return { draft, scheduled, counting, needsAttention, completed, openVariances };
   }, [stocktakes.rows]);
 
+  const alerts = useMemo(() => {
+    const submitted = stocktakes.rows.filter((r) => r.status === "submitted").length;
+    const underReview = stocktakes.rows.filter((r) => r.status === "under_review").length;
+    const approved = stocktakes.rows.filter((r) => r.status === "approved").length;
+    const stalledCounting = stocktakes.rows.filter(
+      (r) => r.status === "counting" && r.uncountedLineCount > 0,
+    ).length;
+    return [
+      {
+        key: "submitted",
+        label: "Awaiting review",
+        hint: "Submitted counts need a reviewer",
+        count: submitted,
+        tone: "info" as const,
+      },
+      {
+        key: "under_review",
+        label: "Under review",
+        hint: "Variance lines need reason & resolution",
+        count: underReview,
+        tone: "warning" as const,
+      },
+      {
+        key: "approved",
+        label: "Ready to post",
+        hint: "Approved, awaiting stock posting",
+        count: approved,
+        tone: "warning" as const,
+      },
+      {
+        key: "counting",
+        label: "Counting incomplete",
+        hint: "Lines still pending a count",
+        count: stalledCounting,
+        tone: "info" as const,
+      },
+    ].filter((a) => a.count > 0);
+  }, [stocktakes.rows]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return stocktakes.rows.filter((row) => {
@@ -112,6 +154,47 @@ export default function StocktakesPage() {
 
   function toggleStatus(next: StocktakeStatusFilter) {
     setStatusFilter((prev) => (prev === next ? "all" : next));
+  }
+
+  function exportCsv() {
+    const header = [
+      "Stocktake",
+      "Title",
+      "Status",
+      "Scope",
+      "Area",
+      "Progress",
+      "Lines counted",
+      "Total lines",
+      "Variance lines",
+      "Variance net",
+      "Assigned to",
+      "Updated",
+    ];
+    const lines = filtered.map((row) => [
+      row.stocktakeNumber,
+      row.title ?? "",
+      statusLabel(row.status),
+      scopeLabel(row.scope),
+      row.areaLabel ?? "",
+      `${row.progressPct ?? 0}%`,
+      String(row.countedLineCount),
+      String(row.lineCount),
+      row.varianceLineCount == null ? "" : String(row.varianceLineCount),
+      row.varianceUnitsNet == null ? "" : formatSigned(row.varianceUnitsNet),
+      row.assignments.map((entry) => entry.user.fullName).join("; ") || row.counter.fullName,
+      row.updatedAt,
+    ]);
+    const csv = [header, ...lines]
+      .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "stocktakes-export.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const columns: Column<StocktakeListItem>[] = useMemo(
@@ -271,9 +354,10 @@ export default function StocktakesPage() {
           Select a branch in the header to manage stocktakes for that location.
         </div>
       ) : (
+        <div className={layoutCss.dashboard}>
         <div className={layoutCss.mainCol}>
           <div className={layoutCss.kpiRow}>
-            <StatCard
+            <StatCard size="sm"
               title="Draft"
               value={summary.draft}
               subtitle="Not scheduled"
@@ -282,7 +366,7 @@ export default function StocktakesPage() {
               active={statusFilter === "draft"}
               onClick={() => toggleStatus("draft")}
             />
-            <StatCard
+            <StatCard size="sm"
               title="Scheduled"
               value={summary.scheduled}
               subtitle="Ready to start"
@@ -291,7 +375,7 @@ export default function StocktakesPage() {
               active={statusFilter === "scheduled"}
               onClick={() => toggleStatus("scheduled")}
             />
-            <StatCard
+            <StatCard size="sm"
               title="Counting"
               value={summary.counting}
               subtitle="Active counts"
@@ -300,7 +384,7 @@ export default function StocktakesPage() {
               active={statusFilter === "counting"}
               onClick={() => toggleStatus("counting")}
             />
-            <StatCard
+            <StatCard size="sm"
               title="Needs attention"
               value={summary.needsAttention}
               subtitle="Review queue or unfinished counts"
@@ -309,14 +393,14 @@ export default function StocktakesPage() {
               active={statusFilter === "attention"}
               onClick={() => toggleStatus("attention")}
             />
-            <StatCard
+            <StatCard size="sm"
               title="Open variances"
               value={summary.openVariances}
               subtitle="Visible lines only"
               icon={<IconEye size={16} />}
               iconTone="danger"
             />
-            <StatCard
+            <StatCard size="sm"
               title="Completed"
               value={summary.completed}
               subtitle="Posted and closed"
@@ -346,6 +430,16 @@ export default function StocktakesPage() {
               options={STATUS_OPTIONS}
               onChange={(value) => setStatusFilter(value as StocktakeStatusFilter)}
             />
+            <div className={layoutCss.toolbarSpacer} />
+            <button
+              type="button"
+              className={layoutCss.actionBtn}
+              onClick={exportCsv}
+              data-tooltip="Download filtered stocktakes as CSV"
+            >
+              <IconDownload size={14} />
+              Export
+            </button>
           </div>
 
           {hasActiveFilters ? (
@@ -384,6 +478,114 @@ export default function StocktakesPage() {
             emptyIcon={<IconClipboardList size={46} />}
             compact
           />
+        </div>
+
+        <aside className={layoutCss.sideCol}>
+          <div className={layoutCss.sideCard}>
+            <h3 className={layoutCss.sideCardTitle}>Stocktake summary</h3>
+            <div className={layoutCss.summaryGrid}>
+              <div className={layoutCss.summaryRow}>
+                <span>Total stocktakes</span>
+                <span className={layoutCss.summaryValue}>{stocktakes.rows.length}</span>
+              </div>
+              <div className={layoutCss.summaryRow}>
+                <span>In progress</span>
+                <span className={layoutCss.summaryValue}>{summary.counting}</span>
+              </div>
+              <div className={layoutCss.summaryRow}>
+                <span>Needs attention</span>
+                <span className={layoutCss.summaryValue}>{summary.needsAttention}</span>
+              </div>
+              <div className={`${layoutCss.summaryRow} ${layoutCss.summaryHighlight}`}>
+                <span>Completed</span>
+                <span className={layoutCss.summaryValue}>{summary.completed}</span>
+              </div>
+            </div>
+            <Link href="/inventory/batches" className={layoutCss.sideLink}>
+              View inventory batches →
+            </Link>
+          </div>
+
+          <div className={layoutCss.sideCard}>
+            <h3 className={layoutCss.sideCardTitle}>Stocktake alerts</h3>
+            {alerts.length === 0 ? (
+              <p className={layoutCss.fieldHint}>No stocktake alerts right now.</p>
+            ) : (
+              <ul className={layoutCss.alertList}>
+                {alerts.map((alert) => (
+                  <li key={alert.key}>
+                    <button
+                      type="button"
+                      className={layoutCss.alertItem}
+                      onClick={() =>
+                        toggleStatus(
+                          alert.key === "counting"
+                            ? "counting"
+                            : (alert.key as StocktakeStatusFilter),
+                        )
+                      }
+                    >
+                      <div className={layoutCss.alertItemLeft}>
+                        <span
+                          className={`${layoutCss.alertIcon} ${
+                            alert.tone === "warning"
+                              ? layoutCss.alertIconWarning
+                              : layoutCss.alertIconInfo
+                          }`}
+                        >
+                          <IconAlertTriangle size={12} />
+                        </span>
+                        <span>
+                          <span className={layoutCss.alertText}>{alert.label}</span>
+                          <span className={layoutCss.fieldHint} style={{ display: "block" }}>
+                            {alert.hint}
+                          </span>
+                        </span>
+                      </div>
+                      <span className={layoutCss.alertCount}>{alert.count}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className={layoutCss.sideCard}>
+            <h3 className={layoutCss.sideCardTitle}>Quick actions</h3>
+            <div className={scss.quickActions}>
+              {canWrite ? (
+                <button
+                  type="button"
+                  className={scss.quickAction}
+                  onClick={() => setCreateOpen(true)}
+                >
+                  <IconPlus size={15} />
+                  <span>New stocktake</span>
+                  <IconChevronRight size={14} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={scss.quickAction}
+                onClick={() => toggleStatus("attention")}
+              >
+                <IconAlertTriangle size={15} />
+                <span>Needs attention</span>
+                <IconChevronRight size={14} />
+              </button>
+              <Link href="/inventory/batches" className={scss.quickAction}>
+                <IconPackage size={15} />
+                <span>View inventory batches</span>
+                <IconChevronRight size={14} />
+              </Link>
+              <Link href="/purchasing" className={scss.quickAction}>
+                <IconClipboardList size={15} />
+                <span>View purchasing</span>
+                <IconChevronRight size={14} />
+              </Link>
+            </div>
+          </div>
+        </aside>
         </div>
       )}
 

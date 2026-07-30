@@ -26,6 +26,45 @@
   text-decoration: underline;
 }
 
+.quickActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.quickAction {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.quickAction:hover {
+  border-color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-card-bg));
+}
+
+.quickAction span:first-of-type {
+  flex: 1;
+  text-align: left;
+}
+
+.quickAction svg:last-child {
+  margin-left: auto;
+  color: var(--pc-muted-fg);
+}
+
 .notesBlock {
   margin: 0 0 1rem;
   padding: 0.65rem 0.75rem;
@@ -1620,8 +1659,8 @@
 }
 
 .metricTileIconAccent {
-  background: color-mix(in srgb, #7c3aed 14%, transparent);
-  color: #6d28d9;
+  background: color-mix(in srgb, var(--pc-accent-navy, #1e40af) 14%, transparent);
+  color: var(--pc-accent-navy, #1e40af);
 }
 
 .metricTileBody {
@@ -1721,8 +1760,8 @@
 }
 
 .actionNote {
-  background: color-mix(in srgb, #7c3aed 14%, transparent);
-  color: #6d28d9;
+  background: color-mix(in srgb, var(--pc-accent-navy, #1e40af) 14%, transparent);
+  color: var(--pc-accent-navy, #1e40af);
 }
 
 .actionRecount {

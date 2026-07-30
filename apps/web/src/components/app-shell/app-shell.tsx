@@ -248,7 +248,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.push("/login");
   }, [logout, router]);
 
-  const userRoles = useMemo(() => collectUserRoles(user), [user]);
+  const userRoles = useMemo(() => collectUserRoles(user, branchId), [user, branchId]);
 
   const navGroups = NAV_GROUPS;
 

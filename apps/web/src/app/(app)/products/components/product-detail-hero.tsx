@@ -24,6 +24,8 @@ type Props = {
   product: Product;
   detail: ProductDetail;
   canWrite: boolean;
+  /** API restricts DELETE /products/:id to owner/manager; defaults to `canWrite` when omitted. */
+  canDelete?: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onImageChanged: () => void;
@@ -33,10 +35,12 @@ export function ProductDetailHero({
   product,
   detail,
   canWrite,
+  canDelete,
   onEdit,
   onDelete,
   onImageChanged,
 }: Props) {
+  const canDeleteProduct = canDelete ?? canWrite;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageZoomed, setImageZoomed] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
@@ -162,16 +166,20 @@ export function ProductDetailHero({
             </p>
           </div>
 
-          {canWrite && (
+          {(canWrite || canDeleteProduct) && (
             <div className={detailCss.heroActions}>
-              <button type="button" className={detailCss.heroEditBtn} onClick={onEdit}>
-                <IconEdit size={16} />
-                Edit product
-              </button>
-              <button type="button" className={detailCss.heroDeleteBtn} onClick={onDelete}>
-                <IconTrash size={16} />
-                Delete
-              </button>
+              {canWrite && (
+                <button type="button" className={detailCss.heroEditBtn} onClick={onEdit}>
+                  <IconEdit size={16} />
+                  Edit product
+                </button>
+              )}
+              {canDeleteProduct && (
+                <button type="button" className={detailCss.heroDeleteBtn} onClick={onDelete}>
+                  <IconTrash size={16} />
+                  Delete
+                </button>
+              )}
             </div>
           )}
 

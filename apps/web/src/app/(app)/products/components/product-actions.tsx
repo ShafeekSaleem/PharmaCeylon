@@ -6,10 +6,12 @@ import type { Product } from "../types";
 
 export function ProductActions({
   row,
+  canDelete = true,
   onEdit,
   onDelete,
 }: {
   row: Product;
+  canDelete?: boolean;
   onEdit: (p: Product) => void;
   onDelete: (p: Product) => void;
 }) {
@@ -24,15 +26,17 @@ export function ProductActions({
       >
         <IconEdit size={17} />
       </button>
-      <button
-        type="button"
-        className={`${css.actionIcon} ${css.actionIconDelete}`}
-        aria-label={`Delete ${row.name}`}
-        data-tooltip="Delete product"
-        onClick={() => onDelete(row)}
-      >
-        <IconTrash size={17} />
-      </button>
+      {canDelete && (
+        <button
+          type="button"
+          className={`${css.actionIcon} ${css.actionIconDelete}`}
+          aria-label={`Delete ${row.name}`}
+          data-tooltip="Delete product"
+          onClick={() => onDelete(row)}
+        >
+          <IconTrash size={17} />
+        </button>
+      )}
     </div>
   );
 }

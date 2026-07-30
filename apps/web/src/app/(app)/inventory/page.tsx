@@ -18,6 +18,7 @@ import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, PageHeader, StatCard } from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
 import { ProductStockBadge } from "../products/components/product-stock-badge";
+import { AdjustmentModal } from "./components/adjustment-modal";
 import { InventoryFilterSelect } from "./components/inventory-filter-select";
 import {
   EMPTY_INVENTORY_CATALOG_FILTERS,
@@ -29,7 +30,7 @@ import { StockTable } from "./components/stock-table";
 import { SUMMARY_PERIOD_OPTIONS } from "./constants";
 import { useInventoryStock, useInventorySummary } from "./hooks/use-inventory-stock";
 import css from "./inventory.module.css";
-import type { StockView, SummaryPeriod } from "./types";
+import type { StockRow, StockView, SummaryPeriod } from "./types";
 import {
   formatMoney,
   hasInventoryWriteAccess,
@@ -60,6 +61,38 @@ function StockOverviewContent() {
   const [catalogFilters, setCatalogFilters] = useState<InventoryCatalogFilters>(
     EMPTY_INVENTORY_CATALOG_FILTERS,
   );
+  const [adjustmentOpen, setAdjustmentOpen] = useState(
+    searchParams.get("openAdjustment") === "1",
+  );
+  const [adjustmentContext, setAdjustmentContext] = useState<{
+    productId: string;
+    batchId: string;
+  }>({
+    productId: searchParams.get("productId") ?? "",
+    batchId: searchParams.get("batchId") ?? "",
+  });
+  const [adjustmentSuccess, setAdjustmentSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("openAdjustment") !== "1") return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("openAdjustment");
+    next.delete("batchId");
+    const qs = next.toString();
+    router.replace(qs ? `/inventory?${qs}` : "/inventory");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!adjustmentSuccess) return;
+    const t = setTimeout(() => setAdjustmentSuccess(null), 6000);
+    return () => clearTimeout(t);
+  }, [adjustmentSuccess]);
+
+  function openAdjustment(row?: StockRow) {
+    setAdjustmentContext({ productId: row?.productId ?? "", batchId: "" });
+    setAdjustmentOpen(true);
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(search), 300);
@@ -78,7 +111,7 @@ function StockOverviewContent() {
   ]);
 
   const stock = useInventoryStock("all", debouncedQ);
-  const { summary } = useInventorySummary(period);
+  const { summary, reload: reloadSummary } = useInventorySummary(period);
   const periodStats = summary?.period ?? null;
   const fallbackMonth = summary?.month;
   const received = periodStats?.received ?? fallbackMonth?.received ?? 0;
@@ -263,13 +296,15 @@ function StockOverviewContent() {
             <ActionButton
               icon={<IconPlus size={16} />}
               tooltip="Post a stock quantity correction"
-              onClick={() => router.push("/inventory/adjustments")}
+              onClick={() => openAdjustment()}
             >
               New adjustment
             </ActionButton>
           ) : null
         }
       />
+
+      {adjustmentSuccess && <Alert variant="success">{adjustmentSuccess}</Alert>}
 
       {!stock.hasBranch && (
         <div className={css.branchNotice}>
@@ -279,7 +314,7 @@ function StockOverviewContent() {
 
       {stock.hasBranch && (
         <div className={css.kpiRow}>
-          <StatCard
+          <StatCard size="sm"
             title="Total items"
             value={summary?.skuCount ?? "—"}
             subtitle={`${summary?.totalUnits ?? 0} units on hand`}
@@ -288,14 +323,14 @@ function StockOverviewContent() {
             onClick={clearFilters}
             active={!filtersActive}
           />
-          <StatCard
+          <StatCard size="sm"
             title="Stock value"
             value={summary ? formatMoney(summary.stockValue) : "—"}
             subtitle="At cost for on-hand batches"
             icon={<IconActivity size={16} />}
             iconTone="success"
           />
-          <StatCard
+          <StatCard size="sm"
             title="Low stock"
             value={summary?.lowStock ?? "—"}
             subtitle="Reorder soon"
@@ -304,7 +339,7 @@ function StockOverviewContent() {
             onClick={() => setViewFromStat("low")}
             active={view === "low"}
           />
-          <StatCard
+          <StatCard size="sm"
             title="Out of stock"
             value={summary?.outOfStock ?? "—"}
             subtitle="Needs attention"
@@ -313,7 +348,7 @@ function StockOverviewContent() {
             onClick={() => setViewFromStat("out")}
             active={view === "out"}
           />
-          <StatCard
+          <StatCard size="sm"
             title="Expiring soon"
             value={summary?.nearExpiryProducts ?? "—"}
             subtitle={`${summary?.nearExpiry ?? 0} batches ≤30 days`}
@@ -415,6 +450,7 @@ function StockOverviewContent() {
             page={page}
             canWrite={canWrite}
             onPageChange={setPage}
+            onAdjust={openAdjustment}
           />
         </div>
 
@@ -515,6 +551,18 @@ function StockOverviewContent() {
           </div>
         </aside>
       </div>
+
+      <AdjustmentModal
+        open={adjustmentOpen}
+        onClose={() => setAdjustmentOpen(false)}
+        initialProductId={adjustmentContext.productId}
+        initialBatchId={adjustmentContext.batchId}
+        onSuccess={(message) => {
+          setAdjustmentSuccess(message);
+          void stock.reload();
+          void reloadSummary();
+        }}
+      />
     </>
   );
 }

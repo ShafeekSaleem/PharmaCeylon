@@ -7,6 +7,7 @@ import {
   IconActivity,
   IconAlertTriangle,
   IconCheck,
+  IconDownload,
   IconPackage,
   IconPlus,
   IconSearch,
@@ -25,6 +26,7 @@ import {
   COLUMN_META,
   COLUMN_STORAGE_KEY,
   DEFAULT_VISIBLE,
+  PRODUCT_STAT_PILLS,
 } from "../constants";
 import {
   EMPTY_PRODUCT_FILTERS,
@@ -33,7 +35,7 @@ import {
 } from "../products-filter-panel";
 import css from "../products.module.css";
 import type { ColumnKey, Product, StatFilter } from "../types";
-import { hasWriteAccess, loadVisibleColumns } from "../utils";
+import { downloadProductsCsv, hasDeleteAccess, hasWriteAccess, loadVisibleColumns } from "../utils";
 import { productDetailPath } from "../utils/product-routes";
 import { useProductMeta } from "../hooks/use-product-meta";
 import { useProductMetaMutations } from "../hooks/use-product-meta-mutations";
@@ -50,6 +52,7 @@ export function ProductsPageContent() {
   const searchParams = useSearchParams();
   const { user, branchId } = useAuth();
   const canWrite = hasWriteAccess(user, branchId);
+  const canDelete = hasDeleteAccess(user, branchId);
   const hasBranch = !!getBranchId();
 
   const {
@@ -130,6 +133,8 @@ export function ProductsPageContent() {
       setFilters(EMPTY_PRODUCT_FILTERS);
     } else if (filter === "active") {
       setFilters({ ...EMPTY_PRODUCT_FILTERS, status: ["active"] });
+    } else if (filter === "inactive") {
+      setFilters({ ...EMPTY_PRODUCT_FILTERS, status: ["inactive"] });
     } else if (filter === "controlled") {
       setFilters({ ...EMPTY_PRODUCT_FILTERS, controlled: ["true"] });
     } else if (filter === "lowStock") {
@@ -198,10 +203,11 @@ export function ProductsPageContent() {
   );
 
   return (
-    <>
+    <div className={css.page}>
       <PageHeader
         subtitleOnly
-        description="Manage your pharmacy product catalog"
+        floatingActions
+        description="Manage your pharmacy product catalog."
         actions={
           canWrite ? (
             <>
@@ -216,131 +222,188 @@ export function ProductsPageContent() {
         }
       />
 
-      <div className={css.statsSection}>
-        <StatGrid columns={4}>
-          <StatCard
-            title="Total Products"
-            value={list.totalAll ?? "…"}
-            icon={<IconPackage size={20} />}
-            iconTone="primary"
-            active={activeStatFilter === "all"}
-            onClick={() => toggleStatFilter("all")}
-          />
-          <StatCard
-            title="Active Products"
-            value={list.summaryFacets ? list.activeCount : "…"}
-            icon={<IconCheck size={20} />}
-            iconTone="success"
-            active={activeStatFilter === "active"}
-            onClick={() => toggleStatFilter("active")}
-          />
-          <StatCard
-            title="Controlled Substances"
-            value={list.controlledCount}
-            icon={<IconAlertTriangle size={20} />}
-            iconTone="warning"
-            active={activeStatFilter === "controlled"}
-            onClick={() => toggleStatFilter("controlled")}
-          />
-          <StatCard
-            title="Low Stock"
-            value={list.lowStock ?? "—"}
-            icon={<IconActivity size={20} />}
-            iconTone="danger"
-            active={activeStatFilter === "lowStock"}
-            onClick={() => hasBranch && toggleStatFilter("lowStock")}
-          />
-        </StatGrid>
-      </div>
-
-      <div className={css.toolbar}>
-        <div className={css.toolbarGroup}>
-          <ProductsFilterPanel
-            facets={filterFacets}
-            applied={appliedFilters}
-            onApply={handleFiltersApply}
-            hasBranch={hasBranch}
-          />
-          <div className={css.searchWrap}>
-            <span className={css.searchIcon}>
-              <IconSearch size={16} />
-            </span>
-            <input
-              className={css.searchInput}
-              type="text"
-              placeholder="Search products…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+      <div className={css.mainCol}>
+        <div className={css.statsSection}>
+          <StatGrid columns={4} dense>
+            <StatCard
+              size="sm"
+              title="Total Products"
+              value={list.totalAll ?? "…"}
+              subtitle="In catalog"
+              icon={<IconPackage size={14} />}
+              iconTone="primary"
+              active={activeStatFilter === "all"}
+              onClick={() => toggleStatFilter("all")}
             />
-          </div>
-          <div className={css.clearBtnSlot}>
-            <button
-              type="button"
-              className={`${css.clearBtn} ${!filtersActive ? css.clearBtnHidden : ""}`}
-              onClick={handleClearFilters}
-              disabled={!filtersActive}
-              tabIndex={filtersActive ? 0 : -1}
-            >
-              Clear filters
-            </button>
-          </div>
+            <StatCard
+              size="sm"
+              title="Active Products"
+              value={list.summaryFacets ? list.activeCount : "…"}
+              subtitle="Sellable SKUs"
+              icon={<IconCheck size={14} />}
+              iconTone="success"
+              active={activeStatFilter === "active"}
+              onClick={() => toggleStatFilter("active")}
+            />
+            <StatCard
+              size="sm"
+              title="Controlled Substances"
+              value={list.controlledCount}
+              subtitle="Restricted items"
+              icon={<IconAlertTriangle size={14} />}
+              iconTone="warning"
+              active={activeStatFilter === "controlled"}
+              onClick={() => toggleStatFilter("controlled")}
+            />
+            <StatCard
+              size="sm"
+              title="Low Stock"
+              value={list.lowStock ?? "—"}
+              subtitle={hasBranch ? "Below reorder level" : "Select a branch"}
+              icon={<IconActivity size={14} />}
+              iconTone="danger"
+              active={activeStatFilter === "lowStock"}
+              onClick={() => hasBranch && toggleStatFilter("lowStock")}
+            />
+          </StatGrid>
         </div>
 
-        <div className={css.toolbarActions}>
-          <div className={css.columnsWrap} ref={columnsRef}>
+        <div className={css.toolbar}>
+          <div className={css.toolbarGroup}>
+            <ProductsFilterPanel
+              facets={filterFacets}
+              applied={appliedFilters}
+              onApply={handleFiltersApply}
+              hasBranch={hasBranch}
+            />
+            <div className={css.searchWrap}>
+              <span className={css.searchIcon}>
+                <IconSearch size={15} />
+              </span>
+              <input
+                className={css.searchInput}
+                type="search"
+                placeholder="Search products…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className={css.statusPills} role="tablist" aria-label="Quick status filters">
+              {PRODUCT_STAT_PILLS.map((pill) => {
+                const disabled = pill.id === "lowStock" && !hasBranch;
+                const active =
+                  activeStatFilter === pill.id ||
+                  (pill.id === "all" && activeStatFilter === null && !filtersActive);
+                return (
+                  <button
+                    key={pill.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    disabled={disabled}
+                    className={`${css.statusPill}${active ? ` ${css.statusPillActive}` : ""}`}
+                    onClick={() => {
+                      if (pill.id === "all") {
+                        handleClearFilters();
+                        setActiveStatFilter("all");
+                        return;
+                      }
+                      toggleStatFilter(pill.id);
+                    }}
+                  >
+                    {pill.label}
+                  </button>
+                );
+              })}
+            </div>
+            <span className={css.showingCount}>
+              Showing {list.total} product{list.total === 1 ? "" : "s"}
+            </span>
+            <div className={css.clearBtnSlot}>
+              <button
+                type="button"
+                className={`${css.clearBtn} ${!filtersActive ? css.clearBtnHidden : ""}`}
+                onClick={handleClearFilters}
+                disabled={!filtersActive}
+                tabIndex={filtersActive ? 0 : -1}
+              >
+                Clear filters
+              </button>
+            </div>
+          </div>
+
+          <div className={css.toolbarActions}>
             <button
               type="button"
               className={css.columnsBtn}
-              onClick={() => setColumnsOpen((o) => !o)}
-              aria-expanded={columnsOpen}
+              onClick={() => downloadProductsCsv(list.products)}
+              disabled={list.products.length === 0}
+              data-tooltip={
+                list.products.length === 0
+                  ? "Nothing to export for the current filters"
+                  : "Download current page as CSV"
+              }
             >
-              <IconSettings size={15} />
-              Columns
+              <IconDownload size={15} />
+              Export
             </button>
-            {columnsOpen && (
-              <div className={css.columnsPopover}>
-                <div className={css.columnsPopoverTitle}>Show columns</div>
-                {COLUMN_META.filter((c) => c.hideable).map((col) => (
-                  <label key={col.key} className={css.columnOption}>
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.has(col.key)}
-                      onChange={() => toggleColumn(col.key)}
-                    />
-                    {col.label}
-                  </label>
-                ))}
-              </div>
-            )}
+            <div className={css.columnsWrap} ref={columnsRef}>
+              <button
+                type="button"
+                className={css.columnsBtn}
+                onClick={() => setColumnsOpen((o) => !o)}
+                aria-expanded={columnsOpen}
+              >
+                <IconSettings size={15} />
+                Columns
+              </button>
+              {columnsOpen && (
+                <div className={css.columnsPopover}>
+                  <div className={css.columnsPopoverTitle}>Show columns</div>
+                  {COLUMN_META.filter((c) => c.hideable).map((col) => (
+                    <label key={col.key} className={css.columnOption}>
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns.has(col.key)}
+                        onChange={() => toggleColumn(col.key)}
+                      />
+                      {col.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {list.listError && (
+          <Alert variant="error" className={css.listAlert}>
+            {list.listError}
+          </Alert>
+        )}
+
+        <ProductTable
+          products={list.products}
+          total={list.total}
+          loading={list.loading}
+          page={page}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          visibleColumns={visibleColumns}
+          canWrite={canWrite}
+          canDelete={canDelete}
+          onPageChange={setPage}
+          onSort={handleServerSort}
+          onRowClick={openProduct}
+          onEdit={mutations.openEdit}
+          onDelete={mutations.openDelete}
+        />
       </div>
-
-      {list.listError && (
-        <Alert variant="error" className={css.listAlert}>
-          {list.listError}
-        </Alert>
-      )}
-
-      <ProductTable
-        products={list.products}
-        total={list.total}
-        loading={list.loading}
-        page={page}
-        sortBy={sortBy}
-        sortDir={sortDir}
-        visibleColumns={visibleColumns}
-        canWrite={canWrite}
-        onPageChange={setPage}
-        onSort={handleServerSort}
-        onRowClick={openProduct}
-        onEdit={mutations.openEdit}
-        onDelete={mutations.openDelete}
-      />
 
       <ProductMetaManagerModal
         open={metaManagerOpen}
         canWrite={canWrite}
+        canDelete={canDelete}
         categories={categories}
         tags={tags}
         onClose={() => setMetaManagerOpen(false)}
@@ -394,6 +457,6 @@ export function ProductsPageContent() {
           purchase records. Mark inactive via Edit instead.
         </p>
       </ConfirmDialog>
-    </>
+    </div>
   );
 }

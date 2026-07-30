@@ -8,7 +8,7 @@ import {
   IconEye,
   IconPackage,
 } from "@/components/icons";
-import { RoleLink } from "@/components/role-access";
+import { RoleButton, RoleLink } from "@/components/role-access";
 import { DataTable, type Column } from "@/components/ui";
 import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
@@ -18,7 +18,7 @@ import css from "../inventory.module.css";
 import type { StockRow } from "../types";
 import { formatRelativeTime } from "../utils";
 
-function RowActions({ row }: { row: StockRow }) {
+function RowActions({ row, onAdjust }: { row: StockRow; onAdjust: (row: StockRow) => void }) {
   return (
     <div className={css.actionsCell}>
       <RoleLink
@@ -37,15 +37,15 @@ function RowActions({ row }: { row: StockRow }) {
       >
         <IconPackage size={16} />
       </RoleLink>
-      <RoleLink
-        href={`/inventory/adjustments?productId=${row.productId}`}
+      <RoleButton
         roles={INVENTORY_WRITE_ROLES}
         className={`${css.actionIcon} ${css.actionIconAdjust}`}
         aria-label={`Adjust stock for ${row.product.name}`}
         data-tooltip="Adjust stock"
+        onClick={() => onAdjust(row)}
       >
         <IconActivity size={17} />
-      </RoleLink>
+      </RoleButton>
     </div>
   );
 }
@@ -56,6 +56,7 @@ type StockTableProps = {
   page: number;
   canWrite: boolean;
   onPageChange: (page: number) => void;
+  onAdjust: (row: StockRow) => void;
 };
 
 export function StockTable({
@@ -64,6 +65,7 @@ export function StockTable({
   page,
   canWrite,
   onPageChange,
+  onAdjust,
 }: StockTableProps) {
   const columns: Column<StockRow>[] = useMemo(
     () => [
@@ -160,10 +162,10 @@ export function StockTable({
         header: "Actions",
         width: "116px",
         align: "right",
-        render: (row) => <RowActions row={row} />,
+        render: (row) => <RowActions row={row} onAdjust={onAdjust} />,
       },
     ],
-    [],
+    [onAdjust],
   );
 
   const pageSize = PAGE_SIZE;

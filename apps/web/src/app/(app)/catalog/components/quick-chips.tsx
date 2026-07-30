@@ -12,7 +12,7 @@ import {
 import css from "../catalog.module.css";
 import type { CatalogFacets, CatalogFilters } from "../types";
 
-type ChipTone = "slate" | "emerald" | "amber" | "sky" | "violet" | "teal" | "rose";
+type ChipTone = "slate" | "emerald" | "amber" | "sky" | "teal" | "rose";
 
 type Props = {
   filters: CatalogFilters;
@@ -26,7 +26,6 @@ function toneClass(tone: ChipTone, active: boolean): string {
     emerald: css.chipEmerald,
     amber: css.chipAmber,
     sky: css.chipSky,
-    violet: css.chipViolet,
     teal: css.chipTeal,
     rose: css.chipRose,
   };
@@ -66,7 +65,7 @@ export function QuickChips({ filters, facets, onChange }: Props) {
     {
       key: "exact",
       label: "Exact match",
-      tone: "violet",
+      tone: "sky",
       active: filters.exact,
       icon: <IconTag size={14} />,
       onToggle: () => onChange({ exact: !filters.exact }),
@@ -153,7 +152,7 @@ export function QuickChips({ filters, facets, onChange }: Props) {
     {
       key: "capsule",
       label: "Capsules",
-      tone: "violet",
+      tone: "slate",
       active: filters.dosageForm === capsuleValue,
       icon: <IconPackage size={14} />,
       onToggle: () =>

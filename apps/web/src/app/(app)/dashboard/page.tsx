@@ -245,7 +245,7 @@ export default function DashboardPage() {
                 <IconShoppingBag size={16} />
                 Products
               </RoleLink>
-              <RoleLink href="/inventory/adjustments" roles={OPERATIONS_ROLES} className={css.quickAction}>
+              <RoleLink href="/inventory?openAdjustment=1" roles={OPERATIONS_ROLES} className={css.quickAction}>
                 <IconClipboardList size={16} />
                 Stock adjustment
               </RoleLink>

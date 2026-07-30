@@ -454,7 +454,7 @@ function ReturnsContent() {
         <div className={layoutCss.dashboard}>
           <div className={layoutCss.mainCol}>
             <div className={layoutCss.kpiRow}>
-              <StatCard
+              <StatCard size="sm"
                 title="Draft"
                 value={summary.draft}
                 subtitle="Not submitted"
@@ -463,7 +463,7 @@ function ReturnsContent() {
                 active={statusFilter === "draft"}
                 onClick={() => toggleStatus("draft")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Pending approval"
                 value={summary.pending_approval}
                 subtitle="Awaiting approval"
@@ -472,8 +472,8 @@ function ReturnsContent() {
                 active={statusFilter === "pending_approval"}
                 onClick={() => toggleStatus("pending_approval")}
               />
-              <StatCard
-                title="Awaiting pickup/dispatch"
+              <StatCard size="sm"
+                title="Awaiting logistics"
                 value={summary.awaiting_logistics}
                 subtitle="Logistics pending"
                 icon={<IconTruck size={16} />}
@@ -481,7 +481,7 @@ function ReturnsContent() {
                 active={statusFilter === "awaiting_logistics"}
                 onClick={() => toggleStatus("awaiting_logistics")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="In review"
                 value={summary.in_review}
                 subtitle="Ready to complete"
@@ -490,7 +490,7 @@ function ReturnsContent() {
                 active={statusFilter === "in_review"}
                 onClick={() => toggleStatus("in_review")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Completed"
                 value={summary.completed}
                 subtitle="Stock posted"
@@ -499,7 +499,7 @@ function ReturnsContent() {
                 active={statusFilter === "completed"}
                 onClick={() => toggleStatus("completed")}
               />
-              <StatCard
+              <StatCard size="sm"
                 title="Rejected"
                 value={summary.rejected}
                 subtitle="Declined"

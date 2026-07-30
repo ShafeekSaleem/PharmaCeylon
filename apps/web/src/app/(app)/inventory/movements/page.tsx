@@ -5,9 +5,11 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
 import { IconPlus } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
-import { RoleLink } from "@/components/role-access";
+import { RoleButton } from "@/components/role-access";
 import { ActionButton, PageHeader } from "@/components/ui";
+import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { useAuth } from "@/lib/use-auth";
+import { AdjustmentModal } from "../components/adjustment-modal";
 import { MovementsTable } from "../components/movements-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
 import { useInventoryMovements } from "../hooks/use-inventory-movements";
@@ -40,6 +42,14 @@ function MovementsContent() {
   );
   const [page, setPage] = useState(1);
   const stock = useInventoryStock("all", "");
+  const [adjustmentOpen, setAdjustmentOpen] = useState(false);
+  const [adjustmentSuccess, setAdjustmentSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!adjustmentSuccess) return;
+    const t = setTimeout(() => setAdjustmentSuccess(null), 6000);
+    return () => clearTimeout(t);
+  }, [adjustmentSuccess]);
 
   const setProductFilter = useCallback(
     (id: string) => {
@@ -93,17 +103,15 @@ function MovementsContent() {
             <ActionButton
               icon={<IconPlus size={16} />}
               tooltip="Post a stock quantity correction"
-              onClick={() =>
-                router.push(
-                  `/inventory/adjustments${productId ? `?productId=${productId}` : ""}`,
-                )
-              }
+              onClick={() => setAdjustmentOpen(true)}
             >
               New adjustment
             </ActionButton>
           ) : null
         }
       />
+
+      {adjustmentSuccess && <Alert variant="success">{adjustmentSuccess}</Alert>}
 
       {!movements.hasBranch && (
         <div className={css.branchNotice}>
@@ -176,11 +184,22 @@ function MovementsContent() {
             <div className={css.empty}>
               <p>No stock movements match your filters.</p>
               <p>
-                Post a new adjustment from the{" "}
-                <RoleLink href={`/inventory/adjustments${productId ? `?productId=${productId}` : ""}`}>
-                  Adjustments
-                </RoleLink>{" "}
-                tab.
+                <RoleButton
+                  roles={INVENTORY_WRITE_ROLES}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: "var(--pc-primary)",
+                    cursor: "pointer",
+                    font: "inherit",
+                    textDecoration: "underline",
+                  }}
+                  onClick={() => setAdjustmentOpen(true)}
+                >
+                  Post a new adjustment
+                </RoleButton>{" "}
+                to see it appear here.
               </p>
             </div>
           ) : (
@@ -197,6 +216,16 @@ function MovementsContent() {
           )}
         </>
       )}
+
+      <AdjustmentModal
+        open={adjustmentOpen}
+        onClose={() => setAdjustmentOpen(false)}
+        initialProductId={productId ?? ""}
+        onSuccess={(message) => {
+          setAdjustmentSuccess(message);
+          void movements.reload();
+        }}
+      />
     </>
   );
 }
