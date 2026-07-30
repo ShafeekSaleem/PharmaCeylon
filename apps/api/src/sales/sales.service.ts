@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { PaymentMethod, Prisma, RoleName, SaleStatus, StockMovementType } from "@prisma/client";
+import { PaymentMethod, Prisma, RoleName, SaleStatus, StockMovementType, GoodsReturnStatus, GoodsReturnType } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { nextDocumentNumber } from "../common/document-sequence.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
@@ -12,6 +13,12 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { TaxService } from "../pricing/tax.service";
 import { CheckoutDto } from "./dto/checkout.dto";
+import { RefundSaleDto } from "./dto/refund-sale.dto";
+import {
+  getSaleReturnableByLine,
+  saleLineKey,
+  totalRemainingQty,
+} from "./sale-returnable";
 
 /** Everything a receipt / POS success state needs, in one shape. */
 const SALE_INCLUDE = {
@@ -482,7 +489,18 @@ export class SalesService {
       });
       if (!sale) throw new NotFoundException("Sale not found");
       if (sale.status !== SaleStatus.posted) {
-        throw new BadRequestException("Only posted sales can be voided");
+        throw new BadRequestException("Only posted sales with no prior returns can be voided");
+      }
+
+      const { lines } = await getSaleReturnableByLine(tx, tenantId, branchId, saleId);
+      for (const line of sale.items) {
+        const key = saleLineKey(line.productId, line.batchId);
+        const rem = lines.get(key);
+        if (!rem || rem.remainingQty < line.qty) {
+          throw new BadRequestException(
+            "Cannot void a sale that already has returns or refunds — use the Returns workflow instead",
+          );
+        }
       }
 
       for (const line of sale.items) {
@@ -526,7 +544,7 @@ export class SalesService {
     userId: string,
     branchRoles: BranchRoleEntry[],
     saleId: string,
-    reason?: string,
+    dto: RefundSaleDto,
   ) {
     const roles = this.branchEffectiveRoles(branchRoles, branchId);
     const can = roles.some((r) => SalesService.REFUND_ROLES.includes(r));
@@ -534,35 +552,166 @@ export class SalesService {
       throw new ForbiddenException("Insufficient role to refund a sale");
     }
 
+    const reason = dto.reason?.trim();
+    if (!reason) throw new BadRequestException("Enter a reason for the refund");
+
+    const refundMethod = dto.refundMethod ?? PaymentMethod.cash;
+    let goodsReturnId: string | null = null;
+    let refundTotal = new Prisma.Decimal(0);
+    let nextStatus: SaleStatus = SaleStatus.refunded;
+
     await this.prisma.$transaction(async (tx) => {
       const sale = await tx.sale.findFirst({
         where: { id: saleId, tenantId, branchId },
-        include: { items: true },
+        include: {
+          items: { include: { product: { select: { id: true, isControlled: true, name: true } } } },
+          customer: { select: { fullName: true } },
+        },
       });
       if (!sale) throw new NotFoundException("Sale not found");
-      if (sale.status !== SaleStatus.posted) {
-        throw new BadRequestException("Only posted sales can be refunded");
+      if (
+        sale.status !== SaleStatus.posted &&
+        sale.status !== SaleStatus.partially_refunded
+      ) {
+        throw new BadRequestException("Only posted or partially refunded sales can be refunded");
       }
 
-      for (const line of sale.items) {
+      const needsControlledGate =
+        Boolean(sale.prescriptionId) ||
+        sale.items.some((i) => i.product.isControlled);
+      if (needsControlledGate) {
+        const elevated = roles.some((r) => SalesService.CONTROLLED_SALE_ROLES.includes(r));
+        if (!elevated) {
+          throw new ForbiddenException(
+            "Controlled or prescription-linked sales require a pharmacist, manager, or owner to refund",
+          );
+        }
+      }
+
+      const { lines } = await getSaleReturnableByLine(tx, tenantId, branchId, saleId);
+
+      const requested: { productId: string; batchId: string; qty: number; unitPrice: Prisma.Decimal }[] =
+        [];
+
+      if (dto.items?.length) {
+        for (const item of dto.items) {
+          const key = saleLineKey(item.productId, item.batchId);
+          const rem = lines.get(key);
+          if (!rem) {
+            throw new BadRequestException(
+              "Refund line product/batch must match a line on the referenced sale",
+            );
+          }
+          if (item.qty > rem.remainingQty) {
+            throw new BadRequestException(
+              rem.remainingQty <= 0
+                ? "This sale line has already been fully returned"
+                : `Only ${rem.remainingQty} unit(s) remain returnable on this sale line`,
+            );
+          }
+          requested.push({
+            productId: item.productId,
+            batchId: item.batchId,
+            qty: item.qty,
+            unitPrice: d(rem.unitPrice),
+          });
+        }
+      } else {
+        for (const rem of lines.values()) {
+          if (rem.remainingQty <= 0) continue;
+          requested.push({
+            productId: rem.productId,
+            batchId: rem.batchId,
+            qty: rem.remainingQty,
+            unitPrice: d(rem.unitPrice),
+          });
+        }
+      }
+
+      if (requested.length === 0) {
+        throw new BadRequestException("Nothing remains returnable on this sale");
+      }
+
+      const remainingBefore = totalRemainingQty(lines);
+      const refundedQty = requested.reduce((n, line) => n + line.qty, 0);
+
+      refundTotal = requested.reduce(
+        (sum, line) => sum.add(line.unitPrice.mul(line.qty)),
+        new Prisma.Decimal(0),
+      );
+
+      if (dto.refundAmount != null && dto.refundAmount.trim() !== "") {
+        const expected = d(dto.refundAmount);
+        if (!expected.eq(refundTotal)) {
+          throw new BadRequestException(
+            `Refund amount must equal ${refundTotal.toFixed(2)} for the selected lines`,
+          );
+        }
+      }
+
+      const returnNumber = await this.nextPosReturnNumber(tx, tenantId, branchId);
+      const created = await tx.goodsReturn.create({
+        data: {
+          tenantId,
+          branchId,
+          returnNumber,
+          type: GoodsReturnType.customer,
+          status: GoodsReturnStatus.completed,
+          customerName: sale.customer?.fullName ?? "Walk-in",
+          saleId: sale.id,
+          reason,
+          notes: `POS refund · ${sale.invoiceNo}`,
+          amount: refundTotal,
+          requestedBy: userId,
+          approvedBy: userId,
+          processedBy: userId,
+          items: {
+            create: requested.map((line) => ({
+              tenantId,
+              productId: line.productId,
+              batchId: line.batchId,
+              qty: line.qty,
+              unitPrice: line.unitPrice,
+            })),
+          },
+        },
+      });
+      goodsReturnId = created.id;
+
+      for (const line of requested) {
         await tx.stockLedger.create({
           data: {
             tenantId,
             branchId,
             productId: line.productId,
             batchId: line.batchId,
-            movementType: StockMovementType.sale_refund_in,
+            movementType: StockMovementType.customer_return_in,
             qtyDelta: line.qty,
-            referenceType: "sale_refund",
-            referenceId: sale.id,
+            referenceType: "goods_return",
+            referenceId: created.id,
             createdBy: userId,
           },
         });
       }
 
+      await tx.salePayment.create({
+        data: {
+          tenantId,
+          saleId: sale.id,
+          method: refundMethod,
+          amount: refundTotal.neg(),
+          reference: `POS refund ${created.returnNumber}`,
+        },
+      });
+
+      nextStatus =
+        remainingBefore - refundedQty <= 0
+          ? SaleStatus.refunded
+          : SaleStatus.partially_refunded;
+
       await tx.sale.update({
         where: { id: saleId },
-        data: { status: SaleStatus.refunded },
+        data: { status: nextStatus },
       });
     });
 
@@ -573,15 +722,95 @@ export class SalesService {
       eventName: "sale.refunded",
       entityName: "sale",
       entityId: saleId,
-      payload: { reason: reason ?? null },
+      payload: {
+        reason,
+        goodsReturnId,
+        refundMethod,
+        refundTotal: refundTotal.toFixed(2),
+        status: nextStatus,
+      },
     });
 
     return this.getSale(tenantId, branchId, saleId);
   }
 
+  private async nextPosReturnNumber(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+  ): Promise<string> {
+    const year = new Date().getFullYear();
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
+    try {
+      const n = await tx.goodsReturn.count({
+        where: {
+          tenantId,
+          branchId,
+          createdAt: { gte: yearStart, lt: yearEnd },
+        },
+      });
+      return `RET-${year}-${String(n + 1).padStart(5, "0")}`;
+    } catch {
+      return `RET-${randomUUID().replace(/-/g, "").slice(0, 5).toUpperCase()}`;
+    }
+  }
+
+  async getSaleReturnable(tenantId: string, branchId: string, saleId: string) {
+    const sale = await this.prisma.sale.findFirst({
+      where: { id: saleId, tenantId, branchId },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: { id: true, name: true, sku: true, isControlled: true },
+            },
+            batch: { select: { id: true, batchNo: true } },
+          },
+        },
+      },
+    });
+    if (!sale) throw new NotFoundException("Sale not found");
+
+    const { lines } = await getSaleReturnableByLine(this.prisma, tenantId, branchId, saleId);
+    const requiresPharmacist =
+      Boolean(sale.prescriptionId) ||
+      sale.items.some((i) => i.product.isControlled);
+
+    return {
+      saleId: sale.id,
+      invoiceNo: sale.invoiceNo,
+      status: sale.status,
+      requiresPharmacist,
+      lines: [...lines.values()].map((rem) => {
+        const item = sale.items.find(
+          (i) => i.productId === rem.productId && i.batchId === rem.batchId,
+        );
+        return {
+          saleItemId: item?.id ?? `${rem.productId}:${rem.batchId}`,
+          productId: rem.productId,
+          batchId: rem.batchId,
+          productName: item?.product.name ?? "Product",
+          sku: item?.product.sku ?? "",
+          isControlled: item?.product.isControlled ?? false,
+          batchNo: item?.batch.batchNo ?? "",
+          soldQty: rem.soldQty,
+          remainingQty: rem.remainingQty,
+          unitPrice: rem.unitPrice,
+          lineTotal: item?.lineTotal.toFixed(2) ?? rem.unitPrice,
+        };
+      }),
+      totalRemainingQty: totalRemainingQty(lines),
+    };
+  }
+
   async listSales(tenantId: string, branchId: string, take = 50) {
     return this.prisma.sale.findMany({
-      where: { tenantId, branchId, status: SaleStatus.posted },
+      where: {
+        tenantId,
+        branchId,
+        status: { in: [SaleStatus.posted, SaleStatus.partially_refunded] },
+      },
       orderBy: { soldAt: "desc" },
       take,
       include: SALE_INCLUDE,
@@ -597,23 +826,65 @@ export class SalesService {
     return sale;
   }
 
-  /** Invoice lookup for the POS returns lane (exact match, then suffix match). */
+  /** Invoice lookup for the POS returns lane (exact, contains, then suffix). */
   async findByInvoice(tenantId: string, branchId: string, invoiceNo: string) {
-    const term = invoiceNo.trim();
+    const term = invoiceNo.trim().replace(/\s+/g, "");
     if (!term) throw new BadRequestException("Enter an invoice number");
+
+    const base = { tenantId, branchId } as const;
 
     const sale =
       (await this.prisma.sale.findFirst({
-        where: { tenantId, branchId, invoiceNo: term },
+        where: { ...base, invoiceNo: { equals: term, mode: "insensitive" } },
         include: SALE_INCLUDE,
       })) ??
       (await this.prisma.sale.findFirst({
-        where: { tenantId, branchId, invoiceNo: { endsWith: term, mode: "insensitive" } },
+        where: { ...base, invoiceNo: { contains: term, mode: "insensitive" } },
+        orderBy: { soldAt: "desc" },
+        include: SALE_INCLUDE,
+      })) ??
+      (await this.prisma.sale.findFirst({
+        where: { ...base, invoiceNo: { endsWith: term, mode: "insensitive" } },
         orderBy: { soldAt: "desc" },
         include: SALE_INCLUDE,
       }));
 
     if (!sale) throw new NotFoundException(`No sale found for invoice ${term}`);
     return sale;
+  }
+
+  /**
+   * Typeahead for the POS returns lane — match invoice number or customer name.
+   * Prefers posted sales (refundable) but still surfaces voided/refunded so cashiers
+   * can see why a bill cannot be refunded again.
+   */
+  async searchInvoices(tenantId: string, branchId: string, q: string, take = 12) {
+    const term = q.trim();
+    if (term.length < 1) return [];
+
+    const limit = Math.min(Math.max(take, 1), 25);
+
+    return this.prisma.sale.findMany({
+      where: {
+        tenantId,
+        branchId,
+        OR: [
+          { invoiceNo: { contains: term, mode: "insensitive" } },
+          { customer: { is: { fullName: { contains: term, mode: "insensitive" } } } },
+          { customer: { is: { phone: { contains: term } } } },
+        ],
+      },
+      orderBy: [{ status: "asc" }, { soldAt: "desc" }],
+      take: limit,
+      select: {
+        id: true,
+        invoiceNo: true,
+        status: true,
+        soldAt: true,
+        grandTotal: true,
+        customer: { select: { fullName: true, phone: true } },
+        _count: { select: { items: true } },
+      },
+    });
   }
 }

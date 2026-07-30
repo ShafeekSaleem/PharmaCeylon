@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { reorderGap, resolveStockStatus } from "../products/stock-qty.util";
+import { assertSaleReturnableLines } from "../sales/sale-returnable";
 import { StockBalanceService } from "./stock-balance.service";
 import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
 import { CustomerReturnDto } from "./dto/customer-return.dto";
@@ -734,6 +735,10 @@ export class InventoryService {
   }
 
   async customerReturn(tenantId: string, branchId: string, userId: string, dto: CustomerReturnDto) {
+    await assertSaleReturnableLines(this.prisma, tenantId, branchId, dto.saleId, [
+      { productId: dto.productId, batchId: dto.batchId, qty: dto.qty },
+    ]);
+
     const sale = await this.prisma.sale.findFirst({
       where: { id: dto.saleId, tenantId, branchId },
       include: { items: true },
@@ -747,44 +752,6 @@ export class InventoryService {
       where: { id: dto.batchId, tenantId, branchId, productId: dto.productId },
     });
     if (!batch) throw new BadRequestException("Invalid batch");
-
-    const priorReturned = await this.prisma.stockLedger.aggregate({
-      where: {
-        tenantId,
-        branchId,
-        productId: dto.productId,
-        batchId: dto.batchId,
-        movementType: StockMovementType.customer_return_in,
-        OR: [
-          { reason: `sale:${dto.saleId}` },
-          { reason: { startsWith: `sale:${dto.saleId}` } },
-        ],
-      },
-      _sum: { qtyDelta: true },
-    });
-    // Fallback for legacy returns without sale-tagged reason: cap by returns since sale for this line.
-    const legacyReturned = await this.prisma.stockLedger.aggregate({
-      where: {
-        tenantId,
-        branchId,
-        productId: dto.productId,
-        batchId: dto.batchId,
-        movementType: StockMovementType.customer_return_in,
-        occurredAt: { gte: sale.createdAt },
-        reason: null,
-      },
-      _sum: { qtyDelta: true },
-    });
-    const alreadyReturned =
-      (priorReturned._sum.qtyDelta ?? 0) + (legacyReturned._sum.qtyDelta ?? 0);
-    const remaining = line.qty - alreadyReturned;
-    if (dto.qty > remaining) {
-      throw new BadRequestException(
-        remaining <= 0
-          ? "This sale line has already been fully returned"
-          : `Only ${remaining} unit(s) remain returnable on this sale line`,
-      );
-    }
 
     const referenceId = randomUUID();
     await this.prisma.stockLedger.create({

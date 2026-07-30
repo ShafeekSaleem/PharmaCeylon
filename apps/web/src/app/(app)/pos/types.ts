@@ -130,7 +130,7 @@ export type HeldSaleDetail = {
 export type RecentSale = {
   id: string;
   invoiceNo: string;
-  status: "posted" | "voided" | "refunded";
+  status: "posted" | "voided" | "refunded" | "partially_refunded";
   soldAt: string;
   grandTotal: string;
   itemCount: number;
@@ -150,7 +150,7 @@ export type SalePaymentRecord = {
 export type SaleReceipt = {
   id: string;
   invoiceNo: string;
-  status: "posted" | "voided" | "refunded";
+  status: "posted" | "voided" | "refunded" | "partially_refunded";
   soldAt: string;
   subtotal: string;
   discountTotal: string;

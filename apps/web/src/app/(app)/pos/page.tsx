@@ -71,7 +71,7 @@ function initialsOf(name: string): string {
 function draftInvoiceLabel(): string {
   const now = new Date();
   const period = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  return `INV-${period} · draft`;
+  return `INV-${period}`;
 }
 
 function PosWorkspace() {
@@ -460,6 +460,8 @@ function PosWorkspace() {
       {mode === "returns" ? (
         <PosReturnsPanel
           canRefund={canAccess([...POS_ROLES])}
+          canRefundControlled={canAccess(["owner", "manager", "pharmacist"])}
+          recentSales={recentSales}
           onRefunded={() => void reload()}
           onError={toasts.error}
           onNotice={toasts.success}
@@ -544,10 +546,8 @@ function PosWorkspace() {
             <PosAlertsPanel alerts={alerts} cartEmpty={cart.resolved.length === 0} />
 
             <PosQuickActions
-              onScan={() => searchRef.current?.focus()}
               onPriceCheck={() => setLookupMode("price")}
               onOpenDrawer={() => toasts.notify("Cash drawer pulse sent to the till.")}
-              onCustomerLookup={() => setCustomerOpen(true)}
               onLastReceipt={() => setReceipt(lastReceipt)}
               onManualItem={() => setLookupMode("manual")}
               hasLastReceipt={lastReceipt !== null}

@@ -1,36 +1,24 @@
 "use client";
 
-import {
-  IconArchive,
-  IconBarcodeScan,
-  IconEdit,
-  IconReceipt,
-  IconTag,
-  IconUser,
-} from "@/components/icons";
+import { IconArchive, IconEdit, IconReceipt, IconTag } from "@/components/icons";
 import css from "../pos.module.css";
 
 type Props = {
-  onScan: () => void;
   onPriceCheck: () => void;
   onOpenDrawer: () => void;
-  onCustomerLookup: () => void;
   onLastReceipt: () => void;
   onManualItem: () => void;
   hasLastReceipt: boolean;
 };
 
 export function PosQuickActions({
-  onScan,
   onPriceCheck,
   onOpenDrawer,
-  onCustomerLookup,
   onLastReceipt,
   onManualItem,
   hasLastReceipt,
 }: Props) {
   const actions = [
-    { label: "Scan barcode", icon: <IconBarcodeScan size={14} />, onClick: onScan, tip: "/" },
     {
       label: "Price check",
       icon: <IconTag size={14} />,
@@ -42,12 +30,6 @@ export function PosQuickActions({
       icon: <IconArchive size={14} />,
       onClick: onOpenDrawer,
       tip: "Pop the cash drawer",
-    },
-    {
-      label: "Customer lookup",
-      icon: <IconUser size={14} />,
-      onClick: onCustomerLookup,
-      tip: "Alt + C",
     },
     {
       label: "Last receipt",

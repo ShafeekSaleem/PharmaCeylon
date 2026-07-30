@@ -36,6 +36,7 @@ enum SaleStatus {
   posted
   voided
   refunded
+  partially_refunded
 }
 
 enum PaymentMethod {

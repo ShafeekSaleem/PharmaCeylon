@@ -79,6 +79,23 @@ export class SalesController {
     return this.sales.findByInvoice(user.tenantId, branchId, invoiceNo ?? "");
   }
 
+  @ApiOperation({ summary: "Search invoices for the POS returns lane (invoice no. or customer)" })
+  @Roles(...POS_ROLES)
+  @Get("pos/search-invoices")
+  posSearchInvoices(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("q") q: string,
+    @Query("take") take?: string,
+  ) {
+    return this.sales.searchInvoices(
+      user.tenantId,
+      branchId,
+      q ?? "",
+      take ? Number(take) : undefined,
+    );
+  }
+
   @ApiOperation({ summary: "List parked carts at this branch" })
   @Roles(...POS_ROLES)
   @Get("holds")
@@ -166,7 +183,7 @@ export class SalesController {
     return this.sales.voidSale(user.tenantId, branchId, user.userId, user.branchRoles, id, dto.reason);
   }
 
-  @ApiOperation({ summary: "Refund a posted sale (stock restored)" })
+  @ApiOperation({ summary: "Refund a sale (full or partial); creates a completed goods return" })
   @Roles(...POS_ROLES)
   @HttpCode(HttpStatus.OK)
   @Post(":id/refund")
@@ -176,7 +193,18 @@ export class SalesController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: RefundSaleDto,
   ) {
-    return this.sales.refundSale(user.tenantId, branchId, user.userId, user.branchRoles, id, dto.reason);
+    return this.sales.refundSale(user.tenantId, branchId, user.userId, user.branchRoles, id, dto);
+  }
+
+  @ApiOperation({ summary: "Remaining returnable qty per line for a sale" })
+  @Roles(...POS_ROLES)
+  @Get(":id/returnable")
+  getReturnable(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.sales.getSaleReturnable(user.tenantId, branchId, id);
   }
 
   @Roles(...READ_ROLES)

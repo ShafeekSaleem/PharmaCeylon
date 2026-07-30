@@ -27,11 +27,63 @@ export function findSaleByInvoice(invoiceNo: string): Promise<SaleReceipt> {
   );
 }
 
-export function refundSale(saleId: string, reason: string): Promise<SaleReceipt> {
+export type InvoiceSearchHit = {
+  id: string;
+  invoiceNo: string;
+  status: "posted" | "voided" | "refunded" | "partially_refunded";
+  soldAt: string;
+  grandTotal: string;
+  customer: { fullName: string; phone: string | null } | null;
+  _count: { items: number };
+};
+
+export function searchInvoices(q: string, take = 12): Promise<InvoiceSearchHit[]> {
+  const term = q.trim();
+  if (!term) return Promise.resolve([]);
+  return apiJson<InvoiceSearchHit[]>(
+    `/sales/pos/search-invoices?q=${encodeURIComponent(term)}&take=${take}`,
+  );
+}
+
+export type SaleReturnableLine = {
+  saleItemId: string;
+  productId: string;
+  batchId: string;
+  productName: string;
+  sku: string;
+  isControlled: boolean;
+  batchNo: string;
+  soldQty: number;
+  remainingQty: number;
+  unitPrice: string;
+  lineTotal: string;
+};
+
+export type SaleReturnable = {
+  saleId: string;
+  invoiceNo: string;
+  status: SaleReceipt["status"];
+  requiresPharmacist: boolean;
+  lines: SaleReturnableLine[];
+  totalRemainingQty: number;
+};
+
+export function fetchSaleReturnable(saleId: string): Promise<SaleReturnable> {
+  return apiJson<SaleReturnable>(`/sales/${saleId}/returnable`);
+}
+
+export type RefundSalePayload = {
+  reason: string;
+  items?: { productId: string; batchId: string; qty: number }[];
+  refundMethod?: "cash" | "card" | "mobile_wallet";
+  refundAmount?: string;
+};
+
+export function refundSale(saleId: string, payload: RefundSalePayload): Promise<SaleReceipt> {
   return apiJson<SaleReceipt>(`/sales/${saleId}/refund`, {
     method: "POST",
     headers: jsonHeaders,
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify(payload),
   });
 }
 

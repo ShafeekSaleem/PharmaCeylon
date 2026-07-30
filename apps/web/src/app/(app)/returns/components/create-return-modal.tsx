@@ -15,7 +15,6 @@ import type {
   CreateReturnLine,
   CreateReturnLinePayload,
   GoodsReturnType,
-  ReturnListItem,
   SaleListItem,
 } from "../types";
 import { canApproveReturn, formatMoney, formatDate } from "../utils";
@@ -42,14 +41,6 @@ type FieldErrors = {
   lineErrors?: Record<string, LineErrors>;
 };
 
-const OPEN_STATUSES = new Set([
-  "draft",
-  "pending_approval",
-  "awaiting_logistics",
-  "in_review",
-  "completed",
-]);
-
 function newLine(): CreateReturnLine {
   return {
     key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -72,33 +63,6 @@ function isCompleteLine(line: CreateReturnLine): boolean {
     !Number.isNaN(price) &&
     price >= 0
   );
-}
-
-function remainingBySaleLine(
-  sale: SaleListItem,
-  returns: ReturnListItem[],
-): Map<string, number> {
-  const sold = new Map<string, number>();
-  for (const item of sale.items) {
-    const key = `${item.productId}:${item.batchId}`;
-    sold.set(key, (sold.get(key) ?? 0) + item.qty);
-  }
-  const used = new Map<string, number>();
-  for (const gr of returns) {
-    if (gr.saleId !== sale.id) continue;
-    if (!OPEN_STATUSES.has(gr.status)) continue;
-    for (const item of gr.items) {
-      const batchId = item.batchId ?? item.batch?.id ?? "";
-      const productId = item.productId ?? item.product.id;
-      const key = `${productId}:${batchId}`;
-      used.set(key, (used.get(key) ?? 0) + item.qty);
-    }
-  }
-  const remaining = new Map<string, number>();
-  for (const [key, qty] of sold) {
-    remaining.set(key, Math.max(0, qty - (used.get(key) ?? 0)));
-  }
-  return remaining;
 }
 
 export function CreateReturnModal({ open, onClose, onCreated }: Props) {
@@ -124,7 +88,6 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
   const [posLoading, setPosLoading] = useState(false);
   const [poDetail, setPoDetail] = useState<PurchaseOrderDetail | null>(null);
   const [poDetailLoading, setPoDetailLoading] = useState(false);
-  const [branchReturns, setBranchReturns] = useState<ReturnListItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -159,7 +122,6 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
       setBatches([]);
       setSales([]);
       setPos([]);
-      setBranchReturns([]);
       return;
     }
     setBatchesLoading(true);
@@ -179,10 +141,6 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
       .then(setPos)
       .catch(() => setPos([]))
       .finally(() => setPosLoading(false));
-
-    apiJson<ReturnListItem[]>("/returns")
-      .then(setBranchReturns)
-      .catch(() => setBranchReturns([]));
   }, [open, branchId]);
 
   useEffect(() => {
@@ -277,24 +235,47 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
       setLines([newLine()]);
       return;
     }
-    const sale = saleById.get(nextSaleId);
-    if (!sale) return;
-    const remaining = remainingBySaleLine(sale, branchReturns);
-    const prefill: CreateReturnLine[] = [];
-    for (const item of sale.items) {
-      const key = `${item.productId}:${item.batchId}`;
-      const rem = remaining.get(key) ?? 0;
-      if (rem <= 0) continue;
-      prefill.push({
-        key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${item.batchId}`,
-        productId: item.productId,
-        batchId: item.batchId,
-        qty: String(rem),
-        unitPrice: String(Number(item.unitPrice)),
-        maxQty: rem,
-      });
-    }
-    setLines(prefill.length > 0 ? prefill : [newLine()]);
+    void (async () => {
+      try {
+        const returnable = await apiJson<{
+          lines: {
+            productId: string;
+            batchId: string;
+            remainingQty: number;
+            unitPrice: string;
+          }[];
+        }>(`/sales/${nextSaleId}/returnable`);
+        const prefill: CreateReturnLine[] = [];
+        for (const item of returnable.lines) {
+          if (item.remainingQty <= 0) continue;
+          prefill.push({
+            key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${item.batchId}`,
+            productId: item.productId,
+            batchId: item.batchId,
+            qty: String(item.remainingQty),
+            unitPrice: String(Number(item.unitPrice)),
+            maxQty: item.remainingQty,
+          });
+        }
+        setLines(prefill.length > 0 ? prefill : [newLine()]);
+      } catch {
+        const sale = saleById.get(nextSaleId);
+        if (!sale) {
+          setLines([newLine()]);
+          return;
+        }
+        setLines(
+          sale.items.map((item) => ({
+            key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${item.batchId}`,
+            productId: item.productId,
+            batchId: item.batchId,
+            qty: String(item.qty),
+            unitPrice: String(Number(item.unitPrice)),
+            maxQty: item.qty,
+          })),
+        );
+      }
+    })();
   }
 
   function validate(): FieldErrors {

@@ -16,6 +16,7 @@ import {
   IconUser,
 } from "@/components/icons";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
+import { StatusBadge } from "@/components/ui";
 import type { Customer, PosMode, Prescription, ResolvedCartLine } from "../types";
 import { formatAmount, formatExpiry, productSubtitle } from "../utils";
 import css from "../pos.module.css";
@@ -76,12 +77,21 @@ export function PosCartPanel({
   }, [lastAddedKey, addCount]);
 
   const showRxPicker = mode === "prescription" || rxRequired || prescription !== null;
+  const saleStatus =
+    lines.length === 0
+      ? ({ status: "draft", label: "Ready", variant: "muted" } as const)
+      : ({ status: "in_progress", label: "In progress", variant: "success" } as const);
 
   return (
     <section className={css.card}>
       <header className={css.saleHeader}>
         <h2 className={css.saleHeaderTitle}>Current Sale</h2>
         <span className={css.invoiceChip}>{invoiceLabel}</span>
+        <StatusBadge
+          status={saleStatus.status}
+          label={saleStatus.label}
+          variant={saleStatus.variant}
+        />
         {recalledHoldRef && (
           <span
             className={css.recalledChip}
@@ -157,19 +167,20 @@ export function PosCartPanel({
         </div>
       </div>
 
-      {lines.length === 0 ? (
-        <div className={css.emptyCart}>
-          <span className={css.emptyCartIcon}>
-            <IconBarcodeScan size={22} />
-          </span>
-          <span className={css.emptyCartTitle}>Cart is empty</span>
-          <span className={css.emptyCartHint}>
-            Scan a barcode or press <span className={css.kbd}>/</span> to search the catalog.
-          </span>
-        </div>
-      ) : (
-        <div className={css.cartWrap}>
-          <table className={css.cartTable}>
+      <div className={css.cartBody}>
+        {lines.length === 0 ? (
+          <div className={css.emptyCart}>
+            <span className={css.emptyCartIcon}>
+              <IconBarcodeScan size={22} />
+            </span>
+            <span className={css.emptyCartTitle}>Cart is empty</span>
+            <span className={css.emptyCartHint}>
+              Scan a barcode or press <span className={css.kbd}>/</span> to search the catalog.
+            </span>
+          </div>
+        ) : (
+          <div className={css.cartWrap}>
+            <table className={css.cartTable}>
             <thead>
               <tr>
                 <th className={css.colIndex}>#</th>
@@ -316,8 +327,9 @@ export function PosCartPanel({
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       <div className={css.noteRow}>
         <input

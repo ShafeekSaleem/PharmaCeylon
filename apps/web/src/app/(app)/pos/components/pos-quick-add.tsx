@@ -87,6 +87,14 @@ export function PosQuickAdd({
             onClick={() => onTabChange(option.value)}
           >
             {option.value === "suggested" && <IconSparkles size={12} />} {option.label}
+            {option.value === "suggested" && (
+              <span
+                className={css.aiBadge}
+                data-tooltip="Suggestions based on items in your cart"
+              >
+                AI
+              </span>
+            )}
           </button>
         ))}
       </div>
