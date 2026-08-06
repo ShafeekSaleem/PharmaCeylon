@@ -10,9 +10,14 @@ const nextConfig: NextConfig = {
     // Monorepo hoisting can break eslint-config-next's parser path; `next lint` still runs in CI/scripts when needed.
     ignoreDuringBuilds: true,
   },
+  // NMRA confirm also has a dedicated Route Handler (10m). This covers other long rewrites.
+  experimental: {
+    proxyTimeout: 10 * 60 * 1000,
+  },
   async rewrites() {
     return [
       {
+        // Filesystem Route Handlers (e.g. nmra-import/confirm) take precedence over this rewrite.
         source: "/api/v1/:path*",
         destination: `${apiProxyTarget}/api/v1/:path*`,
       },

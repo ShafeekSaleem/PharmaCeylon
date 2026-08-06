@@ -130,6 +130,9 @@ export function ProductDetailPage({ productId }: { productId: string }) {
 
   return (
     <div className={detailCss.page}>
+      <Link href={returnTo} className={detailCss.backLink}>
+        ← Back to products
+      </Link>
       <ProductBranchNotice />
 
       <div className={detailCss.shell}>

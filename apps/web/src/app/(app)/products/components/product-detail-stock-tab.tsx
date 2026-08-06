@@ -67,7 +67,9 @@ export function ProductDetailStockTab({ product, detail }: Props) {
   }, [branchFilter, detail.branchStock]);
 
   const activeBatches = detail.batches.filter((b) => b.qtyOnHand > 0);
-  const available = detail.qtyOnHand ?? 0;
+  const currentBranchStock = detail.branchStock.find((row) => row.isCurrentBranch);
+  const available = currentBranchStock?.availableQty ?? detail.qtyOnHand ?? 0;
+  const reserved = currentBranchStock?.reservedQty ?? 0;
   const nearExpiry = detail.branchSummary?.nearExpiryBatchCount ?? 0;
   const nextExpiryDays = detail.branchSummary?.nextExpiryDays;
 
@@ -98,6 +100,7 @@ export function ProductDetailStockTab({ product, detail }: Props) {
               <StockKpiTile
                 label="Available"
                 value={`${available} units`}
+                sub={reserved > 0 ? `${reserved} reserved` : undefined}
                 icon={<IconBox size={14} />}
                 tone="success"
               />
@@ -134,6 +137,7 @@ export function ProductDetailStockTab({ product, detail }: Props) {
                   ]}
                   onChange={(value) => setBranchFilter(value as "all" | "current")}
                   placeholder="All branches"
+                  portal
                 />
               </div>
             </div>

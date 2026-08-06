@@ -8,6 +8,7 @@ import { useProductMetaMutations } from "../hooks/use-product-meta-mutations";
 import css from "../products.module.css";
 import type { ProductCategory, ProductTag } from "../types";
 import { ConfirmDialog } from "./confirm-dialog";
+import { ParentCategorySelect } from "./parent-category-select";
 
 type Tab = "categories" | "tags";
 
@@ -36,31 +37,100 @@ export function ProductMetaManagerModal({
   const [query, setQuery] = useState("");
   const [promptOpen, setPromptOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newParentId, setNewParentId] = useState<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editParentId, setEditParentId] = useState<string>("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const meta = useProductMetaMutations(onRefresh);
 
+  const categoryById = useMemo(() => {
+    const map = new Map<string, ProductCategory>();
+    for (const c of categories) map.set(c.id, c);
+    return map;
+  }, [categories]);
+
+  const sortedCategories = useMemo(() => {
+    const childrenOf = (parentId: string | null) =>
+      categories
+        .filter((c) => (c.parentCategoryId ?? null) === parentId)
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+    const out: Array<ProductCategory & { depth: number }> = [];
+    const walk = (parentId: string | null, depth: number) => {
+      for (const c of childrenOf(parentId)) {
+        out.push({ ...c, depth });
+        walk(c.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    // Orphans (parent missing from list)
+    for (const c of categories) {
+      if (!out.some((x) => x.id === c.id)) {
+        out.push({ ...c, depth: 0 });
+      }
+    }
+    return out;
+  }, [categories]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const source = tab === "categories" ? categories : tags;
-    if (!q) return source;
-    return source.filter((item) => item.name.toLowerCase().includes(q));
-  }, [categories, tags, query, tab]);
+    if (tab === "tags") {
+      if (!q) return tags;
+      return tags.filter((item) => item.name.toLowerCase().includes(q));
+    }
+    if (!q) return sortedCategories;
+    return sortedCategories.filter((item) => {
+      const parentName = item.parentCategoryId
+        ? categoryById.get(item.parentCategoryId)?.name ?? ""
+        : "";
+      return (
+        item.name.toLowerCase().includes(q) ||
+        parentName.toLowerCase().includes(q)
+      );
+    });
+  }, [categoryById, query, sortedCategories, tab, tags]);
 
   const singular = tab === "categories" ? "category" : "tag";
 
-  const startEdit = (id: string, name: string) => {
-    setEditingId(id);
-    setEditName(name);
+  const parentOptions = useMemo(() => {
+    const blocked = new Set<string>();
+    if (editingId) {
+      const walk = (id: string) => {
+        blocked.add(id);
+        for (const c of categories) {
+          if ((c.parentCategoryId ?? null) === id) walk(c.id);
+        }
+      };
+      walk(editingId);
+    }
+    return [
+      { value: "", label: "None (top-level)", depth: 0 },
+      ...sortedCategories
+        .filter((c) => !blocked.has(c.id))
+        .map((c) => ({
+          value: c.id,
+          label: c.name,
+          depth: c.depth,
+        })),
+    ];
+  }, [categories, editingId, sortedCategories]);
+
+  const startEdit = (item: ProductCategory | ProductTag) => {
+    setEditingId(item.id);
+    setEditName(item.name);
+    setEditParentId(
+      "parentCategoryId" in item && item.parentCategoryId ? item.parentCategoryId : "",
+    );
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditName("");
+    setEditParentId("");
   };
 
   const switchTab = (next: Tab) => {
@@ -68,6 +138,7 @@ export function ProductMetaManagerModal({
     setQuery("");
     setPromptOpen(false);
     setNewName("");
+    setNewParentId("");
     setDeleteTarget(null);
     cancelEdit();
   };
@@ -75,6 +146,7 @@ export function ProductMetaManagerModal({
   const openPrompt = () => {
     setPromptOpen(true);
     setNewName("");
+    setNewParentId("");
     requestAnimationFrame(() => nameInputRef.current?.focus());
   };
 
@@ -82,15 +154,19 @@ export function ProductMetaManagerModal({
     if (meta.busy) return;
     setPromptOpen(false);
     setNewName("");
+    setNewParentId("");
   };
 
   const handleCreate = async () => {
     const name = newName.trim();
     if (!name) return;
     const result =
-      tab === "categories" ? await meta.createCategory(name) : await meta.createTag(name);
+      tab === "categories"
+        ? await meta.createCategory(name, newParentId || null)
+        : await meta.createTag(name);
     if (result) {
       setNewName("");
+      setNewParentId("");
       setPromptOpen(false);
     }
   };
@@ -99,7 +175,7 @@ export function ProductMetaManagerModal({
     if (!editingId || !editName.trim()) return;
     const ok =
       tab === "categories"
-        ? await meta.updateCategory(editingId, editName)
+        ? await meta.updateCategory(editingId, editName, editParentId || null)
         : await meta.updateTag(editingId, editName);
     if (ok) cancelEdit();
   };
@@ -129,7 +205,8 @@ export function ProductMetaManagerModal({
         }
       >
         <p className={css.metaManagerHint}>
-          Search and manage catalog labels. Assign them when creating or editing a product.
+          Search and manage catalog labels. Categories support a parent for hierarchy
+          (e.g. Dosage form → Tablet). Assign them when creating or editing a product.
         </p>
 
         {meta.error && (
@@ -223,6 +300,15 @@ export function ProductMetaManagerModal({
                 <IconX size={14} />
               </button>
             </div>
+            {tab === "categories" && (
+              <ParentCategorySelect
+                label="Parent category"
+                value={newParentId}
+                options={parentOptions}
+                onChange={setNewParentId}
+                disabled={meta.busy}
+              />
+            )}
           </div>
         )}
 
@@ -232,81 +318,122 @@ export function ProductMetaManagerModal({
               {query ? "No matches." : `No ${tab} yet.`}
             </li>
           ) : (
-            filtered.map((item) => (
-              <li key={item.id} className={css.metaManagerItem}>
-                {editingId === item.id ? (
-                  <div className={css.metaManagerEditRow}>
-                    <input
-                      type="text"
-                      className={css.metaManagerAddInput}
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      disabled={meta.busy}
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void handleSaveEdit();
-                        if (e.key === "Escape") cancelEdit();
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className={css.metaManagerSaveBtn}
-                      onClick={() => void handleSaveEdit()}
-                      disabled={meta.busy || !editName.trim()}
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      className={css.metaManagerCancelBtn}
-                      onClick={cancelEdit}
-                      disabled={meta.busy}
-                      aria-label="Cancel"
-                      data-tooltip="Cancel"
-                    >
-                      <IconX size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className={css.metaManagerItemText}>
-                      <span className={css.metaManagerItemName}>{item.name}</span>
-                      {"productCount" in item && item.productCount != null && (
-                        <span className={css.metaManagerItemCount}>
-                          {item.productCount} product{item.productCount === 1 ? "" : "s"}
-                        </span>
+            filtered.map((item) => {
+              const depth = "depth" in item && typeof item.depth === "number" ? item.depth : 0;
+              const parentId =
+                tab === "categories" &&
+                "parentCategoryId" in item &&
+                typeof item.parentCategoryId === "string"
+                  ? item.parentCategoryId
+                  : null;
+              const parentName = parentId ? categoryById.get(parentId)?.name : null;
+              return (
+                <li
+                  key={item.id}
+                  className={`${css.metaManagerItem} ${
+                    editingId === item.id ? css.metaManagerItemEditing : ""
+                  }`}
+                >
+                  {editingId === item.id ? (
+                    <div className={css.metaManagerEditCol}>
+                      <div className={css.metaManagerEditRow}>
+                        <input
+                          type="text"
+                          className={css.metaManagerAddInput}
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          disabled={meta.busy}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void handleSaveEdit();
+                            if (e.key === "Escape") cancelEdit();
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className={css.metaManagerSaveBtn}
+                          onClick={() => void handleSaveEdit()}
+                          disabled={meta.busy || !editName.trim()}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className={css.metaManagerCancelBtn}
+                          onClick={cancelEdit}
+                          disabled={meta.busy}
+                          aria-label="Cancel"
+                          data-tooltip="Cancel"
+                        >
+                          <IconX size={14} />
+                        </button>
+                      </div>
+                      {tab === "categories" && (
+                        <ParentCategorySelect
+                          label="Parent category"
+                          value={editParentId}
+                          options={parentOptions}
+                          onChange={setEditParentId}
+                          disabled={meta.busy}
+                        />
                       )}
                     </div>
-                    {(canWrite || canDeleteMeta) && (
-                      <div className={css.metaManagerItemActions}>
-                        {canWrite && (
-                          <button
-                            type="button"
-                            className={`${css.actionIcon} ${css.actionIconEdit}`}
-                            onClick={() => startEdit(item.id, item.name)}
-                            aria-label={`Edit ${item.name}`}
-                            data-tooltip={`Edit ${singular}`}
-                          >
-                            <IconEdit size={15} />
-                          </button>
-                        )}
-                        {canDeleteMeta && (
-                          <button
-                            type="button"
-                            className={`${css.actionIcon} ${css.actionIconDelete}`}
-                            onClick={() => setDeleteTarget({ id: item.id, name: item.name })}
-                            aria-label={`Delete ${item.name}`}
-                            data-tooltip={`Delete ${singular}`}
-                          >
-                            <IconTrash size={15} />
-                          </button>
+                  ) : (
+                    <>
+                      <div
+                        className={css.metaManagerItemText}
+                        style={
+                          tab === "categories" && depth > 0
+                            ? { paddingLeft: `${depth * 0.85}rem` }
+                            : undefined
+                        }
+                      >
+                        <span className={css.metaManagerItemName}>
+                          {tab === "categories" && depth > 0 ? (
+                            <span className={css.metaManagerTreeGuide} aria-hidden />
+                          ) : null}
+                          {item.name}
+                        </span>
+                        {parentName ? (
+                          <span className={css.metaManagerItemSub}>under {parentName}</span>
+                        ) : null}
+                        {"productCount" in item && item.productCount != null && (
+                          <span className={css.metaManagerItemCount}>
+                            {item.productCount} product{item.productCount === 1 ? "" : "s"}
+                          </span>
                         )}
                       </div>
-                    )}
-                  </>
-                )}
-              </li>
-            ))
+                      {(canWrite || canDeleteMeta) && (
+                        <div className={css.metaManagerItemActions}>
+                          {canWrite && (
+                            <button
+                              type="button"
+                              className={`${css.actionIcon} ${css.actionIconEdit}`}
+                              onClick={() => startEdit(item)}
+                              aria-label={`Edit ${item.name}`}
+                              data-tooltip={`Edit ${singular}`}
+                            >
+                              <IconEdit size={15} />
+                            </button>
+                          )}
+                          {canDeleteMeta && (
+                            <button
+                              type="button"
+                              className={`${css.actionIcon} ${css.actionIconDelete}`}
+                              onClick={() => setDeleteTarget({ id: item.id, name: item.name })}
+                              aria-label={`Delete ${item.name}`}
+                              data-tooltip={`Delete ${singular}`}
+                            >
+                              <IconTrash size={15} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </li>
+              );
+            })
           )}
         </ul>
       </Modal>

@@ -27,6 +27,8 @@ type Props = {
   onSelect: (product: PosProduct) => void;
   inputRef: RefObject<HTMLInputElement | null>;
   disabled?: boolean;
+  /** Hide product search (e.g. Returns mode uses invoice search instead). */
+  searchDisabled?: boolean;
 };
 
 /**
@@ -40,6 +42,7 @@ export function PosSearchBar({
   onSelect,
   inputRef,
   disabled = false,
+  searchDisabled = false,
 }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -79,6 +82,7 @@ export function PosSearchBar({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (searchDisabled) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setOpen(true);
@@ -114,7 +118,8 @@ export function PosSearchBar({
     setOpen(true);
   }
 
-  const showMenu = open && query.trim().length > 0;
+  const inputLocked = disabled || searchDisabled;
+  const showMenu = open && !searchDisabled && query.trim().length > 0;
 
   return (
     <div className={css.searchCard}>
@@ -124,21 +129,28 @@ export function PosSearchBar({
           ref={inputRef}
           type="text"
           role="combobox"
-          className={`${css.searchInput}${query ? ` ${css.searchInputScanning}` : ""}`}
-          placeholder="Scan barcode or search product name, generic, SKU…"
-          value={query}
+          className={`${css.searchInput}${query && !searchDisabled ? ` ${css.searchInputScanning}` : ""}`}
+          placeholder={
+            searchDisabled
+              ? "Switch to Retail Sale or Prescriptions to scan products"
+              : "Scan barcode or search product name, generic, SKU…"
+          }
+          value={searchDisabled ? "" : query}
           autoComplete="off"
           spellCheck={false}
-          disabled={disabled}
+          disabled={inputLocked}
           aria-label="Scan barcode or search products"
           aria-autocomplete="list"
           aria-controls="pos-search-results"
           aria-expanded={showMenu}
           onChange={(e) => {
+            if (searchDisabled) return;
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            if (!searchDisabled) setOpen(true);
+          }}
           onKeyDown={onKeyDown}
         />
         <span className={css.scanHint}>
@@ -180,9 +192,13 @@ export function PosSearchBar({
                     <span className={css.productText}>
                       <span className={css.resultName}>
                         {product.name}
-                        <span className={product.isControlled ? css.tagRx : css.tagOtc}>
-                          {product.isControlled ? "Rx" : "OTC"}
-                        </span>
+                        {product.isControlled ? (
+                          <span className={css.tagControlled}>Ctrl</span>
+                        ) : product.requiresPrescription ? (
+                          <span className={css.tagRx}>Rx</span>
+                        ) : (
+                          <span className={css.tagOtc}>OTC</span>
+                        )}
                       </span>
                       <span className={css.resultMeta}>{productSubtitle(product)}</span>
                     </span>

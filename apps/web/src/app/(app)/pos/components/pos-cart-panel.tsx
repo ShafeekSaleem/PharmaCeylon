@@ -225,9 +225,13 @@ export function PosCartPanel({
                         </Link>
                         <span className={css.productSub}>
                           {productSubtitle(line.product)}
-                          <span className={line.product.isControlled ? css.tagRx : css.tagOtc}>
-                            {line.product.isControlled ? "Rx" : "OTC"}
-                          </span>
+                          {line.product.isControlled ? (
+                            <span className={css.tagControlled}>Ctrl</span>
+                          ) : line.product.requiresPrescription ? (
+                            <span className={css.tagRx}>Rx</span>
+                          ) : (
+                            <span className={css.tagOtc}>OTC</span>
+                          )}
                         </span>
                       </span>
                     </div>

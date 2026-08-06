@@ -27,24 +27,30 @@ export function useProductMetaMutations(onRefresh: () => void) {
   );
 
   const createCategory = useCallback(
-    (name: string) =>
+    (name: string, parentCategoryId?: string | null) =>
       wrap(() =>
         apiJson<ProductCategory>("/products/categories", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim() }),
+          body: JSON.stringify({
+            name: name.trim(),
+            ...(parentCategoryId ? { parentCategoryId } : {}),
+          }),
         }),
       ),
     [wrap],
   );
 
   const updateCategory = useCallback(
-    (id: string, name: string) =>
+    (id: string, name: string, parentCategoryId?: string | null) =>
       wrap(() =>
         apiJson<ProductCategory>(`/products/categories/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim() }),
+          body: JSON.stringify({
+            name: name.trim(),
+            parentCategoryId: parentCategoryId === undefined ? undefined : parentCategoryId,
+          }),
         }),
       ),
     [wrap],

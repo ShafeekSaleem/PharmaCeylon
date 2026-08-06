@@ -104,6 +104,7 @@ export class CatalogService {
     const hasFilters = Boolean(
       query.dosageForm ||
         query.brandName ||
+        query.schedule ||
         query.isControlled ||
         query.categoryId ||
         query.tagId ||
@@ -129,6 +130,7 @@ export class CatalogService {
       q: term && !looksLikeProductCode(term) && !query.exact ? term : undefined,
       dosageForm: query.dosageForm,
       brandName: query.brandName,
+      schedule: query.schedule,
       isControlled: query.isControlled,
       status: "active",
       lowStock: query.lowStock,
@@ -163,8 +165,10 @@ export class CatalogService {
         OR: [
           { sku: { equals: term, mode: "insensitive" } },
           { barcode: { equals: term, mode: "insensitive" } },
+          { registrationNo: { equals: term, mode: "insensitive" } },
           { sku: { startsWith: term, mode: "insensitive" } },
           { barcode: { startsWith: term, mode: "insensitive" } },
+          { registrationNo: { startsWith: term, mode: "insensitive" } },
           ...(query.exact
             ? [{ name: { startsWith: term, mode: "insensitive" as const } }]
             : []),
@@ -185,6 +189,7 @@ export class CatalogService {
         name: true,
         brandName: true,
         genericName: true,
+        registrationNo: true,
         reorderLevel: true,
         aliases: {
           where: { tenantId },
@@ -309,6 +314,8 @@ export class CatalogService {
             strength: p.strength,
             unit: p.unit,
             imageUrl: p.imageUrl,
+            registrationNo: p.registrationNo,
+            schedule: p.schedule,
             isControlled: p.isControlled,
             isActive: p.isActive,
             reorderLevel: p.reorderLevel,
@@ -365,6 +372,13 @@ export class CatalogService {
       query,
       "dosageForm",
     );
+    const { where: scheduleWhere } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      branchId,
+      query,
+      "schedule",
+    );
     const { where: statusWhere } = await buildProductWhere(
       this.prisma,
       tenantId,
@@ -379,34 +393,59 @@ export class CatalogService {
       query,
       "isControlled",
     );
+    const { where: rxWhere } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      branchId,
+      query,
+      "requiresPrescription",
+    );
 
-    const [brands, forms, statusGroups, controlledGroups] =
-      await this.prisma.$transaction([
-        this.prisma.product.groupBy({
-          by: ["brandName"],
-          where: { ...brandWhere, brandName: { not: null } },
-          orderBy: { brandName: "asc" },
-          _count: true,
-        }),
-        this.prisma.product.groupBy({
-          by: ["dosageForm"],
-          where: { ...dosageWhere, dosageForm: { not: null } },
-          orderBy: { dosageForm: "asc" },
-          _count: true,
-        }),
-        this.prisma.product.groupBy({
-          by: ["isActive"],
-          where: statusWhere,
-          orderBy: { isActive: "asc" },
-          _count: true,
-        }),
-        this.prisma.product.groupBy({
-          by: ["isControlled"],
-          where: controlledWhere,
-          orderBy: { isControlled: "asc" },
-          _count: true,
-        }),
-      ]);
+    const [
+      brands,
+      forms,
+      schedules,
+      statusGroups,
+      controlledGroups,
+      rxGroups,
+    ] = await this.prisma.$transaction([
+      this.prisma.product.groupBy({
+        by: ["brandName"],
+        where: { ...brandWhere, brandName: { not: null } },
+        orderBy: { brandName: "asc" },
+        _count: true,
+      }),
+      this.prisma.product.groupBy({
+        by: ["dosageForm"],
+        where: { ...dosageWhere, dosageForm: { not: null } },
+        orderBy: { dosageForm: "asc" },
+        _count: true,
+      }),
+      this.prisma.product.groupBy({
+        by: ["schedule"],
+        where: { ...scheduleWhere, schedule: { not: null } },
+        orderBy: { schedule: "asc" },
+        _count: true,
+      }),
+      this.prisma.product.groupBy({
+        by: ["isActive"],
+        where: statusWhere,
+        orderBy: { isActive: "asc" },
+        _count: true,
+      }),
+      this.prisma.product.groupBy({
+        by: ["isControlled"],
+        where: controlledWhere,
+        orderBy: { isControlled: "asc" },
+        _count: true,
+      }),
+      this.prisma.product.groupBy({
+        by: ["requiresPrescription"],
+        where: rxWhere,
+        orderBy: { requiresPrescription: "asc" },
+        _count: true,
+      }),
+    ]);
 
     const statusCount = (active: boolean) =>
       statusGroups.find((s) => s.isActive === active)?._count ?? 0;
@@ -414,25 +453,46 @@ export class CatalogService {
     const controlledCount = (controlled: boolean) =>
       controlledGroups.find((c) => c.isControlled === controlled)?._count ?? 0;
 
+    const rxCount = (required: boolean) =>
+      rxGroups.find((r) => r.requiresPrescription === required)?._count ?? 0;
+
     let inStock = 0;
     let lowStock = 0;
     let outOfStock = 0;
     if (branchId) {
-      const products = await this.prisma.product.findMany({
-        where: summaryWhere,
-        select: { id: true, reorderLevel: true },
+      // Only load products that have ledger activity at this branch (not the full catalog).
+      const ledgerGroups = await this.prisma.stockLedger.groupBy({
+        by: ["productId"],
+        where: { tenantId, branchId },
+        _sum: { qtyDelta: true },
       });
+      const candidateIds = ledgerGroups
+        .filter((g) => (g._sum.qtyDelta ?? 0) > 0)
+        .map((g) => g.productId);
+
+      const stockedProducts =
+        candidateIds.length > 0
+          ? await this.prisma.product.findMany({
+              where: { AND: [summaryWhere, { id: { in: candidateIds } }] },
+              select: { id: true, reorderLevel: true },
+            })
+          : [];
+
       const maps = await this.sellableStockMaps(
         tenantId,
         branchId,
-        products.map((p) => p.id),
+        stockedProducts.map((p) => p.id),
       );
-      for (const p of products) {
+      for (const p of stockedProducts) {
         const qty = maps.qtyByProduct.get(p.id) ?? 0;
-        if (qty > 0) inStock += 1;
-        else outOfStock += 1;
-        if (qty > 0 && p.reorderLevel > 0 && qty <= p.reorderLevel) lowStock += 1;
+        if (qty > 0) {
+          inStock += 1;
+          if (p.reorderLevel > 0 && qty <= p.reorderLevel) lowStock += 1;
+        }
       }
+
+      const totalMatching = await this.prisma.product.count({ where: summaryWhere });
+      outOfStock = Math.max(0, totalMatching - inStock);
     }
 
     const [categoryGroups, tagGroups] = await this.prisma.$transaction([
@@ -450,7 +510,7 @@ export class CatalogService {
       }),
     ]);
 
-    const [categoryRows, tagRows] = await this.prisma.$transaction([
+    const [categoryRows, tagRows, parentRows] = await this.prisma.$transaction([
       this.prisma.productCategory.findMany({
         where: { tenantId, id: { in: categoryGroups.map((g) => g.categoryId) } },
         orderBy: { name: "asc" },
@@ -459,19 +519,53 @@ export class CatalogService {
         where: { tenantId, id: { in: tagGroups.map((g) => g.tagId) } },
         orderBy: { name: "asc" },
       }),
+      this.prisma.productCategory.findMany({
+        where: { tenantId, parentCategoryId: null },
+        select: { id: true, name: true },
+      }),
     ]);
 
     const categoryCountMap = new Map(categoryGroups.map((g) => [g.categoryId, g._count]));
     const tagCountMap = new Map(tagGroups.map((g) => [g.tagId, g._count]));
+    const parentNameById = new Map(parentRows.map((p) => [p.id, p.name]));
+
+    const SCHEDULE_LABELS: Record<string, string> = {
+      I: "I — Grocery / general retail",
+      "II A": "II A — Pharmacy OTC",
+      "II B": "II B — Prescription only",
+      "II C": "II C — Controlled prescription",
+      III: "III — Narcotic (Osusala)",
+    };
+
+    const categories = categoryRows.map((c) => ({
+      value: c.id,
+      label: c.name,
+      count: categoryCountMap.get(c.id) ?? 0,
+      parentCategoryId: c.parentCategoryId,
+      parentName: c.parentCategoryId
+        ? (parentNameById.get(c.parentCategoryId) ?? null)
+        : null,
+    }));
+
+    const byParent = (parentName: string) =>
+      categories.filter(
+        (c) => c.parentName === parentName || c.parentName?.toLowerCase() === parentName.toLowerCase(),
+      );
 
     return {
       brands: brands.map((b) => ({ value: b.brandName!, count: b._count })),
       dosageForms: forms.map((f) => ({ value: f.dosageForm!, count: f._count })),
-      categories: categoryRows.map((c) => ({
-        value: c.id,
-        label: c.name,
-        count: categoryCountMap.get(c.id) ?? 0,
+      schedules: schedules.map((s) => ({
+        value: s.schedule!,
+        label: SCHEDULE_LABELS[s.schedule!] ?? s.schedule!,
+        count: s._count,
       })),
+      categories,
+      formGroups: byParent("Dosage form").length
+        ? byParent("Dosage form")
+        : byParent("Form group"),
+      scheduleCategories: byParent("NMRA Schedule"),
+      registrationTypes: byParent("Registration type"),
       tags: tagRows.map((t) => ({
         value: t.id,
         label: t.name,
@@ -484,6 +578,10 @@ export class CatalogService {
       controlled: [
         { value: true, count: controlledCount(true) },
         { value: false, count: controlledCount(false) },
+      ],
+      requiresPrescription: [
+        { value: true, count: rxCount(true) },
+        { value: false, count: rxCount(false) },
       ],
       branchStockSummary: branchId
         ? {
@@ -560,8 +658,17 @@ export class CatalogService {
       strength: product.strength,
       unit: product.unit,
       packSize: product.packSize,
+      packType: product.packType,
       imageUrl: product.imageUrl,
+      registrationNo: product.registrationNo,
+      registrationDate: product.registrationDate?.toISOString().slice(0, 10) ?? null,
+      schedule: product.schedule,
+      regType: product.regType,
+      dossierNo: product.dossierNo,
+      countryOfOrigin: product.countryOfOrigin,
+      localAgent: product.localAgent,
       isControlled: product.isControlled,
+      requiresPrescription: product.requiresPrescription,
       isActive: product.isActive,
       reorderLevel: product.reorderLevel,
       aliases: product.aliases.map((a) => a.aliasText),

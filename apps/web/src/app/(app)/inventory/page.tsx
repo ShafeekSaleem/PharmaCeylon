@@ -16,7 +16,9 @@ import {
 } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, PageHeader, StatCard } from "@/components/ui";
+import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
+import { useProductMeta } from "../products/hooks/use-product-meta";
 import { ProductStockBadge } from "../products/components/product-stock-badge";
 import { AdjustmentModal } from "./components/adjustment-modal";
 import { InventoryFilterSelect } from "./components/inventory-filter-select";
@@ -27,7 +29,7 @@ import {
   type InventoryCatalogFilters,
 } from "./components/inventory-more-filters";
 import { StockTable } from "./components/stock-table";
-import { SUMMARY_PERIOD_OPTIONS } from "./constants";
+import { PAGE_SIZE, SUMMARY_PERIOD_OPTIONS } from "./constants";
 import { useInventoryStock, useInventorySummary } from "./hooks/use-inventory-stock";
 import css from "./inventory.module.css";
 import type { StockRow, StockView, SummaryPeriod } from "./types";
@@ -42,6 +44,7 @@ function StockOverviewContent() {
   const searchParams = useSearchParams();
   const { user, branchId } = useAuth();
   const canWrite = hasInventoryWriteAccess(user, branchId);
+  const productMeta = useProductMeta();
 
   const productIdFilter = searchParams.get("productId");
   const initialView = (searchParams.get("view") as StockView | null) ?? "all";
@@ -61,6 +64,8 @@ function StockOverviewContent() {
   const [catalogFilters, setCatalogFilters] = useState<InventoryCatalogFilters>(
     EMPTY_INVENTORY_CATALOG_FILTERS,
   );
+  const [facetBrands, setFacetBrands] = useState<{ value: string; label: string }[]>([]);
+  const [facetForms, setFacetForms] = useState<{ value: string; label: string }[]>([]);
   const [adjustmentOpen, setAdjustmentOpen] = useState(
     searchParams.get("openAdjustment") === "1",
   );
@@ -89,6 +94,25 @@ function StockOverviewContent() {
     return () => clearTimeout(t);
   }, [adjustmentSuccess]);
 
+  useEffect(() => {
+    apiJson<{
+      brands: { value: string; count: number }[];
+      dosageForms: { value: string; count: number }[];
+    }>("/catalog/facets")
+      .then((facets) => {
+        setFacetBrands(
+          (facets.brands ?? []).map((b) => ({ value: b.value, label: b.value })),
+        );
+        setFacetForms(
+          (facets.dosageForms ?? []).map((f) => ({ value: f.value, label: f.value })),
+        );
+      })
+      .catch(() => {
+        setFacetBrands([]);
+        setFacetForms([]);
+      });
+  }, []);
+
   function openAdjustment(row?: StockRow) {
     setAdjustmentContext({ productId: row?.productId ?? "", batchId: "" });
     setAdjustmentOpen(true);
@@ -110,7 +134,39 @@ function StockOverviewContent() {
     catalogFilters,
   ]);
 
-  const stock = useInventoryStock("all", debouncedQ);
+  const statusFilter =
+    view === "ok" || view === "low" || view === "out" ? view : "all";
+
+  const stock = useInventoryStock({
+    status: statusFilter,
+    q: debouncedQ,
+    page,
+    pageSize: PAGE_SIZE,
+    productId: productIdFilter,
+    controlled:
+      productFilter === "controlled" || productFilter === "regular"
+        ? productFilter
+        : "all",
+    batchFilter:
+      batchFilter === "expiring" ||
+      batchFilter === "with_batches" ||
+      batchFilter === "no_batches"
+        ? batchFilter
+        : "all",
+    catalogFilters,
+  });
+  const alertsStock = useInventoryStock({
+    page: 1,
+    pageSize: 5,
+    batchFilter: "expiring",
+    ledgerOnly: true,
+  });
+  const lowAlertsStock = useInventoryStock({
+    status: "low",
+    page: 1,
+    pageSize: 5,
+    ledgerOnly: true,
+  });
   const { summary, reload: reloadSummary } = useInventorySummary(period);
   const periodStats = summary?.period ?? null;
   const fallbackMonth = summary?.month;
@@ -119,102 +175,30 @@ function StockOverviewContent() {
   const adjustments = periodStats?.adjustments ?? fallbackMonth?.adjustments ?? 0;
   const net = periodStats?.net ?? fallbackMonth?.net ?? 0;
 
-  const rows = useMemo(() => {
-    let list = productIdFilter
-      ? stock.rows.filter((r) => r.productId === productIdFilter)
-      : stock.rows;
-    if (view === "ok") list = list.filter((r) => r.stockStatus === "ok");
-    if (view === "low") list = list.filter((r) => r.stockStatus === "low");
-    else if (view === "out") list = list.filter((r) => r.stockStatus === "out");
-    if (batchFilter === "expiring") {
-      list = list.filter((r) => r.nearExpiryBatchCount > 0);
-    } else if (batchFilter === "with_batches") {
-      list = list.filter((r) => r.batchCount > 0);
-    } else if (batchFilter === "no_batches") {
-      list = list.filter((r) => r.batchCount === 0);
-    }
-    if (productFilter === "controlled") {
-      list = list.filter((r) => r.product.isControlled);
-    } else if (productFilter === "regular") {
-      list = list.filter((r) => !r.product.isControlled);
-    }
-    if (catalogFilters.categories.length > 0) {
-      list = list.filter((row) =>
-        (row.product.categories ?? []).some((category) =>
-          catalogFilters.categories.includes(category.id),
-        ),
-      );
-    }
-    if (catalogFilters.brands.length > 0) {
-      list = list.filter(
-        (row) =>
-          row.product.brandName != null &&
-          catalogFilters.brands.includes(row.product.brandName),
-      );
-    }
-    if (catalogFilters.tags.length > 0) {
-      list = list.filter((row) =>
-        (row.product.tags ?? []).some((tag) =>
-          catalogFilters.tags.includes(tag.id),
-        ),
-      );
-    }
-    if (catalogFilters.dosageForms.length > 0) {
-      list = list.filter(
-        (row) =>
-          row.product.dosageForm != null &&
-          catalogFilters.dosageForms.includes(row.product.dosageForm),
-      );
-    }
-    return list;
-  }, [
-    stock.rows,
-    productIdFilter,
-    view,
-    batchFilter,
-    productFilter,
-    catalogFilters,
-  ]);
+  const rows = stock.rows;
 
   const catalogFilterOptions = useMemo(() => {
-    const categories = new Map<string, string>();
-    const tags = new Map<string, string>();
-    const brands = new Set<string>();
-    const dosageForms = new Set<string>();
-    for (const row of stock.rows) {
-      for (const category of row.product.categories ?? []) {
-        categories.set(category.id, category.name);
-      }
-      for (const tag of row.product.tags ?? []) {
-        tags.set(tag.id, tag.name);
-      }
-      if (row.product.brandName) brands.add(row.product.brandName);
-      if (row.product.dosageForm) dosageForms.add(row.product.dosageForm);
-    }
-    const byLabel = (
-      left: { label: string },
-      right: { label: string },
-    ) => left.label.localeCompare(right.label);
+    const byLabel = (left: { label: string }, right: { label: string }) =>
+      left.label.localeCompare(right.label);
     return {
-      categories: [...categories].map(([value, label]) => ({ value, label })).sort(byLabel),
-      tags: [...tags].map(([value, label]) => ({ value, label })).sort(byLabel),
-      brands: [...brands].map((value) => ({ value, label: value })).sort(byLabel),
-      dosageForms: [...dosageForms]
-        .map((value) => ({ value, label: value }))
+      categories: productMeta.categories
+        .map((category) => ({ value: category.id, label: category.name }))
         .sort(byLabel),
+      tags: productMeta.tags
+        .map((tag) => ({ value: tag.id, label: tag.name }))
+        .sort(byLabel),
+      brands: [...facetBrands].sort(byLabel),
+      dosageForms: [...facetForms].sort(byLabel),
     };
-  }, [stock.rows]);
+  }, [productMeta.categories, productMeta.tags, facetBrands, facetForms]);
 
   const alerts = useMemo(() => {
-    return stock.rows
-      .filter(
-        (r) =>
-          r.stockStatus === "out" ||
-          r.stockStatus === "low" ||
-          r.nearExpiryBatchCount > 0,
-      )
-      .slice(0, 5);
-  }, [stock.rows]);
+    const merged = new Map<string, StockRow>();
+    for (const row of [...lowAlertsStock.rows, ...alertsStock.rows]) {
+      merged.set(row.productId, row);
+    }
+    return [...merged.values()].slice(0, 5);
+  }, [lowAlertsStock.rows, alertsStock.rows]);
 
   const setViewFromStat = (next: StockView) => {
     if (next === "expiring") {
@@ -431,7 +415,7 @@ function StockOverviewContent() {
           {filtersActive && (
             <div className={css.activeFilter}>
               <span>
-                Filtered inventory · {rows.length} item{rows.length === 1 ? "" : "s"}
+                Filtered inventory · {stock.total} item{stock.total === 1 ? "" : "s"}
               </span>
               <button
                 type="button"
@@ -448,7 +432,7 @@ function StockOverviewContent() {
             rows={rows}
             loading={stock.loading}
             page={page}
-            canWrite={canWrite}
+            total={stock.total}
             onPageChange={setPage}
             onAdjust={openAdjustment}
           />

@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { RolePageGuard } from "@/components/role-access";
 import { POS_ROLES } from "@/lib/role-access";
@@ -14,12 +14,14 @@ import { PosCartPanel } from "./components/pos-cart-panel";
 import { PosCustomerModal } from "./components/pos-customer-modal";
 import { PosHoldsModal } from "./components/pos-holds-modal";
 import { PosLookupModal, type LookupMode } from "./components/pos-lookup-modal";
+import { PosPharmacistPinModal } from "./components/pos-pharmacist-pin-modal";
 import { PosPrescriptionModal } from "./components/pos-prescription-modal";
 import { PosQuickActions } from "./components/pos-quick-actions";
 import { PosQuickAdd } from "./components/pos-quick-add";
 import { PosReceiptModal } from "./components/pos-receipt-modal";
 import { PosReturnsPanel } from "./components/pos-returns-panel";
 import { PosSearchBar } from "./components/pos-search-bar";
+import { PosSetPinModal } from "./components/pos-set-pin-modal";
 import { PosShortcutsModal } from "./components/pos-shortcuts-modal";
 import { PosSummaryPanel, type TenderMode } from "./components/pos-summary-panel";
 import { PosToasts } from "./components/pos-toasts";
@@ -35,7 +37,10 @@ import { checkout, createHold, getCustomer, getPrescription } from "./services/p
 import type {
   CartLine,
   Customer,
+  HoldReason,
   PaymentMethod,
+  PharmacistApproval,
+  PosAlertActionKind,
   PosMode,
   PosProduct,
   Prescription,
@@ -75,8 +80,12 @@ function draftInvoiceLabel(): string {
 }
 
 function PosWorkspace() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const deepProductId = searchParams.get("productId");
+  const deepPanel = searchParams.get("panel");
+  const deepMode = searchParams.get("mode");
+  const deepFocus = searchParams.get("focus");
 
   const { user } = useAuth();
   const { canAccess } = useRoleAccess();
@@ -117,6 +126,8 @@ function PosWorkspace() {
   const [lastReceipt, setLastReceipt] = useState<SaleReceipt | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [posting, setPosting] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [tillPinSettingsOpen, setTillPinSettingsOpen] = useState(false);
   /** Set while the cart holds an un-modified recall; cleared on any new hold/sale/reset. */
   const [recalledHold, setRecalledHold] = useState<{ id: string; holdRef: string } | null>(null);
 
@@ -124,9 +135,18 @@ function PosWorkspace() {
   const idempotencyKey = useRef(newIdempotencyKey());
   const seededDeepLink = useRef(false);
 
-  const { alerts, blockingAlerts } = usePosAlerts(cart.resolved, prescription);
-  const rxRequired = cart.resolved.some((line) => line.product.isControlled);
   const canRecordRx = canAccess([...RX_ROLES]);
+  const canDispenseControlled = canAccess([...RX_ROLES]);
+  const { alerts, blockingAlerts, needsPharmacistPin, softRxWarnings } = usePosAlerts({
+    lines: cart.resolved,
+    prescription,
+    customer,
+    mode,
+    canDispenseControlled,
+  });
+  const rxRequired = cart.resolved.some(
+    (line) => line.product.requiresPrescription || line.product.isControlled,
+  );
   const cashierName = user?.fullName ?? "Cashier";
 
   /* ── Cart operations ─────────────────────────────────────── */
@@ -176,11 +196,40 @@ function PosWorkspace() {
     }
   }, [deepProductId, products.length, productsById, addProduct, toasts]);
 
+  // Dashboard quick actions: /pos?panel=holds|customer&mode=returns&focus=search
+  const panelDeepLinkApplied = useRef(false);
+  useEffect(() => {
+    if (panelDeepLinkApplied.current) return;
+    if (!deepPanel && !deepMode && !deepFocus) return;
+    panelDeepLinkApplied.current = true;
+
+    if (deepMode === "returns" || deepMode === "retail" || deepMode === "prescription") {
+      setMode(deepMode);
+    }
+    if (deepPanel === "holds") setHoldsOpen(true);
+    if (deepPanel === "customer") setCustomerOpen(true);
+    if (deepPanel === "receipt" && lastReceipt) setReceipt(lastReceipt);
+    if (deepFocus === "search") {
+      window.setTimeout(() => searchRef.current?.focus(), 0);
+    }
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("panel");
+    next.delete("mode");
+    next.delete("focus");
+    const qs = next.toString();
+    router.replace(qs ? `/pos?${qs}` : "/pos", { scroll: false });
+  }, [deepFocus, deepMode, deepPanel, lastReceipt, router, searchParams]);
+
   // Keep the tendered amount in step with the total until the cashier types.
   useEffect(() => {
     if (paidTouched) return;
     setAmountPaid(cart.totals.grandTotal.toFixed(2));
   }, [cart.totals.grandTotal, paidTouched]);
+
+  useEffect(() => {
+    if (holds.error) toasts.error(holds.error);
+  }, [holds.error, toasts]);
 
   useEffect(() => {
     if (cart.unresolvedCount > 0) {
@@ -194,31 +243,44 @@ function PosWorkspace() {
 
   /* ── Hold / recall ───────────────────────────────────────── */
 
-  const holdSale = useCallback(async () => {
-    if (cart.resolved.length === 0) return;
-    try {
-      const label =
-        customer?.fullName ??
-        `${cart.resolved[0]!.product.name}${cart.resolved.length > 1 ? ` +${cart.resolved.length - 1}` : ""}`;
-      const created = await createHold({
-        label,
-        itemCount: cart.resolved.length,
-        total: cart.totals.grandTotal.toFixed(2),
-        lines: cart.lines as unknown as CartLine[],
-        meta: {
-          mode,
-          customerId: customer?.id ?? null,
-          prescriptionId: prescription?.id ?? null,
-          notes: notes || null,
-        },
-      });
-      toasts.success(`Parked as ${created.holdRef}.`);
-      resetSale();
-      void holds.reload();
-    } catch (e) {
-      toasts.error(e instanceof Error ? e.message : "Could not park this sale");
-    }
-  }, [cart, customer, prescription, notes, mode, toasts, resetSale, holds]);
+  const holdSale = useCallback(
+    async (opts?: { forPharmacist?: boolean }) => {
+      if (cart.resolved.length === 0) return;
+      const forPharmacist = opts?.forPharmacist === true;
+      try {
+        const labelBase =
+          customer?.fullName ??
+          `${cart.resolved[0]!.product.name}${cart.resolved.length > 1 ? ` +${cart.resolved.length - 1}` : ""}`;
+        const label = forPharmacist ? `Rx · ${labelBase}` : labelBase;
+        const holdReason: HoldReason = forPharmacist ? "awaiting_pharmacist" : "parked";
+        const created = await createHold({
+          label,
+          itemCount: cart.resolved.length,
+          total: cart.totals.grandTotal.toFixed(2),
+          lines: cart.lines as unknown as CartLine[],
+          meta: {
+            mode: mode === "returns" ? "retail" : mode,
+            customerId: customer?.id ?? null,
+            prescriptionId: prescription?.id ?? null,
+            notes: notes || null,
+            holdReason,
+            needsPharmacist: forPharmacist,
+          },
+        });
+        toasts.success(
+          forPharmacist
+            ? `Parked as ${created.holdRef} — awaiting pharmacist.`
+            : `Parked as ${created.holdRef}.`,
+        );
+        setPinOpen(false);
+        resetSale();
+        void holds.reload();
+      } catch (e) {
+        toasts.error(e instanceof Error ? e.message : "Could not park this sale");
+      }
+    },
+    [cart, customer, prescription, notes, mode, toasts, resetSale, holds],
+  );
 
   const recallHold = useCallback(
     async (id: string) => {
@@ -247,7 +309,7 @@ function PosWorkspace() {
         setCustomer(restoredCustomer);
         setPrescription(restoredPrescription);
         setNotes(meta.notes ?? "");
-        setMode(meta.mode ?? "retail");
+        setMode(meta.mode === "returns" ? "retail" : (meta.mode ?? "retail"));
         setRecalledHold({ id: detail.id, holdRef: detail.holdRef });
         setPaidTouched(false);
         setHoldsOpen(false);
@@ -293,6 +355,64 @@ function PosWorkspace() {
     return [{ method: tenderMode, amount: total.toFixed(2) }];
   }, [tenderMode, splitAmounts, amountPaid, cart.totals.grandTotal]);
 
+  const postCheckout = useCallback(
+    async (pharmacistApproval?: PharmacistApproval) => {
+      setPosting(true);
+      try {
+        const sale = await checkout(
+          {
+            items: cart.resolved.map((line) => ({
+              productId: line.productId,
+              batchId: line.batchId,
+              qty: line.qty,
+              unitPrice: line.unitPrice.toFixed(2),
+              discountAmount: line.discountAmount.toFixed(2),
+            })),
+            customerId: customer?.id,
+            prescriptionId: prescription?.id,
+            notes: notes.trim() || undefined,
+            payments: buildPayments(),
+            heldSaleId: recalledHold?.id ?? undefined,
+            pharmacistApproval,
+          },
+          idempotencyKey.current,
+        );
+        setPinOpen(false);
+        setReceipt(sale);
+        setLastReceipt(sale);
+        const dispenserNote =
+          sale.dispenser && sale.dispenser.id !== sale.seller.id
+            ? ` · dispensed by ${sale.dispenser.fullName}`
+            : "";
+        toasts.success(
+          `${sale.invoiceNo} posted — ${formatMoney(sale.grandTotal)}${dispenserNote}.`,
+        );
+        resetSale();
+        void reload();
+        void holds.reload();
+      } catch (e) {
+        beep("error");
+        toasts.error(e instanceof Error ? e.message : "Checkout failed");
+        throw e;
+      } finally {
+        setPosting(false);
+      }
+    },
+    [
+      cart.resolved,
+      customer,
+      prescription,
+      notes,
+      buildPayments,
+      recalledHold,
+      toasts,
+      resetSale,
+      reload,
+      holds,
+      beep,
+    ],
+  );
+
   const completeSale = useCallback(async () => {
     if (posting || cart.resolved.length === 0) return;
     if (blockedReason) {
@@ -300,52 +420,66 @@ function PosWorkspace() {
       toasts.error(blockedReason);
       return;
     }
-    setPosting(true);
-    try {
-      const sale = await checkout(
-        {
-          items: cart.resolved.map((line) => ({
-            productId: line.productId,
-            batchId: line.batchId,
-            qty: line.qty,
-            unitPrice: line.unitPrice.toFixed(2),
-            discountAmount: line.discountAmount.toFixed(2),
-          })),
-          customerId: customer?.id,
-          prescriptionId: prescription?.id,
-          notes: notes.trim() || undefined,
-          payments: buildPayments(),
-          heldSaleId: recalledHold?.id ?? undefined,
-        },
-        idempotencyKey.current,
+    const total = cart.totals.grandTotal;
+    if (tenderMode === "cash") {
+      const paid = Number(amountPaid) || 0;
+      if (paid + 0.004 < total) {
+        beep("error");
+        toasts.error(`Tender is short by ${formatMoney(total - paid)}.`);
+        return;
+      }
+    }
+    if (tenderMode === "split") {
+      const paid = PAYMENT_METHODS.reduce(
+        (sum, m) => sum + (Number(splitAmounts[m.value]) || 0),
+        0,
       );
-      setReceipt(sale);
-      setLastReceipt(sale);
-      toasts.success(`${sale.invoiceNo} posted — ${formatMoney(sale.grandTotal)}.`);
-      resetSale();
-      void reload();
-      void holds.reload();
-    } catch (e) {
-      beep("error");
-      toasts.error(e instanceof Error ? e.message : "Checkout failed");
-    } finally {
-      setPosting(false);
+      if (paid + 0.004 < total) {
+        beep("error");
+        toasts.error(`Tender is short by ${formatMoney(total - paid)}.`);
+        return;
+      }
+    }
+    // Cashier path: open PIN modal instead of dead-ending Complete Sale.
+    if (needsPharmacistPin) {
+      setPinOpen(true);
+      return;
+    }
+    try {
+      await postCheckout();
+    } catch {
+      /* toast already shown */
     }
   }, [
     posting,
-    cart.resolved,
+    cart.resolved.length,
+    cart.totals.grandTotal,
     blockedReason,
-    customer,
-    prescription,
-    notes,
-    buildPayments,
-    recalledHold,
+    tenderMode,
+    amountPaid,
+    splitAmounts,
+    needsPharmacistPin,
+    postCheckout,
     toasts,
-    resetSale,
-    reload,
-    holds,
     beep,
   ]);
+
+  const onAlertAction = useCallback(
+    (kind: PosAlertActionKind) => {
+      if (kind === "link_rx") {
+        setRxOpen(true);
+        return;
+      }
+      if (kind === "pharmacist_pin") {
+        setPinOpen(true);
+        return;
+      }
+      if (kind === "hold_pharmacist") {
+        void holdSale({ forPharmacist: true });
+      }
+    },
+    [holdSale],
+  );
 
   /* ── Confirm-guarded destructive actions ─────────────────── */
 
@@ -385,33 +519,59 @@ function PosWorkspace() {
     rxOpen ||
     holdsOpen ||
     shortcutsOpen ||
+    pinOpen ||
+    tillPinSettingsOpen ||
     confirm !== null ||
     batchLine !== null ||
     lookupMode !== null ||
     receipt !== null;
 
+  const saleMode = mode !== "returns";
+
   // Overlays own their keyboard: F4 must never post a sale from behind a modal.
+  // Returns mode also disables sale shortcuts so a hidden cart cannot be posted.
   usePosShortcuts(
     {
-      focusSearch: () => searchRef.current?.focus(),
-      priceCheck: () => setLookupMode("price"),
-      completeSale: () => void completeSale(),
-      holdSale: () => void holdSale(),
+      focusSearch: () => {
+        if (saleMode) searchRef.current?.focus();
+      },
+      priceCheck: () => {
+        if (saleMode) setLookupMode("price");
+      },
+      completeSale: () => {
+        if (saleMode) void completeSale();
+      },
+      holdSale: () => {
+        if (saleMode) void holdSale();
+      },
       recallSale: () => {
+        if (!saleMode) return;
         setHoldsOpen(true);
         void holds.reload();
       },
-      newSale: startNewSale,
-      cyclePayment: () =>
+      newSale: () => {
+        if (saleMode) startNewSale();
+      },
+      cyclePayment: () => {
+        if (!saleMode) return;
         setTenderMode((prev) => {
           const order: TenderMode[] = ["cash", "card", "mobile_wallet", "split"];
           return order[(order.indexOf(prev) + 1) % order.length]!;
-        }),
-      customerLookup: () => setCustomerOpen(true),
-      linkPrescription: () => setRxOpen(true),
-      clearCart,
+        });
+      },
+      customerLookup: () => {
+        if (saleMode) setCustomerOpen(true);
+      },
+      linkPrescription: () => {
+        if (saleMode) setRxOpen(true);
+      },
+      clearCart: () => {
+        if (saleMode) clearCart();
+      },
       toggleShortcuts: () => setShortcutsOpen((prev) => !prev),
-      escape: () => searchRef.current?.focus(),
+      escape: () => {
+        if (saleMode) searchRef.current?.focus();
+      },
     },
     !anyOverlayOpen,
   );
@@ -434,15 +594,20 @@ function PosWorkspace() {
           products={products}
           mode={mode}
           onModeChange={setMode}
-          onSelect={(product) => addProduct(product)}
+          onSelect={(product) => {
+            if (mode === "returns") return;
+            addProduct(product);
+          }}
           inputRef={searchRef}
-          disabled={loading}
+          disabled={loading || mode === "returns"}
+          searchDisabled={mode === "returns"}
         />
         <PosActionBar
           cartDirty={cart.resolved.length > 0}
           holdCount={holds.holds.length}
           busy={posting}
           beepEnabled={beepEnabled}
+          saleActionsDisabled={mode === "returns"}
           onNewSale={startNewSale}
           onHold={() => void holdSale()}
           onRecall={() => {
@@ -501,17 +666,26 @@ function PosWorkspace() {
               onAdd={(product) => addProduct(product)}
               onRepeatSale={(sale: RecentSale) => {
                 let added = 0;
+                let skipped = 0;
                 for (const id of sale.productIds) {
                   const product = productsById.get(id);
-                  if (product) {
-                    cart.addProduct(product, 1);
-                    added += 1;
+                  if (!product) {
+                    skipped += 1;
+                    continue;
                   }
+                  const result = cart.addProduct(product, 1);
+                  if (result.status === "no-stock") skipped += 1;
+                  else added += 1;
                 }
                 if (added > 0) {
-                  beep("ok");
-                  toasts.success(`Loaded ${added} item(s) from ${sale.invoiceNo}.`);
+                  beep(skipped > 0 ? "error" : "ok");
+                  toasts.success(
+                    skipped > 0
+                      ? `Loaded ${added} item(s) from ${sale.invoiceNo}; ${skipped} unavailable.`
+                      : `Loaded ${added} item(s) from ${sale.invoiceNo}.`,
+                  );
                 } else {
+                  beep("error");
                   toasts.warn(`Nothing from ${sale.invoiceNo} is sellable right now.`);
                 }
               }}
@@ -535,6 +709,12 @@ function PosWorkspace() {
               }
               busy={posting}
               blockedReason={blockedReason}
+              approveHint={
+                needsPharmacistPin
+                  ? "Pharmacist till PIN required — Complete opens co-sign."
+                  : null
+              }
+              hasLastReceipt={lastReceipt !== null}
               onComplete={() => void completeSale()}
               onPrint={() => {
                 if (lastReceipt) setReceipt(lastReceipt);
@@ -543,7 +723,11 @@ function PosWorkspace() {
               onHold={() => void holdSale()}
             />
 
-            <PosAlertsPanel alerts={alerts} cartEmpty={cart.resolved.length === 0} />
+            <PosAlertsPanel
+              alerts={alerts}
+              cartEmpty={cart.resolved.length === 0}
+              onAction={onAlertAction}
+            />
 
             <PosQuickActions
               onPriceCheck={() => setLookupMode("price")}
@@ -551,6 +735,8 @@ function PosWorkspace() {
               onLastReceipt={() => setReceipt(lastReceipt)}
               onManualItem={() => setLookupMode("manual")}
               hasLastReceipt={lastReceipt !== null}
+              canSetPosPin={canDispenseControlled}
+              onSetPosPin={() => setTillPinSettingsOpen(true)}
             />
           </div>
         </div>
@@ -582,6 +768,22 @@ function PosWorkspace() {
         }}
       />
 
+      <PosPharmacistPinModal
+        open={pinOpen}
+        warnings={softRxWarnings}
+        onClose={() => setPinOpen(false)}
+        onHoldInstead={() => void holdSale({ forPharmacist: true })}
+        onError={toasts.error}
+        onApprove={(approval) => postCheckout(approval)}
+      />
+
+      <PosSetPinModal
+        open={tillPinSettingsOpen}
+        onClose={() => setTillPinSettingsOpen(false)}
+        onSaved={() => toasts.success("Till PIN saved.")}
+        onError={toasts.error}
+      />
+
       <PosHoldsModal
         open={holdsOpen}
         holds={holds.holds}
@@ -602,7 +804,6 @@ function PosWorkspace() {
         mode={lookupMode}
         products={products}
         onClose={() => setLookupMode(null)}
-        onAdd={(product) => addProduct(product)}
         onAddManual={(product, qty, unitPrice) => {
           const result = cart.addProduct(product, qty);
           if (result.status === "no-stock") {

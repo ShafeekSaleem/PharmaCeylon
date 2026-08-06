@@ -26,6 +26,8 @@ export type PosProduct = {
   packSize: string | null;
   imageUrl: string | null;
   isControlled: boolean;
+  /** Needs a linked Rx (antibiotics etc.). Controlled always implies this. */
+  requiresPrescription: boolean;
   reorderLevel: number;
   qtyOnHand: number;
   stockStatus: "ok" | "low" | "out";
@@ -97,6 +99,8 @@ export type Prescription = {
   customer: { id: string; fullName: string; phone: string | null } | null;
 };
 
+export type HoldReason = "awaiting_pharmacist" | "parked";
+
 export type HeldSaleSummary = {
   id: string;
   holdRef: string;
@@ -105,6 +109,8 @@ export type HeldSaleSummary = {
   total: string;
   createdAt: string;
   heldByName: string;
+  needsPharmacist?: boolean;
+  holdReason?: string | null;
 };
 
 export type HeldSalePayload = {
@@ -114,6 +120,8 @@ export type HeldSalePayload = {
     customerId?: string | null;
     prescriptionId?: string | null;
     notes?: string | null;
+    holdReason?: HoldReason | null;
+    needsPharmacist?: boolean;
   };
 };
 
@@ -167,6 +175,7 @@ export type SaleReceipt = {
     doctorName: string;
   } | null;
   seller: { id: string; fullName: string };
+  dispenser: { id: string; fullName: string } | null;
   payments: SalePaymentRecord[];
   items: {
     id: string;
@@ -182,6 +191,8 @@ export type SaleReceipt = {
 
 export type AlertSeverity = "danger" | "warning" | "info";
 
+export type PosAlertActionKind = "link_rx" | "pharmacist_pin" | "hold_pharmacist";
+
 export type PosAlert = {
   id: string;
   severity: AlertSeverity;
@@ -190,6 +201,21 @@ export type PosAlert = {
   count: number;
   /** Set when the alert must be cleared before the sale can post. */
   blocking?: boolean;
+  /** Counter CTAs — keep the till moving instead of a dead-end block. */
+  actions?: { kind: PosAlertActionKind; label: string }[];
+};
+
+export type PosApprover = {
+  id: string;
+  fullName: string;
+  email: string;
+  hasPosPin: boolean;
+  roles: string[];
+};
+
+export type PharmacistApproval = {
+  approverUserId: string;
+  pin: string;
 };
 
 export type TenderLine = {
@@ -211,4 +237,5 @@ export type CheckoutPayload = {
   notes?: string;
   payments?: TenderLine[];
   heldSaleId?: string;
+  pharmacistApproval?: PharmacistApproval;
 };

@@ -12,6 +12,7 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
+import { PharmacistApprovalDto } from "./pharmacist-approval.dto";
 
 export class CheckoutLineDto {
   @IsUUID()
@@ -91,4 +92,13 @@ export class CheckoutDto {
   @IsOptional()
   @IsUUID()
   heldSaleId?: string;
+
+  /**
+   * Cashier co-sign: pharmacist/manager/owner PIN (or login password if no till PIN).
+   * Required when the cart has controlled items and the cashier is not an approver.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PharmacistApprovalDto)
+  pharmacistApproval?: PharmacistApprovalDto;
 }

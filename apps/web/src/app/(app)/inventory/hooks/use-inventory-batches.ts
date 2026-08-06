@@ -8,6 +8,8 @@ import type { BatchRow } from "../types";
 export function useInventoryBatches(opts: {
   productId?: string | null;
   nearExpiryDays?: number | null;
+  /** When true, only expired batches. */
+  expired?: boolean | null;
   includeZero?: boolean;
   q?: string;
 }) {
@@ -31,6 +33,7 @@ export function useInventoryBatches(opts: {
       if (opts.nearExpiryDays != null) {
         params.set("nearExpiryDays", String(opts.nearExpiryDays));
       }
+      if (opts.expired === true) params.set("expired", "true");
       if (opts.includeZero === false) params.set("includeZero", "false");
       const qs = params.toString();
       let data = await apiJson<BatchRow[]>(
@@ -52,7 +55,14 @@ export function useInventoryBatches(opts: {
     } finally {
       setLoading(false);
     }
-  }, [branchId, opts.productId, opts.nearExpiryDays, opts.includeZero, opts.q]);
+  }, [
+    branchId,
+    opts.productId,
+    opts.nearExpiryDays,
+    opts.expired,
+    opts.includeZero,
+    opts.q,
+  ]);
 
   useEffect(() => {
     void reload();

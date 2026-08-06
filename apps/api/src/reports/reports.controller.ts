@@ -10,14 +10,27 @@ import { ReportsService } from "./reports.service";
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
+  private isOwner(user: RequestUser): boolean {
+    return user.branchRoles.some((r) => r.role === RoleName.owner);
+  }
+
+  private tenantScope(user: RequestUser, scope?: string): boolean {
+    return this.isOwner(user) && (scope === "tenant" || scope === "all");
+  }
+
   @Roles(RoleName.owner, RoleName.manager, RoleName.analyst)
   @Get("sales-summary")
   salesSummary(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Query("days") days?: string,
+    @Query("scope") scope?: string,
   ) {
-    return this.reports.salesSummary(user.tenantId, branchId, days ? Number(days) : 30);
+    return this.reports.salesSummary(
+      user.tenantId,
+      this.tenantScope(user, scope) ? null : branchId,
+      days ? Number(days) : 30,
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.analyst)
@@ -26,8 +39,13 @@ export class ReportsController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Query("days") days?: string,
+    @Query("scope") scope?: string,
   ) {
-    return this.reports.marginByProduct(user.tenantId, branchId, days ? Number(days) : 30);
+    return this.reports.marginByProduct(
+      user.tenantId,
+      this.tenantScope(user, scope) ? null : branchId,
+      days ? Number(days) : 30,
+    );
   }
 
   @Roles(RoleName.owner, RoleName.manager, RoleName.analyst)
@@ -46,7 +64,12 @@ export class ReportsController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Query("days") days?: string,
+    @Query("scope") scope?: string,
   ) {
-    return this.reports.deadStock(user.tenantId, branchId, days ? Number(days) : 90);
+    return this.reports.deadStock(
+      user.tenantId,
+      this.tenantScope(user, scope) ? null : branchId,
+      days ? Number(days) : 90,
+    );
   }
 }

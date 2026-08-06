@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { RoleName, StockMovementType } from "@prisma/client";
+import { Prisma, RoleName, StockMovementType } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
@@ -18,6 +18,17 @@ import { SupplierReturnDto } from "./dto/supplier-return.dto";
 export type StockListQuery = {
   q?: string;
   status?: "all" | "ok" | "low" | "out";
+  skip?: number;
+  take?: number;
+  productId?: string;
+  controlled?: "all" | "controlled" | "regular";
+  batchFilter?: "all" | "expiring" | "with_batches" | "no_batches";
+  categoryIds?: string[];
+  brands?: string[];
+  tagIds?: string[];
+  dosageForms?: string[];
+  /** Only products with ledger history at this branch (excludes never-stocked catalog). */
+  ledgerOnly?: boolean;
 };
 
 export type BatchListQuery = {
@@ -126,32 +137,55 @@ export class InventoryService {
 
   async listBatches(tenantId: string, branchId: string, query: BatchListQuery = {}) {
     const includeZero = query.includeZero !== false;
-    const expiryLimit =
-      query.nearExpiryDays != null && query.nearExpiryDays > 0
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const nearWindowDays =
+      query.nearExpiryDays != null &&
+      Number.isFinite(query.nearExpiryDays) &&
+      query.nearExpiryDays > 0
+        ? Math.min(365, Math.round(query.nearExpiryDays))
+        : undefined;
+
+    const nearLimit =
+      nearWindowDays != null
         ? (() => {
-            const d = new Date();
-            d.setDate(d.getDate() + query.nearExpiryDays!);
+            const d = new Date(today);
+            d.setDate(d.getDate() + nearWindowDays);
             return d;
           })()
         : undefined;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // When asking for near-expiry only, constrain at DB (exclude already-expired).
+    // Avoids shipping the whole branch batch catalog through JSON.
+    const expiryWhere =
+      nearLimit != null
+        ? { expiryDate: { gte: today, lte: nearLimit } }
+        : query.expired === true
+          ? { expiryDate: { lt: today } }
+          : query.expired === false
+            ? { expiryDate: { gte: today } }
+            : {};
 
     const batches = await this.prisma.batch.findMany({
       where: {
         tenantId,
         branchId,
         ...(query.productId ? { productId: query.productId } : {}),
-        ...(expiryLimit ? { expiryDate: { lte: expiryLimit } } : {}),
+        ...expiryWhere,
         ...(query.quarantined != null ? { isQuarantined: query.quarantined } : {}),
-        ...(query.expired === true
-          ? { expiryDate: { lt: today } }
-          : query.expired === false
-            ? { expiryDate: { gte: today } }
-            : {}),
       },
-      include: {
+      select: {
+        id: true,
+        batchNo: true,
+        expiryDate: true,
+        receivedAt: true,
+        costPrice: true,
+        sellingPrice: true,
+        productId: true,
+        isQuarantined: true,
+        quarantinedAt: true,
+        quarantineReason: true,
         product: {
           select: {
             id: true,
@@ -160,6 +194,7 @@ export class InventoryService {
             reorderLevel: true,
             isControlled: true,
             unit: true,
+            // Prefer lightweight http(s) paths; omit huge data: URLs that blow JSON payloads.
             imageUrl: true,
           },
         },
@@ -170,31 +205,39 @@ export class InventoryService {
     const batchIds = batches.map((b) => b.id);
     const qtyMap = new Map<string, number>();
     if (batchIds.length > 0) {
-      const grouped = await this.prisma.stockLedger.groupBy({
-        by: ["batchId"],
-        where: {
-          tenantId,
-          branchId,
-          batchId: { in: batchIds },
-        },
-        _sum: { qtyDelta: true },
-      });
-      for (const g of grouped) {
-        if (g.batchId) qtyMap.set(g.batchId, g._sum.qtyDelta ?? 0);
+      // Chunk IN lists — large catalogs can exceed Postgres / driver limits.
+      const chunkSize = 2000;
+      for (let i = 0; i < batchIds.length; i += chunkSize) {
+        const chunk = batchIds.slice(i, i + chunkSize);
+        const grouped = await this.prisma.stockLedger.groupBy({
+          by: ["batchId"],
+          where: {
+            tenantId,
+            branchId,
+            batchId: { in: chunk },
+          },
+          _sum: { qtyDelta: true },
+        });
+        for (const g of grouped) {
+          if (g.batchId) qtyMap.set(g.batchId, g._sum.qtyDelta ?? 0);
+        }
       }
     }
 
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const nearWindowDays =
-      query.nearExpiryDays != null && query.nearExpiryDays > 0 ? query.nearExpiryDays : 30;
+    const windowDays = nearWindowDays ?? 30;
     const mapped = batches.map((b) => {
       const qtyOnHand = qtyMap.get(b.id) ?? 0;
       const exp = new Date(b.expiryDate);
       exp.setHours(0, 0, 0, 0);
-      const daysToExpiry = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      const daysToExpiry = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       const expired = daysToExpiry < 0;
-      const nearExpiry = !expired && daysToExpiry <= nearWindowDays;
+      const nearExpiry = !expired && daysToExpiry <= windowDays;
+      const imageUrl =
+        b.product.imageUrl &&
+        !b.product.imageUrl.startsWith("data:") &&
+        b.product.imageUrl.length < 2048
+          ? b.product.imageUrl
+          : null;
       return {
         id: b.id,
         batchNo: b.batchNo,
@@ -210,12 +253,20 @@ export class InventoryService {
         isQuarantined: b.isQuarantined,
         quarantinedAt: b.quarantinedAt?.toISOString() ?? null,
         quarantineReason: b.quarantineReason,
-        product: b.product,
+        product: {
+          id: b.product.id,
+          sku: b.product.sku,
+          name: b.product.name,
+          reorderLevel: b.product.reorderLevel,
+          isControlled: b.product.isControlled,
+          unit: b.product.unit,
+          imageUrl,
+        },
       };
     });
 
     let result = includeZero ? mapped : mapped.filter((b) => b.qtyOnHand > 0);
-    if (query.nearExpiryDays != null && query.nearExpiryDays > 0) {
+    if (nearWindowDays != null) {
       result = result.filter((b) => b.nearExpiry && !b.expired);
     }
     if (query.expired === true) {
@@ -398,29 +449,57 @@ export class InventoryService {
   }
 
   async stockByProduct(tenantId: string, branchId: string, query: StockListQuery = {}) {
+    const skip = Math.max(0, query.skip ?? 0);
+    const take = Math.min(Math.max(1, query.take ?? 50), 200);
+
     const grouped = await this.prisma.stockLedger.groupBy({
       by: ["productId"],
       where: { tenantId, branchId },
       _sum: { qtyDelta: true },
     });
-
     const qtyByProduct = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
 
-    // Include active catalog products with no ledger history (qty 0) so they appear
-    // on stock overview and can be selected for opening-stock adjustments.
-    const catalogProducts = await this.prisma.product.findMany({
-      where: { tenantId, isActive: true },
-      select: { id: true },
-    });
-    for (const p of catalogProducts) {
-      if (!qtyByProduct.has(p.id)) qtyByProduct.set(p.id, 0);
+    const q = query.q?.trim() ?? "";
+    const statusFilter = query.status && query.status !== "all" ? query.status : null;
+
+    const productWhere: Prisma.ProductWhereInput = {
+      tenantId,
+      isActive: true,
+    };
+
+    if (query.productId) {
+      productWhere.id = query.productId;
+    } else if (query.ledgerOnly) {
+      const ledgerIds = [...qtyByProduct.keys()];
+      if (ledgerIds.length === 0) {
+        return { items: [], total: 0, skip, take };
+      }
+      productWhere.id = { in: ledgerIds };
     }
 
-    const productIds = [...qtyByProduct.keys()];
-    if (productIds.length === 0) return [];
+    if (query.controlled === "controlled") productWhere.isControlled = true;
+    if (query.controlled === "regular") productWhere.isControlled = false;
+    if (query.brands?.length) productWhere.brandName = { in: query.brands };
+    if (query.dosageForms?.length) productWhere.dosageForm = { in: query.dosageForms };
+    if (query.categoryIds?.length) {
+      productWhere.categoryMaps = { some: { categoryId: { in: query.categoryIds } } };
+    }
+    if (query.tagIds?.length) {
+      productWhere.tagMaps = { some: { tagId: { in: query.tagIds } } };
+    }
+    if (q) {
+      productWhere.OR = [
+        { sku: { contains: q, mode: "insensitive" } },
+        { name: { contains: q, mode: "insensitive" } },
+        { barcode: { contains: q, mode: "insensitive" } },
+        { genericName: { contains: q, mode: "insensitive" } },
+        { brandName: { contains: q, mode: "insensitive" } },
+        { registrationNo: { contains: q, mode: "insensitive" } },
+      ];
+    }
 
     const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds }, tenantId },
+      where: productWhere,
       select: {
         id: true,
         sku: true,
@@ -435,19 +514,9 @@ export class InventoryService {
         imageUrl: true,
         dosageForm: true,
         strength: true,
-        categoryMaps: {
-          select: {
-            category: { select: { id: true, name: true } },
-          },
-        },
-        tagMaps: {
-          select: {
-            tag: { select: { id: true, name: true } },
-          },
-        },
       },
+      orderBy: { name: "asc" },
     });
-    const pmap = new Map(products.map((p) => [p.id, p]));
 
     const batches = await this.listBatches(tenantId, branchId, { includeZero: false });
     const batchCountByProduct = new Map<string, number>();
@@ -462,62 +531,97 @@ export class InventoryService {
       }
     }
 
-    const lastMoves = await this.prisma.stockLedger.findMany({
-      where: { tenantId, branchId, productId: { in: productIds } },
-      orderBy: { occurredAt: "desc" },
-      distinct: ["productId"],
-      select: { productId: true, occurredAt: true, movementType: true },
-    });
+    const batchFilter = query.batchFilter && query.batchFilter !== "all" ? query.batchFilter : null;
+
+    const matched: Array<{
+      product: (typeof products)[number];
+      qtyOnHand: number;
+      stockStatus: ReturnType<typeof resolveStockStatus>;
+      batchCount: number;
+      nearExpiryBatchCount: number;
+    }> = [];
+
+    for (const product of products) {
+      const qtyOnHand = qtyByProduct.get(product.id) ?? 0;
+      const stockStatus = resolveStockStatus(qtyOnHand, product.reorderLevel);
+      if (statusFilter && stockStatus !== statusFilter) continue;
+      const batchCount = batchCountByProduct.get(product.id) ?? 0;
+      const nearExpiryBatchCount = nearExpiryByProduct.get(product.id) ?? 0;
+      if (batchFilter === "expiring" && nearExpiryBatchCount <= 0) continue;
+      if (batchFilter === "with_batches" && batchCount <= 0) continue;
+      if (batchFilter === "no_batches" && batchCount > 0) continue;
+      matched.push({ product, qtyOnHand, stockStatus, batchCount, nearExpiryBatchCount });
+    }
+
+    const total = matched.length;
+    const page = matched.slice(skip, skip + take);
+    const pageIds = page.map((row) => row.product.id);
+
+    const [lastMoves, pageRelations] = await Promise.all([
+      pageIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.stockLedger.findMany({
+            where: { tenantId, branchId, productId: { in: pageIds } },
+            orderBy: { occurredAt: "desc" },
+            distinct: ["productId"],
+            select: { productId: true, occurredAt: true, movementType: true },
+          }),
+      pageIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.product.findMany({
+            where: { id: { in: pageIds }, tenantId },
+            select: {
+              id: true,
+              categoryMaps: {
+                select: { category: { select: { id: true, name: true } } },
+              },
+              tagMaps: {
+                select: { tag: { select: { id: true, name: true } } },
+              },
+            },
+          }),
+    ]);
+
     const lastMoveByProduct = new Map(
       lastMoves.map((m) => [
         m.productId,
         { at: m.occurredAt.toISOString(), type: m.movementType },
       ]),
     );
+    const relationsByProduct = new Map(
+      pageRelations.map((p) => [
+        p.id,
+        {
+          categories: p.categoryMaps.map((map) => map.category),
+          tags: p.tagMaps.map((map) => map.tag),
+        },
+      ]),
+    );
 
-    const q = query.q?.trim().toLowerCase() ?? "";
-    const statusFilter = query.status && query.status !== "all" ? query.status : null;
+    const items = page.map((row) => {
+      const last = lastMoveByProduct.get(row.product.id) ?? null;
+      const relations = relationsByProduct.get(row.product.id) ?? {
+        categories: [],
+        tags: [],
+      };
+      return {
+        productId: row.product.id,
+        qtyOnHand: row.qtyOnHand,
+        stockStatus: row.stockStatus,
+        reorderGap: reorderGap(row.qtyOnHand, row.product.reorderLevel),
+        batchCount: row.batchCount,
+        nearExpiryBatchCount: row.nearExpiryBatchCount,
+        lastMovementAt: last?.at ?? null,
+        lastMovementType: last?.type ?? null,
+        product: {
+          ...row.product,
+          categories: relations.categories,
+          tags: relations.tags,
+        },
+      };
+    });
 
-    const rows = productIds
-      .map((productId) => {
-        const product = pmap.get(productId);
-        if (!product) return null;
-        const qtyOnHand = qtyByProduct.get(productId) ?? 0;
-        const stockStatus = resolveStockStatus(qtyOnHand, product.reorderLevel);
-        const last = lastMoveByProduct.get(productId) ?? null;
-        const { categoryMaps, tagMaps, ...productFields } = product;
-        return {
-          productId,
-          qtyOnHand,
-          stockStatus,
-          reorderGap: reorderGap(qtyOnHand, product.reorderLevel),
-          batchCount: batchCountByProduct.get(productId) ?? 0,
-          nearExpiryBatchCount: nearExpiryByProduct.get(productId) ?? 0,
-          lastMovementAt: last?.at ?? null,
-          lastMovementType: last?.type ?? null,
-          product: {
-            ...productFields,
-            categories: categoryMaps.map((map) => map.category),
-            tags: tagMaps.map((map) => map.tag),
-          },
-        };
-      })
-      .filter((row): row is NonNullable<typeof row> => row != null)
-      .filter((row) => {
-        if (statusFilter && row.stockStatus !== statusFilter) return false;
-        if (!q) return true;
-        const p = row.product;
-        return (
-          p.sku.toLowerCase().includes(q) ||
-          p.name.toLowerCase().includes(q) ||
-          (p.barcode?.toLowerCase().includes(q) ?? false) ||
-          (p.genericName?.toLowerCase().includes(q) ?? false) ||
-          (p.brandName?.toLowerCase().includes(q) ?? false)
-        );
-      })
-      .sort((a, b) => a.product.name.localeCompare(b.product.name));
-
-    return rows;
+    return { items, total, skip, take };
   }
 
   async summary(
@@ -525,21 +629,33 @@ export class InventoryService {
     branchId: string,
     period: SummaryPeriod = "this_month",
   ) {
-    const stock = await this.stockByProduct(tenantId, branchId);
-    const batches = await this.listBatches(tenantId, branchId, {
-      includeZero: false,
-    });
+    const [grouped, activeProducts, batches] = await Promise.all([
+      this.prisma.stockLedger.groupBy({
+        by: ["productId"],
+        where: { tenantId, branchId },
+        _sum: { qtyDelta: true },
+      }),
+      this.prisma.product.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, reorderLevel: true },
+      }),
+      this.listBatches(tenantId, branchId, { includeZero: false }),
+    ]);
+
+    const qtyByProduct = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
 
     let totalUnits = 0;
     let skuCount = 0;
     let lowStock = 0;
     let outOfStock = 0;
     let stockValue = 0;
-    for (const row of stock) {
+    for (const product of activeProducts) {
       skuCount += 1;
-      totalUnits += row.qtyOnHand;
-      if (row.stockStatus === "low") lowStock += 1;
-      if (row.stockStatus === "out") outOfStock += 1;
+      const qtyOnHand = qtyByProduct.get(product.id) ?? 0;
+      totalUnits += qtyOnHand;
+      const status = resolveStockStatus(qtyOnHand, product.reorderLevel);
+      if (status === "low") lowStock += 1;
+      if (status === "out") outOfStock += 1;
     }
     for (const b of batches) {
       stockValue += b.qtyOnHand * Number(b.costPrice);

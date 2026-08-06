@@ -137,7 +137,8 @@ export function PosReturnsPanel({
   const selectedTotal = useMemo(
     () =>
       selectedItems.reduce(
-        (sum, row) => sum + row.qty * Number(row.line.unitPrice),
+        (sum, row) =>
+          sum + row.qty * Number(row.line.refundUnitPrice ?? row.line.unitPrice),
         0,
       ),
     [selectedItems],
@@ -257,9 +258,9 @@ export function PosReturnsPanel({
             <IconPackage size={16} />
           </span>
           <span className={css.returnsWorkspaceText}>
-            <span className={css.returnsWorkspaceTitle}>Partial &amp; supplier returns</span>
+            <span className={css.returnsWorkspaceTitle}>Supplier &amp; approval returns</span>
             <span className={css.returnsWorkspaceHint}>
-              Approval &amp; supplier flows in Returns
+              Damaged stock, supplier send-backs, and approval workflows
             </span>
           </span>
           <span className={css.returnsWorkspaceCta}>
@@ -390,7 +391,7 @@ export function PosReturnsPanel({
             </p>
           )}
 
-          <div className={css.cartWrap}>
+          <div className={css.returnsTableWrap}>
             <table className={css.cartTable}>
               <thead>
                 <tr>
@@ -465,7 +466,9 @@ export function PosReturnsPanel({
                           </button>
                         </div>
                       </td>
-                      <td className={css.colNum}>{formatAmount(line.unitPrice)}</td>
+                      <td className={css.colNum}>
+                        {formatAmount(line.refundUnitPrice ?? line.unitPrice)}
+                      </td>
                     </tr>
                   );
                 })}
@@ -515,9 +518,17 @@ export function PosReturnsPanel({
                 Refund all remaining
               </button>
             </div>
+          ) : sale.status === "voided" ? (
+            <p className={css.returnsNote}>
+              This invoice was voided and cannot be refunded from POS.
+            </p>
           ) : sale.status === "refunded" || returnable.totalRemainingQty <= 0 ? (
             <p className={css.returnsNote}>
               This invoice has no remaining returnable quantity.
+            </p>
+          ) : !canRefund ? (
+            <p className={css.returnsNote}>
+              You do not have permission to process refunds on this counter.
             </p>
           ) : null}
         </>

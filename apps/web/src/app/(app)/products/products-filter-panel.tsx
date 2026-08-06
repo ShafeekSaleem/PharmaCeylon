@@ -9,37 +9,52 @@ import {
 } from "@/components/icons";
 import css from "./products-filter-panel.module.css";
 
-export type FacetEntry = { value: string; count: number; label?: string };
+export type FacetEntry = {
+  value: string;
+  count: number;
+  label?: string;
+  parentCategoryId?: string | null;
+  parentName?: string | null;
+};
 
 export type ProductFilters = {
+  schedules: string[];
   dosageForms: string[];
+  formGroups: string[];
+  registrationTypes: string[];
   brands: string[];
-  categories: string[];
   tags: string[];
   status: ("active" | "inactive")[];
   controlled: ("true" | "false")[];
   lowStock: boolean;
+  requiresPrescription: boolean;
 };
 
 export const EMPTY_PRODUCT_FILTERS: ProductFilters = {
+  schedules: [],
   dosageForms: [],
+  formGroups: [],
+  registrationTypes: [],
   brands: [],
-  categories: [],
   tags: [],
   status: [],
   controlled: [],
   lowStock: false,
+  requiresPrescription: false,
 };
 
 export function productFiltersAreActive(filters: ProductFilters): boolean {
   return (
+    filters.schedules.length > 0 ||
     filters.dosageForms.length > 0 ||
+    filters.formGroups.length > 0 ||
+    filters.registrationTypes.length > 0 ||
     filters.brands.length > 0 ||
-    filters.categories.length > 0 ||
     filters.tags.length > 0 ||
     filters.status.length > 0 ||
     filters.controlled.length > 0 ||
-    filters.lowStock
+    filters.lowStock ||
+    filters.requiresPrescription
   );
 }
 
@@ -47,19 +62,23 @@ export function productFiltersToQueryParams(filters: ProductFilters): {
   status: string;
   dosageForm?: string;
   brandName?: string;
+  schedule?: string;
   categoryId?: string;
   tagId?: string;
   isControlled?: string;
   lowStock?: boolean;
+  requiresPrescription?: boolean;
 } {
   const params: {
     status: string;
     dosageForm?: string;
     brandName?: string;
+    schedule?: string;
     categoryId?: string;
     tagId?: string;
     isControlled?: string;
     lowStock?: boolean;
+    requiresPrescription?: boolean;
   } = { status: "all" };
 
   if (filters.dosageForms.length) {
@@ -68,8 +87,12 @@ export function productFiltersToQueryParams(filters: ProductFilters): {
   if (filters.brands.length) {
     params.brandName = filters.brands.join(",");
   }
-  if (filters.categories.length) {
-    params.categoryId = filters.categories.join(",");
+  if (filters.schedules.length) {
+    params.schedule = filters.schedules.join(",");
+  }
+  const categoryIds = [...filters.formGroups, ...filters.registrationTypes];
+  if (categoryIds.length) {
+    params.categoryId = categoryIds.join(",");
   }
   if (filters.tags.length) {
     params.tagId = filters.tags.join(",");
@@ -83,16 +106,23 @@ export function productFiltersToQueryParams(filters: ProductFilters): {
   if (filters.lowStock) {
     params.lowStock = true;
   }
+  if (filters.requiresPrescription) {
+    params.requiresPrescription = true;
+  }
   return params;
 }
 
 export type FilterFacets = {
   brands: FacetEntry[];
   dosageForms: FacetEntry[];
+  schedules?: FacetEntry[];
+  formGroups?: FacetEntry[];
+  registrationTypes?: FacetEntry[];
   categories?: FacetEntry[];
   tags?: FacetEntry[];
   status: FacetEntry[];
   controlled: { value: boolean; count: number }[];
+  requiresPrescription?: { value: boolean; count: number }[];
 };
 
 type ProductsFilterPanelProps = {
@@ -156,8 +186,15 @@ export function ProductsFilterPanel({
         setOpen(false);
       }
     }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   return (
@@ -182,14 +219,27 @@ export function ProductsFilterPanel({
           <h3 className={css.panelTitle}>Filter</h3>
 
           <FilterRow
-            label="Dosage form"
-            hasSelection={applied.dosageForms.length > 0}
-            onClear={() => patch((d) => ({ ...d, dosageForms: [] }))}
+            label="Schedule"
+            hasSelection={applied.schedules.length > 0}
+            onClear={() => patch((d) => ({ ...d, schedules: [] }))}
           >
             <MultiSelectDropdown
-              options={facetOptions(facets?.dosageForms ?? [])}
-              selected={applied.dosageForms}
-              onChange={(dosageForms) => patch((d) => ({ ...d, dosageForms }))}
+              options={facetOptions(facets?.schedules ?? [])}
+              selected={applied.schedules}
+              onChange={(schedules) => patch((d) => ({ ...d, schedules }))}
+              searchPlaceholder="Search schedules…"
+            />
+          </FilterRow>
+
+          <FilterRow
+            label="Form group"
+            hasSelection={applied.formGroups.length > 0}
+            onClear={() => patch((d) => ({ ...d, formGroups: [] }))}
+          >
+            <MultiSelectDropdown
+              options={facetOptions(facets?.formGroups ?? [])}
+              selected={applied.formGroups}
+              onChange={(formGroups) => patch((d) => ({ ...d, formGroups }))}
               searchPlaceholder="Search forms…"
             />
           </FilterRow>
@@ -208,15 +258,17 @@ export function ProductsFilterPanel({
           </FilterRow>
 
           <FilterRow
-            label="Category"
-            hasSelection={applied.categories.length > 0}
-            onClear={() => patch((d) => ({ ...d, categories: [] }))}
+            label="Registration type"
+            hasSelection={applied.registrationTypes.length > 0}
+            onClear={() => patch((d) => ({ ...d, registrationTypes: [] }))}
           >
             <MultiSelectDropdown
-              options={facetOptions(facets?.categories ?? [])}
-              selected={applied.categories}
-              onChange={(categories) => patch((d) => ({ ...d, categories }))}
-              searchPlaceholder="Search categories…"
+              options={facetOptions(facets?.registrationTypes ?? [])}
+              selected={applied.registrationTypes}
+              onChange={(registrationTypes) =>
+                patch((d) => ({ ...d, registrationTypes }))
+              }
+              searchPlaceholder="Search types…"
             />
           </FilterRow>
 
@@ -286,8 +338,67 @@ export function ProductsFilterPanel({
               <span>{hasBranch ? "Below reorder level at branch" : "Select a branch first"}</span>
             </label>
           </FilterRow>
+
+          <AdvancedDosageFilter
+            facets={facets}
+            applied={applied}
+            onChange={(dosageForms) => patch((d) => ({ ...d, dosageForms }))}
+            onClear={() => patch((d) => ({ ...d, dosageForms: [] }))}
+          />
         </div>
       )}
+    </div>
+  );
+}
+
+function AdvancedDosageFilter({
+  facets,
+  applied,
+  onChange,
+  onClear,
+}: {
+  facets: FilterFacets | null;
+  applied: ProductFilters;
+  onChange: (dosageForms: string[]) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(applied.dosageForms.length > 0);
+  const count = facets?.dosageForms?.length ?? 0;
+
+  return (
+    <div className={css.advancedBlock}>
+      <button
+        type="button"
+        className={css.advancedToggle}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <IconChevronDown
+          size={14}
+          className={`${css.advancedChevron} ${open ? css.advancedChevronOpen : ""}`}
+        />
+        Advanced: exact dosage / presentation
+        {count > 0 ? ` (${count})` : ""}
+        {applied.dosageForms.length > 0 ? (
+          <span className={css.advancedActive}>
+            {applied.dosageForms.length} selected
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <FilterRow
+          label="Dosage"
+          hasSelection={applied.dosageForms.length > 0}
+          onClear={onClear}
+        >
+          <MultiSelectDropdown
+            options={facetOptions(facets?.dosageForms ?? [])}
+            selected={applied.dosageForms}
+            onChange={onChange}
+            searchPlaceholder="Search presentations…"
+          />
+        </FilterRow>
+      ) : null}
     </div>
   );
 }
@@ -355,8 +466,18 @@ function MultiSelectDropdown({
       }
       setMenuOpen(false);
     }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setMenuOpen(false);
+      }
+    }
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [menuOpen]);
 
   const filtered = searchable

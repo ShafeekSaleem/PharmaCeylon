@@ -25,7 +25,8 @@ export type DataTableProps<T> = {
   emptyDescription?: string;
   sortKey?: string;
   sortDir?: SortDir;
-  onSort?: (key: string, dir: SortDir) => void;
+  /** When dir is null, clear server sort (restore default browse order). */
+  onSort?: (key: string, dir: SortDir | null) => void;
   page?: number;
   pageSize?: number;
   total?: number;
@@ -84,9 +85,17 @@ export function DataTable<T>({
 
   const handleSort = useCallback(
     (key: string) => {
-      const nextDir = sortKey === key && sortDir === "asc" ? "desc" : "asc";
+      // Cycle: inactive → asc → desc → clear (default/browse order)
+      let nextDir: SortDir | null = "asc";
+      if (sortKey === key) {
+        nextDir = sortDir === "asc" ? "desc" : null;
+      }
       if (isServerSorted) {
         onSort!(key, nextDir);
+      } else if (nextDir == null) {
+        setInternalSortKey("");
+        setInternalSortDir("asc");
+        setInternalPage(1);
       } else {
         setInternalSortKey(key);
         setInternalSortDir(nextDir);

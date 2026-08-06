@@ -6,27 +6,41 @@ import { PrismaService } from "../prisma/prisma.service";
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async salesSummary(tenantId: string, branchId: string, days = 30) {
+  async salesSummary(tenantId: string, branchId: string | null, days = 30) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
     const rows = await this.prisma.sale.findMany({
-      where: { tenantId, branchId, soldAt: { gte: since } },
+      where: {
+        tenantId,
+        ...(branchId ? { branchId } : {}),
+        soldAt: { gte: since },
+      },
       select: { grandTotal: true, soldAt: true, invoiceNo: true },
     });
 
     const total = rows.reduce((acc, r) => acc.add(r.grandTotal), new Prisma.Decimal(0));
-    return { days, count: rows.length, grandTotal: total.toString(), branchId };
+    return {
+      days,
+      count: rows.length,
+      grandTotal: total.toString(),
+      branchId,
+      scope: branchId ? "branch" : "tenant",
+    };
   }
 
-  async marginByProduct(tenantId: string, branchId: string, days = 30) {
+  async marginByProduct(tenantId: string, branchId: string | null, days = 30) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
     const items = await this.prisma.saleItem.findMany({
       where: {
         tenantId,
-        sale: { tenantId, branchId, soldAt: { gte: since } },
+        sale: {
+          tenantId,
+          ...(branchId ? { branchId } : {}),
+          soldAt: { gte: since },
+        },
       },
       include: {
         product: { select: { id: true, sku: true, name: true } },
@@ -96,14 +110,21 @@ export class ReportsService {
     return { withinDays, items: out };
   }
 
-  async deadStock(tenantId: string, branchId: string, daysWithoutSale = 90) {
+  async deadStock(tenantId: string, branchId: string | null, daysWithoutSale = 90) {
     const since = new Date();
     since.setDate(since.getDate() - daysWithoutSale);
 
     const soldProductIds = new Set(
       (
         await this.prisma.saleItem.findMany({
-          where: { tenantId, sale: { tenantId, branchId, soldAt: { gte: since } } },
+          where: {
+            tenantId,
+            sale: {
+              tenantId,
+              ...(branchId ? { branchId } : {}),
+              soldAt: { gte: since },
+            },
+          },
           select: { productId: true },
         })
       ).map((x) => x.productId),
@@ -111,7 +132,7 @@ export class ReportsService {
 
     const stock = await this.prisma.stockLedger.groupBy({
       by: ["productId"],
-      where: { tenantId, branchId },
+      where: { tenantId, ...(branchId ? { branchId } : {}) },
       _sum: { qtyDelta: true },
     });
 

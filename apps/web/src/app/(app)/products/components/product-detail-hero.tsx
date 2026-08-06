@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IconAlertTriangle,
   IconBox,
@@ -54,6 +54,16 @@ export function ProductDetailHero({
     summary?.marginPercent ??
     (sellPrice && costPrice ? computeMarginPercent(sellPrice, costPrice) : null);
   const activeBatches = detail.batches.filter((b) => b.qtyOnHand > 0).length;
+  const needsRx = product.requiresPrescription || product.isControlled;
+
+  useEffect(() => {
+    if (!imageZoomed) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setImageZoomed(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [imageZoomed]);
 
   const uploadAndPatch = async (file: File) => {
     if (!PRODUCT_IMAGE_TYPES.includes(file.type)) {
@@ -148,20 +158,36 @@ export function ProductDetailHero({
 
           <div className={detailCss.heroMain}>
             <h1 className={detailCss.heroTitle}>{product.name}</h1>
+            {product.brandName && (
+              <p className={detailCss.heroBrand}>{product.brandName}</p>
+            )}
             {product.genericName && (
               <p className={detailCss.heroGeneric}>{product.genericName}</p>
             )}
             <div className={detailCss.heroMeta}>
               <StatusBadge status={product.isActive ? "active" : "inactive"} dot />
+              {needsRx && <span className={listCss.rxTag}>Rx</span>}
               {product.isControlled && (
                 <span className={listCss.controlledTag}>
                   <IconAlertTriangle size={11} />
                   Controlled
                 </span>
               )}
+              {product.schedule && (
+                <span className={listCss.scheduleTag}>Schedule {product.schedule}</span>
+              )}
+              {(product.sameNameCount ?? 1) > 1 && (
+                <span
+                  className={listCss.dupNameBadge}
+                  title={`${product.sameNameCount} registrations share this display name`}
+                >
+                  {product.sameNameCount} registrations
+                </span>
+              )}
             </div>
             <p className={detailCss.heroSku}>
               SKU {product.sku}
+              {product.registrationNo ? ` · Reg. ${product.registrationNo}` : ""}
               {product.barcode ? ` · Barcode ${product.barcode}` : ""}
             </p>
           </div>

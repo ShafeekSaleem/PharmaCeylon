@@ -1,6 +1,6 @@
 "use client";
 
-import { IconArchive, IconEdit, IconReceipt, IconTag } from "@/components/icons";
+import { IconArchive, IconEdit, IconLock, IconReceipt, IconTag } from "@/components/icons";
 import css from "../pos.module.css";
 
 type Props = {
@@ -9,6 +9,8 @@ type Props = {
   onLastReceipt: () => void;
   onManualItem: () => void;
   hasLastReceipt: boolean;
+  canSetPosPin?: boolean;
+  onSetPosPin?: () => void;
 };
 
 export function PosQuickActions({
@@ -17,6 +19,8 @@ export function PosQuickActions({
   onLastReceipt,
   onManualItem,
   hasLastReceipt,
+  canSetPosPin = false,
+  onSetPosPin,
 }: Props) {
   const actions = [
     {
@@ -44,6 +48,16 @@ export function PosQuickActions({
       onClick: onManualItem,
       tip: "Add a line with an overridden price",
     },
+    ...(canSetPosPin && onSetPosPin
+      ? [
+          {
+            label: "Till PIN",
+            icon: <IconLock size={14} />,
+            onClick: onSetPosPin,
+            tip: "Set your short pharmacist till PIN for cashier co-sign",
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -56,7 +70,7 @@ export function PosQuickActions({
             type="button"
             className={css.quickActionBtn}
             onClick={action.onClick}
-            disabled={action.disabled}
+            disabled={"disabled" in action ? Boolean(action.disabled) : false}
             data-tooltip={action.tip}
           >
             <span className={css.quickActionIcon}>{action.icon}</span>

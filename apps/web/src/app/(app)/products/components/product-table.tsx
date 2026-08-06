@@ -21,7 +21,7 @@ type ProductTableProps = {
   canWrite: boolean;
   canDelete?: boolean;
   onPageChange: (page: number) => void;
-  onSort: (key: string, dir: SortDir) => void;
+  onSort: (key: string, dir: SortDir | null) => void;
   onRowClick: (row: Product) => void;
   onEdit: (p: Product) => void;
   onDelete: (p: Product) => void;
@@ -60,22 +60,57 @@ export function ProductTable({
           <div className={css.productCell}>
             {!visibleColumns.has("image") ? <ProductThumb row={row} /> : null}
             <div className={css.nameCell}>
-              <span className={css.productName}>{row.name}</span>
+              <span className={css.productName}>
+                {row.name}
+                {(row.sameNameCount ?? 1) > 1 ? (
+                  <span
+                    className={css.dupNameBadge}
+                    title={`${row.sameNameCount} registrations share this display name`}
+                  >
+                    {row.sameNameCount} regs
+                  </span>
+                ) : null}
+              </span>
+              {row.brandName && !visibleColumns.has("brandName") ? (
+                <span className={css.brandUnderTitle}>{row.brandName}</span>
+              ) : null}
+              {row.registrationNo && !visibleColumns.has("registrationNo") ? (
+                <span className={css.regNoHint}>Reg. {row.registrationNo}</span>
+              ) : null}
               {row.genericName && row.genericName !== row.name ? (
                 <span className={css.genericName}>{row.genericName}</span>
               ) : null}
-              {(row.categories?.length ?? 0) > 0 ? (
-                <span className={css.tagRow}>
-                  {row.categories!.slice(0, 2).map((c) => (
+              <span className={css.tagRow}>
+                {(row.requiresPrescription || row.isControlled) && (
+                  <span className={css.rxTag}>Rx</span>
+                )}
+                {row.schedule && !visibleColumns.has("schedule") ? (
+                  <span className={css.metaChip}>Schedule {row.schedule}</span>
+                ) : null}
+                {(row.categories ?? [])
+                  .filter(
+                    (c) =>
+                      !c.name.includes("—") &&
+                      !/^Schedule\b/i.test(c.name) &&
+                      c.name.length < 28,
+                  )
+                  .slice(0, 1)
+                  .map((c) => (
                     <span key={c.id} className={css.metaChip}>
                       {c.name}
                     </span>
                   ))}
-                  {(row.categories?.length ?? 0) > 2 ? (
-                    <span className={css.metaChip}>+{(row.categories?.length ?? 0) - 2}</span>
-                  ) : null}
-                </span>
-              ) : null}
+                {(row.tags ?? [])
+                  .filter((t) =>
+                    /unbranded|prescription required|controlled medicine/i.test(t.name),
+                  )
+                  .slice(0, 1)
+                  .map((t) => (
+                    <span key={t.id} className={css.metaChip}>
+                      {t.name.includes("Unbranded") ? "Unbranded" : t.name}
+                    </span>
+                  ))}
+              </span>
             </div>
           </div>
         ),
@@ -117,6 +152,22 @@ export function ProductTable({
         width: "80px",
         getValue: (row) => row.unit ?? "",
         render: (row) => <>{row.unit ?? "—"}</>,
+      },
+      {
+        key: "registrationNo",
+        header: "Reg. no.",
+        width: "110px",
+        sortable: true,
+        getValue: (row) => row.registrationNo ?? "",
+        render: (row) => <>{row.registrationNo ?? "—"}</>,
+      },
+      {
+        key: "schedule",
+        header: "Schedule",
+        width: "90px",
+        sortable: true,
+        getValue: (row) => row.schedule ?? "",
+        render: (row) => <>{row.schedule ?? "—"}</>,
       },
       {
         key: "stock",

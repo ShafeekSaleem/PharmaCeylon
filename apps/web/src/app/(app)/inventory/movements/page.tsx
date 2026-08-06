@@ -41,9 +41,25 @@ function MovementsContent() {
     CATEGORY_OPTIONS.some((o) => o.value === initialCategory) ? initialCategory : "all",
   );
   const [page, setPage] = useState(1);
-  const stock = useInventoryStock("all", "");
+  const [productSearch, setProductSearch] = useState("");
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState("");
+  const stock = useInventoryStock({
+    q: debouncedProductSearch,
+    page: 1,
+    pageSize: 50,
+  });
+  const selectedStock = useInventoryStock({
+    productId: productId || null,
+    page: 1,
+    pageSize: 1,
+  });
   const [adjustmentOpen, setAdjustmentOpen] = useState(false);
   const [adjustmentSuccess, setAdjustmentSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedProductSearch(productSearch), 250);
+    return () => clearTimeout(t);
+  }, [productSearch]);
 
   useEffect(() => {
     if (!adjustmentSuccess) return;
@@ -130,14 +146,22 @@ function MovementsContent() {
                 value={productId ?? ""}
                 placeholder="All products"
                 allowDeselect
-                options={stock.rows.map((row) => ({
-                  value: row.productId,
-                  label: `${row.product.sku} — ${row.product.name}`,
-                }))}
+                options={[
+                  ...new Map(
+                    [...selectedStock.rows, ...stock.rows].map((row) => [
+                      row.productId,
+                      {
+                        value: row.productId,
+                        label: `${row.product.sku} — ${row.product.name}`,
+                      },
+                    ]),
+                  ).values(),
+                ]}
                 searchable
                 searchPlaceholder="Search by product or SKU…"
+                onSearchChange={setProductSearch}
                 onChange={setProductFilter}
-                disabled={stock.loading}
+                disabled={stock.loading && selectedStock.loading}
               />
             </div>
             <InventoryFilterSelect

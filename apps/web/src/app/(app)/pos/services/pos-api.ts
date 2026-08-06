@@ -55,8 +55,12 @@ export type SaleReturnableLine = {
   batchNo: string;
   soldQty: number;
   remainingQty: number;
+  /** Catalog / list unit price (may differ from what the customer paid). */
   unitPrice: string;
+  /** Paid amount attributable to remaining qty (after discount/VAT share). */
   lineTotal: string;
+  /** Effective refund price per remaining unit (lineTotal ÷ remainingQty). */
+  refundUnitPrice: string;
 };
 
 export type SaleReturnable = {
@@ -174,5 +178,25 @@ export function checkout(
     method: "POST",
     headers: { ...jsonHeaders, "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(payload),
+  });
+}
+
+export type PosApprover = {
+  id: string;
+  fullName: string;
+  email: string;
+  hasPosPin: boolean;
+  roles: string[];
+};
+
+export function listPosApprovers(): Promise<PosApprover[]> {
+  return apiJson<PosApprover[]>("/sales/pos/approvers");
+}
+
+export function setMyPosPin(pin: string, password: string): Promise<{ set: boolean }> {
+  return apiJson("/sales/pos/me/pos-pin", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ pin, password }),
   });
 }

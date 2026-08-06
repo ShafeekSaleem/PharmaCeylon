@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -12,7 +13,9 @@ import { ProductMetaService } from "./product-meta.service";
 import { buildProductWhere } from "./product-query.util";
 import {
   attachStockFields,
+  resolveStockStatus,
   stockQtyByProductId,
+  type StockStatus,
 } from "./stock-qty.util";
 import { buildProductDetailExtras } from "./product-detail.util";
 
@@ -20,10 +23,88 @@ const SORTABLE_FIELDS = new Set([
   "name",
   "sku",
   "brandName",
+  "registrationNo",
+  "schedule",
   "reorderLevel",
   "createdAt",
   "updatedAt",
 ]);
+
+/** Hard cap so a full-catalog export stays bounded (covers large NMRA loads). */
+const EXPORT_MAX_ROWS = 25_000;
+const EXPORT_BATCH_SIZE = 500;
+
+const CSV_HEADER = [
+  "SKU",
+  "Name",
+  "Generic name",
+  "Brand",
+  "Manufacturer",
+  "Dosage form",
+  "Strength",
+  "Unit",
+  "Pack size",
+  "Pack type",
+  "Barcode",
+  "Registration no.",
+  "Schedule",
+  "Registration type",
+  "Dossier no.",
+  "Country of origin",
+  "Local agent",
+  "Categories",
+  "Status",
+  "Requires prescription",
+  "Controlled",
+  "Reorder level",
+  "Qty on hand",
+  "Stock status",
+] as const;
+
+type ProductListQuery = {
+  q?: string;
+  skip?: number;
+  take?: number;
+  dosageForm?: string;
+  brandName?: string;
+  schedule?: string;
+  isControlled?: string;
+  requiresPrescription?: boolean;
+  status?: string;
+  lowStock?: boolean;
+  categoryId?: string;
+  tagId?: string;
+  sortBy?: string;
+  sortDir?: string;
+};
+
+function escapeCsv(value: string | number | boolean | null | undefined): string {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function stockStatusLabel(status: StockStatus | null | undefined): string {
+  if (status === "out") return "Out of stock";
+  if (status === "low") return "Low stock";
+  if (status === "ok") return "Healthy";
+  return "—";
+}
+
+/** Default browse order: stable pseudo-random via UUID id (not alphabetical by name). */
+function resolveOrderBy(
+  sortBy?: string,
+  sortDir?: string,
+): Prisma.ProductOrderByWithRelationInput {
+  if (!sortBy || sortBy === "random") {
+    return { id: "asc" };
+  }
+  if (!SORTABLE_FIELDS.has(sortBy)) {
+    return { id: "asc" };
+  }
+  return {
+    [sortBy]: sortDir === "desc" ? "desc" : "asc",
+  };
+}
 
 const productInclude = {
   categoryMaps: { include: { category: true } },
@@ -42,20 +123,7 @@ export class ProductsService {
   async list(
     tenantId: string,
     branchId: string | undefined,
-    query: {
-      q?: string;
-      skip?: number;
-      take?: number;
-      dosageForm?: string;
-      brandName?: string;
-      isControlled?: string;
-      status?: string;
-      lowStock?: boolean;
-      categoryId?: string;
-      tagId?: string;
-      sortBy?: string;
-      sortDir?: string;
-    },
+    query: ProductListQuery,
   ) {
     const take = Math.min(query.take ?? 50, 200);
     const skip = query.skip ?? 0;
@@ -71,16 +139,12 @@ export class ProductsService {
       return { items: [], total: 0, skip, take };
     }
 
-    const sortField = SORTABLE_FIELDS.has(query.sortBy ?? "")
-      ? query.sortBy!
-      : "name";
-    const sortDirection: Prisma.SortOrder =
-      query.sortDir === "desc" ? "desc" : "asc";
+    const orderBy = resolveOrderBy(query.sortBy, query.sortDir);
 
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
-        orderBy: { [sortField]: sortDirection },
+        orderBy,
         skip,
         take,
         include: {
@@ -100,12 +164,117 @@ export class ProductsService {
         )
       : null;
 
-    const items = attachStockFields(
-      rows.map((p) => this.mapProductWithRelations({ ...p, aliases: [] })),
-      stockMap,
+    const mapped = rows.map((p) =>
+      this.mapProductWithRelations({ ...p, aliases: [] }),
     );
+    const items = attachStockFields(mapped, stockMap);
+
+    // Duplicate display-name hint for multi-registration groups.
+    const names = [...new Set(items.map((p) => p.name).filter(Boolean))];
+    if (names.length > 0) {
+      const nameCounts = await this.prisma.product.groupBy({
+        by: ["name"],
+        where: { tenantId, name: { in: names } },
+        _count: { _all: true },
+      });
+      const countByName = new Map(nameCounts.map((n) => [n.name, n._count._all]));
+      for (const item of items) {
+        (item as { sameNameCount?: number }).sameNameCount =
+          countByName.get(item.name) ?? 1;
+      }
+    }
 
     return { items, total, skip, take };
+  }
+
+  /**
+   * Full CSV for all products matching list filters/sort (same columns as the
+   * web Products list export). Caps at EXPORT_MAX_ROWS.
+   */
+  async exportCsv(
+    tenantId: string,
+    branchId: string | undefined,
+    query: Omit<ProductListQuery, "skip" | "take">,
+  ): Promise<string> {
+    const { where, isEmpty } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      branchId,
+      query,
+    );
+
+    if (isEmpty) {
+      return CSV_HEADER.join(",");
+    }
+
+    const total = await this.prisma.product.count({ where });
+    if (total > EXPORT_MAX_ROWS) {
+      throw new BadRequestException(
+        `Export exceeds the maximum of ${EXPORT_MAX_ROWS} products (${total} match). Narrow your filters and try again.`,
+      );
+    }
+
+    const orderBy = resolveOrderBy(query.sortBy, query.sortDir);
+    const stockMap = branchId
+      ? await stockQtyByProductId(this.prisma, tenantId, branchId)
+      : null;
+
+    const lines: string[] = [CSV_HEADER.join(",")];
+    let skip = 0;
+    while (skip < total) {
+      const rows = await this.prisma.product.findMany({
+        where,
+        orderBy,
+        skip,
+        take: EXPORT_BATCH_SIZE,
+        include: {
+          categoryMaps: { include: { category: true } },
+        },
+      });
+      if (rows.length === 0) break;
+
+      for (const p of rows) {
+        const qtyOnHand = stockMap ? (stockMap.get(p.id) ?? 0) : null;
+        const stockStatus =
+          qtyOnHand === null
+            ? null
+            : resolveStockStatus(qtyOnHand, p.reorderLevel);
+        const categories = p.categoryMaps.map((m) => m.category.name).join("; ");
+        lines.push(
+          [
+            p.sku,
+            p.name,
+            p.genericName,
+            p.brandName,
+            p.manufacturer,
+            p.dosageForm,
+            p.strength,
+            p.unit,
+            p.packSize,
+            p.packType,
+            p.barcode,
+            p.registrationNo,
+            p.schedule,
+            p.regType,
+            p.dossierNo,
+            p.countryOfOrigin,
+            p.localAgent,
+            categories,
+            p.isActive ? "Active" : "Inactive",
+            p.requiresPrescription || p.isControlled ? "Yes" : "No",
+            p.isControlled ? "Yes" : "No",
+            p.reorderLevel,
+            qtyOnHand ?? "",
+            stockStatusLabel(stockStatus),
+          ]
+            .map(escapeCsv)
+            .join(","),
+        );
+      }
+      skip += rows.length;
+    }
+
+    return lines.join("\n");
   }
 
   async getById(tenantId: string, id: string) {
@@ -116,7 +285,11 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException("Product not found");
     }
-    return this.mapProductWithRelations(product);
+    const mapped = this.mapProductWithRelations(product);
+    const sameNameCount = await this.prisma.product.count({
+      where: { tenantId, name: product.name },
+    });
+    return { ...mapped, sameNameCount };
   }
 
   async getDetail(tenantId: string, branchId: string | undefined, id: string) {
@@ -259,11 +432,25 @@ export class ProductsService {
           strength: dto.strength?.trim() || null,
           unit: dto.unit?.trim() || null,
           packSize: dto.packSize?.trim() || null,
+          packType: dto.packType?.trim() || null,
           storage: dto.storage?.trim() || null,
           shelfLife: dto.shelfLife?.trim() || null,
           taxCategory: dto.taxCategory?.trim() || null,
           imageUrl: dto.imageUrl?.trim() || null,
+          registrationNo: dto.registrationNo?.trim() || null,
+          registrationDate: dto.registrationDate
+            ? new Date(dto.registrationDate)
+            : null,
+          schedule: dto.schedule?.trim() || null,
+          regType: dto.regType?.trim() || null,
+          dossierNo: dto.dossierNo?.trim() || null,
+          countryOfOrigin: dto.countryOfOrigin?.trim() || null,
+          localAgent: dto.localAgent?.trim() || null,
           isControlled: dto.isControlled ?? false,
+          requiresPrescription:
+            dto.isControlled === true
+              ? true
+              : (dto.requiresPrescription ?? false),
           reorderLevel: dto.reorderLevel ?? 0,
         },
       });
@@ -300,11 +487,34 @@ export class ProductsService {
         ...(dto.strength !== undefined ? { strength: dto.strength?.trim() || null } : {}),
         ...(dto.unit !== undefined ? { unit: dto.unit?.trim() || null } : {}),
         ...(dto.packSize !== undefined ? { packSize: dto.packSize?.trim() || null } : {}),
+        ...(dto.packType !== undefined ? { packType: dto.packType?.trim() || null } : {}),
         ...(dto.storage !== undefined ? { storage: dto.storage?.trim() || null } : {}),
         ...(dto.shelfLife !== undefined ? { shelfLife: dto.shelfLife?.trim() || null } : {}),
         ...(dto.taxCategory !== undefined ? { taxCategory: dto.taxCategory?.trim() || null } : {}),
         ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
+        ...(dto.registrationNo !== undefined
+          ? { registrationNo: dto.registrationNo?.trim() || null }
+          : {}),
+        ...(dto.registrationDate !== undefined
+          ? {
+              registrationDate: dto.registrationDate
+                ? new Date(dto.registrationDate)
+                : null,
+            }
+          : {}),
+        ...(dto.schedule !== undefined ? { schedule: dto.schedule?.trim() || null } : {}),
+        ...(dto.regType !== undefined ? { regType: dto.regType?.trim() || null } : {}),
+        ...(dto.dossierNo !== undefined ? { dossierNo: dto.dossierNo?.trim() || null } : {}),
+        ...(dto.countryOfOrigin !== undefined
+          ? { countryOfOrigin: dto.countryOfOrigin?.trim() || null }
+          : {}),
+        ...(dto.localAgent !== undefined ? { localAgent: dto.localAgent?.trim() || null } : {}),
         ...(dto.isControlled !== undefined ? { isControlled: dto.isControlled } : {}),
+        ...(dto.isControlled === true
+          ? { requiresPrescription: true }
+          : dto.requiresPrescription !== undefined
+            ? { requiresPrescription: dto.requiresPrescription }
+            : {}),
         ...(dto.reorderLevel !== undefined ? { reorderLevel: dto.reorderLevel } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
@@ -323,11 +533,20 @@ export class ProductsService {
       "strength",
       "unit",
       "packSize",
+      "packType",
       "storage",
       "shelfLife",
       "taxCategory",
+      "registrationNo",
+      "registrationDate",
+      "schedule",
+      "regType",
+      "dossierNo",
+      "countryOfOrigin",
+      "localAgent",
       "reorderLevel",
       "isControlled",
+      "requiresPrescription",
       "isActive",
     ] as const;
     const changes: { field: string; from: unknown; to: unknown }[] = [];

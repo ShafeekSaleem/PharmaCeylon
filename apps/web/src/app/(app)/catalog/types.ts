@@ -14,6 +14,8 @@ export type CatalogSearchItem = {
   strength: string | null;
   unit: string | null;
   imageUrl: string | null;
+  registrationNo: string | null;
+  schedule: string | null;
   isControlled: boolean;
   isActive: boolean;
   reorderLevel: number;
@@ -72,8 +74,17 @@ export type CatalogProductDetail = {
   strength: string | null;
   unit: string | null;
   packSize: string | null;
+  packType: string | null;
   imageUrl: string | null;
+  registrationNo: string | null;
+  registrationDate: string | null;
+  schedule: string | null;
+  regType: string | null;
+  dossierNo: string | null;
+  countryOfOrigin: string | null;
+  localAgent: string | null;
   isControlled: boolean;
+  requiresPrescription: boolean;
   isActive: boolean;
   reorderLevel: number;
   aliases: string[];

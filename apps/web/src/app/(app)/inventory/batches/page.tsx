@@ -41,9 +41,11 @@ function BatchesContent() {
   const [search, setSearch] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [page, setPage] = useState(1);
-  const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>(
-    nearExpiryDays != null ? "near" : "all",
-  );
+  const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>(() => {
+    if (nearExpiryDays != null) return "near";
+    if (searchParams.get("expired") === "1") return "expired";
+    return "all";
+  });
   const [includeZero, setIncludeZero] = useState(false);
   const [quarantineBusy, setQuarantineBusy] = useState(false);
   const [quarantineMsg, setQuarantineMsg] = useState<string | null>(null);
@@ -93,10 +95,37 @@ function BatchesContent() {
     setPage(1);
   }, [debouncedQ, expiryFilter, includeZero, productId, nearExpiryDays]);
 
+  // Keep the URL in sync when filters change so deep-links (e.g. from dashboard) stay accurate.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (expiryFilter === "near") {
+      next.set("nearExpiryDays", String(nearExpiryDays ?? 30));
+      next.delete("expired");
+    } else if (expiryFilter === "expired") {
+      next.set("expired", "1");
+      next.delete("nearExpiryDays");
+    } else {
+      next.delete("nearExpiryDays");
+      next.delete("expired");
+    }
+    const qs = next.toString();
+    const target = qs ? `/inventory/batches?${qs}` : "/inventory/batches";
+    const current = searchParams.toString()
+      ? `/inventory/batches?${searchParams.toString()}`
+      : "/inventory/batches";
+    if (target !== current) {
+      router.replace(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expiryFilter]);
+
+  const expiredParam = searchParams.get("expired") === "1";
+
   const batches = useInventoryBatches({
     productId,
-    nearExpiryDays,
-    includeZero: true,
+    nearExpiryDays: expiryFilter === "near" ? (nearExpiryDays ?? 30) : null,
+    expired: expiryFilter === "expired" || expiredParam ? true : null,
+    includeZero,
     q: debouncedQ,
   });
 
@@ -130,9 +159,11 @@ function BatchesContent() {
         .length,
       healthy: scopedRows.filter((batch) => !batch.expired && !batch.nearExpiry)
         .length,
-      zero: batches.rows.filter((batch) => batch.qtyOnHand === 0).length,
+      zero: includeZero
+        ? batches.rows.filter((batch) => batch.qtyOnHand === 0).length
+        : null,
     }),
-    [scopedRows, batches.rows],
+    [scopedRows, batches.rows, includeZero],
   );
 
   async function quarantineAllExpired() {
@@ -293,7 +324,7 @@ function BatchesContent() {
           />
           <StatCard size="sm"
             title="Zero quantity"
-            value={summary.zero}
+            value={summary.zero ?? "—"}
             subtitle={includeZero ? "Included in this view" : "Currently hidden"}
             icon={<IconPackage size={16} />}
             iconTone="info"

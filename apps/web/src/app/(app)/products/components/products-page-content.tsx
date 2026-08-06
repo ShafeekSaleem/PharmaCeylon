@@ -9,9 +9,11 @@ import {
   IconCheck,
   IconDownload,
   IconPackage,
+  IconPause,
   IconPlus,
   IconSearch,
   IconSettings,
+  IconUpload,
 } from "@/components/icons";
 import {
   ActionButton,
@@ -35,14 +37,21 @@ import {
 } from "../products-filter-panel";
 import css from "../products.module.css";
 import type { ColumnKey, Product, StatFilter } from "../types";
-import { downloadProductsCsv, hasDeleteAccess, hasWriteAccess, loadVisibleColumns } from "../utils";
+import {
+  downloadProductsCsv,
+  downloadProductsExportCsv,
+  hasDeleteAccess,
+  hasWriteAccess,
+  loadVisibleColumns,
+} from "../utils";
 import { productDetailPath } from "../utils/product-routes";
 import { useProductMeta } from "../hooks/use-product-meta";
 import { useProductMetaMutations } from "../hooks/use-product-meta-mutations";
 import { useProductMutations } from "../hooks/use-product-mutations";
-import { useProductsList } from "../hooks/use-products-list";
+import { buildProductFilterParams, useProductsList } from "../hooks/use-products-list";
 import { useProductsUrlState } from "../hooks/use-products-url-state";
 import { ConfirmDialog } from "./confirm-dialog";
+import { NmraImportModal } from "./nmra-import-modal";
 import { ProductFormModal } from "./product-form-modal";
 import { ProductMetaManagerModal } from "./product-meta-manager-modal";
 import { ProductTable } from "./product-table";
@@ -71,11 +80,15 @@ export function ProductsPageContent() {
 
   const [search, setSearch] = useState(q);
   const [debouncedSearch, setDebouncedSearch] = useState(q);
-  const [activeStatFilter, setActiveStatFilter] = useState<StatFilter | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(DEFAULT_VISIBLE);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportingAll, setExportingAll] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [metaManagerOpen, setMetaManagerOpen] = useState(false);
+  const [nmraImportOpen, setNmraImportOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   const { categories, tags, refresh: refreshMeta } = useProductMeta();
   const metaMutations = useProductMetaMutations(refreshMeta);
@@ -114,21 +127,116 @@ export function ProductsPageContent() {
   }, []);
 
   useEffect(() => {
-    if (!columnsOpen) return;
+    if (!columnsOpen && !exportOpen) return;
     function onDocClick(e: MouseEvent) {
       const target = e.target as Node;
-      if (columnsRef.current && !columnsRef.current.contains(target)) {
+      if (columnsOpen && columnsRef.current && !columnsRef.current.contains(target)) {
         setColumnsOpen(false);
+      }
+      if (exportOpen && exportRef.current && !exportRef.current.contains(target)) {
+        setExportOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setColumnsOpen(false);
+        setExportOpen(false);
       }
     }
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [columnsOpen]);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [columnsOpen, exportOpen]);
+
+  const handleExportPage = () => {
+    setExportError(null);
+    downloadProductsCsv(list.products);
+    setExportOpen(false);
+  };
+
+  const handleExportAll = async () => {
+    if (exportingAll || list.total === 0) return;
+    setExportingAll(true);
+    setExportError(null);
+    setExportOpen(false);
+    try {
+      const params = buildProductFilterParams(
+        debouncedSearch,
+        appliedFilters,
+        sortBy,
+        sortDir,
+      );
+      await downloadProductsExportCsv(params.toString());
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Failed to export products");
+    } finally {
+      setExportingAll(false);
+    }
+  };
 
   const filtersActive = productFiltersAreActive(appliedFilters);
 
+  const activePill = useMemo((): StatFilter | null => {
+    const f = appliedFilters;
+    const onlyPillExtras =
+      f.schedules.length === 0 &&
+      f.dosageForms.length === 0 &&
+      f.formGroups.length === 0 &&
+      f.registrationTypes.length === 0 &&
+      f.brands.length === 0 &&
+      f.tags.length === 0;
+    if (!onlyPillExtras) return null;
+    if (
+      f.requiresPrescription &&
+      !f.lowStock &&
+      f.status.length === 0 &&
+      f.controlled.length === 0
+    ) {
+      return "rx";
+    }
+    if (
+      f.lowStock &&
+      !f.requiresPrescription &&
+      f.status.length === 0 &&
+      f.controlled.length === 0
+    ) {
+      return "lowStock";
+    }
+    if (
+      f.controlled.length === 1 &&
+      f.controlled[0] === "true" &&
+      !f.lowStock &&
+      !f.requiresPrescription &&
+      f.status.length === 0
+    ) {
+      return "controlled";
+    }
+    if (
+      f.status.length === 1 &&
+      f.status[0] === "active" &&
+      !f.lowStock &&
+      !f.requiresPrescription &&
+      f.controlled.length === 0
+    ) {
+      return "active";
+    }
+    if (
+      f.status.length === 1 &&
+      f.status[0] === "inactive" &&
+      !f.lowStock &&
+      !f.requiresPrescription &&
+      f.controlled.length === 0
+    ) {
+      return "inactive";
+    }
+    if (!filtersActive) return "all";
+    return null;
+  }, [appliedFilters, filtersActive]);
+
   const applyStatFilter = (filter: StatFilter) => {
-    setActiveStatFilter(filter);
     if (filter === "all") {
       setFilters(EMPTY_PRODUCT_FILTERS);
     } else if (filter === "active") {
@@ -139,21 +247,21 @@ export function ProductsPageContent() {
       setFilters({ ...EMPTY_PRODUCT_FILTERS, controlled: ["true"] });
     } else if (filter === "lowStock") {
       setFilters({ ...EMPTY_PRODUCT_FILTERS, lowStock: true });
+    } else if (filter === "rx") {
+      setFilters({ ...EMPTY_PRODUCT_FILTERS, requiresPrescription: true });
     }
   };
 
   const handleClearFilters = () => {
     clearFilters();
-    setActiveStatFilter(null);
   };
 
   const handleFiltersApply = (filters: typeof appliedFilters) => {
     setFilters(filters);
-    setActiveStatFilter(null);
   };
 
   const toggleStatFilter = (filter: StatFilter) => {
-    if (activeStatFilter === filter) {
+    if (activePill === filter) {
       handleClearFilters();
       return;
     }
@@ -176,7 +284,7 @@ export function ProductsPageContent() {
   };
 
   const handleServerSort = useCallback(
-    (key: string, dir: SortDir) => setSort(key, dir),
+    (key: string, dir: SortDir | null) => setSort(key, dir),
     [setSort],
   );
 
@@ -224,7 +332,7 @@ export function ProductsPageContent() {
 
       <div className={css.mainCol}>
         <div className={css.statsSection}>
-          <StatGrid columns={4} dense>
+          <StatGrid columns={5} dense>
             <StatCard
               size="sm"
               title="Total Products"
@@ -232,7 +340,7 @@ export function ProductsPageContent() {
               subtitle="In catalog"
               icon={<IconPackage size={14} />}
               iconTone="primary"
-              active={activeStatFilter === "all"}
+              active={activePill === "all"}
               onClick={() => toggleStatFilter("all")}
             />
             <StatCard
@@ -242,8 +350,18 @@ export function ProductsPageContent() {
               subtitle="Sellable SKUs"
               icon={<IconCheck size={14} />}
               iconTone="success"
-              active={activeStatFilter === "active"}
+              active={activePill === "active"}
               onClick={() => toggleStatFilter("active")}
+            />
+            <StatCard
+              size="sm"
+              title="Inactive Products"
+              value={list.summaryFacets ? list.inactiveCount : "…"}
+              subtitle="Hidden from sell"
+              icon={<IconPause size={14} />}
+              iconTone="info"
+              active={activePill === "inactive"}
+              onClick={() => toggleStatFilter("inactive")}
             />
             <StatCard
               size="sm"
@@ -252,7 +370,7 @@ export function ProductsPageContent() {
               subtitle="Restricted items"
               icon={<IconAlertTriangle size={14} />}
               iconTone="warning"
-              active={activeStatFilter === "controlled"}
+              active={activePill === "controlled"}
               onClick={() => toggleStatFilter("controlled")}
             />
             <StatCard
@@ -262,7 +380,7 @@ export function ProductsPageContent() {
               subtitle={hasBranch ? "Below reorder level" : "Select a branch"}
               icon={<IconActivity size={14} />}
               iconTone="danger"
-              active={activeStatFilter === "lowStock"}
+              active={activePill === "lowStock"}
               onClick={() => hasBranch && toggleStatFilter("lowStock")}
             />
           </StatGrid>
@@ -284,6 +402,7 @@ export function ProductsPageContent() {
                 className={css.searchInput}
                 type="search"
                 placeholder="Search products…"
+                aria-label="Search products"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -291,9 +410,7 @@ export function ProductsPageContent() {
             <div className={css.statusPills} role="tablist" aria-label="Quick status filters">
               {PRODUCT_STAT_PILLS.map((pill) => {
                 const disabled = pill.id === "lowStock" && !hasBranch;
-                const active =
-                  activeStatFilter === pill.id ||
-                  (pill.id === "all" && activeStatFilter === null && !filtersActive);
+                const active = activePill === pill.id;
                 return (
                   <button
                     key={pill.id}
@@ -302,14 +419,7 @@ export function ProductsPageContent() {
                     aria-selected={active}
                     disabled={disabled}
                     className={`${css.statusPill}${active ? ` ${css.statusPillActive}` : ""}`}
-                    onClick={() => {
-                      if (pill.id === "all") {
-                        handleClearFilters();
-                        setActiveStatFilter("all");
-                        return;
-                      }
-                      toggleStatFilter(pill.id);
-                    }}
+                    onClick={() => toggleStatFilter(pill.id)}
                   >
                     {pill.label}
                   </button>
@@ -333,25 +443,79 @@ export function ProductsPageContent() {
           </div>
 
           <div className={css.toolbarActions}>
-            <button
-              type="button"
-              className={css.columnsBtn}
-              onClick={() => downloadProductsCsv(list.products)}
-              disabled={list.products.length === 0}
-              data-tooltip={
-                list.products.length === 0
-                  ? "Nothing to export for the current filters"
-                  : "Download current page as CSV"
-              }
-            >
-              <IconDownload size={15} />
-              Export
-            </button>
+            {canWrite && (
+              <button
+                type="button"
+                className={css.columnsBtn}
+                onClick={() => setNmraImportOpen(true)}
+                data-tooltip="Import NMRA registration Excel or barcode CSV"
+              >
+                <IconUpload size={15} />
+                Import
+              </button>
+            )}
+            <div className={css.columnsWrap} ref={exportRef}>
+              <button
+                type="button"
+                className={css.columnsBtn}
+                onClick={() => {
+                  setColumnsOpen(false);
+                  setExportOpen((o) => !o);
+                }}
+                disabled={list.total === 0 || exportingAll}
+                aria-expanded={exportOpen}
+                aria-haspopup="menu"
+                data-tooltip={
+                  exportingAll
+                    ? "Preparing full CSV…"
+                    : list.total === 0
+                      ? "Nothing to export for the current filters"
+                      : "Export products as CSV"
+                }
+              >
+                <IconDownload size={15} />
+                {exportingAll ? "Exporting…" : "Export"}
+              </button>
+              {exportOpen && (
+                <div className={css.columnsPopover} role="menu">
+                  <div className={css.columnsPopoverTitle}>Export CSV</div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={css.exportMenuItem}
+                    disabled={list.products.length === 0}
+                    onClick={handleExportPage}
+                  >
+                    <span className={css.exportMenuItemLabel}>Export page</span>
+                    <span className={css.exportMenuItemHint}>
+                      Current page only ({list.products.length} row
+                      {list.products.length === 1 ? "" : "s"})
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={css.exportMenuItem}
+                    disabled={list.total === 0 || exportingAll}
+                    onClick={() => void handleExportAll()}
+                  >
+                    <span className={css.exportMenuItemLabel}>Export all matching</span>
+                    <span className={css.exportMenuItemHint}>
+                      All filtered results ({list.total.toLocaleString()} product
+                      {list.total === 1 ? "" : "s"})
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
             <div className={css.columnsWrap} ref={columnsRef}>
               <button
                 type="button"
                 className={css.columnsBtn}
-                onClick={() => setColumnsOpen((o) => !o)}
+                onClick={() => {
+                  setExportOpen(false);
+                  setColumnsOpen((o) => !o);
+                }}
                 aria-expanded={columnsOpen}
               >
                 <IconSettings size={15} />
@@ -381,6 +545,11 @@ export function ProductsPageContent() {
             {list.listError}
           </Alert>
         )}
+        {exportError && (
+          <Alert variant="error" className={css.listAlert}>
+            {exportError}
+          </Alert>
+        )}
 
         <ProductTable
           products={list.products}
@@ -408,6 +577,15 @@ export function ProductsPageContent() {
         tags={tags}
         onClose={() => setMetaManagerOpen(false)}
         onRefresh={refreshMeta}
+      />
+
+      <NmraImportModal
+        open={nmraImportOpen}
+        onClose={() => setNmraImportOpen(false)}
+        onImported={() => {
+          list.reload();
+          refreshMeta();
+        }}
       />
 
       <ProductFormModal

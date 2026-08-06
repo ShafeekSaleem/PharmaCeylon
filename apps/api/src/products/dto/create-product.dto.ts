@@ -1,6 +1,7 @@
 import { Type } from "class-transformer";
 import {
   IsBoolean,
+  IsDateString,
   IsInt,
   IsOptional,
   IsString,
@@ -61,6 +62,11 @@ export class CreateProductDto extends ProductRelationsDto {
   @IsOptional()
   @IsString()
   @MaxLength(256)
+  packType?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
   storage?: string | null;
 
   @IsOptional()
@@ -79,9 +85,48 @@ export class CreateProductDto extends ProductRelationsDto {
   imageUrl?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  registrationNo?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  registrationDate?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  schedule?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  regType?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  dossierNo?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  countryOfOrigin?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  localAgent?: string | null;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   isControlled?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  requiresPrescription?: boolean;
 
   @IsOptional()
   @Type(() => Number)

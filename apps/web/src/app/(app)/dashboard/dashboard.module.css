@@ -1,49 +1,872 @@
 .page {
+  /* Shared urgent (red + orange) for danger text/icons across dashboard cards. */
+  --health-urgent: color-mix(
+    in srgb,
+    var(--pc-destructive) 42%,
+    var(--pc-alert-warning-icon, #ea580c) 58%
+  );
+  --health-urgent-soft: color-mix(in srgb, var(--health-urgent) 12%, transparent);
+  --health-urgent-border: color-mix(in srgb, var(--health-urgent) 28%, var(--pc-border));
+  --health-urgent-text: color-mix(
+    in srgb,
+    var(--pc-alert-error-text, #991b1b) 40%,
+    var(--pc-alert-warning-text, #9a3412) 60%
+  );
+
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
+}
+
+.pageHeader {
+  margin-bottom: 0.15rem !important;
+}
+
+.page > * {
+  animation: dashFadeIn 0.38s ease both;
+}
+
+.page > *:nth-child(1) { animation-delay: 0.01s; }
+.page > *:nth-child(2) { animation-delay: 0.04s; }
+.page > *:nth-child(3) { animation-delay: 0.07s; }
+.page > *:nth-child(4) { animation-delay: 0.1s; }
+.page > *:nth-child(5) { animation-delay: 0.13s; }
+.page > *:nth-child(6) { animation-delay: 0.16s; }
+.page > *:nth-child(7) { animation-delay: 0.19s; }
+.page > *:nth-child(8) { animation-delay: 0.22s; }
+
+@keyframes dashFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page > * {
+    animation: none;
+  }
+
+  .panel:hover,
+  .quickBarItem:hover,
+  .productChip:hover,
+  .aiCard:hover,
+  a.alertItem:hover {
+    transform: none;
+  }
+
+  .panel,
+  .quickBarItem,
+  .productChip,
+  .aiCard,
+  .alertItem,
+  .bar,
+  .progressFill,
+  .quickBarIcon {
+    transition: none;
+  }
+}
+
+.headerControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.roleBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.32rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 55%, transparent);
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.branchChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.32rem 0.7rem;
+  border-radius: var(--pc-radius-sm, 8px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.branchDot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--pc-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pc-primary) 22%, transparent);
+}
+
+.branchChevron {
+  color: var(--pc-muted-fg);
+  font-size: 0.65rem;
+  margin-left: 0.1rem;
+}
+
+.scopeToggle {
+  display: inline-flex;
+  align-items: stretch;
+  padding: 0.16rem;
+  border-radius: 999px;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.scopeToggleBtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  border-radius: 999px;
+  padding: 0.28rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1.2;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.scopeToggleBtn:hover {
+  color: var(--pc-foreground);
+}
+
+.scopeToggleBtnActive {
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.scopeToggleBtn:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 1px;
+}
+
+.customizeBtn,
+.layoutToggle {
+  appearance: none;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  border-radius: var(--pc-radius-sm, 8px);
+  padding: 0.35rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.customizeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.layoutToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  color: var(--pc-muted-fg);
+}
+
+.customizeBtn:hover:not(:disabled),
+.layoutToggle:hover:not(:disabled) {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.customizeBtn:focus-visible,
+.layoutToggle:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 2px;
+}
+
+.customizeBtn:disabled,
+.layoutToggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .kpiRow {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.55rem;
+  align-items: stretch;
 }
 
-.dashboard {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 1rem;
-  align-items: start;
-}
-
-.mainCol {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+.kpiRow > * {
+  height: 100%;
   min-width: 0;
 }
 
-.sideCol {
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+  align-items: start;
+}
+
+/* Wide primary panel + narrower companion (Owner overview / Cash Flow). */
+.mainSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: start;
+}
+
+/* Owner: Business Overview | Cash Flow | Alerts */
+.mainSplitOwner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: stretch;
+}
+
+.mainSplitOwner > .splitPanel {
+  height: 100%;
+  min-height: 260px;
+}
+
+.splitPanel .panelBody {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  min-height: 0;
+}
+
+.splitPanel .panelFooterLink {
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.span2 {
+  grid-column: span 2;
 }
 
 .panel {
   background: var(--pc-card-bg);
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 10px);
-  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--pc-border) 88%, transparent);
+  border-radius: var(--pc-radius-md, 12px);
+  padding: 0.8rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 3px 12px rgba(15, 23, 42, 0.03);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.panel:hover {
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06), 0 8px 22px rgba(15, 23, 42, 0.04);
+  border-color: color-mix(in srgb, var(--pc-primary) 18%, var(--pc-border));
+}
+
+.panelCompact {
+  padding: 0.65rem 0.7rem;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.panelTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
 }
 
 .panelTitle {
-  margin: 0 0 0.75rem;
-  font-size: 0.78rem;
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.panelSubtitle {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.panelHeaderRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.panelIcon {
+  display: inline-flex;
+  color: var(--pc-primary);
+}
+
+.panelBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.panelFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--pc-border) 80%, transparent);
+}
+
+.panelFooterLink {
+  color: var(--pc-primary);
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.panelFooterLink:hover {
+  color: var(--pc-primary-hover);
+  text-decoration: underline;
+}
+
+.panelFooterMeta {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.subHeading {
+  margin: 0 0 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+}
+
+.overviewGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  min-height: 220px;
+}
+
+.overviewChartsCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.overviewChartsPair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.05fr);
+  gap: 0.5rem;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.overviewChartsPair > .overviewSubcard {
+  min-height: 0;
+  height: 100%;
+}
+
+.overviewSubcard {
+  border: 1px solid color-mix(in srgb, var(--pc-border) 85%, transparent);
+  border-radius: var(--pc-radius-sm, 8px);
+  padding: 0.6rem 0.65rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: color-mix(in srgb, var(--pc-card-bg) 92%, var(--pc-muted-bg));
+}
+
+.overviewChartGrow {
+  flex: 1;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  margin-top: 0.15rem;
+}
+
+.overviewChartGrow .chartWrap,
+.overviewChartGrow .chartWrapDense,
+.overviewChartGrow .groupedBarWrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  min-height: 0;
+  gap: 0.12rem;
+}
+
+.overviewChartGrow .chartPlotWithY,
+.overviewChartGrow .chartPlotStack {
+  flex: 1;
+  min-height: 0;
+}
+
+.overviewChartGrow .chartSvg,
+.overviewChartGrow .groupedBarSvg {
+  flex: 1 1 auto;
+  min-height: 145px;
+  height: 100%;
+  width: 100%;
+}
+
+.overviewChartGrow .chartLegend {
+  margin-top: 0;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.overviewChartGrow .chartLabels {
+  margin-top: 0.1rem;
+  font-size: 0.62rem;
+  flex-shrink: 0;
+}
+
+.overviewChartGrow .chartYLabelDense {
+  font-size: 0.55rem;
+}
+
+.overviewBranchList {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+}
+
+.branchLeaderRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.45rem 0.5rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.branchLeaderRow:hover {
+  background: color-mix(in srgb, var(--pc-primary) 4%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-border) 70%, transparent);
+}
+
+.branchLeaderRowTop {
+  background: color-mix(in srgb, var(--pc-primary) 7%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-primary) 18%, transparent);
+}
+
+.branchLeaderMain {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.branchRankBadge {
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
+  background: var(--pc-card-bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-muted-fg);
+  flex-shrink: 0;
+  margin-top: 0.05rem;
+}
+
+.branchRankBadgeLead {
+  background: var(--pc-primary);
+  border-color: var(--pc-primary);
+  color: var(--pc-primary-fg, #fff);
+}
+
+.branchLeaderInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.branchLeaderTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.branchLeaderMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+}
+
+.branchLeaderMeta > span:not(:first-child)::before {
+  content: "·";
+  margin-right: 0.45rem;
+  color: color-mix(in srgb, var(--pc-muted-fg) 70%, transparent);
+}
+
+.branchViewAll {
+  display: inline-flex;
+  margin-top: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.periodSelect {
+  display: none; /* replaced by DashboardPeriodSelect */
+}
+
+.periodSelectWrap {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 7.5rem;
+  max-width: 9.5rem;
+}
+
+.periodSelectCompact .periodTrigger {
+  height: 2.15rem;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.periodTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  height: 2.8rem;
+  box-sizing: border-box;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-input-bg, var(--pc-card-bg));
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.periodTrigger:hover,
+.periodTriggerOpen {
+  border-color: var(--pc-primary);
+}
+
+.periodTriggerOpen {
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.periodTriggerText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.12rem;
+  overflow: hidden;
+}
+
+.periodTriggerLabel {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  line-height: 1;
+}
+
+.periodTriggerText > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.periodChevron {
+  flex-shrink: 0;
+  color: var(--pc-muted-fg);
+  transition: transform 0.15s;
+}
+
+.periodTriggerOpen .periodChevron {
+  transform: rotate(180deg);
+}
+
+.periodMenu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.3rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  overflow: auto;
+}
+
+.periodOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.periodOption:hover {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.periodOptionActive {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+/* Metrics strip under Sales Trend + Revenue vs Purchases (rev/purch period). */
+.overviewChartsSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  flex-shrink: 0;
+  padding: 0.65rem 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
+  border-radius: var(--pc-radius-sm, 8px);
+  background: color-mix(in srgb, var(--pc-card-bg) 96%, var(--pc-muted-bg));
+}
+
+.overviewMetric {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.15rem 0.85rem;
+}
+
+.overviewMetric + .overviewMetric {
+  border-left: 1px solid color-mix(in srgb, var(--pc-border) 88%, transparent);
+}
+
+.overviewMetricIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.overviewMetricIcon_revenue {
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 14%, transparent);
+}
+
+.overviewMetricIcon_purchases {
+  color: var(--pc-alert-info-icon, #2563eb);
+  background: color-mix(in srgb, var(--pc-alert-info-icon, #2563eb) 14%, transparent);
+}
+
+.overviewMetricIcon_profit {
+  color: var(--pc-alert-success-icon, #16a34a);
+  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, transparent);
+}
+
+.overviewMetricCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.overviewMetricLabel {
+  font-size: 0.62rem;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--pc-muted-fg);
+}
+
+.overviewMetricValue {
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+  line-height: 1.2;
+}
+
+.overviewMetricTrend {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.overviewMetricTrend_up {
+  color: var(--pc-alert-success-text, #166534);
+}
+
+.overviewMetricTrend_down {
+  color: var(--health-urgent);
+}
+
+.overviewMetricTrendVs {
+  font-weight: 400;
+  color: var(--pc-muted-fg);
+}
+
+.branchRankRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.branchRank {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  border: 1px solid var(--pc-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  flex-shrink: 0;
+}
+
+.branchMetricCol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  flex-shrink: 0;
+}
+
+.cashFlowBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.55rem;
+}
+
+.cashFlowBody .donutWrapBeside,
+.cashFlowBody .donutWrapModern {
+  flex: 1;
+  min-height: 0;
+}
+
+.cashFlowSummary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
+  border-radius: var(--pc-radius-sm, 8px);
+  background: color-mix(in srgb, var(--pc-card-bg) 94%, var(--pc-muted-bg));
+  flex-shrink: 0;
+}
+
+.cashFlowSummary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.cashFlowSummary .statEmph {
+  font-size: 0.88rem;
+}
+
+.chartAxisLabel {
+  fill: var(--pc-muted-fg);
+  font-size: 11.5px;
+  font-weight: 400;
 }
 
 .salesTable {
@@ -57,6 +880,7 @@
   padding: 0.55rem 0.35rem;
   text-align: left;
   border-bottom: 1px solid var(--pc-border);
+  vertical-align: top;
 }
 
 .salesTable th {
@@ -83,12 +907,33 @@
 
 .muted {
   color: var(--pc-muted-fg);
+  font-size: 0.8rem;
+}
+
+.caption {
+  font-size: 0.75rem;
+}
+
+.bodySm {
+  font-size: 0.82rem;
+}
+
+.stackMtXs {
+  margin-top: 0.4rem;
+}
+
+.stackMtSm {
+  margin-top: 0.55rem;
+}
+
+.stackMtMd {
+  margin-top: 0.75rem;
 }
 
 .alertList {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.45rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -98,49 +943,304 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.55rem 0.65rem;
+  gap: 0.55rem;
+  padding: 0.45rem 0.55rem;
   border-radius: var(--pc-radius-sm);
   background: var(--pc-muted-bg);
-  font-size: 0.82rem;
+  border: 1px solid transparent;
+  font-size: 0.8rem;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+a.alertItem:hover {
+  border-color: color-mix(in srgb, var(--pc-primary) 20%, transparent);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+  background: color-mix(in srgb, var(--pc-primary) 4%, var(--pc-muted-bg));
+}
+
+.alertLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.alertLead {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.alertIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 7px;
+  flex-shrink: 0;
+  margin-top: 0.05rem;
+}
+
+.alertIcon_danger {
+  color: var(--health-urgent);
+  background: var(--health-urgent-soft);
+}
+
+.alertIcon_warning {
+  color: var(--pc-alert-warning-icon);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 14%, var(--pc-card-bg));
+}
+
+.alertIcon_info {
+  color: var(--pc-alert-info-icon, var(--pc-primary));
+  background: color-mix(in srgb, var(--pc-primary) 12%, var(--pc-card-bg));
+}
+
+.alertIcon_success {
+  color: var(--pc-alert-success-icon);
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 14%, var(--pc-card-bg));
+}
+
+.alertText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.alertTitle {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  line-height: 1.25;
+}
+
+.alertDetail {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--pc-muted-fg);
+  line-height: 1.3;
+}
+
+.alertToneDot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.alertDot_danger { background: var(--health-urgent); }
+.alertDot_warning { background: var(--pc-alert-warning-icon); }
+.alertDot_info { background: var(--pc-alert-info-icon); }
+.alertDot_success { background: var(--pc-alert-success-icon); }
+
 .alertItemDanger {
-  background: color-mix(in srgb, var(--pc-destructive) 10%, var(--pc-card-bg));
+  background: color-mix(in srgb, var(--health-urgent) 9%, var(--pc-card-bg));
 }
 
 .alertItemWarning {
-  background: color-mix(in srgb, #b45309 10%, var(--pc-card-bg));
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 9%, var(--pc-card-bg));
+}
+
+.alertItemInfo {
+  background: color-mix(in srgb, var(--pc-alert-info-icon, var(--pc-primary)) 9%, var(--pc-card-bg));
+}
+
+.alertItemSuccess {
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 9%, var(--pc-card-bg));
+}
+
+.alertTrailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
 }
 
 .alertCount {
-  font-weight: 700;
+  font-weight: 500;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
 }
 
-.quickActions {
+.alertAction {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--pc-primary);
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-primary) 10%, transparent);
+}
+
+.quickBar {
+  background: var(--pc-card-bg);
+  border: 1px solid color-mix(in srgb, var(--pc-border) 88%, transparent);
+  border-radius: var(--pc-radius-md, 12px);
+  padding: 0.8rem 0.85rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 3px 12px rgba(15, 23, 42, 0.03);
+}
+
+.quickBarGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.quickBarItem {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-}
-
-.quickAction {
-  display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid var(--pc-border);
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 4.5rem;
+  padding: 0.55rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
   border-radius: var(--pc-radius-sm);
   color: var(--pc-foreground);
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-align: center;
   text-decoration: none;
-  transition: border-color 0.15s, background 0.15s;
+  background: var(--pc-card-bg);
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.quickAction:hover {
-  border-color: var(--pc-primary);
+.quickBarItem:hover {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
   background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-card-bg));
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.quickBarItem:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 2px;
+}
+
+.quickBarIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.quickBarIcon_primary {
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.quickBarIcon_success {
+  color: var(--pc-alert-success-icon, #16a34a);
+  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, transparent);
+}
+
+.quickBarIcon_warning {
+  color: var(--pc-alert-warning-icon, #d97706);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 14%, transparent);
+}
+
+.quickBarIcon_danger {
+  color: var(--health-urgent, var(--pc-destructive));
+  background: var(
+    --health-urgent-soft,
+    color-mix(in srgb, var(--pc-destructive) 12%, transparent)
+  );
+}
+
+.quickBarIcon_info {
+  color: var(--pc-alert-info-icon, #0284c7);
+  background: color-mix(in srgb, var(--pc-alert-info-icon, #0284c7) 14%, transparent);
+}
+
+.quickBarItem_primary:hover {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-card-bg));
+}
+
+.quickBarItem_success:hover {
+  border-color: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 40%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 6%, var(--pc-card-bg));
+}
+
+.quickBarItem_warning:hover {
+  border-color: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 40%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 6%, var(--pc-card-bg));
+}
+
+.quickBarItem_danger:hover {
+  border-color: color-mix(in srgb, var(--health-urgent, var(--pc-destructive)) 40%, var(--pc-border));
+  background: color-mix(
+    in srgb,
+    var(--health-urgent, var(--pc-destructive)) 6%,
+    var(--pc-card-bg)
+  );
+}
+
+.quickBarItem_info:hover {
+  border-color: color-mix(in srgb, var(--pc-alert-info-icon, #0284c7) 40%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-info-icon, #0284c7) 6%, var(--pc-card-bg));
+}
+
+.quickBarItem:hover .quickBarIcon {
+  transform: scale(1.06);
+}
+
+.quickBarItemSample {
+  cursor: default;
+  opacity: 0.78;
+  position: relative;
+}
+
+.quickBarItemSample:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--pc-border) 90%, transparent);
+  background: var(--pc-card-bg);
+}
+
+.quickBarItemSample .placeholderBadge {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  font-size: 0.58rem;
+  padding: 0.08rem 0.32rem;
+}
+
+.quickBarItemDisabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+  position: relative;
+}
+
+.quickBarItemDisabled:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--pc-border) 90%, transparent);
+  background: var(--pc-card-bg);
+}
+
+.quickBarSoon {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
 }
 
 .summaryGrid {
@@ -167,11 +1267,11 @@
 }
 
 .metricIn {
-  color: var(--pc-alert-success-text, #15803d);
+  color: var(--pc-alert-success-text);
 }
 
 .metricOut {
-  color: var(--pc-destructive);
+  color: var(--health-urgent);
 }
 
 .reorderList {
@@ -200,8 +1300,2346 @@
   color: var(--pc-muted-fg);
 }
 
+.placeholderBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-primary) 14%, transparent);
+  color: var(--pc-primary);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.placeholderNote {
+  margin: 0.45rem 0 0;
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+  font-style: italic;
+}
+
+.placeholderValue {
+  color: var(--pc-muted-fg);
+}
+
+.aiList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+.aiItem {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-muted-bg);
+  border: 1px solid transparent;
+  font-size: 0.78rem;
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+a.aiItem:hover {
+  border-color: color-mix(in srgb, var(--pc-primary) 20%, transparent);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+  background: color-mix(in srgb, var(--pc-primary) 4%, var(--pc-muted-bg));
+}
+
+.aiIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+
+.aiIcon_info {
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 12%, var(--pc-card-bg));
+}
+
+.aiIcon_warning {
+  color: var(--pc-alert-warning-icon);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 14%, var(--pc-card-bg));
+}
+
+.aiIcon_danger {
+  color: var(--health-urgent);
+  background: var(--health-urgent-soft);
+}
+
+.aiIcon_success {
+  color: var(--pc-alert-success-icon);
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 14%, var(--pc-card-bg));
+}
+
+.aiItemBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.aiItem strong {
+  display: block;
+  margin-bottom: 0.1rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+}
+
+.aiItem p {
+  margin: 0;
+  color: var(--pc-muted-fg);
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+
+.aiTone_info {
+  background: color-mix(in srgb, var(--pc-alert-info-icon) 8%, var(--pc-card-bg));
+}
+
+.aiTone_warning {
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 8%, var(--pc-card-bg));
+}
+
+.aiTone_danger {
+  background: color-mix(in srgb, var(--health-urgent) 9%, var(--pc-card-bg));
+}
+
+.aiTone_success {
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 8%, var(--pc-card-bg));
+}
+
+.aiCards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.aiCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.7rem;
+  border-radius: var(--pc-radius-sm);
+  border: 1px solid transparent;
+  background: var(--pc-muted-bg);
+  min-width: 0;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.aiCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+.aiCard strong {
+  font-size: 0.82rem;
+}
+
+.aiCard p {
+  margin: 0;
+  flex: 1;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.35;
+}
+
+.aiCardAction {
+  align-self: flex-start;
+  margin-top: 0.25rem;
+  color: var(--pc-primary);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.aiCardAction:hover {
+  text-decoration: underline;
+}
+
+.aiAction {
+  flex-shrink: 0;
+  color: var(--pc-primary);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.aiChevron {
+  color: var(--pc-muted-fg);
+  font-size: 1.1rem;
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.chartWrap {
+  width: 100%;
+}
+
+.chartWrapDense {
+  gap: 0.1rem;
+}
+
+.chartSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chartGrid {
+  stroke: var(--pc-border);
+  stroke-width: 1;
+}
+
+.chartLabels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+}
+
+.barChart {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 100px;
+}
+
+/* Week groups: thinner bars + clear gap between weeks */
+.barChartGrouped {
+  gap: 0.85rem;
+  padding: 0 0.15rem;
+}
+
+.barCol,
+.groupedBarCol {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.barTrack {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+}
+
+.groupedBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  width: min(42%, 2rem);
+  max-width: 2.1rem;
+  height: 100%;
+  min-height: 0;
+}
+
+.barChartGrouped .groupedBars .bar {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  border-radius: 3px 3px 0 0;
+}
+
+.barTrack .bar {
+  align-self: flex-end;
+}
+
+.bar {
+  width: 100%;
+  border-radius: 5px 5px 0 0;
+  min-height: 4px;
+  transition: height 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.barPrimary {
+  background: var(--pc-primary);
+}
+
+.barSecondary {
+  background: var(--pc-muted-fg);
+}
+
+.chartLegendSwatch_primary {
+  background: var(--pc-primary);
+}
+
+.chartLegendSwatch_secondary {
+  background: var(--pc-muted-fg);
+}
+
+.chartLegendSwatch_accent {
+  background: var(--pc-secondary-cyan);
+}
+
+.barLabel {
+  font-size: 0.65rem;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.chartLegend {
+  display: flex;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.chartLegendCenter {
+  justify-content: center;
+  margin-top: 0;
+  margin-bottom: 0.35rem;
+}
+
+.chartWrapInteractive .chartPlot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/** Plot + X labels; optional HTML Y axis in column 1 (aligned to plot row only). */
+.chartPlotWithY {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  column-gap: 0.28rem;
+}
+
+.chartPlotWithY > .chartYAxis {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.chartPlotWithY > .chartPlot {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.chartPlotWithY > .chartLabels {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.chartPlotStack {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.chartYAxis {
+  position: relative;
+  width: 2.15rem;
+  min-width: 2.15rem;
+  min-height: 0;
+  pointer-events: none;
+}
+
+.chartYAxisDense {
+  width: 1.85rem;
+  min-width: 1.85rem;
+}
+
+.chartYLabel {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  font-size: 0.68rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--pc-muted-fg);
+}
+
+.chartYLabelDense {
+  font-size: 0.58rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--pc-muted-fg) 82%, transparent);
+}
+
+.chartTooltip {
+  position: absolute;
+  z-index: 3;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 4.5rem;
+  max-width: 7.5rem;
+  padding: 0.28rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 32%, var(--pc-border));
+  border-radius: var(--pc-radius-sm, 8px);
+  background: var(--pc-card-bg);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.chartTooltipLabel {
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  line-height: 1.1;
+}
+
+.chartTooltipValue {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.chartHoverGuide {
+  stroke: color-mix(in srgb, var(--pc-primary) 40%, var(--pc-border));
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chartLabelActive {
+  color: var(--pc-primary);
+  font-weight: 500;
+}
+
+.chartLegend i {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  margin-right: 0.3rem;
+}
+
+.donutWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  position: relative;
+}
+
+.donutWrapBeside {
+  display: grid;
+  grid-template-columns: minmax(148px, 1.35fr) minmax(0, 0.9fr);
+  gap: 0.45rem;
+  align-items: center;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.donutWrapModern {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  flex: 1;
+  min-height: 0;
+}
+
+.donutChartCol {
+  position: relative;
+  width: min(100%, 168px);
+  aspect-ratio: 1;
+  justify-self: center;
+  flex-shrink: 0;
+}
+
+.donutSvg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.donutHalo {
+  fill: color-mix(in srgb, var(--pc-muted-bg) 70%, transparent);
+}
+
+.donutSegment {
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  outline: none;
+}
+
+.donutSegment:focus-visible {
+  filter: brightness(1.05);
+}
+
+.donutCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-size: 0.62rem;
+  color: var(--pc-muted-fg);
+  text-align: center;
+  padding: 0.55rem;
+}
+
+.donutCenter strong {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  line-height: 1.15;
+  transition: color 0.15s ease;
+}
+
+.donutCenterHighlight {
+  color: var(--pc-primary) !important;
+  font-size: 0.85rem !important;
+}
+
+.donutLegend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  font-size: 0.7rem;
+  min-width: 0;
+}
+
+.donutLegendModern {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.donutLegendBtn {
+  display: grid;
+  grid-template-columns: 0.5rem minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  align-items: center;
+  width: 100%;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--pc-muted-bg) 55%, transparent);
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.donutLegendBtn:hover,
+.donutLegendBtnActive {
+  border-color: color-mix(in srgb, var(--pc-primary) 35%, var(--pc-border));
+  background: var(--pc-primary-soft);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
+}
+
+.donutLegendBtn i {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+}
+
+.donutLegendBtn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donutLegendBtn em {
+  font-style: normal;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+}
+
+.donutLegendBtnActive em {
+  color: var(--pc-primary);
+}
+
+.donutLegend li {
+  display: grid;
+  grid-template-columns: 0.45rem minmax(0, 1fr) auto;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.donutLegend li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donutLegend i {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 2px;
+}
+
+.donutLegend em {
+  font-style: normal;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.68rem;
+}
+
+.groupedBarWrap {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.groupedBarSvg {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: block;
+}
+
+.svgBarPrimary {
+  fill: var(--pc-primary);
+}
+
+.svgBarSecondary {
+  fill: color-mix(in srgb, var(--pc-muted-fg) 72%, var(--pc-card-bg));
+}
+
+.groupedBarAxisLabel {
+  fill: var(--pc-muted-fg);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+.inlineStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+.inlineStats strong {
+  color: var(--pc-foreground);
+}
+
+.metricTiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.metricTiles > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-muted-bg);
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  transition: background 0.15s ease;
+}
+
+.metricTiles strong {
+  font-size: 1rem;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.metricTileWide {
+  grid-column: span 2;
+}
+
+/* Colored health / inventory pills (Owner & Manager mockups) */
+.healthPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.healthPill {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 5.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  border: 1px solid transparent;
+}
+
+.healthPill strong {
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+}
+
+.healthPill_danger {
+  background: var(--health-urgent-soft, var(--pc-alert-error-bg));
+  color: var(--health-urgent-text, var(--pc-alert-error-text));
+  border-color: var(--health-urgent-border, var(--pc-alert-error-border));
+}
+
+.healthPill_warning {
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  border-color: var(--pc-alert-warning-border);
+}
+
+.healthPill_success {
+  background: var(--pc-alert-success-bg);
+  color: var(--pc-alert-success-text);
+  border-color: var(--pc-alert-success-border);
+}
+
+.healthPill_info {
+  background: var(--pc-alert-info-bg);
+  color: var(--pc-alert-info-text);
+  border-color: var(--pc-alert-info-border);
+}
+
+.healthPill_neutral {
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+}
+
+/* Pharmacist controlled-drug tall blocks */
+.complianceBlocks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.complianceBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  min-height: 6.5rem;
+  padding: 0.65rem 0.35rem 0.55rem;
+  border-radius: var(--pc-radius-sm);
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--pc-btn-primary-text, #fff);
+}
+
+.complianceBlock strong {
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.complianceBlock .placeholderValue {
+  color: inherit;
+}
+
+.compliance_issued {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pc-alert-success-icon) 65%, white) 0%,
+    var(--pc-alert-success-icon) 100%
+  );
+}
+
+.compliance_dispensed {
+  background: linear-gradient(180deg, var(--pc-primary) 0%, var(--pc-primary-hover) 100%);
+}
+
+.compliance_checked {
+  background: linear-gradient(
+    180deg,
+    var(--pc-secondary-cyan) 0%,
+    var(--pc-secondary-cyan-hover) 100%
+  );
+}
+
+.compliance_discrepancy {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pc-destructive) 65%, white) 0%,
+    var(--pc-destructive) 100%
+  );
+}
+
+.branchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--pc-border) 75%, transparent);
+  font-size: 0.82rem;
+}
+
+.branchRow:last-child {
+  border-bottom: none;
+}
+
+.branchTrendUp {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-alert-success-text);
+  white-space: nowrap;
+}
+
+.branchTrendDown {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-alert-error-text);
+  white-space: nowrap;
+}
+
+.branchSalesAmt {
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--pc-foreground);
+}
+
+.queueCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.queueStat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-muted-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 12%, transparent);
+}
+
+.queueStat strong {
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.queueSearch {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--pc-radius-sm);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-input-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.78rem;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.queueSearch:hover {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.healthRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.healthRowMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.issueList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.issueList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-muted-bg);
+  font-size: 0.8rem;
+}
+
+.priorityPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.priority_High {
+  background: var(--pc-alert-error-bg);
+  color: var(--pc-alert-error-text);
+}
+
+.priority_Medium {
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+}
+
+.priority_Due {
+  background: var(--pc-alert-info-bg);
+  color: var(--pc-alert-info-text);
+}
+
+.avatarChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--pc-btn-primary-text, #fff);
+  flex-shrink: 0;
+  background: var(--pc-primary);
+}
+
+.avatarTone_0 { background: var(--pc-primary); }
+.avatarTone_1 { background: var(--pc-secondary-cyan); }
+.avatarTone_2 { background: var(--pc-alert-warning-icon); }
+.avatarTone_3 { background: var(--pc-destructive); }
+.avatarTone_4 { background: var(--pc-accent-navy); }
+.avatarTone_5 { background: var(--pc-alert-success-icon); }
+
+.avatarRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.productAvatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--pc-radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  flex-shrink: 0;
+}
+
+.sparkline {
+  display: block;
+  flex-shrink: 0;
+}
+
+.sparkEmpty {
+  display: inline-block;
+  width: 72px;
+  height: 28px;
+  border-radius: 4px;
+  background: var(--pc-muted-bg);
+}
+
+.grid5 {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.filterChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--pc-muted-fg);
+}
+
+.splitFooter {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--pc-border);
+}
+
+.splitFooter > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+}
+
+.simpleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.simpleList li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.simpleList li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.pipelineList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pipelineList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 0.82rem;
+}
+
+.pipelineList li:last-child {
+  border-bottom: none;
+}
+
+.pipelineList li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.healthList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.healthList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.progressWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 4.5rem;
+}
+
+.progressTrack {
+  flex: 1;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--pc-primary);
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.progressFill_primary { background: var(--pc-primary); }
+.progressFill_success { background: var(--pc-alert-success-icon); }
+.progressFill_warning { background: var(--pc-alert-warning-icon); }
+.progressFill_danger { background: var(--health-urgent); }
+
+.progressLabel {
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.2rem;
+}
+
+.productStrip {
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+  scrollbar-width: thin;
+}
+
+.productChip {
+  flex: 0 0 auto;
+  min-width: 9.5rem;
+  max-width: 12rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.55rem;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.productChip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07);
+  border-color: color-mix(in srgb, var(--pc-primary) 30%, var(--pc-border));
+}
+
+.productChipBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.productChip strong {
+  font-size: 0.78rem;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.productChip span {
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+}
+
+.productChip em {
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--pc-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Legacy layout pieces kept for any residual use */
+.dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.mainCol,
+.sideCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.quickActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.quickAction {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  color: var(--pc-foreground);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+@media (max-width: 1400px) {
+  .grid5 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1280px) {
+  .kpiRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .grid4,
+  .aiCards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overviewGrid {
+    min-height: 0;
+  }
+
+  .overviewChartsPair {
+    grid-template-columns: 1fr;
+  }
+
+  .overviewChartsSummary {
+    grid-template-columns: 1fr;
+    padding: 0.35rem 0.25rem;
+  }
+
+  .overviewMetric + .overviewMetric {
+    border-left: none;
+    border-top: 1px solid color-mix(in srgb, var(--pc-border) 88%, transparent);
+    padding-top: 0.55rem;
+    margin-top: 0.15rem;
+  }
+
+  .mainSplit {
+    grid-template-columns: 1fr;
+  }
+
+  .mainSplitOwner {
+    grid-template-columns: 1fr;
+  }
+
+  .mainSplitOwner > .splitPanel {
+    min-height: 0;
+  }
+
+  .complianceBlocks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 960px) {
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid2,
+  .grid3,
+  .grid4,
+  .grid5,
+  .mainSplit,
+  .mainSplitOwner,
+  .ownerLower3,
+  .aiCards,
   .dashboard {
     grid-template-columns: 1fr;
+  }
+
+  .span2 {
+    grid-column: auto;
+  }
+
+  .donutWrapBeside,
+  .donutWrapModern {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .kpiRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Owner dense default (~1440x900 fit); Customize will adjust size/order later */
+.ownerDense {
+  gap: 0.55rem;
+}
+
+.ownerScopeBar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-bottom: 0.15rem;
+}
+
+.ownerScopeHint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+}
+
+.page:has(.ownerDense) {
+  gap: 0.55rem;
+}
+
+.branchName {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.statEmph {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+  margin-top: 0.1rem;
+}
+
+.pillValue {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 1rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.subHeadingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.subHeadingRow .subHeading {
+  margin-bottom: 0;
+}
+
+.filterChip {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  white-space: nowrap;
+}
+
+.deltaUp {
+  color: var(--pc-alert-success-text);
+  font-weight: 500;
+}
+
+.deltaDown {
+  color: var(--pc-alert-error-text);
+  font-weight: 500;
+}
+
+.textBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--pc-primary);
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.15rem 0.25rem;
+}
+
+.textBtn:hover {
+  text-decoration: underline;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modalCard {
+  width: min(780px, 100%);
+  max-height: min(88vh, 720px);
+  overflow: auto;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 12px);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem 0.65rem;
+}
+
+.modalTitle {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+}
+
+.modalClose,
+.btnGhost,
+.btnPrimary {
+  appearance: none;
+  border-radius: var(--pc-radius-sm, 8px);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.4rem 0.75rem;
+}
+
+.modalClose,
+.btnGhost {
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+}
+
+.btnPrimary {
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 70%, transparent);
+  background: var(--pc-primary);
+  color: #fff;
+}
+
+.btnPrimary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modalBody {
+  padding: 0.35rem 1.1rem 0.75rem;
+  overflow: auto;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.1rem 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--pc-border) 80%, transparent);
+}
+
+.targetInput,
+.targetSelect {
+  width: 100%;
+  min-width: 7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 6px;
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-size: 0.82rem;
+  padding: 0.35rem 0.45rem;
+}
+
+.formError {
+  margin: 0.65rem 0 0;
+  color: var(--pc-destructive);
+  font-size: 0.8rem;
+}
+
+.healthPill strong,
+.metricTiles strong,
+.inlineStats strong,
+.splitFooter strong,
+.donutCenter strong {
+  font-weight: 500;
+}
+
+/* Owner lower row: equal-height ChatGPT-style panels */
+.ownerEqualRow {
+  align-items: stretch;
+}
+
+.ownerEqualRow > .panel {
+  height: 100%;
+  min-height: 24rem;
+}
+
+.ownerEqualRow .panelBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ownerEqualRow .panelFooter {
+  margin-top: auto;
+}
+
+.ownerEqualRow .panelFooterLink {
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.panelMenuBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 6px;
+  color: var(--pc-muted-fg);
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.panelMenuBtn:hover {
+  background: var(--pc-muted-bg);
+  color: var(--pc-foreground);
+}
+
+.ownerLower3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  align-items: stretch;
+}
+
+.ownerHealthFeature {
+  width: 100%;
+}
+
+.ownerHealthFeature > .healthPanel,
+.ownerHealthFeature > .panel {
+  width: 100%;
+}
+
+.healthPanel {
+  --health-urgent: color-mix(
+    in srgb,
+    var(--pc-destructive) 42%,
+    var(--pc-alert-warning-icon, #ea580c) 58%
+  );
+  --health-urgent-soft: color-mix(in srgb, var(--health-urgent) 12%, transparent);
+  --health-urgent-border: color-mix(in srgb, var(--health-urgent) 28%, var(--pc-border));
+  --health-urgent-text: color-mix(
+    in srgb,
+    var(--pc-alert-error-text, #991b1b) 40%,
+    var(--pc-alert-warning-text, #9a3412) 60%
+  );
+}
+
+.healthBoard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.healthSummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(6.5rem, 0.72fr) minmax(6.5rem, 0.72fr);
+  gap: 0.45rem;
+  align-items: stretch;
+}
+
+.healthValueBlock {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 14%, var(--pc-border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--pc-primary) 7%, var(--pc-card-bg)) 0%,
+      var(--pc-card-bg) 70%
+    );
+}
+
+.healthValueHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.healthValueIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 8px;
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.healthValueCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.healthValueLabel {
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.healthValueAmount {
+  font-size: 1.05rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--pc-foreground);
+  word-break: break-word;
+}
+
+.healthValueMeta {
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.healthTrend {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.28rem;
+  margin-top: 0.2rem;
+  font-size: 0.64rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.healthTrend svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.healthTrend_success {
+  color: var(--pc-alert-success-text, #0f766e);
+}
+
+.healthTrend_warning {
+  color: var(--pc-alert-warning-text, #b45309);
+}
+
+.healthTrend_danger {
+  color: var(--health-urgent);
+}
+
+.healthTrend_muted {
+  color: var(--pc-muted-fg);
+}
+
+.healthStatCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.18rem;
+  min-width: 0;
+  padding: 0.5rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--pc-muted-bg);
+}
+
+.healthStat_success {
+  border-color: color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-primary) 9%, var(--pc-card-bg));
+}
+
+.healthStat_danger {
+  border-color: var(--health-urgent-border);
+  background: var(--health-urgent-soft);
+}
+
+.healthStatIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 7px;
+}
+
+.healthStatIcon_success {
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.healthStatIcon_danger {
+  color: var(--health-urgent);
+  background: var(--health-urgent-soft);
+}
+
+.healthStatLabel {
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.healthStatValue {
+  font-size: 1.2rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.healthStatValue_success {
+  color: var(--pc-primary);
+}
+
+.healthStatValue_danger {
+  color: var(--health-urgent);
+}
+
+.healthPill {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.08rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.healthPill_success {
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.healthPill_warning {
+  color: var(--pc-alert-warning-text, #b45309);
+  background: var(--pc-alert-warning-bg, color-mix(in srgb, #f59e0b 14%, transparent));
+}
+
+.healthPanel .healthPill_danger {
+  color: var(--health-urgent-text);
+  background: var(--health-urgent-soft);
+}
+
+.healthSignalList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--pc-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--pc-card-bg);
+  flex: 1;
+  min-height: 0;
+}
+
+.healthSignalList > li + li {
+  border-top: 1px solid var(--pc-border);
+}
+
+.healthSignalRow {
+  display: grid;
+  grid-template-columns: 1.45rem minmax(0, 1.15fr) minmax(2.4rem, 0.9fr) 1.85rem;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.42rem 0.5rem;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease;
+}
+
+.healthSignalRow:hover {
+  background: color-mix(in srgb, var(--pc-primary) 5%, var(--pc-muted-bg));
+}
+
+.healthSignalLead {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.healthSignalIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 7px;
+}
+
+.healthSignalIcon_danger {
+  color: var(--health-urgent);
+  background: var(--health-urgent-soft);
+}
+
+.healthSignalIcon_warning {
+  color: var(--pc-alert-warning-icon, #d97706);
+  background: var(--pc-alert-warning-bg, color-mix(in srgb, #f59e0b 14%, transparent));
+}
+
+.healthSignalIcon_success {
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.healthSignalIcon_muted {
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+}
+
+.healthSignalLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.healthUrgentBadge {
+  justify-self: start;
+  padding: 0.1rem 0.34rem;
+  border-radius: 999px;
+  font-size: 0.55rem;
+  font-weight: 650;
+  color: var(--health-urgent-text);
+  background: var(--health-urgent-soft);
+  white-space: nowrap;
+}
+
+.healthSignalTrack {
+  display: block;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
+}
+
+.healthSignalFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
+
+.healthSignalFill_danger {
+  background: var(--health-urgent);
+}
+
+.healthSignalFill_warning {
+  background: var(--pc-alert-warning-icon, #d97706);
+}
+
+.healthSignalFill_success {
+  background: var(--pc-primary);
+}
+
+.healthSignalFill_muted {
+  background: color-mix(in srgb, var(--pc-muted-fg) 55%, var(--pc-border));
+}
+
+.healthSignalValue {
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--pc-foreground);
+}
+
+.healthSignalValue_danger {
+  color: var(--health-urgent);
+}
+
+.healthSignalValue_warning {
+  color: var(--pc-alert-warning-text, #d97706);
+}
+
+.healthSignalValue_success {
+  color: var(--pc-primary);
+}
+
+.healthSignalValue_muted {
+  color: var(--pc-foreground);
+}
+
+.healthActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: auto;
+  padding-top: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--pc-border) 85%, transparent);
+}
+
+.healthActionsHead {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+}
+
+.healthPriorityBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  line-height: 1;
+  color: #fff;
+  background: var(--pc-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pc-primary) 22%, transparent);
+}
+
+.healthActionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.healthActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.healthActionBtn_primary {
+  color: var(--pc-primary);
+  border-color: color-mix(in srgb, var(--pc-primary) 32%, transparent);
+  background: var(--pc-primary-soft);
+}
+
+.healthActionBtn_primary:hover {
+  background: color-mix(in srgb, var(--pc-primary) 18%, var(--pc-card-bg));
+}
+
+.healthActionBtn_warning {
+  color: var(--pc-alert-warning-text, #92400e);
+  border-color: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 40%, transparent);
+  background: var(--pc-alert-warning-bg, color-mix(in srgb, #f59e0b 12%, var(--pc-card-bg)));
+}
+
+.healthActionBtn_warning:hover {
+  background: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 18%, var(--pc-card-bg));
+}
+
+.healthReportLink {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.healthReportLink:hover {
+  text-decoration: underline;
+  color: var(--pc-primary-hover);
+}
+
+.teamSnapPanel {
+  width: 100%;
+}
+
+.ownerTeamFeature {
+  width: 100%;
+}
+
+.teamSetTargetsBtn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--pc-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0.2rem 0.15rem;
+}
+
+.teamSetTargetsBtn:hover {
+  color: var(--pc-primary-hover);
+  text-decoration: underline;
+}
+
+.teamSnapBoard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.teamStatStrip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--pc-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--pc-muted-bg) 70%, var(--pc-card-bg));
+  overflow: hidden;
+}
+
+.teamStatCell {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.teamStatCell + .teamStatCell {
+  border-left: 1px solid var(--pc-border);
+}
+
+.teamStatIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.teamStatIcon_primary {
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.teamStatIcon_success {
+  color: var(--pc-alert-success-icon, #16a34a);
+  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 12%, transparent);
+}
+
+.teamStatIcon_danger {
+  color: var(--health-urgent, var(--pc-destructive));
+  background: color-mix(
+    in srgb,
+    var(--health-urgent, var(--pc-destructive)) 12%,
+    transparent
+  );
+}
+
+.teamStatCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.teamStatValue {
+  font-size: 1.15rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--pc-primary);
+}
+
+.teamStatValue_success {
+  color: var(--pc-alert-success-text, #166534);
+}
+
+.teamStatValue_danger {
+  color: var(--health-urgent);
+}
+
+.teamStatLabel {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.teamTableWrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.teamSnapTable {
+  font-size: 0.75rem;
+}
+
+.teamSnapTable th,
+.teamSnapTable td {
+  padding: 0.45rem 0.4rem;
+  vertical-align: middle;
+}
+
+.teamSnapTable th {
+  font-weight: 500;
+  font-size: 0.65rem;
+}
+
+.teamRowBest td {
+  background: color-mix(in srgb, var(--pc-primary) 7%, var(--pc-card-bg));
+}
+
+.teamBranchCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.teamBranchDot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--pc-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pc-primary) 18%, transparent);
+}
+
+.teamBestBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 650;
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  white-space: nowrap;
+}
+
+.teamNum {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.teamStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.teamStatusIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+}
+
+.teamStatus_on_track {
+  color: var(--pc-alert-success-text, #166534);
+}
+
+.teamStatus_on_track .teamStatusIcon {
+  color: var(--pc-alert-success-icon, #16a34a);
+  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, transparent);
+}
+
+.teamStatus_at_risk {
+  color: var(--pc-alert-warning-text, #92400e);
+}
+
+.teamStatus_at_risk .teamStatusIcon {
+  color: var(--pc-alert-warning-icon, #d97706);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 16%, transparent);
+}
+
+.teamStatus_below {
+  color: var(--health-urgent);
+}
+
+.teamStatus_below .teamStatusIcon {
+  color: var(--health-urgent);
+  background: var(--health-urgent-soft);
+}
+
+.teamSnapFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--pc-border) 85%, transparent);
+}
+
+.teamSnapFooter .panelFooterLink {
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.teamSnapFooterRight {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.teamFollowUp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--health-urgent);
+}
+
+.teamFollowUpOk {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.teamAssignBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 40%, transparent);
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.teamAssignBtn:hover {
+  background: var(--pc-primary-soft);
+}
+
+@media (max-width: 1100px) {
+  .ownerLower3 {
+    grid-template-columns: 1fr;
+  }
+
+  .healthSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .healthSignalRow {
+    grid-template-columns: 1.25rem minmax(0, 1fr) 1.5rem;
+  }
+
+  .teamStatStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .teamStatCell + .teamStatCell {
+    border-left: 0;
+    border-top: 1px solid var(--pc-border);
+  }
+
+  .healthSignalTrack {
+    display: none;
+  }
+
+  .healthReportLink {
+    margin-left: 0;
   }
 }

@@ -14,8 +14,11 @@ import { AuditService } from "../audit/audit.service";
 import { TaxService } from "../pricing/tax.service";
 import { CheckoutDto } from "./dto/checkout.dto";
 import { RefundSaleDto } from "./dto/refund-sale.dto";
+import { PharmacistApprovalService } from "./pharmacist-approval.service";
+import { softRxMatchWarnings } from "./rx-match.util";
 import {
   getSaleReturnableByLine,
+  refundUnitPrice,
   saleLineKey,
   totalRemainingQty,
 } from "./sale-returnable";
@@ -29,6 +32,7 @@ const SALE_INCLUDE = {
     select: { id: true, rxNumber: true, patientName: true, doctorName: true },
   },
   seller: { select: { id: true, fullName: true } },
+  dispenser: { select: { id: true, fullName: true } },
 } satisfies Prisma.SaleInclude;
 
 async function qtyForBatchTx(
@@ -98,6 +102,7 @@ export class SalesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly tax: TaxService,
+    private readonly pharmacistApproval: PharmacistApprovalService,
   ) {}
 
   private branchEffectiveRoles(branchRoles: BranchRoleEntry[], branchId: string): RoleName[] {
@@ -109,27 +114,58 @@ export class SalesService {
     return atBranch;
   }
 
-  private assertControlledSaleAllowed(
-    branchRoles: BranchRoleEntry[],
-    branchId: string,
-    products: Array<{ id: string; name: string; isControlled: boolean }>,
-    prescriptionId: string | undefined,
-  ) {
-    const controlled = products.filter((p) => p.isControlled);
-    if (controlled.length === 0) return;
-    const roles = this.branchEffectiveRoles(branchRoles, branchId);
-    const allowed = roles.some((r) => SalesService.CONTROLLED_SALE_ROLES.includes(r));
-    if (!allowed) {
-      throw new ForbiddenException(
-        "Selling controlled medicines requires pharmacist, manager, or owner on this branch",
-      );
-    }
-    if (!prescriptionId) {
-      const names = controlled.map((p) => p.name).join(", ");
+  /**
+   * Prescription-required lines need a linked Rx.
+   * Controlled (schedule) lines also need dispense authority: elevated session OR PIN co-sign.
+   * Returns dispensedBy user id when authority is resolved (self or approver).
+   */
+  private async resolveDispenseAuthority(input: {
+    tenantId: string;
+    branchId: string;
+    userId: string;
+    branchRoles: BranchRoleEntry[];
+    products: Array<{
+      id: string;
+      name: string;
+      isControlled: boolean;
+      requiresPrescription: boolean;
+    }>;
+    prescriptionId: string | undefined;
+    pharmacistApproval: CheckoutDto["pharmacistApproval"];
+  }): Promise<string | null> {
+    const needsRx = input.products.filter((p) => p.requiresPrescription || p.isControlled);
+    const controlled = input.products.filter((p) => p.isControlled);
+
+    if (needsRx.length > 0 && !input.prescriptionId) {
+      const names = needsRx.map((p) => p.name).join(", ");
       throw new BadRequestException(
-        `A prescription must be linked before dispensing controlled medicine: ${names}`,
+        `A prescription must be linked before dispensing: ${names}`,
       );
     }
+
+    if (controlled.length === 0) {
+      // Rx-required only — cashier may complete once Rx is linked.
+      return input.prescriptionId ? input.userId : null;
+    }
+
+    const roles = this.branchEffectiveRoles(input.branchRoles, input.branchId);
+    const selfCanDispense = roles.some((r) => SalesService.CONTROLLED_SALE_ROLES.includes(r));
+    if (selfCanDispense) return input.userId;
+
+    if (!input.pharmacistApproval?.approverUserId || !input.pharmacistApproval.pin) {
+      throw new ForbiddenException(
+        "Controlled medicines need pharmacist approval. Ask a pharmacist to enter their till PIN, or park this sale for handoff.",
+      );
+    }
+
+    const verified = await this.pharmacistApproval.verifyApproverPin(
+      input.tenantId,
+      input.branchId,
+      input.pharmacistApproval.approverUserId,
+      input.pharmacistApproval.pin,
+      input.userId,
+    );
+    return verified.approverUserId;
   }
 
   /** Tender validation: never post a sale that is short-paid. */
@@ -210,32 +246,69 @@ export class SalesService {
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
       where: { tenantId, id: { in: productIds }, isActive: true },
-      select: { id: true, name: true, isControlled: true },
+      select: {
+        id: true,
+        name: true,
+        isControlled: true,
+        requiresPrescription: true,
+      },
     });
     if (products.length !== productIds.length) {
       throw new BadRequestException("One or more products are invalid");
     }
 
+    let customerName: string | null = null;
     if (dto.customerId) {
       const customer = await this.prisma.customer.findFirst({
         where: { id: dto.customerId, tenantId },
-        select: { id: true },
+        select: { id: true, fullName: true },
       });
       if (!customer) throw new BadRequestException("Customer not found");
+      customerName = customer.fullName;
     }
 
+    let rxWarnings: ReturnType<typeof softRxMatchWarnings> = [];
     if (dto.prescriptionId) {
       const prescription = await this.prisma.prescription.findFirst({
         where: { id: dto.prescriptionId, tenantId, branchId },
-        select: { id: true, validUntil: true },
+        select: {
+          id: true,
+          validUntil: true,
+          patientName: true,
+          customerId: true,
+        },
       });
       if (!prescription) throw new BadRequestException("Prescription not found at this branch");
       if (prescription.validUntil && prescription.validUntil < startOfTodayUtc()) {
         throw new BadRequestException("Prescription has expired and cannot be dispensed");
       }
+      // Hard block only when both sides are registered customers and disagree.
+      if (
+        dto.customerId &&
+        prescription.customerId &&
+        dto.customerId !== prescription.customerId
+      ) {
+        throw new BadRequestException(
+          "Linked prescription belongs to a different registered customer. Unlink or pick the matching customer.",
+        );
+      }
+      rxWarnings = softRxMatchWarnings({
+        patientName: prescription.patientName,
+        customerName,
+        prescriptionCustomerId: prescription.customerId,
+        saleCustomerId: dto.customerId,
+      });
     }
 
-    this.assertControlledSaleAllowed(branchRoles, branchId, products, dto.prescriptionId);
+    const dispensedBy = await this.resolveDispenseAuthority({
+      tenantId,
+      branchId,
+      userId,
+      branchRoles,
+      products,
+      prescriptionId: dto.prescriptionId,
+      pharmacistApproval: dto.pharmacistApproval,
+    });
     const productNames = new Map(products.map((p) => [p.id, p.name]));
 
     try {
@@ -356,6 +429,7 @@ export class SalesService {
                 prescriptionId: dto.prescriptionId ?? null,
                 notes: dto.notes?.trim() || null,
                 soldBy: userId,
+                dispensedBy: dispensedBy,
                 items: {
                   create: lines.map((l) => ({
                     tenantId,
@@ -438,8 +512,29 @@ export class SalesService {
           grandTotal: sale.grandTotal.toFixed(2),
           customerId: sale.customerId,
           prescriptionId: sale.prescriptionId,
+          dispensedBy,
+          rxWarnings: rxWarnings.map((w) => w.code),
+          pharmacistCosign: Boolean(
+            dispensedBy && dispensedBy !== userId && dto.pharmacistApproval,
+          ),
         },
       });
+
+      if (dispensedBy && dispensedBy !== userId) {
+        await this.audit.log({
+          tenantId,
+          branchId,
+          actorUserId: dispensedBy,
+          eventName: "sale.pharmacist_approved",
+          entityName: "sale",
+          entityId: sale.id,
+          payload: {
+            invoiceNo: sale.invoiceNo,
+            soldBy: userId,
+            prescriptionId: sale.prescriptionId,
+          },
+        });
+      }
 
       return this.prisma.sale.findFirst({
         where: { id: sale.id },
@@ -613,7 +708,7 @@ export class SalesService {
             productId: item.productId,
             batchId: item.batchId,
             qty: item.qty,
-            unitPrice: d(rem.unitPrice),
+            unitPrice: refundUnitPrice(rem),
           });
         }
       } else {
@@ -623,7 +718,7 @@ export class SalesService {
             productId: rem.productId,
             batchId: rem.batchId,
             qty: rem.remainingQty,
-            unitPrice: d(rem.unitPrice),
+            unitPrice: refundUnitPrice(rem),
           });
         }
       }
@@ -786,6 +881,7 @@ export class SalesService {
         const item = sale.items.find(
           (i) => i.productId === rem.productId && i.batchId === rem.batchId,
         );
+        const refundUnit = refundUnitPrice(rem);
         return {
           saleItemId: item?.id ?? `${rem.productId}:${rem.batchId}`,
           productId: rem.productId,
@@ -797,7 +893,8 @@ export class SalesService {
           soldQty: rem.soldQty,
           remainingQty: rem.remainingQty,
           unitPrice: rem.unitPrice,
-          lineTotal: item?.lineTotal.toFixed(2) ?? rem.unitPrice,
+          refundUnitPrice: refundUnit.toFixed(2),
+          lineTotal: rem.paidTotal,
         };
       }),
       totalRemainingQty: totalRemainingQty(lines),
@@ -864,7 +961,7 @@ export class SalesService {
 
     const limit = Math.min(Math.max(take, 1), 25);
 
-    return this.prisma.sale.findMany({
+    const rows = await this.prisma.sale.findMany({
       where: {
         tenantId,
         branchId,
@@ -874,8 +971,8 @@ export class SalesService {
           { customer: { is: { phone: { contains: term } } } },
         ],
       },
-      orderBy: [{ status: "asc" }, { soldAt: "desc" }],
-      take: limit,
+      orderBy: { soldAt: "desc" },
+      take: Math.min(limit * 3, 50),
       select: {
         id: true,
         invoiceNo: true,
@@ -886,5 +983,19 @@ export class SalesService {
         _count: { select: { items: true } },
       },
     });
+
+    const statusRank = (status: SaleStatus) => {
+      if (status === SaleStatus.posted) return 0;
+      if (status === SaleStatus.partially_refunded) return 1;
+      return 2;
+    };
+
+    return rows
+      .sort((a, b) => {
+        const rank = statusRank(a.status) - statusRank(b.status);
+        if (rank !== 0) return rank;
+        return b.soldAt.getTime() - a.soldAt.getTime();
+      })
+      .slice(0, limit);
   }
 }

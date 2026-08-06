@@ -49,9 +49,9 @@ export function ResultsTable({ items, selectedId, onSelect, highlightIndex }: Pr
         <thead>
           <tr>
             <th>Product</th>
-            <th>SKU / Barcode</th>
+            <th>SKU / Reg.</th>
             <th>Brand</th>
-            <th>Form / Strength</th>
+            <th>Form / Schedule</th>
             <th>Match</th>
             <th>Stock</th>
             <th>Price</th>
@@ -92,12 +92,21 @@ export function ResultsTable({ items, selectedId, onSelect, highlightIndex }: Pr
                 </td>
                 <td className={css.mono}>
                   <div>{item.sku}</div>
-                  <div className={css.productSub}>{item.barcode || "—"}</div>
+                  <div className={css.productSub}>
+                    {item.registrationNo && item.registrationNo !== item.sku
+                      ? `Reg. ${item.registrationNo}`
+                      : item.barcode || "—"}
+                  </div>
                 </td>
                 <td>{item.brandName || "—"}</td>
                 <td>
-                  <div>{item.dosageForm || "—"}</div>
-                  <div className={css.productSub}>{item.strength || "—"}</div>
+                  <div>
+                    {item.dosageForm || "—"}
+                    {item.strength ? ` · ${item.strength}` : ""}
+                  </div>
+                  <div className={css.productSub}>
+                    {item.schedule ? `Sch. ${item.schedule}` : "—"}
+                  </div>
                 </td>
                 <td>
                   <MatchBadge type={item.matchType} />

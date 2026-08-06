@@ -18,6 +18,8 @@ type Props = {
   disabled?: boolean;
   searchable?: boolean;
   searchPlaceholder?: string;
+  /** Called when the in-menu search query changes (debounced by parent if needed). */
+  onSearchChange?: (query: string) => void;
   /** Shown on the trigger when value is empty; not listed as an option. */
   placeholder?: string;
   /** Clicking the selected option again clears to `deselectValue`. */
@@ -35,6 +37,7 @@ export function InventoryFilterSelect({
   disabled = false,
   searchable = false,
   searchPlaceholder = "Search…",
+  onSearchChange,
   placeholder = "All",
   allowDeselect = false,
   deselectValue = "",
@@ -52,7 +55,7 @@ export function InventoryFilterSelect({
     selected?.label ??
     (value ? (options.length === 0 ? "Loading…" : "Selected") : placeholder);
   const visibleOptions =
-    searchable && query.trim()
+    searchable && query.trim() && !onSearchChange
       ? options.filter((option) =>
           option.label.toLowerCase().includes(query.trim().toLowerCase()),
         )
@@ -77,6 +80,7 @@ export function InventoryFilterSelect({
   useEffect(() => {
     if (!open) {
       setQuery("");
+      onSearchChange?.("");
       return;
     }
     function onDocumentClick(event: MouseEvent) {
@@ -109,7 +113,12 @@ export function InventoryFilterSelect({
         window.removeEventListener("resize", onScroll);
       }
     };
-  }, [open, portal]);
+  }, [open, portal, onSearchChange]);
+
+  useEffect(() => {
+    if (!open || !onSearchChange) return;
+    onSearchChange(query);
+  }, [query, open, onSearchChange]);
 
   const menu = (
     <div

@@ -15,6 +15,8 @@ type Props = {
   holdCount: number;
   busy: boolean;
   beepEnabled: boolean;
+  /** When true (Returns mode), park/clear/new sale actions that touch the cart are disabled. */
+  saleActionsDisabled?: boolean;
   onNewSale: () => void;
   onHold: () => void;
   onRecall: () => void;
@@ -28,6 +30,7 @@ export function PosActionBar({
   holdCount,
   busy,
   beepEnabled,
+  saleActionsDisabled = false,
   onNewSale,
   onHold,
   onRecall,
@@ -41,7 +44,7 @@ export function PosActionBar({
         type="button"
         className={`${css.toolBtn} ${css.toolBtnPrimary}`}
         onClick={onNewSale}
-        disabled={busy}
+        disabled={busy || saleActionsDisabled}
         data-tooltip="Start a fresh sale (F8)"
       >
         <IconPlus size={15} />
@@ -51,7 +54,7 @@ export function PosActionBar({
         type="button"
         className={css.toolBtn}
         onClick={onHold}
-        disabled={busy || !cartDirty}
+        disabled={busy || !cartDirty || saleActionsDisabled}
         data-tooltip="Park this cart and serve the next customer (F6)"
       >
         <IconPause size={15} />
@@ -61,7 +64,7 @@ export function PosActionBar({
         type="button"
         className={css.toolBtn}
         onClick={onRecall}
-        disabled={busy}
+        disabled={busy || saleActionsDisabled}
         data-tooltip="Bring back a parked cart (F7)"
       >
         <IconRotateCcw size={15} />
@@ -72,7 +75,7 @@ export function PosActionBar({
         type="button"
         className={`${css.toolBtn} ${css.toolBtnDanger}`}
         onClick={onClear}
-        disabled={busy || !cartDirty}
+        disabled={busy || !cartDirty || saleActionsDisabled}
         data-tooltip="Empty the cart (Alt+X)"
       >
         <IconX size={15} />

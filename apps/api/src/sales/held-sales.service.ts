@@ -21,19 +21,32 @@ export class HeldSalesService {
         itemCount: true,
         total: true,
         createdAt: true,
+        payload: true,
         holder: { select: { id: true, fullName: true } },
       },
     });
 
-    return rows.map((row) => ({
-      id: row.id,
-      holdRef: row.holdRef,
-      label: row.label,
-      itemCount: row.itemCount,
-      total: row.total.toFixed(2),
-      createdAt: row.createdAt.toISOString(),
-      heldByName: row.holder.fullName,
-    }));
+    return rows.map((row) => {
+      const meta =
+        row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+          ? ((row.payload as { meta?: Record<string, unknown> }).meta ?? {})
+          : {};
+      const holdReason =
+        typeof meta.holdReason === "string" ? meta.holdReason : null;
+      const needsPharmacist =
+        meta.needsPharmacist === true || holdReason === "awaiting_pharmacist";
+      return {
+        id: row.id,
+        holdRef: row.holdRef,
+        label: row.label,
+        itemCount: row.itemCount,
+        total: row.total.toFixed(2),
+        createdAt: row.createdAt.toISOString(),
+        heldByName: row.holder.fullName,
+        needsPharmacist,
+        holdReason,
+      };
+    });
   }
 
   async getOne(tenantId: string, branchId: string, id: string) {

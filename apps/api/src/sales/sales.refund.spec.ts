@@ -104,7 +104,11 @@ describe("SalesService.refundSale", () => {
 
     audit = { log: jest.fn() } as unknown as AuditService;
     tax = { getVatRatePercent: () => 0 } as unknown as TaxService;
-    service = new SalesService(prisma as never, audit, tax);
+    const pharmacistApproval = {
+      verifyApproverPin: jest.fn(),
+      hasApproverRole: jest.fn().mockReturnValue(false),
+    };
+    service = new SalesService(prisma as never, audit, tax, pharmacistApproval as never);
   });
 
   const cashierRoles = [{ branchId, role: RoleName.cashier }];
@@ -169,6 +173,7 @@ describe("SalesService.refundSale", () => {
                   batchId,
                   qty: 4,
                   unitPrice: new Prisma.Decimal("10.00"),
+                  lineTotal: new Prisma.Decimal("40.00"),
                   product: { id: productId, isControlled: false, name: "Para" },
                 },
               ],
@@ -227,6 +232,7 @@ describe("SalesService.refundSale", () => {
                   batchId,
                   qty: 1,
                   unitPrice: new Prisma.Decimal("50"),
+                  lineTotal: new Prisma.Decimal("50"),
                   product: { id: productId, isControlled: true, name: "Ctrl" },
                 },
               ],
@@ -272,6 +278,7 @@ describe("SalesService.refundSale", () => {
                   batchId,
                   qty: 1,
                   unitPrice: new Prisma.Decimal("50"),
+                  lineTotal: new Prisma.Decimal("50"),
                   product: { id: productId, isControlled: true, name: "Ctrl" },
                 },
               ],
@@ -316,6 +323,7 @@ describe("SalesService.refundSale", () => {
                   batchId,
                   qty: 2,
                   unitPrice: new Prisma.Decimal("10"),
+                  lineTotal: new Prisma.Decimal("20"),
                   product: { id: productId, isControlled: false, name: "Para" },
                 },
               ],

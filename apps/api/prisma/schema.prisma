@@ -43,6 +43,7 @@ enum PaymentMethod {
   cash
   card
   mobile_wallet
+  credit
 }
 
 enum TransferStatus {
@@ -238,10 +239,35 @@ model Branch {
   auditEvents       AuditEvent[]
   prescriptions     Prescription[]
   heldSales         HeldSale[]
+  monthlyTargets    BranchMonthlyTarget[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
   @@map("branch")
+}
+
+/// Owner-set monthly sales target for a branch; optional manager accountable for achievement.
+model BranchMonthlyTarget {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  /// Calendar month key, e.g. "2026-08" (Asia/Colombo month).
+  yearMonth      String   @map("year_month") @db.VarChar(7)
+  targetAmount   Decimal  @map("target_amount") @db.Decimal(14, 2)
+  managerUserId  String?  @map("manager_user_id") @db.Uuid
+  notes          String?  @db.VarChar(256)
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  branch  Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  manager AppUser? @relation("BranchTargetManager", fields: [managerUserId], references: [id])
+  creator AppUser? @relation("BranchTargetCreator", fields: [createdBy], references: [id])
+
+  @@unique([tenantId, branchId, yearMonth])
+  @@index([tenantId, yearMonth])
+  @@index([tenantId, managerUserId])
+  @@map("branch_monthly_target")
 }
 
 model AppUser {
@@ -251,6 +277,10 @@ model AppUser {
   email     String   @unique
   fullName  String   @map("full_name")
   passwordHash String @map("password_hash")
+  /// Optional short till PIN (bcrypt). Used for pharmacist co-sign at POS without switching sessions.
+  posPinHash String? @map("pos_pin_hash")
+  failedPosPinAttempts Int @default(0) @map("failed_pos_pin_attempts")
+  posPinLockedUntil DateTime? @map("pos_pin_locked_until")
   /// Bumped on logout-all, password change, role change, or detected refresh-reuse.
   /// Embedded in every access JWT; mismatch ⇒ 401.
   tokenVersion Int   @default(0) @map("token_version")
@@ -266,6 +296,7 @@ model AppUser {
   purchaseOrdersCreated PurchaseOrder[] @relation("PurchaseOrderCreator")
   goodsReceiptsReceived GoodsReceipt[]  @relation("GoodsReceiptReceiver")
   sales                Sale[]           @relation("SaleSeller")
+  salesDispensed       Sale[]           @relation("SaleDispenser")
   ledgerEntriesCreated StockLedger[]    @relation("StockLedgerActor")
   transfersRequested   Transfer[]       @relation("TransferRequester")
   transfersApproved    Transfer[]       @relation("TransferApprover")
@@ -275,6 +306,8 @@ model AppUser {
   goodsReturnsProcessed GoodsReturn[]   @relation("GoodsReturnProcessor")
   stocktakesCounted     Stocktake[]     @relation("StocktakeCounter")
   stocktakesAssigned    StocktakeAssignment[]
+  branchTargetsManaged  BranchMonthlyTarget[] @relation("BranchTargetManager")
+  branchTargetsCreated  BranchMonthlyTarget[] @relation("BranchTargetCreator")
   stocktakesReviewed    Stocktake[]     @relation("StocktakeReviewer")
   stocktakesApproved    Stocktake[]     @relation("StocktakeApprover")
   stocktakesPosted      Stocktake[]     @relation("StocktakePoster")
@@ -405,11 +438,27 @@ model Product {
   strength     String?
   unit         String?
   packSize     String?  @map("pack_size")
+  /// NMRA pack type (blister, vial, bottle, etc.).
+  packType     String?  @map("pack_type")
   storage      String?
   shelfLife    String?  @map("shelf_life")
   taxCategory  String?  @map("tax_category")
   imageUrl     String?  @map("image_url")
+  /// NMRA registration number (REG.NO.).
+  registrationNo   String?   @map("registration_no")
+  registrationDate DateTime? @map("registration_date") @db.Date
+  /// NMRA schedule classification (I, IIA, IIB, IIC, III, …).
+  schedule         String?
+  /// NMRA registration type (Full, Two Years, Provisional).
+  regType          String?   @map("reg_type")
+  dossierNo        String?   @map("dossier_no")
+  countryOfOrigin  String?   @map("country_of_origin")
+  /// Local marketing authorisation holder / agent in Sri Lanka.
+  localAgent       String?   @map("local_agent")
+  /// Schedule / narcotic-class — needs pharmacist dispense authority (PIN or elevated session).
   isControlled Boolean  @default(false) @map("is_controlled")
+  /// Needs a linked prescription to sell (antibiotics etc.). Controlled always implies this.
+  requiresPrescription Boolean @default(false) @map("requires_prescription")
   reorderLevel Int      @default(0) @map("reorder_level")
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
@@ -436,6 +485,8 @@ model Product {
   @@index([tenantId, brandName])
   @@index([tenantId, genericName])
   @@index([tenantId, name])
+  @@index([tenantId, registrationNo])
+  @@index([tenantId, schedule])
   @@map("product")
 }
 
@@ -677,10 +728,13 @@ model Sale {
   prescriptionId String?    @map("prescription_id") @db.Uuid
   notes          String?    @db.VarChar(512)
   soldBy         String     @map("sold_by") @db.Uuid
+  /// Pharmacist/manager/owner who authorised controlled dispense (self or PIN co-sign).
+  dispensedBy    String?    @map("dispensed_by") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at")
 
   branch       Branch        @relation(fields: [branchId], references: [id])
   seller       AppUser       @relation("SaleSeller", fields: [soldBy], references: [id])
+  dispenser    AppUser?      @relation("SaleDispenser", fields: [dispensedBy], references: [id])
   customer     Customer?     @relation(fields: [customerId], references: [id])
   prescription Prescription? @relation(fields: [prescriptionId], references: [id])
 
@@ -691,6 +745,7 @@ model Sale {
   @@unique([tenantId, branchId, invoiceNo])
   @@index([tenantId, branchId, soldAt(sort: Desc)])
   @@index([tenantId, customerId])
+  @@index([tenantId, dispensedBy])
   @@map("sale")
 }
 

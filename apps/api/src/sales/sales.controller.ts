@@ -19,9 +19,11 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CheckoutDto } from "./dto/checkout.dto";
 import { HoldSaleDto } from "./dto/hold-sale.dto";
+import { ClearPosPinDto, SetPosPinDto } from "./dto/pharmacist-approval.dto";
 import { RefundSaleDto } from "./dto/refund-sale.dto";
 import { VoidSaleDto } from "./dto/void-sale.dto";
 import { HeldSalesService } from "./held-sales.service";
+import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { PosService } from "./pos.service";
 import { SalesService } from "./sales.service";
 
@@ -48,6 +50,7 @@ export class SalesController {
     private readonly sales: SalesService,
     private readonly pos: PosService,
     private readonly held: HeldSalesService,
+    private readonly pharmacistApproval: PharmacistApprovalService,
   ) {}
 
   @ApiOperation({ summary: "Sellable products with FEFO batches for the POS screen" })
@@ -55,6 +58,51 @@ export class SalesController {
   @Get("pos/catalog")
   posCatalog(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.pos.catalog(user.tenantId, branchId);
+  }
+
+  @ApiOperation({
+    summary: "Branch pharmacists/managers/owners available for till PIN co-sign",
+  })
+  @Roles(...POS_ROLES)
+  @Get("pos/approvers")
+  listApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.pharmacistApproval.listApprovers(user.tenantId, branchId);
+  }
+
+  @ApiOperation({ summary: "Set or rotate your own POS till PIN (pharmacist+)" })
+  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist)
+  @Post("pos/me/pos-pin")
+  setPosPin(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Body() dto: SetPosPinDto,
+  ) {
+    return this.pharmacistApproval.setPosPin(
+      user.tenantId,
+      user.userId,
+      user.branchRoles,
+      branchId,
+      dto.pin,
+      dto.password,
+    );
+  }
+
+  @ApiOperation({ summary: "Clear your POS till PIN (falls back to login password)" })
+  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist)
+  @HttpCode(HttpStatus.OK)
+  @Post("pos/me/pos-pin/clear")
+  clearPosPin(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Body() dto: ClearPosPinDto,
+  ) {
+    return this.pharmacistApproval.clearPosPin(
+      user.tenantId,
+      user.userId,
+      user.branchRoles,
+      branchId,
+      dto.password,
+    );
   }
 
   @ApiOperation({ summary: "Recent sales at this branch (POS recall / returns lane)" })

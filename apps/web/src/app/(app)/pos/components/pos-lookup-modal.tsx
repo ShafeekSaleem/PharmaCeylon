@@ -16,7 +16,6 @@ type Props = {
   onClose: () => void;
   /** Manual mode only — adds a line at the entered price and quantity. */
   onAddManual: (product: PosProduct, qty: number, unitPrice: number) => void;
-  onAdd: (product: PosProduct) => void;
 };
 
 /**
@@ -24,7 +23,7 @@ type Props = {
  * ("how much is this?" without disturbing the cart) and a manual line entry
  * where the cashier overrides the unit price (damaged pack, agreed discount).
  */
-export function PosLookupModal({ mode, products, onClose, onAddManual, onAdd }: Props) {
+export function PosLookupModal({ mode, products, onClose, onAddManual }: Props) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<PosProduct | null>(null);
   const [qty, setQty] = useState("1");
@@ -70,15 +69,11 @@ export function PosLookupModal({ mode, products, onClose, onAddManual, onAdd }: 
       footer={
         <ModalFooter>
           <ModalButton onClick={onClose}>Close</ModalButton>
-          {picked && (
+          {picked && isManual && (
             <ModalButton
               variant="primary"
               onClick={() => {
-                if (isManual) {
-                  onAddManual(picked, Math.max(Number(qty) || 1, 1), Math.max(Number(price) || 0, 0));
-                } else {
-                  onAdd(picked);
-                }
+                onAddManual(picked, Math.max(Number(qty) || 1, 1), Math.max(Number(price) || 0, 0));
                 onClose();
               }}
             >

@@ -5,6 +5,27 @@ export function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+export function normalizePersonName(raw: string): string {
+  return raw
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Token Jaccard — tolerant of middle names / order for Rx patient vs customer. */
+export function nameSimilarity(a: string, b: string): number {
+  const left = new Set(normalizePersonName(a).split(" ").filter(Boolean));
+  const right = new Set(normalizePersonName(b).split(" ").filter(Boolean));
+  if (left.size === 0 || right.size === 0) return 0;
+  let inter = 0;
+  for (const t of left) if (right.has(t)) inter += 1;
+  const union = left.size + right.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
 export function formatMoney(value: number | string): string {
   const n = typeof value === "string" ? Number(value) : value;
   if (!Number.isFinite(n)) return `${CURRENCY} 0.00`;

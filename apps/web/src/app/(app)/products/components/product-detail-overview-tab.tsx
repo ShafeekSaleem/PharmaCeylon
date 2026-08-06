@@ -3,7 +3,7 @@
 import { IconEdit, IconTag } from "@/components/icons";
 import detailCss from "../product-detail.module.css";
 import type { Product } from "../types";
-import { formatDateTime } from "../utils/format";
+import { formatDate, formatDateTime } from "../utils/format";
 import { FieldHint } from "./field-hint";
 import { ProductAliasesEditor } from "./product-aliases-editor";
 
@@ -82,8 +82,14 @@ export function ProductDetailOverviewTab({
           <Field label="Strength" value={product.strength} />
           <Field label="Unit" value={product.unit} />
           <Field label="Pack size" value={product.packSize} />
+          <Field label="Pack type" value={product.packType} />
           <Field label="Storage" value={product.storage} />
           <Field label="Shelf life" value={product.shelfLife} />
+          <Field
+            label="Requires prescription"
+            value={product.requiresPrescription || product.isControlled ? "Yes" : "No"}
+            badge="standard"
+          />
           <Field
             label="Controlled substance"
             value={product.isControlled ? "Yes" : "No"}
@@ -98,9 +104,29 @@ export function ProductDetailOverviewTab({
       </section>
 
       <section className={detailCss.section}>
+        <h2 className={detailCss.sectionTitle}>
+          <span className={detailCss.sectionNumber}>3</span>
+          NMRA registration
+        </h2>
+        <div className={detailCss.fieldGrid}>
+          <Field label="Registration no." value={product.registrationNo} />
+          <Field label="Registration date" value={formatDate(product.registrationDate)} />
+          <Field
+            label="Schedule"
+            value={product.schedule}
+            badge={product.schedule ? "standard" : undefined}
+          />
+          <Field label="Registration type" value={product.regType} />
+          <Field label="Dossier no." value={product.dossierNo} />
+          <Field label="Country of origin" value={product.countryOfOrigin} />
+          <Field label="Local agent" value={product.localAgent} />
+        </div>
+      </section>
+
+      <section className={detailCss.section}>
         <div className={detailCss.sectionHead}>
           <h2 className={detailCss.sectionTitle}>
-            <span className={detailCss.sectionNumber}>3</span>
+            <span className={detailCss.sectionNumber}>4</span>
             Catalog organization
           </h2>
           {canWrite && (
@@ -110,7 +136,7 @@ export function ProductDetailOverviewTab({
               onClick={onEditAssignments}
             >
               <IconEdit size={14} />
-              Edit assignments
+              Edit product
             </button>
           )}
         </div>
@@ -178,7 +204,7 @@ export function ProductDetailOverviewTab({
 
       <section className={detailCss.section}>
         <h2 className={detailCss.sectionTitle}>
-          <span className={detailCss.sectionNumber}>4</span>
+          <span className={detailCss.sectionNumber}>5</span>
           Record info
         </h2>
         <div className={detailCss.recordGrid}>

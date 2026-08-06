@@ -29,6 +29,7 @@ export function scoreMatch(
     name: string;
     brandName: string | null;
     genericName: string | null;
+    registrationNo?: string | null;
     aliases?: { aliasText: string }[];
   },
   exactOnly: boolean,
@@ -43,14 +44,15 @@ export function scoreMatch(
   const name = normalizeCatalogTerm(product.name);
   const brand = normalizeCatalogTerm(product.brandName);
   const generic = normalizeCatalogTerm(product.genericName);
+  const registrationNo = normalizeCatalogTerm(product.registrationNo);
   const aliases = (product.aliases ?? []).map((a) =>
     normalizeCatalogTerm(a.aliasText),
   );
 
-  if (sku === t || barcode === t) {
+  if (sku === t || barcode === t || registrationNo === t) {
     return {
       matchType: "exact",
-      matchField: sku === t ? "sku" : "barcode",
+      matchField: sku === t ? "sku" : barcode === t ? "barcode" : "registrationNo",
       rank: 0,
     };
   }
@@ -58,14 +60,21 @@ export function scoreMatch(
     return { matchType: "exact", matchField: "name", rank: 1 };
   }
   if (exactOnly) {
-    if (sku.startsWith(t) || barcode.startsWith(t) || name.startsWith(t)) {
+    if (
+      sku.startsWith(t) ||
+      barcode.startsWith(t) ||
+      registrationNo.startsWith(t) ||
+      name.startsWith(t)
+    ) {
       return {
         matchType: "exact",
         matchField: sku.startsWith(t)
           ? "sku"
           : barcode.startsWith(t)
             ? "barcode"
-            : "name",
+            : registrationNo.startsWith(t)
+              ? "registrationNo"
+              : "name",
         rank: 5,
       };
     }
@@ -82,7 +91,8 @@ export function scoreMatch(
     name.startsWith(t) ||
     brand.startsWith(t) ||
     sku.startsWith(t) ||
-    barcode.startsWith(t)
+    barcode.startsWith(t) ||
+    registrationNo.startsWith(t)
   ) {
     return {
       matchType: "partial",
@@ -92,7 +102,9 @@ export function scoreMatch(
           ? "brandName"
           : sku.startsWith(t)
             ? "sku"
-            : "barcode",
+            : barcode.startsWith(t)
+              ? "barcode"
+              : "registrationNo",
       rank: 30,
     };
   }
@@ -102,6 +114,7 @@ export function scoreMatch(
     generic.includes(t) ||
     sku.includes(t) ||
     barcode.includes(t) ||
+    registrationNo.includes(t) ||
     aliases.some((a) => a.includes(t))
   ) {
     const field = name.includes(t)
@@ -114,7 +127,9 @@ export function scoreMatch(
             ? "alias"
             : sku.includes(t)
               ? "sku"
-              : "barcode";
+              : barcode.includes(t)
+                ? "barcode"
+                : "registrationNo";
     return {
       matchType:
         field === "genericName" ? "generic" : field === "alias" ? "alias" : "partial",

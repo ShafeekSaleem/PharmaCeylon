@@ -235,6 +235,16 @@ export function IconDownload(props: IconProps) {
   );
 }
 
+export function IconUpload(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" x2="12" y1="3" y2="15" />
+    </svg>
+  );
+}
+
 export function IconCalendar(props: IconProps) {
   return (
     <svg {...defaults(props)}>
@@ -586,6 +596,41 @@ export function IconBarcodeScan(props: IconProps) {
       <path d="M13 8v5" />
       <path d="M16 8v8" />
       <path d="M4 12h16" strokeDasharray="2 2" />
+    </svg>
+  );
+}
+
+export function IconUserPlus(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6" />
+      <path d="M22 11h-6" />
+    </svg>
+  );
+}
+
+export function IconCloud(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+    </svg>
+  );
+}
+
+export function IconShield(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3Z" />
+    </svg>
+  );
+}
+
+export function IconHeadset(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
     </svg>
   );
 }

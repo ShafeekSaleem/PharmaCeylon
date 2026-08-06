@@ -33,6 +33,9 @@ type Props = {
   onSplitChange: (method: PaymentMethod, value: string) => void;
   busy: boolean;
   blockedReason: string | null;
+  /** Soft hint when Complete opens pharmacist PIN (not a hard block). */
+  approveHint?: string | null;
+  hasLastReceipt: boolean;
   onComplete: () => void;
   onPrint: () => void;
   onHold: () => void;
@@ -49,17 +52,24 @@ export function PosSummaryPanel({
   onSplitChange,
   busy,
   blockedReason,
+  approveHint = null,
+  hasLastReceipt,
   onComplete,
   onPrint,
   onHold,
 }: Props) {
   const isSplit = tenderMode === "split";
+  const isCashLike = tenderMode === "cash" || isSplit;
   const splitTotal = isSplit
     ? PAYMENT_METHODS.reduce((sum, m) => sum + (Number(splitAmounts[m.value]) || 0), 0)
     : 0;
-  const paid = isSplit ? round2(splitTotal) : Number(amountPaid) || 0;
+  const paid = isSplit
+    ? round2(splitTotal)
+    : tenderMode === "cash"
+      ? Number(amountPaid) || 0
+      : totals.grandTotal;
   const balance = round2(paid - totals.grandTotal);
-  const short = balance < -0.004;
+  const short = isCashLike && balance < -0.004;
   const empty = totals.itemCount === 0;
   const disabled = busy || empty || short || Boolean(blockedReason);
 
@@ -114,7 +124,7 @@ export function PosSummaryPanel({
             </span>
           </div>
         </div>
-      ) : (
+      ) : tenderMode === "cash" ? (
         <>
           <div className={css.paidRow}>
             <span className={css.summaryLabel}>Amount paid</span>
@@ -135,7 +145,7 @@ export function PosSummaryPanel({
               {formatMoney(Math.abs(balance))}
             </span>
           </div>
-          {tenderMode === "cash" && !empty && (
+          {!empty && (
             <div className={css.quickCashRow}>
               <button
                 type="button"
@@ -166,6 +176,11 @@ export function PosSummaryPanel({
             </div>
           )}
         </>
+      ) : (
+        <div className={css.paidRow}>
+          <span className={css.summaryLabel}>Tender</span>
+          <span className={css.changeValue}>{formatMoney(totals.grandTotal)} exact</span>
+        </div>
       )}
 
       <h3 className={css.panelTitle} style={{ marginTop: "0.85rem" }}>
@@ -201,24 +216,35 @@ export function PosSummaryPanel({
         className={css.completeBtn}
         onClick={onComplete}
         disabled={disabled}
-        data-tooltip={blockedReason ?? "Post this sale (F4)"}
+        data-tooltip={
+          blockedReason ?? approveHint ?? "Post this sale (F4)"
+        }
       >
         <IconCheck size={17} />
-        {busy ? "Posting…" : "Complete Sale"}
+        {busy ? "Posting…" : approveHint ? "Complete (PIN)" : "Complete Sale"}
         <span className={css.completeTotal}>{formatMoney(totals.grandTotal)}</span>
       </button>
 
       {/* Always mounted so this line's reserved space doesn't appear/disappear
           and shift the Quick Actions panel below it every time totals change. */}
       <p
-        className={`${css.blockedHint}${blockedReason || short ? "" : ` ${css.blockedHintHidden}`}`}
+        className={`${css.blockedHint}${blockedReason || short || approveHint ? "" : ` ${css.blockedHintHidden}`}`}
         aria-live="polite"
       >
-        {blockedReason ?? (short ? `Tender is short by ${formatMoney(Math.abs(balance))}.` : "\u00A0")}
+        {blockedReason ??
+          (short
+            ? `Tender is short by ${formatMoney(Math.abs(balance))}.`
+            : approveHint ?? "\u00A0")}
       </p>
 
       <div className={css.secondaryRow}>
-        <button type="button" className={css.secondaryBtn} onClick={onPrint} disabled={empty}>
+        <button
+          type="button"
+          className={css.secondaryBtn}
+          onClick={onPrint}
+          disabled={!hasLastReceipt}
+          data-tooltip={hasLastReceipt ? "Reprint the last bill" : "No receipt in this session yet"}
+        >
           <IconPrinter size={14} />
           Print Bill
         </button>

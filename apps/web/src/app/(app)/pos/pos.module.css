@@ -681,6 +681,21 @@
   color: var(--pc-alert-error-text);
 }
 
+.tagControlled {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.3rem;
+  border: 1px solid var(--pc-alert-warning-border);
+  border-radius: 4px;
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
 .tagOtc {
   border-color: var(--pc-alert-success-border);
   background: var(--pc-alert-success-bg);
@@ -1584,6 +1599,83 @@
   white-space: nowrap;
 }
 
+.alertActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.alertActionBtn {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.alertActionBtn:hover {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.holdFilterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.holdFilterBtn {
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.holdFilterBtnActive {
+  border-color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 12%, var(--pc-card-bg));
+  color: var(--pc-primary);
+}
+
+.holdPharmBadge {
+  display: inline-flex;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.pinWarningList {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--pc-alert-warning-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.pinWarningList li + li {
+  margin-top: 0.35rem;
+}
+
 .alertsClear {
   display: flex;
   align-items: center;
@@ -1778,6 +1870,113 @@
   box-shadow: 0 0 0 3px var(--pc-focus-ring);
 }
 
+.pinModalBody {
+  min-height: 12.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.pinModalFields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.pinModalFields > .field {
+  position: relative;
+}
+
+/* Custom approver picker — same chrome as .control inputs (no native <select>). */
+.pinApproverTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pinApproverTrigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pinApproverTriggerOpen {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.pinApproverValue {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinApproverChevron {
+  flex-shrink: 0;
+  color: var(--pc-muted-fg);
+}
+
+.pinApproverMenu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 0.3rem);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg, var(--pc-input-bg));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--pc-foreground) 12%, transparent);
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.pinApproverOption {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: none;
+  border-radius: calc(var(--pc-radius-sm) - 2px);
+  background: transparent;
+  color: var(--pc-foreground);
+  font: inherit;
+  font-size: 0.84rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pinApproverOption:hover {
+  background: color-mix(in srgb, var(--pc-primary) 10%, transparent);
+}
+
+.pinApproverOptionActive {
+  background: color-mix(in srgb, var(--pc-primary) 14%, transparent);
+  color: var(--pc-primary);
+  font-weight: 600;
+}
+
+.pinModalFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.pinModalFooterSpacer {
+  flex: 1 1 auto;
+  min-width: 0.5rem;
+}
+
 /* Batch picker rows */
 
 .batchRowMeta {
@@ -1923,6 +2122,12 @@
   flex-direction: column;
   gap: 0.7rem;
   padding: 0.85rem;
+}
+
+/* Invoice lines table — no empty-cart min-height (that belongs to sale cart only). */
+.returnsTableWrap {
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .returnsHeader {

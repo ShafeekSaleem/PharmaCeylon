@@ -30,6 +30,13 @@ export type StockRow = {
   product: InventoryProduct;
 };
 
+export type StockListResponse = {
+  items: StockRow[];
+  total: number;
+  skip: number;
+  take: number;
+};
+
 export type BatchRow = {
   id: string;
   batchNo: string;

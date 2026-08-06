@@ -195,6 +195,7 @@ export function ProductDetailPanel({
               <p className={css.panelSub}>
                 {view.sku}
                 {view.barcode ? ` · ${view.barcode}` : ""}
+                {detail?.registrationNo ? ` · NMRA ${detail.registrationNo}` : ""}
               </p>
               <div className={css.badgeRow}>
                 {"isActive" in view && view.isActive ? (
@@ -202,8 +203,14 @@ export function ProductDetailPanel({
                 ) : (
                   <span className={css.flag}>Inactive</span>
                 )}
+                {detail?.schedule ? (
+                  <span className={css.flag}>Schedule {detail.schedule}</span>
+                ) : null}
                 {view.isControlled ? (
                   <span className={`${css.flag} ${css.flagControlled}`}>Controlled</span>
+                ) : null}
+                {detail?.requiresPrescription ? (
+                  <span className={css.flag}>Rx</span>
                 ) : null}
                 {view.stockStatus ? (
                   <span
@@ -246,6 +253,51 @@ export function ProductDetailPanel({
               <span className={css.statValue}>{view.reorderLevel}</span>
             </div>
           </div>
+
+          {detail && (detail.manufacturer || detail.dosageForm || detail.packSize || detail.localAgent) ? (
+            <div>
+              <h3 className={css.sectionTitle}>NMRA details</h3>
+              <ul className={css.tipsList}>
+                {detail.manufacturer ? (
+                  <li>
+                    <IconPackage size={14} />
+                    <span>
+                      <strong>Manufacturer:</strong> {detail.manufacturer}
+                      {detail.countryOfOrigin ? ` (${detail.countryOfOrigin})` : ""}
+                    </span>
+                  </li>
+                ) : null}
+                {detail.dosageForm || detail.strength || detail.packType ? (
+                  <li>
+                    <IconInfo size={14} />
+                    <span>
+                      <strong>Form:</strong>{" "}
+                      {[detail.dosageForm, detail.strength, detail.packType]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </li>
+                ) : null}
+                {detail.localAgent ? (
+                  <li>
+                    <IconFileText size={14} />
+                    <span>
+                      <strong>Local agent:</strong> {detail.localAgent}
+                    </span>
+                  </li>
+                ) : null}
+                {detail.regType || detail.dossierNo ? (
+                  <li>
+                    <IconFileText size={14} />
+                    <span>
+                      <strong>Reg type:</strong> {detail.regType || "—"}
+                      {detail.dossierNo ? ` · Dossier ${detail.dossierNo}` : ""}
+                    </span>
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
 
           {view.categories?.length || view.tags?.length ? (
             <div>

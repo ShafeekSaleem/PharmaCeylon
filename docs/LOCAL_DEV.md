@@ -70,4 +70,4 @@ Set `STRUCTURED_HTTP_LOG=true` in `apps/api/.env` to emit one JSON line per fini
 
 ### Seed users (defaults)
 
-See output of `npm run prisma:seed -w api`. Demo logins use **email + password** only (e.g. `admin@pharmaceylon.demo`); override passwords with `SEED_ADMIN_PASSWORD` / `SEED_CASHIER_PASSWORD` in `apps/api/.env` before seeding.
+See output of `npm run prisma:seed -w api`. Demo logins use **email + password** only (e.g. `owner@pharmaceylon.demo` / `Owner123!`); override passwords with `SEED_OWNER_PASSWORD` / `SEED_ADMIN_PASSWORD` / `SEED_CASHIER_PASSWORD` in `apps/api/.env` before seeding.

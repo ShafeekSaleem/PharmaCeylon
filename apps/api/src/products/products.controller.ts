@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
 } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
@@ -42,7 +43,9 @@ export class ProductsController {
     @Query("take") take?: string,
     @Query("dosageForm") dosageForm?: string,
     @Query("brandName") brandName?: string,
+    @Query("schedule") schedule?: string,
     @Query("isControlled") isControlled?: string,
+    @Query("requiresPrescription") requiresPrescription?: string,
     @Query("status") status?: string,
     @Query("lowStock") lowStock?: string,
     @Query("categoryId") categoryId?: string,
@@ -56,13 +59,61 @@ export class ProductsController {
       take: take ? Number(take) : undefined,
       dosageForm,
       brandName,
+      schedule,
       isControlled,
+      requiresPrescription: requiresPrescription === "true",
       status: status || "all",
       lowStock: lowStock === "true",
       categoryId,
       tagId,
       sortBy,
       sortDir,
+    });
+  }
+
+  /** Full CSV for all products matching current list filters/sort. Must stay before `:id`. */
+  @Roles(
+    RoleName.owner,
+    RoleName.manager,
+    RoleName.pharmacist,
+    RoleName.cashier,
+    RoleName.inventory_clerk,
+    RoleName.analyst,
+  )
+  @Get("export")
+  async exportCsv(
+    @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
+    @Query("q") q?: string,
+    @Query("dosageForm") dosageForm?: string,
+    @Query("brandName") brandName?: string,
+    @Query("schedule") schedule?: string,
+    @Query("isControlled") isControlled?: string,
+    @Query("requiresPrescription") requiresPrescription?: string,
+    @Query("status") status?: string,
+    @Query("lowStock") lowStock?: string,
+    @Query("categoryId") categoryId?: string,
+    @Query("tagId") tagId?: string,
+    @Query("sortBy") sortBy?: string,
+    @Query("sortDir") sortDir?: string,
+  ): Promise<StreamableFile> {
+    const csv = await this.products.exportCsv(user.tenantId, req.branchId, {
+      q,
+      dosageForm,
+      brandName,
+      schedule,
+      isControlled,
+      requiresPrescription: requiresPrescription === "true",
+      status: status || "all",
+      lowStock: lowStock === "true",
+      categoryId,
+      tagId,
+      sortBy,
+      sortDir,
+    });
+    return new StreamableFile(Buffer.from(csv, "utf-8"), {
+      type: "text/csv; charset=utf-8",
+      disposition: 'attachment; filename="products-export.csv"',
     });
   }
 

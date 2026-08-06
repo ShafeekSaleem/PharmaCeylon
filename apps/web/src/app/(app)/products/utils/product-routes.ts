@@ -48,7 +48,6 @@ export function productOperationalLinks(
   ctx?: ProductLinkContext,
 ): ProductNavLink[] {
   const q = `productId=${productId}`;
-  const catalogQuery = encodeURIComponent(ctx?.sku?.trim() || ctx?.name?.trim() || productId);
   return [
     {
       id: "inventory",
@@ -110,7 +109,7 @@ export function productOperationalLinks(
       id: "catalog",
       label: "Search catalog",
       description: "Pharmacist catalog view",
-      href: `/catalog?q=${catalogQuery}`,
+      href: `/catalog?productId=${encodeURIComponent(productId)}`,
       ready: true,
     },
     {

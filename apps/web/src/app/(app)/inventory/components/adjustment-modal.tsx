@@ -90,8 +90,24 @@ function AdjustmentModalContent({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState("");
 
-  const stock = useInventoryStock("all", "");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedProductSearch(productSearch), 250);
+    return () => clearTimeout(t);
+  }, [productSearch]);
+
+  const stock = useInventoryStock({
+    q: debouncedProductSearch,
+    page: 1,
+    pageSize: 50,
+  });
+  const selectedStock = useInventoryStock({
+    productId: productId || null,
+    page: 1,
+    pageSize: 1,
+  });
   const batches = useInventoryBatches({
     productId: productId || null,
     includeZero: movementType === "adjustment_in",
@@ -131,10 +147,24 @@ function AdjustmentModalContent({
     }
   }, [movementType, productId, batches.loading, batches.rows.length]);
 
-  const selectedProduct = useMemo(
-    () => stock.rows.find((r) => r.productId === productId) ?? null,
-    [stock.rows, productId],
-  );
+  const selectedProduct = useMemo(() => {
+    return (
+      stock.rows.find((r) => r.productId === productId) ??
+      selectedStock.rows.find((r) => r.productId === productId) ??
+      null
+    );
+  }, [stock.rows, selectedStock.rows, productId]);
+
+  const productOptions = useMemo(() => {
+    const map = new Map<string, { value: string; label: string }>();
+    for (const row of [...selectedStock.rows, ...stock.rows]) {
+      map.set(row.productId, {
+        value: row.productId,
+        label: `${row.product.sku} — ${row.product.name} (${row.qtyOnHand} on hand)`,
+      });
+    }
+    return [...map.values()];
+  }, [stock.rows, selectedStock.rows]);
 
   const selectedBatch = useMemo(
     () => batches.rows.find((b) => b.id === batchId) ?? null,
@@ -306,19 +336,17 @@ function AdjustmentModalContent({
                   value={productId}
                   placeholder="Select product…"
                   allowDeselect
-                  options={stock.rows.map((row) => ({
-                    value: row.productId,
-                    label: `${row.product.sku} — ${row.product.name} (${row.qtyOnHand} on hand)`,
-                  }))}
+                  options={productOptions}
                   searchable
                   searchPlaceholder="Search by product or SKU…"
+                  onSearchChange={setProductSearch}
                   onChange={(value) => {
                     setProductId(value);
                     setBatchId("");
                     setUseNewBatch(false);
                     setNewBatch(EMPTY_NEW_BATCH);
                   }}
-                  disabled={stock.loading}
+                  disabled={stock.loading && selectedStock.loading}
                 />
               </div>
 

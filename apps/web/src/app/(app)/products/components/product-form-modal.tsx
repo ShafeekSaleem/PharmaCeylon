@@ -62,9 +62,11 @@ export function ProductFormModal({
           <ModalButton variant="secondary" onClick={onClose}>
             Cancel
           </ModalButton>
-          <ModalButton variant="primary" onClick={onSave} loading={saving}>
-            Save
-          </ModalButton>
+          {canWrite && (
+            <ModalButton variant="primary" onClick={onSave} loading={saving}>
+              Save
+            </ModalButton>
+          )}
         </ModalFooter>
       }
     >
@@ -174,6 +176,13 @@ export function ProductFormModal({
           placeholder="e.g. 30 tablets"
         />
         <FormField
+          label="Pack type"
+          value={form.packType}
+          onChange={(e) => onFieldChange("packType", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+          placeholder="e.g. Alu-Alu blister"
+        />
+        <FormField
           label="Shelf life"
           value={form.shelfLife}
           onChange={(e) => onFieldChange("shelfLife", (e.target as HTMLInputElement).value)}
@@ -197,6 +206,56 @@ export function ProductFormModal({
           onChange={(e) => onFieldChange("taxCategory", (e.target as HTMLInputElement).value)}
           disabled={saving}
           placeholder="e.g. Standard rate"
+        />
+      </div>
+
+      <h3 className={css.sectionTitle}>NMRA registration</h3>
+      <div className={css.twoCol}>
+        <FormField
+          label="Registration no."
+          value={form.registrationNo}
+          onChange={(e) => onFieldChange("registrationNo", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+          placeholder="e.g. M009669"
+        />
+        <FormField
+          label="Registration date"
+          type="date"
+          value={form.registrationDate}
+          onChange={(e) => onFieldChange("registrationDate", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+        />
+        <FormField
+          label="Schedule"
+          value={form.schedule}
+          onChange={(e) => onFieldChange("schedule", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+          placeholder="e.g. II B"
+        />
+        <FormField
+          label="Registration type"
+          value={form.regType}
+          onChange={(e) => onFieldChange("regType", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+          placeholder="e.g. Full"
+        />
+        <FormField
+          label="Dossier no."
+          value={form.dossierNo}
+          onChange={(e) => onFieldChange("dossierNo", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+        />
+        <FormField
+          label="Country of origin"
+          value={form.countryOfOrigin}
+          onChange={(e) => onFieldChange("countryOfOrigin", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+        />
+        <FormField
+          label="Local agent"
+          value={form.localAgent}
+          onChange={(e) => onFieldChange("localAgent", (e.target as HTMLInputElement).value)}
+          disabled={saving}
         />
       </div>
 
@@ -273,15 +332,41 @@ export function ProductFormModal({
 
         <div className={css.formBox}>
           <div className={css.formBoxLabelRow}>
+            <span className={css.formBoxLabel}>Requires prescription</span>
+            <FieldHint text="Sale needs a linked Rx (antibiotics, etc.). Cashiers can complete once Rx is on file." />
+          </div>
+          <label className={css.toggleLabel}>
+            <input
+              type="checkbox"
+              className={css.toggleInput}
+              checked={form.requiresPrescription || form.isControlled}
+              onChange={(e) => onFieldChange("requiresPrescription", e.target.checked)}
+              disabled={saving || form.isControlled}
+            />
+            <span className={css.toggleTrack} aria-hidden>
+              <span className={css.toggleThumb} />
+            </span>
+            <span className={css.toggleText}>
+              {form.requiresPrescription || form.isControlled ? "Yes" : "No"}
+            </span>
+          </label>
+        </div>
+
+        <div className={css.formBox}>
+          <div className={css.formBoxLabelRow}>
             <span className={css.formBoxLabel}>Controlled substance</span>
-            <FieldHint text="Requires extra handling and tracking rules." />
+            <FieldHint text="Schedule / narcotic — needs pharmacist till PIN or elevated session, and always requires a prescription." />
           </div>
           <label className={css.toggleLabel}>
             <input
               type="checkbox"
               className={css.toggleInput}
               checked={form.isControlled}
-              onChange={(e) => onFieldChange("isControlled", e.target.checked)}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                onFieldChange("isControlled", checked);
+                if (checked) onFieldChange("requiresPrescription", true);
+              }}
               disabled={saving}
             />
             <span className={css.toggleTrack} aria-hidden>

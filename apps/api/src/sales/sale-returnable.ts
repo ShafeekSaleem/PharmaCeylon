@@ -26,7 +26,10 @@ export type ReturnableLine = {
   soldQty: number;
   usedQty: number;
   remainingQty: number;
+  /** Catalog unit price (display). */
   unitPrice: string;
+  /** What the customer actually paid for these units (line totals summed). */
+  paidTotal: string;
 };
 
 /**
@@ -54,8 +57,12 @@ export async function getSaleReturnableByLine(
   for (const si of sale.items) {
     const key = saleLineKey(si.productId, si.batchId);
     const existing = lines.get(key);
+    const paid =
+      si.lineTotal ??
+      new Prisma.Decimal(si.unitPrice).mul(si.qty);
     if (existing) {
       existing.soldQty += si.qty;
+      existing.paidTotal = new Prisma.Decimal(existing.paidTotal).add(paid).toFixed(2);
     } else {
       lines.set(key, {
         productId: si.productId,
@@ -64,6 +71,7 @@ export async function getSaleReturnableByLine(
         usedQty: 0,
         remainingQty: 0,
         unitPrice: si.unitPrice.toFixed(2),
+        paidTotal: paid.toFixed(2),
       });
     }
   }
@@ -203,6 +211,11 @@ export async function assertSaleReturnableLines(
   }
 
   return lines;
+}
+
+export function refundUnitPrice(line: ReturnableLine): Prisma.Decimal {
+  if (line.soldQty <= 0) return new Prisma.Decimal(0);
+  return new Prisma.Decimal(line.paidTotal).div(line.soldQty);
 }
 
 export function totalRemainingQty(lines: Map<string, ReturnableLine>): number {

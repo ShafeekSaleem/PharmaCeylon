@@ -31,6 +31,7 @@ export type PosProduct = {
   packSize: string | null;
   imageUrl: string | null;
   isControlled: boolean;
+  requiresPrescription: boolean;
   reorderLevel: number;
   qtyOnHand: number;
   stockStatus: "ok" | "low" | "out";
@@ -102,6 +103,7 @@ export class PosService {
             packSize: true,
             imageUrl: true,
             isControlled: true,
+            requiresPrescription: true,
             reorderLevel: true,
           },
         },
@@ -129,7 +131,7 @@ export class PosService {
           tenantId,
           sale: {
             branchId,
-            status: SaleStatus.posted,
+            status: { in: [SaleStatus.posted, SaleStatus.partially_refunded] },
             soldAt: { gte: daysAgo(TOP_PRODUCTS_WINDOW_DAYS) },
           },
         },
@@ -141,7 +143,7 @@ export class PosService {
           tenantId,
           sale: {
             branchId,
-            status: SaleStatus.posted,
+            status: { in: [SaleStatus.posted, SaleStatus.partially_refunded] },
             soldAt: { gte: daysAgo(FREQUENT_ITEMS_WINDOW_DAYS) },
           },
         },
@@ -179,6 +181,7 @@ export class PosService {
           packSize: p.packSize,
           imageUrl: p.imageUrl,
           isControlled: p.isControlled,
+          requiresPrescription: p.requiresPrescription || p.isControlled,
           reorderLevel: p.reorderLevel,
           qtyOnHand: 0,
           stockStatus: "out",

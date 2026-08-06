@@ -120,10 +120,36 @@ export class InventoryController {
     @RequireBranchId() branchId: string,
     @Query("q") q?: string,
     @Query("status") status?: "all" | "ok" | "low" | "out",
+    @Query("skip") skip?: string,
+    @Query("take") take?: string,
+    @Query("productId") productId?: string,
+    @Query("controlled") controlled?: "all" | "controlled" | "regular",
+    @Query("batchFilter")
+    batchFilter?: "all" | "expiring" | "with_batches" | "no_batches",
+    @Query("categoryIds") categoryIds?: string,
+    @Query("brands") brands?: string,
+    @Query("tagIds") tagIds?: string,
+    @Query("dosageForms") dosageForms?: string,
+    @Query("ledgerOnly") ledgerOnly?: string,
   ) {
+    const split = (value?: string) =>
+      value
+        ?.split(",")
+        .map((part) => part.trim())
+        .filter(Boolean) ?? [];
     return this.inventory.stockByProduct(user.tenantId, branchId, {
       q,
       status: status ?? "all",
+      skip: skip ? Number(skip) : undefined,
+      take: take ? Number(take) : undefined,
+      productId,
+      controlled: controlled ?? "all",
+      batchFilter: batchFilter ?? "all",
+      categoryIds: split(categoryIds),
+      brands: split(brands),
+      tagIds: split(tagIds),
+      dosageForms: split(dosageForms),
+      ledgerOnly: ledgerOnly === "1" || ledgerOnly === "true",
     });
   }
 

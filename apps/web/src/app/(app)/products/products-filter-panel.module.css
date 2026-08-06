@@ -73,16 +73,17 @@
 
 .row {
   display: grid;
-  grid-template-columns: 88px 1fr 36px;
+  grid-template-columns: 108px 1fr 36px;
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.65rem;
 }
 
 .rowLabel {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 500;
   color: var(--pc-foreground);
+  line-height: 1.25;
 }
 
 .rowControl {
@@ -331,4 +332,46 @@
 .lowStockToggle input:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.advancedBlock {
+  margin-top: 0.35rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--pc-border);
+}
+
+.advancedToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  margin-bottom: 0.45rem;
+  padding: 0.25rem 0;
+  border: none;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.advancedToggle:hover {
+  color: var(--pc-foreground);
+}
+
+.advancedChevron {
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.advancedChevronOpen {
+  transform: rotate(180deg);
+}
+
+.advancedActive {
+  margin-left: auto;
+  color: var(--pc-primary);
+  font-weight: 600;
 }

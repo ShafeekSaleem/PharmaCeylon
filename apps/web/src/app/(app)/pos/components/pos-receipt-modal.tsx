@@ -48,6 +48,9 @@ export function PosReceiptModal({ receipt, onClose }: Props) {
             {receipt.prescription
               ? ` · Rx ${receipt.prescription.rxNumber} (${receipt.prescription.patientName})`
               : ""}
+            {receipt.dispenser
+              ? ` · Dispensed by ${receipt.dispenser.fullName}`
+              : ""}
           </p>
 
           <table className={css.receiptTable}>

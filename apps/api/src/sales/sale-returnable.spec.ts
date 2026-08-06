@@ -40,6 +40,7 @@ describe("sale-returnable", () => {
               batchId,
               qty: soldQty,
               unitPrice: decimal("25.00"),
+              lineTotal: decimal(25 * soldQty),
             },
           ],
         }),

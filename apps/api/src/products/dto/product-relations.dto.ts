@@ -1,10 +1,10 @@
-import { Type } from "class-transformer";
 import {
   IsArray,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  ValidateIf,
 } from "class-validator";
 
 export class ProductRelationsDto {
@@ -25,6 +25,7 @@ export class CreateProductCategoryDto {
   name!: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
   @IsUUID()
   parentCategoryId?: string | null;
 }
@@ -36,6 +37,7 @@ export class UpdateProductCategoryDto {
   name?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
   @IsUUID()
   parentCategoryId?: string | null;
 }

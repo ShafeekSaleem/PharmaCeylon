@@ -68,6 +68,30 @@ function TransfersContent() {
   const [branches, setBranches] = useState<TenantBranch[]>([]);
 
   const productId = searchParams.get("productId");
+  const action = searchParams.get("action");
+
+  useEffect(() => {
+    if (action === "create" && canWrite) setCreateOpen(true);
+  }, [action, canWrite]);
+
+  useEffect(() => {
+    const status = searchParams.get("status");
+    if (!status) return;
+    const allowed: TransferStatusFilter[] = [
+      "all",
+      "requested",
+      "approved",
+      "in_transit",
+      "partially_received",
+      "received",
+      "overdue",
+      "cancelled",
+      "rejected",
+    ];
+    if (allowed.includes(status as TransferStatusFilter)) {
+      setStatusFilter(status as TransferStatusFilter);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;

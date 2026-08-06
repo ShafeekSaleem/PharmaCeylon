@@ -95,6 +95,26 @@ function PurchasingContent() {
   }, [action, canWrite]);
 
   useEffect(() => {
+    const status = searchParams.get("status");
+    if (!status) return;
+    const allowed: PoStatusFilter[] = [
+      "all",
+      "overdue",
+      "receivable",
+      "draft",
+      "pending_approval",
+      "issued",
+      "partially_received",
+      "received",
+      "cancelled",
+      "short_closed",
+    ];
+    if (allowed.includes(status as PoStatusFilter)) {
+      setStatusFilter(status as PoStatusFilter);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (poParam) {
       setDetailStartInEdit(false);
       setDetailId(poParam);

@@ -39,11 +39,20 @@ export type Product = {
   strength: string | null;
   unit: string | null;
   packSize: string | null;
+  packType: string | null;
   storage: string | null;
   shelfLife: string | null;
   taxCategory: string | null;
   imageUrl: string | null;
+  registrationNo: string | null;
+  registrationDate: string | null;
+  schedule: string | null;
+  regType: string | null;
+  dossierNo: string | null;
+  countryOfOrigin: string | null;
+  localAgent: string | null;
   isControlled: boolean;
+  requiresPrescription: boolean;
   reorderLevel: number;
   isActive: boolean;
   createdAt: string;
@@ -54,6 +63,8 @@ export type Product = {
   qtyOnHand?: number | null;
   stockStatus?: StockStatus | null;
   reorderGap?: number | null;
+  /** Count of products sharing this display name (multi-registration groups). */
+  sameNameCount?: number;
 };
 
 export type ProductList = { items: Product[]; total: number; skip: number; take: number };
@@ -150,13 +161,18 @@ export type FacetEntry = { value: string; count: number; label?: string };
 export type SummaryFacets = {
   brands: FacetEntry[];
   dosageForms: FacetEntry[];
+  schedules?: FacetEntry[];
+  formGroups?: FacetEntry[];
+  registrationTypes?: FacetEntry[];
   categories?: FacetEntry[];
   tags?: FacetEntry[];
   controlled: { value: boolean; count: number }[];
   status?: FacetEntry[];
+  requiresPrescription?: { value: boolean; count: number }[];
   branchStockSummary: {
     inStockProductCount: number;
     lowStockProductCount: number;
+    outOfStockProductCount?: number;
   } | null;
 };
 
@@ -171,12 +187,21 @@ export type ProductForm = {
   strength: string;
   unit: string;
   packSize: string;
+  packType: string;
   storage: string;
   shelfLife: string;
   taxCategory: string;
+  registrationNo: string;
+  registrationDate: string;
+  schedule: string;
+  regType: string;
+  dossierNo: string;
+  countryOfOrigin: string;
+  localAgent: string;
   imageUrl: string | null;
   reorderLevel: number;
   isControlled: boolean;
+  requiresPrescription: boolean;
   isActive: boolean;
   categoryIds: string[];
   tagIds: string[];
@@ -190,9 +215,17 @@ export type ColumnKey =
   | "dosageForm"
   | "manufacturer"
   | "unit"
+  | "registrationNo"
+  | "schedule"
   | "stock"
   | "reorderLevel"
   | "status"
   | "actions";
 
-export type StatFilter = "all" | "active" | "inactive" | "controlled" | "lowStock";
+export type StatFilter =
+  | "all"
+  | "active"
+  | "inactive"
+  | "controlled"
+  | "lowStock"
+  | "rx";

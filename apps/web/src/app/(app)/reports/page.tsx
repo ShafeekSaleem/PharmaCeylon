@@ -1,13 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Alert } from "@/components/alert";
 import { apiJson } from "@/lib/auth-client";
 
-export default function ReportsPage() {
-  const [tab, setTab] = useState<"sales" | "margin" | "expiry" | "dead">("sales");
+type ReportTab = "sales" | "margin" | "expiry" | "dead";
+
+function ReportsContent() {
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<ReportTab>("sales");
   const [out, setOut] = useState<unknown>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t === "sales" || t === "margin" || t === "expiry" || t === "dead") {
+      setTab(t);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const path =
@@ -62,5 +73,13 @@ export default function ReportsPage() {
       {err ? <Alert variant="error">{err}</Alert> : null}
       <pre className="pc-panel">{out ? JSON.stringify(out, null, 2) : "Loading…"}</pre>
     </div>
+  );
+}
+
+export default function ReportsPage() {
+  return (
+    <Suspense fallback={<p className="pc-muted">Loading reports…</p>}>
+      <ReportsContent />
+    </Suspense>
   );
 }

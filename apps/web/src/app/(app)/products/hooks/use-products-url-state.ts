@@ -17,31 +17,43 @@ function parseFilters(params: URLSearchParams): ProductFilters {
   const status = parseList(params.get("status")) as ("active" | "inactive")[];
   const controlled = parseList(params.get("controlled")) as ("true" | "false")[];
   return {
+    schedules: parseList(params.get("schedule")),
     dosageForms: parseList(params.get("dosageForm")),
+    formGroups: parseList(params.get("formGroup")),
+    registrationTypes: parseList(params.get("regType")),
     brands: parseList(params.get("brand")),
-    categories: parseList(params.get("categoryId")),
     tags: parseList(params.get("tagId")),
     status: status.filter((s) => s === "active" || s === "inactive"),
     controlled: controlled.filter((c) => c === "true" || c === "false"),
     lowStock: params.get("lowStock") === "1",
+    requiresPrescription: params.get("rx") === "1",
   };
 }
 
 function filtersToParams(filters: ProductFilters, base: URLSearchParams) {
   base.delete("dosageForm");
   base.delete("brand");
+  base.delete("schedule");
+  base.delete("formGroup");
+  base.delete("regType");
   base.delete("categoryId");
   base.delete("tagId");
   base.delete("status");
   base.delete("controlled");
   base.delete("lowStock");
+  base.delete("rx");
   if (filters.dosageForms.length) base.set("dosageForm", filters.dosageForms.join(","));
   if (filters.brands.length) base.set("brand", filters.brands.join(","));
-  if (filters.categories.length) base.set("categoryId", filters.categories.join(","));
+  if (filters.schedules.length) base.set("schedule", filters.schedules.join(","));
+  if (filters.formGroups.length) base.set("formGroup", filters.formGroups.join(","));
+  if (filters.registrationTypes.length) {
+    base.set("regType", filters.registrationTypes.join(","));
+  }
   if (filters.tags.length) base.set("tagId", filters.tags.join(","));
   if (filters.status.length) base.set("status", filters.status.join(","));
   if (filters.controlled.length) base.set("controlled", filters.controlled.join(","));
   if (filters.lowStock) base.set("lowStock", "1");
+  if (filters.requiresPrescription) base.set("rx", "1");
 }
 
 export function useProductsUrlState() {
@@ -51,7 +63,7 @@ export function useProductsUrlState() {
 
   const q = searchParams.get("q") ?? "";
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
-  const sortBy = searchParams.get("sortBy") ?? "name";
+  const sortBy = searchParams.get("sortBy") ?? "";
   const sortDir = (searchParams.get("sortDir") === "desc" ? "desc" : "asc") as SortDir;
   const appliedFilters = useMemo(() => parseFilters(searchParams), [searchParams]);
 
@@ -87,10 +99,15 @@ export function useProductsUrlState() {
   );
 
   const setSort = useCallback(
-    (key: string, dir: SortDir) => {
+    (key: string, dir: SortDir | null) => {
       replaceParams((p) => {
-        p.set("sortBy", key);
-        p.set("sortDir", dir);
+        if (!dir) {
+          p.delete("sortBy");
+          p.delete("sortDir");
+        } else {
+          p.set("sortBy", key);
+          p.set("sortDir", dir);
+        }
         p.delete("page");
       });
     },

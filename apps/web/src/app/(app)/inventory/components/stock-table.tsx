@@ -54,7 +54,7 @@ type StockTableProps = {
   rows: StockRow[];
   loading: boolean;
   page: number;
-  canWrite: boolean;
+  total: number;
   onPageChange: (page: number) => void;
   onAdjust: (row: StockRow) => void;
 };
@@ -63,7 +63,7 @@ export function StockTable({
   rows,
   loading,
   page,
-  canWrite,
+  total,
   onPageChange,
   onAdjust,
 }: StockTableProps) {
@@ -168,21 +168,15 @@ export function StockTable({
     [onAdjust],
   );
 
-  const pageSize = PAGE_SIZE;
-  const paged = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [rows, page, pageSize]);
-
   return (
     <DataTable<StockRow>
       columns={columns}
-      data={paged}
+      data={rows}
       rowKey={(r) => r.productId}
       loading={loading}
       page={page}
-      pageSize={pageSize}
-      total={rows.length}
+      pageSize={PAGE_SIZE}
+      total={total}
       onPageChange={onPageChange}
       emptyTitle="No stock rows match this view"
       emptyDescription="Try another filter or search"

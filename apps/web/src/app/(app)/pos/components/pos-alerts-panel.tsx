@@ -1,7 +1,7 @@
 "use client";
 
 import { IconAlertTriangle, IconCheckCircle, IconInfo } from "@/components/icons";
-import type { PosAlert } from "../types";
+import type { PosAlert, PosAlertActionKind } from "../types";
 import css from "../pos.module.css";
 
 const SEVERITY_CLASS = {
@@ -13,9 +13,10 @@ const SEVERITY_CLASS = {
 type Props = {
   alerts: PosAlert[];
   cartEmpty: boolean;
+  onAction?: (kind: PosAlertActionKind) => void;
 };
 
-export function PosAlertsPanel({ alerts, cartEmpty }: Props) {
+export function PosAlertsPanel({ alerts, cartEmpty, onAction }: Props) {
   return (
     <section className={css.panel}>
       <h2 className={css.panelTitle}>Pharmacy Alerts</h2>
@@ -36,6 +37,20 @@ export function PosAlertsPanel({ alerts, cartEmpty }: Props) {
               <span className={css.alertBody}>
                 <span className={css.alertTitle}>{alert.title}</span>
                 <span className={css.alertDetail}>{alert.detail}</span>
+                {alert.actions && alert.actions.length > 0 && onAction && (
+                  <span className={css.alertActions}>
+                    {alert.actions.map((action) => (
+                      <button
+                        key={action.kind}
+                        type="button"
+                        className={css.alertActionBtn}
+                        onClick={() => onAction(action.kind)}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </span>
+                )}
               </span>
               <span className={css.alertCount}>
                 {alert.count} item{alert.count === 1 ? "" : "s"}

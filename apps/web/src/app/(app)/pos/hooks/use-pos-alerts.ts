@@ -1,37 +1,124 @@
 "use client";
 
 import { useMemo } from "react";
-import type { PosAlert, Prescription, ResolvedCartLine } from "../types";
+import type {
+  Customer,
+  PosAlert,
+  PosMode,
+  Prescription,
+  ResolvedCartLine,
+} from "../types";
+import { nameSimilarity } from "../utils";
+
+type Options = {
+  lines: ResolvedCartLine[];
+  prescription: Prescription | null;
+  customer: Customer | null;
+  mode?: PosMode;
+  /** Current user can dispense controlled items without PIN co-sign. */
+  canDispenseControlled: boolean;
+};
 
 /**
- * Compliance and stock warnings for the cart. A blocking alert stops checkout —
- * everything else is advisory so the counter keeps moving.
+ * Compliance and stock warnings for the cart.
+ * Blocking alerts stop checkout. Pharmacist PIN is a handoff gate (not a dead end):
+ * Complete Sale opens the PIN modal instead of staying disabled forever.
  */
-export function usePosAlerts(
-  lines: ResolvedCartLine[],
-  prescription: Prescription | null,
-): { alerts: PosAlert[]; blockingAlerts: PosAlert[] } {
+export function usePosAlerts({
+  lines,
+  prescription,
+  customer,
+  mode = "retail",
+  canDispenseControlled,
+}: Options): {
+  alerts: PosAlert[];
+  blockingAlerts: PosAlert[];
+  needsPharmacistPin: boolean;
+  softRxWarnings: string[];
+} {
   return useMemo(() => {
     const alerts: PosAlert[] = [];
+    const softRxWarnings: string[] = [];
 
+    const needsRx = lines.filter(
+      (l) => l.product.requiresPrescription || l.product.isControlled,
+    );
     const controlled = lines.filter((l) => l.product.isControlled);
-    if (controlled.length > 0 && !prescription) {
+
+    if (needsRx.length > 0 && !prescription) {
       alerts.push({
-        id: "controlled-no-rx",
+        id: "rx-required",
         severity: "danger",
-        title: "Controlled medicine requires prescription",
-        detail: controlled.map((l) => l.product.name).join(", "),
-        count: controlled.length,
+        title: "Prescription required",
+        detail: needsRx.map((l) => l.product.name).join(", "),
+        count: needsRx.length,
         blocking: true,
+        actions: [
+          { kind: "link_rx", label: "Link Rx" },
+          { kind: "hold_pharmacist", label: "Hold for pharmacist" },
+        ],
       });
     } else if (controlled.length > 0 && prescription) {
+      if (canDispenseControlled) {
+        alerts.push({
+          id: "controlled-linked",
+          severity: "info",
+          title: `Dispensing against ${prescription.rxNumber}`,
+          detail: controlled.map((l) => l.product.name).join(", "),
+          count: controlled.length,
+        });
+      } else {
+        alerts.push({
+          id: "needs-pharmacist-pin",
+          severity: "warning",
+          title: "Pharmacist approval needed",
+          detail:
+            "Controlled items are ready — ask a pharmacist for till PIN, or park for handoff. You can keep taking tender.",
+          count: controlled.length,
+          actions: [
+            { kind: "pharmacist_pin", label: "Enter PIN" },
+            { kind: "hold_pharmacist", label: "Hold for pharmacist" },
+          ],
+        });
+      }
+    } else if (needsRx.length > 0 && prescription && controlled.length === 0) {
       alerts.push({
-        id: "controlled-linked",
+        id: "rx-linked",
         severity: "info",
         title: `Dispensing against ${prescription.rxNumber}`,
-        detail: controlled.map((l) => l.product.name).join(", "),
-        count: controlled.length,
+        detail: needsRx.map((l) => l.product.name).join(", "),
+        count: needsRx.length,
       });
+    }
+
+    const needsPharmacistPin =
+      controlled.length > 0 && Boolean(prescription) && !canDispenseControlled;
+
+    if (mode === "prescription" && lines.length > 0 && !prescription) {
+      alerts.push({
+        id: "prescription-mode-no-rx",
+        severity: "danger",
+        title: "Prescription mode requires a linked Rx",
+        detail: "Link a prescription before completing this sale.",
+        count: 1,
+        blocking: true,
+        actions: [{ kind: "link_rx", label: "Link Rx" }],
+      });
+    }
+
+    if (prescription && customer?.fullName) {
+      const score = nameSimilarity(customer.fullName, prescription.patientName);
+      if (score < 0.34) {
+        const msg = `Patient on Rx (“${prescription.patientName}”) does not closely match customer (“${customer.fullName}”). Confirm identity.`;
+        softRxWarnings.push(msg);
+        alerts.push({
+          id: "patient-name-mismatch",
+          severity: "warning",
+          title: "Confirm patient identity",
+          detail: msg,
+          count: 1,
+        });
+      }
     }
 
     const overStock = lines.filter((l) => l.overStock);
@@ -93,6 +180,11 @@ export function usePosAlerts(
       }
     }
 
-    return { alerts, blockingAlerts: alerts.filter((a) => a.blocking) };
-  }, [lines, prescription]);
+    return {
+      alerts,
+      blockingAlerts: alerts.filter((a) => a.blocking),
+      needsPharmacistPin,
+      softRxWarnings,
+    };
+  }, [lines, prescription, customer, mode, canDispenseControlled]);
 }

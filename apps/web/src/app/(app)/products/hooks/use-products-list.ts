@@ -11,6 +11,31 @@ import {
 } from "../products-filter-panel";
 import type { Product, ProductList, SummaryFacets } from "../types";
 
+/** Shared filter/search/sort query params (list, facets, and full CSV export). */
+export function buildProductFilterParams(
+  q: string,
+  filters: ProductFilters,
+  sortBy?: string,
+  sortDir?: string,
+) {
+  const filterParams = productFiltersToQueryParams(filters);
+  const params = new URLSearchParams({ status: filterParams.status });
+  if (sortBy) {
+    params.set("sortBy", sortBy);
+    params.set("sortDir", sortDir || "asc");
+  }
+  if (q) params.set("q", q);
+  if (filterParams.dosageForm) params.set("dosageForm", filterParams.dosageForm);
+  if (filterParams.brandName) params.set("brandName", filterParams.brandName);
+  if (filterParams.schedule) params.set("schedule", filterParams.schedule);
+  if (filterParams.categoryId) params.set("categoryId", filterParams.categoryId);
+  if (filterParams.tagId) params.set("tagId", filterParams.tagId);
+  if (filterParams.isControlled) params.set("isControlled", filterParams.isControlled);
+  if (filterParams.lowStock) params.set("lowStock", "true");
+  if (filterParams.requiresPrescription) params.set("requiresPrescription", "true");
+  return params;
+}
+
 function buildListParams(
   page: number,
   q: string,
@@ -19,35 +44,14 @@ function buildListParams(
   sortDir: string,
 ) {
   const skip = (page - 1) * PAGE_SIZE;
-  const filterParams = productFiltersToQueryParams(filters);
-  const params = new URLSearchParams({
-    skip: String(skip),
-    take: String(PAGE_SIZE),
-    status: filterParams.status,
-    sortBy,
-    sortDir,
-  });
-  if (q) params.set("q", q);
-  if (filterParams.dosageForm) params.set("dosageForm", filterParams.dosageForm);
-  if (filterParams.brandName) params.set("brandName", filterParams.brandName);
-  if (filterParams.categoryId) params.set("categoryId", filterParams.categoryId);
-  if (filterParams.tagId) params.set("tagId", filterParams.tagId);
-  if (filterParams.isControlled) params.set("isControlled", filterParams.isControlled);
-  if (filterParams.lowStock) params.set("lowStock", "true");
+  const params = buildProductFilterParams(q, filters, sortBy, sortDir);
+  params.set("skip", String(skip));
+  params.set("take", String(PAGE_SIZE));
   return params;
 }
 
 function buildFacetsParams(filters: ProductFilters, q: string) {
-  const filterParams = productFiltersToQueryParams(filters);
-  const params = new URLSearchParams({ status: filterParams.status });
-  if (q) params.set("q", q);
-  if (filterParams.dosageForm) params.set("dosageForm", filterParams.dosageForm);
-  if (filterParams.brandName) params.set("brandName", filterParams.brandName);
-  if (filterParams.categoryId) params.set("categoryId", filterParams.categoryId);
-  if (filterParams.tagId) params.set("tagId", filterParams.tagId);
-  if (filterParams.isControlled) params.set("isControlled", filterParams.isControlled);
-  if (filterParams.lowStock) params.set("lowStock", "true");
-  return params;
+  return buildProductFilterParams(q, filters);
 }
 
 export function useProductsList(
@@ -81,6 +85,8 @@ export function useProductsList(
       .catch((err) => {
         if (!cancelled) {
           setListError(err instanceof Error ? err.message : "Failed to load products");
+          setProducts([]);
+          setTotal(0);
         }
       })
       .finally(() => {
@@ -122,11 +128,25 @@ export function useProductsList(
     return entry?.count ?? 0;
   }, [summaryFacets]);
 
+  const rxCount = useMemo(() => {
+    const entry = summaryFacets?.requiresPrescription?.find((c) => c.value === true);
+    return entry?.count ?? 0;
+  }, [summaryFacets]);
+
   const activeCount = useMemo(() => {
     const entry = summaryFacets?.status?.find((s) => s.value === "active");
     if (entry) return entry.count;
-    return summaryFacets?.controlled.reduce((sum, c) => sum + c.count, 0) ?? total;
-  }, [summaryFacets, total]);
+    return totalAll ?? total;
+  }, [summaryFacets, total, totalAll]);
+
+  const inactiveCount = useMemo(() => {
+    const entry = summaryFacets?.status?.find((s) => s.value === "inactive");
+    if (entry) return entry.count;
+    if (totalAll != null && activeCount != null) {
+      return Math.max(0, totalAll - activeCount);
+    }
+    return 0;
+  }, [summaryFacets, totalAll, activeCount]);
 
   const lowStock = summaryFacets?.branchStockSummary?.lowStockProductCount;
 
@@ -150,7 +170,9 @@ export function useProductsList(
     filterFacets,
     totalAll,
     controlledCount,
+    rxCount,
     activeCount,
+    inactiveCount,
     lowStock,
     reload,
     patchProductInList,

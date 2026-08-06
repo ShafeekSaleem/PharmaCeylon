@@ -5,10 +5,11 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "build": "tsc --noEmit",
-    "dev": "expo start",
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "dev": "expo start --offline",
+    "start": "expo start --offline",
+    "android": "expo start --offline --android",
+    "ios": "expo start --offline --ios",
+    "dev:online": "expo start",
     "lint": "echo \"No linter configured for mobile yet\""
   },
   "dependencies": {

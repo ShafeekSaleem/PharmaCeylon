@@ -75,6 +75,24 @@ function ReturnsContent() {
   const [branches, setBranches] = useState<TenantBranch[]>([]);
 
   const productId = searchParams.get("productId");
+  const statusParam = searchParams.get("status");
+
+  useEffect(() => {
+    if (!statusParam) return;
+    const allowed: GoodsReturnStatusFilter[] = [
+      "all",
+      "draft",
+      "pending_approval",
+      "awaiting_logistics",
+      "in_review",
+      "completed",
+      "rejected",
+      "cancelled",
+    ];
+    if (allowed.includes(statusParam as GoodsReturnStatusFilter)) {
+      setStatusFilter(statusParam as GoodsReturnStatusFilter);
+    }
+  }, [statusParam]);
 
   useEffect(() => {
     let cancelled = false;

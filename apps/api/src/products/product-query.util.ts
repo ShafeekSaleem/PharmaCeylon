@@ -5,14 +5,23 @@ export type ProductFilterQuery = {
   q?: string;
   dosageForm?: string;
   brandName?: string;
+  schedule?: string;
   isControlled?: string;
+  /** When true, only products that require a prescription (or are controlled). */
+  requiresPrescription?: boolean;
   status?: string;
   lowStock?: boolean;
   categoryId?: string;
   tagId?: string;
 };
 
-export type FacetExclude = "dosageForm" | "brandName" | "status" | "isControlled";
+export type FacetExclude =
+  | "dosageForm"
+  | "brandName"
+  | "schedule"
+  | "status"
+  | "isControlled"
+  | "requiresPrescription";
 
 export type ProductWhereResult = {
   where: Prisma.ProductWhereInput;
@@ -29,7 +38,11 @@ export function parseCsv(value?: string): string[] {
   return [...new Set(value.split(",").map((s) => s.trim()).filter(Boolean))];
 }
 
-async function lowStockProductIds(
+/**
+ * Branch-scoped low-stock ids: only products with positive ledger qty at the
+ * branch are considered (avoids loading the full tenant catalog).
+ */
+export async function lowStockProductIds(
   prisma: PrismaService,
   tenantId: string,
   branchId: string,
@@ -39,13 +52,19 @@ async function lowStockProductIds(
     where: { tenantId, branchId },
     _sum: { qtyDelta: true },
   });
+  const withStock = grouped.filter((g) => (g._sum.qtyDelta ?? 0) > 0);
+  if (withStock.length === 0) return [];
+
+  const qtyMap = new Map(withStock.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
   const products = await prisma.product.findMany({
-    where: { tenantId },
+    where: {
+      tenantId,
+      id: { in: withStock.map((g) => g.productId) },
+      reorderLevel: { gt: 0 },
+    },
     select: { id: true, reorderLevel: true },
   });
-  const qtyMap = new Map(
-    grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]),
-  );
+
   const ids: string[] = [];
   for (const p of products) {
     const qty = qtyMap.get(p.id) ?? 0;
@@ -85,6 +104,14 @@ function resolveControlledFilter(
   return {};
 }
 
+/** Controlled products should also have this flag set (enforced on write). */
+function resolveRequiresPrescriptionFilter(
+  requiresPrescription?: boolean,
+): Prisma.ProductWhereInput {
+  if (!requiresPrescription) return {};
+  return { requiresPrescription: true };
+}
+
 export async function buildProductWhere(
   prisma: PrismaService,
   tenantId: string,
@@ -94,6 +121,7 @@ export async function buildProductWhere(
 ): Promise<ProductWhereResult> {
   const dosageForms = parseCsv(query.dosageForm);
   const brandNames = parseCsv(query.brandName);
+  const schedules = parseCsv(query.schedule);
   const statusValues = parseCsv(query.status);
   const controlledValues = parseCsv(query.isControlled);
   const categoryIds = parseCsv(query.categoryId);
@@ -129,8 +157,18 @@ export async function buildProductWhere(
           ? { brandName: { in: brandNames } }
           : {}
       : {}),
+    ...(exclude !== "schedule"
+      ? schedules.length === 1
+        ? { schedule: schedules[0] }
+        : schedules.length > 1
+          ? { schedule: { in: schedules } }
+          : {}
+      : {}),
     ...(exclude !== "isControlled"
       ? resolveControlledFilter(controlledValues, query.isControlled)
+      : {}),
+    ...(exclude !== "requiresPrescription"
+      ? resolveRequiresPrescriptionFilter(query.requiresPrescription)
       : {}),
     ...(lowStockIds ? { id: { in: lowStockIds } } : {}),
     ...(categoryIds.length === 1
@@ -151,6 +189,8 @@ export async function buildProductWhere(
             { barcode: { contains: query.q.trim(), mode: "insensitive" } },
             { brandName: { contains: query.q.trim(), mode: "insensitive" } },
             { genericName: { contains: query.q.trim(), mode: "insensitive" } },
+            { registrationNo: { contains: query.q.trim(), mode: "insensitive" } },
+            { dossierNo: { contains: query.q.trim(), mode: "insensitive" } },
             {
               aliases: {
                 some: {
