@@ -272,6 +272,7 @@ export function useDashboardData() {
   const [deadStockCount, setDeadStockCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
   const canViewAnalyticsWide = canAccess(["owner", "manager", "analyst"]);
   const isOwner = userRoles.includes("owner");
@@ -574,6 +575,7 @@ export function useDashboardData() {
       }
 
       await Promise.all(tasks);
+      setLastUpdatedAt(new Date().toISOString());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
     } finally {
@@ -732,6 +734,11 @@ export function useDashboardData() {
         : pctChange(ownerTodaySalesTotal, ownerYesterdaySalesTotal);
     const ownerSalesTrendLabel = formatPct(ownerSalesTrendPct);
     const ownerSalesTrendPositive = (ownerSalesTrendPct ?? 0) >= 0;
+    const ownerTodayTxnCount = salesPulse?.todayTxnCount ?? todaySales.length;
+    // Branch reporting count always reflects the tenant's full branch list —
+    // branch-performance isn't scoped by the owner all/this-branch toggle.
+    const branchesReportingToday = branchPerformance.filter((b) => b.todayTxnCount > 0).length;
+    const branchesReportingTotal = branchPerformance.length;
 
     const ownerScopeLabel =
       isOwner && ownerScope === "this_branch" ? "This branch" : "All branches";
@@ -870,6 +877,19 @@ export function useDashboardData() {
       (sum, s) => sum + s.items.reduce((q, i) => q + i.qty, 0),
       0,
     );
+    const dispensedYesterday = yesterdaySales.reduce(
+      (sum, s) => sum + s.items.reduce((q, i) => q + i.qty, 0),
+      0,
+    );
+    const dispensedTrendPct = pctChange(dispensedToday, dispensedYesterday);
+    const dispensedTrendLabel = formatPct(dispensedTrendPct);
+    const dispensedTrendPositive = (dispensedTrendPct ?? 0) >= 0;
+
+    // Owner "all branches" KPIs come from opsSnapshot (tenant-scoped). Until it
+    // loads, the branch-scoped fallback below is the *wrong scope* (this
+    // branch, not the tenant) — not just less precise — so callers should
+    // treat these as pending (show a loading state) rather than display them.
+    const ownerKpisPending = isOwner && ownerScope === "all_branches" && !opsSnapshot;
 
     const openPosCount =
       isOwner && opsSnapshot ? opsSnapshot.openPoCount : openPos.length;
@@ -926,12 +946,16 @@ export function useDashboardData() {
       todayGrossProfit,
       ownerTodayGrossProfit,
       ownerTodaySalesTotal,
+      ownerTodayTxnCount,
       ownerSalesTrendLabel,
       ownerSalesTrendPositive,
       ownerGrossProfitTrendLabel,
       ownerGrossProfitTrendPositive,
+      branchesReportingToday,
+      branchesReportingTotal,
       ownerLowStock,
       ownerStockValue,
+      ownerKpisPending,
       ownerScopeLabel,
       analyticsScope,
       analyticsBranchId,
@@ -978,6 +1002,8 @@ export function useDashboardData() {
       returnsTodayCount,
       returnsTodayTotal,
       dispensedToday,
+      dispensedTrendLabel,
+      dispensedTrendPositive,
       branches,
       branchLabel: currentBranch
         ? `${currentBranch.city ? `${currentBranch.city} — ` : ""}${currentBranch.name}`
@@ -1022,6 +1048,7 @@ export function useDashboardData() {
     branchId,
     loading,
     error,
+    lastUpdatedAt,
     reload,
     inventory,
     greeting,

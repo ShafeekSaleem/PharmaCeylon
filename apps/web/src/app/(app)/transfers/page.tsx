@@ -20,7 +20,7 @@ import {
 } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, DataTable, PageHeader, StatCard, StatusBadge, type Column } from "@/components/ui";
-import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import { apiJson, fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
 import inventoryCss from "../inventory/inventory.module.css";
@@ -69,10 +69,32 @@ function TransfersContent() {
 
   const productId = searchParams.get("productId");
   const action = searchParams.get("action");
+  const transferParam = searchParams.get("transfer");
 
   useEffect(() => {
     if (action === "create" && canWrite) setCreateOpen(true);
   }, [action, canWrite]);
+
+  useEffect(() => {
+    if (!transferParam) return;
+    let cancelled = false;
+    apiJson<TransferListItem>(`/transfers/${transferParam}`)
+      .then((t) => {
+        if (!cancelled) setDetailTransfer(t);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [transferParam]);
+
+  function clearTransferParam() {
+    if (!searchParams.get("transfer")) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("transfer");
+    const qs = next.toString();
+    router.replace(qs ? `/transfers?${qs}` : "/transfers");
+  }
 
   useEffect(() => {
     const status = searchParams.get("status");
@@ -764,7 +786,10 @@ function TransfersContent() {
         branchId={branchId}
         canWrite={canWrite}
         user={user}
-        onClose={() => setDetailTransfer(null)}
+        onClose={() => {
+          setDetailTransfer(null);
+          clearTransferParam();
+        }}
         onChanged={() => void transfers.reload()}
       />
     </div>

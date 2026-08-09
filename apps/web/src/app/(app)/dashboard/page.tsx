@@ -28,6 +28,9 @@ export default function DashboardPage() {
         ownerScope={isOwner ? data.ownerScope : undefined}
         onOwnerScopeChange={isOwner ? data.setOwnerScope : undefined}
         branchLabel={data.branchLabel}
+        loading={data.loading}
+        lastUpdatedAt={data.lastUpdatedAt}
+        onRefresh={() => void data.reload()}
         branchHint={
           isOwner
             ? ownerThisBranch

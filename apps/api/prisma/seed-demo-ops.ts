@@ -83,6 +83,8 @@ export type DemoOpsUsers = {
   managerId: string;
   pharmacistId: string;
   clerkId: string;
+  /** Extra branch-scoped cashiers (beyond cashierId) so Staff Productivity shows more than one name per branch. */
+  cashiersByBranch?: Record<string, string[]>;
 };
 
 export type DemoOpsResult = {
@@ -141,6 +143,13 @@ export async function seedDemoOps(
   const rng = mulberry32(20260804);
   const main = branches.find((b) => b.code === "MAIN");
   if (!main) throw new Error("seedDemoOps requires MAIN branch");
+
+  /** Per-branch seller pool for attributing sales; falls back to the single shared cashier. */
+  const cashierPoolByBranch = new Map<string, string[]>();
+  for (const branch of branches) {
+    const extra = users.cashiersByBranch?.[branch.id] ?? [];
+    cashierPoolByBranch.set(branch.id, [users.cashierId, ...extra]);
+  }
 
   const sellableRegs = new Set(demoStockRegNos);
   for (const [key, reg] of Object.entries(DEMO_STOCK_REG_NOS)) {
@@ -364,9 +373,12 @@ export async function seedDemoOps(
     }
   }
 
-  // Near-expiry samples on MAIN (~25 extra lots for dashboard widgets)
+  // Near-expiry samples (~25 extra lots for dashboard widgets), spread across every
+  // branch — not just MAIN — so Batch & Expiry Monitor has real data regardless of
+  // which branch a manager/pharmacist is currently viewing.
   const nearPick = sellableProducts.filter((_, i) => i % 28 === 0).slice(0, 25);
   const seedGrNearOps = "00000000-0000-4000-8000-0000000000a1";
+  const nearExpiryBranchCycle = [main, main, ...secondaryBranches];
   for (let i = 0; i < nearPick.length; i++) {
     const prod = nearPick[i]!;
     const meta = productMeta.get(prod.id);
@@ -378,15 +390,16 @@ export async function seedDemoOps(
       },
       i + 900,
     );
+    const nearBranch = nearExpiryBranchCycle[i % nearExpiryBranchCycle.length]!;
     const batchId = randomUUID();
     const daysUntil = 5 + (i % 25); // 5–29 days
     const receivedAt = daysAgo(70);
     batchRows.push({
       id: batchId,
       tenantId,
-      branchId: main.id,
+      branchId: nearBranch.id,
       productId: prod.id,
-      batchNo: `OPS-NEAR-${prod.sku.slice(0, 10)}-${i}`,
+      batchNo: `OPS-NEAR-${nearBranch.code}-${prod.sku.slice(0, 10)}-${i}`,
       expiryDate: daysFromNow(daysUntil),
       costPrice: dec(pricing.cost),
       sellingPrice: dec(pricing.sell),
@@ -395,7 +408,7 @@ export async function seedDemoOps(
     ledgerRows.push({
       id: randomUUID(),
       tenantId,
-      branchId: main.id,
+      branchId: nearBranch.id,
       productId: prod.id,
       batchId,
       movementType: StockMovementType.purchase_in,
@@ -720,14 +733,20 @@ export async function seedDemoOps(
         (acc, l) => acc.add(l.lineTotal),
         new Prisma.Decimal(0),
       );
-      const hour = 8 + Math.floor(rng() * 11); // 08–18
+      const hour = 7 + Math.floor(rng() * 15); // 07–21 — matches the dashboard's hourly workload chart range
       const minute = Math.floor(rng() * 60);
       const soldAt = new Date(soldDay);
-      soldAt.setUTCHours(hour, minute, Math.floor(rng() * 60), 0);
+      // Local setter (not UTC) — the dashboard buckets "today"/hour-of-day using the
+      // viewer's local Date methods, so the wall-clock hour must be set the same way
+      // or it drifts by the server's UTC offset (e.g. +5:30 for Asia/Colombo).
+      soldAt.setHours(hour, minute, Math.floor(rng() * 60), 0);
 
       const invoiceNo = `INV-${branch.code}-OPS-${String(invoiceSeq++).padStart(5, "0")}`;
+      const branchCashiers = cashierPoolByBranch.get(branch.id) ?? [users.cashierId];
       const sellerId =
-        rng() < 0.12 ? users.pharmacistId : users.cashierId;
+        rng() < 0.12
+          ? users.pharmacistId
+          : branchCashiers[Math.floor(rng() * branchCashiers.length)]!;
 
       const payRoll = rng();
       let customerId: string | null = null;

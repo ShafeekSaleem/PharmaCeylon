@@ -47,6 +47,7 @@ const TENANT_CODE = "demo";
 
 async function clearOperationalData(tenantId: string) {
   await prisma.idempotencyRecord.deleteMany({ where: { tenantId } });
+  await prisma.heldSale.deleteMany({ where: { tenantId } });
   await prisma.branchMonthlyTarget.deleteMany({ where: { tenantId } });
   await prisma.goodsReturn.deleteMany({ where: { tenantId } });
   await prisma.sale.deleteMany({ where: { tenantId } });
@@ -243,6 +244,18 @@ async function main() {
     create: { tenantId: tenant.id, email: "manager@pharmaceylon.demo", fullName: "Nimal Perera", passwordHash: managerHash },
   });
 
+  // Second manager — each of the two oversees a 2-branch pair instead of one manager covering all 4.
+  const manager2 = await prisma.appUser.upsert({
+    where: { email: "manager2@pharmaceylon.demo" },
+    update: { tenantId: tenant.id, fullName: "Priyanka Jayasekara", isActive: true, passwordHash: managerHash },
+    create: {
+      tenantId: tenant.id,
+      email: "manager2@pharmaceylon.demo",
+      fullName: "Priyanka Jayasekara",
+      passwordHash: managerHash,
+    },
+  });
+
   const pharmacistPosPinHash = await bcrypt.hash(
     process.env.SEED_PHARMACIST_POS_PIN ?? "1234",
     10,
@@ -269,9 +282,37 @@ async function main() {
 
   const cashier = await prisma.appUser.upsert({
     where: { email: "cashier@pharmaceylon.demo" },
-    update: { tenantId: tenant.id, fullName: "Seed Cashier", isActive: true, passwordHash: cashierHash },
+    update: { tenantId: tenant.id, fullName: "Kamal Silva", isActive: true, passwordHash: cashierHash },
     create: { tenantId: tenant.id, email: "cashier@pharmaceylon.demo", fullName: "Kamal Silva", passwordHash: cashierHash },
   });
+
+  // Extra branch-scoped cashiers so Staff Productivity has more than one name per branch.
+  const mainCashierDefs = [
+    { email: "cashier2@pharmaceylon.demo", fullName: "Sanduni Fernando" },
+    { email: "cashier3@pharmaceylon.demo", fullName: "Dinesh Wickramasinghe" },
+  ];
+  const branch2CashierDefs = [
+    { email: "cashier4@pharmaceylon.demo", fullName: "Ishara Perera" },
+    { email: "cashier5@pharmaceylon.demo", fullName: "Chamara Silva" },
+  ];
+  const mainCashiers = await Promise.all(
+    mainCashierDefs.map((d) =>
+      prisma.appUser.upsert({
+        where: { email: d.email },
+        update: { tenantId: tenant.id, fullName: d.fullName, isActive: true, passwordHash: cashierHash },
+        create: { tenantId: tenant.id, email: d.email, fullName: d.fullName, passwordHash: cashierHash },
+      }),
+    ),
+  );
+  const branch2Cashiers = await Promise.all(
+    branch2CashierDefs.map((d) =>
+      prisma.appUser.upsert({
+        where: { email: d.email },
+        update: { tenantId: tenant.id, fullName: d.fullName, isActive: true, passwordHash: cashierHash },
+        create: { tenantId: tenant.id, email: d.email, fullName: d.fullName, passwordHash: cashierHash },
+      }),
+    ),
+  );
 
   const inventoryClerk = await prisma.appUser.upsert({
     where: { email: "clerk@pharmaceylon.demo" },
@@ -279,20 +320,37 @@ async function main() {
     create: { tenantId: tenant.id, email: "clerk@pharmaceylon.demo", fullName: "Priya Jayawardena", passwordHash: clerkHash },
   });
 
+  const extraCashierIds = [...mainCashiers, ...branch2Cashiers].map((u) => u.id);
+
   await prisma.userBranchRole.deleteMany({
     where: {
       tenantId: tenant.id,
       userId: {
-        in: [owner.id, manager.id, pharmacist.id, cashier.id, inventoryClerk.id],
+        in: [
+          owner.id,
+          manager.id,
+          manager2.id,
+          pharmacist.id,
+          cashier.id,
+          inventoryClerk.id,
+          ...extraCashierIds,
+        ],
       },
     },
   });
+
+  // Manager 1 (Nimal) oversees MAIN + BRANCH2; Manager 2 (Priyanka) oversees GALLE + NEGOMBO.
+  const manager1Branches = [mainBranch, secondBranch];
+  const manager2Branches = [galleBranch, negomboBranch];
+  const managerIdByBranch = new Map<string, string>([
+    ...manager1Branches.map((b) => [b.id, manager.id] as const),
+    ...manager2Branches.map((b) => [b.id, manager2.id] as const),
+  ]);
 
   await prisma.userBranchRole.createMany({
     data: [
       ...allBranches.flatMap((branch) => [
         { tenantId: tenant.id, userId: owner.id, branchId: branch.id, role: RoleName.owner },
-        { tenantId: tenant.id, userId: manager.id, branchId: branch.id, role: RoleName.manager },
         { tenantId: tenant.id, userId: cashier.id, branchId: branch.id, role: RoleName.cashier },
         {
           tenantId: tenant.id,
@@ -301,9 +359,33 @@ async function main() {
           role: RoleName.inventory_clerk,
         },
       ]),
+      ...manager1Branches.map((branch) => ({
+        tenantId: tenant.id,
+        userId: manager.id,
+        branchId: branch.id,
+        role: RoleName.manager,
+      })),
+      ...manager2Branches.map((branch) => ({
+        tenantId: tenant.id,
+        userId: manager2.id,
+        branchId: branch.id,
+        role: RoleName.manager,
+      })),
       { tenantId: tenant.id, userId: pharmacist.id, branchId: mainBranch.id, role: RoleName.pharmacist },
       { tenantId: tenant.id, userId: pharmacist.id, branchId: secondBranch.id, role: RoleName.pharmacist },
       { tenantId: tenant.id, userId: pharmacist.id, branchId: galleBranch.id, role: RoleName.pharmacist },
+      ...mainCashiers.map((u) => ({
+        tenantId: tenant.id,
+        userId: u.id,
+        branchId: mainBranch.id,
+        role: RoleName.cashier,
+      })),
+      ...branch2Cashiers.map((u) => ({
+        tenantId: tenant.id,
+        userId: u.id,
+        branchId: secondBranch.id,
+        role: RoleName.cashier,
+      })),
     ],
   });
 
@@ -2252,6 +2334,10 @@ async function main() {
       managerId: manager.id,
       pharmacistId: pharmacist.id,
       clerkId: inventoryClerk.id,
+      cashiersByBranch: {
+        [mainBranch.id]: mainCashiers.map((u) => u.id),
+        [secondBranch.id]: branch2Cashiers.map((u) => u.id),
+      },
     },
     productBySku,
     nmraProducts: nmra.products,
@@ -2259,6 +2345,114 @@ async function main() {
     supplierIds: activeSupplierIds,
     customerIds,
   });
+
+  // ── Held sales (Pharmacist "Prescription Verification Queue" demo data) ──
+  console.log("Seeding held sales (Prescription Verification Queue demo data)…");
+  const heldSaleDefs: Array<{
+    branch: { id: string };
+    holdRef: string;
+    label: string | null;
+    heldBy: string;
+    minutesAgo: number;
+    needsPharmacist: boolean;
+    lines: Array<{ sku: string; qty: number; unitPrice: number }>;
+  }> = [
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-01",
+      label: null,
+      heldBy: mainCashiers[0]!.id,
+      minutesAgo: 35,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0021", qty: 1, unitPrice: 620 }],
+    },
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-02",
+      label: "Mr. Perera",
+      heldBy: cashier.id,
+      minutesAgo: 62,
+      needsPharmacist: true,
+      lines: [
+        { sku: "PCL-0026", qty: 1, unitPrice: 1580 },
+        { sku: "PCL-0001", qty: 2, unitPrice: 55 },
+      ],
+    },
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-03",
+      label: "Blue shirt",
+      heldBy: mainCashiers[1]!.id,
+      minutesAgo: 8,
+      needsPharmacist: false,
+      lines: [
+        { sku: "PCL-0002", qty: 1, unitPrice: 165 },
+        { sku: "PCL-0005", qty: 2, unitPrice: 22 },
+      ],
+    },
+    {
+      branch: secondBranch,
+      holdRef: "HOLD-SEED-01",
+      label: null,
+      heldBy: branch2Cashiers[0]!.id,
+      minutesAgo: 20,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0009", qty: 1, unitPrice: 38 }],
+    },
+    {
+      branch: secondBranch,
+      holdRef: "HOLD-SEED-02",
+      label: "Mrs. Bandara",
+      heldBy: branch2Cashiers[1]!.id,
+      minutesAgo: 47,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0027", qty: 1, unitPrice: 250 }],
+    },
+    {
+      branch: galleBranch,
+      holdRef: "HOLD-SEED-01",
+      label: null,
+      heldBy: cashier.id,
+      minutesAgo: 15,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0001", qty: 3, unitPrice: 55 }],
+    },
+  ];
+
+  for (const def of heldSaleDefs) {
+    const lines = def.lines.map((l) => ({
+      productId: productBySku.get(l.sku) ?? null,
+      sku: l.sku,
+      qty: l.qty,
+      unitPrice: l.unitPrice,
+    }));
+    const total = lines.reduce((sum, l) => sum + l.qty * l.unitPrice, 0);
+    const itemCount = def.lines.reduce((sum, l) => sum + l.qty, 0);
+    const createdAt = new Date(Date.now() - def.minutesAgo * 60_000);
+    await prisma.heldSale.create({
+      data: {
+        tenantId: tenant.id,
+        branchId: def.branch.id,
+        holdRef: def.holdRef,
+        label: def.label,
+        itemCount,
+        total: dec(total),
+        payload: {
+          lines,
+          meta: {
+            needsPharmacist: def.needsPharmacist,
+            holdReason: def.needsPharmacist ? "awaiting_pharmacist" : null,
+          },
+        } as Prisma.InputJsonValue,
+        heldBy: def.heldBy,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    });
+  }
+  console.log(
+    `  Held sales: ${heldSaleDefs.length} (${heldSaleDefs.filter((d) => d.needsPharmacist).length} awaiting pharmacist)`,
+  );
 
   // Monthly branch sales targets for last 3 calendar months (Owner-set → manager).
   // Daily sales already span ~90 days via seed-demo-ops (covers ≥2 months).
@@ -2302,6 +2496,7 @@ async function main() {
       const stretch = isCurrentMonth ? 1.08 : 1.05;
       const targetAmount = Math.round(base * stretch);
 
+      const branchManagerId = managerIdByBranch.get(branch.id) ?? manager.id;
       await prisma.branchMonthlyTarget.upsert({
         where: {
           tenantId_branchId_yearMonth: {
@@ -2315,13 +2510,13 @@ async function main() {
           branchId: branch.id,
           yearMonth,
           targetAmount: dec(targetAmount),
-          managerUserId: manager.id,
+          managerUserId: branchManagerId,
           notes: "Seed monthly sales target",
           createdBy: owner.id,
         },
         update: {
           targetAmount: dec(targetAmount),
-          managerUserId: manager.id,
+          managerUserId: branchManagerId,
           notes: "Seed monthly sales target",
         },
       });
@@ -2372,7 +2567,8 @@ async function main() {
   );
   console.log("\nLogins (passwords from SEED_*_PASSWORD or defaults):");
   console.log("  owner@pharmaceylon.demo      — owner");
-  console.log("  manager@pharmaceylon.demo    — manager");
+  console.log("  manager@pharmaceylon.demo    — manager (MAIN + BRANCH2)");
+  console.log("  manager2@pharmaceylon.demo   — manager (GALLE + NEGOMBO)");
   console.log("  pharmacist@pharmaceylon.demo — pharmacist (till PIN from SEED_PHARMACIST_POS_PIN or 1234)");
   console.log("  cashier@pharmaceylon.demo    — cashier");
   console.log("  clerk@pharmaceylon.demo      — inventory_clerk");

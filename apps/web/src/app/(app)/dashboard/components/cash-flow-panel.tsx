@@ -5,7 +5,7 @@ import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import type { FinancialSnapshot } from "../hooks/use-dashboard-data";
 import { DashboardPanel } from "./dashboard-panel";
-import { DashboardPeriodSelect } from "./dashboard-period-select";
+import { PeriodToggle } from "./period-toggle";
 import { paymentMixColor } from "../lib/payment-mix-colors";
 import { SimpleDonutChart } from "./simple-charts";
 import css from "../dashboard.module.css";
@@ -100,8 +100,8 @@ export function CashFlowPanel({ financial, analyticsBranchId = null }: Props) {
       <div className={css.cashFlowBody}>
         <div className={css.subHeadingRow}>
           <h3 className={css.subHeading}>Payment Mix</h3>
-          <DashboardPeriodSelect
-            label="Duration"
+          <PeriodToggle
+            aria-label="Payment mix duration"
             value={mixPeriod}
             options={MIX_OPTIONS}
             onChange={(v) => setMixPeriod(v as MixPeriod)}

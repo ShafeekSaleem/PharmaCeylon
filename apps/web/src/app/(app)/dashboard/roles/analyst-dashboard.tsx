@@ -1,24 +1,16 @@
 "use client";
 
-import {
-  IconActivity,
-  IconAlertTriangle,
-  IconBarChart,
-  IconPackage,
-  IconShoppingCart,
-} from "@/components/icons";
-import { StatCard } from "@/components/ui";
+import { useMemo } from "react";
+import { IconActivity, IconAlertTriangle, IconBarChart, IconPackage } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { INSIGHTS_ROLES } from "@/lib/role-access";
 import { AiInsightsCard } from "../components/ai-insights-card";
+import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
 import { DashboardPanel } from "../components/dashboard-panel";
+import { HeroBand } from "../components/hero-band";
 import { ProgressBar } from "../components/progress-bar";
 import { QuickActionsBar } from "../components/quick-actions-bar";
-import {
-  SimpleDonutChart,
-  SimpleGroupedBarChart,
-  SimpleLineChart,
-} from "../components/simple-charts";
+import { SimpleDonutChart, SimpleGroupedBarChart, SimpleLineChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import { ANALYST_AI_INSIGHTS } from "../lib/placeholder-data";
 import css from "../dashboard.module.css";
@@ -62,99 +54,62 @@ export function AnalystDashboard({ data }: Props) {
       ? Math.round((inventory.outOfStock / inventory.skuCount) * 1000) / 10
       : null;
 
+  const tickerItems: TickerItem[] = useMemo(() => {
+    const items: TickerItem[] = [];
+    if (lowStockCount > 0 || reorderCount > 0) {
+      items.push({
+        key: "low",
+        count: lowStockCount,
+        label:
+          reorderCount > 0
+            ? `SKUs at/below reorder · ${reorderCount} suggestion${reorderCount === 1 ? "" : "s"}`
+            : "SKUs at or below reorder level",
+        tone: "warning",
+        href: "/analytics",
+      });
+    }
+    if (nearExpiryCount > 0) {
+      items.push({
+        key: "exp",
+        count: nearExpiryCount,
+        label: "batches expiring ≤30 days",
+        tone: "warning",
+        href: "/reports?tab=expiry",
+      });
+    }
+    return items;
+  }, [lowStockCount, reorderCount, nearExpiryCount]);
+
   return (
     <>
-      <div className={css.kpiRow}>
-        <StatCard
-          title="Sales Today"
-          value={loading ? "…" : formatMoney(todaySalesTotal)}
-          subtitle="vs yesterday"
-          icon={<IconShoppingCart size={16} strokeWidth={1.75} />}
-          iconTone="primary"
-          trend={
-            salesTrendLabel
-              ? {
-                  value: salesTrendLabel,
-                  direction: salesTrendPositive ? "up" : "down",
-                  tone: salesTrendPositive ? "positive" : "danger",
-                }
-              : undefined
-          }
-          menuItems={[
-            { label: "View reports", href: "/reports" },
-            { label: "Open analytics", href: "/analytics" },
-          ]}
-        />
-        <StatCard
-          title="Sales (30 days)"
-          value={loading ? "…" : formatMoney(monthSalesTotal)}
-          subtitle={`${monthSalesCount} invoices`}
-          icon={<IconBarChart size={16} strokeWidth={1.75} />}
-          iconTone="success"
-          menuItems={[
-            { label: "View reports", href: "/reports" },
-            { label: "Open analytics", href: "/analytics" },
-          ]}
-        />
-        <StatCard
-          title="Gross Margin"
-          value={loading ? "…" : marginPct != null ? `${marginPct.toFixed(1)}%` : "—"}
-          subtitle="30d product margin report"
-          icon={<IconActivity size={16} strokeWidth={1.75} />}
-          iconTone="info"
-          menuItems={[
-            { label: "Open analytics", href: "/analytics" },
-            { label: "View reports", href: "/reports" },
-          ]}
-        />
-        <StatCard
-          title="Low Stock / Reorder"
-          value={loading ? "…" : lowStockCount}
-          subtitle={
-            reorderCount > 0
-              ? `${reorderCount} reorder suggestion${reorderCount === 1 ? "" : "s"}`
-              : "SKUs at or below reorder level"
-          }
-          icon={<IconAlertTriangle size={16} strokeWidth={1.75} />}
-          iconTone="warning"
-          trend={
-            lowStockCount > 0 || reorderCount > 0
-              ? { value: "Watch", direction: "up", tone: "warning" }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open analytics", href: "/analytics" },
-            { label: "View reports", href: "/reports" },
-          ]}
-        />
-        <StatCard
-          title="Near Expiry"
-          value={loading ? "…" : nearExpiryCount}
-          subtitle="Batches within 30 days"
-          icon={<IconAlertTriangle size={16} strokeWidth={1.75} />}
-          iconTone="warning"
-          trend={
-            nearExpiryCount > 0
-              ? { value: "Watch", direction: "up", tone: "warning" }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open analytics", href: "/analytics" },
-            { label: "View reports", href: "/reports" },
-          ]}
-        />
-        <StatCard
-          title="Stock Value"
-          value={loading ? "…" : inventory ? formatMoney(inventory.stockValue) : "—"}
-          subtitle={inventory ? `${inventory.skuCount} SKUs` : "On-hand at cost"}
-          icon={<IconPackage size={16} strokeWidth={1.75} />}
-          iconTone="primary"
-          menuItems={[
-            { label: "View reports", href: "/reports" },
-            { label: "Open analytics", href: "/analytics" },
-          ]}
-        />
-      </div>
+      <HeroBand
+        label="Sales Today"
+        value={formatMoney(todaySalesTotal)}
+        scope="vs yesterday"
+        loading={loading}
+        sparkline={salesTrend7d}
+        trend={
+          salesTrendLabel
+            ? { label: salesTrendLabel, direction: salesTrendPositive ? "up" : "down" }
+            : undefined
+        }
+        secondary={[
+          {
+            key: "month",
+            label: "Sales (30 days)",
+            value: formatMoney(monthSalesTotal),
+            meta: `${monthSalesCount} invoices`,
+          },
+          {
+            key: "margin",
+            label: "Gross Margin",
+            value: marginPct != null ? `${marginPct.toFixed(1)}%` : "—",
+            meta: "30d product margin report",
+          },
+        ]}
+      />
+
+      <AttentionTicker items={tickerItems} loading={loading} allClearText="No stock signals flagged right now" />
 
       <div className={css.grid3}>
         <DashboardPanel title="Sales Trend (7 days)" className={css.span2}>
@@ -162,11 +117,7 @@ export function AnalystDashboard({ data }: Props) {
         </DashboardPanel>
         <DashboardPanel
           title="Payment Mix (Today)"
-          badge={
-            paymentMixIsPlaceholder ? (
-              <span className={css.placeholderBadge}>Sample</span>
-            ) : undefined
-          }
+          badge={paymentMixIsPlaceholder ? <span className={css.placeholderBadge}>Sample</span> : undefined}
         >
           {paymentMixIsPlaceholder ? (
             <>
@@ -176,21 +127,13 @@ export function AnalystDashboard({ data }: Props) {
               </p>
             </>
           ) : (
-            <SimpleDonutChart
-              slices={paymentMix}
-              centerValue={formatMoney(todaySalesTotal)}
-              centerLabel="Today"
-            />
+            <SimpleDonutChart slices={paymentMix} centerValue={formatMoney(todaySalesTotal)} centerLabel="Today" />
           )}
         </DashboardPanel>
       </div>
 
       <div className={css.grid3}>
-        <DashboardPanel
-          title="Revenue vs Purchases"
-          footerHref="/reports"
-          footerLabel="Open reports →"
-        >
+        <DashboardPanel title="Revenue vs Purchases" footerHref="/reports" footerLabel="Open reports →">
           {purchUnavailable ? (
             <p className={css.placeholderNote}>
               Revenue is from sales. Purchase bars need PO access — empty for Analyst.
@@ -200,18 +143,10 @@ export function AnalystDashboard({ data }: Props) {
               Purchases approximated from PO created dates (not received GRNs).
             </p>
           )}
-          <SimpleGroupedBarChart
-            points={revenueVsPurchases}
-            aLabel="Revenue"
-            bLabel="Purchases"
-          />
+          <SimpleGroupedBarChart points={revenueVsPurchases} aLabel="Revenue" bLabel="Purchases" />
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Inventory Health"
-          footerHref="/analytics"
-          footerLabel="Open analytics →"
-        >
+        <DashboardPanel title="Inventory Health" footerHref="/analytics" footerLabel="Open analytics →">
           <div className={css.healthPills}>
             <span className={`${css.healthPill} ${css.healthPill_neutral}`}>
               SKUs
@@ -247,11 +182,7 @@ export function AnalystDashboard({ data }: Props) {
           ) : null}
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Top Reorder"
-          footerHref="/analytics"
-          footerLabel="Open analytics →"
-        >
+        <DashboardPanel title="Top Reorder" footerHref="/analytics" footerLabel="Open analytics →">
           {topReorder.length === 0 ? (
             <p className={css.emptyState}>No reorder suggestions right now.</p>
           ) : (
@@ -269,12 +200,7 @@ export function AnalystDashboard({ data }: Props) {
         </DashboardPanel>
       </div>
 
-      <AiInsightsCard
-        title="AI Sample"
-        insights={ANALYST_AI_INSIGHTS}
-        footerHref="/analytics"
-        footerLabel="Open analytics →"
-      />
+      <AiInsightsCard insights={ANALYST_AI_INSIGHTS} footerHref="/analytics" footerLabel="Open analytics →" />
 
       <QuickActionsBar
         title="Analyst Quick Actions"

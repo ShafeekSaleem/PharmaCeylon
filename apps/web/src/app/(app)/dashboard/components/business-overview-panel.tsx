@@ -8,7 +8,7 @@ import {
   IconDollarSign,
   IconShoppingCart,
 } from "@/components/icons";
-import { DashboardPeriodSelect } from "./dashboard-period-select";
+import { PeriodToggle } from "./period-toggle";
 import {
   SimpleGroupedBarChart,
   SimpleLineChart,
@@ -22,6 +22,7 @@ type TrendDays = 7 | 14 | 30;
 type MonthPeriod = "this_month" | "last_month";
 
 type Props = {
+  title?: string;
   /** Fallback trend from main dashboard hook while panel loads. */
   fallbackTrend?: ChartPoint[];
   /** When set, charts filter to this branch; omit for tenant-wide. */
@@ -105,6 +106,7 @@ function MetricCell({
 }
 
 export function BusinessOverviewPanel({
+  title = "Business Overview",
   fallbackTrend = [],
   analyticsBranchId = null,
 }: Props) {
@@ -220,15 +222,15 @@ export function BusinessOverviewPanel({
   const canCompare = prevRevenue != null && prevPurchases != null;
 
   return (
-    <DashboardPanel title="Business Overview" compact className={css.splitPanel}>
+    <DashboardPanel title={title} compact className={css.splitPanel}>
       <div className={css.overviewGrid}>
         <div className={css.overviewChartsCol}>
           <div className={css.overviewChartsPair}>
             <section className={css.overviewSubcard}>
               <div className={css.subHeadingRow}>
                 <h3 className={css.subHeading}>Sales Trend</h3>
-                <DashboardPeriodSelect
-                  label="Duration"
+                <PeriodToggle
+                  aria-label="Sales trend duration"
                   value={String(trendDays)}
                   options={TREND_OPTIONS}
                   onChange={(v) => setTrendDays(Number(v) as TrendDays)}
@@ -254,8 +256,8 @@ export function BusinessOverviewPanel({
             <section className={css.overviewSubcard}>
               <div className={css.subHeadingRow}>
                 <h3 className={css.subHeading}>Revenue vs Purchases</h3>
-                <DashboardPeriodSelect
-                  label="Period"
+                <PeriodToggle
+                  aria-label="Revenue vs purchases period"
                   value={revPeriod}
                   options={MONTH_OPTIONS}
                   onChange={(v) => setRevPeriod(v as MonthPeriod)}

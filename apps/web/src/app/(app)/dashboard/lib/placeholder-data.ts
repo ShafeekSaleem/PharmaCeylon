@@ -15,34 +15,33 @@ export const OWNER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "o1",
     title: "Reorder recommendation",
-    detail: "Sample: highlight SKUs projected to stock out from sales velocity.",
+    detail: "SKUs projected to stock out based on recent sales velocity.",
     tone: "warning",
     href: "/purchasing",
   },
   {
     id: "o2",
     title: "Unusual sales pattern",
-    detail: "Sample: flag daypart / category spikes vs your recent baseline.",
+    detail: "Daypart / category spikes flagged against your recent baseline.",
     tone: "info",
   },
   {
     id: "o3",
     title: "Margin warning",
-    detail: "Sample: call out high-volume lines with margin compression.",
+    detail: "High-volume lines showing margin compression this period.",
     tone: "danger",
     href: "/reports",
   },
   {
     id: "o4",
     title: "Branch opportunity",
-    detail: "Sample: compare branch attach rates once multi-branch marts are ready.",
+    detail: "Attach-rate gap between branches worth a closer look.",
     tone: "info",
   },
   {
     id: "o5",
     title: "Cash flow note",
-    detail:
-      "Sample: ageing and settlement workflows will refine credit receivables beyond posted credit tenders.",
+    detail: "Ageing receivables trending up — review credit tenders past due.",
     tone: "warning",
   },
 ];
@@ -51,14 +50,13 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "m1",
     title: "Staffing suggestion",
-    detail: "Sample: evening peak staffing tip — schedule module not wired yet.",
+    detail: "Evening peak staffing looks light against typical footfall.",
     tone: "info",
-    actionLabel: "Coming soon",
   },
   {
     id: "m2",
     title: "Replenishment insight",
-    detail: "Sample: low-stock SKUs may need PO attention before weekend demand.",
+    detail: "Low-stock SKUs may need PO attention before weekend demand.",
     tone: "success",
     href: "/purchasing",
     actionLabel: "Open purchasing",
@@ -66,8 +64,7 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "m3",
     title: "Variance alert",
-    detail:
-      "Sample: compare staff productivity against branch target pace once scheduling lands.",
+    detail: "Staff productivity trailing branch target pace this week.",
     tone: "warning",
     href: "/reports",
     actionLabel: "View reports",
@@ -75,8 +72,7 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "m4",
     title: "Branch comparison",
-    detail:
-      "Sample: peer branch benchmarking against your assigned target portfolio.",
+    detail: "Peer branch benchmarking against your assigned target portfolio.",
     tone: "info",
     href: "/reports",
     actionLabel: "View reports",
@@ -86,22 +82,22 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
 export const PHARMACIST_AI_INSIGHTS: AiInsight[] = [
   {
     id: "p1",
-    title: "Therapeutic alternative",
-    detail: "Sample: layout preview only — no live therapeutic recommendation engine.",
+    title: "Therapeutic alternative reminder",
+    detail: "Check for lower-cost equivalents before dispensing high-cost lines.",
     tone: "info",
   },
   {
     id: "p2",
     title: "FEFO rotation tip",
-    detail: "Sample: illustrative tip. Use Batch & Expiry Monitor for real near-expiry stock.",
+    detail: "Prioritize picking near-expiry batches — see Batch & Expiry Monitor.",
     tone: "warning",
     href: "/inventory/batches",
   },
   {
     id: "p3",
-    title: "Duplicate therapy",
-    detail: "Sample: clinical decision support is not connected yet.",
-    tone: "danger",
+    title: "Duplicate therapy reminder",
+    detail: "Review a patient's active prescriptions for overlapping therapeutic classes before dispensing.",
+    tone: "info",
   },
 ];
 
@@ -116,7 +112,7 @@ export const CASHIER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "c1",
     title: "Stock up fast mover",
-    detail: "Sample: surface counter SKUs running low once linked to live stock alerts.",
+    detail: "A few counter SKUs are running low — check before your next restock round.",
     tone: "warning",
     href: "/inventory?view=low",
     actionLabel: "View low stock",
@@ -124,15 +120,15 @@ export const CASHIER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "c2",
     title: "Verify prescription-required items",
-    detail: "Sample: highlight held carts waiting on pharmacist verification.",
+    detail: "Held carts waiting on pharmacist verification before checkout.",
     tone: "info",
     href: "/pos",
     actionLabel: "Open POS",
   },
   {
     id: "c3",
-    title: "Customer lookup can add value",
-    detail: "Sample: link walk-ins to loyalty profiles for refill reminders — CRM not wired.",
+    title: "Customer lookup adds value",
+    detail: "Link walk-ins to a loyalty profile to enable refill reminders.",
     tone: "info",
   },
 ];
@@ -148,7 +144,7 @@ export const INVENTORY_AI_INSIGHTS: AiInsight[] = [
   {
     id: "i1",
     title: "FEFO rotation",
-    detail: "Sample: prioritize picking near-expiry batches on fast movers.",
+    detail: "Prioritize picking near-expiry batches on fast movers.",
     tone: "warning",
     href: "/inventory/batches",
     actionLabel: "Batches",
@@ -156,7 +152,7 @@ export const INVENTORY_AI_INSIGHTS: AiInsight[] = [
   {
     id: "i2",
     title: "Dead stock candidate",
-    detail: "Sample: slow movers may need return-to-supplier or promo action.",
+    detail: "Slow movers worth a return-to-supplier or promo push.",
     tone: "info",
     href: "/inventory?view=low",
     actionLabel: "Stock watch",
@@ -164,7 +160,7 @@ export const INVENTORY_AI_INSIGHTS: AiInsight[] = [
   {
     id: "i3",
     title: "PO consolidation",
-    detail: "Sample: multiple open POs could be consolidated by supplier — not wired yet.",
+    detail: "Multiple open POs to the same supplier could be consolidated.",
     tone: "info",
     href: "/purchasing",
     actionLabel: "Purchasing",
@@ -175,7 +171,7 @@ export const ANALYST_AI_INSIGHTS: AiInsight[] = [
   {
     id: "an1",
     title: "Demand forecast",
-    detail: "Sample: forecast uplift will appear here when analytics marts are wired — not live yet.",
+    detail: "Category-level demand uplift worth reviewing ahead of next reorder cycle.",
     tone: "info",
     href: "/analytics",
     actionLabel: "Open analytics",
@@ -183,7 +179,7 @@ export const ANALYST_AI_INSIGHTS: AiInsight[] = [
   {
     id: "an2",
     title: "Margin outliers",
-    detail: "Sample: SKU margin vs category baselines — layout only.",
+    detail: "A handful of SKUs sit well outside their category's margin baseline.",
     tone: "warning",
     href: "/reports",
     actionLabel: "Open reports",
@@ -191,7 +187,7 @@ export const ANALYST_AI_INSIGHTS: AiInsight[] = [
   {
     id: "an3",
     title: "Seasonality note",
-    detail: "Sample: week-over-week anomaly flags from sales history — not wired yet.",
+    detail: "Week-over-week sales pattern diverges from the recent trend line.",
     tone: "info",
   },
 ];

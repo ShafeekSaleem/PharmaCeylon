@@ -1,24 +1,22 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import {
-  IconAlertTriangle,
   IconBarcodeScan,
-  IconCreditCard,
-  IconPackage,
   IconPause,
   IconReceipt,
   IconRotateCcw,
   IconSearch,
-  IconShoppingCart,
   IconUsers,
 } from "@/components/icons";
-import { StatCard, StatusBadge } from "@/components/ui";
+import { StatusBadge } from "@/components/ui";
 import { formatMoney, formatRelativeTime } from "@/app/(app)/inventory/utils";
 import { POS_ROLES, RETURNS_ROLES } from "@/lib/role-access";
 import { AiInsightsCard } from "../components/ai-insights-card";
-import { AlertList, type DashboardAlert } from "../components/alert-list";
+import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
 import { DashboardPanel } from "../components/dashboard-panel";
+import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
 import { SimpleDonutChart, SimpleLineChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
@@ -59,136 +57,77 @@ export function CashierDashboard({ data }: Props) {
     hourlyToday[0] ?? { label: "—", value: 0 },
   );
 
-  const pharmacyAlerts: DashboardAlert[] = [
-    rxWaiting > 0
-      ? {
-          key: "rx",
-          label: "Prescription items waiting verification",
-          count: rxWaiting,
-          tone: "danger",
-          href: "/pos",
-          actionLabel: "View",
-        }
-      : null,
-    holdCount > 5
-      ? {
-          key: "holds",
-          label: "Held sales backlog at counter",
-          count: holdCount,
-          tone: "warning",
-          href: "/pos",
-          actionLabel: "Recall",
-        }
-      : null,
-    lowStockRows.length > 0
-      ? {
-          key: "low",
-          label: "Items low on stock at counter",
-          count: lowStockRows.length,
-          tone: "warning",
-          href: "/inventory?view=low",
-          actionLabel: "View",
-        }
-      : null,
-  ].filter(Boolean) as DashboardAlert[];
-
-  const counterAlerts = pharmacyAlerts.length;
+  const tickerItems: TickerItem[] = useMemo(() => {
+    const items: TickerItem[] = [];
+    if (rxWaiting > 0) {
+      items.push({
+        key: "rx",
+        count: rxWaiting,
+        label: "prescription items waiting verification",
+        tone: "danger",
+        href: "/pos",
+      });
+    }
+    if (holdCount > 5) {
+      items.push({
+        key: "holds",
+        count: holdCount,
+        label: "held sales backlog at counter",
+        tone: "warning",
+        href: "/pos",
+      });
+    }
+    if (lowStockRows.length > 0) {
+      items.push({
+        key: "low",
+        count: lowStockRows.length,
+        label: "items low on stock at counter",
+        tone: "warning",
+        href: "/inventory?view=low",
+      });
+    }
+    if (returnsTodayCount > 0) {
+      items.push({
+        key: "ret",
+        count: returnsTodayCount,
+        label: `returns today · ${formatMoney(returnsTodayTotal)}`,
+        tone: "info",
+        href: "/returns",
+      });
+    }
+    return items;
+  }, [rxWaiting, holdCount, lowStockRows.length, returnsTodayCount, returnsTodayTotal]);
 
   return (
     <>
-      <div className={css.kpiRow}>
-        <StatCard
-          title="Shift Sales"
-          value={loading ? "…" : formatMoney(todaySalesTotal)}
-          subtitle="vs yesterday"
-          icon={<IconShoppingCart size={16} strokeWidth={1.75} />}
-          iconTone="primary"
-          trend={
-            salesTrendLabel
-              ? {
-                  value: salesTrendLabel,
-                  direction: salesTrendPositive ? "up" : "down",
-                  tone: salesTrendPositive ? "positive" : "danger",
-                }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open POS", href: "/pos" },
-            { label: "Recall holds", href: "/pos" },
-          ]}
-        />
-        <StatCard
-          title="Bills Processed"
-          value={loading ? "…" : todaySalesCount}
-          subtitle="Posted today"
-          icon={<IconReceipt size={16} strokeWidth={1.75} />}
-          iconTone="success"
-          menuItems={[
-            { label: "Open POS", href: "/pos" },
-            { label: "Last receipts", href: "/pos" },
-          ]}
-        />
-        <StatCard
-          title="Held Sales"
-          value={loading ? "…" : holdCount}
-          subtitle={`Value: ${formatMoney(holdValue)}`}
-          icon={<IconPause size={16} strokeWidth={1.75} />}
-          iconTone="warning"
-          trend={
-            holdCount > 0
-              ? { value: "Pending", direction: "up", tone: "warning" }
-              : undefined
-          }
-          menuItems={[
-            { label: "Recall holds", href: "/pos" },
-            { label: "Open POS", href: "/pos" },
-          ]}
-        />
-        <StatCard
-          title="Prescriptions / Holds Waiting"
-          value={loading ? "…" : rxWaiting}
-          subtitle={
-            pharmacistHolds[0]
-              ? `Oldest: ${formatRelativeTime(pharmacistHolds[0].createdAt)}`
-              : holdCount > 0
-                ? `${holdCount} held · none need Rx`
-                : "None waiting"
-          }
-          icon={<IconUsers size={16} strokeWidth={1.75} />}
-          iconTone="info"
-          menuItems={[
-            { label: "Open POS queue", href: "/pos" },
-            { label: "View catalog", href: "/catalog" },
-          ]}
-        />
-        <StatCard
-          title="Returns Today"
-          value={loading ? "…" : returnsTodayCount}
-          subtitle={`Value: ${formatMoney(returnsTodayTotal)}`}
-          icon={<IconRotateCcw size={16} strokeWidth={1.75} />}
-          iconTone="warning"
-          menuItems={[
-            { label: "Open returns", href: "/returns" },
-            { label: "Open POS", href: "/pos" },
-          ]}
-        />
-        <StatCard
-          title="Counter Alerts"
-          value={loading ? "…" : counterAlerts}
-          subtitle={counterAlerts > 0 ? "Action needed" : "All clear"}
-          icon={<IconAlertTriangle size={16} strokeWidth={1.75} />}
-          iconTone="danger"
-          trend={
-            counterAlerts > 0
-              ? { value: "Action", direction: "up", tone: "danger" }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open POS", href: "/pos" },
-            { label: "View low stock", href: "/inventory?view=low" },
-          ]}
-        />
-      </div>
+      <HeroBand
+        label="Shift Sales"
+        value={formatMoney(todaySalesTotal)}
+        scope="This shift · vs yesterday"
+        loading={loading}
+        sparkline={hourlyToday}
+        trend={
+          salesTrendLabel
+            ? { label: salesTrendLabel, direction: salesTrendPositive ? "up" : "down" }
+            : undefined
+        }
+        secondary={[
+          {
+            key: "bills",
+            label: "Bills Processed",
+            value: todaySalesCount,
+            meta: "Posted today",
+          },
+          {
+            key: "held",
+            label: "Held Sales",
+            value: holdCount,
+            meta: `Value: ${formatMoney(holdValue)}`,
+          },
+        ]}
+      />
+
+      <AttentionTicker items={tickerItems} loading={loading} allClearText="No counter alerts — all clear" />
 
       <div className={css.grid3}>
         <DashboardPanel
@@ -220,11 +159,7 @@ export function CashierDashboard({ data }: Props) {
         <DashboardPanel
           title="Payment Methods Today"
           compact
-          badge={
-            paymentMixIsPlaceholder ? (
-              <span className={css.placeholderBadge}>Sample</span>
-            ) : undefined
-          }
+          badge={paymentMixIsPlaceholder ? <span className={css.placeholderBadge}>Sample</span> : undefined}
         >
           {paymentMixIsPlaceholder ? (
             <>
@@ -234,11 +169,7 @@ export function CashierDashboard({ data }: Props) {
               </p>
             </>
           ) : (
-            <SimpleDonutChart
-              slices={paymentMix}
-              centerValue={formatMoney(todaySalesTotal)}
-              centerLabel="Total"
-            />
+            <SimpleDonutChart slices={paymentMix} centerValue={formatMoney(todaySalesTotal)} centerLabel="Total" />
           )}
         </DashboardPanel>
       </div>
@@ -305,13 +236,7 @@ export function CashierDashboard({ data }: Props) {
           )}
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Held Bills"
-          compact
-          footerHref="/pos"
-          footerLabel="Recall in POS →"
-          footerMeta={`${holdCount} held`}
-        >
+        <DashboardPanel title="Held Bills" compact footerHref="/pos" footerLabel="Recall in POS →" footerMeta={`${holdCount} held`}>
           {holds.length === 0 ? (
             <p className={css.emptyState}>No held sales.</p>
           ) : (
@@ -334,13 +259,7 @@ export function CashierDashboard({ data }: Props) {
       </div>
 
       <div className={css.grid3}>
-        <DashboardPanel
-          title="Fast Moving Counter Items"
-          className={css.span2}
-          compact
-          footerHref="/pos"
-          footerLabel="Open POS →"
-        >
+        <DashboardPanel title="Fast Moving Counter Items" className={css.span2} compact footerHref="/pos" footerLabel="Open POS →">
           {topProductsToday.length === 0 ? (
             <p className={css.emptyState}>No product velocity yet today.</p>
           ) : (
@@ -361,11 +280,7 @@ export function CashierDashboard({ data }: Props) {
           )}
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Customer & Queue"
-          compact
-          headerRight={<span className={css.placeholderBadge}>Sample</span>}
-        >
+        <DashboardPanel title="Customer & Queue" compact headerRight={<span className={css.placeholderBadge}>Sample</span>}>
           <div className={css.queueCard}>
             <p className={css.placeholderNote}>
               Loyalty queue & walk-in CRM not wired — sample layout only. Held bills are in the panel
@@ -404,16 +319,7 @@ export function CashierDashboard({ data }: Props) {
         </DashboardPanel>
       </div>
 
-      <div className={css.grid2}>
-        <DashboardPanel title="Pharmacy Alerts" compact>
-          <AlertList
-            showAction
-            emptyText="No counter alerts right now."
-            alerts={pharmacyAlerts}
-          />
-        </DashboardPanel>
-        <AiInsightsCard insights={CASHIER_AI_INSIGHTS} />
-      </div>
+      <AiInsightsCard insights={CASHIER_AI_INSIGHTS} />
 
       <QuickActionsBar
         title="Cashier Quick Actions"

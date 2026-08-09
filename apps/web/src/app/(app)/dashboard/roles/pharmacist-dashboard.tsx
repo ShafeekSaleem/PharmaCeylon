@@ -1,30 +1,29 @@
 "use client";
 
+import { useMemo, type KeyboardEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   IconAlertTriangle,
+  IconArchive,
   IconCalendar,
-  IconClipboardList,
-  IconFileText,
   IconPackage,
   IconPill,
   IconRotateCcw,
-  IconShoppingCart,
+  IconSearch,
   IconStethoscope,
 } from "@/components/icons";
-import { StatCard, StatusBadge } from "@/components/ui";
-import { formatExpiry, formatRelativeTime } from "@/app/(app)/inventory/utils";
+import { StatusBadge } from "@/components/ui";
+import { formatExpiry, formatMoney, formatRelativeTime } from "@/app/(app)/inventory/utils";
 import { OPERATIONS_ROLES, POS_ROLES } from "@/lib/role-access";
 import { AiInsightsCard } from "../components/ai-insights-card";
+import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
 import { DashboardPanel } from "../components/dashboard-panel";
+import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
 import { SimpleBarChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
-import {
-  PHARMACIST_AI_INSIGHTS,
-  PLACEHOLDER_COUNSELING,
-  PLACEHOLDER_REFILL_FOLLOWUPS,
-} from "../lib/placeholder-data";
+import { PHARMACIST_AI_INSIGHTS } from "../lib/placeholder-data";
 import css from "../dashboard.module.css";
 
 type Props = { data: DashboardData };
@@ -65,13 +64,32 @@ function expiryLabel(iso: string): string {
   return formatExpiry(iso);
 }
 
+/** Makes a <tr> behave like a link — click or keyboard-activate to navigate. */
+function rowLinkProps(router: ReturnType<typeof useRouter>, href: string) {
+  return {
+    className: css.rowLink,
+    role: "link" as const,
+    tabIndex: 0,
+    onClick: () => router.push(href),
+    onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        router.push(href);
+      }
+    },
+  };
+}
+
 export function PharmacistDashboard({ data }: Props) {
+  const router = useRouter();
   const {
     loading,
     pharmacistHolds,
     nearExpiryCount,
     nearExpiryItems,
     dispensedToday,
+    dispensedTrendLabel,
+    dispensedTrendPositive,
     hourlyUnitsToday,
     topProductsToday,
     lowStockRows,
@@ -86,6 +104,15 @@ export function PharmacistDashboard({ data }: Props) {
     hourlyUnitsToday[0] ?? { label: "—", value: 0 },
   );
 
+  const oldestHoldWait = useMemo(() => {
+    if (pharmacistHolds.length === 0) return null;
+    const oldest = pharmacistHolds.reduce((a, b) =>
+      new Date(a.createdAt) < new Date(b.createdAt) ? a : b,
+    );
+    return formatRelativeTime(oldest.createdAt);
+  }, [pharmacistHolds]);
+
+  const controlledStockAlerts = controlledLowStockCount + controlledNearExpiryCount;
   const controlledSubtitle =
     controlledLowStockCount > 0 || controlledNearExpiryCount > 0
       ? [
@@ -96,101 +123,76 @@ export function PharmacistDashboard({ data }: Props) {
           .join(" · ")
       : "Controlled low stock / near expiry";
 
+  const tickerItems: TickerItem[] = useMemo(() => {
+    const items: TickerItem[] = [];
+    if (nearExpiryCount > 0) {
+      items.push({
+        key: "exp",
+        count: nearExpiryCount,
+        label: "batches expiring ≤30 days",
+        tone: "warning",
+        href: "/inventory/batches",
+      });
+    }
+    if (lowStockRows.length > 0) {
+      items.push({
+        key: "low",
+        count: lowStockRows.length,
+        label: "low stock essentials",
+        tone: "warning",
+        href: "/inventory?view=low",
+      });
+    }
+    if (returnsTodayCount > 0) {
+      items.push({
+        key: "ret",
+        count: returnsTodayCount,
+        label: "returns today",
+        tone: "info",
+        href: "/returns",
+      });
+    }
+    return items;
+  }, [nearExpiryCount, lowStockRows.length, returnsTodayCount]);
+
   return (
     <>
-      <div className={css.kpiRow}>
-        <StatCard
-          title="Near Expiry Batches"
-          value={loading ? "…" : nearExpiryCount}
-          subtitle="Within 30 days"
-          icon={<IconCalendar size={16} strokeWidth={1.75} />}
-          iconTone="warning"
-          trend={
-            nearExpiryCount > 0
-              ? { value: "Watch", direction: "up", tone: "warning" }
-              : undefined
-          }
-          menuItems={[
-            { label: "View batches", href: "/inventory/batches" },
-            { label: "Open inventory", href: "/inventory" },
-          ]}
-        />
-        <StatCard
-          title="Dispensed Today"
-          value={loading ? "…" : dispensedToday}
-          subtitle="Units sold today"
-          icon={<IconShoppingCart size={16} strokeWidth={1.75} />}
-          iconTone="success"
-          menuItems={[
-            { label: "Open POS", href: "/pos" },
-            { label: "View catalog", href: "/catalog" },
-          ]}
-        />
-        <StatCard
-          title="Holds awaiting pharmacist"
-          value={loading ? "…" : pharmacistHolds.length}
-          subtitle="POS holds needing verify"
-          icon={<IconFileText size={16} strokeWidth={1.75} />}
-          iconTone="primary"
-          trend={
-            pharmacistHolds.length > 0
-              ? { value: "Queue", direction: "up", tone: "warning" }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open POS queue", href: "/pos" },
-            { label: "View catalog", href: "/catalog" },
-          ]}
-        />
-        <StatCard
-          title="Controlled products attention"
-          value={loading ? "…" : controlledAttentionCount}
-          subtitle={controlledSubtitle}
-          icon={<IconStethoscope size={16} strokeWidth={1.75} />}
-          iconTone="warning"
-          trend={
-            controlledAttentionCount > 0
-              ? { value: "Review", direction: "up", tone: "warning" }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open inventory", href: "/inventory" },
-            { label: "Near-expiry batches", href: "/inventory/batches" },
-          ]}
-        />
-        <StatCard
-          title="Low Stock Essentials"
-          value={loading ? "…" : lowStockRows.length}
-          subtitle="Low / out of stock"
-          icon={<IconPackage size={16} strokeWidth={1.75} />}
-          iconTone="danger"
-          trend={
-            lowStockRows.length > 0
-              ? { value: "Action", direction: "up", tone: "danger" }
-              : undefined
-          }
-          menuItems={[
-            { label: "View low stock", href: "/inventory?view=low" },
-            { label: "Open inventory", href: "/inventory" },
-          ]}
-        />
-        <StatCard
-          title="Returns Today"
-          value={loading ? "…" : returnsTodayCount}
-          subtitle="Refunded / partial returns"
-          icon={<IconRotateCcw size={16} strokeWidth={1.75} />}
-          iconTone="info"
-          menuItems={[
-            { label: "Open returns", href: "/returns" },
-            { label: "Open POS", href: "/pos" },
-          ]}
-        />
-      </div>
+      <HeroBand
+        label="Prescriptions to Verify"
+        value={pharmacistHolds.length}
+        scope="POS holds needing verification"
+        meta={
+          loading
+            ? undefined
+            : pharmacistHolds.length > 0
+              ? `Oldest waiting ${oldestHoldWait}`
+              : "Nothing waiting right now"
+        }
+        loading={loading}
+        secondary={[
+          {
+            key: "dispensed",
+            label: "Dispensed Today",
+            value: dispensedToday,
+            meta: "Units sold today",
+            trend: dispensedTrendLabel
+              ? { label: dispensedTrendLabel, direction: dispensedTrendPositive ? "up" : "down" }
+              : undefined,
+          },
+          {
+            key: "controlled",
+            label: "Controlled Products Attention",
+            value: controlledAttentionCount,
+            meta: controlledSubtitle,
+          },
+        ]}
+      />
 
-      <div className={css.grid3}>
+      <AttentionTicker items={tickerItems} loading={loading} allClearText="No stock or expiry alerts right now" />
+
+      <div className={css.mainSplit}>
         <DashboardPanel
-          title="Holds awaiting pharmacist"
-          className={css.span2}
+          title="Prescription Verification Queue"
           footerHref="/pos"
           footerLabel="Open POS holds →"
           footerMeta={`${pharmacistHolds.length} waiting`}
@@ -204,6 +206,7 @@ export function PharmacistDashboard({ data }: Props) {
                   <th>Hold / label</th>
                   <th>Ref</th>
                   <th>Items</th>
+                  <th>Total</th>
                   <th>Held by</th>
                   <th>Time</th>
                   <th>Status</th>
@@ -213,23 +216,20 @@ export function PharmacistDashboard({ data }: Props) {
                 {pharmacistHolds.map((h) => {
                   const name = h.label || h.heldByName;
                   return (
-                    <tr key={h.id}>
+                    <tr key={h.id} {...rowLinkProps(router, "/pos?panel=holds")}>
                       <td>
                         <span className={css.avatarRow}>
-                          <span
-                            className={`${css.avatarChip} ${avatarToneClass(name)}`}
-                          >
+                          <span className={`${css.avatarChip} ${avatarToneClass(name)}`}>
                             {initials(name)}
                           </span>
                           {name}
                         </span>
                       </td>
                       <td>
-                        <Link href="/pos" className={css.invoiceLink}>
-                          {h.holdRef}
-                        </Link>
+                        <span className={css.invoiceLink}>{h.holdRef}</span>
                       </td>
                       <td>{h.itemCount}</td>
+                      <td className={css.teamNum}>{formatMoney(h.total)}</td>
                       <td className={css.muted}>{h.heldByName}</td>
                       <td className={css.muted}>{formatRelativeTime(h.createdAt)}</td>
                       <td>
@@ -249,9 +249,6 @@ export function PharmacistDashboard({ data }: Props) {
           footerLabel="Clinical screening coming soon"
           footerMeta="Not connected"
         >
-          <p className={css.placeholderNote}>
-            No clinical decision support — sample alerts for layout only.
-          </p>
           <ul className={css.aiList}>
             <li className={`${css.aiItem} ${css.aiTone_danger}`}>
               <div>
@@ -278,7 +275,43 @@ export function PharmacistDashboard({ data }: Props) {
         </DashboardPanel>
       </div>
 
-      <div className={css.grid3}>
+      <div className={css.grid2}>
+        <DashboardPanel
+          title="Dispensing Workload (Today)"
+          footerHref="/pos"
+          footerLabel="Open POS →"
+          footerMeta={peakHour.value > 0 ? `Peak hour: ${peakHour.label}` : undefined}
+        >
+          <SimpleBarChart points={hourlyUnitsToday} height={80} />
+        </DashboardPanel>
+
+        <DashboardPanel title="Frequently Dispensed" footerHref="/pos" footerLabel="Open POS →">
+          {topProductsToday.length === 0 ? (
+            <p className={css.emptyState}>No units sold today yet.</p>
+          ) : (
+            <div className={css.productStrip}>
+              {topProductsToday.slice(0, 5).map((p, i) => (
+                <div key={p.sku} className={css.productChip}>
+                  <span className={css.productAvatar} aria-hidden>
+                    {i % 2 === 0 ? (
+                      <IconPill size={16} strokeWidth={1.75} />
+                    ) : (
+                      <IconPackage size={16} strokeWidth={1.75} />
+                    )}
+                  </span>
+                  <div className={css.productChipBody}>
+                    <strong>{p.name}</strong>
+                    <span>{p.sku}</span>
+                    <em>{p.qty} units</em>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DashboardPanel>
+      </div>
+
+      <div className={css.grid2}>
         <DashboardPanel
           title="Batch & Expiry Monitor"
           footerHref="/inventory/batches"
@@ -299,13 +332,14 @@ export function PharmacistDashboard({ data }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {nearExpiryItems.map((b) => (
-                  <tr key={b.batchId}>
+                {nearExpiryItems.slice(0, 5).map((b) => (
+                  <tr
+                    key={b.batchId}
+                    {...rowLinkProps(router, `/catalog?productId=${b.productId}`)}
+                  >
                     <td>
                       {b.product.name}
-                      {b.product.isControlled ? (
-                        <span className={css.muted}> · CD</span>
-                      ) : null}
+                      {b.product.isControlled ? <span className={css.muted}> · CD</span> : null}
                     </td>
                     <td>{b.batchNo}</td>
                     <td className={css.muted}>{formatExpiry(b.expiryDate)}</td>
@@ -324,120 +358,7 @@ export function PharmacistDashboard({ data }: Props) {
           )}
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Dispense volume (today)"
-          footerHref="/pos"
-          footerLabel="Open POS →"
-          footerMeta={peakHour.value > 0 ? `Peak hour: ${peakHour.label}` : undefined}
-        >
-          <SimpleBarChart points={hourlyUnitsToday} height={140} />
-          <p className={css.placeholderNote}>
-            Units sold by hour today — sales volume proxy, not clinical workload.
-          </p>
-        </DashboardPanel>
-
-        <DashboardPanel
-          title="Frequently Dispensed"
-          footerHref="/pos"
-          footerLabel="Open POS →"
-        >
-          {topProductsToday.length === 0 ? (
-            <p className={css.emptyState}>No units sold today yet.</p>
-          ) : (
-            <div className={css.productStrip}>
-              {topProductsToday.slice(0, 6).map((p) => (
-                <div key={p.sku} className={css.productChip}>
-                  <span className={css.productAvatar} aria-hidden>
-                    {p.name.slice(0, 2).toUpperCase()}
-                  </span>
-                  <div className={css.productChipBody}>
-                    <strong>{p.name}</strong>
-                    <span>{p.sku}</span>
-                    <em>{p.qty} units</em>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </DashboardPanel>
-      </div>
-
-      <div className={css.grid4}>
-        <DashboardPanel
-          title="Refill / Patient Follow-up"
-          headerRight={<span className={css.placeholderBadge}>Sample</span>}
-          footerMeta="CRM coming soon"
-        >
-          <p className={css.placeholderNote}>Patient refill reminders are not wired yet.</p>
-          <table className={css.salesTable}>
-            <thead>
-              <tr>
-                <th>Patient</th>
-                <th>Medicine</th>
-                <th>Due</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {PLACEHOLDER_REFILL_FOLLOWUPS.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.patient}</td>
-                  <td className={css.muted}>{row.medicine}</td>
-                  <td>{row.due}</td>
-                  <td>
-                    <StatusBadge
-                      status="pending"
-                      label={row.status}
-                      variant={row.status === "Due" ? "danger" : "info"}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </DashboardPanel>
-
-        <DashboardPanel
-          title="Controlled drug register"
-          headerRight={<span className={css.placeholderBadge}>Sample</span>}
-          footerMeta="Register coming soon"
-        >
-          <div className={css.complianceBlocks}>
-            <div className={`${css.complianceBlock} ${css.compliance_issued}`}>
-              <strong>{pharmacistHolds.length}</strong>
-              Holds waiting
-            </div>
-            <div className={`${css.complianceBlock} ${css.compliance_dispensed}`}>
-              <strong>{dispensedToday}</strong>
-              Units today
-            </div>
-            <div className={`${css.complianceBlock} ${css.compliance_checked}`}>
-              <strong>{controlledAttentionCount}</strong>
-              CD attention
-            </div>
-            <div className={`${css.complianceBlock} ${css.compliance_discrepancy}`}>
-              <strong className={css.placeholderValue}>
-                —
-              </strong>
-              Gaps (sample)
-            </div>
-          </div>
-          <p className={css.placeholderNote}>
-            Register discrepancy checks are placeholders — not a live CD register.
-          </p>
-        </DashboardPanel>
-
-        <AiInsightsCard
-          title="AI Clinical Insights"
-          insights={PHARMACIST_AI_INSIGHTS}
-          footerMeta="Clinical AI coming soon"
-        />
-
-        <DashboardPanel
-          title="Stock Watch — Essentials"
-          footerHref="/inventory?view=low"
-          footerLabel="Open inventory →"
-        >
+        <DashboardPanel title="Stock Watch — Therapeutic Essentials" footerHref="/inventory?view=low" footerLabel="Open inventory →">
           {lowStockRows.length === 0 ? (
             <p className={css.emptyState}>No low / out-of-stock essentials right now.</p>
           ) : (
@@ -452,12 +373,10 @@ export function PharmacistDashboard({ data }: Props) {
               </thead>
               <tbody>
                 {lowStockRows.map((r) => (
-                  <tr key={r.productId}>
+                  <tr key={r.productId} {...rowLinkProps(router, `/catalog?productId=${r.productId}`)}>
                     <td>
                       {r.product.name}
-                      {r.product.isControlled ? (
-                        <span className={css.muted}> · CD</span>
-                      ) : null}
+                      {r.product.isControlled ? <span className={css.muted}> · CD</span> : null}
                     </td>
                     <td>{r.qtyOnHand}</td>
                     <td>{r.product.reorderLevel}</td>
@@ -476,40 +395,57 @@ export function PharmacistDashboard({ data }: Props) {
         </DashboardPanel>
       </div>
 
-      <div className={css.grid3}>
+      <div className={css.grid2}>
         <DashboardPanel
-          title="Pending Counseling"
-          headerRight={<span className={css.placeholderBadge}>Sample</span>}
-          footerMeta="Counseling log coming soon"
+          title="Controlled Drug Activity (Today)"
+          subtitle="Today's real-time counts — tap a tile to act"
         >
-          <p className={css.placeholderNote}>
-            Counseling queue is not tracked yet — sample rows for layout only.
-          </p>
-          <table className={css.salesTable}>
-            <thead>
-              <tr>
-                <th>Patient</th>
-                <th>Topic</th>
-                <th>Priority</th>
-              </tr>
-            </thead>
-            <tbody>
-              {PLACEHOLDER_COUNSELING.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.patient}</td>
-                  <td className={css.muted}>{row.topic}</td>
-                  <td>
-                    <StatusBadge
-                      status="pending"
-                      label={row.priority}
-                      variant={row.priority === "High" ? "danger" : "warning"}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className={css.pharmStatStrip}>
+            <Link href="/pos?panel=holds" className={`${css.pharmStatCell} ${css.pharmStatCell_primary}`}>
+              <span className={css.pharmStatIcon} aria-hidden>
+                <IconStethoscope size={16} strokeWidth={1.75} />
+              </span>
+              <div className={css.pharmStatCopy}>
+                <strong className={css.pharmStatValue}>{loading ? "…" : pharmacistHolds.length}</strong>
+                <span className={css.pharmStatLabel}>Holds waiting</span>
+              </div>
+            </Link>
+            <Link href="/pos" className={`${css.pharmStatCell} ${css.pharmStatCell_success}`}>
+              <span className={css.pharmStatIcon} aria-hidden>
+                <IconPill size={16} strokeWidth={1.75} />
+              </span>
+              <div className={css.pharmStatCopy}>
+                <strong className={css.pharmStatValue}>{loading ? "…" : dispensedToday}</strong>
+                <span className={css.pharmStatLabel}>Units dispensed</span>
+              </div>
+            </Link>
+            <Link href="/inventory?view=low" className={`${css.pharmStatCell} ${css.pharmStatCell_warning}`}>
+              <span className={css.pharmStatIcon} aria-hidden>
+                <IconAlertTriangle size={16} strokeWidth={1.75} />
+              </span>
+              <div className={css.pharmStatCopy}>
+                <strong className={css.pharmStatValue}>
+                  {loading ? "…" : controlledAttentionCount}
+                </strong>
+                <span className={css.pharmStatLabel}>CD flagged</span>
+              </div>
+            </Link>
+            <Link
+              href="/inventory/batches?nearExpiryDays=30"
+              className={`${css.pharmStatCell} ${css.pharmStatCell_danger}`}
+            >
+              <span className={css.pharmStatIcon} aria-hidden>
+                <IconArchive size={16} strokeWidth={1.75} />
+              </span>
+              <div className={css.pharmStatCopy}>
+                <strong className={css.pharmStatValue}>{loading ? "…" : controlledStockAlerts}</strong>
+                <span className={css.pharmStatLabel}>CD stock alerts</span>
+              </div>
+            </Link>
+          </div>
         </DashboardPanel>
+
+        <AiInsightsCard title="AI Clinical Insights" insights={PHARMACIST_AI_INSIGHTS} />
       </div>
 
       <QuickActionsBar
@@ -528,6 +464,13 @@ export function PharmacistDashboard({ data }: Props) {
             icon: <IconPill size={18} />,
             roles: POS_ROLES,
             tone: "info",
+          },
+          {
+            href: "/catalog",
+            label: "Drug profile lookup",
+            icon: <IconSearch size={18} />,
+            roles: OPERATIONS_ROLES,
+            tone: "success",
           },
           {
             href: "/inventory/batches?nearExpiryDays=30",

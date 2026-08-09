@@ -1,9 +1,9 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   IconActivity,
   IconAlertTriangle,
-  IconBox,
   IconCalendar,
   IconClipboardList,
   IconPackage,
@@ -11,17 +11,14 @@ import {
   IconRefresh,
   IconTruck,
 } from "@/components/icons";
-import { StatCard, StatusBadge } from "@/components/ui";
+import { StatusBadge } from "@/components/ui";
 import { formatExpiry, formatMoney, formatRelativeTime } from "@/app/(app)/inventory/utils";
 import { formatMovementType } from "@/app/(app)/products/utils/format";
-import {
-  INVENTORY_WRITE_ROLES,
-  OPERATIONS_ROLES,
-  PURCHASING_ROLES,
-} from "@/lib/role-access";
+import { INVENTORY_WRITE_ROLES, OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
 import { AiInsightsCard } from "../components/ai-insights-card";
-import { AlertList } from "../components/alert-list";
+import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
 import { DashboardPanel } from "../components/dashboard-panel";
+import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
 import { SimpleBarChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
@@ -29,8 +26,6 @@ import { INVENTORY_AI_INSIGHTS } from "../lib/placeholder-data";
 import css from "../dashboard.module.css";
 
 type Props = { data: DashboardData };
-
-const iconProps = { size: 16, strokeWidth: 1.75 } as const;
 
 function daysUntil(iso: string): number {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
@@ -72,165 +67,80 @@ export function InventoryClerkDashboard({ data }: Props) {
   const healthyPct = skuCount > 0 && inventory ? Math.round((inventory.healthy / skuCount) * 100) : null;
   const period = inventory?.period ?? inventory?.month;
 
-  const opsAlerts = [
-    (inventory?.outOfStock ?? 0) > 0
-      ? {
-          key: "oos",
-          label: "Out of stock SKUs",
-          count: inventory!.outOfStock,
-          tone: "danger" as const,
-          href: "/inventory?view=out",
-          actionLabel: "View",
-        }
-      : null,
-    (inventory?.lowStock ?? 0) > 0
-      ? {
-          key: "low",
-          label: "Low stock SKUs",
-          count: inventory!.lowStock,
-          tone: "warning" as const,
-          href: "/inventory?view=low",
-          actionLabel: "View",
-        }
-      : null,
-    nearExpiryCount > 0
-      ? {
-          key: "exp",
-          label: "Near expiry batches",
-          count: nearExpiryCount,
-          tone: "warning" as const,
-          href: "/inventory/batches",
-          actionLabel: "View",
-        }
-      : null,
-    overduePos > 0
-      ? {
-          key: "od",
-          label: "Overdue deliveries",
-          count: overduePos,
-          tone: "danger" as const,
-          href: "/purchasing",
-          actionLabel: "View",
-        }
-      : null,
-    openTransfers > 0
-      ? {
-          key: "xfer",
-          label: "Open transfers",
-          count: openTransfers,
-          tone: "info" as const,
-          href: "/transfers",
-          actionLabel: "View",
-        }
-      : null,
-    stocktakesInProgress > 0
-      ? {
-          key: "st",
-          label: "Stocktakes in progress",
-          count: stocktakesInProgress,
-          tone: "info" as const,
-          href: "/stocktakes",
-          actionLabel: "View",
-        }
-      : null,
-  ].filter(Boolean) as Array<{
-    key: string;
-    label: string;
-    count: number;
-    tone: "danger" | "warning" | "info";
-    href: string;
-    actionLabel: string;
-  }>;
+  const tickerItems: TickerItem[] = useMemo(() => {
+    const items: TickerItem[] = [];
+    if (nearExpiryCount > 0) {
+      items.push({
+        key: "exp",
+        count: nearExpiryCount,
+        label: "batches expiring ≤30 days",
+        tone: "warning",
+        href: "/inventory/batches",
+      });
+    }
+    if (openPos > 0) {
+      items.push({
+        key: "pos",
+        count: openPos,
+        label: `pending POs · ${formatMoney(openPoValue)}`,
+        tone: "info",
+        href: "/purchasing",
+      });
+    }
+    if (overduePos > 0) {
+      items.push({
+        key: "od",
+        count: overduePos,
+        label: "overdue deliveries",
+        tone: "danger",
+        href: "/purchasing",
+      });
+    }
+    if (openTransfers > 0) {
+      items.push({
+        key: "xfer",
+        count: openTransfers,
+        label: "open transfers",
+        tone: "info",
+        href: "/transfers",
+      });
+    }
+    if (stocktakesInProgress > 0) {
+      items.push({
+        key: "st",
+        count: stocktakesInProgress,
+        label: "stocktakes in progress",
+        tone: "info",
+        href: "/stocktakes",
+      });
+    }
+    return items;
+  }, [nearExpiryCount, openPos, openPoValue, overduePos, openTransfers, stocktakesInProgress]);
 
   return (
     <>
-      <div className={css.kpiRow}>
-        <StatCard
-          title="Stock Value"
-          value={loading ? "…" : inventory ? formatMoney(inventory.stockValue) : "—"}
-          subtitle={inventory ? `${inventory.totalUnits.toLocaleString()} units` : undefined}
-          icon={<IconPackage {...iconProps} />}
-          iconTone="primary"
-          menuItems={[
-            { label: "Open inventory", href: "/inventory" },
-            { label: "View movements", href: "/inventory/movements" },
-          ]}
-        />
-        <StatCard
-          title="Out of Stock"
-          value={loading ? "…" : (inventory?.outOfStock ?? "—")}
-          subtitle="SKUs at zero"
-          icon={<IconAlertTriangle {...iconProps} />}
-          iconTone="danger"
-          trend={
-            inventory && inventory.outOfStock > 0
-              ? { value: "Critical", direction: "up", tone: "danger" }
-              : undefined
-          }
-          menuItems={[
-            { label: "View out of stock", href: "/inventory?view=out" },
-            { label: "Create PO", href: "/purchasing?action=create-po" },
-          ]}
-        />
-        <StatCard
-          title="Low Stock"
-          value={loading ? "…" : (inventory?.lowStock ?? "—")}
-          subtitle="At / below reorder"
-          icon={<IconBox {...iconProps} />}
-          iconTone="warning"
-          trend={
-            inventory && inventory.lowStock > 0
-              ? { value: "Reorder", direction: "up", tone: "warning" }
-              : undefined
-          }
-          menuItems={[
-            { label: "View low stock", href: "/inventory?view=low" },
-            { label: "Open purchasing", href: "/purchasing" },
-          ]}
-        />
-        <StatCard
-          title="Near Expiry"
-          value={loading ? "…" : nearExpiryCount}
-          subtitle="Batches ≤30 days"
-          icon={<IconCalendar {...iconProps} />}
-          iconTone="warning"
-          menuItems={[
-            { label: "View batches", href: "/inventory/batches" },
-            { label: "Open inventory", href: "/inventory" },
-          ]}
-        />
-        <StatCard
-          title="Pending POs / Deliveries"
-          value={loading ? "…" : openPos}
-          subtitle={overduePos > 0 ? `${overduePos} overdue` : formatMoney(openPoValue)}
-          icon={<IconTruck {...iconProps} />}
-          iconTone="info"
-          trend={
-            overduePos > 0
-              ? { value: "Overdue", direction: "up", tone: "danger" }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open purchasing", href: "/purchasing" },
-            { label: "Create PO", href: "/purchasing?action=create-po" },
-          ]}
-        />
-        <StatCard
-          title="Open Transfers"
-          value={loading ? "…" : openTransfers}
-          subtitle={
-            stocktakesInProgress > 0
-              ? `${stocktakesInProgress} stocktake${stocktakesInProgress === 1 ? "" : "s"} active`
-              : "No active stocktakes"
-          }
-          icon={<IconRefresh {...iconProps} />}
-          iconTone="success"
-          menuItems={[
-            { label: "View transfers", href: "/transfers" },
-            { label: "Open stocktakes", href: "/stocktakes" },
-          ]}
-        />
-      </div>
+      <HeroBand
+        label="Stock Value"
+        value={inventory ? formatMoney(inventory.stockValue) : "—"}
+        scope={inventory ? `${inventory.totalUnits.toLocaleString()} units on hand` : undefined}
+        loading={loading}
+        secondary={[
+          {
+            key: "oos",
+            label: "Out of Stock",
+            value: inventory?.outOfStock ?? "—",
+            meta: "SKUs at zero",
+          },
+          {
+            key: "low",
+            label: "Low Stock",
+            value: inventory?.lowStock ?? "—",
+            meta: "At / below reorder",
+          },
+        ]}
+      />
+
+      <AttentionTicker items={tickerItems} loading={loading} allClearText="No stock or delivery alerts — inventory looks healthy" />
 
       <div className={css.grid3}>
         <DashboardPanel
@@ -244,9 +154,7 @@ export function InventoryClerkDashboard({ data }: Props) {
             <p className={css.emptyState}>No recent stock movements.</p>
           ) : (
             <>
-              {movementBars.length > 0 ? (
-                <SimpleBarChart points={movementBars} height={96} />
-              ) : null}
+              {movementBars.length > 0 ? <SimpleBarChart points={movementBars} height={96} /> : null}
               <table className={css.salesTable}>
                 <thead>
                   <tr>
@@ -365,12 +273,7 @@ export function InventoryClerkDashboard({ data }: Props) {
           )}
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Pending POs"
-          footerHref="/purchasing"
-          footerLabel="Open purchasing →"
-          footerMeta={openPos > 0 ? formatMoney(openPoValue) : undefined}
-        >
+        <DashboardPanel title="Pending POs" footerHref="/purchasing" footerLabel="Open purchasing →" footerMeta={openPos > 0 ? formatMoney(openPoValue) : undefined}>
           {openPoList.length === 0 ? (
             <p className={css.emptyState}>No open purchase orders.</p>
           ) : (
@@ -386,9 +289,7 @@ export function InventoryClerkDashboard({ data }: Props) {
                       <strong>{po.poNumber}</strong>
                       <span className={css.muted}>
                         {po.supplier.name}
-                        {po.expectedOn
-                          ? ` · due ${formatExpiry(po.expectedOn)}`
-                          : ""}
+                        {po.expectedOn ? ` · due ${formatExpiry(po.expectedOn)}` : ""}
                       </span>
                     </div>
                     <div>
@@ -402,12 +303,7 @@ export function InventoryClerkDashboard({ data }: Props) {
           )}
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Stock Watch"
-          footerHref="/inventory?view=low"
-          footerLabel="View low stock →"
-          footerMeta={lowStockRows.length > 0 ? `${lowStockRows.length} SKUs` : undefined}
-        >
+        <DashboardPanel title="Stock Watch" footerHref="/inventory?view=low" footerLabel="View low stock →" footerMeta={lowStockRows.length > 0 ? `${lowStockRows.length} SKUs` : undefined}>
           {lowStockRows.length === 0 ? (
             <p className={css.emptyState}>Stock levels look healthy.</p>
           ) : (
@@ -446,21 +342,7 @@ export function InventoryClerkDashboard({ data }: Props) {
         </DashboardPanel>
       </div>
 
-      <div className={css.grid2}>
-        <DashboardPanel title="Operational Alerts">
-          <AlertList
-            showAction
-            emptyText="No stock or delivery alerts — inventory looks healthy."
-            alerts={opsAlerts}
-          />
-        </DashboardPanel>
-        <AiInsightsCard
-          title="AI Sample"
-          insights={INVENTORY_AI_INSIGHTS}
-          footerHref="/purchasing"
-          footerLabel="Open purchasing →"
-        />
-      </div>
+      <AiInsightsCard insights={INVENTORY_AI_INSIGHTS} footerHref="/purchasing" footerLabel="Open purchasing →" />
 
       <QuickActionsBar
         title="Inventory Quick Actions"

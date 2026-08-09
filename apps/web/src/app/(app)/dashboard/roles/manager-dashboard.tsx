@@ -1,48 +1,56 @@
 "use client";
 
+import { useMemo } from "react";
+import Link from "next/link";
 import {
+  IconActivity,
   IconAlertTriangle,
+  IconArchive,
   IconBox,
   IconCalendar,
+  IconChevronDown,
+  IconChevronUp,
   IconClipboardList,
   IconPackage,
+  IconRefresh,
   IconShoppingCart,
   IconTruck,
-  IconActivity,
-  IconRefresh,
+  IconUsers,
 } from "@/components/icons";
-import { StatCard, StatusBadge } from "@/components/ui";
+import { StatusBadge } from "@/components/ui";
 import { formatMoney } from "@/app/(app)/inventory/utils";
-import {
-  OPERATIONS_ROLES,
-  PURCHASING_ROLES,
-} from "@/lib/role-access";
+import { OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
 import { AiInsightsCard } from "../components/ai-insights-card";
-import { AlertList } from "../components/alert-list";
+import { AlertList, type DashboardAlert } from "../components/alert-list";
+import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
+import { BusinessOverviewPanel } from "../components/business-overview-panel";
 import { DashboardPanel } from "../components/dashboard-panel";
+import { HeroBand } from "../components/hero-band";
 import { ProgressBar } from "../components/progress-bar";
 import { QuickActionsBar } from "../components/quick-actions-bar";
-import { SimpleLineChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
-import {
-  MANAGER_AI_INSIGHTS,
-  PLACEHOLDER_SERVICE_ISSUES,
-} from "../lib/placeholder-data";
+import { branchTrackStatus, monthPaceExpectedPct } from "../lib/branch-status";
+import { inventoryHealthScore } from "../lib/health-score";
+import { MANAGER_AI_INSIGHTS, PLACEHOLDER_SERVICE_ISSUES, type AiInsight } from "../lib/placeholder-data";
 import css from "../dashboard.module.css";
+
+/** "2026-08" → "August 2026". */
+function formatYearMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  if (!y || !m) return yearMonth;
+  return new Date(y, m - 1, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
+}
 
 type Props = { data: DashboardData };
 
 export function ManagerDashboard({ data }: Props) {
   const {
     loading,
+    branchId,
     inventory,
     todaySalesTotal,
     salesTrendLabel,
     salesTrendPositive,
-    monthSalesTotal,
-    todayGrossProfit,
-    hasMarginData,
-    marginPct,
     todaySalesCount,
     salesTrend7d,
     staffProductivity,
@@ -56,84 +64,82 @@ export function ManagerDashboard({ data }: Props) {
     transferList,
     overduePos,
     nearExpiryCount,
-    lowStockRows,
+    topProductsToday,
     assignedBranchTargets,
     currentBranchPerf,
     branchPerfYearMonth,
+    deadStockCount,
+    fastMoversCount,
   } = data;
 
-  const targetRows =
-    assignedBranchTargets.length > 0
-      ? assignedBranchTargets
-      : currentBranchPerf
-        ? [currentBranchPerf]
-        : [];
+  const targetRows = useMemo(
+    () =>
+      assignedBranchTargets.length > 0
+        ? assignedBranchTargets
+        : currentBranchPerf
+          ? [currentBranchPerf]
+          : [],
+    [assignedBranchTargets, currentBranchPerf],
+  );
 
-  const gpRate =
-    todaySalesTotal > 0
-      ? todayGrossProfit / todaySalesTotal
-      : hasMarginData && marginPct != null
-        ? marginPct / 100
-        : 0.3;
-  const profitTrend = salesTrend7d.map((p) => ({
-    label: p.label,
-    value: Math.round(p.value * gpRate),
-  }));
-  const gpIsApprox = !hasMarginData;
-
-  const alerts = [
-    (inventory?.outOfStock ?? 0) > 0
-      ? {
-          key: "oos",
-          label: "Items out of stock",
-          count: inventory!.outOfStock,
-          tone: "danger" as const,
-          href: "/inventory?view=out",
-        }
-      : null,
-    (inventory?.lowStock ?? 0) > 0
-      ? {
-          key: "low",
-          label: "Low stock items",
-          count: inventory!.lowStock,
-          tone: "warning" as const,
-          href: "/inventory?view=low",
-        }
-      : null,
-    nearExpiryCount > 0
-      ? {
-          key: "exp",
-          label: "Near-expiry batches",
-          count: nearExpiryCount,
-          tone: "warning" as const,
-          href: "/inventory/batches",
-        }
-      : null,
-    overduePos > 0
-      ? {
-          key: "od",
-          label: "Overdue purchase orders",
-          count: overduePos,
-          tone: "warning" as const,
-          href: "/purchasing",
-        }
-      : null,
-    stocktakesInProgress > 0
-      ? {
-          key: "st",
-          label: "Stocktakes in progress",
-          count: stocktakesInProgress,
-          tone: "info" as const,
-          href: "/stocktakes",
-        }
-      : null,
-  ].filter(Boolean) as Array<{
-    key: string;
-    label: string;
-    count: number;
-    tone: "danger" | "warning" | "info";
-    href: string;
-  }>;
+  const tickerItems: TickerItem[] = useMemo(() => {
+    const items: TickerItem[] = [];
+    if ((inventory?.outOfStock ?? 0) > 0) {
+      items.push({
+        key: "oos",
+        count: inventory!.outOfStock,
+        label: "items out of stock",
+        tone: "danger",
+        href: "/inventory?view=out",
+      });
+    }
+    if ((inventory?.lowStock ?? 0) > 0) {
+      items.push({
+        key: "low",
+        count: inventory!.lowStock,
+        label: "low stock items",
+        tone: "warning",
+        href: "/inventory?view=low",
+      });
+    }
+    if (nearExpiryCount > 0) {
+      items.push({
+        key: "exp",
+        count: nearExpiryCount,
+        label: "near-expiry batches",
+        tone: "warning",
+        href: "/inventory/batches",
+      });
+    }
+    if (overduePos > 0) {
+      items.push({
+        key: "od",
+        count: overduePos,
+        label: "overdue purchase orders",
+        tone: "warning",
+        href: "/purchasing",
+      });
+    }
+    if (openTransfers > 0) {
+      items.push({
+        key: "xfer",
+        count: openTransfers,
+        label: "open transfers",
+        tone: "info",
+        href: "/transfers",
+      });
+    }
+    if (stocktakesInProgress > 0) {
+      items.push({
+        key: "st",
+        count: stocktakesInProgress,
+        label: "stocktakes in progress",
+        tone: "info",
+        href: "/stocktakes",
+      });
+    }
+    return items;
+  }, [inventory, nearExpiryCount, overduePos, openTransfers, stocktakesInProgress]);
 
   const approvalTasks = [
     pendingPoApprovals > 0
@@ -180,181 +186,301 @@ export function ManagerDashboard({ data }: Props) {
     href: string;
   }>;
 
-  const healthyPct =
-    inventory && inventory.skuCount > 0
-      ? Math.round((inventory.healthy / inventory.skuCount) * 1000) / 10
-      : null;
-  const lowPct =
-    inventory && inventory.skuCount > 0
-      ? Math.round((inventory.lowStock / inventory.skuCount) * 1000) / 10
-      : null;
-  const oosPct =
-    inventory && inventory.skuCount > 0
-      ? Math.round((inventory.outOfStock / inventory.skuCount) * 1000) / 10
-      : null;
+  /** Vertical, more descriptive companion to the ticker strip — same signals, more context. */
+  const operationalAlerts: DashboardAlert[] = useMemo(() => {
+    const alerts: DashboardAlert[] = [];
+    if ((inventory?.outOfStock ?? 0) > 0) {
+      alerts.push({
+        key: "oos",
+        label: "Items out of stock",
+        detail: "Immediate attention required",
+        count: inventory!.outOfStock,
+        tone: "danger",
+        href: "/inventory?view=out",
+        icon: <IconAlertTriangle size={13} strokeWidth={1.75} />,
+      });
+    }
+    if ((inventory?.lowStock ?? 0) > 0) {
+      alerts.push({
+        key: "low",
+        label: "Items low on stock",
+        detail: "Reorder before they run out",
+        count: inventory!.lowStock,
+        tone: "warning",
+        href: "/inventory?view=low",
+        icon: <IconBox size={13} strokeWidth={1.75} />,
+      });
+    }
+    if (nearExpiryCount > 0) {
+      alerts.push({
+        key: "exp",
+        label: "Batches expiring within 30 days",
+        detail: "Prioritize FEFO rotation",
+        count: nearExpiryCount,
+        tone: "warning",
+        href: "/inventory/batches",
+        icon: <IconCalendar size={13} strokeWidth={1.75} />,
+      });
+    }
+    if (overduePos > 0) {
+      alerts.push({
+        key: "od",
+        label: "Purchase orders overdue",
+        detail: "Past expected delivery",
+        count: overduePos,
+        tone: "danger",
+        href: "/purchasing",
+        icon: <IconTruck size={13} strokeWidth={1.75} />,
+      });
+    }
+    if (openTransfers > 0) {
+      alerts.push({
+        key: "xfer",
+        label: "Transfers in transit",
+        detail: "Awaiting receipt confirmation",
+        count: openTransfers,
+        tone: "info",
+        href: "/transfers",
+        icon: <IconTruck size={13} strokeWidth={1.75} />,
+      });
+    }
+    if (stocktakesInProgress > 0) {
+      alerts.push({
+        key: "st",
+        label: "Stocktakes in progress",
+        detail: "Complete counts to close out",
+        count: stocktakesInProgress,
+        tone: "info",
+        href: "/stocktakes",
+        icon: <IconClipboardList size={13} strokeWidth={1.75} />,
+      });
+    }
+    return alerts;
+  }, [inventory, nearExpiryCount, overduePos, openTransfers, stocktakesInProgress]);
+
+  const liveInsights = useMemo(() => {
+    const live: AiInsight[] = [];
+    if ((inventory?.lowStock ?? 0) > 0) {
+      live.push({
+        id: "live-reorder",
+        title: "Reorder recommendation",
+        detail: `${inventory!.lowStock} low-stock SKUs need replenishment at this branch.`,
+        tone: "warning",
+        href: "/inventory?view=low",
+      });
+    }
+    if (nearExpiryCount > 0) {
+      live.push({
+        id: "live-expiry",
+        title: "Near-expiry risk",
+        detail: `${nearExpiryCount} batches expire within 30 days — prioritize FEFO rotation.`,
+        tone: "warning",
+        href: "/inventory/batches",
+      });
+    }
+    if (overduePos > 0) {
+      live.push({
+        id: "live-supply",
+        title: "Supply delay",
+        detail: `${overduePos} purchase order${overduePos === 1 ? "" : "s"} past expected delivery.`,
+        tone: "danger",
+        href: "/purchasing",
+      });
+    }
+    return live;
+  }, [inventory, nearExpiryCount, overduePos]);
+
+  const allInsights = useMemo(() => {
+    const filler = MANAGER_AI_INSIGHTS.filter(
+      (s) => !liveInsights.some((l) => l.title === s.title),
+    );
+    return [...liveInsights, ...filler].slice(0, 4);
+  }, [liveInsights]);
+
+  const lowN = inventory?.lowStock ?? 0;
+  const deadN = deadStockCount ?? 0;
+  const fastN = fastMoversCount ?? 0;
+  const health = useMemo(
+    () => inventoryHealthScore({ low: lowN, dead: deadN, nearExpiry: nearExpiryCount, fast: fastN }),
+    [deadN, fastN, lowN, nearExpiryCount],
+  );
+  const attentionCount = lowN + deadN + nearExpiryCount;
+  const healthBarMax = Math.max(lowN, deadN, nearExpiryCount, 1);
+  const mostUrgentKey =
+    lowN >= nearExpiryCount && lowN >= deadN
+      ? "low"
+      : nearExpiryCount >= deadN
+        ? "expiry"
+        : "dead";
+  const healthSignals = [
+    { key: "low", label: "Low stock", value: lowN, tone: "danger" as const, href: "/inventory?view=low" },
+    { key: "dead", label: "Dead stock", value: deadN, tone: "muted" as const, href: "/reports" },
+    {
+      key: "expiry",
+      label: "Near expiry ≤30d",
+      value: nearExpiryCount,
+      tone: "warning" as const,
+      href: "/inventory/batches?nearExpiryDays=30",
+    },
+  ];
+
+  const expectedPace = monthPaceExpectedPct();
+  const branchStats = useMemo(() => {
+    let onTrack = 0;
+    let below = 0;
+    let bestId: string | null = null;
+    let bestPct = -1;
+    for (const row of targetRows) {
+      const status = branchTrackStatus(row.achievementPct, expectedPace);
+      if (status === "on_track") onTrack += 1;
+      if (status === "at_risk" || status === "below") below += 1;
+      if (row.achievementPct != null && row.achievementPct > bestPct) {
+        bestPct = row.achievementPct;
+        bestId = row.branchId;
+      }
+    }
+    return { onTrack, below, bestId };
+  }, [expectedPace, targetRows]);
 
   return (
     <>
-      <div className={css.kpiRow}>
-        <StatCard
-          title="Today's Sales"
-          value={loading ? "…" : formatMoney(todaySalesTotal)}
-          subtitle="vs yesterday"
-          icon={<IconShoppingCart size={16} strokeWidth={1.75} />}
-          iconTone="primary"
-          trend={
-            salesTrendLabel
-              ? {
-                  value: salesTrendLabel,
-                  direction: salesTrendPositive ? "up" : "down",
-                  tone: salesTrendPositive ? "positive" : "danger",
-                }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open POS", href: "/pos" },
-            { label: "View reports", href: "/reports" },
-          ]}
-        />
-        <StatCard
-          title="Target Achievement"
-          value={
-            loading
-              ? "…"
-              : currentBranchPerf?.achievementPct != null
+      <HeroBand
+        label="Today's Sales"
+        value={formatMoney(todaySalesTotal)}
+        scope="This branch · vs yesterday"
+        meta={loading ? undefined : `${todaySalesCount} transaction${todaySalesCount === 1 ? "" : "s"} today`}
+        loading={loading}
+        sparkline={salesTrend7d}
+        trend={
+          salesTrendLabel
+            ? { label: salesTrendLabel, direction: salesTrendPositive ? "up" : "down" }
+            : undefined
+        }
+        secondary={[
+          {
+            key: "target",
+            label: "Target Achievement",
+            value:
+              currentBranchPerf?.achievementPct != null
                 ? `${currentBranchPerf.achievementPct.toFixed(0)}%`
-                : "—"
-          }
-          subtitle={
-            currentBranchPerf?.targetAmount != null
-              ? `MTD ${formatMoney(currentBranchPerf.monthSales)} / ${formatMoney(currentBranchPerf.targetAmount)}`
-              : "Assigned by owner"
-          }
-          icon={<IconActivity size={16} strokeWidth={1.75} />}
-          iconTone="success"
-          menuItems={[
-            { label: "View reports", href: "/reports" },
-          ]}
-        />
-        <StatCard
-          title="Pending Approvals"
-          value={loading ? "…" : pendingApprovalsTotal}
-          subtitle="POs, transfers & returns"
-          icon={<IconClipboardList size={16} strokeWidth={1.75} />}
-          iconTone="warning"
-          trend={
-            pendingApprovalsTotal > 0
-              ? { value: "Review", direction: "up", tone: "warning" }
-              : undefined
-          }
-          menuItems={[
-            { label: "Open purchasing", href: "/purchasing" },
-            { label: "View transfers", href: "/transfers" },
-            { label: "View returns", href: "/returns" },
-          ]}
-        />
-        <StatCard
-          title="Low Stock"
-          value={loading ? "…" : (inventory?.lowStock ?? "—")}
-          subtitle="Reorder soon"
-          icon={<IconAlertTriangle size={16} strokeWidth={1.75} />}
-          iconTone="danger"
-          trend={
-            inventory && inventory.lowStock > 0
-              ? { value: "Attention", direction: "up", tone: "danger" }
-              : undefined
-          }
-          menuItems={[
-            { label: "View low stock", href: "/inventory?view=low" },
-            { label: "Open inventory", href: "/inventory" },
-          ]}
-        />
-        <StatCard
-          title="Open Transfers"
-          value={loading ? "…" : openTransfers}
-          subtitle="Requested · approved · in transit"
-          icon={<IconTruck size={16} strokeWidth={1.75} />}
-          iconTone="info"
-          menuItems={[
-            { label: "View transfers", href: "/transfers" },
-            { label: "Open inventory", href: "/inventory" },
-          ]}
-        />
-        <StatCard
-          title="Stocktakes in Progress"
-          value={loading ? "…" : stocktakesInProgress}
-          subtitle="Active counts"
-          icon={<IconBox size={16} strokeWidth={1.75} />}
-          iconTone="primary"
-          menuItems={[
-            { label: "Open stocktakes", href: "/stocktakes" },
-            { label: "Open inventory", href: "/inventory" },
-          ]}
-        />
-      </div>
+                : "—",
+            meta:
+              currentBranchPerf?.targetAmount != null
+                ? `MTD ${formatMoney(currentBranchPerf.monthSales)} / ${formatMoney(currentBranchPerf.targetAmount)}`
+                : "Assigned by owner",
+          },
+          {
+            key: "approvals",
+            label: "Pending Approvals",
+            value: pendingApprovalsTotal,
+            meta: "POs, transfers & returns",
+          },
+        ]}
+      />
 
-      <div className={css.grid3}>
-        <DashboardPanel
+      <AttentionTicker items={tickerItems} loading={loading} allClearText="No operational alerts — branch looks healthy" />
+
+      <div className={css.mainSplit}>
+        <BusinessOverviewPanel
           title="Branch Performance Overview"
-          className={css.span2}
-          headerRight={<span className={css.filterChip}>This week</span>}
-        >
-          <SimpleLineChart
-            points={salesTrend7d}
-            secondaryPoints={profitTrend}
-            aLabel="Sales"
-            bLabel={gpIsApprox ? "Gross profit (approx)" : "Gross profit"}
-            formatValue={(n) => formatMoney(n)}
-          />
-          <div className={css.inlineStats}>
-            <span>
-              Total Sales (30d): <strong>{formatMoney(monthSalesTotal)}</strong>
-            </span>
-            <span>
-              Gross Profit ({gpIsApprox ? "approx" : "est."} today):{" "}
-              <strong>{formatMoney(todayGrossProfit)}</strong>
-              {marginPct != null ? (
-                <span className={css.muted}> · {marginPct.toFixed(1)}% margin</span>
-              ) : null}
-            </span>
-            <span>
-              Transactions today: <strong>{todaySalesCount}</strong>
-            </span>
-          </div>
-          {gpIsApprox ? (
-            <p className={css.placeholderNote}>
-              GP companion line is approximate (no margin report rate yet).
-            </p>
-          ) : (
-            <p className={`${css.muted} ${css.caption} ${css.stackMtXs}`}>
-              GP line uses recent margin-by-product rate applied to daily sales.
-            </p>
-          )}
-        </DashboardPanel>
+          fallbackTrend={salesTrend7d}
+          analyticsBranchId={branchId}
+        />
 
-        <DashboardPanel title="Inventory Health" footerHref="/inventory" footerLabel="View inventory →">
-          <div className={css.healthPills}>
-            <span className={`${css.healthPill} ${css.healthPill_neutral}`}>
-              Total SKUs
-              <strong>{inventory?.skuCount ?? "—"}</strong>
-            </span>
-            <span className={`${css.healthPill} ${css.healthPill_success}`}>
-              Healthy{healthyPct != null ? ` ${healthyPct}%` : ""}
-              <strong>{inventory?.healthy ?? "—"}</strong>
-            </span>
-            <span className={`${css.healthPill} ${css.healthPill_warning}`}>
-              Low{lowPct != null ? ` ${lowPct}%` : ""}
-              <strong>{inventory?.lowStock ?? "—"}</strong>
-            </span>
-            <span className={`${css.healthPill} ${css.healthPill_danger}`}>
-              Out{oosPct != null ? ` ${oosPct}%` : ""}
-              <strong>{inventory?.outOfStock ?? "—"}</strong>
-            </span>
-          </div>
-          <div className={css.metricTiles}>
-            <div className={css.metricTileWide}>
-              <span>Stock Value</span>
-              <strong>{inventory ? formatMoney(inventory.stockValue) : "—"}</strong>
+        <DashboardPanel title="Inventory Health" icon={<IconPackage size={15} />} compact>
+          <div className={css.healthBoard}>
+            <div className={css.healthTop}>
+              <div
+                className={`${css.healthRing} ${css[`healthRing_${health.tone}`]}`}
+                style={{ "--score": loading ? 0 : health.score } as React.CSSProperties}
+              >
+                <span>{loading ? "…" : health.score}</span>
+              </div>
+              <div className={css.healthTopCopy}>
+                <span className={css.healthTopTitle}>{loading ? "…" : health.label}</span>
+                <span className={css.healthTopMeta}>
+                  {loading
+                    ? "Loading signals…"
+                    : `${attentionCount} signal${attentionCount === 1 ? "" : "s"} need attention · This branch`}
+                </span>
+                <span className={css.healthTopValue}>
+                  Stock value:{" "}
+                  <strong>{loading ? "…" : inventory ? formatMoney(inventory.stockValue) : "—"}</strong>
+                </span>
+              </div>
+            </div>
+
+            <ul className={css.healthFlatList}>
+              {healthSignals.map((signal) => {
+                const pct =
+                  loading || signal.value === 0
+                    ? 0
+                    : Math.max(8, Math.round((signal.value / healthBarMax) * 100));
+                return (
+                  <li key={signal.key}>
+                    <Link href={signal.href} className={css.healthFlatRow}>
+                      <span
+                        className={`${css.healthSignalIcon} ${css[`healthSignalIcon_${signal.tone}`]}`}
+                        aria-hidden
+                      >
+                        {signal.key === "low" ? (
+                          <IconBox size={14} strokeWidth={1.75} />
+                        ) : signal.key === "dead" ? (
+                          <IconArchive size={14} strokeWidth={1.75} />
+                        ) : (
+                          <IconCalendar size={14} strokeWidth={1.75} />
+                        )}
+                      </span>
+                      <span className={css.healthSignalLead}>
+                        <span className={css.healthSignalLabel}>{signal.label}</span>
+                        {signal.key === mostUrgentKey && signal.value > 0 ? (
+                          <span className={css.healthUrgentBadge}>Urgent</span>
+                        ) : null}
+                      </span>
+                      <span className={css.healthSignalTrack}>
+                        <span
+                          className={`${css.healthSignalFill} ${css[`healthSignalFill_${signal.tone}`]}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </span>
+                      <span className={`${css.healthSignalValue} ${css[`healthSignalValue_${signal.tone}`]}`}>
+                        {loading ? "…" : signal.value}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {loading ? null : (
+              <Link href="/inventory/movements?category=sales" className={css.healthPositiveCallout}>
+                <IconActivity size={16} strokeWidth={2.2} aria-hidden />
+                <span className={css.healthPositiveText}>
+                  <strong>{fastMoversCount ?? 0}</strong> fast movers this week — moving well, no action
+                  needed.
+                </span>
+              </Link>
+            )}
+
+            <div className={css.healthActions}>
+              <div className={css.healthActionsRow}>
+                <Link href="/inventory" className={css.healthReportLink}>
+                  View inventory report →
+                </Link>
+                <div className={css.healthActionBtns}>
+                  <Link href="/inventory?view=low" className={`${css.healthActionBtn} ${css.healthActionBtn_primary}`}>
+                    <IconBox size={13} strokeWidth={1.75} aria-hidden />
+                    Review low stock
+                  </Link>
+                  <Link
+                    href="/inventory/batches?nearExpiryDays=30"
+                    className={`${css.healthActionBtn} ${css.healthActionBtn_warning}`}
+                  >
+                    <IconCalendar size={13} strokeWidth={1.75} aria-hidden />
+                    View expiring
+                  </Link>
+                </div>
+              </div>
             </div>
           </div>
         </DashboardPanel>
@@ -363,67 +489,121 @@ export function ManagerDashboard({ data }: Props) {
       <div className={css.grid3}>
         <DashboardPanel
           title="Branch Sales vs Target"
+          icon={<IconUsers size={15} />}
           footerMeta={
-            branchPerfYearMonth ? `Month ${branchPerfYearMonth}` : undefined
+            branchPerfYearMonth ? (
+              <span className={css.monthPill}>
+                <IconCalendar size={11} strokeWidth={2} aria-hidden />
+                {formatYearMonth(branchPerfYearMonth)}
+              </span>
+            ) : undefined
           }
         >
           {targetRows.length === 0 ? (
             <p className={css.emptyState}>
-              No monthly target assigned yet. Owners set branch targets and
-              assign a manager for performance.
+              No monthly target assigned yet. Owners set branch targets and assign a manager for
+              performance.
             </p>
           ) : (
-            <table className={css.salesTable}>
-              <thead>
-                <tr>
-                  <th>Branch</th>
-                  <th>MTD sales</th>
-                  <th>Target</th>
-                  <th>Achievement</th>
-                </tr>
-              </thead>
-              <tbody>
-                {targetRows.map((row) => {
-                  const pct = row.achievementPct;
-                  const bar = pct != null ? Math.min(120, Math.max(0, pct)) : 0;
-                  const tone =
-                    pct == null
-                      ? "primary"
-                      : pct >= 100
+            <>
+              {targetRows.length > 1 ? (
+                <div className={css.teamStatStrip} style={{ marginBottom: "0.65rem" }}>
+                  <div className={css.teamStatCell}>
+                    <div className={css.teamStatCopy}>
+                      <strong className={css.teamStatValue}>{targetRows.length}</strong>
+                      <span className={css.teamStatLabel}>Branches</span>
+                    </div>
+                  </div>
+                  <div className={css.teamStatCell}>
+                    <div className={css.teamStatCopy}>
+                      <strong className={`${css.teamStatValue} ${css.teamStatValue_success}`}>
+                        {branchStats.onTrack}
+                      </strong>
+                      <span className={css.teamStatLabel}>On track</span>
+                    </div>
+                  </div>
+                  <div className={css.teamStatCell}>
+                    <div className={css.teamStatCopy}>
+                      <strong className={`${css.teamStatValue} ${css.teamStatValue_danger}`}>
+                        {branchStats.below}
+                      </strong>
+                      <span className={css.teamStatLabel}>Below target</span>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              <table className={`${css.salesTable} ${css.teamSnapTable}`}>
+                <thead>
+                  <tr>
+                    <th>Branch</th>
+                    <th>Today&apos;s Sales</th>
+                    <th>Target</th>
+                    <th>Achievement</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {targetRows.map((row) => {
+                    const pct = row.achievementPct;
+                    const bar = pct != null ? Math.min(100, Math.max(0, pct)) : 0;
+                    const status = branchTrackStatus(pct, expectedPace);
+                    const isBest = targetRows.length > 1 && row.branchId === branchStats.bestId;
+                    const tone =
+                      status === "on_track"
                         ? "success"
-                        : pct >= 70
-                          ? "primary"
-                          : "warning";
-                  return (
-                    <tr key={row.branchId}>
-                      <td>
-                        <div>{row.name}</div>
-                        <span className={css.muted}>
-                          Today {formatMoney(row.todaySales)}
-                        </span>
-                      </td>
-                      <td>{formatMoney(row.monthSales)}</td>
-                      <td className={css.muted}>
-                        {row.targetAmount != null
-                          ? formatMoney(row.targetAmount)
-                          : "—"}
-                      </td>
-                      <td>
-                        {pct != null ? (
-                          <ProgressBar
-                            value={bar}
-                            label={`${pct.toFixed(0)}%`}
-                            tone={tone}
-                          />
-                        ) : (
-                          <span className={css.muted}>No target</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        : status === "at_risk"
+                          ? "warning"
+                          : status === "below"
+                            ? "danger"
+                            : "primary";
+                    return (
+                      <tr key={row.branchId} className={isBest ? css.teamRowBest : undefined}>
+                        <td>
+                          <span className={css.teamBranchCell}>
+                            <span className={css.teamBranchDot} aria-hidden />
+                            <span className={css.branchName}>{row.name}</span>
+                            {isBest ? <span className={css.teamBestBadge}>Best</span> : null}
+                          </span>
+                        </td>
+                        <td className={css.teamNum}>{formatMoney(row.todaySales)}</td>
+                        <td className={`${css.muted} ${css.teamNum}`}>
+                          {row.targetAmount != null ? formatMoney(row.targetAmount) : "—"}
+                        </td>
+                        <td>
+                          {pct != null ? (
+                            <ProgressBar value={bar} label={`${pct.toFixed(0)}%`} tone={tone} />
+                          ) : (
+                            <span className={css.muted}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          {status === "none" ? (
+                            <span className={css.muted}>—</span>
+                          ) : (
+                            <span className={`${css.teamStatus} ${css[`teamStatus_${status}`]}`}>
+                              <span className={css.teamStatusIcon} aria-hidden>
+                                {status === "on_track" ? (
+                                  <IconChevronUp size={12} strokeWidth={2} />
+                                ) : status === "at_risk" ? (
+                                  <IconAlertTriangle size={11} strokeWidth={2} />
+                                ) : (
+                                  <IconChevronDown size={12} strokeWidth={2} />
+                                )}
+                              </span>
+                              {status === "on_track"
+                                ? "On track"
+                                : status === "at_risk"
+                                  ? "At risk"
+                                  : "Below target"}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
           )}
         </DashboardPanel>
 
@@ -442,8 +622,7 @@ export function ManagerDashboard({ data }: Props) {
               </thead>
               <tbody>
                 {staffProductivity.map((row) => {
-                  const share =
-                    todaySalesTotal > 0 ? Math.round((row.sales / todaySalesTotal) * 100) : 0;
+                  const share = todaySalesTotal > 0 ? Math.round((row.sales / todaySalesTotal) * 100) : 0;
                   const avg = row.transactions > 0 ? row.sales / row.transactions : 0;
                   return (
                     <tr key={row.id}>
@@ -464,74 +643,73 @@ export function ManagerDashboard({ data }: Props) {
           )}
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Approvals & Tasks"
-          footerHref="/purchasing"
-          footerLabel="Open purchasing →"
-        >
-          <AlertList
-            showAction
-            emptyText="No pending approvals or active stocktakes."
-            alerts={approvalTasks}
-          />
+        <DashboardPanel title="Approvals & Tasks" footerHref="/purchasing" footerLabel="Open purchasing →">
+          <AlertList showAction emptyText="No pending approvals or active stocktakes." alerts={approvalTasks} />
         </DashboardPanel>
       </div>
 
       <div className={css.grid3}>
-        <DashboardPanel
-          title="Transfer & PO Pipeline"
-          footerHref="/purchasing"
-          footerLabel="Open pipeline →"
-        >
+        <DashboardPanel title="Transfer & PO Pipeline" footerHref="/purchasing" footerLabel="Open pipeline →">
           {openPoList.length === 0 && transferList.length === 0 ? (
             <p className={css.emptyState}>No open pipeline items.</p>
           ) : (
             <ul className={css.pipelineList}>
-              {openPoList.map((po) => (
+              {openPoList.slice(0, 3).map((po) => (
                 <li key={po.id}>
-                  <div>
-                    <strong>{po.poNumber}</strong>
-                    <span className={css.muted}>{po.supplier.name}</span>
-                  </div>
-                  <StatusBadge status={po.status} />
+                  <Link href={`/purchasing?po=${po.id}`}>
+                    <span className={`${css.pipelineIcon} ${css.pipelineIcon_po}`} aria-hidden>
+                      <IconShoppingCart size={14} strokeWidth={1.75} />
+                    </span>
+                    <span className={css.pipelineRowBody}>
+                      <strong>{po.poNumber}</strong>
+                      <span className={css.muted}>{po.supplier.name}</span>
+                    </span>
+                    <StatusBadge status={po.status} />
+                  </Link>
                 </li>
               ))}
-              {transferList.slice(0, 4).map((t) => (
+              {transferList.slice(0, 2).map((t) => (
                 <li key={t.id}>
-                  <div>
-                    <strong>{t.transferNumber}</strong>
-                    <span className={css.muted}>
-                      {[t.fromBranch?.name, t.toBranch?.name].filter(Boolean).join(" → ") ||
-                        "Transfer"}
+                  <Link href={`/transfers?transfer=${t.id}`}>
+                    <span className={`${css.pipelineIcon} ${css.pipelineIcon_transfer}`} aria-hidden>
+                      <IconTruck size={14} strokeWidth={1.75} />
                     </span>
-                  </div>
-                  <StatusBadge status={t.status} />
+                    <span className={css.pipelineRowBody}>
+                      <strong>{t.transferNumber}</strong>
+                      <span className={css.muted}>
+                        {[t.fromBranch?.name, t.toBranch?.name].filter(Boolean).join(" → ") || "Transfer"}
+                      </span>
+                    </span>
+                    <StatusBadge status={t.status} />
+                  </Link>
                 </li>
               ))}
             </ul>
           )}
         </DashboardPanel>
 
-        <DashboardPanel title="Operational Alerts">
-          <AlertList alerts={alerts} emptyText="No operational alerts right now." showAction />
-          {lowStockRows.length > 0 ? (
-            <ul className={`${css.simpleList} ${css.stackMtMd}`}>
-              {lowStockRows.slice(0, 4).map((r) => (
-                <li key={r.productId}>
-                  <span>{r.product.name}</span>
-                  <span className={css.muted}>
-                    {r.qtyOnHand} / min {r.product.reorderLevel}
+        <DashboardPanel title="Top Products Today" footerHref="/reports" footerLabel="Open reports →">
+          {topProductsToday.length === 0 ? (
+            <p className={css.emptyState}>No sales recorded yet today.</p>
+          ) : (
+            <ul className={css.topProductsList}>
+              {topProductsToday.slice(0, 5).map((p, i) => (
+                <li key={p.sku} className={css.topProductRow}>
+                  <span className={`${css.topProductRank}${i === 0 ? ` ${css.topProductRank_lead}` : ""}`}>
+                    {i + 1}
                   </span>
+                  <span className={css.topProductBody}>
+                    <strong>{p.name}</strong>
+                    <span>{p.sku}</span>
+                  </span>
+                  <span className={css.topProductQty}>{p.qty} sold</span>
                 </li>
               ))}
             </ul>
-          ) : null}
+          )}
         </DashboardPanel>
 
-        <DashboardPanel
-          title="Customer Service Issues"
-          headerRight={<span className={css.placeholderBadge}>Sample</span>}
-        >
+        <DashboardPanel title="Customer Service Issues" headerRight={<span className={css.placeholderBadge}>Sample</span>}>
           <p className={css.placeholderNote}>Ops task board coming soon — sample priorities shown.</p>
           <ul className={css.issueList}>
             {PLACEHOLDER_SERVICE_ISSUES.map((issue) => (
@@ -546,7 +724,17 @@ export function ManagerDashboard({ data }: Props) {
         </DashboardPanel>
       </div>
 
-      <AiInsightsCard insights={MANAGER_AI_INSIGHTS} layout="cards" />
+      <div className={css.grid2}>
+        <AiInsightsCard insights={allInsights} footerHref="/analytics" />
+
+        <DashboardPanel title="Operational Alerts" icon={<IconAlertTriangle size={15} />}>
+          <AlertList
+            showAction
+            emptyText="No operational alerts — branch looks healthy."
+            alerts={operationalAlerts}
+          />
+        </DashboardPanel>
+      </div>
 
       <QuickActionsBar
         title="Manager Quick Actions"

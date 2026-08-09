@@ -9,10 +9,16 @@ export function dateOnly(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
+/**
+ * Local-calendar-day arithmetic (not UTC) — "today" (n=0) must match what a
+ * Colombo-timezone dashboard considers today. UTC arithmetic drifts a full
+ * calendar day off local "today" whenever the local offset is positive and
+ * it's late enough in the UTC day (e.g. after 18:30 UTC for UTC+5:30).
+ */
 export function daysAgo(n: number): Date {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - n);
-  d.setUTCHours(10, 0, 0, 0);
+  d.setDate(d.getDate() - n);
+  d.setHours(10, 0, 0, 0);
   return d;
 }
 

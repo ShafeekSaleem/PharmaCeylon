@@ -227,36 +227,47 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
-  align-items: start;
+  align-items: stretch;
 }
 
 .grid3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.7rem;
-  align-items: start;
+  align-items: stretch;
+}
+
+.grid2 > .panel,
+.grid3 > .panel,
+.grid4 > .panel {
+  height: 100%;
 }
 
 .grid4 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.7rem;
-  align-items: start;
+  align-items: stretch;
 }
 
-/* Wide primary panel + narrower companion (Owner overview / Cash Flow). */
+/* Wide primary panel + narrower companion (Manager: Branch Performance | Inventory Health). */
 .mainSplit {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 0.7rem;
-  align-items: start;
+  align-items: stretch;
 }
 
-/* Owner: Business Overview | Cash Flow | Alerts */
+.mainSplit > .panel {
+  height: 100%;
+  min-height: 260px;
+}
+
+/* Owner: Business Overview | Cash Flow (Operational Alerts moved to the ticker) */
 .mainSplitOwner {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.65rem;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 0.75rem;
   align-items: stretch;
 }
 
@@ -272,34 +283,29 @@
   min-height: 0;
 }
 
-.splitPanel .panelFooterLink {
-  font-weight: 500;
-  font-size: 0.75rem;
-}
-
 .span2 {
   grid-column: span 2;
 }
 
 .panel {
   background: var(--pc-card-bg);
-  border: 1px solid color-mix(in srgb, var(--pc-border) 88%, transparent);
-  border-radius: var(--pc-radius-md, 12px);
-  padding: 0.8rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--pc-border) 70%, transparent);
+  border-radius: 18px;
+  padding: 1.1rem 1.2rem;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 3px 12px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(15, 23, 42, 0.055);
   transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
 .panel:hover {
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06), 0 8px 22px rgba(15, 23, 42, 0.04);
-  border-color: color-mix(in srgb, var(--pc-primary) 18%, var(--pc-border));
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06), 0 14px 34px rgba(15, 23, 42, 0.07);
+  border-color: color-mix(in srgb, var(--pc-primary) 16%, var(--pc-border));
 }
 
 .panelCompact {
-  padding: 0.65rem 0.7rem;
+  padding: 0.85rem 0.95rem;
 }
 
 .panelHeader {
@@ -307,7 +313,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.45rem;
-  margin-bottom: 0.55rem;
+  margin-bottom: 0.8rem;
 }
 
 .panelTitleBlock {
@@ -319,9 +325,9 @@
 
 .panelTitle {
   margin: 0;
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.045em;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--pc-muted-fg);
   display: inline-flex;
@@ -368,8 +374,8 @@
 
 .panelFooterLink {
   color: var(--pc-primary);
-  font-size: 0.8rem;
-  font-weight: 650;
+  font-size: 0.75rem;
+  font-weight: 500;
   text-decoration: none;
   transition: color 0.15s ease;
 }
@@ -385,6 +391,25 @@
   color: var(--pc-muted-fg);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.monthPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
+  color: var(--pc-muted-fg);
+  font-size: 0.68rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.monthPill svg {
+  color: var(--pc-primary);
+  flex-shrink: 0;
 }
 
 .subHeading {
@@ -425,14 +450,11 @@
 }
 
 .overviewSubcard {
-  border: 1px solid color-mix(in srgb, var(--pc-border) 85%, transparent);
-  border-radius: var(--pc-radius-sm, 8px);
-  padding: 0.6rem 0.65rem 0.7rem;
+  padding: 0;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: color-mix(in srgb, var(--pc-card-bg) 92%, var(--pc-muted-bg));
 }
 
 .overviewChartGrow {
@@ -584,123 +606,7 @@
   font-weight: 600;
 }
 
-.periodSelect {
-  display: none; /* replaced by DashboardPeriodSelect */
-}
-
-.periodSelectWrap {
-  position: relative;
-  flex: 0 0 auto;
-  min-width: 7.5rem;
-  max-width: 9.5rem;
-}
-
-.periodSelectCompact .periodTrigger {
-  height: 2.15rem;
-  padding: 0.28rem 0.5rem;
-  font-size: 0.78rem;
-}
-
-.periodTrigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  width: 100%;
-  height: 2.8rem;
-  box-sizing: border-box;
-  padding: 0.35rem 0.55rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-input-bg, var(--pc-card-bg));
-  color: var(--pc-foreground);
-  font-family: inherit;
-  font-size: 0.82rem;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-}
-
-.periodTrigger:hover,
-.periodTriggerOpen {
-  border-color: var(--pc-primary);
-}
-
-.periodTriggerOpen {
-  box-shadow: 0 0 0 3px var(--pc-focus-ring);
-}
-
-.periodTriggerText {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 0.12rem;
-  overflow: hidden;
-}
-
-.periodTriggerLabel {
-  font-size: 0.6rem;
-  font-weight: 600;
-  color: var(--pc-muted-fg);
-  line-height: 1;
-}
-
-.periodTriggerText > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-
-.periodChevron {
-  flex-shrink: 0;
-  color: var(--pc-muted-fg);
-  transition: transform 0.15s;
-}
-
-.periodTriggerOpen .periodChevron {
-  transform: rotate(180deg);
-}
-
-.periodMenu {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.3rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-card-bg);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  overflow: auto;
-}
-
-.periodOption {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: var(--pc-foreground);
-  font-family: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
-  text-align: left;
-  padding: 0.45rem 0.55rem;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.periodOption:hover {
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-}
-
-.periodOptionActive {
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-}
+/* Period selection is a segmented toggle — see .periodToggle further below. */
 
 /* Metrics strip under Sales Trend + Revenue vs Purchases (rev/purch period). */
 .overviewChartsSummary {
@@ -708,10 +614,8 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
   flex-shrink: 0;
-  padding: 0.65rem 0.35rem;
-  border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
-  border-radius: var(--pc-radius-sm, 8px);
-  background: color-mix(in srgb, var(--pc-card-bg) 96%, var(--pc-muted-bg));
+  padding: 0.9rem 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--pc-border) 85%, transparent);
 }
 
 .overviewMetric {
@@ -719,7 +623,11 @@
   align-items: flex-start;
   gap: 0.65rem;
   min-width: 0;
-  padding: 0.15rem 0.85rem;
+  padding: 0 0.85rem;
+}
+
+.overviewMetric:first-child {
+  padding-left: 0;
 }
 
 .overviewMetric + .overviewMetric {
@@ -893,6 +801,20 @@
 
 .salesTable tr:last-child td {
   border-bottom: none;
+}
+
+.rowLink {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.rowLink:hover {
+  background: color-mix(in srgb, var(--pc-primary) 5%, var(--pc-muted-bg));
+}
+
+.rowLink:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: -2px;
 }
 
 .invoiceLink {
@@ -1080,33 +1002,37 @@ a.alertItem:hover {
 
 .quickBar {
   background: var(--pc-card-bg);
-  border: 1px solid color-mix(in srgb, var(--pc-border) 88%, transparent);
-  border-radius: var(--pc-radius-md, 12px);
-  padding: 0.8rem 0.85rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 3px 12px rgba(15, 23, 42, 0.03);
+  border: 1px solid color-mix(in srgb, var(--pc-border) 70%, transparent);
+  border-radius: 18px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(15, 23, 42, 0.055);
 }
 
 .quickBarGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
-  gap: 0.45rem;
-  margin-top: 0.55rem;
+  display: flex;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35rem 0.15rem 0.3rem;
+  margin-left: -0.15rem;
+  margin-right: -0.15rem;
 }
 
 .quickBarItem {
-  display: flex;
-  flex-direction: column;
+  flex: 0 0 auto;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  min-height: 4.5rem;
-  padding: 0.55rem 0.4rem;
+  gap: 0.55rem;
+  padding: 0.45rem 0.9rem 0.45rem 0.45rem;
   border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
-  border-radius: var(--pc-radius-sm);
+  border-radius: 999px;
   color: var(--pc-foreground);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 650;
-  text-align: center;
+  text-align: left;
+  white-space: nowrap;
   text-decoration: none;
   background: var(--pc-card-bg);
   transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
@@ -1128,11 +1054,12 @@ a.alertItem:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.2rem;
-  height: 2.2rem;
-  border-radius: var(--pc-radius-sm);
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
   background: var(--pc-primary-soft);
   color: var(--pc-primary);
+  flex-shrink: 0;
   transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 
@@ -2060,64 +1987,101 @@ a.aiItem:hover {
   color: var(--pc-muted-fg);
 }
 
-/* Pharmacist controlled-drug tall blocks */
-.complianceBlocks {
+/* Pharmacist controlled-drug activity tiles */
+.pharmStatStrip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.45rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
-.complianceBlock {
+.pharmStatCell {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.pharmStatCell:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07);
+}
+
+.pharmStatIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pharmStatCopy {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.35rem;
-  min-height: 6.5rem;
-  padding: 0.65rem 0.35rem 0.55rem;
-  border-radius: var(--pc-radius-sm);
-  text-align: center;
-  font-size: 0.68rem;
-  font-weight: 650;
-  color: var(--pc-btn-primary-text, #fff);
+  gap: 0.1rem;
+  min-width: 0;
 }
 
-.complianceBlock strong {
-  font-size: 1.35rem;
+.pharmStatValue {
+  font-size: 1.2rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
+  line-height: 1.1;
+  color: var(--pc-foreground);
 }
 
-.complianceBlock .placeholderValue {
-  color: inherit;
+.pharmStatLabel {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  line-height: 1.25;
 }
 
-.compliance_issued {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--pc-alert-success-icon) 65%, white) 0%,
-    var(--pc-alert-success-icon) 100%
-  );
+.pharmStatCell_primary {
+  background: color-mix(in srgb, var(--pc-primary) 8%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-primary) 20%, transparent);
 }
 
-.compliance_dispensed {
-  background: linear-gradient(180deg, var(--pc-primary) 0%, var(--pc-primary-hover) 100%);
+.pharmStatCell_primary .pharmStatIcon {
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
 }
 
-.compliance_checked {
-  background: linear-gradient(
-    180deg,
-    var(--pc-secondary-cyan) 0%,
-    var(--pc-secondary-cyan-hover) 100%
-  );
+.pharmStatCell_success {
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 8%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-alert-success-icon) 22%, transparent);
 }
 
-.compliance_discrepancy {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--pc-destructive) 65%, white) 0%,
-    var(--pc-destructive) 100%
-  );
+.pharmStatCell_success .pharmStatIcon {
+  color: var(--pc-alert-success-icon);
+  background: var(--pc-alert-success-bg);
+}
+
+.pharmStatCell_warning {
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 8%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-alert-warning-icon) 24%, transparent);
+}
+
+.pharmStatCell_warning .pharmStatIcon {
+  color: var(--pc-alert-warning-icon);
+  background: var(--pc-alert-warning-bg);
+}
+
+.pharmStatCell_danger {
+  background: var(--health-urgent-soft);
+  border-color: var(--health-urgent-border);
+}
+
+.pharmStatCell_danger .pharmStatIcon {
+  color: var(--health-urgent);
+  background: var(--health-urgent-soft);
 }
 
 .branchRow {
@@ -2399,6 +2363,134 @@ a.aiItem:hover {
   min-width: 0;
 }
 
+/* Additive: only applies when a row is wrapped in a link (Manager pipeline). */
+.pipelineList li > a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-decoration: none;
+  color: inherit;
+}
+
+.pipelineList li:has(a) {
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.pipelineList li:has(a):hover {
+  background: color-mix(in srgb, var(--pc-primary) 5%, var(--pc-muted-bg));
+}
+
+.pipelineIcon {
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 7px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pipelineIcon_po {
+  color: var(--pc-alert-info-icon);
+  background: color-mix(in srgb, var(--pc-alert-info-icon) 14%, var(--pc-card-bg));
+}
+
+.pipelineIcon_transfer {
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.pipelineRowBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+/* ---- Top products list (rank badge + qty pill) ---- */
+
+.topProductsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.topProductRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.5rem;
+  margin: 0 -0.5rem;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.topProductRow:hover {
+  background: var(--pc-muted-bg);
+}
+
+.topProductRank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+}
+
+.topProductRank_lead {
+  background: var(--pc-primary);
+  color: var(--pc-primary-fg, #fff);
+}
+
+.topProductBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.topProductBody strong {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topProductBody span {
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+}
+
+.topProductQty {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .healthList {
   list-style: none;
   margin: 0;
@@ -2593,7 +2685,7 @@ a.aiItem:hover {
     min-height: 0;
   }
 
-  .complianceBlocks {
+  .pharmStatStrip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -2857,11 +2949,6 @@ a.aiItem:hover {
   margin-top: auto;
 }
 
-.ownerEqualRow .panelFooterLink {
-  font-weight: 500;
-  font-size: 0.75rem;
-}
-
 .panelMenuBtn {
   display: inline-flex;
   align-items: center;
@@ -2886,106 +2973,13 @@ a.aiItem:hover {
   align-items: stretch;
 }
 
-.ownerHealthFeature {
-  width: 100%;
-}
-
-.ownerHealthFeature > .healthPanel,
-.ownerHealthFeature > .panel {
-  width: 100%;
-}
-
-.healthPanel {
-  --health-urgent: color-mix(
-    in srgb,
-    var(--pc-destructive) 42%,
-    var(--pc-alert-warning-icon, #ea580c) 58%
-  );
-  --health-urgent-soft: color-mix(in srgb, var(--health-urgent) 12%, transparent);
-  --health-urgent-border: color-mix(in srgb, var(--health-urgent) 28%, var(--pc-border));
-  --health-urgent-text: color-mix(
-    in srgb,
-    var(--pc-alert-error-text, #991b1b) 40%,
-    var(--pc-alert-warning-text, #9a3412) 60%
-  );
-}
-
 .healthBoard {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  flex: 1;
-  min-height: 0;
-}
-
-.healthSummary {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(6.5rem, 0.72fr) minmax(6.5rem, 0.72fr);
-  gap: 0.45rem;
-  align-items: stretch;
-}
-
-.healthValueBlock {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-width: 0;
-  padding: 0.55rem 0.65rem;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--pc-primary) 14%, var(--pc-border));
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--pc-primary) 7%, var(--pc-card-bg)) 0%,
-      var(--pc-card-bg) 70%
-    );
-}
-
-.healthValueHead {
-  display: flex;
-  align-items: flex-start;
   gap: 0.5rem;
-}
-
-.healthValueIcon {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  border-radius: 8px;
-  color: var(--pc-primary);
-  background: var(--pc-primary-soft);
-}
-
-.healthValueCopy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.14rem;
-  min-width: 0;
-}
-
-.healthValueLabel {
-  font-size: 0.66rem;
-  font-weight: 500;
-  color: var(--pc-muted-fg);
-}
-
-.healthValueAmount {
-  font-size: 1.05rem;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  color: var(--pc-foreground);
-  word-break: break-word;
-}
-
-.healthValueMeta {
-  font-size: 0.64rem;
-  font-weight: 500;
-  color: var(--pc-muted-fg);
+  flex: 1;
+  height: 100%;
+  min-height: 0;
 }
 
 .healthTrend {
@@ -3017,128 +3011,6 @@ a.aiItem:hover {
 
 .healthTrend_muted {
   color: var(--pc-muted-fg);
-}
-
-.healthStatCard {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.18rem;
-  min-width: 0;
-  padding: 0.5rem 0.55rem;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  background: var(--pc-muted-bg);
-}
-
-.healthStat_success {
-  border-color: color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-primary) 9%, var(--pc-card-bg));
-}
-
-.healthStat_danger {
-  border-color: var(--health-urgent-border);
-  background: var(--health-urgent-soft);
-}
-
-.healthStatIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 7px;
-}
-
-.healthStatIcon_success {
-  color: var(--pc-primary);
-  background: var(--pc-primary-soft);
-}
-
-.healthStatIcon_danger {
-  color: var(--health-urgent);
-  background: var(--health-urgent-soft);
-}
-
-.healthStatLabel {
-  font-size: 0.64rem;
-  font-weight: 500;
-  color: var(--pc-muted-fg);
-}
-
-.healthStatValue {
-  font-size: 1.2rem;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-
-.healthStatValue_success {
-  color: var(--pc-primary);
-}
-
-.healthStatValue_danger {
-  color: var(--health-urgent);
-}
-
-.healthPill {
-  display: inline-flex;
-  align-items: center;
-  margin-top: 0.08rem;
-  padding: 0.12rem 0.4rem;
-  border-radius: 999px;
-  font-size: 0.58rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.healthPill_success {
-  color: var(--pc-primary);
-  background: var(--pc-primary-soft);
-}
-
-.healthPill_warning {
-  color: var(--pc-alert-warning-text, #b45309);
-  background: var(--pc-alert-warning-bg, color-mix(in srgb, #f59e0b 14%, transparent));
-}
-
-.healthPanel .healthPill_danger {
-  color: var(--health-urgent-text);
-  background: var(--health-urgent-soft);
-}
-
-.healthSignalList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--pc-border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--pc-card-bg);
-  flex: 1;
-  min-height: 0;
-}
-
-.healthSignalList > li + li {
-  border-top: 1px solid var(--pc-border);
-}
-
-.healthSignalRow {
-  display: grid;
-  grid-template-columns: 1.45rem minmax(0, 1.15fr) minmax(2.4rem, 0.9fr) 1.85rem;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.42rem 0.5rem;
-  text-decoration: none;
-  color: inherit;
-  transition: background 0.15s ease;
-}
-
-.healthSignalRow:hover {
-  background: color-mix(in srgb, var(--pc-primary) 5%, var(--pc-muted-bg));
 }
 
 .healthSignalLead {
@@ -3261,30 +3133,15 @@ a.aiItem:hover {
   border-top: 1px solid color-mix(in srgb, var(--pc-border) 85%, transparent);
 }
 
-.healthActionsHead {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  font-weight: 650;
-  color: var(--pc-foreground);
-}
-
-.healthPriorityBadge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.15rem;
-  height: 1.15rem;
-  border-radius: 999px;
-  font-size: 0.58rem;
-  line-height: 1;
-  color: #fff;
-  background: var(--pc-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pc-primary) 22%, transparent);
-}
-
 .healthActionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.healthActionBtns {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -3326,7 +3183,6 @@ a.aiItem:hover {
 }
 
 .healthReportLink {
-  margin-left: auto;
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--pc-primary);
@@ -3339,32 +3195,32 @@ a.aiItem:hover {
   color: var(--pc-primary-hover);
 }
 
-.teamSnapPanel {
-  width: 100%;
-}
-
-.ownerTeamFeature {
-  width: 100%;
-}
-
 .teamSetTargetsBtn {
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  border: 0;
-  background: transparent;
-  color: var(--pc-primary);
+  gap: 0.35rem;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 650;
   font-family: inherit;
   cursor: pointer;
-  padding: 0.2rem 0.15rem;
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
 .teamSetTargetsBtn:hover {
-  color: var(--pc-primary-hover);
-  text-decoration: underline;
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.teamSetTargetsBtn:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 2px;
 }
 
 .teamSnapBoard {
@@ -3372,6 +3228,7 @@ a.aiItem:hover {
   flex-direction: column;
   gap: 0.65rem;
   flex: 1;
+  height: 100%;
   min-height: 0;
 }
 
@@ -3394,35 +3251,6 @@ a.aiItem:hover {
 
 .teamStatCell + .teamStatCell {
   border-left: 1px solid var(--pc-border);
-}
-
-.teamStatIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.7rem;
-  height: 1.7rem;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.teamStatIcon_primary {
-  color: var(--pc-primary);
-  background: var(--pc-primary-soft);
-}
-
-.teamStatIcon_success {
-  color: var(--pc-alert-success-icon, #16a34a);
-  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 12%, transparent);
-}
-
-.teamStatIcon_danger {
-  color: var(--health-urgent, var(--pc-destructive));
-  background: color-mix(
-    in srgb,
-    var(--health-urgent, var(--pc-destructive)) 12%,
-    transparent
-  );
 }
 
 .teamStatCopy {
@@ -3567,11 +3395,6 @@ a.aiItem:hover {
   border-top: 1px solid color-mix(in srgb, var(--pc-border) 85%, transparent);
 }
 
-.teamSnapFooter .panelFooterLink {
-  font-weight: 500;
-  font-size: 0.75rem;
-}
-
 .teamSnapFooterRight {
   display: inline-flex;
   flex-wrap: wrap;
@@ -3618,11 +3441,7 @@ a.aiItem:hover {
     grid-template-columns: 1fr;
   }
 
-  .healthSummary {
-    grid-template-columns: 1fr;
-  }
-
-  .healthSignalRow {
+  .healthFlatRow {
     grid-template-columns: 1.25rem minmax(0, 1fr) 1.5rem;
   }
 
@@ -3638,8 +3457,477 @@ a.aiItem:hover {
   .healthSignalTrack {
     display: none;
   }
+}
 
-  .healthReportLink {
-    margin-left: 0;
+/* ============================================================
+   Modernized layout primitives — hero band, attention ticker,
+   header refresh control, AI insights live/preview split.
+   ============================================================ */
+
+.refreshStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.refreshDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pc-alert-success-icon, #16a34a);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 20%, transparent);
+  flex-shrink: 0;
+}
+
+.refreshDotBusy {
+  background: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-primary-soft);
+  animation: refreshPulse 1s ease-in-out infinite;
+}
+
+@keyframes refreshPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.refreshBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: none;
+  background: transparent;
+  color: var(--pc-primary);
+  font-size: 0.75rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0.1rem 0.2rem;
+  border-radius: 6px;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  color: var(--pc-primary-hover);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.refreshBtn:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 2px;
+}
+
+.refreshBtn svg {
+  transition: transform 0.4s ease;
+}
+
+.refreshBtn:hover:not(:disabled) svg {
+  transform: rotate(70deg);
+}
+
+/* ---- Segmented period toggle (replaces the dropdown select) ---- */
+
+.periodToggle {
+  display: inline-flex;
+  padding: 0.15rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  border: 1px solid var(--pc-border);
+  flex-shrink: 0;
+}
+
+.periodToggleBtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.periodToggleBtn:hover {
+  color: var(--pc-foreground);
+}
+
+.periodToggleBtn[aria-pressed="true"] {
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.periodToggleBtn:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 1px;
+}
+
+/* ---- Hero band ---- */
+
+.hero {
+  display: grid;
+  gap: 0;
+  background: var(--pc-card-bg);
+  border: 1px solid color-mix(in srgb, var(--pc-border) 70%, transparent);
+  border-radius: 20px;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.05), 0 20px 44px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.heroCell {
+  padding: 1.3rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  position: relative;
+  min-width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--pc-border) 70%, transparent);
+}
+
+.heroCell:first-child {
+  border-left: none;
+}
+
+.heroEyebrow {
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--pc-muted-fg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.heroScope {
+  color: color-mix(in srgb, var(--pc-muted-fg) 75%, transparent);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.heroValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.heroValue {
+  font-size: 2.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--pc-foreground);
+}
+
+.heroCellPrimary .heroValue {
+  font-size: 2.5rem;
+}
+
+.heroMeta {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.heroSpark {
+  position: absolute;
+  right: 1.4rem;
+  bottom: 1.1rem;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* Keep meta text from running under the sparkline's reserved bottom-right column. */
+.heroCellPrimary .heroMeta {
+  max-width: calc(100% - 11rem);
+}
+
+.trendChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.14rem 0.5rem 0.14rem 0.4rem;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.trendChipUp {
+  color: var(--pc-alert-success-text, #166534);
+  background: var(--pc-alert-success-bg, #f0fdf4);
+}
+
+.trendChipDown {
+  color: var(--health-urgent-text, var(--pc-alert-error-text));
+  background: var(--health-urgent-soft, var(--pc-alert-error-bg));
+}
+
+@media (max-width: 1180px) {
+  .hero {
+    grid-template-columns: 1fr !important;
   }
+
+  .heroCell {
+    border-left: none;
+    border-top: 1px solid color-mix(in srgb, var(--pc-border) 70%, transparent);
+  }
+
+  .heroCell:first-child {
+    border-top: none;
+  }
+}
+
+/* ---- Attention ticker ---- */
+
+.ticker {
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+  scrollbar-width: thin;
+}
+
+.tickerChip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  border: 1px solid color-mix(in srgb, var(--pc-border) 80%, transparent);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  text-decoration: none;
+  color: var(--pc-foreground);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.tickerChip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  border-color: color-mix(in srgb, var(--pc-primary) 25%, var(--pc-border));
+}
+
+.tickerChip:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 2px;
+}
+
+.tickerDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tickerDot_danger {
+  background: var(--health-urgent, var(--pc-destructive));
+  box-shadow: 0 0 0 3px var(--health-urgent-soft, var(--pc-alert-error-bg));
+}
+
+.tickerDot_warning {
+  background: var(--pc-alert-warning-icon, #d97706);
+  box-shadow: 0 0 0 3px var(--pc-alert-warning-bg, #fffbeb);
+}
+
+.tickerDot_info {
+  background: var(--pc-alert-info-icon, #2563eb);
+  box-shadow: 0 0 0 3px var(--pc-alert-info-bg, #eff6ff);
+}
+
+.tickerCount {
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.tickerLabel {
+  color: var(--pc-muted-fg);
+}
+
+.tickerAllClear {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 999px;
+  background: var(--pc-alert-success-bg, #f0fdf4);
+  color: var(--pc-alert-success-text, #166534);
+  border: 1px solid var(--pc-alert-success-border, #bbf7d0);
+  font-size: 0.82rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+/* ---- Inventory Health: single score ring + flat signal rows (Owner) ---- */
+
+.healthTop {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.15rem;
+}
+
+.healthRing {
+  --score: 0;
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 800;
+  position: relative;
+  background: conic-gradient(
+    var(--health-ring-color, var(--pc-primary)) calc(var(--score) * 3.6deg),
+    var(--pc-muted-bg) calc(var(--score) * 3.6deg) 360deg
+  );
+}
+
+.healthRing::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--pc-card-bg);
+}
+
+.healthRing span {
+  position: relative;
+  z-index: 1;
+  color: var(--pc-foreground);
+}
+
+.healthRing_success {
+  --health-ring-color: var(--pc-alert-success-icon, #16a34a);
+}
+
+.healthRing_warning {
+  --health-ring-color: var(--pc-alert-warning-icon, #d97706);
+}
+
+.healthRing_danger {
+  --health-ring-color: var(--health-urgent, var(--pc-destructive));
+}
+
+.healthTopCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.healthTopTitle {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.healthTopMeta {
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+}
+
+.healthTopValue {
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.healthTopValue strong {
+  color: var(--pc-foreground);
+  font-weight: 650;
+}
+
+.healthFlatList {
+  list-style: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.healthFlatRow {
+  display: grid;
+  grid-template-columns: 1.35rem minmax(0, 1.1fr) minmax(2.4rem, 0.9fr) 1.85rem;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.4rem;
+  margin: 0 -0.4rem;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease;
+}
+
+.healthFlatRow:hover {
+  background: color-mix(in srgb, var(--pc-primary) 5%, var(--pc-muted-bg));
+}
+
+/* ---- Inventory Health: positive signal called out separately from risk bars
+   (fast movers is a volume metric, not a risk count — it doesn't belong on
+   the same 0-100% track as low/dead/near-expiry). ---- */
+
+.healthPositiveCallout {
+  margin-top: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-alert-success-bg, #f0fdf4);
+  border: 1px solid var(--pc-alert-success-border, #bbf7d0);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.healthPositiveCallout:hover {
+  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, var(--pc-alert-success-bg, #f0fdf4));
+  border-color: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 45%, var(--pc-alert-success-border, #bbf7d0));
+}
+
+.healthPositiveCallout svg {
+  color: var(--pc-alert-success-icon, #16a34a);
+  flex-shrink: 0;
+}
+
+.healthPositiveText {
+  flex: 1;
+  font-size: 0.76rem;
+  color: var(--pc-foreground);
+}
+
+.healthPositiveChevron {
+  flex-shrink: 0;
+  color: var(--pc-alert-success-icon, #16a34a);
+  opacity: 0.8;
+}
+
+.healthPositiveText strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.healthPositiveUnavailable {
+  margin-top: 0.7rem;
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  font-style: italic;
 }

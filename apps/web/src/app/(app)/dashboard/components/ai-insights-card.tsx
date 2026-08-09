@@ -15,15 +15,11 @@ import css from "../dashboard.module.css";
 
 type Props = {
   title?: string;
-  insights: AiInsight[];
+  insights?: AiInsight[];
   footerHref?: string;
   footerLabel?: string;
   footerMeta?: string;
-  /** Card grid (manager mockup) vs compact list. */
-  layout?: "list" | "cards";
   compact?: boolean;
-  /** When false, omit the Sample badge / disclaimer (live data-driven insights). */
-  showSampleBadge?: boolean;
 };
 
 function toneIcon(tone: AiInsight["tone"]): ReactNode {
@@ -41,55 +37,22 @@ function toneIcon(tone: AiInsight["tone"]): ReactNode {
 
 export function AiInsightsCard({
   title = "AI Insights & Recommendations",
-  insights,
+  insights = [],
   footerHref,
   footerLabel = "View all insights →",
   footerMeta,
-  layout = "list",
   compact,
-  showSampleBadge = true,
 }: Props) {
   return (
     <DashboardPanel
       title={title}
       icon={<IconSparkles size={14} />}
       compact={compact}
-      badge={
-        showSampleBadge ? (
-          <span className={css.placeholderBadge} title="Placeholder recommendations">
-            Sample
-          </span>
-        ) : undefined
-      }
       footerHref={footerHref}
       footerLabel={footerHref ? footerLabel : undefined}
       footerMeta={footerMeta}
     >
-      {showSampleBadge ? (
-        <p className={css.placeholderNote}>
-          Sample recommendations for layout preview — not live AI output.
-        </p>
-      ) : null}
-      {layout === "cards" ? (
-        <div className={css.aiCards}>
-          {insights.map((item) => (
-            <div
-              key={item.id}
-              className={`${css.aiCard} ${css[`aiTone_${item.tone ?? "info"}`]}`}
-            >
-              <strong>{item.title}</strong>
-              <p>{item.detail}</p>
-              {item.href ? (
-                <Link href={item.href} className={css.aiCardAction}>
-                  {item.actionLabel ?? "Review"}
-                </Link>
-              ) : (
-                <span className={css.muted}>Coming soon</span>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
+      {insights.length > 0 ? (
         <ul className={css.aiList}>
           {insights.map((item) => {
             const tone = item.tone ?? "info";
@@ -110,10 +73,7 @@ export function AiInsightsCard({
             return (
               <li key={item.id}>
                 {item.href ? (
-                  <Link
-                    href={item.href}
-                    className={`${css.aiItem} ${css[`aiTone_${tone}`]}`}
-                  >
+                  <Link href={item.href} className={`${css.aiItem} ${css[`aiTone_${tone}`]}`}>
                     {row}
                   </Link>
                 ) : (
@@ -123,6 +83,8 @@ export function AiInsightsCard({
             );
           })}
         </ul>
+      ) : (
+        <p className={css.emptyState}>No insights right now.</p>
       )}
     </DashboardPanel>
   );

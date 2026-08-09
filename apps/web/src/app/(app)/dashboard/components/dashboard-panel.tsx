@@ -12,7 +12,7 @@ type Props = {
   headerRight?: ReactNode;
   footerHref?: string;
   footerLabel?: string;
-  footerMeta?: string;
+  footerMeta?: ReactNode;
   className?: string;
   children: ReactNode;
   compact?: boolean;

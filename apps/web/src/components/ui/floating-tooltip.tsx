@@ -1,17 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import styles from "./floating-tooltip.module.css";
 
 type Placement = "top" | "bottom" | "right" | "left";
 
-type TooltipState = {
+/** Anchor-relative point the tooltip should point at, before its own size is known. */
+type TooltipAnchor = {
   text: string;
-  top: number;
-  left: number;
+  anchorX: number;
+  anchorY: number;
   placement: Placement;
 };
+
+/** Final on-screen box, computed once the tooltip's own size is measured. */
+type TooltipBox = {
+  left: number;
+  top: number;
+  /** Arrow offset along the box's main axis (px from the box's top-left). */
+  arrowOffset: number;
+};
+
+const VIEWPORT_MARGIN = 8;
+const ARROW_INSET = 10;
 
 function resolveTarget(node: EventTarget | null): HTMLElement | null {
   if (!(node instanceof Element)) return null;
@@ -30,28 +42,18 @@ function readPlacement(el: HTMLElement): Placement | "auto" {
   return "auto";
 }
 
-function measure(el: HTMLElement): TooltipState {
+function measureAnchor(el: HTMLElement): TooltipAnchor {
   const text = el.getAttribute("data-tooltip")!.trim();
   const rect = el.getBoundingClientRect();
   const gap = 8;
   const forced = readPlacement(el);
 
   if (forced === "right") {
-    return {
-      text,
-      top: rect.top + rect.height / 2,
-      left: rect.right + gap,
-      placement: "right",
-    };
+    return { text, anchorX: rect.right + gap, anchorY: rect.top + rect.height / 2, placement: "right" };
   }
 
   if (forced === "left") {
-    return {
-      text,
-      top: rect.top + rect.height / 2,
-      left: rect.left - gap,
-      placement: "left",
-    };
+    return { text, anchorX: rect.left - gap, anchorY: rect.top + rect.height / 2, placement: "left" };
   }
 
   const placement: Placement =
@@ -61,18 +63,57 @@ function measure(el: HTMLElement): TooltipState {
         ? "bottom"
         : "top";
 
-  const top = placement === "top" ? rect.top - gap : rect.bottom + gap;
-  const left = Math.min(
-    Math.max(rect.left + rect.width / 2, 12),
-    window.innerWidth - 12,
-  );
+  return {
+    text,
+    anchorX: rect.left + rect.width / 2,
+    anchorY: placement === "top" ? rect.top - gap : rect.bottom + gap,
+    placement,
+  };
+}
 
-  return { text, top, left, placement };
+/** Clamp the box to stay fully on-screen, keeping the arrow aimed at the anchor point. */
+function fitBox(
+  anchor: TooltipAnchor,
+  size: { width: number; height: number },
+): TooltipBox {
+  const { placement, anchorX, anchorY } = anchor;
+  const { width, height } = size;
+  const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - width - VIEWPORT_MARGIN);
+  const maxTop = Math.max(VIEWPORT_MARGIN, window.innerHeight - height - VIEWPORT_MARGIN);
+
+  if (placement === "top" || placement === "bottom") {
+    const idealLeft = anchorX - width / 2;
+    const left = Math.min(Math.max(idealLeft, VIEWPORT_MARGIN), maxLeft);
+    const top =
+      placement === "top"
+        ? Math.max(anchorY - height, VIEWPORT_MARGIN)
+        : Math.min(anchorY, maxTop);
+    const arrowOffset = Math.min(
+      Math.max(anchorX - left, ARROW_INSET),
+      Math.max(width - ARROW_INSET, ARROW_INSET),
+    );
+    return { left, top, arrowOffset };
+  }
+
+  // left / right placements
+  const idealTop = anchorY - height / 2;
+  const top = Math.min(Math.max(idealTop, VIEWPORT_MARGIN), maxTop);
+  const left =
+    placement === "right"
+      ? Math.min(anchorX, maxLeft)
+      : Math.max(anchorX - width, VIEWPORT_MARGIN);
+  const arrowOffset = Math.min(
+    Math.max(anchorY - top, ARROW_INSET),
+    Math.max(height - ARROW_INSET, ARROW_INSET),
+  );
+  return { left, top, arrowOffset };
 }
 
 export function FloatingTooltipHost() {
-  const [state, setState] = useState<TooltipState | null>(null);
+  const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
+  const [box, setBox] = useState<TooltipBox | null>(null);
   const [mounted, setMounted] = useState(false);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -84,14 +125,15 @@ export function FloatingTooltipHost() {
 
     const hide = () => {
       active = null;
-      setState(null);
+      setAnchor(null);
+      setBox(null);
     };
 
     const show = (el: HTMLElement) => {
       active = el;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        if (active === el) setState(measure(el));
+        if (active === el) setAnchor(measureAnchor(el));
       });
     };
 
@@ -147,24 +189,49 @@ export function FloatingTooltipHost() {
     };
   }, []);
 
-  if (!mounted || !state) return null;
+  // Once the anchor (and its text) is known, measure the tooltip's actual
+  // rendered size and clamp it to the viewport — the anchor rect alone
+  // doesn't tell us how wide/tall the bubble will be, so a naive
+  // center-on-anchor placement can run half off-screen for long text near
+  // a screen edge (e.g. header controls hugging the right side).
+  useLayoutEffect(() => {
+    if (!anchor) return;
+    const el = tooltipRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setBox(fitBox(anchor, { width, height }));
+  }, [anchor]);
+
+  if (!mounted || !anchor) return null;
 
   const placementClass =
-    state.placement === "bottom"
+    anchor.placement === "bottom"
       ? styles.bottom
-      : state.placement === "right"
+      : anchor.placement === "right"
         ? styles.right
-        : state.placement === "left"
+        : anchor.placement === "left"
           ? styles.left
           : styles.top;
 
+  // Before the first measurement pass, render off-screen (still measurable)
+  // rather than at a guessed position — avoids a visible jump/flash.
+  const style: CSSProperties = box
+    ? ({
+        top: box.top,
+        left: box.left,
+        visibility: "visible",
+        "--tooltip-arrow-offset": `${box.arrowOffset}px`,
+      } as CSSProperties)
+    : { top: -9999, left: -9999, visibility: "hidden" };
+
   return createPortal(
     <div
+      ref={tooltipRef}
       className={`${styles.tooltip} ${placementClass}`}
-      style={{ top: state.top, left: state.left }}
+      style={style}
       role="tooltip"
     >
-      {state.text}
+      {anchor.text}
     </div>,
     document.body,
   );
