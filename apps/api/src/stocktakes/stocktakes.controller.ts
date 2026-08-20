@@ -9,7 +9,7 @@ import {
 } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CreateStocktakeDto } from "./dto/create-stocktake.dto";
@@ -38,13 +38,13 @@ export class StocktakesController {
     return [...new Set(atBranch)];
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Get()
   list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.stocktakes.list(user.tenantId, branchId, this.rolesAtBranch(user, branchId));
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Get(":id")
   getOne(
     @CurrentUser() user: RequestUser,
@@ -54,7 +54,7 @@ export class StocktakesController {
     return this.stocktakes.getOne(user.tenantId, branchId, id, this.rolesAtBranch(user, branchId));
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Post()
   create(
     @CurrentUser() user: RequestUser,
@@ -70,7 +70,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Patch(":id")
   updateHeader(
     @CurrentUser() user: RequestUser,
@@ -88,7 +88,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Patch(":id/lines")
   upsertLines(
     @CurrentUser() user: RequestUser,
@@ -106,7 +106,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Post(":id/lines/add")
   addLines(
     @CurrentUser() user: RequestUser,
@@ -124,7 +124,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Post(":id/lines/remove")
   removeLines(
     @CurrentUser() user: RequestUser,
@@ -142,7 +142,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Post(":id/schedule")
   schedule(
     @CurrentUser() user: RequestUser,
@@ -158,7 +158,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Post(":id/start")
   start(
     @CurrentUser() user: RequestUser,
@@ -174,7 +174,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("stocktakes.use")
   @Post(":id/submit")
   submit(
     @CurrentUser() user: RequestUser,
@@ -190,7 +190,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("stocktakes.review")
   @Post(":id/review/start")
   startReview(
     @CurrentUser() user: RequestUser,
@@ -206,7 +206,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("stocktakes.review")
   @Patch(":id/review-lines")
   reviewLines(
     @CurrentUser() user: RequestUser,
@@ -224,7 +224,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("stocktakes.review")
   @Post(":id/request-recount")
   requestRecount(
     @CurrentUser() user: RequestUser,
@@ -242,7 +242,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("stocktakes.review")
   @Post(":id/approve")
   approve(
     @CurrentUser() user: RequestUser,
@@ -258,7 +258,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("stocktakes.review")
   @Post(":id/post")
   post(
     @CurrentUser() user: RequestUser,
@@ -274,7 +274,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("stocktakes.review")
   @Post(":id/complete")
   complete(
     @CurrentUser() user: RequestUser,
@@ -290,7 +290,7 @@ export class StocktakesController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("stocktakes.review")
   @Post(":id/cancel")
   cancel(
     @CurrentUser() user: RequestUser,

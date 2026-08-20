@@ -1,27 +1,17 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query, Req } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import {
   AuthenticatedRequest,
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
 import { CatalogService } from "./catalog.service";
 
-const CATALOG_READ = [
-  RoleName.owner,
-  RoleName.manager,
-  RoleName.pharmacist,
-  RoleName.cashier,
-  RoleName.inventory_clerk,
-  RoleName.analyst,
-] as const;
-
 @Controller("catalog")
 export class CatalogController {
   constructor(private readonly catalog: CatalogService) {}
 
-  @Roles(...CATALOG_READ)
+  @RequirePermission("catalog.view")
   @Get("search")
   search(
     @CurrentUser() user: RequestUser,
@@ -34,6 +24,7 @@ export class CatalogController {
     @Query("schedule") schedule?: string,
     @Query("isControlled") isControlled?: string,
     @Query("categoryId") categoryId?: string,
+    @Query("commercialCategoryId") commercialCategoryId?: string,
     @Query("tagId") tagId?: string,
     @Query("lowStock") lowStock?: string,
     @Query("inStock") inStock?: string,
@@ -60,6 +51,7 @@ export class CatalogController {
         schedule,
         isControlled,
         categoryId,
+        commercialCategoryId,
         tagId,
         lowStock: lowStock === "true",
         inStock: inStock === "true",
@@ -73,7 +65,7 @@ export class CatalogController {
     );
   }
 
-  @Roles(...CATALOG_READ)
+  @RequirePermission("catalog.view")
   @Get("facets")
   facets(
     @CurrentUser() user: RequestUser,
@@ -87,6 +79,7 @@ export class CatalogController {
     @Query("status") status?: string,
     @Query("lowStock") lowStock?: string,
     @Query("categoryId") categoryId?: string,
+    @Query("commercialCategoryId") commercialCategoryId?: string,
     @Query("tagId") tagId?: string,
   ) {
     return this.catalog.facets(user.tenantId, req.branchId, {
@@ -99,11 +92,12 @@ export class CatalogController {
       status: status || "active",
       lowStock: lowStock === "true",
       categoryId,
+      commercialCategoryId,
       tagId,
     });
   }
 
-  @Roles(...CATALOG_READ)
+  @RequirePermission("catalog.view")
   @Get("products/:productId")
   productDetail(
     @CurrentUser() user: RequestUser,
@@ -113,7 +107,7 @@ export class CatalogController {
     return this.catalog.productDetail(user.tenantId, req.branchId, productId);
   }
 
-  @Roles(...CATALOG_READ)
+  @RequirePermission("catalog.view")
   @Get("products/:productId/alternatives")
   alternatives(
     @CurrentUser() user: RequestUser,

@@ -1,0 +1,348 @@
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 1100px) {
+  .kpiRow {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.personCell {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.72rem;
+  color: #fff;
+}
+
+.personText {
+  min-width: 0;
+}
+
+.personName {
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.personEmail {
+  font-size: 0.74rem;
+  color: var(--pc-muted-fg);
+  margin-top: 0.1rem;
+}
+
+.youBadge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft, rgba(13, 148, 136, 0.12));
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+  margin-left: 0.4rem;
+}
+
+.roleChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  max-width: 440px;
+}
+
+.roleChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  padding: 0.2rem 0.55rem 0.2rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.roleDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.inactiveRow {
+  opacity: 0.55;
+}
+
+.actionIconDanger {
+  color: var(--pc-alert-error-icon);
+}
+
+.actionIconDanger:hover {
+  color: var(--pc-alert-error-icon);
+  border-color: color-mix(in srgb, var(--pc-alert-error-icon) 45%, var(--pc-border));
+  background: var(--pc-alert-error-bg);
+}
+
+.actionIconSuccess {
+  color: var(--pc-alert-success-icon);
+}
+
+.actionIconSuccess:hover {
+  color: var(--pc-alert-success-icon);
+  border-color: color-mix(in srgb, var(--pc-alert-success-icon) 45%, var(--pc-border));
+  background: var(--pc-alert-success-bg);
+}
+
+/* ── Add/manage staff modal bits ── */
+
+.miniLabel {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted-fg);
+}
+
+.roleTableWrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+  margin-bottom: 0.7rem;
+}
+
+.roleTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.roleTable thead th {
+  text-align: left;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-muted-fg);
+  font-weight: 700;
+  padding: 0.55rem 0.7rem;
+  background: var(--pc-muted-bg);
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.roleTable tbody td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--pc-border);
+  vertical-align: middle;
+}
+
+.roleTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.roleTable tbody tr:hover {
+  background: color-mix(in srgb, var(--pc-muted-bg) 55%, transparent);
+}
+
+.roleTableCellAction {
+  width: 40px;
+}
+
+.roleTableEmpty {
+  padding: 1.1rem 0.7rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+.roleDisplay {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--pc-foreground);
+}
+
+.branchDisplay {
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--pc-foreground);
+}
+
+.addRoleBar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.addRoleBar > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.removeRowBtn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--pc-radius-sm);
+  background: transparent;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.removeRowBtn:hover:not(:disabled) {
+  color: var(--pc-alert-error-icon);
+  border-color: color-mix(in srgb, var(--pc-alert-error-icon) 40%, var(--pc-border));
+  background: var(--pc-alert-error-bg);
+}
+
+.removeRowBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.addRowBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: none;
+  border: none;
+  color: var(--pc-primary);
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 0.3rem 0;
+}
+
+.lockedNote {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  background: var(--pc-muted-bg);
+  border-radius: var(--pc-radius-sm);
+  padding: 0.6rem 0.7rem;
+  font-size: 0.74rem;
+  color: var(--pc-muted-fg);
+  margin-top: 0.6rem;
+}
+
+.genRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.genRow > div {
+  flex: 1;
+}
+
+.genBtn {
+  flex-shrink: 0;
+  height: 42px;
+  padding: 0 0.85rem;
+  border-radius: var(--pc-radius-sm);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.genBtn:hover {
+  color: var(--pc-primary);
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
+  background: var(--pc-primary-soft, rgba(13, 148, 136, 0.12));
+}
+
+.stepPills {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1.1rem;
+}
+
+.stepPill {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--pc-border);
+}
+
+.stepPillDone {
+  background: var(--pc-primary);
+}
+
+
+/* ── Security section (account actions) ── */
+
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+/* ── Layout / subnav (Staff | Roles & permissions) ── */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sectionContent {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+}
+
+.subnavLink {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--pc-radius-sm);
+  color: var(--pc-muted-fg);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.subnavLink:hover {
+  color: var(--pc-foreground);
+  background: var(--pc-muted-bg);
+}
+
+.subnavLinkActive {
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
+}

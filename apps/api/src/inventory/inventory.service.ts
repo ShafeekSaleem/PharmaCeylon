@@ -8,6 +8,7 @@ import { Prisma, RoleName, StockMovementType } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { expandCommercialCategoryIds } from "../products/product-query.util";
 import { reorderGap, resolveStockStatus } from "../products/stock-qty.util";
 import { assertSaleReturnableLines } from "../sales/sale-returnable";
 import { StockBalanceService } from "./stock-balance.service";
@@ -40,6 +41,7 @@ export type BatchListQuery = {
   quarantined?: boolean;
   /** When true, only expired batches; when false, only non-expired. */
   expired?: boolean;
+  controlled?: "all" | "controlled" | "regular";
 };
 
 export type MovementCategory =
@@ -174,6 +176,11 @@ export class InventoryService {
         ...(query.productId ? { productId: query.productId } : {}),
         ...expiryWhere,
         ...(query.quarantined != null ? { isQuarantined: query.quarantined } : {}),
+        ...(query.controlled === "controlled"
+          ? { product: { isControlled: true } }
+          : query.controlled === "regular"
+            ? { product: { isControlled: false } }
+            : {}),
       },
       select: {
         id: true,
@@ -482,7 +489,18 @@ export class InventoryService {
     if (query.brands?.length) productWhere.brandName = { in: query.brands };
     if (query.dosageForms?.length) productWhere.dosageForm = { in: query.dosageForms };
     if (query.categoryIds?.length) {
-      productWhere.categoryMaps = { some: { categoryId: { in: query.categoryIds } } };
+      // "Category" filter is commercial-only — the web filter dropdown is fed exclusively
+      // from COMMERCIAL categories, so this is enforced here too rather than assumed.
+      // Selecting a department must also match every product filed under its descendant
+      // categories (products are filed on leaves, not the department row itself).
+      const expandedCategoryIds = await expandCommercialCategoryIds(
+        this.prisma,
+        tenantId,
+        query.categoryIds,
+      );
+      productWhere.categoryMaps = {
+        some: { categoryId: { in: expandedCategoryIds }, dimension: "COMMERCIAL" },
+      };
     }
     if (query.tagIds?.length) {
       productWhere.tagMaps = { some: { tagId: { in: query.tagIds } } };
@@ -572,7 +590,10 @@ export class InventoryService {
             where: { id: { in: pageIds }, tenantId },
             select: {
               id: true,
+              // Primary COMMERCIAL category only — this is the "Category" the Inventory UI
+              // means; Dosage Form/Schedule/Registration Type maps are never mixed in here.
               categoryMaps: {
+                where: { dimension: "COMMERCIAL", isPrimary: true },
                 select: { category: { select: { id: true, name: true } } },
               },
               tagMaps: {

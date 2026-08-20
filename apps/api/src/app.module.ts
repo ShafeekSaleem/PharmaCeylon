@@ -21,6 +21,7 @@ import { CsrfGuard } from "./security/guards/csrf.guard";
 import { JwtAuthGuard } from "./security/guards/jwt-auth.guard";
 import { RolesGuard } from "./security/guards/roles.guard";
 import { TenantBranchGuard } from "./security/guards/tenant-branch.guard";
+import { SecurityModule } from "./security/security.module";
 import { SuppliersModule } from "./suppliers/suppliers.module";
 import { TenantModule } from "./tenant/tenant.module";
 import { StocktakesModule } from "./stocktakes/stocktakes.module";
@@ -36,6 +37,7 @@ import { UploadsModule } from "./uploads/uploads.module";
       throttlers: [{ name: "default", ttl: 60_000, limit: 120 }],
     }),
     PrismaModule,
+    SecurityModule,
     PricingModule,
     AuditModule,
     AuthModule,

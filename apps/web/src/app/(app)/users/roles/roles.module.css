@@ -1,0 +1,924 @@
+/* ── Shared layout shell — role sidebar | divider | permission editor ── */
+
+.editorLayout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+  min-height: 560px;
+  align-items: stretch;
+}
+
+.editorMain {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.sidebarEmpty {
+  padding: 1.25rem 0;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Role sidebar ── */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--pc-border);
+  padding: 0.85rem 0.7rem;
+  min-width: 0;
+}
+
+.sidebarSearchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.sidebarSearchIcon {
+  position: absolute;
+  left: 0.6rem;
+  color: var(--pc-muted-fg);
+  pointer-events: none;
+}
+
+.sidebarSearchInput {
+  width: 100%;
+  padding: 0.45rem 0.6rem 0.45rem 1.75rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-input-bg);
+  color: var(--pc-foreground);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.sidebarSearchInput:focus {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.sidebarList {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sidebarGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sidebarGroupLabel {
+  margin-top: 0.6rem;
+  padding: 0 0.55rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-muted-fg);
+}
+
+.roleItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: left;
+  padding: 0.5rem 0.55rem;
+  border: none;
+  border-radius: var(--pc-radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.roleItem:hover {
+  background: var(--pc-muted-bg);
+}
+
+.roleItemActive {
+  background: color-mix(in srgb, var(--pc-primary) 12%, transparent);
+}
+
+.roleItemActive:hover {
+  background: color-mix(in srgb, var(--pc-primary) 15%, transparent);
+}
+
+.roleItemTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.roleItemName {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roleItemActive .roleItemName {
+  color: var(--pc-primary);
+}
+
+.roleItemBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted-fg);
+}
+
+.roleItemMeta {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.sidebarFooter {
+  margin-top: 1rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--pc-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sidebarNewRoleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sidebarNewRoleBtn:hover {
+  border-color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 8%, transparent);
+}
+
+.sidebarCompareBtn {
+  padding: 0.45rem 0.6rem;
+  border: none;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--pc-radius-sm);
+}
+
+.sidebarCompareBtn:hover {
+  color: var(--pc-primary);
+  background: var(--pc-muted-bg);
+}
+
+/* ── Role header ── */
+
+.roleHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--pc-border);
+  margin-bottom: 0.85rem;
+}
+
+.roleHeaderTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.roleHeaderTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.roleHeaderName {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  margin: 0;
+}
+
+.roleHeaderBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+}
+
+.roleHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.roleHeaderDesc {
+  font-size: 0.82rem;
+  color: var(--pc-muted-fg);
+  margin: 0;
+}
+
+.roleHeaderSummary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+.roleHeaderSummarySep {
+  opacity: 0.5;
+}
+
+.unsavedNote {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  margin: 0.1rem 0 0;
+}
+
+/* ── Kebab actions menu (role header) ── */
+
+.menuWrap {
+  position: relative;
+}
+
+.menuTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.menuTrigger:hover {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.menuPanel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 15rem;
+  z-index: 30;
+  padding: 0.35rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--pc-foreground) 12%, transparent);
+}
+
+.menuItem {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  border-radius: var(--pc-radius-sm);
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  cursor: pointer;
+  text-align: left;
+}
+
+.menuItem:hover {
+  background: color-mix(in srgb, var(--pc-primary) 10%, transparent);
+  color: var(--pc-primary);
+}
+
+.menuItemDanger {
+  color: var(--pc-destructive);
+}
+
+.menuItemDanger:hover {
+  background: var(--pc-alert-error-bg);
+  color: var(--pc-alert-error-icon);
+}
+
+/* ── Permission toolbar ── */
+
+.permToolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.6rem 0;
+  background: var(--pc-card-bg);
+  border-bottom: 1px solid var(--pc-border);
+  margin-bottom: 0.6rem;
+}
+
+.permSearchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.permSearchIcon {
+  position: absolute;
+  left: 0.6rem;
+  color: var(--pc-muted-fg);
+  pointer-events: none;
+}
+
+.permSearchInput {
+  width: 100%;
+  padding: 0.45rem 0.6rem 0.45rem 1.75rem;
+  font-size: 0.82rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-input-bg);
+  color: var(--pc-foreground);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.permSearchInput:focus {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.filterChips {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.filterChip {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filterChip:hover {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.filterChipActive {
+  background: color-mix(in srgb, var(--pc-primary) 12%, transparent);
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+/* ── Permission groups ── */
+
+.permGroups {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+}
+
+.permGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.permGroupDivider {
+  border-top: 1px solid var(--pc-border);
+}
+
+.permGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 0.7rem;
+  background: var(--pc-muted-bg);
+}
+
+.permGroupToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  padding: 0.55rem 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--pc-muted-fg);
+  text-align: left;
+}
+
+.permGroupTitle {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-foreground);
+}
+
+.permGroupCount {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.permGroupBody {
+  display: flex;
+  flex-direction: column;
+  background: var(--pc-card-bg);
+  border-top: 1px solid var(--pc-border);
+}
+
+.permCheckbox {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  accent-color: var(--pc-primary);
+  cursor: pointer;
+}
+
+/* ── Permission row ── */
+
+.permRow2 {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--pc-border);
+  cursor: pointer;
+}
+
+.permRow2:last-child {
+  border-bottom: none;
+}
+
+.permRow2:hover {
+  background: color-mix(in srgb, var(--pc-muted-bg) 55%, transparent);
+}
+
+.permRow2Locked {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.permRow2 .permCheckbox {
+  margin-top: 0.15rem;
+}
+
+.permRow2Text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.permRow2Label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.riskBadge {
+  font-size: 0.6rem;
+  padding: 0.05rem 0.4rem;
+}
+
+.permRow2Desc {
+  font-size: 0.74rem;
+  color: var(--pc-muted-fg);
+}
+
+.depNoticeList {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+}
+
+/* ── Compare roles view ── */
+
+.compareView {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.compareHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.compareBackBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--pc-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0;
+  margin-bottom: 0.3rem;
+}
+
+.compareTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  margin: 0;
+}
+
+.compareSubtitle {
+  font-size: 0.82rem;
+  color: var(--pc-muted-fg);
+  margin: 0;
+}
+
+.comparePickerRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.comparePickerLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  margin-right: 0.2rem;
+}
+
+.comparePickerChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.comparePickerChip:hover {
+  border-color: var(--pc-primary);
+}
+
+.comparePickerChipActive {
+  background: color-mix(in srgb, var(--pc-primary) 12%, transparent);
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.compareToolsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.compareSearchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.compareSearchIcon {
+  position: absolute;
+  left: 0.6rem;
+  color: var(--pc-muted-fg);
+  pointer-events: none;
+}
+
+.compareSearch {
+  width: 100%;
+  padding: 0.45rem 0.6rem 0.45rem 1.75rem;
+  font-size: 0.82rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-input-bg);
+  color: var(--pc-foreground);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.compareSearch:focus {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.compareDiffToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--pc-foreground);
+  cursor: pointer;
+  width: fit-content;
+}
+
+.compareDiffToggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--pc-primary);
+  cursor: pointer;
+}
+
+.compareEmptyCell {
+  text-align: center;
+  padding: 1.25rem;
+  color: var(--pc-muted-fg);
+  font-size: 0.82rem;
+}
+
+.compareYes {
+  color: var(--pc-primary);
+}
+
+.compareNo {
+  color: var(--pc-muted-fg);
+  opacity: 0.5;
+}
+
+/* ── Matrix (compare view table) ── */
+
+.matrixWrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  overflow: auto;
+  background: var(--pc-card-bg);
+}
+
+.matrix {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 640px;
+}
+
+.matrix thead th {
+  position: sticky;
+  top: 0;
+  background: var(--pc-card-bg);
+  z-index: 2;
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.65rem 0.85rem;
+  text-align: center;
+  vertical-align: bottom;
+}
+
+.matrix thead th:first-child {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  text-align: left;
+}
+
+.matrix tbody td:first-child,
+.matrix tbody th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--pc-card-bg);
+  z-index: 1;
+}
+
+.roleColName {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.moduleRow th {
+  text-align: left;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.4rem 0.85rem;
+  position: sticky;
+  left: 0;
+}
+
+.permRow td,
+.permRow th {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.5rem 0.85rem;
+  vertical-align: middle;
+}
+
+.permRow:last-child td,
+.permRow:last-child th {
+  border-bottom: none;
+}
+
+.permRow:hover td,
+.permRow:hover th {
+  background: color-mix(in srgb, var(--pc-muted-bg) 45%, transparent);
+}
+
+.permCell {
+  min-width: 240px;
+}
+
+.permLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.toggleCell {
+  text-align: center;
+}
+
+.lockedCol {
+  background: color-mix(in srgb, var(--pc-muted-bg) 55%, transparent);
+}
+
+/* ── Assigned staff drawer ── */
+
+.assignedStaffManageLink {
+  margin-right: auto;
+  align-self: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  text-decoration: none;
+}
+
+.assignedStaffManageLink:hover {
+  text-decoration: underline;
+}
+
+.staffTableWrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+}
+
+.staffTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.staffTable thead th {
+  text-align: left;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-muted-fg);
+  font-weight: 700;
+  padding: 0.5rem 0.7rem;
+  background: var(--pc-muted-bg);
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.staffTable tbody td {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.staffTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.staffTableName {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.staffTableEmail {
+  font-size: 0.74rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Responsive: collapse sidebar into a horizontal role switcher ── */
+
+@media (max-width: 860px) {
+  .editorLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--pc-border);
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    overflow-x: auto;
+    padding: 0.6rem;
+  }
+
+  .sidebarSearchWrap {
+    margin-bottom: 0;
+    flex-shrink: 0;
+    width: 160px;
+  }
+
+  .sidebarList {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+
+  .sidebarGroup {
+    flex-direction: row;
+  }
+
+  .sidebarGroupLabel {
+    margin-top: 0;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .roleItem {
+    flex-shrink: 0;
+    width: 168px;
+  }
+
+  .sidebarFooter {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+    flex-direction: row;
+    flex-shrink: 0;
+  }
+
+  .roleHeaderTop {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .roleHeaderActions {
+    justify-content: flex-end;
+  }
+}

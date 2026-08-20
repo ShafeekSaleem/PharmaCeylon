@@ -10,7 +10,7 @@ import {
 } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CreateReturnDto } from "./dto/create-return.dto";
@@ -33,25 +33,13 @@ export class ReturnsController {
     return [...new Set(atBranch)];
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.inventory_clerk,
-    RoleName.cashier,
-  )
+  @RequirePermission("returns.view")
   @Get()
   list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.returns.list(user.tenantId, branchId);
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.inventory_clerk,
-    RoleName.cashier,
-  )
+  @RequirePermission("returns.view")
   @Get(":id")
   getOne(
     @CurrentUser() user: RequestUser,
@@ -61,12 +49,7 @@ export class ReturnsController {
     return this.returns.getOne(user.tenantId, branchId, id);
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.inventory_clerk,
-  )
+  @RequirePermission("returns.create")
   @Post()
   create(
     @CurrentUser() user: RequestUser,
@@ -82,12 +65,7 @@ export class ReturnsController {
     );
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.inventory_clerk,
-  )
+  @RequirePermission("returns.process")
   @Patch(":id")
   update(
     @CurrentUser() user: RequestUser,
@@ -98,12 +76,7 @@ export class ReturnsController {
     return this.returns.update(user.tenantId, branchId, user.userId, id, dto);
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.inventory_clerk,
-  )
+  @RequirePermission("returns.process")
   @Post(":id/submit")
   submit(
     @CurrentUser() user: RequestUser,
@@ -119,7 +92,7 @@ export class ReturnsController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("returns.approve")
   @Post(":id/approve")
   approve(
     @CurrentUser() user: RequestUser,
@@ -135,7 +108,7 @@ export class ReturnsController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("returns.approve")
   @Post(":id/reject")
   reject(
     @CurrentUser() user: RequestUser,
@@ -151,12 +124,7 @@ export class ReturnsController {
     );
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.inventory_clerk,
-  )
+  @RequirePermission("returns.process")
   @Post(":id/mark-logistics")
   markLogistics(
     @CurrentUser() user: RequestUser,
@@ -172,12 +140,7 @@ export class ReturnsController {
     );
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.inventory_clerk,
-  )
+  @RequirePermission("returns.process")
   @Post(":id/complete")
   complete(
     @CurrentUser() user: RequestUser,
@@ -194,12 +157,7 @@ export class ReturnsController {
     );
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.inventory_clerk,
-  )
+  @RequirePermission("returns.process")
   @Post(":id/cancel")
   cancel(
     @CurrentUser() user: RequestUser,

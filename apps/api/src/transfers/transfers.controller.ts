@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CreateTransferDto } from "./dto/create-transfer.dto";
@@ -24,13 +24,13 @@ export class TransfersController {
     return [...new Set(atBranch)];
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk, RoleName.pharmacist)
+  @RequirePermission("transfers.view")
   @Get()
   list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.transfers.list(user.tenantId, branchId);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk, RoleName.pharmacist)
+  @RequirePermission("transfers.view")
   @Get(":id")
   getOne(
     @CurrentUser() user: RequestUser,
@@ -40,7 +40,7 @@ export class TransfersController {
     return this.transfers.getOne(user.tenantId, branchId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("transfers.manage")
   @Post()
   create(
     @CurrentUser() user: RequestUser,
@@ -56,7 +56,7 @@ export class TransfersController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("transfers.approve")
   @Post(":id/approve")
   approve(
     @CurrentUser() user: RequestUser,
@@ -72,7 +72,7 @@ export class TransfersController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("transfers.approve")
   @Post(":id/reject")
   reject(
     @CurrentUser() user: RequestUser,
@@ -88,7 +88,7 @@ export class TransfersController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("transfers.manage")
   @Post(":id/cancel")
   cancel(
     @CurrentUser() user: RequestUser,
@@ -104,7 +104,7 @@ export class TransfersController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("transfers.manage")
   @Post(":id/ship")
   ship(
     @CurrentUser() user: RequestUser,
@@ -115,7 +115,7 @@ export class TransfersController {
     return this.transfers.ship(user.tenantId, fromBranchId, user.userId, id, idempotencyKey);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("transfers.manage")
   @Post(":id/receive")
   receive(
     @CurrentUser() user: RequestUser,

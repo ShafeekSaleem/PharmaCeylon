@@ -1,7 +1,6 @@
 import { Controller, Get, Query } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -9,7 +8,7 @@ import { PrismaService } from "../prisma/prisma.service";
 export class AuditEventsController {
   constructor(private readonly prisma: PrismaService) {}
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.analyst)
+  @RequirePermission("audit.view")
   @Get()
   list(
     @CurrentUser() user: RequestUser,

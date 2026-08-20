@@ -14,6 +14,7 @@ describe("Security Guards", () => {
   let app: INestApplication;
   let jwtService: JwtService;
   let userContext: { load: jest.Mock };
+  let rolePermissionFindMany: jest.Mock;
 
   const baseCtx = {
     userId: "user-1",
@@ -31,6 +32,7 @@ describe("Security Guards", () => {
     process.env.COOKIE_SECURE = "false";
 
     userContext = { load: jest.fn() };
+    rolePermissionFindMany = jest.fn().mockResolvedValue([]);
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -40,6 +42,9 @@ describe("Security Guards", () => {
         $queryRawUnsafe: jest.fn().mockResolvedValue([{ "?column?": 1 }]),
         branch: {
           findMany: jest.fn().mockResolvedValue([]),
+        },
+        rolePermission: {
+          findMany: rolePermissionFindMany,
         },
       })
       .overrideProvider(AuthService)
@@ -67,6 +72,7 @@ describe("Security Guards", () => {
 
   beforeEach(() => {
     userContext.load.mockReset();
+    rolePermissionFindMany.mockReset().mockResolvedValue([]);
   });
 
   const signAccessToken = (
@@ -191,5 +197,36 @@ describe("Security Guards", () => {
       .set("Authorization", `Bearer ${token}`)
       .set("x-branch-id", "different-branch")
       .expect(403);
+  });
+
+  it("blocks a custom role with no matching grant even though it has a roleId", async () => {
+    userContext.load.mockResolvedValue({
+      ...baseCtx,
+      branchRoles: [{ branchId: "b1", role: RoleName.custom, roleId: "custom-role-1" }],
+    });
+    rolePermissionFindMany.mockResolvedValue([{ permissionKey: "reports.view" }]);
+    const token = signAccessToken();
+    await request(app.getHttpServer())
+      .get("/api/v1/tenant/management")
+      .set("Authorization", `Bearer ${token}`)
+      .set("x-branch-id", "b1")
+      .expect(403);
+    expect(rolePermissionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { roleId: "custom-role-1" } }),
+    );
+  });
+
+  it("allows a custom role whose Role has been granted the required permission", async () => {
+    userContext.load.mockResolvedValue({
+      ...baseCtx,
+      branchRoles: [{ branchId: "b1", role: RoleName.custom, roleId: "custom-role-2" }],
+    });
+    rolePermissionFindMany.mockResolvedValue([{ permissionKey: "tenant.management" }]);
+    const token = signAccessToken();
+    await request(app.getHttpServer())
+      .get("/api/v1/tenant/management")
+      .set("Authorization", `Bearer ${token}`)
+      .set("x-branch-id", "b1")
+      .expect(200);
   });
 });

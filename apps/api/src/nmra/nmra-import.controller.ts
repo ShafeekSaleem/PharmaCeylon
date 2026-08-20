@@ -9,9 +9,8 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { NmraImportService } from "./nmra-import.service";
 
@@ -28,7 +27,7 @@ const UPLOAD_LIMITS = { limits: { fileSize: 40 * 1024 * 1024 } };
 export class NmraImportController {
   constructor(private readonly nmraImport: NmraImportService) {}
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("nmra.import")
   @UseInterceptors(FileInterceptor("file", UPLOAD_LIMITS))
   @Post("preview")
   preview(
@@ -38,7 +37,7 @@ export class NmraImportController {
     return this.nmraImport.preview(user.tenantId, file);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("nmra.import")
   @UseInterceptors(FileInterceptor("file", UPLOAD_LIMITS))
   @Post("confirm")
   confirm(
@@ -48,7 +47,7 @@ export class NmraImportController {
     return this.nmraImport.startUpsertJob(user.tenantId, user.userId, file);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("nmra.import")
   @Get("jobs/:jobId")
   jobProgress(
     @CurrentUser() user: RequestUser,
@@ -62,7 +61,7 @@ export class NmraImportController {
 export class BarcodeImportController {
   constructor(private readonly nmraImport: NmraImportService) {}
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("nmra.import")
   @UseInterceptors(FileInterceptor("file", UPLOAD_LIMITS))
   @Post("import")
   importBarcodes(

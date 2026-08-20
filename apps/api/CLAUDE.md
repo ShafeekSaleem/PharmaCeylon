@@ -34,7 +34,7 @@ One directory per domain under `src/`, each with `*.module.ts` + `*.controller.t
 ## Security building blocks (`src/security/`)
 
 - `guards/`: `jwt-auth.guard.ts`, `csrf.guard.ts`, `tenant-branch.guard.ts`, `roles.guard.ts` — registered globally in `app.module.ts` in that order. Don't add a fifth ad-hoc guard on a single controller unless the ordering genuinely doesn't matter; prefer extending an existing one.
-- `decorators/`: `@Public()` (`public.decorator.ts`) skips all four guards — used for `/auth/login`, `/health`, etc. `@Roles(...)` (`roles.decorator.ts`) is read by `RolesGuard`. `@RequireBranch()` and `@CurrentUser()` round out the set.
+- `decorators/`: `@Public()` (`public.decorator.ts`) skips all four guards — used for `/auth/login`, `/health`, etc. `@RequirePermission(...)` (`require-permission.decorator.ts`) is read by `RolesGuard`, which resolves the caller's tenant-configurable `Role`/`RolePermission` grants (via `PermissionsService`) rather than a hardcoded role list — see `security/permission-catalog.ts` for the full permission catalog and each built-in role's default grants. The `owner` role's grants are hardcoded non-editable (`Role.isLocked`) so a tenant can never lock out every owner. `@RequireBranch()` and `@CurrentUser()` round out the set.
 - `security.guards.spec.ts` covers the guard interaction directly — extend it rather than hand-rolling a new integration test when changing guard logic.
 
 ## Prisma

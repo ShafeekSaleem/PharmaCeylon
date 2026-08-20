@@ -1,7 +1,9 @@
 import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { RoleName } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import { AuditService } from "../audit/audit.service";
+import { PermissionsService } from "../security/permissions.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 
 jest.mock("bcrypt");
@@ -29,7 +31,11 @@ describe("PharmacistApprovalService", () => {
       userBranchRole: { findMany: jest.fn() },
     };
     audit = { log: jest.fn() } as unknown as AuditService;
-    service = new PharmacistApprovalService(prisma as never, audit);
+    const permissions = new PermissionsService(
+      prisma as never,
+      { get: () => 30 } as unknown as ConfigService,
+    );
+    service = new PharmacistApprovalService(prisma as never, audit, permissions);
     mockedBcrypt.compare.mockReset();
   });
 

@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { CategoryTaxonomyOps } from "../src/catalog/category-taxonomy.util";
+import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../src/catalog/commercial-category-template";
 import {
   DEMO_STOCK_REG_NOS,
   EXPANDED_DEMO_STOCK_TARGET,
@@ -165,6 +167,7 @@ export async function seedNmraCatalog(
     countryOfOrigin: p.countryOfOrigin,
     localAgent: p.localAgent,
     taxCategory: "Standard rate",
+    source: "NMRA",
     isControlled: p.isControlled,
     requiresPrescription: p.requiresPrescription,
     reorderLevel: p.reorderLevel,
@@ -192,15 +195,15 @@ export async function seedNmraCatalog(
   const regTypeCatId = new Map<string, string>();
 
   const categories: Prisma.ProductCategoryCreateManyInput[] = [
-    { id: dosageParentId, tenantId, name: "Dosage form", parentCategoryId: null },
-    { id: scheduleParentId, tenantId, name: "NMRA Schedule", parentCategoryId: null },
-    { id: regTypeParentId, tenantId, name: "Registration type", parentCategoryId: null },
+    { id: dosageParentId, tenantId, dimension: "DOSAGE_FORM", name: "Dosage form", parentCategoryId: null, source: "NMRA_IMPORT", isSystem: true },
+    { id: scheduleParentId, tenantId, dimension: "NMRA_SCHEDULE", name: "NMRA Schedule", parentCategoryId: null, source: "NMRA_IMPORT", isSystem: true },
+    { id: regTypeParentId, tenantId, dimension: "REGISTRATION_TYPE", name: "Registration type", parentCategoryId: null, source: "NMRA_IMPORT", isSystem: true },
   ];
 
   for (const name of dosageGroups) {
     const id = randomUUID();
     dosageCatId.set(name, id);
-    categories.push({ id, tenantId, name, parentCategoryId: dosageParentId });
+    categories.push({ id, tenantId, dimension: "DOSAGE_FORM", name, parentCategoryId: dosageParentId, source: "NMRA_IMPORT", isSystem: true });
   }
   for (const name of scheduleGroups) {
     const id = randomUUID();
@@ -208,14 +211,17 @@ export async function seedNmraCatalog(
     categories.push({
       id,
       tenantId,
+      dimension: "NMRA_SCHEDULE",
       name: SCHEDULE_LABELS[name] ?? `Schedule ${name}`,
       parentCategoryId: scheduleParentId,
+      source: "NMRA_IMPORT",
+      isSystem: true,
     });
   }
   for (const name of regTypes) {
     const id = randomUUID();
     regTypeCatId.set(name, id);
-    categories.push({ id, tenantId, name, parentCategoryId: regTypeParentId });
+    categories.push({ id, tenantId, dimension: "REGISTRATION_TYPE", name, parentCategoryId: regTypeParentId, source: "NMRA_IMPORT", isSystem: true });
   }
 
   await prisma.productCategory.createMany({ data: categories });
@@ -223,14 +229,29 @@ export async function seedNmraCatalog(
   const categoryMaps: Prisma.ProductCategoryMapCreateManyInput[] = [];
   for (const p of products) {
     const dId = dosageCatId.get(p.dosageFormGroup);
-    if (dId) categoryMaps.push({ id: randomUUID(), tenantId, productId: p.id, categoryId: dId });
+    if (dId) {
+      categoryMaps.push({
+        id: randomUUID(), tenantId, productId: p.id, categoryId: dId,
+        dimension: "DOSAGE_FORM", isPrimary: true, assignmentSource: "NMRA_IMPORT",
+      });
+    }
     if (p.scheduleGroup) {
       const sId = scheduleCatId.get(p.scheduleGroup);
-      if (sId) categoryMaps.push({ id: randomUUID(), tenantId, productId: p.id, categoryId: sId });
+      if (sId) {
+        categoryMaps.push({
+          id: randomUUID(), tenantId, productId: p.id, categoryId: sId,
+          dimension: "NMRA_SCHEDULE", isPrimary: true, assignmentSource: "NMRA_IMPORT",
+        });
+      }
     }
     if (p.regType) {
       const rId = regTypeCatId.get(p.regType);
-      if (rId) categoryMaps.push({ id: randomUUID(), tenantId, productId: p.id, categoryId: rId });
+      if (rId) {
+        categoryMaps.push({
+          id: randomUUID(), tenantId, productId: p.id, categoryId: rId,
+          dimension: "REGISTRATION_TYPE", isPrimary: true, assignmentSource: "NMRA_IMPORT",
+        });
+      }
     }
   }
 
@@ -239,6 +260,29 @@ export async function seedNmraCatalog(
     (chunk) => prisma.productCategoryMap.createMany({ data: chunk }),
     categoryMaps,
     "category maps",
+  );
+
+  // Commercial (merchandising) taxonomy: seed the standard template, then land every NMRA
+  // product without a commercial mapping in Medicines → Unclassified Medicines. Deterministic/
+  // AI classification can refine this later without touching the NMRA-sourced data above.
+  console.log("Seeding commercial taxonomy…");
+  const taxonomy = new CategoryTaxonomyOps(prisma);
+  await taxonomy.ensureCommercialTemplate(tenantId);
+  const allProductIds = products.map((p) => p.id);
+  let unclassifiedAssigned = 0;
+  for (let i = 0; i < allProductIds.length; i += BATCH) {
+    const chunk = allProductIds.slice(i, i + BATCH);
+    unclassifiedAssigned += await taxonomy.assignMissingPrimaryCommercial(
+      tenantId,
+      chunk,
+      UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
+      "SYSTEM_DEFAULT",
+    );
+  }
+  console.log(`  Commercial category: ${unclassifiedAssigned} products → Medicines / Unclassified Medicines`);
+  const { reclassified, stillUnclassified } = await taxonomy.applyDeterministicMedicineClassification(tenantId);
+  console.log(
+    `  Deterministic classification: ${reclassified} products reclassified into real departments (${stillUnclassified} left in Unclassified Medicines)`,
   );
 
   const demoStockTarget = options?.demoStockTarget ?? EXPANDED_DEMO_STOCK_TARGET;

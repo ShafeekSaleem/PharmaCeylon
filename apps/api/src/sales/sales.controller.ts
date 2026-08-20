@@ -12,9 +12,8 @@ import {
   Query,
 } from "@nestjs/common";
 import { ApiBody, ApiHeader, ApiOperation, ApiTags } from "@nestjs/swagger";
-import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CheckoutDto } from "./dto/checkout.dto";
@@ -27,22 +26,6 @@ import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { PosService } from "./pos.service";
 import { SalesService } from "./sales.service";
 
-const POS_ROLES = [
-  RoleName.owner,
-  RoleName.manager,
-  RoleName.pharmacist,
-  RoleName.cashier,
-] as const;
-
-const READ_ROLES = [
-  RoleName.owner,
-  RoleName.manager,
-  RoleName.pharmacist,
-  RoleName.inventory_clerk,
-  RoleName.cashier,
-  RoleName.analyst,
-] as const;
-
 @ApiTags("sales")
 @Controller("sales")
 export class SalesController {
@@ -54,7 +37,7 @@ export class SalesController {
   ) {}
 
   @ApiOperation({ summary: "Sellable products with FEFO batches for the POS screen" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Get("pos/catalog")
   posCatalog(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.pos.catalog(user.tenantId, branchId);
@@ -63,14 +46,14 @@ export class SalesController {
   @ApiOperation({
     summary: "Branch pharmacists/managers/owners available for till PIN co-sign",
   })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Get("pos/approvers")
   listApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.pharmacistApproval.listApprovers(user.tenantId, branchId);
   }
 
   @ApiOperation({ summary: "Set or rotate your own POS till PIN (pharmacist+)" })
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist)
+  @RequirePermission("sales.pos_pin_manage")
   @Post("pos/me/pos-pin")
   setPosPin(
     @CurrentUser() user: RequestUser,
@@ -88,7 +71,7 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Clear your POS till PIN (falls back to login password)" })
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist)
+  @RequirePermission("sales.pos_pin_manage")
   @HttpCode(HttpStatus.OK)
   @Post("pos/me/pos-pin/clear")
   clearPosPin(
@@ -106,7 +89,7 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Recent sales at this branch (POS recall / returns lane)" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Get("pos/recent")
   posRecent(
     @CurrentUser() user: RequestUser,
@@ -117,7 +100,7 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Look up a posted sale by invoice number" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Get("pos/by-invoice")
   posByInvoice(
     @CurrentUser() user: RequestUser,
@@ -128,7 +111,7 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Search invoices for the POS returns lane (invoice no. or customer)" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Get("pos/search-invoices")
   posSearchInvoices(
     @CurrentUser() user: RequestUser,
@@ -145,14 +128,14 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "List parked carts at this branch" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Get("holds")
   listHolds(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.held.list(user.tenantId, branchId);
   }
 
   @ApiOperation({ summary: "Peek at a parked cart without consuming it" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Get("holds/:id")
   getHold(
     @CurrentUser() user: RequestUser,
@@ -165,7 +148,7 @@ export class SalesController {
   @ApiOperation({
     summary: "Recall a parked cart — atomically consumes the hold so it can never be recalled twice",
   })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @HttpCode(HttpStatus.OK)
   @Post("holds/:id/recall")
   recallHold(
@@ -177,7 +160,7 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Park the current cart (no stock is reserved)" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Post("holds")
   hold(
     @CurrentUser() user: RequestUser,
@@ -187,7 +170,7 @@ export class SalesController {
     return this.held.hold(user.tenantId, branchId, user.userId, dto);
   }
 
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Delete("holds/:id")
   discardHold(
     @CurrentUser() user: RequestUser,
@@ -200,7 +183,7 @@ export class SalesController {
   @ApiOperation({ summary: "Post sale (checkout) with optional Idempotency-Key header" })
   @ApiHeader({ name: "Idempotency-Key", required: false, description: "Replay-safe checkout for same key" })
   @ApiBody({ type: CheckoutDto })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Post("checkout")
   checkout(
     @CurrentUser() user: RequestUser,
@@ -219,7 +202,7 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Void a posted sale (stock restored); pharmacist, manager, or owner" })
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist)
+  @RequirePermission("sales.void")
   @HttpCode(HttpStatus.OK)
   @Post(":id/void")
   voidSale(
@@ -232,7 +215,7 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Refund a sale (full or partial); creates a completed goods return" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @HttpCode(HttpStatus.OK)
   @Post(":id/refund")
   refundSale(
@@ -245,7 +228,7 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Remaining returnable qty per line for a sale" })
-  @Roles(...POS_ROLES)
+  @RequirePermission("sales.pos_use")
   @Get(":id/returnable")
   getReturnable(
     @CurrentUser() user: RequestUser,
@@ -255,13 +238,13 @@ export class SalesController {
     return this.sales.getSaleReturnable(user.tenantId, branchId, id);
   }
 
-  @Roles(...READ_ROLES)
+  @RequirePermission("sales.view")
   @Get()
   list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.sales.listSales(user.tenantId, branchId);
   }
 
-  @Roles(...READ_ROLES)
+  @RequirePermission("sales.view")
   @Get(":id")
   getOne(
     @CurrentUser() user: RequestUser,

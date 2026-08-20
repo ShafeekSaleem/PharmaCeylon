@@ -10,7 +10,7 @@ export type UserContext = {
   fullName: string;
   isActive: boolean;
   tokenVersion: number;
-  branchRoles: Array<{ branchId: string; role: RoleName }>;
+  branchRoles: Array<{ branchId: string; role: RoleName; roleId: string | null }>;
 };
 
 type CacheEntry = {
@@ -61,7 +61,7 @@ export class UserContextService {
     const user = await this.prisma.appUser.findUnique({
       where: { id: userId },
       include: {
-        userBranchRoles: { select: { branchId: true, role: true } },
+        userBranchRoles: { select: { branchId: true, role: true, roleId: true } },
       },
     });
     if (!user) {
@@ -79,6 +79,7 @@ export class UserContextService {
       branchRoles: user.userBranchRoles.map((entry) => ({
         branchId: entry.branchId,
         role: entry.role,
+        roleId: entry.roleId,
       })),
     };
     this.cache.set(userId, { value, expiresAt: now + this.ttlMs });

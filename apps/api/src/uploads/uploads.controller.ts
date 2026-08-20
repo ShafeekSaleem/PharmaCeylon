@@ -7,20 +7,14 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { RoleName } from '@prisma/client';
-import { Roles } from '../security/decorators/roles.decorator';
+import { RequirePermission } from '../security/decorators/require-permission.decorator';
 import { UploadsService } from './uploads.service';
 
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly uploads: UploadsService) {}
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.inventory_clerk,
-    RoleName.pharmacist,
-  )
+  @RequirePermission('uploads.image')
   @UseInterceptors(FileInterceptor('file'))
   @Post('image')
   uploadImage(

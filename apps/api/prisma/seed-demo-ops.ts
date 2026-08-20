@@ -664,6 +664,18 @@ export async function seedDemoOps(
   const saleItemRows: Prisma.SaleItemCreateManyInput[] = [];
   const paymentRows: Prisma.SalePaymentCreateManyInput[] = [];
   const saleLedgerRows: Prisma.StockLedgerCreateManyInput[] = [];
+  // A handful of today's sales get marked partially_refunded (with a matching
+  // GoodsReturn below) so cashier/pharmacist "Returns today" widgets — which
+  // read Sale.status, not GoodsReturn — aren't structurally always zero.
+  const todayReturnCandidates: Array<{
+    saleId: string;
+    branchId: string;
+    productId: string;
+    batchId: string;
+    qty: number;
+    unitPrice: Prisma.Decimal;
+    soldAt: Date;
+  }> = [];
 
   const weightSum = branches.reduce((a, b) => a + b.salesWeight, 0);
   let invoiceSeq = 1000;
@@ -741,6 +753,10 @@ export async function seedDemoOps(
       // or it drifts by the server's UTC offset (e.g. +5:30 for Asia/Colombo).
       soldAt.setHours(hour, minute, Math.floor(rng() * 60), 0);
 
+      // Today gets a few partially_refunded sales — see todayReturnCandidates above.
+      const isReturnCandidate =
+        dayOffset === 0 && todayReturnCandidates.length < 4 && rng() < 0.08;
+
       const invoiceNo = `INV-${branch.code}-OPS-${String(invoiceSeq++).padStart(5, "0")}`;
       const branchCashiers = cashierPoolByBranch.get(branch.id) ?? [users.cashierId];
       const sellerId =
@@ -750,7 +766,10 @@ export async function seedDemoOps(
 
       const payRoll = rng();
       let customerId: string | null = null;
-      if (payRoll < 0.07 && Number(subtotal) >= 400) {
+      // Today gets a richer registered-customer mix so the cashier's "Customers
+      // Today" panel isn't dominated by walk-ins (historical days keep the lower rate).
+      const creditThreshold = dayOffset === 0 ? 0.22 : 0.07;
+      if (payRoll < creditThreshold && Number(subtotal) >= 400) {
         if (customerIds.length > 0) {
           customerId = customerIds[Math.floor(rng() * customerIds.length)]!;
         }
@@ -809,7 +828,7 @@ export async function seedDemoOps(
         tenantId,
         branchId: branch.id,
         invoiceNo,
-        status: SaleStatus.posted,
+        status: isReturnCandidate ? SaleStatus.partially_refunded : SaleStatus.posted,
         soldAt,
         subtotal,
         discountTotal: dec(0),
@@ -852,6 +871,19 @@ export async function seedDemoOps(
         });
       }
 
+      if (isReturnCandidate) {
+        const firstLine = lines[0]!;
+        todayReturnCandidates.push({
+          saleId,
+          branchId: branch.id,
+          productId: firstLine.productId,
+          batchId: firstLine.batchId,
+          qty: Math.min(firstLine.qty, 1),
+          unitPrice: firstLine.unitPrice,
+          soldAt,
+        });
+      }
+
       salesCreated++;
     }
 
@@ -880,6 +912,59 @@ export async function seedDemoOps(
     saleLedgerRows,
     "ops sale ledger",
   );
+
+  // ── Today's partially_refunded sales get a matching GoodsReturn ──────────
+  if (todayReturnCandidates.length > 0) {
+    console.log(`── Demo ops: today's returns (${todayReturnCandidates.length}) ──`);
+    for (let i = 0; i < todayReturnCandidates.length; i++) {
+      const cand = todayReturnCandidates[i]!;
+      const retId = randomUUID();
+      const amount = cand.unitPrice.mul(cand.qty);
+      await prisma.goodsReturn.create({
+        data: {
+          id: retId,
+          tenantId,
+          branchId: cand.branchId,
+          returnNumber: `RET-TODAY-${String(i + 1).padStart(4, "0")}`,
+          type: GoodsReturnType.customer,
+          status: GoodsReturnStatus.completed,
+          customerName: "Counter customer",
+          saleId: cand.saleId,
+          reason: "Counter refund",
+          amount,
+          requestedBy: users.cashierId,
+          approvedBy: users.managerId,
+          processedBy: users.managerId,
+          createdAt: cand.soldAt,
+          items: {
+            create: [
+              {
+                tenantId,
+                productId: cand.productId,
+                batchId: cand.batchId,
+                qty: cand.qty,
+                unitPrice: cand.unitPrice,
+              },
+            ],
+          },
+        },
+      });
+      await prisma.stockLedger.create({
+        data: {
+          tenantId,
+          branchId: cand.branchId,
+          productId: cand.productId,
+          batchId: cand.batchId,
+          movementType: StockMovementType.customer_return_in,
+          qtyDelta: cand.qty,
+          referenceType: "goods_return",
+          referenceId: retId,
+          createdBy: users.managerId,
+          occurredAt: cand.soldAt,
+        },
+      });
+    }
+  }
 
   // ── Transfers between branches (modest volume) ───────────────────────────
   console.log("── Demo ops: inter-branch transfers ──");

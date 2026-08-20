@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CreatePurchaseOrderDto } from "./dto/create-purchase-order.dto";
@@ -13,7 +12,7 @@ import { PurchasingService } from "./purchasing.service";
 export class PurchasingController {
   constructor(private readonly purchasing: PurchasingService) {}
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk, RoleName.pharmacist)
+  @RequirePermission("purchasing.view")
   @Get("purchase-orders")
   list(
     @CurrentUser() user: RequestUser,
@@ -22,7 +21,7 @@ export class PurchasingController {
     return this.purchasing.listPurchaseOrders(user.tenantId, branchId);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk, RoleName.pharmacist)
+  @RequirePermission("purchasing.view")
   @Get("purchase-orders/:id")
   getOne(
     @CurrentUser() user: RequestUser,
@@ -32,7 +31,7 @@ export class PurchasingController {
     return this.purchasing.getPurchaseOrder(user.tenantId, branchId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("purchasing.manage")
   @Post("purchase-orders")
   create(
     @CurrentUser() user: RequestUser,
@@ -42,7 +41,7 @@ export class PurchasingController {
     return this.purchasing.createPurchaseOrder(user.tenantId, branchId, user.userId, dto);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("purchasing.manage")
   @Post("purchase-orders/:id/issue")
   issue(
     @CurrentUser() user: RequestUser,
@@ -52,7 +51,7 @@ export class PurchasingController {
     return this.purchasing.issuePurchaseOrder(user.tenantId, branchId, user.userId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("purchasing.approve")
   @Post("purchase-orders/:id/approve")
   approve(
     @CurrentUser() user: RequestUser,
@@ -62,7 +61,7 @@ export class PurchasingController {
     return this.purchasing.approvePurchaseOrder(user.tenantId, branchId, user.userId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("purchasing.approve")
   @Post("purchase-orders/:id/reject")
   reject(
     @CurrentUser() user: RequestUser,
@@ -72,7 +71,7 @@ export class PurchasingController {
     return this.purchasing.rejectPurchaseOrder(user.tenantId, branchId, user.userId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("purchasing.approve")
   @Post("purchase-orders/:id/short-close")
   shortClose(
     @CurrentUser() user: RequestUser,
@@ -82,7 +81,7 @@ export class PurchasingController {
     return this.purchasing.shortClosePurchaseOrder(user.tenantId, branchId, user.userId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("purchasing.manage")
   @Patch("purchase-orders/:id")
   update(
     @CurrentUser() user: RequestUser,
@@ -93,7 +92,7 @@ export class PurchasingController {
     return this.purchasing.updatePurchaseOrder(user.tenantId, branchId, user.userId, id, dto);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("purchasing.manage")
   @Post("purchase-orders/receive")
   receive(
     @CurrentUser() user: RequestUser,
@@ -104,7 +103,7 @@ export class PurchasingController {
     return this.purchasing.receiveGoods(user.tenantId, branchId, user.userId, dto, idempotencyKey);
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("purchasing.approve")
   @Patch("purchase-orders/:id/cancel")
   cancel(
     @CurrentUser() user: RequestUser,

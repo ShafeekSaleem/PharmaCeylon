@@ -4,6 +4,8 @@ import { RoleName } from "@prisma/client";
 export type BranchRole = {
   branchId: string;
   role: RoleName;
+  /** FK to the tenant's Role row driving permission resolution; see UserBranchRole.roleId. */
+  roleId?: string | null;
 };
 
 export type RequestUser = {

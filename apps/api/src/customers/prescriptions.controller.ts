@@ -1,9 +1,8 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
-import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CreatePrescriptionDto } from "./dto/create-prescription.dto";
 import { PrescriptionsService } from "./prescriptions.service";
@@ -14,7 +13,7 @@ export class PrescriptionsController {
   constructor(private readonly prescriptions: PrescriptionsService) {}
 
   @ApiOperation({ summary: "Search prescriptions at the active branch" })
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist, RoleName.cashier)
+  @RequirePermission("prescriptions.view")
   @Get()
   search(
     @CurrentUser() user: RequestUser,
@@ -30,7 +29,7 @@ export class PrescriptionsController {
     });
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist, RoleName.cashier)
+  @RequirePermission("prescriptions.view")
   @Get(":id")
   getOne(
     @CurrentUser() user: RequestUser,
@@ -43,7 +42,7 @@ export class PrescriptionsController {
   @ApiOperation({
     summary: "Record a prescription presented at the counter (pharmacist and above)",
   })
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist)
+  @RequirePermission("prescriptions.create")
   @Post()
   create(
     @CurrentUser() user: RequestUser,

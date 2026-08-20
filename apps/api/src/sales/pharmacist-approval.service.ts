@@ -7,42 +7,59 @@ import { RoleName } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { PermissionsService } from "../security/permissions.service";
 
+/** Static fallback — mirrors `sales.approve_controlled`'s default grant in permission-catalog.ts. */
 const APPROVER_ROLES: RoleName[] = [
   RoleName.owner,
   RoleName.manager,
   RoleName.pharmacist,
 ];
 
+const APPROVE_CONTROLLED_PERMISSION = "sales.approve_controlled";
+
 const MAX_PIN_FAILURES = 5;
 const PIN_LOCK_MINUTES = 15;
 
-type BranchRoleEntry = { branchId: string; role: RoleName };
+type BranchRoleEntry = { branchId: string; role: RoleName; roleId?: string | null };
 
 @Injectable()
 export class PharmacistApprovalService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly permissions: PermissionsService,
   ) {}
 
-  static readonly APPROVER_ROLES = APPROVER_ROLES;
-
-  hasApproverRole(branchRoles: BranchRoleEntry[], branchId: string): boolean {
+  /**
+   * Who may co-sign a controlled-substance dispense. Not a guard-gated
+   * endpoint (this is business logic inside checkout/PIN flows), so it
+   * resolves the `sales.approve_controlled` permission directly via
+   * `PermissionsService` — same resolution path (and owner bypass) as the
+   * `@RequirePermission` guard, so a tenant that re-grants this permission
+   * to another role sees it take effect here too.
+   */
+  async hasApproverRole(branchRoles: BranchRoleEntry[], branchId: string): Promise<boolean> {
     const ownerAnywhere = branchRoles.some((b) => b.role === RoleName.owner);
     if (ownerAnywhere) return true;
-    return branchRoles.some(
-      (b) => b.branchId === branchId && APPROVER_ROLES.includes(b.role),
-    );
+    const atBranch = branchRoles.filter((b) => b.branchId === branchId);
+    return this.permissions.hasAnyPermission(atBranch, [APPROVE_CONTROLLED_PERMISSION]);
   }
 
-  /** Pharmacists / managers / owners active at this branch (for PIN picker). */
+  /** Pharmacists / managers / owners active at this branch (for PIN picker), plus any custom role granted approval. */
   async listApprovers(tenantId: string, branchId: string) {
+    const grantedRoles = await this.prisma.role.findMany({
+      where: { tenantId, permissions: { some: { permissionKey: APPROVE_CONTROLLED_PERMISSION } } },
+      select: { id: true },
+    });
+    const grantedRoleIds = grantedRoles.map((r) => r.id);
+
     const rows = await this.prisma.userBranchRole.findMany({
       where: {
         tenantId,
         OR: [
           { branchId, role: { in: APPROVER_ROLES } },
+          ...(grantedRoleIds.length ? [{ branchId, roleId: { in: grantedRoleIds } }] : []),
           { role: RoleName.owner },
         ],
         user: { isActive: true, tenantId },
@@ -90,7 +107,7 @@ export class PharmacistApprovalService {
     pin: string,
     password: string,
   ) {
-    if (!this.hasApproverRole(branchRoles, branchId)) {
+    if (!(await this.hasApproverRole(branchRoles, branchId))) {
       throw new ForbiddenException("Only pharmacist, manager, or owner may set a POS PIN");
     }
     const user = await this.prisma.appUser.findFirst({
@@ -128,7 +145,7 @@ export class PharmacistApprovalService {
     branchId: string,
     password: string,
   ) {
-    if (!this.hasApproverRole(branchRoles, branchId)) {
+    if (!(await this.hasApproverRole(branchRoles, branchId))) {
       throw new ForbiddenException("Only pharmacist, manager, or owner may clear a POS PIN");
     }
     const user = await this.prisma.appUser.findFirst({
@@ -182,7 +199,7 @@ export class PharmacistApprovalService {
           where: {
             OR: [{ branchId }, { role: RoleName.owner }],
           },
-          select: { role: true, branchId: true },
+          select: { role: true, branchId: true, roleId: true },
         },
       },
     });
@@ -190,12 +207,7 @@ export class PharmacistApprovalService {
       throw new UnauthorizedException("Approver not found");
     }
 
-    const roles = user.userBranchRoles.map((r) => r.role);
-    const allowed =
-      roles.includes(RoleName.owner) ||
-      user.userBranchRoles.some(
-        (r) => r.branchId === branchId && APPROVER_ROLES.includes(r.role),
-      );
+    const allowed = await this.hasApproverRole(user.userBranchRoles, branchId);
     if (!allowed) {
       throw new ForbiddenException(
         "Selected user is not authorised to approve controlled dispense at this branch",

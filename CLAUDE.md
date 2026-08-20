@@ -49,16 +49,20 @@ Run a single API test: `npm run test -w api -- src/sales/pos.service.spec.ts` (o
 
 Every API request that isn't `@Public()` passes through four global guards, in this order: `JwtAuthGuard` → `CsrfGuard` → `TenantBranchGuard` → `RolesGuard` (registered in `apps/api/src/app.module.ts`). Understanding this pipeline is required before touching any endpoint:
 
-1. **`JwtAuthGuard`** — validates the access token (cookie or Bearer), attaches `request.user` (a `UserContext`: userId, tenantId, email, `tokenVersion`, and `branchRoles: {branchId, role}[]`).
+1. **`JwtAuthGuard`** — validates the access token (cookie or Bearer), attaches `request.user` (a `UserContext`: userId, tenantId, email, `tokenVersion`, and `branchRoles: {branchId, role, roleId}[]`).
 2. **`CsrfGuard`** — double-submit check, only enforced when `request.user.authMethod === "cookie"` (browser flow) and the method is unsafe (not GET/HEAD/OPTIONS). Bearer-token clients (mobile) skip this — no cookie means no CSRF exposure.
 3. **`TenantBranchGuard`** — reads the `x-branch-id` header, verifies the user has a role on that branch, sets `request.branchId`. No header ⇒ passes through with no branch scoping (endpoint decides what that means).
-4. **`RolesGuard`** — reads `@Roles(...)` metadata; `owner` on *any* branch always passes; otherwise checks the user's role **on `request.branchId`** (or across all their branches if no branch header was sent).
+4. **`RolesGuard`** — reads `@RequirePermission(...)` metadata; `owner` on *any* branch always passes (hardcoded, non-configurable); otherwise resolves the caller's tenant-configurable permission grants **on `request.branchId`** (or across all their branches if no branch header was sent) via `PermissionsService`.
 
 `AppUser.email` is globally unique — login resolves `tenantId` from the user row, not from a header/subdomain. Tenant isolation itself is enforced by services scoping every Prisma query with `tenantId` (there's no Postgres RLS) — when adding a query, always filter by tenant/branch explicitly, don't rely on the guards for data scoping beyond authn/authz.
 
 `UserContextService` (`apps/api/src/auth/user-context.service.ts`) caches the per-user role/branch lookup in-process for `USER_CONTEXT_TTL_SECONDS` (default 30s) to avoid a DB join on every request. It's invalidated explicitly whenever `tokenVersion` bumps (role change, password change, logout-all). If you change how roles/branches are assigned, make sure the code path calls `invalidate(userId)`.
 
-Roles (`RoleName` enum, mirrored in `apps/web/src/lib/role-access.ts`): `owner`, `manager`, `pharmacist`, `cashier`, `inventory_clerk`, `analyst`. Full page/role matrix and the reasoning behind it: `docs/ROLE_ACCESS_MATRIX.md`. The frontend nav/page guards are UX only — **the API's `RolesGuard` is the authoritative enforcement layer**, so any new endpoint needs its own `@Roles()`, don't rely on the web app hiding the button.
+### Configurable roles & permissions
+
+Built-in roles (`RoleName` enum, mirrored in `apps/web/src/lib/role-access.ts`): `owner`, `manager`, `pharmacist`, `cashier`, `inventory_clerk`, plus a `custom` sentinel for tenant-defined roles. What each role can actually do is **not** hardcoded per-endpoint — every endpoint declares a permission key via `@RequirePermission("module.action")` (`apps/api/src/security/decorators/require-permission.decorator.ts`), and `apps/api/src/security/permission-catalog.ts` is the single source of truth for the full permission catalog plus each built-in role's default grants (seeded per-tenant as `Role`/`RolePermission` rows by `apps/api/prisma/rbac-seed.ts`). Owner/manager can toggle any role's permissions, or create custom roles, from Users & Roles → Roles & Permissions (`PATCH/POST /admin/roles`) — **except** the `owner` role itself, whose grants are hardcoded and non-editable (`Role.isLocked`), so a tenant can never lock every owner out. `PermissionsService` resolves a `UserBranchRole`'s effective permissions from its `roleId` (falling back to the static catalog defaults if `roleId` is unset), with an in-process cache invalidated on edit — mirrors `UserContextService`'s pattern.
+
+Full page/role matrix and the reasoning behind the built-in defaults: `docs/ROLE_ACCESS_MATRIX.md`. The frontend nav/page guards are UX only (checked against `GET /tenant/my-permissions`) — **the API's `RolesGuard` is the authoritative enforcement layer**, so any new endpoint needs its own `@RequirePermission(...)` (add the key to the catalog if it's new), don't rely on the web app hiding the button.
 
 ### Web ↔ API wiring (dev)
 

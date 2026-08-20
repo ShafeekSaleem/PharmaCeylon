@@ -1,4 +1,4 @@
-import { IsEnum, IsUUID } from "class-validator";
+import { IsEnum, IsOptional, IsUUID } from "class-validator";
 import { RoleName } from "@prisma/client";
 
 export class AssignBranchRoleDto {
@@ -7,4 +7,9 @@ export class AssignBranchRoleDto {
 
   @IsEnum(RoleName)
   role!: RoleName;
+
+  /** Required when `role` is `custom` — the tenant's custom Role id to grant. */
+  @IsOptional()
+  @IsUUID()
+  roleId?: string;
 }

@@ -28,6 +28,7 @@ import {
 } from "./seed-helpers";
 import { seedDemoOps } from "./seed-demo-ops";
 import { DEMO_STOCK_REG_NOS, seedNmraCatalog } from "./seed-nmra";
+import { ensureRbacSeed } from "./rbac-seed";
 import {
   demoPricingForProduct,
   demoStockLineForIndex,
@@ -2391,6 +2392,75 @@ async function main() {
       ],
     },
     {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-04",
+      label: "Mrs. Jayasuriya",
+      heldBy: mainCashiers[0]!.id,
+      minutesAgo: 3,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0003", qty: 1, unitPrice: 28 }],
+    },
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-05",
+      label: null,
+      heldBy: cashier.id,
+      minutesAgo: 6,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0004", qty: 2, unitPrice: 72 }],
+    },
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-06",
+      label: "Mr. Fernando",
+      heldBy: mainCashiers[1]!.id,
+      minutesAgo: 14,
+      needsPharmacist: true,
+      lines: [
+        { sku: "PCL-0006", qty: 1, unitPrice: 115 },
+        { sku: "PCL-0008", qty: 1, unitPrice: 32 },
+      ],
+    },
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-07",
+      label: "Mrs. Rathnayake",
+      heldBy: mainCashiers[0]!.id,
+      minutesAgo: 22,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0010", qty: 1, unitPrice: 285 }],
+    },
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-08",
+      label: null,
+      heldBy: cashier.id,
+      minutesAgo: 27,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0012", qty: 2, unitPrice: 45 }],
+    },
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-09",
+      label: "Mr. Wickramasinghe",
+      heldBy: mainCashiers[1]!.id,
+      minutesAgo: 45,
+      needsPharmacist: true,
+      lines: [{ sku: "PCL-0013", qty: 1, unitPrice: 130 }],
+    },
+    {
+      branch: mainBranch,
+      holdRef: "HOLD-SEED-10",
+      label: "Mrs. Kumarasiri",
+      heldBy: mainCashiers[0]!.id,
+      minutesAgo: 90,
+      needsPharmacist: true,
+      lines: [
+        { sku: "PCL-0016", qty: 1, unitPrice: 85 },
+        { sku: "PCL-0019", qty: 1, unitPrice: 125 },
+      ],
+    },
+    {
       branch: secondBranch,
       holdRef: "HOLD-SEED-01",
       label: null,
@@ -2419,16 +2489,46 @@ async function main() {
     },
   ];
 
+  // Recall only restores lines whose batchId still resolves to a real batch
+  // (see pos/page.tsx recallHold) — held sales need a real batchId per line,
+  // not just a productId, or every recall drops every line as "not sellable".
+  const heldSaleBatchByKey = new Map<string, string>();
   for (const def of heldSaleDefs) {
-    const lines = def.lines.map((l) => ({
-      productId: productBySku.get(l.sku) ?? null,
-      sku: l.sku,
-      qty: l.qty,
-      unitPrice: l.unitPrice,
-    }));
+    for (const l of def.lines) {
+      const productId = productBySku.get(l.sku);
+      if (!productId) continue;
+      const key = `${def.branch.id}:${productId}`;
+      if (heldSaleBatchByKey.has(key)) continue;
+      const batch = await prisma.batch.findFirst({
+        where: { tenantId: tenant.id, branchId: def.branch.id, productId },
+        orderBy: { receivedAt: "desc" },
+        select: { id: true },
+      });
+      if (batch) heldSaleBatchByKey.set(key, batch.id);
+    }
+  }
+
+  for (const def of heldSaleDefs) {
+    const createdAt = new Date(Date.now() - def.minutesAgo * 60_000);
+    // Mirror the real park-cart payload shape (apps/web pos/types.ts CartLine) —
+    // the POS recall screen resolves totals from these fields directly, so a
+    // held sale missing key/discountPercent/addedAt silently prices at 0.
+    const lines = def.lines.map((l, i) => {
+      const productId = productBySku.get(l.sku) ?? null;
+      const batchId = productId ? (heldSaleBatchByKey.get(`${def.branch.id}:${productId}`) ?? null) : null;
+      return {
+        key: `${productId}:${batchId}`,
+        productId,
+        batchId,
+        sku: l.sku,
+        qty: l.qty,
+        unitPrice: l.unitPrice,
+        discountPercent: 0,
+        addedAt: createdAt.getTime() + i,
+      };
+    });
     const total = lines.reduce((sum, l) => sum + l.qty * l.unitPrice, 0);
     const itemCount = def.lines.reduce((sum, l) => sum + l.qty, 0);
-    const createdAt = new Date(Date.now() - def.minutesAgo * 60_000);
     await prisma.heldSale.create({
       data: {
         tenantId: tenant.id,
@@ -2535,6 +2635,8 @@ async function main() {
   const activeProductCount = await prisma.product.count({
     where: { tenantId: tenant.id, isActive: true },
   });
+
+  await ensureRbacSeed(prisma);
 
   console.log("\n=== PharmaCeylon demo seed complete ===\n");
   console.log(`Tenant:     ${TENANT_CODE} (${tenant.displayName})`);

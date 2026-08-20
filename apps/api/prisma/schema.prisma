@@ -12,7 +12,10 @@ enum RoleName {
   pharmacist
   cashier
   inventory_clerk
-  analyst
+  /**
+   * Sentinel for a UserBranchRole mapping that points at a tenant-defined custom Role (see `roleId`).
+   */
+  custom
 }
 
 enum PoStatus {
@@ -173,6 +176,44 @@ enum SupplierInvoiceStatus {
   voided
 }
 
+/// Independent classification dimension a ProductCategory belongs to. COMMERCIAL is the
+/// merchandising taxonomy (POS/Products "Category"); the other three are import-derived
+/// regulatory facets and are never shown as tenant-editable merchandising categories.
+enum CategoryDimension {
+  COMMERCIAL
+  DOSAGE_FORM
+  NMRA_SCHEDULE
+  REGISTRATION_TYPE
+}
+
+/// Where a ProductCategory row originated — drives edit/delete guardrails (e.g. system
+/// template categories can be disabled but not renamed-away-from-canonical or deleted).
+enum CategorySource {
+  SYSTEM_TEMPLATE
+  NMRA_IMPORT
+  TENANT
+  AUTO_CLASSIFIED
+}
+
+/// How a ProductCategoryMap row was created — provenance for category assignment, distinct
+/// from CategorySource (which describes the category itself).
+enum CategoryAssignmentSource {
+  NMRA_IMPORT
+  MANUAL
+  AUTO_CLASSIFIED
+  SYSTEM_DEFAULT
+}
+
+/// Where a Product's catalog record originated. NMRA-specific fields (schedule, regType,
+/// dossierNo, registrationNo/Date) are only expected to be populated when source = NMRA.
+enum CatalogSource {
+  NMRA
+  MANUAL
+  SUPPLIER
+  CSV_IMPORT
+  BARCODE
+}
+
 /// Client-supplied idempotency keys (e.g. `Idempotency-Key` header) to avoid duplicate money mutations.
 model IdempotencyRecord {
   id             String   @id @default(uuid()) @db.Uuid
@@ -196,16 +237,20 @@ model Tenant {
   complianceRegion String   @map("compliance_region")
   timezone         String   @default("Asia/Colombo")
   isActive         Boolean  @default(true) @map("is_active")
+  /// Tenant-configured gross margin % goal shown on Reports → Profitability → Gross Profit's
+  /// goal tracker. Null until an owner/manager sets one in Settings — never defaulted/fabricated.
+  targetGrossMarginPercent Decimal? @map("target_gross_margin_percent") @db.Decimal(5, 2)
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  branches          Branch[]
-  users             AppUser[]
-  userBranchRoles   UserBranchRole[]
-  auditEvents       AuditEvent[]
-  suppliers         Supplier[]
-  supplierInvoices  SupplierInvoice[]
-  customers         Customer[]
+  branches         Branch[]
+  users            AppUser[]
+  userBranchRoles  UserBranchRole[]
+  auditEvents      AuditEvent[]
+  suppliers        Supplier[]
+  supplierInvoices SupplierInvoice[]
+  customers        Customer[]
+  roles            Role[]
 
   @@map("tenant")
 }
@@ -223,15 +268,15 @@ model Branch {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  tenant          Tenant           @relation(fields: [tenantId], references: [id])
-  userBranchRoles UserBranchRole[]
-  batches         Batch[]
-  purchaseOrders  PurchaseOrder[]
-  goodsReceipts   GoodsReceipt[]
-  sales           Sale[]
-  ledgerEntries   StockLedger[]
-  transfersFrom   Transfer[]       @relation("TransferFromBranch")
-  transfersTo     Transfer[]       @relation("TransferToBranch")
+  tenant            Tenant                @relation(fields: [tenantId], references: [id])
+  userBranchRoles   UserBranchRole[]
+  batches           Batch[]
+  purchaseOrders    PurchaseOrder[]
+  goodsReceipts     GoodsReceipt[]
+  sales             Sale[]
+  ledgerEntries     StockLedger[]
+  transfersFrom     Transfer[]            @relation("TransferFromBranch")
+  transfersTo       Transfer[]            @relation("TransferToBranch")
   goodsReturns      GoodsReturn[]
   stocktakes        Stocktake[]
   documentSequences DocumentSequence[]
@@ -248,17 +293,17 @@ model Branch {
 
 /// Owner-set monthly sales target for a branch; optional manager accountable for achievement.
 model BranchMonthlyTarget {
-  id             String   @id @default(uuid()) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  branchId       String   @map("branch_id") @db.Uuid
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  branchId      String   @map("branch_id") @db.Uuid
   /// Calendar month key, e.g. "2026-08" (Asia/Colombo month).
-  yearMonth      String   @map("year_month") @db.VarChar(7)
-  targetAmount   Decimal  @map("target_amount") @db.Decimal(14, 2)
-  managerUserId  String?  @map("manager_user_id") @db.Uuid
-  notes          String?  @db.VarChar(256)
-  createdBy      String?  @map("created_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  yearMonth     String   @map("year_month") @db.VarChar(7)
+  targetAmount  Decimal  @map("target_amount") @db.Decimal(14, 2)
+  managerUserId String?  @map("manager_user_id") @db.Uuid
+  notes         String?  @db.VarChar(256)
+  createdBy     String?  @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   branch  Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   manager AppUser? @relation("BranchTargetManager", fields: [managerUserId], references: [id])
@@ -271,55 +316,55 @@ model BranchMonthlyTarget {
 }
 
 model AppUser {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
   /// Globally unique — login resolves tenant from this email alone (subdomains may refine UX later).
-  email     String   @unique
-  fullName  String   @map("full_name")
-  passwordHash String @map("password_hash")
+  email                String    @unique
+  fullName             String    @map("full_name")
+  passwordHash         String    @map("password_hash")
   /// Optional short till PIN (bcrypt). Used for pharmacist co-sign at POS without switching sessions.
-  posPinHash String? @map("pos_pin_hash")
-  failedPosPinAttempts Int @default(0) @map("failed_pos_pin_attempts")
-  posPinLockedUntil DateTime? @map("pos_pin_locked_until")
+  posPinHash           String?   @map("pos_pin_hash")
+  failedPosPinAttempts Int       @default(0) @map("failed_pos_pin_attempts")
+  posPinLockedUntil    DateTime? @map("pos_pin_locked_until")
   /// Bumped on logout-all, password change, role change, or detected refresh-reuse.
   /// Embedded in every access JWT; mismatch ⇒ 401.
-  tokenVersion Int   @default(0) @map("token_version")
-  failedLoginAttempts Int      @default(0) @map("failed_login_attempts")
-  lockedUntil         DateTime? @map("locked_until")
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  tokenVersion         Int       @default(0) @map("token_version")
+  failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime? @map("locked_until")
+  isActive             Boolean   @default(true) @map("is_active")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  tenant               Tenant           @relation(fields: [tenantId], references: [id])
-  userBranchRoles      UserBranchRole[]
-  sessions             Session[]
-  purchaseOrdersCreated PurchaseOrder[] @relation("PurchaseOrderCreator")
-  goodsReceiptsReceived GoodsReceipt[]  @relation("GoodsReceiptReceiver")
-  sales                Sale[]           @relation("SaleSeller")
-  salesDispensed       Sale[]           @relation("SaleDispenser")
-  ledgerEntriesCreated StockLedger[]    @relation("StockLedgerActor")
-  transfersRequested   Transfer[]       @relation("TransferRequester")
-  transfersApproved    Transfer[]       @relation("TransferApprover")
-  transfersReceived    Transfer[]       @relation("TransferReceiver")
-  goodsReturnsRequested GoodsReturn[]   @relation("GoodsReturnRequester")
-  goodsReturnsApproved  GoodsReturn[]   @relation("GoodsReturnApprover")
-  goodsReturnsProcessed GoodsReturn[]   @relation("GoodsReturnProcessor")
-  stocktakesCounted     Stocktake[]     @relation("StocktakeCounter")
-  stocktakesAssigned    StocktakeAssignment[]
-  branchTargetsManaged  BranchMonthlyTarget[] @relation("BranchTargetManager")
-  branchTargetsCreated  BranchMonthlyTarget[] @relation("BranchTargetCreator")
-  stocktakesReviewed    Stocktake[]     @relation("StocktakeReviewer")
-  stocktakesApproved    Stocktake[]     @relation("StocktakeApprover")
-  stocktakesPosted      Stocktake[]     @relation("StocktakePoster")
-  stocktakesCompleted   Stocktake[]     @relation("StocktakeCompleter")
-  stocktakeCountEntries StocktakeCountEntry[]
-  stocktakePostings     StocktakePosting[]
-  stocktakeLineReviews  StocktakeLine[] @relation("StocktakeLineReviewer")
-  stocktakeLineApprovals StocktakeLine[] @relation("StocktakeLineApprover")
-  stocktakePostingLines StocktakePostingLine[]
-  auditEvents          AuditEvent[]     @relation("AuditActor")
-  prescriptionsCreated Prescription[]   @relation("PrescriptionCreator")
-  heldSales            HeldSale[]       @relation("HeldSaleHolder")
+  tenant                 Tenant                 @relation(fields: [tenantId], references: [id])
+  userBranchRoles        UserBranchRole[]
+  sessions               Session[]
+  purchaseOrdersCreated  PurchaseOrder[]        @relation("PurchaseOrderCreator")
+  goodsReceiptsReceived  GoodsReceipt[]         @relation("GoodsReceiptReceiver")
+  sales                  Sale[]                 @relation("SaleSeller")
+  salesDispensed         Sale[]                 @relation("SaleDispenser")
+  ledgerEntriesCreated   StockLedger[]          @relation("StockLedgerActor")
+  transfersRequested     Transfer[]             @relation("TransferRequester")
+  transfersApproved      Transfer[]             @relation("TransferApprover")
+  transfersReceived      Transfer[]             @relation("TransferReceiver")
+  goodsReturnsRequested  GoodsReturn[]          @relation("GoodsReturnRequester")
+  goodsReturnsApproved   GoodsReturn[]          @relation("GoodsReturnApprover")
+  goodsReturnsProcessed  GoodsReturn[]          @relation("GoodsReturnProcessor")
+  stocktakesCounted      Stocktake[]            @relation("StocktakeCounter")
+  stocktakesAssigned     StocktakeAssignment[]
+  branchTargetsManaged   BranchMonthlyTarget[]  @relation("BranchTargetManager")
+  branchTargetsCreated   BranchMonthlyTarget[]  @relation("BranchTargetCreator")
+  stocktakesReviewed     Stocktake[]            @relation("StocktakeReviewer")
+  stocktakesApproved     Stocktake[]            @relation("StocktakeApprover")
+  stocktakesPosted       Stocktake[]            @relation("StocktakePoster")
+  stocktakesCompleted    Stocktake[]            @relation("StocktakeCompleter")
+  stocktakeCountEntries  StocktakeCountEntry[]
+  stocktakePostings      StocktakePosting[]
+  stocktakeLineReviews   StocktakeLine[]        @relation("StocktakeLineReviewer")
+  stocktakeLineApprovals StocktakeLine[]        @relation("StocktakeLineApprover")
+  stocktakePostingLines  StocktakePostingLine[]
+  auditEvents            AuditEvent[]           @relation("AuditActor")
+  prescriptionsCreated   Prescription[]         @relation("PrescriptionCreator")
+  heldSales              HeldSale[]             @relation("HeldSaleHolder")
 
   @@index([tenantId])
   @@map("app_user")
@@ -330,19 +375,19 @@ model AppUser {
 /// row revoked with `replacedById` pointing at the new one. Reuse of a revoked
 /// row triggers revocation of every row in the family.
 model Session {
-  id                String    @id @default(uuid()) @db.Uuid
-  tenantId          String    @map("tenant_id") @db.Uuid
-  userId            String    @map("user_id") @db.Uuid
-  familyId          String    @map("family_id") @db.Uuid
-  refreshTokenHash  String    @map("refresh_token_hash")
-  userAgent         String?   @map("user_agent")
-  ipAddress         String?   @map("ip_address")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  expiresAt         DateTime  @map("expires_at")
-  lastUsedAt        DateTime? @map("last_used_at")
-  revokedAt         DateTime? @map("revoked_at")
-  revokedReason     String?   @map("revoked_reason")
-  replacedById      String?   @unique @map("replaced_by_id") @db.Uuid
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  familyId         String    @map("family_id") @db.Uuid
+  refreshTokenHash String    @map("refresh_token_hash")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  expiresAt        DateTime  @map("expires_at")
+  lastUsedAt       DateTime? @map("last_used_at")
+  revokedAt        DateTime? @map("revoked_at")
+  revokedReason    String?   @map("revoked_reason")
+  replacedById     String?   @unique @map("replaced_by_id") @db.Uuid
 
   user       AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
   replacedBy Session? @relation("SessionRotation", fields: [replacedById], references: [id])
@@ -360,14 +405,82 @@ model UserBranchRole {
   userId    String   @map("user_id") @db.Uuid
   branchId  String   @map("branch_id") @db.Uuid
   role      RoleName
+  /**
+   * FK to the tenant-scoped Role row driving permission resolution.
+   * For built-in roles this points at that tenant's seeded system Role
+   * (kept in sync with `role`); for `role: custom` it points at the
+   * tenant's custom Role. `role` itself stays authoritative for the
+   * hardcoded owner-bypass safety check in the guard — never removed.
+   */
+  roleId    String?  @map("role_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id])
-  user   AppUser @relation(fields: [userId], references: [id])
-  branch Branch  @relation(fields: [branchId], references: [id])
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  user    AppUser @relation(fields: [userId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  roleRef Role?   @relation(fields: [roleId], references: [id])
 
   @@unique([tenantId, userId, branchId, role])
   @@map("user_branch_role")
+}
+
+model Permission {
+  /**
+   * Global catalog — not tenant-scoped. Seeded from `security/permission-catalog.ts`.
+   */
+  key         String   @id
+  module      String
+  label       String
+  description String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@map("permission")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  /**
+   * Stable slug: matches the RoleName enum value for built-ins, or a generated slug for custom roles.
+   */
+  key         String
+  name        String
+  description String?
+  /**
+   * True for the 6 seeded built-in roles; false for tenant-created custom roles.
+   */
+  isSystem    Boolean  @default(false) @map("is_system")
+  /**
+   * True only for the "owner" role row. Permissions on a locked role can't
+   * be edited and the role can't be deleted/renamed — prevents a tenant
+   * from ever locking out all owners.
+   */
+  isLocked    Boolean  @default(false) @map("is_locked")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  permissions     RolePermission[]
+  userBranchRoles UserBranchRole[]
+
+  @@unique([tenantId, key])
+  @@map("role")
+}
+
+model RolePermission {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  roleId        String   @map("role_id") @db.Uuid
+  permissionKey String   @map("permission_key")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionKey], references: [key])
+
+  @@unique([roleId, permissionKey])
+  @@map("role_permission")
 }
 
 model Supplier {
@@ -426,58 +539,61 @@ model SupplierInvoice {
 }
 
 model Product {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @map("tenant_id") @db.Uuid
-  sku          String
-  barcode      String?
-  name         String
-  brandName    String?  @map("brand_name")
-  genericName  String?  @map("generic_name")
-  manufacturer String?
-  dosageForm   String?  @map("dosage_form")
-  strength     String?
-  unit         String?
-  packSize     String?  @map("pack_size")
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  sku                  String
+  barcode              String?
+  name                 String
+  brandName            String?   @map("brand_name")
+  genericName          String?   @map("generic_name")
+  manufacturer         String?
+  dosageForm           String?   @map("dosage_form")
+  strength             String?
+  unit                 String?
+  packSize             String?   @map("pack_size")
   /// NMRA pack type (blister, vial, bottle, etc.).
-  packType     String?  @map("pack_type")
-  storage      String?
-  shelfLife    String?  @map("shelf_life")
-  taxCategory  String?  @map("tax_category")
-  imageUrl     String?  @map("image_url")
+  packType             String?   @map("pack_type")
+  storage              String?
+  shelfLife            String?   @map("shelf_life")
+  taxCategory          String?   @map("tax_category")
+  imageUrl             String?   @map("image_url")
   /// NMRA registration number (REG.NO.).
-  registrationNo   String?   @map("registration_no")
-  registrationDate DateTime? @map("registration_date") @db.Date
+  registrationNo       String?   @map("registration_no")
+  registrationDate     DateTime? @map("registration_date") @db.Date
   /// NMRA schedule classification (I, IIA, IIB, IIC, III, …).
-  schedule         String?
+  schedule             String?
   /// NMRA registration type (Full, Two Years, Provisional).
-  regType          String?   @map("reg_type")
-  dossierNo        String?   @map("dossier_no")
-  countryOfOrigin  String?   @map("country_of_origin")
+  regType              String?   @map("reg_type")
+  dossierNo            String?   @map("dossier_no")
+  countryOfOrigin      String?   @map("country_of_origin")
   /// Local marketing authorisation holder / agent in Sri Lanka.
-  localAgent       String?   @map("local_agent")
+  localAgent           String?   @map("local_agent")
   /// Schedule / narcotic-class — needs pharmacist dispense authority (PIN or elevated session).
-  isControlled Boolean  @default(false) @map("is_controlled")
+  isControlled         Boolean   @default(false) @map("is_controlled")
   /// Needs a linked prescription to sell (antibiotics etc.). Controlled always implies this.
-  requiresPrescription Boolean @default(false) @map("requires_prescription")
-  reorderLevel Int      @default(0) @map("reorder_level")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  requiresPrescription Boolean   @default(false) @map("requires_prescription")
+  reorderLevel         Int       @default(0) @map("reorder_level")
+  isActive             Boolean   @default(true) @map("is_active")
+  /// Catalog record origin. NMRA-specific fields are only expected when source = NMRA —
+  /// MANUAL/SUPPLIER/CSV_IMPORT/BARCODE retail products may leave them null.
+  source               CatalogSource @default(MANUAL)
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  batches       Batch[]
-  purchaseItems PurchaseOrderItem[]
-  receiptItems  GoodsReceiptItem[]
-  saleItems     SaleItem[]
-  ledgerEntries StockLedger[]
-  transferItems TransferItem[]
-  returnItems   GoodsReturnItem[]
-  stocktakeLines StocktakeLine[]
+  batches                Batch[]
+  purchaseItems          PurchaseOrderItem[]
+  receiptItems           GoodsReceiptItem[]
+  saleItems              SaleItem[]
+  ledgerEntries          StockLedger[]
+  transferItems          TransferItem[]
+  returnItems            GoodsReturnItem[]
+  stocktakeLines         StocktakeLine[]
   stocktakeSnapshotLines StocktakeSnapshotLine[]
-  tagMaps       ProductTagMap[]
-  aliases       ProductAlias[]
-  categoryMaps  ProductCategoryMap[]
-  similarities  ProductSimilarity[] @relation("ProductSimilarityProduct")
-  similarTo     ProductSimilarity[] @relation("ProductSimilaritySimilar")
+  tagMaps                ProductTagMap[]
+  aliases                ProductAlias[]
+  categoryMaps           ProductCategoryMap[]
+  similarities           ProductSimilarity[]     @relation("ProductSimilarityProduct")
+  similarTo              ProductSimilarity[]     @relation("ProductSimilaritySimilar")
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -487,22 +603,44 @@ model Product {
   @@index([tenantId, name])
   @@index([tenantId, registrationNo])
   @@index([tenantId, schedule])
+  @@index([tenantId, source])
   @@map("product")
 }
 
 model ProductCategory {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @map("tenant_id") @db.Uuid
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  /// Which classification axis this category belongs to. COMMERCIAL is the only dimension
+  /// tenants manage via Settings → Catalog → Categories; the others are import-derived.
+  dimension        CategoryDimension @default(DOSAGE_FORM)
   name             String
-  parentCategoryId String?  @map("parent_category_id") @db.Uuid
-  createdAt        DateTime @default(now()) @map("created_at")
+  parentCategoryId String?           @map("parent_category_id") @db.Uuid
+  /// Stable SaaS-level identity for predefined COMMERCIAL categories (e.g. "MEDICINES_PAIN_FEVER").
+  /// Null for tenant-created custom categories and for non-COMMERCIAL dimension rows. Never used
+  /// for display — display names may be renamed per tenant without breaking reporting/history.
+  canonicalKey     String?           @map("canonical_key")
+  source           CategorySource    @default(TENANT)
+  /// True for the seeded commercial template and NMRA-import taxonomy roots/children — governs
+  /// whether a tenant can rename/delete vs. only enable/disable.
+  isSystem         Boolean           @default(false) @map("is_system")
+  /// Whether this category is enabled for the tenant. Standard (isSystem) categories the tenant
+  /// hasn't opted into stay inactive rather than being deleted, so they remain available to
+  /// enable later. Disabling never cascades — historical ProductCategoryMap rows are preserved.
+  isActive         Boolean           @default(true) @map("is_active")
+  sortOrder        Int               @default(0) @map("sort_order")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
 
-  parent      ProductCategory?  @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
-  children    ProductCategory[] @relation("CategoryHierarchy")
+  parent       ProductCategory?     @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
+  children     ProductCategory[]    @relation("CategoryHierarchy")
   categoryMaps ProductCategoryMap[]
 
-  @@unique([tenantId, name, parentCategoryId])
+  @@unique([tenantId, dimension, name, parentCategoryId])
+  @@unique([tenantId, canonicalKey])
+  @@index([tenantId, dimension])
+  @@index([tenantId, dimension, isActive])
   @@index([tenantId, parentCategoryId])
+  @@index([tenantId, canonicalKey])
   @@map("product_category")
 }
 
@@ -565,16 +703,32 @@ model ProductSimilarity {
 }
 
 model ProductCategoryMap {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  productId  String   @map("product_id") @db.Uuid
-  categoryId String   @map("category_id") @db.Uuid
+  id         String                   @id @default(uuid()) @db.Uuid
+  tenantId   String                   @map("tenant_id") @db.Uuid
+  productId  String                   @map("product_id") @db.Uuid
+  categoryId String                   @map("category_id") @db.Uuid
+  /// Denormalized copy of `category.dimension`, set at write time by the service layer.
+  /// Lets the DB enforce "at most one primary COMMERCIAL category per product" via a partial
+  /// unique index (see migration SQL) without a join, and lets report queries filter by
+  /// dimension without joining ProductCategory on every row.
+  dimension  CategoryDimension
+  /// For COMMERCIAL: the product's single primary merchandising category — all financial/
+  /// profitability reporting groups by this so a product is never double counted. Secondary
+  /// COMMERCIAL maps (isPrimary = false) are for discovery only. Always true for non-COMMERCIAL
+  /// dimensions (Schedule/Form/RegType don't have a primary/secondary concept).
+  isPrimary        Boolean                  @default(true) @map("is_primary")
+  assignmentSource CategoryAssignmentSource @default(MANUAL) @map("assignment_source")
+  /// AI-suggested-mapping confidence (0–1), only meaningful when assignmentSource = AUTO_CLASSIFIED.
+  confidence Decimal? @db.Decimal(4, 3)
   createdAt  DateTime @default(now()) @map("created_at")
 
   product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   category ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, productId, categoryId])
+  @@index([tenantId, productId])
+  @@index([tenantId, categoryId])
+  @@index([tenantId, productId, dimension])
   @@map("product_category_map")
 }
 
@@ -598,9 +752,9 @@ model Batch {
   branchId         String    @map("branch_id") @db.Uuid
   productId        String    @map("product_id") @db.Uuid
   batchNo          String    @map("batch_no")
-  expiryDate       DateTime  @db.Date @map("expiry_date")
-  costPrice        Decimal   @db.Decimal(12, 2) @map("cost_price")
-  sellingPrice     Decimal   @db.Decimal(12, 2) @map("selling_price")
+  expiryDate       DateTime  @map("expiry_date") @db.Date
+  costPrice        Decimal   @map("cost_price") @db.Decimal(12, 2)
+  sellingPrice     Decimal   @map("selling_price") @db.Decimal(12, 2)
   isQuarantined    Boolean   @default(false) @map("is_quarantined")
   quarantinedAt    DateTime? @map("quarantined_at")
   quarantineReason String?   @map("quarantine_reason") @db.VarChar(512)
@@ -610,12 +764,12 @@ model Batch {
   branch  Branch  @relation(fields: [branchId], references: [id])
   product Product @relation(fields: [productId], references: [id])
 
-  receiptItems   GoodsReceiptItem[]
-  saleItems      SaleItem[]
-  ledgerEntries  StockLedger[]
-  transferItems  TransferItem[]
-  returnItems    GoodsReturnItem[]
-  stocktakeLines StocktakeLine[]
+  receiptItems           GoodsReceiptItem[]
+  saleItems              SaleItem[]
+  ledgerEntries          StockLedger[]
+  transferItems          TransferItem[]
+  returnItems            GoodsReturnItem[]
+  stocktakeLines         StocktakeLine[]
   stocktakeSnapshotLines StocktakeSnapshotLine[]
 
   @@unique([tenantId, branchId, productId, batchNo])
@@ -632,12 +786,12 @@ model PurchaseOrder {
   poNumber             String     @map("po_number")
   status               PoStatus   @default(draft)
   priority             PoPriority @default(normal)
-  expectedOn           DateTime?  @db.Date @map("expected_on")
+  expectedOn           DateTime?  @map("expected_on") @db.Date
   supplierReference    String?    @map("supplier_reference") @db.VarChar(128)
   notes                String?
   deliveryInstructions String?    @map("delivery_instructions")
   paymentTermsDays     Int        @default(30) @map("payment_terms_days")
-  shippingCharges      Decimal    @default(0) @db.Decimal(12, 2) @map("shipping_charges")
+  shippingCharges      Decimal    @default(0) @map("shipping_charges") @db.Decimal(12, 2)
   createdBy            String     @map("created_by") @db.Uuid
   createdAt            DateTime   @default(now()) @map("created_at")
   updatedAt            DateTime   @updatedAt @map("updated_at")
@@ -661,9 +815,9 @@ model PurchaseOrderItem {
   purchaseOrderId String   @map("purchase_order_id") @db.Uuid
   productId       String   @map("product_id") @db.Uuid
   orderedQty      Int      @map("ordered_qty")
-  unitCost        Decimal  @db.Decimal(12, 2) @map("unit_cost")
-  discountPercent Decimal  @default(0) @db.Decimal(5, 2) @map("discount_percent")
-  taxPercent      Decimal  @default(18) @db.Decimal(5, 2) @map("tax_percent")
+  unitCost        Decimal  @map("unit_cost") @db.Decimal(12, 2)
+  discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxPercent      Decimal  @default(18) @map("tax_percent") @db.Decimal(5, 2)
   createdAt       DateTime @default(now()) @map("created_at")
 
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
@@ -679,7 +833,7 @@ model GoodsReceipt {
   branchId        String   @map("branch_id") @db.Uuid
   purchaseOrderId String   @map("purchase_order_id") @db.Uuid
   grnNumber       String   @map("grn_number")
-  receivedOn      DateTime @db.Date @map("received_on")
+  receivedOn      DateTime @map("received_on") @db.Date
   receivedBy      String   @map("received_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at")
 
@@ -719,11 +873,11 @@ model Sale {
   status         SaleStatus @default(posted)
   soldAt         DateTime   @default(now()) @map("sold_at")
   subtotal       Decimal    @db.Decimal(12, 2)
-  discountTotal  Decimal    @default(0) @db.Decimal(12, 2) @map("discount_total")
-  taxTotal       Decimal    @default(0) @db.Decimal(12, 2) @map("tax_total")
-  grandTotal     Decimal    @db.Decimal(12, 2) @map("grand_total")
-  amountPaid     Decimal    @default(0) @db.Decimal(12, 2) @map("amount_paid")
-  changeDue      Decimal    @default(0) @db.Decimal(12, 2) @map("change_due")
+  discountTotal  Decimal    @default(0) @map("discount_total") @db.Decimal(12, 2)
+  taxTotal       Decimal    @default(0) @map("tax_total") @db.Decimal(12, 2)
+  grandTotal     Decimal    @map("grand_total") @db.Decimal(12, 2)
+  amountPaid     Decimal    @default(0) @map("amount_paid") @db.Decimal(12, 2)
+  changeDue      Decimal    @default(0) @map("change_due") @db.Decimal(12, 2)
   customerId     String?    @map("customer_id") @db.Uuid
   prescriptionId String?    @map("prescription_id") @db.Uuid
   notes          String?    @db.VarChar(512)
@@ -780,8 +934,8 @@ model Prescription {
   patientName String    @map("patient_name")
   doctorName  String    @map("doctor_name")
   doctorRegNo String?   @map("doctor_reg_no") @db.VarChar(64)
-  issuedOn    DateTime  @db.Date @map("issued_on")
-  validUntil  DateTime? @db.Date @map("valid_until")
+  issuedOn    DateTime  @map("issued_on") @db.Date
+  validUntil  DateTime? @map("valid_until") @db.Date
   notes       String?   @db.VarChar(512)
   customerId  String?   @map("customer_id") @db.Uuid
   createdBy   String    @map("created_by") @db.Uuid
@@ -843,10 +997,10 @@ model SaleItem {
   productId      String   @map("product_id") @db.Uuid
   batchId        String   @map("batch_id") @db.Uuid
   qty            Int
-  unitPrice      Decimal  @db.Decimal(12, 2) @map("unit_price")
-  discountAmount Decimal  @default(0) @db.Decimal(12, 2) @map("discount_amount")
-  taxAmount      Decimal  @default(0) @db.Decimal(12, 2) @map("tax_amount")
-  lineTotal      Decimal  @db.Decimal(12, 2) @map("line_total")
+  unitPrice      Decimal  @map("unit_price") @db.Decimal(12, 2)
+  discountAmount Decimal  @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  taxAmount      Decimal  @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  lineTotal      Decimal  @map("line_total") @db.Decimal(12, 2)
   createdAt      DateTime @default(now()) @map("created_at")
 
   sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
@@ -970,7 +1124,7 @@ model GoodsReturnItem {
   productId String  @map("product_id") @db.Uuid
   batchId   String? @map("batch_id") @db.Uuid
   qty       Int
-  unitPrice Decimal @default(0) @db.Decimal(12, 2) @map("unit_price")
+  unitPrice Decimal @default(0) @map("unit_price") @db.Decimal(12, 2)
 
   goodsReturn GoodsReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
   product     Product     @relation(fields: [productId], references: [id])
@@ -1013,17 +1167,17 @@ model Stocktake {
   createdAt            DateTime              @default(now()) @map("created_at")
   updatedAt            DateTime              @updatedAt @map("updated_at")
 
-  branch       Branch                  @relation(fields: [branchId], references: [id])
-  counter      AppUser                 @relation("StocktakeCounter", fields: [countedBy], references: [id])
-  reviewer     AppUser?                @relation("StocktakeReviewer", fields: [reviewerId], references: [id])
-  approver     AppUser?                @relation("StocktakeApprover", fields: [approvedBy], references: [id])
-  poster       AppUser?                @relation("StocktakePoster", fields: [postedBy], references: [id])
-  completer    AppUser?                @relation("StocktakeCompleter", fields: [completedBy], references: [id])
-  lines        StocktakeLine[]
-  assignments  StocktakeAssignment[]
+  branch        Branch                  @relation(fields: [branchId], references: [id])
+  counter       AppUser                 @relation("StocktakeCounter", fields: [countedBy], references: [id])
+  reviewer      AppUser?                @relation("StocktakeReviewer", fields: [reviewerId], references: [id])
+  approver      AppUser?                @relation("StocktakeApprover", fields: [approvedBy], references: [id])
+  poster        AppUser?                @relation("StocktakePoster", fields: [postedBy], references: [id])
+  completer     AppUser?                @relation("StocktakeCompleter", fields: [completedBy], references: [id])
+  lines         StocktakeLine[]
+  assignments   StocktakeAssignment[]
   snapshotLines StocktakeSnapshotLine[]
-  countEntries StocktakeCountEntry[]
-  postings     StocktakePosting[]
+  countEntries  StocktakeCountEntry[]
+  postings      StocktakePosting[]
 
   @@unique([tenantId, branchId, stocktakeNumber])
   @@index([tenantId, branchId, status])
@@ -1032,32 +1186,32 @@ model Stocktake {
 }
 
 model StocktakeLine {
-  id               String                 @id @default(uuid()) @db.Uuid
-  tenantId         String                 @map("tenant_id") @db.Uuid
-  stocktakeId      String                 @map("stocktake_id") @db.Uuid
-  productId        String                 @map("product_id") @db.Uuid
-  batchId          String                 @map("batch_id") @db.Uuid
-  systemQty        Int                    @map("system_qty")
-  countedQty       Int?                   @map("counted_qty")
-  varianceQty      Int?                   @map("variance_qty")
-  status           StocktakeCountStatus   @default(pending)
-  condition        StocktakeCondition     @default(saleable)
-  note             String?                @db.VarChar(512)
+  id               String                   @id @default(uuid()) @db.Uuid
+  tenantId         String                   @map("tenant_id") @db.Uuid
+  stocktakeId      String                   @map("stocktake_id") @db.Uuid
+  productId        String                   @map("product_id") @db.Uuid
+  batchId          String                   @map("batch_id") @db.Uuid
+  systemQty        Int                      @map("system_qty")
+  countedQty       Int?                     @map("counted_qty")
+  varianceQty      Int?                     @map("variance_qty")
+  status           StocktakeCountStatus     @default(pending)
+  condition        StocktakeCondition       @default(saleable)
+  note             String?                  @db.VarChar(512)
   reviewReason     StocktakeVarianceReason? @map("review_reason")
-  reviewResolution String?                @map("review_resolution") @db.VarChar(512)
-  reviewNote       String?                @map("review_note") @db.VarChar(512)
-  reviewedBy       String?                @map("reviewed_by") @db.Uuid
-  approvedBy       String?                @map("approved_by") @db.Uuid
-  countedAt        DateTime?              @map("counted_at")
-  reviewedAt       DateTime?              @map("reviewed_at")
-  approvedAt       DateTime?              @map("approved_at")
-  postedAt         DateTime?              @map("posted_at")
+  reviewResolution String?                  @map("review_resolution") @db.VarChar(512)
+  reviewNote       String?                  @map("review_note") @db.VarChar(512)
+  reviewedBy       String?                  @map("reviewed_by") @db.Uuid
+  approvedBy       String?                  @map("approved_by") @db.Uuid
+  countedAt        DateTime?                @map("counted_at")
+  reviewedAt       DateTime?                @map("reviewed_at")
+  approvedAt       DateTime?                @map("approved_at")
+  postedAt         DateTime?                @map("posted_at")
 
-  stocktake    Stocktake             @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
-  product      Product               @relation(fields: [productId], references: [id])
-  batch        Batch                 @relation(fields: [batchId], references: [id])
-  reviewer     AppUser?              @relation("StocktakeLineReviewer", fields: [reviewedBy], references: [id])
-  approver     AppUser?              @relation("StocktakeLineApprover", fields: [approvedBy], references: [id])
+  stocktake    Stocktake              @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  product      Product                @relation(fields: [productId], references: [id])
+  batch        Batch                  @relation(fields: [batchId], references: [id])
+  reviewer     AppUser?               @relation("StocktakeLineReviewer", fields: [reviewedBy], references: [id])
+  approver     AppUser?               @relation("StocktakeLineApprover", fields: [approvedBy], references: [id])
   countEntries StocktakeCountEntry[]
   snapshotLine StocktakeSnapshotLine?
   postingLines StocktakePostingLine[]
@@ -1093,10 +1247,10 @@ model StocktakeSnapshotLine {
   snapshotQty Int      @map("snapshot_qty")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  stocktake Stocktake    @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  stocktake Stocktake     @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
   line      StocktakeLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
-  product   Product      @relation(fields: [productId], references: [id])
-  batch     Batch        @relation(fields: [batchId], references: [id])
+  product   Product       @relation(fields: [productId], references: [id])
+  batch     Batch         @relation(fields: [batchId], references: [id])
 
   @@unique([stocktakeId, batchId])
   @@index([tenantId, stocktakeId])
@@ -1104,20 +1258,20 @@ model StocktakeSnapshotLine {
 }
 
 model StocktakeCountEntry {
-  id          String              @id @default(uuid()) @db.Uuid
-  tenantId    String              @map("tenant_id") @db.Uuid
-  stocktakeId String              @map("stocktake_id") @db.Uuid
-  lineId      String              @map("line_id") @db.Uuid
-  countedQty  Int                 @map("counted_qty")
-  condition   StocktakeCondition  @default(saleable)
-  note        String?             @db.VarChar(512)
-  isRecount   Boolean             @default(false) @map("is_recount")
-  countedBy   String              @map("counted_by") @db.Uuid
-  countedAt   DateTime            @default(now()) @map("counted_at")
+  id          String             @id @default(uuid()) @db.Uuid
+  tenantId    String             @map("tenant_id") @db.Uuid
+  stocktakeId String             @map("stocktake_id") @db.Uuid
+  lineId      String             @map("line_id") @db.Uuid
+  countedQty  Int                @map("counted_qty")
+  condition   StocktakeCondition @default(saleable)
+  note        String?            @db.VarChar(512)
+  isRecount   Boolean            @default(false) @map("is_recount")
+  countedBy   String             @map("counted_by") @db.Uuid
+  countedAt   DateTime           @default(now()) @map("counted_at")
 
-  stocktake Stocktake    @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  stocktake Stocktake     @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
   line      StocktakeLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
-  counter   AppUser      @relation(fields: [countedBy], references: [id])
+  counter   AppUser       @relation(fields: [countedBy], references: [id])
 
   @@index([tenantId, stocktakeId, lineId, countedAt(sort: Desc)])
   @@map("stocktake_count_entry")
@@ -1131,8 +1285,8 @@ model StocktakePosting {
   postedAt    DateTime @default(now()) @map("posted_at")
   note        String?  @db.VarChar(512)
 
-  stocktake Stocktake             @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
-  poster    AppUser               @relation(fields: [postedBy], references: [id])
+  stocktake Stocktake              @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  poster    AppUser                @relation(fields: [postedBy], references: [id])
   lines     StocktakePostingLine[]
 
   @@index([tenantId, stocktakeId])
@@ -1171,8 +1325,8 @@ model AuditEvent {
   payload     Json     @default("{}")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id])
-  branch Branch? @relation(fields: [branchId], references: [id])
+  tenant Tenant   @relation(fields: [tenantId], references: [id])
+  branch Branch?  @relation(fields: [branchId], references: [id])
   actor  AppUser? @relation("AuditActor", fields: [actorUserId], references: [id])
 
   @@map("audit_event")

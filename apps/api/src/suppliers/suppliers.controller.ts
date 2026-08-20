@@ -8,9 +8,8 @@ import {
   Post,
   Query,
 } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CreateSupplierDto } from "./dto/create-supplier.dto";
 import { UpdateSupplierDto } from "./dto/update-supplier.dto";
@@ -22,13 +21,7 @@ import { SuppliersService } from "./suppliers.service";
 export class SuppliersController {
   constructor(private readonly suppliers: SuppliersService) {}
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-    RoleName.pharmacist,
-  )
+  @RequirePermission("suppliers.view")
   @Get()
   list(
     @CurrentUser() user: RequestUser,
@@ -40,19 +33,13 @@ export class SuppliersController {
     return this.suppliers.list(user.tenantId, { q, status, type, paymentTermsDays });
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-    RoleName.pharmacist,
-  )
+  @RequirePermission("suppliers.view")
   @Get("summary")
   summary(@CurrentUser() user: RequestUser, @Query("period") period?: string) {
     return this.suppliers.summary(user.tenantId, period);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("suppliers.manage")
   @Post("invoices/:id/payments")
   recordPayment(
     @CurrentUser() user: RequestUser,
@@ -62,13 +49,13 @@ export class SuppliersController {
     return this.suppliers.recordPayment(user.tenantId, user.userId, id, dto);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("suppliers.manage")
   @Post()
   create(@CurrentUser() user: RequestUser, @Body() dto: CreateSupplierDto) {
     return this.suppliers.create(user.tenantId, user.userId, dto);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("suppliers.manage")
   @Post(":id/invoices")
   createInvoice(
     @CurrentUser() user: RequestUser,
@@ -78,19 +65,13 @@ export class SuppliersController {
     return this.suppliers.createInvoice(user.tenantId, user.userId, id, dto);
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-    RoleName.pharmacist,
-  )
+  @RequirePermission("suppliers.view")
   @Get(":id")
   getOne(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.suppliers.getById(user.tenantId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("suppliers.manage")
   @Patch(":id")
   update(
     @CurrentUser() user: RequestUser,

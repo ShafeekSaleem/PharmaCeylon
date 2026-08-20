@@ -10,7 +10,7 @@ import {
 } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CustomerReturnDto } from "./dto/customer-return.dto";
@@ -26,14 +26,7 @@ const RETURNS_DEPRECATED =
 export class InventoryController {
   constructor(private readonly inventory: InventoryService) {}
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("inventory.view")
   @Get("batches")
   batches(
     @CurrentUser() user: RequestUser,
@@ -43,6 +36,7 @@ export class InventoryController {
     @Query("includeZero") includeZero?: string,
     @Query("quarantined") quarantined?: string,
     @Query("expired") expired?: string,
+    @Query("controlled") controlled?: string,
   ) {
     return this.inventory.listBatches(user.tenantId, branchId, {
       productId: productId || undefined,
@@ -51,17 +45,12 @@ export class InventoryController {
       quarantined:
         quarantined === "true" ? true : quarantined === "false" ? false : undefined,
       expired: expired === "true" ? true : expired === "false" ? false : undefined,
+      controlled:
+        controlled === "controlled" ? "controlled" : controlled === "regular" ? "regular" : undefined,
     });
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("inventory.view")
   @Get("batches/expired")
   expiredBatches(
     @CurrentUser() user: RequestUser,
@@ -70,7 +59,7 @@ export class InventoryController {
     return this.inventory.listExpiredBatches(user.tenantId, branchId);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("inventory.manage")
   @Post("batches/:id/quarantine")
   quarantine(
     @CurrentUser() user: RequestUser,
@@ -87,7 +76,7 @@ export class InventoryController {
     );
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("inventory.manage")
   @Post("batches/:id/release-quarantine")
   releaseQuarantine(
     @CurrentUser() user: RequestUser,
@@ -97,7 +86,7 @@ export class InventoryController {
     return this.inventory.releaseQuarantine(user.tenantId, branchId, user.userId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("inventory.manage_bulk")
   @Post("quarantine-expired")
   quarantineExpired(
     @CurrentUser() user: RequestUser,
@@ -106,14 +95,7 @@ export class InventoryController {
     return this.inventory.quarantineExpired(user.tenantId, branchId, user.userId);
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("inventory.view")
   @Get("stock-by-product")
   stockByProduct(
     @CurrentUser() user: RequestUser,
@@ -153,14 +135,7 @@ export class InventoryController {
     });
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("inventory.view")
   @Get("summary")
   summary(
     @CurrentUser() user: RequestUser,
@@ -182,14 +157,7 @@ export class InventoryController {
     return this.inventory.summary(user.tenantId, branchId, key);
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("inventory.view")
   @Get("movements")
   movements(
     @CurrentUser() user: RequestUser,
@@ -219,7 +187,7 @@ export class InventoryController {
     });
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("inventory.manage")
   @Post("adjustments")
   adjustment(
     @CurrentUser() user: RequestUser,
@@ -232,7 +200,7 @@ export class InventoryController {
     return this.inventory.adjustment(user.tenantId, branchId, user.userId, effectiveRoles, dto);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.pharmacist, RoleName.cashier)
+  @RequirePermission("inventory.customer_returns")
   @Post("customer-returns")
   customerReturn(
     @CurrentUser() _user: RequestUser,
@@ -242,7 +210,7 @@ export class InventoryController {
     throw new GoneException(RETURNS_DEPRECATED);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("inventory.manage")
   @Post("supplier-returns")
   supplierReturn(
     @CurrentUser() _user: RequestUser,

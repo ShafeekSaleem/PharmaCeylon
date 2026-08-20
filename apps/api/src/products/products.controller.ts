@@ -11,9 +11,8 @@ import {
   Req,
   StreamableFile,
 } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
-import { Roles } from "../security/decorators/roles.decorator";
+import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import {
   AuthenticatedRequest,
   RequestUser,
@@ -26,14 +25,7 @@ import { ProductsService } from "./products.service";
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("products.view")
   @Get()
   list(
     @CurrentUser() user: RequestUser,
@@ -49,6 +41,7 @@ export class ProductsController {
     @Query("status") status?: string,
     @Query("lowStock") lowStock?: string,
     @Query("categoryId") categoryId?: string,
+    @Query("commercialCategoryId") commercialCategoryId?: string,
     @Query("tagId") tagId?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDir") sortDir?: string,
@@ -65,6 +58,7 @@ export class ProductsController {
       status: status || "all",
       lowStock: lowStock === "true",
       categoryId,
+      commercialCategoryId,
       tagId,
       sortBy,
       sortDir,
@@ -72,14 +66,7 @@ export class ProductsController {
   }
 
   /** Full CSV for all products matching current list filters/sort. Must stay before `:id`. */
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("products.view")
   @Get("export")
   async exportCsv(
     @CurrentUser() user: RequestUser,
@@ -93,6 +80,7 @@ export class ProductsController {
     @Query("status") status?: string,
     @Query("lowStock") lowStock?: string,
     @Query("categoryId") categoryId?: string,
+    @Query("commercialCategoryId") commercialCategoryId?: string,
     @Query("tagId") tagId?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDir") sortDir?: string,
@@ -107,6 +95,7 @@ export class ProductsController {
       status: status || "all",
       lowStock: lowStock === "true",
       categoryId,
+      commercialCategoryId,
       tagId,
       sortBy,
       sortDir,
@@ -117,14 +106,7 @@ export class ProductsController {
     });
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("products.view")
   @Get(":id/detail")
   detail(
     @CurrentUser() user: RequestUser,
@@ -134,26 +116,19 @@ export class ProductsController {
     return this.products.getDetail(user.tenantId, req.branchId, id);
   }
 
-  @Roles(
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
-    RoleName.inventory_clerk,
-    RoleName.analyst,
-  )
+  @RequirePermission("products.view")
   @Get(":id")
   getOne(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.products.getById(user.tenantId, id);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("products.manage")
   @Post()
   create(@CurrentUser() user: RequestUser, @Body() dto: CreateProductDto) {
     return this.products.create(user.tenantId, user.userId, dto);
   }
 
-  @Roles(RoleName.owner, RoleName.manager, RoleName.inventory_clerk)
+  @RequirePermission("products.manage")
   @Patch(":id")
   update(
     @CurrentUser() user: RequestUser,
@@ -163,7 +138,7 @@ export class ProductsController {
     return this.products.update(user.tenantId, user.userId, id, dto);
   }
 
-  @Roles(RoleName.owner, RoleName.manager)
+  @RequirePermission("products.delete")
   @Delete(":id")
   remove(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.products.remove(user.tenantId, user.userId, id);

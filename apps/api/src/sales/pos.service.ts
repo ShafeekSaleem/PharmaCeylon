@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { SaleStatus } from "@prisma/client";
+import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { TaxService } from "../pricing/tax.service";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -41,7 +42,14 @@ export type PosProduct = {
   units30d: number;
   /** Sale lines in the last 90 days (drives "Frequent items"). */
   lines90d: number;
+  /** Primary COMMERCIAL category — drives the POS category browsing chips. Null if unclassified. */
+  commercialCategoryId: string | null;
+  commercialCategoryName: string | null;
+  /** The category's department (root ancestor) — what the POS department chips filter by. */
+  commercialDepartmentId: string | null;
 };
+
+export type PosDepartment = { id: string; name: string; canonicalKey: string | null };
 
 function startOfTodayUtc(): Date {
   const now = new Date();
@@ -69,6 +77,7 @@ export class PosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tax: TaxService,
+    private readonly categoryTaxonomy: CategoryTaxonomyService,
   ) {}
 
   async catalog(tenantId: string, branchId: string) {
@@ -188,6 +197,9 @@ export class PosService {
           batches: [],
           units30d: unitsByProduct.get(p.id) ?? 0,
           lines90d: linesByProduct.get(p.id) ?? 0,
+          commercialCategoryId: null,
+          commercialCategoryName: null,
+          commercialDepartmentId: null,
         };
         byProduct.set(batch.productId, entry);
       }
@@ -205,21 +217,42 @@ export class PosService {
       entry.qtyOnHand += qtyOnHand;
     }
 
-    const products = [...byProduct.values()].map((p) => ({
-      ...p,
-      stockStatus:
-        p.qtyOnHand <= 0
-          ? ("out" as const)
-          : p.reorderLevel > 0 && p.qtyOnHand <= p.reorderLevel
-            ? ("low" as const)
-            : ("ok" as const),
-    }));
+    const productIds = [...byProduct.keys()];
+    const [commercialByProduct, departments] = await Promise.all([
+      this.categoryTaxonomy.primaryCommercialCategoryByProductIds(tenantId, productIds),
+      this.prisma.productCategory.findMany({
+        where: { tenantId, dimension: "COMMERCIAL", isActive: true, parentCategoryId: null },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        select: { id: true, name: true, canonicalKey: true },
+      }),
+    ]);
+
+    const products = [...byProduct.values()].map((p) => {
+      const commercial = commercialByProduct.get(p.id);
+      return {
+        ...p,
+        stockStatus:
+          p.qtyOnHand <= 0
+            ? ("out" as const)
+            : p.reorderLevel > 0 && p.qtyOnHand <= p.reorderLevel
+              ? ("low" as const)
+              : ("ok" as const),
+        commercialCategoryId: commercial?.id ?? null,
+        commercialCategoryName: commercial?.name ?? null,
+        // Standard template is Department -> Category (2 levels), so the immediate parent is
+        // the department; a tenant-added 3rd level (Subcategory) would need a full ancestry
+        // walk to reach the department — acceptable simplification for POS browsing chips.
+        commercialDepartmentId: commercial ? (commercial.parentCategoryId ?? commercial.id) : null,
+      };
+    });
     products.sort((a, b) => a.name.localeCompare(b.name));
 
     return {
       vatRatePercent: this.tax.getVatRatePercent(),
       nearExpiryDays: NEAR_EXPIRY_DAYS,
       products,
+      /** Active COMMERCIAL departments — drives the POS browsing chips (tenant-scoped, never empty departments the tenant hasn't enabled). */
+      departments,
     };
   }
 
