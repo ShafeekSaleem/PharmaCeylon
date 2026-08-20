@@ -33,6 +33,40 @@ function startOfToday(): Date {
   return d;
 }
 
+function hourLabel(hour: number): string {
+  if (hour === 0) return "12 AM";
+  if (hour < 12) return `${hour} AM`;
+  if (hour === 12) return "12 PM";
+  return `${hour - 12} PM`;
+}
+
+/** Monday 00:00 of the week containing `d` (Monday-based, matches mixWindow). */
+function mondayOf(d: Date): Date {
+  const start = new Date(d);
+  const day = start.getDay(); // 0 Sun … 6 Sat
+  const diff = day === 0 ? 6 : day - 1;
+  start.setDate(start.getDate() - diff);
+  return start;
+}
+
+/** 0=Mon … 6=Sun */
+function mondayIndex(d: Date): number {
+  const day = d.getDay();
+  return day === 0 ? 6 : day - 1;
+}
+
+function argMax(values: Array<number | null>): number | null {
+  let best: number | null = null;
+  let bestVal = -Infinity;
+  values.forEach((v, i) => {
+    if (v != null && v > bestVal) {
+      bestVal = v;
+      best = i;
+    }
+  });
+  return best;
+}
+
 function mixWindow(
   todayStart: Date,
   period: "today" | "this_week" | "this_month",
@@ -938,6 +972,460 @@ export class AnalyticsService {
       attentionNow,
       attentionPrev,
       attentionDelta: attentionNow - attentionPrev,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Footfall (bill count) series with a "typical pace" reference line.
+   * today  → hourly (7am-9pm) vs. 30-day average for that hour.
+   * week   → daily (Mon-Sun, current week) vs. 8-week average for that weekday.
+   * month  → daily (1..N, current month) vs. this month's own average-so-far.
+   * Future buckets (hours/days not reached yet) get value=null but still carry
+   * a reference point, so the "pace" line stays visible ahead of where we are.
+   */
+  async footfallSeries(
+    tenantId: string,
+    branchId: string | undefined | null,
+    period: "today" | "week" | "month",
+  ) {
+    const scopedBranchId = await this.resolveOptionalBranch(tenantId, branchId);
+    const todayStart = startOfToday();
+    const posted: Prisma.SaleWhereInput = {
+      tenantId,
+      ...(scopedBranchId ? { branchId: scopedBranchId } : {}),
+      status: { in: [SaleStatus.posted, SaleStatus.partially_refunded] },
+    };
+
+    if (period === "today") {
+      const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 7am..9pm
+      const refStart = new Date(todayStart);
+      refStart.setDate(refStart.getDate() - 30);
+
+      const [todaySales, refSales] = await Promise.all([
+        this.prisma.sale.findMany({
+          where: { ...posted, soldAt: { gte: todayStart } },
+          select: { soldAt: true },
+        }),
+        this.prisma.sale.findMany({
+          where: { ...posted, soldAt: { gte: refStart, lt: todayStart } },
+          select: { soldAt: true },
+        }),
+      ]);
+
+      const byHour = new Map<number, number>(HOURS.map((h) => [h, 0]));
+      for (const s of todaySales) {
+        const h = new Date(s.soldAt).getHours();
+        if (byHour.has(h)) byHour.set(h, byHour.get(h)! + 1);
+      }
+      const refByHour = new Map<number, number>(HOURS.map((h) => [h, 0]));
+      for (const s of refSales) {
+        const h = new Date(s.soldAt).getHours();
+        if (refByHour.has(h)) refByHour.set(h, refByHour.get(h)! + 1);
+      }
+
+      const values = HOURS.map((h) => byHour.get(h) ?? 0);
+      const reference = HOURS.map((h) => Math.round(((refByHour.get(h) ?? 0) / 30) * 10) / 10);
+      const labels = HOURS.map(hourLabel);
+      const peakIndex = argMax(values);
+
+      return {
+        period,
+        unit: "bills",
+        labels,
+        values,
+        reference,
+        referenceLabel: "30-day avg for this hour",
+        peakIndex,
+        peakLabel: peakIndex != null ? labels[peakIndex] : null,
+        totalSoFar: values.reduce((s, v) => s + v, 0),
+        scope: scopedBranchId ? "branch" : "tenant",
+        branchId: scopedBranchId ?? null,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    if (period === "week") {
+      const weekStart = mondayOf(todayStart);
+      const refStart = new Date(weekStart);
+      refStart.setDate(refStart.getDate() - 56); // 8 weeks back
+
+      const [weekSales, refSales] = await Promise.all([
+        this.prisma.sale.findMany({
+          where: { ...posted, soldAt: { gte: weekStart } },
+          select: { soldAt: true },
+        }),
+        this.prisma.sale.findMany({
+          where: { ...posted, soldAt: { gte: refStart, lt: weekStart } },
+          select: { soldAt: true },
+        }),
+      ]);
+
+      const byDow = new Array(7).fill(0) as number[];
+      for (const s of weekSales) byDow[mondayIndex(new Date(s.soldAt))]! += 1;
+      const refByDow = new Array(7).fill(0) as number[];
+      for (const s of refSales) refByDow[mondayIndex(new Date(s.soldAt))]! += 1;
+
+      const todayIdx = mondayIndex(todayStart);
+      const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const values = byDow.map((v, i) => (i <= todayIdx ? v : null));
+      const reference = refByDow.map((v) => Math.round((v / 8) * 10) / 10);
+      const peakIndex = argMax(values);
+
+      return {
+        period,
+        unit: "bills",
+        labels,
+        values,
+        reference,
+        referenceLabel: "8-week avg for this weekday",
+        peakIndex,
+        peakLabel: peakIndex != null ? (peakIndex === todayIdx ? `${labels[peakIndex]} (today)` : labels[peakIndex]) : null,
+        totalSoFar: values.reduce<number>((s, v) => s + (v ?? 0), 0),
+        scope: scopedBranchId ? "branch" : "tenant",
+        branchId: scopedBranchId ?? null,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // period === "month"
+    const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+    const monthEnd = new Date(todayStart.getFullYear(), todayStart.getMonth() + 1, 1);
+    const daysInMonth = Math.round((monthEnd.getTime() - monthStart.getTime()) / 86400000);
+    const todayDom = todayStart.getDate(); // 1-based
+
+    const monthSales = await this.prisma.sale.findMany({
+      where: { ...posted, soldAt: { gte: monthStart, lt: monthEnd } },
+      select: { soldAt: true },
+    });
+
+    const byDom = new Array(daysInMonth + 1).fill(0) as number[];
+    for (const s of monthSales) byDom[new Date(s.soldAt).getDate()]! += 1;
+
+    const labels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1));
+    const values = labels.map((_, i) => (i + 1 <= todayDom ? byDom[i + 1]! : null));
+    const totalSoFar = values.reduce<number>((s, v) => s + (v ?? 0), 0);
+    const avgSoFar = todayDom > 0 ? Math.round((totalSoFar / todayDom) * 10) / 10 : 0;
+    const reference = labels.map(() => avgSoFar);
+    const peakIndex = argMax(values);
+
+    return {
+      period,
+      unit: "bills",
+      labels,
+      values,
+      reference,
+      referenceLabel: "this month's avg so far",
+      peakIndex,
+      peakLabel: peakIndex != null ? `Day ${labels[peakIndex]}` : null,
+      totalSoFar,
+      scope: scopedBranchId ? "branch" : "tenant",
+      branchId: scopedBranchId ?? null,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Today's counter footfall split two ways: identity (walk-in vs. registered)
+   * and, within registered, behavior (new = Customer record created today vs.
+   * repeat = existing customer). Walk-ins have no identity, so they're counted
+   * by transaction, not verified unique people — see the dashboard's own note.
+   */
+  async customerBreakdownToday(tenantId: string, branchId: string | undefined | null) {
+    const scopedBranchId = await this.resolveOptionalBranch(tenantId, branchId);
+    const todayStart = startOfToday();
+
+    const sales = await this.prisma.sale.findMany({
+      where: {
+        tenantId,
+        ...(scopedBranchId ? { branchId: scopedBranchId } : {}),
+        status: { in: [SaleStatus.posted, SaleStatus.partially_refunded] },
+        soldAt: { gte: todayStart },
+      },
+      select: { customerId: true, customer: { select: { createdAt: true } } },
+    });
+
+    let walkIn = 0;
+    let newC = 0;
+    let repeat = 0;
+    for (const s of sales) {
+      if (!s.customerId || !s.customer) {
+        walkIn += 1;
+        continue;
+      }
+      if (s.customer.createdAt >= todayStart) newC += 1;
+      else repeat += 1;
+    }
+
+    const registered = newC + repeat;
+    return {
+      total: walkIn + registered,
+      registered,
+      walkIn,
+      newCustomers: newC,
+      repeatCustomers: repeat,
+      scope: scopedBranchId ? "branch" : "tenant",
+      branchId: scopedBranchId ?? null,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Daily sales trend per branch, one series per active branch (Owner: compare branches). */
+  async branchSalesTrend(tenantId: string, trendDays = 7) {
+    // Reports needs longer windows (90d) and their doubled equivalent for a same-length
+    // previous-period comparison (up to 180d) — dashboard's own callers only ever request 7/14/30.
+    const days = [7, 14, 30, 60, 90, 180].includes(trendDays) ? trendDays : 7;
+    const todayStart = startOfToday();
+    const rangeStart = new Date(todayStart);
+    rangeStart.setDate(rangeStart.getDate() - (days - 1));
+    // Previous period is the same length, immediately before rangeStart — lets
+    // the dashboard show "vs previous N days" without a second round trip.
+    const prevRangeStart = new Date(rangeStart);
+    prevRangeStart.setDate(prevRangeStart.getDate() - days);
+
+    const [branches, windowSales] = await Promise.all([
+      this.prisma.branch.findMany({
+        where: { tenantId, isActive: true },
+        orderBy: { name: "asc" },
+        select: { id: true, code: true, name: true },
+      }),
+      this.prisma.sale.findMany({
+        where: {
+          tenantId,
+          status: { in: [SaleStatus.posted, SaleStatus.partially_refunded] },
+          soldAt: { gte: prevRangeStart },
+        },
+        select: { branchId: true, soldAt: true, grandTotal: true },
+      }),
+    ]);
+
+    const dayKeys: string[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(todayStart);
+      d.setDate(d.getDate() - i);
+      dayKeys.push(d.toISOString().slice(0, 10));
+    }
+
+    const byBranchDay = new Map<string, Map<string, number>>();
+    const prevTotalByBranch = new Map<string, number>();
+    for (const b of branches) {
+      byBranchDay.set(b.id, new Map(dayKeys.map((k) => [k, 0])));
+      prevTotalByBranch.set(b.id, 0);
+    }
+
+    for (const s of windowSales) {
+      if (s.soldAt >= rangeStart) {
+        const dayMap = byBranchDay.get(s.branchId);
+        if (!dayMap) continue;
+        const key = new Date(s.soldAt).toISOString().slice(0, 10);
+        if (!dayMap.has(key)) continue;
+        dayMap.set(key, (dayMap.get(key) ?? 0) + Number(s.grandTotal));
+      } else if (!prevTotalByBranch.has(s.branchId)) {
+        continue;
+      } else {
+        prevTotalByBranch.set(s.branchId, prevTotalByBranch.get(s.branchId)! + Number(s.grandTotal));
+      }
+    }
+
+    const series = branches.map((b) => {
+      const dayMap = byBranchDay.get(b.id)!;
+      const points = dayKeys.map((iso) => {
+        const d = new Date(`${iso}T12:00:00`);
+        const label =
+          days <= 7
+            ? d.toLocaleDateString(undefined, { weekday: "short" })
+            : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        return { label, date: iso, value: dayMap.get(iso) ?? 0 };
+      });
+      const total = points.reduce((s, p) => s + p.value, 0);
+      const previousTotal = prevTotalByBranch.get(b.id) ?? 0;
+      return { branchId: b.id, code: b.code, name: b.name, points, total, previousTotal };
+    });
+
+    return {
+      trendDays: days,
+      days: dayKeys,
+      branches: series.sort((a, b) => b.total - a.total),
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Received (positive qtyDelta) vs issued (negative) stock-ledger movement —
+   * Inventory clerk dashboard trend chart. Branch-scoped only (omit branchId →
+   * tenant-wide, for Owner/Manager use). Same period vocabulary as
+   * footfallSeries: today → hourly, week → Mon-Sun to date, month → day 1..N to date.
+   */
+  async stockMovementTrend(
+    tenantId: string,
+    branchId: string | undefined | null,
+    period: "today" | "week" | "month" = "week",
+  ) {
+    const scopedBranchId = await this.resolveOptionalBranch(tenantId, branchId);
+    const todayStart = startOfToday();
+    const branchWhere: Prisma.StockLedgerWhereInput = {
+      tenantId,
+      ...(scopedBranchId ? { branchId: scopedBranchId } : {}),
+    };
+    const ledgerSelect = {
+      occurredAt: true,
+      qtyDelta: true,
+      batch: { select: { costPrice: true } },
+    } satisfies Prisma.StockLedgerSelect;
+    type LedgerRow = Prisma.StockLedgerGetPayload<{ select: typeof ledgerSelect }>;
+
+    const bucket = () => ({ received: 0, issued: 0, receivedValue: 0, issuedValue: 0 });
+    const tally = (
+      b: ReturnType<typeof bucket>,
+      row: LedgerRow,
+      totals: ReturnType<typeof bucket>,
+    ) => {
+      const value = Math.abs(row.qtyDelta) * Number(row.batch?.costPrice ?? 0);
+      if (row.qtyDelta > 0) {
+        b.received += row.qtyDelta;
+        b.receivedValue += value;
+        totals.received += row.qtyDelta;
+        totals.receivedValue += value;
+      } else if (row.qtyDelta < 0) {
+        b.issued += Math.abs(row.qtyDelta);
+        b.issuedValue += value;
+        totals.issued += Math.abs(row.qtyDelta);
+        totals.issuedValue += value;
+      }
+    };
+    const summarize = (totals: ReturnType<typeof bucket>) => ({
+      receivedTotal: totals.received,
+      issuedTotal: totals.issued,
+      netTotal: totals.received - totals.issued,
+      receivedValueTotal: totals.receivedValue,
+      issuedValueTotal: totals.issuedValue,
+      netValueTotal: totals.receivedValue - totals.issuedValue,
+      generatedAt: new Date().toISOString(),
+    });
+
+    if (period === "today") {
+      const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 7am..9pm
+      const rows = await this.prisma.stockLedger.findMany({
+        where: { ...branchWhere, occurredAt: { gte: todayStart } },
+        select: ledgerSelect,
+      });
+
+      const byHour = new Map<number, ReturnType<typeof bucket>>(HOURS.map((h) => [h, bucket()]));
+      const totals = bucket();
+      for (const r of rows) {
+        const h = new Date(r.occurredAt).getHours();
+        const b = byHour.get(h);
+        if (b) tally(b, r, totals);
+      }
+
+      const points = HOURS.map((h) => ({ label: hourLabel(h), ...byHour.get(h)! }));
+      return { period, points, ...summarize(totals) };
+    }
+
+    if (period === "week") {
+      const weekStart = mondayOf(todayStart);
+      const todayIdx = mondayIndex(todayStart);
+      const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+      const rows = await this.prisma.stockLedger.findMany({
+        where: { ...branchWhere, occurredAt: { gte: weekStart } },
+        select: ledgerSelect,
+      });
+
+      const byDow = Array.from({ length: 7 }, () => bucket());
+      const totals = bucket();
+      for (const r of rows) {
+        const idx = mondayIndex(new Date(r.occurredAt));
+        if (idx <= todayIdx) tally(byDow[idx]!, r, totals);
+      }
+
+      const points = labels.map((label, i) => ({ label, ...byDow[i]! }));
+      return { period, points, ...summarize(totals) };
+    }
+
+    // period === "month"
+    const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+    const todayDom = todayStart.getDate(); // 1-based
+
+    const rows = await this.prisma.stockLedger.findMany({
+      where: { ...branchWhere, occurredAt: { gte: monthStart } },
+      select: ledgerSelect,
+    });
+
+    const byDom = Array.from({ length: todayDom }, () => bucket());
+    const totals = bucket();
+    for (const r of rows) {
+      const dom = new Date(r.occurredAt).getDate();
+      if (dom >= 1 && dom <= todayDom) tally(byDom[dom - 1]!, r, totals);
+    }
+
+    const points = byDom.map((b, i) => ({ label: String(i + 1), ...b }));
+    return { period, points, ...summarize(totals) };
+  }
+
+  /** Top suppliers by outstanding payable, with overdue-PO counts (Owner: supplier risk view). */
+  async supplierSpendSummary(tenantId: string, limit = 6) {
+    const today = startOfToday();
+
+    const [openInvoices, overduePos] = await Promise.all([
+      this.prisma.supplierInvoice.findMany({
+        where: {
+          tenantId,
+          status: { in: [SupplierInvoiceStatus.open, SupplierInvoiceStatus.partial] },
+        },
+        select: {
+          supplierId: true,
+          totalAmount: true,
+          paidAmount: true,
+          supplier: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      this.prisma.purchaseOrder.findMany({
+        where: {
+          tenantId,
+          status: { in: [PoStatus.issued, PoStatus.partially_received] },
+          expectedOn: { lt: today },
+        },
+        select: { supplierId: true },
+      }),
+    ]);
+
+    const overdueBySupplier = new Map<string, number>();
+    for (const po of overduePos) {
+      overdueBySupplier.set(po.supplierId, (overdueBySupplier.get(po.supplierId) ?? 0) + 1);
+    }
+
+    const bySupplier = new Map<
+      string,
+      { supplierId: string; name: string; code: string; outstanding: number; invoiceCount: number }
+    >();
+    for (const inv of openInvoices) {
+      if (!inv.supplier) continue;
+      const outstanding = Math.max(0, Number(inv.totalAmount) - Number(inv.paidAmount));
+      const existing = bySupplier.get(inv.supplierId);
+      if (existing) {
+        existing.outstanding += outstanding;
+        existing.invoiceCount += 1;
+      } else {
+        bySupplier.set(inv.supplierId, {
+          supplierId: inv.supplierId,
+          name: inv.supplier.name,
+          code: inv.supplier.code,
+          outstanding,
+          invoiceCount: 1,
+        });
+      }
+    }
+
+    const suppliers = [...bySupplier.values()]
+      .map((s) => ({ ...s, overduePoCount: overdueBySupplier.get(s.supplierId) ?? 0 }))
+      .sort((a, b) => b.outstanding - a.outstanding);
+
+    return {
+      suppliers: suppliers.slice(0, limit),
+      totalOutstanding: suppliers.reduce((s, x) => s + x.outstanding, 0),
+      totalSuppliers: suppliers.length,
+      totalOverduePos: overduePos.length,
       generatedAt: new Date().toISOString(),
     };
   }

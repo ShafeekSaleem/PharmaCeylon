@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   IconActivity,
@@ -13,6 +13,7 @@ import {
   IconClipboardList,
   IconPackage,
   IconRefresh,
+  IconRotateCcw,
   IconShoppingCart,
   IconTruck,
   IconUsers,
@@ -21,24 +22,26 @@ import { StatusBadge } from "@/components/ui";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
 import { AiInsightsCard } from "../components/ai-insights-card";
-import { AlertList, type DashboardAlert } from "../components/alert-list";
 import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
 import { BusinessOverviewPanel } from "../components/business-overview-panel";
+import { CustomerBreakdownPanel } from "../components/customer-breakdown-panel";
 import { DashboardPanel } from "../components/dashboard-panel";
+import { FootfallPanel } from "../components/footfall-panel";
 import { HeroBand } from "../components/hero-band";
+import { MasonryGrid, MasonryItem } from "../components/masonry-grid";
+import { PaginationControls } from "../components/pagination-controls";
 import { ProgressBar } from "../components/progress-bar";
 import { QuickActionsBar } from "../components/quick-actions-bar";
 import type { DashboardData } from "../hooks/use-dashboard-data";
-import { branchTrackStatus, monthPaceExpectedPct } from "../lib/branch-status";
+import { branchTrackStatus, formatYearMonth, monthPaceExpectedPct } from "../lib/branch-status";
 import { inventoryHealthScore } from "../lib/health-score";
-import { MANAGER_AI_INSIGHTS, PLACEHOLDER_SERVICE_ISSUES, type AiInsight } from "../lib/placeholder-data";
+import { MANAGER_AI_INSIGHTS, type AiInsight } from "../lib/placeholder-data";
 import css from "../dashboard.module.css";
 
-/** "2026-08" → "August 2026". */
-function formatYearMonth(yearMonth: string): string {
-  const [y, m] = yearMonth.split("-").map(Number);
-  if (!y || !m) return yearMonth;
-  return new Date(y, m - 1, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
+function paginate<T>(items: T[], page: number, pageSize: number): T[] {
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  return items.slice(safePage * pageSize, safePage * pageSize + pageSize);
 }
 
 type Props = { data: DashboardData };
@@ -55,13 +58,12 @@ export function ManagerDashboard({ data }: Props) {
     salesTrend7d,
     staffProductivity,
     pendingApprovalsTotal,
-    pendingPoApprovals,
-    pendingTransferApprovals,
-    pendingReturnApprovals,
+    pendingApprovalListFull,
     openTransfers,
     stocktakesInProgress,
-    openPoList,
-    transferList,
+    openPoListFull,
+    transfers,
+    goodsReturns,
     overduePos,
     nearExpiryCount,
     topProductsToday,
@@ -70,6 +72,10 @@ export function ManagerDashboard({ data }: Props) {
     branchPerfYearMonth,
     deadStockCount,
     fastMoversCount,
+    controlledAttentionCount,
+    dispensedToday,
+    dispensedTrendLabel,
+    dispensedTrendPositive,
   } = data;
 
   const targetRows = useMemo(
@@ -84,6 +90,15 @@ export function ManagerDashboard({ data }: Props) {
 
   const tickerItems: TickerItem[] = useMemo(() => {
     const items: TickerItem[] = [];
+    if (controlledAttentionCount > 0) {
+      items.push({
+        key: "ctrl",
+        count: controlledAttentionCount,
+        label: "controlled-drug alerts",
+        tone: "danger",
+        href: "/inventory?controlled=controlled",
+      });
+    }
     if ((inventory?.outOfStock ?? 0) > 0) {
       items.push({
         key: "oos",
@@ -117,7 +132,7 @@ export function ManagerDashboard({ data }: Props) {
         count: overduePos,
         label: "overdue purchase orders",
         tone: "warning",
-        href: "/purchasing",
+        href: "/purchasing?status=overdue",
       });
     }
     if (openTransfers > 0) {
@@ -139,124 +154,92 @@ export function ManagerDashboard({ data }: Props) {
       });
     }
     return items;
-  }, [inventory, nearExpiryCount, overduePos, openTransfers, stocktakesInProgress]);
+  }, [
+    controlledAttentionCount,
+    inventory,
+    nearExpiryCount,
+    overduePos,
+    openTransfers,
+    stocktakesInProgress,
+  ]);
 
-  const approvalTasks = [
-    pendingPoApprovals > 0
-      ? {
-          key: "po",
-          label: "Purchase orders awaiting approval",
-          count: pendingPoApprovals,
-          tone: "danger" as const,
-          href: "/purchasing",
-        }
-      : null,
-    pendingTransferApprovals > 0
-      ? {
-          key: "tr-appr",
-          label: "Transfers awaiting approval",
-          count: pendingTransferApprovals,
-          tone: "warning" as const,
-          href: "/transfers",
-        }
-      : null,
-    pendingReturnApprovals > 0
-      ? {
-          key: "ret",
-          label: "Returns awaiting approval",
-          count: pendingReturnApprovals,
-          tone: "warning" as const,
-          href: "/returns",
-        }
-      : null,
-    stocktakesInProgress > 0
-      ? {
-          key: "st",
-          label: "Active stocktakes",
-          count: stocktakesInProgress,
-          tone: "info" as const,
-          href: "/stocktakes",
-        }
-      : null,
-  ].filter(Boolean) as Array<{
+  /** Individual pending-approval items across POs, transfers & returns — the
+   * hero's "Pending Approvals" tile only has a total, this is where the
+   * breakdown actually lives (a single href can't represent all three types). */
+  type ApprovalItem = {
     key: string;
-    label: string;
-    count: number;
-    tone: "danger" | "warning" | "info";
+    kind: "po" | "transfer" | "return";
+    number: string;
+    detail: string;
     href: string;
-  }>;
+  };
 
-  /** Vertical, more descriptive companion to the ticker strip — same signals, more context. */
-  const operationalAlerts: DashboardAlert[] = useMemo(() => {
-    const alerts: DashboardAlert[] = [];
-    if ((inventory?.outOfStock ?? 0) > 0) {
-      alerts.push({
-        key: "oos",
-        label: "Items out of stock",
-        detail: "Immediate attention required",
-        count: inventory!.outOfStock,
-        tone: "danger",
-        href: "/inventory?view=out",
-        icon: <IconAlertTriangle size={13} strokeWidth={1.75} />,
+  const approvalItems: ApprovalItem[] = useMemo(() => {
+    const items: ApprovalItem[] = [];
+    for (const po of pendingApprovalListFull) {
+      items.push({
+        key: `po-${po.id}`,
+        kind: "po",
+        number: po.poNumber,
+        detail: po.supplier.name,
+        href: `/purchasing?po=${po.id}`,
       });
     }
-    if ((inventory?.lowStock ?? 0) > 0) {
-      alerts.push({
-        key: "low",
-        label: "Items low on stock",
-        detail: "Reorder before they run out",
-        count: inventory!.lowStock,
-        tone: "warning",
-        href: "/inventory?view=low",
-        icon: <IconBox size={13} strokeWidth={1.75} />,
+    for (const t of transfers.filter((row) => row.status === "requested")) {
+      items.push({
+        key: `tr-${t.id}`,
+        kind: "transfer",
+        number: t.transferNumber,
+        detail: [t.fromBranch?.name, t.toBranch?.name].filter(Boolean).join(" → ") || "Transfer",
+        href: `/transfers?transfer=${t.id}`,
       });
     }
-    if (nearExpiryCount > 0) {
-      alerts.push({
-        key: "exp",
-        label: "Batches expiring within 30 days",
-        detail: "Prioritize FEFO rotation",
-        count: nearExpiryCount,
-        tone: "warning",
-        href: "/inventory/batches",
-        icon: <IconCalendar size={13} strokeWidth={1.75} />,
+    for (const r of goodsReturns.filter((row) => row.status === "pending_approval")) {
+      items.push({
+        key: `ret-${r.id}`,
+        kind: "return",
+        number: r.returnNumber,
+        detail: r.type ? r.type.replace(/_/g, " ") : "Return",
+        href: `/returns?return=${r.id}`,
       });
     }
-    if (overduePos > 0) {
-      alerts.push({
-        key: "od",
-        label: "Purchase orders overdue",
-        detail: "Past expected delivery",
-        count: overduePos,
-        tone: "danger",
-        href: "/purchasing",
-        icon: <IconTruck size={13} strokeWidth={1.75} />,
-      });
-    }
-    if (openTransfers > 0) {
-      alerts.push({
-        key: "xfer",
-        label: "Transfers in transit",
-        detail: "Awaiting receipt confirmation",
-        count: openTransfers,
-        tone: "info",
-        href: "/transfers",
-        icon: <IconTruck size={13} strokeWidth={1.75} />,
-      });
-    }
-    if (stocktakesInProgress > 0) {
-      alerts.push({
-        key: "st",
-        label: "Stocktakes in progress",
-        detail: "Complete counts to close out",
-        count: stocktakesInProgress,
-        tone: "info",
-        href: "/stocktakes",
-        icon: <IconClipboardList size={13} strokeWidth={1.75} />,
-      });
-    }
-    return alerts;
-  }, [inventory, nearExpiryCount, overduePos, openTransfers, stocktakesInProgress]);
+    return items;
+  }, [pendingApprovalListFull, transfers, goodsReturns]);
+
+  const [approvalsPage, setApprovalsPage] = useState(0);
+  const APPROVALS_PAGE_SIZE = 4;
+  const approvalsPageCount = Math.max(1, Math.ceil(approvalItems.length / APPROVALS_PAGE_SIZE));
+
+  const pipelineItems = useMemo(
+    () => [
+      ...openPoListFull.map((po) => ({
+        key: `po-${po.id}`,
+        kind: "po" as const,
+        number: po.poNumber,
+        detail: po.supplier.name,
+        status: po.status,
+        href: `/purchasing?po=${po.id}`,
+      })),
+      ...transfers
+        .filter((t) => ["requested", "approved", "in_transit", "in_progress"].includes(t.status))
+        .map((t) => ({
+          key: `tr-${t.id}`,
+          kind: "transfer" as const,
+          number: t.transferNumber,
+          detail: [t.fromBranch?.name, t.toBranch?.name].filter(Boolean).join(" → ") || "Transfer",
+          status: t.status,
+          href: `/transfers?transfer=${t.id}`,
+        })),
+    ],
+    [openPoListFull, transfers],
+  );
+  const [pipelinePage, setPipelinePage] = useState(0);
+  const PIPELINE_PAGE_SIZE = 4;
+  const pipelinePageCount = Math.max(1, Math.ceil(pipelineItems.length / PIPELINE_PAGE_SIZE));
+
+  const [productsPage, setProductsPage] = useState(0);
+  const PRODUCTS_PAGE_SIZE = 4;
+  const productsPageCount = Math.max(1, Math.ceil(topProductsToday.length / PRODUCTS_PAGE_SIZE));
 
   const liveInsights = useMemo(() => {
     const live: AiInsight[] = [];
@@ -284,7 +267,7 @@ export function ManagerDashboard({ data }: Props) {
         title: "Supply delay",
         detail: `${overduePos} purchase order${overduePos === 1 ? "" : "s"} past expected delivery.`,
         tone: "danger",
-        href: "/purchasing",
+        href: "/purchasing?status=overdue",
       });
     }
     return live;
@@ -314,7 +297,7 @@ export function ManagerDashboard({ data }: Props) {
         : "dead";
   const healthSignals = [
     { key: "low", label: "Low stock", value: lowN, tone: "danger" as const, href: "/inventory?view=low" },
-    { key: "dead", label: "Dead stock", value: deadN, tone: "muted" as const, href: "/reports" },
+    { key: "dead", label: "Dead stock", value: deadN, tone: "muted" as const, href: "/reports?tab=dead" },
     {
       key: "expiry",
       label: "Near expiry ≤30d",
@@ -368,25 +351,41 @@ export function ManagerDashboard({ data }: Props) {
               currentBranchPerf?.targetAmount != null
                 ? `MTD ${formatMoney(currentBranchPerf.monthSales)} / ${formatMoney(currentBranchPerf.targetAmount)}`
                 : "Assigned by owner",
+            href: "/reports",
+            linkLabel: "View reports",
           },
           {
             key: "approvals",
             label: "Pending Approvals",
             value: pendingApprovalsTotal,
-            meta: "POs, transfers & returns",
+            meta: "POs, transfers & returns — see below",
+          },
+          {
+            key: "units",
+            label: "Units Sold Today",
+            value: dispensedToday,
+            meta: "This branch",
+            trend: dispensedTrendLabel
+              ? { label: dispensedTrendLabel, direction: dispensedTrendPositive ? "up" : "down" }
+              : undefined,
+            href: "/reports",
+            linkLabel: "View reports",
           },
         ]}
       />
 
       <AttentionTicker items={tickerItems} loading={loading} allClearText="No operational alerts — branch looks healthy" />
 
-      <div className={css.mainSplit}>
-        <BusinessOverviewPanel
-          title="Branch Performance Overview"
-          fallbackTrend={salesTrend7d}
-          analyticsBranchId={branchId}
-        />
+      <MasonryGrid>
+        <MasonryItem span={2}>
+          <BusinessOverviewPanel
+            title="Branch Performance Overview"
+            fallbackTrend={salesTrend7d}
+            analyticsBranchId={branchId}
+          />
+        </MasonryItem>
 
+        <MasonryItem>
         <DashboardPanel title="Inventory Health" icon={<IconPackage size={15} />} compact>
           <div className={css.healthBoard}>
             <div className={css.healthTop}>
@@ -456,7 +455,7 @@ export function ManagerDashboard({ data }: Props) {
               <Link href="/inventory/movements?category=sales" className={css.healthPositiveCallout}>
                 <IconActivity size={16} strokeWidth={2.2} aria-hidden />
                 <span className={css.healthPositiveText}>
-                  <strong>{fastMoversCount ?? 0}</strong> fast movers this week — moving well, no action
+                  <strong>{fastMoversCount ?? 0}</strong> fast movers today — moving well, no action
                   needed.
                 </span>
               </Link>
@@ -484,9 +483,9 @@ export function ManagerDashboard({ data }: Props) {
             </div>
           </div>
         </DashboardPanel>
-      </div>
+        </MasonryItem>
 
-      <div className={css.grid3}>
+        <MasonryItem>
         <DashboardPanel
           title="Branch Sales vs Target"
           icon={<IconUsers size={15} />}
@@ -536,8 +535,7 @@ export function ManagerDashboard({ data }: Props) {
                 <thead>
                   <tr>
                     <th>Branch</th>
-                    <th>Today&apos;s Sales</th>
-                    <th>Target</th>
+                    <th>MTD Sales</th>
                     <th>Achievement</th>
                     <th>Status</th>
                   </tr>
@@ -565,9 +563,11 @@ export function ManagerDashboard({ data }: Props) {
                             {isBest ? <span className={css.teamBestBadge}>Best</span> : null}
                           </span>
                         </td>
-                        <td className={css.teamNum}>{formatMoney(row.todaySales)}</td>
-                        <td className={`${css.muted} ${css.teamNum}`}>
-                          {row.targetAmount != null ? formatMoney(row.targetAmount) : "—"}
+                        <td className={css.teamNum}>
+                          {formatMoney(row.monthSales)}
+                          {row.targetAmount != null ? (
+                            <span className={css.teamNumTarget}>/ {formatMoney(row.targetAmount)}</span>
+                          ) : null}
                         </td>
                         <td>
                           {pct != null ? (
@@ -606,7 +606,9 @@ export function ManagerDashboard({ data }: Props) {
             </>
           )}
         </DashboardPanel>
+        </MasonryItem>
 
+        <MasonryItem>
         <DashboardPanel title="Staff Productivity">
           {staffProductivity.length === 0 ? (
             <p className={css.emptyState}>No counter activity yet today.</p>
@@ -642,99 +644,143 @@ export function ManagerDashboard({ data }: Props) {
             </table>
           )}
         </DashboardPanel>
+        </MasonryItem>
 
-        <DashboardPanel title="Approvals & Tasks" footerHref="/purchasing" footerLabel="Open purchasing →">
-          <AlertList showAction emptyText="No pending approvals or active stocktakes." alerts={approvalTasks} />
-        </DashboardPanel>
-      </div>
+        <MasonryItem>
+          <CustomerBreakdownPanel branchId={branchId} />
+        </MasonryItem>
 
-      <div className={css.grid3}>
+        <MasonryItem>
         <DashboardPanel title="Transfer & PO Pipeline" footerHref="/purchasing" footerLabel="Open pipeline →">
-          {openPoList.length === 0 && transferList.length === 0 ? (
+          {pipelineItems.length === 0 ? (
             <p className={css.emptyState}>No open pipeline items.</p>
           ) : (
-            <ul className={css.pipelineList}>
-              {openPoList.slice(0, 3).map((po) => (
-                <li key={po.id}>
-                  <Link href={`/purchasing?po=${po.id}`}>
-                    <span className={`${css.pipelineIcon} ${css.pipelineIcon_po}`} aria-hidden>
-                      <IconShoppingCart size={14} strokeWidth={1.75} />
-                    </span>
-                    <span className={css.pipelineRowBody}>
-                      <strong>{po.poNumber}</strong>
-                      <span className={css.muted}>{po.supplier.name}</span>
-                    </span>
-                    <StatusBadge status={po.status} />
-                  </Link>
-                </li>
-              ))}
-              {transferList.slice(0, 2).map((t) => (
-                <li key={t.id}>
-                  <Link href={`/transfers?transfer=${t.id}`}>
-                    <span className={`${css.pipelineIcon} ${css.pipelineIcon_transfer}`} aria-hidden>
-                      <IconTruck size={14} strokeWidth={1.75} />
-                    </span>
-                    <span className={css.pipelineRowBody}>
-                      <strong>{t.transferNumber}</strong>
-                      <span className={css.muted}>
-                        {[t.fromBranch?.name, t.toBranch?.name].filter(Boolean).join(" → ") || "Transfer"}
+            <>
+              <ul className={css.pipelineList}>
+                {paginate(pipelineItems, pipelinePage, PIPELINE_PAGE_SIZE).map((item) => (
+                  <li key={item.key}>
+                    <Link href={item.href}>
+                      <span
+                        className={`${css.pipelineIcon} ${css[`pipelineIcon_${item.kind === "po" ? "po" : "transfer"}`]}`}
+                        aria-hidden
+                      >
+                        {item.kind === "po" ? (
+                          <IconShoppingCart size={14} strokeWidth={1.75} />
+                        ) : (
+                          <IconTruck size={14} strokeWidth={1.75} />
+                        )}
                       </span>
-                    </span>
-                    <StatusBadge status={t.status} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                      <span className={css.pipelineRowBody}>
+                        <strong>{item.number}</strong>
+                        <span className={css.muted}>{item.detail}</span>
+                      </span>
+                      <StatusBadge status={item.status} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <PaginationControls
+                page={pipelinePage}
+                pageCount={pipelinePageCount}
+                onPrev={() => setPipelinePage((p) => Math.max(0, p - 1))}
+                onNext={() => setPipelinePage((p) => Math.min(pipelinePageCount - 1, p + 1))}
+                rangeLabel={`${pipelinePage * PIPELINE_PAGE_SIZE + 1}–${Math.min(pipelineItems.length, (pipelinePage + 1) * PIPELINE_PAGE_SIZE)} of ${pipelineItems.length}`}
+              />
+            </>
           )}
         </DashboardPanel>
+        </MasonryItem>
 
+        <MasonryItem>
         <DashboardPanel title="Top Products Today" footerHref="/reports" footerLabel="Open reports →">
           {topProductsToday.length === 0 ? (
             <p className={css.emptyState}>No sales recorded yet today.</p>
           ) : (
-            <ul className={css.topProductsList}>
-              {topProductsToday.slice(0, 5).map((p, i) => (
-                <li key={p.sku} className={css.topProductRow}>
-                  <span className={`${css.topProductRank}${i === 0 ? ` ${css.topProductRank_lead}` : ""}`}>
-                    {i + 1}
-                  </span>
-                  <span className={css.topProductBody}>
-                    <strong>{p.name}</strong>
-                    <span>{p.sku}</span>
-                  </span>
-                  <span className={css.topProductQty}>{p.qty} sold</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className={css.topProductsList}>
+                {paginate(topProductsToday, productsPage, PRODUCTS_PAGE_SIZE).map((p, i) => {
+                  const rank = productsPage * PRODUCTS_PAGE_SIZE + i;
+                  return (
+                    <li key={p.sku}>
+                      <Link href={`/products/${p.id}`} className={css.topProductRow}>
+                        <span className={`${css.topProductRank}${rank === 0 ? ` ${css.topProductRank_lead}` : ""}`}>
+                          {rank + 1}
+                        </span>
+                        <span className={css.topProductBody}>
+                          <strong>{p.name}</strong>
+                          <span>{p.sku}</span>
+                        </span>
+                        <span className={css.topProductQty}>{p.qty} sold</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+              <PaginationControls
+                page={productsPage}
+                pageCount={productsPageCount}
+                onPrev={() => setProductsPage((p) => Math.max(0, p - 1))}
+                onNext={() => setProductsPage((p) => Math.min(productsPageCount - 1, p + 1))}
+                rangeLabel={`${productsPage * PRODUCTS_PAGE_SIZE + 1}–${Math.min(topProductsToday.length, (productsPage + 1) * PRODUCTS_PAGE_SIZE)} of ${topProductsToday.length}`}
+              />
+            </>
           )}
         </DashboardPanel>
+        </MasonryItem>
 
-        <DashboardPanel title="Customer Service Issues" headerRight={<span className={css.placeholderBadge}>Sample</span>}>
-          <p className={css.placeholderNote}>Ops task board coming soon — sample priorities shown.</p>
-          <ul className={css.issueList}>
-            {PLACEHOLDER_SERVICE_ISSUES.map((issue) => (
-              <li key={issue.id}>
-                <span>{issue.label}</span>
-                <span className={`${css.priorityPill} ${css[`priority_${issue.priority}`]}`}>
-                  {issue.priority}
-                </span>
-              </li>
-            ))}
-          </ul>
+        <MasonryItem>
+          <FootfallPanel branchId={branchId} />
+        </MasonryItem>
+
+        <MasonryItem>
+          <AiInsightsCard insights={allInsights} footerHref="/analytics" />
+        </MasonryItem>
+
+        <MasonryItem>
+        <DashboardPanel title="Pending Approvals" icon={<IconClipboardList size={15} />}>
+          {approvalItems.length === 0 ? (
+            <p className={css.emptyState}>No pending approvals right now.</p>
+          ) : (
+            <>
+              <ul className={css.pipelineList}>
+                {paginate(approvalItems, approvalsPage, APPROVALS_PAGE_SIZE).map((item) => (
+                  <li key={item.key}>
+                    <Link href={item.href}>
+                      <span
+                        className={`${css.pipelineIcon} ${css[`pipelineIcon_${item.kind}`]}`}
+                        aria-hidden
+                      >
+                        {item.kind === "po" ? (
+                          <IconShoppingCart size={14} strokeWidth={1.75} />
+                        ) : item.kind === "transfer" ? (
+                          <IconTruck size={14} strokeWidth={1.75} />
+                        ) : (
+                          <IconRotateCcw size={14} strokeWidth={1.75} />
+                        )}
+                      </span>
+                      <span className={css.pipelineRowBody}>
+                        <strong>{item.number}</strong>
+                        <span className={css.muted}>{item.detail}</span>
+                      </span>
+                      <span className={css.approvalKindPill}>
+                        {item.kind === "po" ? "PO" : item.kind === "transfer" ? "Transfer" : "Return"}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <PaginationControls
+                page={approvalsPage}
+                pageCount={approvalsPageCount}
+                onPrev={() => setApprovalsPage((p) => Math.max(0, p - 1))}
+                onNext={() => setApprovalsPage((p) => Math.min(approvalsPageCount - 1, p + 1))}
+                rangeLabel={`${approvalsPage * APPROVALS_PAGE_SIZE + 1}–${Math.min(approvalItems.length, (approvalsPage + 1) * APPROVALS_PAGE_SIZE)} of ${approvalItems.length}`}
+              />
+            </>
+          )}
         </DashboardPanel>
-      </div>
-
-      <div className={css.grid2}>
-        <AiInsightsCard insights={allInsights} footerHref="/analytics" />
-
-        <DashboardPanel title="Operational Alerts" icon={<IconAlertTriangle size={15} />}>
-          <AlertList
-            showAction
-            emptyText="No operational alerts — branch looks healthy."
-            alerts={operationalAlerts}
-          />
-        </DashboardPanel>
-      </div>
+        </MasonryItem>
+      </MasonryGrid>
 
       <QuickActionsBar
         title="Manager Quick Actions"

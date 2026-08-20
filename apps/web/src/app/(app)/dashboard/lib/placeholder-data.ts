@@ -167,31 +167,6 @@ export const INVENTORY_AI_INSIGHTS: AiInsight[] = [
   },
 ];
 
-export const ANALYST_AI_INSIGHTS: AiInsight[] = [
-  {
-    id: "an1",
-    title: "Demand forecast",
-    detail: "Category-level demand uplift worth reviewing ahead of next reorder cycle.",
-    tone: "info",
-    href: "/analytics",
-    actionLabel: "Open analytics",
-  },
-  {
-    id: "an2",
-    title: "Margin outliers",
-    detail: "A handful of SKUs sit well outside their category's margin baseline.",
-    tone: "warning",
-    href: "/reports",
-    actionLabel: "Open reports",
-  },
-  {
-    id: "an3",
-    title: "Seasonality note",
-    detail: "Week-over-week sales pattern diverges from the recent trend line.",
-    tone: "info",
-  },
-];
-
 /** Placeholder payment mix when API lacks aggregated payment analytics. */
 export const PLACEHOLDER_PAYMENT_MIX = [
   { label: "Cash", value: 52.1, color: PAYMENT_MIX_COLORS.cash },

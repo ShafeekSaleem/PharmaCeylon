@@ -1,21 +1,17 @@
-import type { RoleName } from "@/lib/role-access";
-
 /** Dashboard surfaces — mirrors DB roles (no separate platform Admin view). */
 export type DashboardRole =
   | "owner"
   | "manager"
   | "pharmacist"
   | "cashier"
-  | "inventory_clerk"
-  | "analyst";
+  | "inventory_clerk";
 
-const ROLE_PRIORITY: RoleName[] = [
+const ROLE_PRIORITY: DashboardRole[] = [
   "owner",
   "manager",
   "pharmacist",
   "inventory_clerk",
   "cashier",
-  "analyst",
 ];
 
 export const DASHBOARD_ROLE_LABELS: Record<DashboardRole, string> = {
@@ -24,7 +20,6 @@ export const DASHBOARD_ROLE_LABELS: Record<DashboardRole, string> = {
   pharmacist: "Pharmacist",
   cashier: "Cashier",
   inventory_clerk: "Inventory Clerk",
-  analyst: "Analyst",
 };
 
 export const DASHBOARD_GREETINGS: Record<DashboardRole, string> = {
@@ -35,11 +30,10 @@ export const DASHBOARD_GREETINGS: Record<DashboardRole, string> = {
     "Welcome back! Review holds, near-expiry stock, and counter volume — keep dispense safe and shelves healthy.",
   cashier: "Welcome back! Ready to serve your customers. Use shortcuts below to speed up checkout and manage sales.",
   inventory_clerk: "Keep stock healthy — movements, expiry, and replenishment at a glance.",
-  analyst: "Insights overview — trends, stock health, and reorder signals.",
 };
 
 /** Pick the highest-privilege branch role for dashboard layout. */
-export function resolvePrimaryDashboardRole(userRoles: string[]): RoleName {
+export function resolvePrimaryDashboardRole(userRoles: string[]): DashboardRole {
   for (const role of ROLE_PRIORITY) {
     if (userRoles.includes(role)) return role;
   }

@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { IconChevronDown, IconChevronUp } from "@/components/icons";
+import Link from "next/link";
+import { IconChevronDown, IconChevronRight, IconChevronUp } from "@/components/icons";
 import type { ChartPoint } from "./simple-charts";
 import css from "../dashboard.module.css";
 
@@ -18,6 +19,10 @@ export type HeroSecondaryMetric = {
   value: ReactNode;
   meta?: ReactNode;
   trend?: HeroTrend;
+  /** When set, shows a small "go to detail" link in the tile's bottom-right corner. */
+  href?: string;
+  /** Text revealed next to the arrow on hover/focus, e.g. "Open POs". Defaults to "View". */
+  linkLabel?: string;
 };
 
 type Props = {
@@ -126,26 +131,38 @@ export function HeroBand({
           <HeroSpark points={sparkline} />
         ) : null}
       </div>
-      {secondary.map((m) => (
-        <div key={m.key} className={css.heroCell}>
-          <div className={css.heroEyebrow}>
-            <span>{m.label}</span>
+      {secondary.map((m) => {
+        const hasLink = !loading && m.href;
+        const cellCls = [css.heroCell, hasLink ? css.heroCellWithLink : ""]
+          .filter(Boolean)
+          .join(" ");
+        return (
+          <div key={m.key} className={cellCls}>
+            <div className={css.heroEyebrow}>
+              <span>{m.label}</span>
+            </div>
+            <div className={css.heroValueRow}>
+              <span className={css.heroValue}>{loading ? "…" : m.value}</span>
+            </div>
+            {!loading && (m.meta || m.trend) ? (
+              <p className={css.heroMeta}>
+                {m.meta}
+                {m.trend ? (
+                  <span style={{ marginLeft: m.meta ? "0.4rem" : 0 }}>
+                    <TrendChip trend={m.trend} />
+                  </span>
+                ) : null}
+              </p>
+            ) : null}
+            {hasLink ? (
+              <Link href={m.href!} className={css.heroCellLink} aria-label={m.linkLabel ?? `View ${m.label}`}>
+                <span className={css.heroCellLinkText}>{m.linkLabel ?? "View"}</span>
+                <IconChevronRight size={13} strokeWidth={2.25} />
+              </Link>
+            ) : null}
           </div>
-          <div className={css.heroValueRow}>
-            <span className={css.heroValue}>{loading ? "…" : m.value}</span>
-          </div>
-          {!loading && (m.meta || m.trend) ? (
-            <p className={css.heroMeta}>
-              {m.meta}
-              {m.trend ? (
-                <span style={{ marginLeft: m.meta ? "0.4rem" : 0 }}>
-                  <TrendChip trend={m.trend} />
-                </span>
-              ) : null}
-            </p>
-          ) : null}
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }

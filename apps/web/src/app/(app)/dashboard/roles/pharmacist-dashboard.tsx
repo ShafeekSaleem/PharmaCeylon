@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, type KeyboardEvent } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   IconAlertTriangle,
-  IconArchive,
   IconCalendar,
   IconPackage,
   IconPill,
@@ -20,11 +19,21 @@ import { AiInsightsCard } from "../components/ai-insights-card";
 import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
 import { DashboardPanel } from "../components/dashboard-panel";
 import { HeroBand } from "../components/hero-band";
+import { MasonryGrid, MasonryItem } from "../components/masonry-grid";
+import { MetricCell, pctChange } from "../components/metric-cell";
+import { PaginationControls } from "../components/pagination-controls";
 import { QuickActionsBar } from "../components/quick-actions-bar";
 import { SimpleBarChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import { PHARMACIST_AI_INSIGHTS } from "../lib/placeholder-data";
+import { rowLinkProps } from "../lib/row-link";
 import css from "../dashboard.module.css";
+
+function paginate<T>(items: T[], page: number, pageSize: number): T[] {
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  return items.slice(safePage * pageSize, safePage * pageSize + pageSize);
+}
 
 type Props = { data: DashboardData };
 
@@ -49,6 +58,30 @@ function avatarToneClass(name: string): string {
   return AVATAR_TONE_CLASS[n % AVATAR_TONE_CLASS.length]!;
 }
 
+function waitMinutes(iso: string): number {
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+}
+
+type QueueBucket = "urgent" | "awaiting" | "ready";
+
+function queueBucket(minutes: number): QueueBucket {
+  if (minutes > 30) return "urgent";
+  if (minutes >= 10) return "awaiting";
+  return "ready";
+}
+
+const QUEUE_BUCKET_LABEL: Record<QueueBucket, string> = {
+  urgent: "Urgent",
+  awaiting: "Awaiting Rx",
+  ready: "Ready",
+};
+
+const QUEUE_BUCKET_VARIANT: Record<QueueBucket, "danger" | "info" | "success"> = {
+  urgent: "danger",
+  awaiting: "info",
+  ready: "success",
+};
+
 function expiryTone(iso: string): "danger" | "warning" | "info" {
   const days = Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
   if (days < 0) return "danger";
@@ -64,22 +97,6 @@ function expiryLabel(iso: string): string {
   return formatExpiry(iso);
 }
 
-/** Makes a <tr> behave like a link — click or keyboard-activate to navigate. */
-function rowLinkProps(router: ReturnType<typeof useRouter>, href: string) {
-  return {
-    className: css.rowLink,
-    role: "link" as const,
-    tabIndex: 0,
-    onClick: () => router.push(href),
-    onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        router.push(href);
-      }
-    },
-  };
-}
-
 export function PharmacistDashboard({ data }: Props) {
   const router = useRouter();
   const {
@@ -88,9 +105,13 @@ export function PharmacistDashboard({ data }: Props) {
     nearExpiryCount,
     nearExpiryItems,
     dispensedToday,
+    dispensedYesterday,
+    dispensedTrendPct,
     dispensedTrendLabel,
     dispensedTrendPositive,
     hourlyUnitsToday,
+    todaySalesCount,
+    yesterdaySalesCount,
     topProductsToday,
     lowStockRows,
     controlledAttentionCount,
@@ -112,16 +133,75 @@ export function PharmacistDashboard({ data }: Props) {
     return formatRelativeTime(oldest.createdAt);
   }, [pharmacistHolds]);
 
-  const controlledStockAlerts = controlledLowStockCount + controlledNearExpiryCount;
-  const controlledSubtitle =
-    controlledLowStockCount > 0 || controlledNearExpiryCount > 0
-      ? [
-          controlledLowStockCount > 0 ? `${controlledLowStockCount} low stock` : null,
-          controlledNearExpiryCount > 0 ? `${controlledNearExpiryCount} near expiry` : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")
-      : "Controlled low stock / near expiry";
+  // Verification queue: age-bucket the same pharmacistHolds list by wait time.
+  const queueRows = useMemo(
+    () =>
+      [...pharmacistHolds]
+        .map((h) => ({ ...h, bucket: queueBucket(waitMinutes(h.createdAt)) }))
+        .sort((a, b) => waitMinutes(b.createdAt) - waitMinutes(a.createdAt)),
+    [pharmacistHolds],
+  );
+
+  const [holdsPage, setHoldsPage] = useState(0);
+  const HOLDS_PAGE_SIZE = 4;
+  const holdsPageCount = Math.max(1, Math.ceil(queueRows.length / HOLDS_PAGE_SIZE));
+
+  const [productsPage, setProductsPage] = useState(0);
+  const PRODUCTS_PAGE_SIZE = 6;
+  const productsPageCount = Math.max(1, Math.ceil(topProductsToday.length / PRODUCTS_PAGE_SIZE));
+
+  const [batchesPage, setBatchesPage] = useState(0);
+  const BATCHES_PAGE_SIZE = 4;
+  const batchesPageCount = Math.max(1, Math.ceil(nearExpiryItems.length / BATCHES_PAGE_SIZE));
+
+  const [lowStockPage, setLowStockPage] = useState(0);
+  const LOW_STOCK_PAGE_SIZE = 4;
+  const lowStockPageCount = Math.max(1, Math.ceil(lowStockRows.length / LOW_STOCK_PAGE_SIZE));
+
+  // Controlled Drug Activity: same shape as the Inventory Health signal rows
+  // used on owner/manager dashboards (healthFlatList).
+  const controlledBarMax = Math.max(
+    controlledAttentionCount,
+    controlledLowStockCount,
+    controlledNearExpiryCount,
+    1,
+  );
+  const controlledMostUrgentKey =
+    controlledAttentionCount >= controlledLowStockCount && controlledAttentionCount >= controlledNearExpiryCount
+      ? "flagged"
+      : controlledLowStockCount >= controlledNearExpiryCount
+        ? "lowstock"
+        : "nearexpiry";
+  const controlledSignals = [
+    {
+      key: "flagged",
+      label: "CD alerts flagged",
+      value: controlledAttentionCount,
+      tone: "danger" as const,
+      href: "/inventory?controlled=controlled",
+    },
+    {
+      key: "lowstock",
+      label: "CD low stock",
+      value: controlledLowStockCount,
+      tone: "warning" as const,
+      href: "/inventory?view=low&controlled=controlled",
+    },
+    {
+      key: "nearexpiry",
+      label: "CD near expiry",
+      value: controlledNearExpiryCount,
+      tone: "muted" as const,
+      href: "/inventory/batches?nearExpiryDays=30&controlled=controlled",
+    },
+  ];
+
+  // Dispensing throughput trends vs yesterday (same shape as Shift Performance on the cashier dashboard).
+  const avgUnitsPerRx = todaySalesCount > 0 ? dispensedToday / todaySalesCount : 0;
+  const avgUnitsPerRxYesterday =
+    yesterdaySalesCount > 0 ? dispensedYesterday / yesterdaySalesCount : 0;
+  const avgPerRxTrendPct =
+    yesterdaySalesCount > 0 ? pctChange(avgUnitsPerRx, avgUnitsPerRxYesterday) : null;
 
   const tickerItems: TickerItem[] = useMemo(() => {
     const items: TickerItem[] = [];
@@ -155,42 +235,71 @@ export function PharmacistDashboard({ data }: Props) {
     return items;
   }, [nearExpiryCount, lowStockRows.length, returnsTodayCount]);
 
+  const controlledSubtitle =
+    controlledLowStockCount > 0 || controlledNearExpiryCount > 0
+      ? [
+          controlledLowStockCount > 0 ? `${controlledLowStockCount} low stock` : null,
+          controlledNearExpiryCount > 0 ? `${controlledNearExpiryCount} near expiry` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : "Controlled low stock / near expiry";
+
+  const within7DaysCount = useMemo(
+    () =>
+      nearExpiryItems.filter((b) => {
+        const days = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / 86_400_000);
+        return days <= 7;
+      }).length,
+    [nearExpiryItems],
+  );
+
   return (
     <>
       <HeroBand
-        label="Prescriptions to Verify"
-        value={pharmacistHolds.length}
-        scope="POS holds needing verification"
-        meta={
-          loading
-            ? undefined
-            : pharmacistHolds.length > 0
-              ? `Oldest waiting ${oldestHoldWait}`
-              : "Nothing waiting right now"
+        label="Dispensed Today"
+        value={dispensedToday}
+        scope="Units sold today · vs yesterday"
+        sparkline={hourlyUnitsToday}
+        trend={
+          dispensedTrendLabel
+            ? { label: dispensedTrendLabel, direction: dispensedTrendPositive ? "up" : "down" }
+            : undefined
         }
         loading={loading}
         secondary={[
           {
-            key: "dispensed",
-            label: "Dispensed Today",
-            value: dispensedToday,
-            meta: "Units sold today",
-            trend: dispensedTrendLabel
-              ? { label: dispensedTrendLabel, direction: dispensedTrendPositive ? "up" : "down" }
-              : undefined,
+            key: "prescriptions",
+            label: "Prescriptions to Verify",
+            value: pharmacistHolds.length,
+            meta:
+              pharmacistHolds.length > 0 ? `Oldest waiting ${oldestHoldWait}` : "Nothing waiting right now",
+            href: "/pos?panel=holds",
+            linkLabel: "Open POS holds",
           },
           {
             key: "controlled",
             label: "Controlled Products Attention",
             value: controlledAttentionCount,
             meta: controlledSubtitle,
+            href: "/inventory?controlled=controlled",
+            linkLabel: "View inventory",
+          },
+          {
+            key: "expiry",
+            label: "Near-Expiry Batches",
+            value: nearExpiryCount,
+            meta: within7DaysCount > 0 ? `${within7DaysCount} within 7 days` : "None within 7 days",
+            href: "/inventory/batches?nearExpiryDays=30",
+            linkLabel: "View batches",
           },
         ]}
       />
 
       <AttentionTicker items={tickerItems} loading={loading} allClearText="No stock or expiry alerts right now" />
 
-      <div className={css.mainSplit}>
+      <MasonryGrid>
+        <MasonryItem span={2}>
         <DashboardPanel
           title="Prescription Verification Queue"
           footerHref="/pos"
@@ -200,49 +309,64 @@ export function PharmacistDashboard({ data }: Props) {
           {pharmacistHolds.length === 0 ? (
             <p className={css.emptyState}>No POS holds currently flagged for pharmacist review.</p>
           ) : (
-            <table className={css.salesTable}>
-              <thead>
-                <tr>
-                  <th>Hold / label</th>
-                  <th>Ref</th>
-                  <th>Items</th>
-                  <th>Total</th>
-                  <th>Held by</th>
-                  <th>Time</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pharmacistHolds.map((h) => {
-                  const name = h.label || h.heldByName;
-                  return (
-                    <tr key={h.id} {...rowLinkProps(router, "/pos?panel=holds")}>
-                      <td>
-                        <span className={css.avatarRow}>
-                          <span className={`${css.avatarChip} ${avatarToneClass(name)}`}>
-                            {initials(name)}
+            <>
+              <table className={css.salesTable}>
+                <thead>
+                  <tr>
+                    <th>Hold / label</th>
+                    <th>Ref</th>
+                    <th>Items</th>
+                    <th>Total</th>
+                    <th>Held by</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginate(queueRows, holdsPage, HOLDS_PAGE_SIZE).map((h) => {
+                    const name = h.label || h.heldByName;
+                    return (
+                      <tr key={h.id} {...rowLinkProps(router, `/pos?panel=holds&holdId=${h.id}`)}>
+                        <td>
+                          <span className={css.avatarRow}>
+                            <span className={`${css.avatarChip} ${avatarToneClass(name)}`}>
+                              {initials(name)}
+                            </span>
+                            {name}
                           </span>
-                          {name}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={css.invoiceLink}>{h.holdRef}</span>
-                      </td>
-                      <td>{h.itemCount}</td>
-                      <td className={css.teamNum}>{formatMoney(h.total)}</td>
-                      <td className={css.muted}>{h.heldByName}</td>
-                      <td className={css.muted}>{formatRelativeTime(h.createdAt)}</td>
-                      <td>
-                        <StatusBadge status="pending" label="Awaiting pharmacist" variant="info" />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                        <td>
+                          <span className={css.invoiceLink}>{h.holdRef}</span>
+                        </td>
+                        <td>{h.itemCount}</td>
+                        <td className={css.teamNum}>{formatMoney(h.total)}</td>
+                        <td className={css.muted}>{h.heldByName}</td>
+                        <td className={css.muted}>{formatRelativeTime(h.createdAt)}</td>
+                        <td>
+                          <StatusBadge
+                            status="pending"
+                            label={QUEUE_BUCKET_LABEL[h.bucket]}
+                            variant={QUEUE_BUCKET_VARIANT[h.bucket]}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <PaginationControls
+                page={holdsPage}
+                pageCount={holdsPageCount}
+                onPrev={() => setHoldsPage((p) => Math.max(0, p - 1))}
+                onNext={() => setHoldsPage((p) => Math.min(holdsPageCount - 1, p + 1))}
+                rangeLabel={`${holdsPage * HOLDS_PAGE_SIZE + 1}–${Math.min(queueRows.length, (holdsPage + 1) * HOLDS_PAGE_SIZE)} of ${queueRows.length}`}
+              />
+            </>
           )}
         </DashboardPanel>
+        </MasonryItem>
 
+        <MasonryItem>
         <DashboardPanel
           title="Drug Interaction / CDS"
           headerRight={<span className={css.placeholderBadge}>Sample</span>}
@@ -273,45 +397,130 @@ export function PharmacistDashboard({ data }: Props) {
             </li>
           </ul>
         </DashboardPanel>
-      </div>
+        </MasonryItem>
 
-      <div className={css.grid2}>
+        <MasonryItem>
         <DashboardPanel
-          title="Dispensing Workload (Today)"
+          title="Dispensing Throughput (Today)"
+          compact
           footerHref="/pos"
           footerLabel="Open POS →"
           footerMeta={peakHour.value > 0 ? `Peak hour: ${peakHour.label}` : undefined}
         >
-          <SimpleBarChart points={hourlyUnitsToday} height={80} />
+          <SimpleBarChart points={hourlyUnitsToday} height={140} />
+          <div className={css.overviewChartsSummary} style={{ marginTop: "0.5rem" }}>
+            <MetricCell
+              label="Total dispensed"
+              value={loading ? "…" : `${dispensedToday.toLocaleString()} units`}
+              icon={<IconPackage size={16} strokeWidth={1.75} />}
+              iconTone="bills"
+              trend={
+                dispensedTrendPct != null ? { pct: dispensedTrendPct, compareLabel: "vs Yesterday" } : undefined
+              }
+            />
+            <MetricCell
+              label="Avg per Rx"
+              value={loading ? "…" : `${avgUnitsPerRx.toFixed(1)} units`}
+              icon={<IconPill size={16} strokeWidth={1.75} />}
+              iconTone="avg"
+              trend={
+                avgPerRxTrendPct != null ? { pct: avgPerRxTrendPct, compareLabel: "vs Yesterday" } : undefined
+              }
+            />
+            <MetricCell
+              label="Peak hour"
+              value={loading ? "…" : peakHour.value > 0 ? `${peakHour.label} · ${peakHour.value} units` : "—"}
+              icon={<IconStethoscope size={16} strokeWidth={1.75} />}
+              iconTone="peak"
+            />
+          </div>
         </DashboardPanel>
+        </MasonryItem>
 
+        <MasonryItem>
+        <DashboardPanel
+          title="Controlled Drug Activity"
+          subtitle="Today · scheduled substances"
+          footerHref="/inventory?controlled=controlled"
+          footerLabel="Review controlled inventory →"
+        >
+          <ul className={css.healthFlatList}>
+            {controlledSignals.map((signal) => {
+              const pct =
+                loading || signal.value === 0
+                  ? 0
+                  : Math.max(8, Math.round((signal.value / controlledBarMax) * 100));
+              return (
+                <li key={signal.key}>
+                  <Link href={signal.href} className={css.healthFlatRow}>
+                    <span
+                      className={`${css.healthSignalIcon} ${css[`healthSignalIcon_${signal.tone}`]}`}
+                      aria-hidden
+                    >
+                      {signal.key === "flagged" ? (
+                        <IconAlertTriangle size={14} strokeWidth={1.75} />
+                      ) : signal.key === "lowstock" ? (
+                        <IconPackage size={14} strokeWidth={1.75} />
+                      ) : (
+                        <IconCalendar size={14} strokeWidth={1.75} />
+                      )}
+                    </span>
+                    <span className={css.healthSignalLead}>
+                      <span className={css.healthSignalLabel}>{signal.label}</span>
+                      {signal.key === controlledMostUrgentKey && signal.value > 0 ? (
+                        <span className={css.healthUrgentBadge}>Urgent</span>
+                      ) : null}
+                    </span>
+                    <span className={css.healthSignalTrack}>
+                      <span
+                        className={`${css.healthSignalFill} ${css[`healthSignalFill_${signal.tone}`]}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </span>
+                    <span className={`${css.healthSignalValue} ${css[`healthSignalValue_${signal.tone}`]}`}>
+                      {loading ? "…" : signal.value}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </DashboardPanel>
+        </MasonryItem>
+
+        <MasonryItem>
         <DashboardPanel title="Frequently Dispensed" footerHref="/pos" footerLabel="Open POS →">
           {topProductsToday.length === 0 ? (
             <p className={css.emptyState}>No units sold today yet.</p>
           ) : (
-            <div className={css.productStrip}>
-              {topProductsToday.slice(0, 5).map((p, i) => (
-                <div key={p.sku} className={css.productChip}>
-                  <span className={css.productAvatar} aria-hidden>
-                    {i % 2 === 0 ? (
-                      <IconPill size={16} strokeWidth={1.75} />
-                    ) : (
-                      <IconPackage size={16} strokeWidth={1.75} />
-                    )}
-                  </span>
-                  <div className={css.productChipBody}>
-                    <strong>{p.name}</strong>
-                    <span>{p.sku}</span>
-                    <em>{p.qty} units</em>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <>
+              <div className={`${css.productStrip} ${css.productStripWrap}`}>
+                {paginate(topProductsToday, productsPage, PRODUCTS_PAGE_SIZE).map((p) => (
+                  <Link key={p.sku} href={`/products/${p.id}`} className={css.productChip}>
+                    <span className={css.productAvatar} aria-hidden>
+                      {p.name.slice(0, 2).toUpperCase()}
+                    </span>
+                    <div className={css.productChipBody}>
+                      <strong>{p.name}</strong>
+                      <span>{p.sku}</span>
+                      <em>{p.qty} units</em>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+              <PaginationControls
+                page={productsPage}
+                pageCount={productsPageCount}
+                onPrev={() => setProductsPage((p) => Math.max(0, p - 1))}
+                onNext={() => setProductsPage((p) => Math.min(productsPageCount - 1, p + 1))}
+                rangeLabel={`${productsPage * PRODUCTS_PAGE_SIZE + 1}–${Math.min(topProductsToday.length, (productsPage + 1) * PRODUCTS_PAGE_SIZE)} of ${topProductsToday.length}`}
+              />
+            </>
           )}
         </DashboardPanel>
-      </div>
+        </MasonryItem>
 
-      <div className={css.grid2}>
+        <MasonryItem>
         <DashboardPanel
           title="Batch & Expiry Monitor"
           footerHref="/inventory/batches"
@@ -321,132 +530,104 @@ export function PharmacistDashboard({ data }: Props) {
           {nearExpiryItems.length === 0 ? (
             <p className={css.emptyState}>No batches expiring within 30 days.</p>
           ) : (
-            <table className={css.salesTable}>
-              <thead>
-                <tr>
-                  <th>Medicine</th>
-                  <th>Batch</th>
-                  <th>Expiry</th>
-                  <th>Status</th>
-                  <th>Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {nearExpiryItems.slice(0, 5).map((b) => (
-                  <tr
-                    key={b.batchId}
-                    {...rowLinkProps(router, `/catalog?productId=${b.productId}`)}
-                  >
-                    <td>
-                      {b.product.name}
-                      {b.product.isControlled ? <span className={css.muted}> · CD</span> : null}
-                    </td>
-                    <td>{b.batchNo}</td>
-                    <td className={css.muted}>{formatExpiry(b.expiryDate)}</td>
-                    <td>
-                      <StatusBadge
-                        status="pending"
-                        label={expiryLabel(b.expiryDate)}
-                        variant={expiryTone(b.expiryDate)}
-                      />
-                    </td>
-                    <td>{b.qtyOnHand}</td>
+            <>
+              <table className={css.salesTable}>
+                <thead>
+                  <tr>
+                    <th>Medicine</th>
+                    <th>Batch</th>
+                    <th>Expiry</th>
+                    <th>Status</th>
+                    <th>Qty</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {paginate(nearExpiryItems, batchesPage, BATCHES_PAGE_SIZE).map((b) => (
+                    <tr
+                      key={b.batchId}
+                      {...rowLinkProps(router, `/catalog?productId=${b.productId}`)}
+                    >
+                      <td>
+                        {b.product.name}
+                        {b.product.isControlled ? <span className={css.muted}> · CD</span> : null}
+                      </td>
+                      <td>{b.batchNo}</td>
+                      <td className={css.muted}>{formatExpiry(b.expiryDate)}</td>
+                      <td>
+                        <StatusBadge
+                          status="pending"
+                          label={expiryLabel(b.expiryDate)}
+                          variant={expiryTone(b.expiryDate)}
+                        />
+                      </td>
+                      <td>{b.qtyOnHand}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <PaginationControls
+                page={batchesPage}
+                pageCount={batchesPageCount}
+                onPrev={() => setBatchesPage((p) => Math.max(0, p - 1))}
+                onNext={() => setBatchesPage((p) => Math.min(batchesPageCount - 1, p + 1))}
+                rangeLabel={`${batchesPage * BATCHES_PAGE_SIZE + 1}–${Math.min(nearExpiryItems.length, (batchesPage + 1) * BATCHES_PAGE_SIZE)} of ${nearExpiryItems.length}`}
+              />
+            </>
           )}
         </DashboardPanel>
+        </MasonryItem>
 
+        <MasonryItem>
         <DashboardPanel title="Stock Watch — Therapeutic Essentials" footerHref="/inventory?view=low" footerLabel="Open inventory →">
           {lowStockRows.length === 0 ? (
             <p className={css.emptyState}>No low / out-of-stock essentials right now.</p>
           ) : (
-            <table className={css.salesTable}>
-              <thead>
-                <tr>
-                  <th>Medicine</th>
-                  <th>Available</th>
-                  <th>Min</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lowStockRows.map((r) => (
-                  <tr key={r.productId} {...rowLinkProps(router, `/catalog?productId=${r.productId}`)}>
-                    <td>
-                      {r.product.name}
-                      {r.product.isControlled ? <span className={css.muted}> · CD</span> : null}
-                    </td>
-                    <td>{r.qtyOnHand}</td>
-                    <td>{r.product.reorderLevel}</td>
-                    <td>
-                      <StatusBadge
-                        status={r.qtyOnHand <= 0 ? "failed" : "pending"}
-                        label={r.qtyOnHand <= 0 ? "Out of Stock" : "Low Stock"}
-                        variant={r.qtyOnHand <= 0 ? "danger" : "warning"}
-                      />
-                    </td>
+            <>
+              <table className={css.salesTable}>
+                <thead>
+                  <tr>
+                    <th>Medicine</th>
+                    <th>Available</th>
+                    <th>Min</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {paginate(lowStockRows, lowStockPage, LOW_STOCK_PAGE_SIZE).map((r) => (
+                    <tr key={r.productId} {...rowLinkProps(router, `/catalog?productId=${r.productId}`)}>
+                      <td>
+                        {r.product.name}
+                        {r.product.isControlled ? <span className={css.muted}> · CD</span> : null}
+                      </td>
+                      <td>{r.qtyOnHand}</td>
+                      <td>{r.product.reorderLevel}</td>
+                      <td>
+                        <StatusBadge
+                          status={r.qtyOnHand <= 0 ? "failed" : "pending"}
+                          label={r.qtyOnHand <= 0 ? "Out of Stock" : "Low Stock"}
+                          variant={r.qtyOnHand <= 0 ? "danger" : "warning"}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <PaginationControls
+                page={lowStockPage}
+                pageCount={lowStockPageCount}
+                onPrev={() => setLowStockPage((p) => Math.max(0, p - 1))}
+                onNext={() => setLowStockPage((p) => Math.min(lowStockPageCount - 1, p + 1))}
+                rangeLabel={`${lowStockPage * LOW_STOCK_PAGE_SIZE + 1}–${Math.min(lowStockRows.length, (lowStockPage + 1) * LOW_STOCK_PAGE_SIZE)} of ${lowStockRows.length}`}
+              />
+            </>
           )}
         </DashboardPanel>
-      </div>
+        </MasonryItem>
 
-      <div className={css.grid2}>
-        <DashboardPanel
-          title="Controlled Drug Activity (Today)"
-          subtitle="Today's real-time counts — tap a tile to act"
-        >
-          <div className={css.pharmStatStrip}>
-            <Link href="/pos?panel=holds" className={`${css.pharmStatCell} ${css.pharmStatCell_primary}`}>
-              <span className={css.pharmStatIcon} aria-hidden>
-                <IconStethoscope size={16} strokeWidth={1.75} />
-              </span>
-              <div className={css.pharmStatCopy}>
-                <strong className={css.pharmStatValue}>{loading ? "…" : pharmacistHolds.length}</strong>
-                <span className={css.pharmStatLabel}>Holds waiting</span>
-              </div>
-            </Link>
-            <Link href="/pos" className={`${css.pharmStatCell} ${css.pharmStatCell_success}`}>
-              <span className={css.pharmStatIcon} aria-hidden>
-                <IconPill size={16} strokeWidth={1.75} />
-              </span>
-              <div className={css.pharmStatCopy}>
-                <strong className={css.pharmStatValue}>{loading ? "…" : dispensedToday}</strong>
-                <span className={css.pharmStatLabel}>Units dispensed</span>
-              </div>
-            </Link>
-            <Link href="/inventory?view=low" className={`${css.pharmStatCell} ${css.pharmStatCell_warning}`}>
-              <span className={css.pharmStatIcon} aria-hidden>
-                <IconAlertTriangle size={16} strokeWidth={1.75} />
-              </span>
-              <div className={css.pharmStatCopy}>
-                <strong className={css.pharmStatValue}>
-                  {loading ? "…" : controlledAttentionCount}
-                </strong>
-                <span className={css.pharmStatLabel}>CD flagged</span>
-              </div>
-            </Link>
-            <Link
-              href="/inventory/batches?nearExpiryDays=30"
-              className={`${css.pharmStatCell} ${css.pharmStatCell_danger}`}
-            >
-              <span className={css.pharmStatIcon} aria-hidden>
-                <IconArchive size={16} strokeWidth={1.75} />
-              </span>
-              <div className={css.pharmStatCopy}>
-                <strong className={css.pharmStatValue}>{loading ? "…" : controlledStockAlerts}</strong>
-                <span className={css.pharmStatLabel}>CD stock alerts</span>
-              </div>
-            </Link>
-          </div>
-        </DashboardPanel>
-
-        <AiInsightsCard title="AI Clinical Insights" insights={PHARMACIST_AI_INSIGHTS} />
-      </div>
+        <MasonryItem>
+          <AiInsightsCard title="AI Clinical Insights" insights={PHARMACIST_AI_INSIGHTS} />
+        </MasonryItem>
+      </MasonryGrid>
 
       <QuickActionsBar
         title="Pharmacist Quick Actions"

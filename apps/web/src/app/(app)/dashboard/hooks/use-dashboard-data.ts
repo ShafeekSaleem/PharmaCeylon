@@ -27,7 +27,7 @@ export type SaleRow = {
   status?: string;
   customer?: { id: string; fullName: string; phone: string | null } | null;
   payments?: Array<{ method: string; amount: string }>;
-  items: Array<{ qty: number; product: { name: string; sku: string } }>;
+  items: Array<{ qty: number; product: { id: string; name: string; sku: string } }>;
   seller?: { id: string; fullName: string } | null;
 };
 
@@ -159,7 +159,10 @@ type StocktakeRow = {
   id: string;
   stocktakeNumber?: string;
   status: string;
-  name?: string;
+  scope?: string;
+  title?: string | null;
+  areaLabel?: string | null;
+  lineCount?: number;
 };
 
 type PrescriptionRow = {
@@ -218,7 +221,7 @@ export function useDashboardData() {
   const { canAccess, userRoles } = useRoleAccess();
 
   const canViewPurchasing = canAccess(PURCHASING_ROLES);
-  const canViewReports = canAccess(["owner", "manager", "analyst"]);
+  const canViewReports = canAccess(["owner", "manager"]);
   const canViewInsights = canAccess(INSIGHTS_ROLES);
   const canViewPos = canAccess(POS_ROLES);
   const canViewOps = canAccess(OPERATIONS_ROLES);
@@ -274,7 +277,7 @@ export function useDashboardData() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
 
-  const canViewAnalyticsWide = canAccess(["owner", "manager", "analyst"]);
+  const canViewAnalyticsWide = canAccess(["owner", "manager"]);
   const isOwner = userRoles.includes("owner");
 
   /** Owner-only: default all branches; "this_branch" uses shell active branch. */
@@ -364,7 +367,6 @@ export function useDashboardData() {
               rows
                 .filter((b) => b.nearExpiry || b.expired)
                 .filter((b) => b.qtyOnHand > 0)
-                .slice(0, 20)
                 .map((b) => ({
                   batchId: b.id,
                   batchNo: b.batchNo,
@@ -431,56 +433,56 @@ export function useDashboardData() {
       }
 
       // Stock-by-product is readable by cashier+; useful for counter / inventory dashboards.
+      // Query low and out separately (server-side `status` filter) rather than
+      // fetching an unfiltered page and filtering client-side — the unfiltered
+      // query sorts by product name, so a `take` cap could silently drop every
+      // real low/out row if none fell within the first N products alphabetically.
+      type StockByProductRow = {
+        productId: string;
+        qtyOnHand: number;
+        stockStatus: string;
+        product: { sku: string; name: string; reorderLevel: number; isControlled: boolean };
+      };
+      const mapStockRow = (r: StockByProductRow, forceControlled?: boolean) => ({
+        productId: r.productId,
+        qtyOnHand: r.qtyOnHand,
+        product: {
+          sku: r.product.sku,
+          name: r.product.name,
+          reorderLevel: r.product.reorderLevel,
+          isControlled: forceControlled ?? Boolean(r.product.isControlled),
+        },
+      });
       tasks.push(
-        apiJson<{
-          items: Array<{
-            productId: string;
-            qtyOnHand: number;
-            stockStatus: string;
-            product: { sku: string; name: string; reorderLevel: number; isControlled: boolean };
-          }>;
-        }>("/inventory/stock-by-product?ledgerOnly=1&take=40")
-          .then((res) =>
+        Promise.all([
+          apiJson<{ items: StockByProductRow[] }>(
+            "/inventory/stock-by-product?ledgerOnly=1&status=out&take=20",
+          ),
+          apiJson<{ items: StockByProductRow[] }>(
+            "/inventory/stock-by-product?ledgerOnly=1&status=low&take=20",
+          ),
+        ])
+          .then(([outRes, lowRes]) =>
             setLowStockRows(
-              (res.items ?? [])
-                .filter((r) => r.stockStatus === "low" || r.stockStatus === "out")
+              [...(outRes.items ?? []), ...(lowRes.items ?? [])]
                 .slice(0, 8)
-                .map((r) => ({
-                  productId: r.productId,
-                  qtyOnHand: r.qtyOnHand,
-                  product: {
-                    sku: r.product.sku,
-                    name: r.product.name,
-                    reorderLevel: r.product.reorderLevel,
-                    isControlled: Boolean(r.product.isControlled),
-                  },
-                })),
+                .map((r) => mapStockRow(r)),
             ),
           )
           .catch(() => setLowStockRows([])),
-        apiJson<{
-          items: Array<{
-            productId: string;
-            qtyOnHand: number;
-            stockStatus: string;
-            product: { sku: string; name: string; reorderLevel: number; isControlled: boolean };
-          }>;
-        }>("/inventory/stock-by-product?controlled=controlled&ledgerOnly=1&take=40")
-          .then((res) =>
+        Promise.all([
+          apiJson<{ items: StockByProductRow[] }>(
+            "/inventory/stock-by-product?controlled=controlled&ledgerOnly=1&status=out&take=20",
+          ),
+          apiJson<{ items: StockByProductRow[] }>(
+            "/inventory/stock-by-product?controlled=controlled&ledgerOnly=1&status=low&take=20",
+          ),
+        ])
+          .then(([outRes, lowRes]) =>
             setControlledAttentionRows(
-              (res.items ?? [])
-                .filter((r) => r.stockStatus === "low" || r.stockStatus === "out")
+              [...(outRes.items ?? []), ...(lowRes.items ?? [])]
                 .slice(0, 12)
-                .map((r) => ({
-                  productId: r.productId,
-                  qtyOnHand: r.qtyOnHand,
-                  product: {
-                    sku: r.product.sku,
-                    name: r.product.name,
-                    reorderLevel: r.product.reorderLevel,
-                    isControlled: true,
-                  },
-                })),
+                .map((r) => mapStockRow(r, true)),
             ),
           )
           .catch(() => setControlledAttentionRows([])),
@@ -522,7 +524,7 @@ export function useDashboardData() {
 
       if (canViewAnalyticsWide) {
         // Owner: omit branchId for all_branches; pass shell branch for this_branch.
-        // Manager/analyst: always active branch.
+        // Manager: always active branch.
         const scoped = (path: string) => withAnalyticsBranch(path, analyticsBranchId);
 
         tasks.push(
@@ -665,7 +667,14 @@ export function useDashboardData() {
       hourlyUnitsToday.push({ label: hourLabel(h), value: units });
     }
 
-    // Payment mix: prefer analytics pulse (tenant for Owner, branch for Manager/analyst)
+    // Hourly bill count for the cashier's "Bills Processed" hero sparkline
+    const hourlyBillsToday: ChartPoint[] = [];
+    for (let h = 7; h <= 21; h++) {
+      const count = todaySales.filter((s) => new Date(s.soldAt).getHours() === h).length;
+      hourlyBillsToday.push({ label: hourLabel(h), value: count });
+    }
+
+    // Payment mix: prefer analytics pulse (tenant for Owner, branch for Manager)
     let paymentMix: Array<{ label: string; value: number; color: string }>;
     let paymentMixIsPlaceholder = false;
     let paymentMixLabel = "Today";
@@ -783,19 +792,18 @@ export function useDashboardData() {
     // Prefer ops-snapshot for Owner/Manager analytics KPIs (scoped server-side).
 
     // Top products today
-    const productQty = new Map<string, { name: string; sku: string; qty: number }>();
+    const productQty = new Map<string, { id: string; name: string; sku: string; qty: number }>();
     for (const sale of todaySales) {
       for (const item of sale.items) {
         const key = item.product.sku;
-        const cur = productQty.get(key) ?? { name: item.product.name, sku: key, qty: 0 };
+        const cur =
+          productQty.get(key) ?? { id: item.product.id, name: item.product.name, sku: key, qty: 0 };
         cur.qty += item.qty;
         productQty.set(key, cur);
       }
     }
-    const topProductsToday = [...productQty.values()]
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 8);
-    const fastMoversCount = topProductsToday.length;
+    const topProductsToday = [...productQty.values()].sort((a, b) => b.qty - a.qty);
+    const fastMoversCount = productQty.size;
 
     // Staff productivity from sellers
     const sellerMap = new Map<
@@ -858,9 +866,18 @@ export function useDashboardData() {
     const stocktakesInProgress = stocktakes.filter((s) =>
       ["draft", "scheduled", "counting", "submitted", "under_review"].includes(s.status),
     );
+    // Finer-grained buckets for the inventory clerk's Stocktakes panel stat strip.
+    const stocktakesActiveCount = stocktakes.filter((s) =>
+      ["counting", "submitted", "under_review"].includes(s.status),
+    ).length;
+    const stocktakesScheduledCount = stocktakes.filter((s) =>
+      ["draft", "scheduled"].includes(s.status),
+    ).length;
+    const stocktakesCompletedCount = stocktakes.filter((s) =>
+      ["completed", "posted", "approved"].includes(s.status),
+    ).length;
 
     const pharmacistHolds = holds.filter((h) => h.needsPharmacist);
-    const controlledNearExpiry = nearExpiryItems.slice(0, 8);
     const controlledNearExpiryProducts = nearExpiryItems.filter((b) => b.product.isControlled);
     const controlledAttentionIds = new Set<string>([
       ...controlledAttentionRows.map((r) => r.productId),
@@ -898,7 +915,7 @@ export function useDashboardData() {
     const nearExpiryCountResolved =
       isOwner && opsSnapshot
         ? opsSnapshot.nearExpiry
-        : nearExpiryItems.length || inventory?.nearExpiry || 0;
+        : (inventory?.nearExpiry ?? nearExpiryItems.length);
     const controlledAttentionResolved =
       isOwner && opsSnapshot
         ? opsSnapshot.controlledAttentionCount
@@ -916,9 +933,12 @@ export function useDashboardData() {
       todaySalesCount: todaySales.length,
       todaySalesTotal: todayTotal,
       yesterdaySalesTotal: yesterdayTotal,
+      yesterdaySalesCount: yesterdaySales.length,
       salesTrendPct,
       salesTrendLabel: formatPct(salesTrendPct),
       salesTrendPositive: (salesTrendPct ?? 0) >= 0,
+      billsTrendLabel: formatPct(pctChange(todaySales.length, yesterdaySales.length)),
+      billsTrendPositive: (pctChange(todaySales.length, yesterdaySales.length) ?? 0) >= 0,
       monthSalesCount: salesSummary?.count ?? monthSales.length,
       monthSalesTotal: salesSummary ? Number(salesSummary.grandTotal) : monthTotalFromList,
       recentSales: posted.slice(0, 8),
@@ -934,12 +954,18 @@ export function useDashboardData() {
       /** Manager KPI: sum of real PO + transfer + return approval queues. */
       pendingApprovalsTotal,
       openPoList: openPos.slice(0, 6),
+      /** Unsliced — for panels that paginate instead of truncating. */
+      openPoListFull: openPos,
       pendingApprovalList: pendingApproval.slice(0, 6),
+      pendingApprovalListFull: pendingApproval,
       reorderCount: reorder?.items.length ?? 0,
       topReorder: reorder?.items.slice(0, 5) ?? [],
+      /** Unsliced — for panels that paginate instead of truncating. */
+      topReorderFull: reorder?.items ?? [],
       salesTrend7d,
       hourlyToday,
       hourlyUnitsToday,
+      hourlyBillsToday,
       paymentMix,
       paymentMixIsPlaceholder,
       paymentMixLabel,
@@ -988,10 +1014,13 @@ export function useDashboardData() {
       openTransfers: openTransfers.length,
       transferList: transfers.slice(0, 6),
       stocktakesInProgress: stocktakesInProgress.length,
+      stocktakesActiveCount,
+      stocktakesScheduledCount,
+      stocktakesCompletedCount,
       stocktakeList: stocktakes.slice(0, 5),
       prescriptions: prescriptions.slice(0, 8),
       prescriptionCount: prescriptions.length,
-      nearExpiryItems: controlledNearExpiry,
+      nearExpiryItems,
       nearExpiryCount: nearExpiryCountResolved,
       controlledAttentionCount: controlledAttentionResolved,
       controlledLowStockCount,
@@ -1002,6 +1031,8 @@ export function useDashboardData() {
       returnsTodayCount,
       returnsTodayTotal,
       dispensedToday,
+      dispensedYesterday,
+      dispensedTrendPct,
       dispensedTrendLabel,
       dispensedTrendPositive,
       branches,
@@ -1010,6 +1041,9 @@ export function useDashboardData() {
         : null,
       branchCount: branches.length,
       catalogSkuCount: inventory?.skuCount ?? null,
+      /** Unsliced — for panels that paginate a combined PO/transfer/return list. */
+      transfers,
+      goodsReturns,
     };
   }, [
     analyticsBranchId,

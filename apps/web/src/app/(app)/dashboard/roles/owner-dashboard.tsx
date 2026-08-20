@@ -14,6 +14,8 @@ import {
   IconClipboardList,
   IconEdit,
   IconPackage,
+  IconRotateCcw,
+  IconShoppingCart,
   IconTruck,
   IconUserPlus,
   IconUsers,
@@ -22,18 +24,29 @@ import { formatMoney } from "@/app/(app)/inventory/utils";
 import { OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
 import { AiInsightsCard } from "../components/ai-insights-card";
 import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
+import { BranchSalesTrendPanel } from "../components/branch-sales-trend-panel";
 import { BusinessOverviewPanel } from "../components/business-overview-panel";
 import { CashFlowPanel } from "../components/cash-flow-panel";
 import { DashboardPanel } from "../components/dashboard-panel";
 import { HeroBand } from "../components/hero-band";
+import { MasonryGrid, MasonryItem } from "../components/masonry-grid";
+import { PaginationControls } from "../components/pagination-controls";
 import { ProgressBar } from "../components/progress-bar";
 import { QuickActionsBar } from "../components/quick-actions-bar";
 import { SetBranchTargetsModal } from "../components/set-branch-targets-modal";
+import { TopSuppliersPanel } from "../components/top-suppliers-panel";
 import type { DashboardData } from "../hooks/use-dashboard-data";
-import { branchTrackStatus, monthPaceExpectedPct } from "../lib/branch-status";
+import { branchColor } from "../lib/branch-colors";
+import { branchTrackStatus, formatYearMonth, monthPaceExpectedPct } from "../lib/branch-status";
 import { inventoryHealthScore } from "../lib/health-score";
 import { OWNER_AI_INSIGHTS, type AiInsight } from "../lib/placeholder-data";
 import css from "../dashboard.module.css";
+
+function paginate<T>(items: T[], page: number, pageSize: number): T[] {
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  return items.slice(safePage * pageSize, safePage * pageSize + pageSize);
+}
 
 type Props = { data: DashboardData };
 
@@ -71,9 +84,21 @@ export function OwnerDashboard({ data }: Props) {
     ownerScope,
     hasMarginData,
     marginPct,
-    openPoValue,
+    pendingApprovalListFull,
+    transfers,
+    goodsReturns,
     reload,
   } = data;
+
+  const pendingApprovalValue = useMemo(
+    () =>
+      pendingApprovalListFull.reduce(
+        (sum, po) =>
+          sum + po.items.reduce((lineSum, item) => lineSum + Number(item.unitCost) * item.orderedQty, 0),
+        0,
+      ),
+    [pendingApprovalListFull],
+  );
 
   const [targetsOpen, setTargetsOpen] = useState(false);
   const yearMonth =
@@ -118,16 +143,16 @@ export function OwnerDashboard({ data }: Props) {
         count: overduePos,
         label: "overdue deliveries",
         tone: "danger",
-        href: "/purchasing",
+        href: "/purchasing?status=overdue",
       });
     }
     if (pendingApproval > 0) {
       items.push({
         key: "po",
         count: pendingApproval,
-        label: `POs pending approval · ${formatMoney(openPoValue)}`,
+        label: `POs pending approval · ${formatMoney(pendingApprovalValue)}`,
         tone: "info",
-        href: "/purchasing",
+        href: "/purchasing?status=pending_approval",
       });
     }
     if (openTransfers > 0) {
@@ -146,9 +171,56 @@ export function OwnerDashboard({ data }: Props) {
     nearExpiryCount,
     overduePos,
     pendingApproval,
-    openPoValue,
+    pendingApprovalValue,
     openTransfers,
   ]);
+
+  /** Individual pending-approval items across POs, transfers & returns — same
+   * shape as the Manager dashboard's panel, so the owner can drill into the
+   * specific item stuck in the queue instead of only seeing a total count. */
+  type ApprovalItem = {
+    key: string;
+    kind: "po" | "transfer" | "return";
+    number: string;
+    detail: string;
+    href: string;
+  };
+
+  const approvalItems: ApprovalItem[] = useMemo(() => {
+    const items: ApprovalItem[] = [];
+    for (const po of pendingApprovalListFull) {
+      items.push({
+        key: `po-${po.id}`,
+        kind: "po",
+        number: po.poNumber,
+        detail: po.supplier.name,
+        href: `/purchasing?po=${po.id}`,
+      });
+    }
+    for (const t of transfers.filter((row) => row.status === "requested")) {
+      items.push({
+        key: `tr-${t.id}`,
+        kind: "transfer",
+        number: t.transferNumber,
+        detail: [t.fromBranch?.name, t.toBranch?.name].filter(Boolean).join(" → ") || "Transfer",
+        href: `/transfers?transfer=${t.id}`,
+      });
+    }
+    for (const r of goodsReturns.filter((row) => row.status === "pending_approval")) {
+      items.push({
+        key: `ret-${r.id}`,
+        kind: "return",
+        number: r.returnNumber,
+        detail: r.type ? r.type.replace(/_/g, " ") : "Return",
+        href: `/returns?return=${r.id}`,
+      });
+    }
+    return items;
+  }, [pendingApprovalListFull, transfers, goodsReturns]);
+
+  const [approvalsPage, setApprovalsPage] = useState(0);
+  const APPROVALS_PAGE_SIZE = 4;
+  const approvalsPageCount = Math.max(1, Math.ceil(approvalItems.length / APPROVALS_PAGE_SIZE));
 
   const liveInsights = useMemo(() => {
     const live: AiInsight[] = [];
@@ -176,7 +248,7 @@ export function OwnerDashboard({ data }: Props) {
         title: "Dead stock candidates",
         detail: `${deadStockCount} slow movers with no sales in 90 days.`,
         tone: "info",
-        href: "/reports",
+        href: "/reports?tab=dead",
       });
     }
     if (overduePos > 0) {
@@ -185,7 +257,7 @@ export function OwnerDashboard({ data }: Props) {
         title: "Supply delay",
         detail: `${overduePos} purchase orders are past expected delivery.`,
         tone: "danger",
-        href: "/purchasing",
+        href: "/purchasing?status=overdue",
       });
     }
     if (pendingApproval > 0) {
@@ -194,7 +266,7 @@ export function OwnerDashboard({ data }: Props) {
         title: "Approval bottleneck",
         detail: `${pendingApproval} POs awaiting approval may delay replenishment.`,
         tone: "info",
-        href: "/purchasing",
+        href: "/purchasing?status=pending_approval",
       });
     }
     return live.slice(0, 5);
@@ -235,7 +307,7 @@ export function OwnerDashboard({ data }: Props) {
       label: "Dead stock",
       value: deadN,
       tone: "muted" as const,
-      href: "/reports",
+      href: "/reports?tab=dead",
     },
     {
       key: "expiry",
@@ -267,6 +339,21 @@ export function OwnerDashboard({ data }: Props) {
     }
     return { branchCount: teamRows.length, onTrack, below, followUp, bestId };
   }, [expectedPace, teamRows]);
+
+  const revenueContribution = useMemo(() => {
+    const total = teamRows.reduce((s, r) => s + r.monthSales, 0);
+    // Color by alphabetical branch order — same stable key BranchSalesTrendPanel
+    // uses — so a branch keeps one identity color across both panels.
+    const alphaOrder = [...teamRows].sort((a, b) => a.name.localeCompare(b.name));
+    const colorMap = new Map(alphaOrder.map((r, i) => [r.branchId, branchColor(i)]));
+    return [...teamRows]
+      .sort((a, b) => b.monthSales - a.monthSales)
+      .map((r) => ({
+        ...r,
+        pct: total > 0 ? (r.monthSales / total) * 100 : 0,
+        color: colorMap.get(r.branchId) ?? "var(--pc-primary)",
+      }));
+  }, [teamRows]);
 
   const heroMeta = useMemo(() => {
     const txnLabel = `${ownerTodayTxnCount} transaction${ownerTodayTxnCount === 1 ? "" : "s"}`;
@@ -304,12 +391,22 @@ export function OwnerDashboard({ data }: Props) {
                     direction: ownerGrossProfitTrendPositive ? "up" : "down",
                   }
                 : undefined,
+            href: "/reports?tab=margin",
+            linkLabel: "View margin",
           },
           {
             key: "recv",
             label: "Outstanding Receivables",
             value: financial ? formatMoney(financial.receivablesOutstanding) : "—",
             meta: financial ? `${financial.receivablesCustomerCount} customers` : undefined,
+          },
+          {
+            key: "payables",
+            label: "Outstanding Payables",
+            value: financial ? formatMoney(financial.payablesOutstanding) : "—",
+            meta: financial ? `${financial.payablesSupplierCount} suppliers` : undefined,
+            href: "/suppliers",
+            linkLabel: "Open suppliers",
           },
         ]}
       />
@@ -320,15 +417,111 @@ export function OwnerDashboard({ data }: Props) {
         allClearText={`No alerts — ${scopePhrase} looks healthy`}
       />
 
-      <div className={css.mainSplitOwner}>
-        <BusinessOverviewPanel
-          fallbackTrend={salesTrend7d}
-          analyticsBranchId={analyticsBranchId}
-        />
-        <CashFlowPanel financial={financial} analyticsBranchId={analyticsBranchId} />
-      </div>
+      <MasonryGrid>
+        <MasonryItem span={2}>
+          <BusinessOverviewPanel
+            fallbackTrend={salesTrend7d}
+            analyticsBranchId={analyticsBranchId}
+          />
+        </MasonryItem>
 
-      <div className={css.ownerLower3}>
+        <MasonryItem>
+          <CashFlowPanel analyticsBranchId={analyticsBranchId} />
+        </MasonryItem>
+
+        <MasonryItem span={2}>
+          <BranchSalesTrendPanel />
+        </MasonryItem>
+
+        <MasonryItem>
+          <TopSuppliersPanel />
+        </MasonryItem>
+
+        <MasonryItem>
+        <DashboardPanel title="Pending Approvals" icon={<IconClipboardList size={15} />} compact>
+          {approvalItems.length === 0 ? (
+            <p className={css.emptyState}>No pending approvals right now.</p>
+          ) : (
+            <>
+              <ul className={css.pipelineList}>
+                {paginate(approvalItems, approvalsPage, APPROVALS_PAGE_SIZE).map((item) => (
+                  <li key={item.key}>
+                    <Link href={item.href}>
+                      <span
+                        className={`${css.pipelineIcon} ${css[`pipelineIcon_${item.kind}`]}`}
+                        aria-hidden
+                      >
+                        {item.kind === "po" ? (
+                          <IconShoppingCart size={14} strokeWidth={1.75} />
+                        ) : item.kind === "transfer" ? (
+                          <IconTruck size={14} strokeWidth={1.75} />
+                        ) : (
+                          <IconRotateCcw size={14} strokeWidth={1.75} />
+                        )}
+                      </span>
+                      <span className={css.pipelineRowBody}>
+                        <strong>{item.number}</strong>
+                        <span className={css.muted}>{item.detail}</span>
+                      </span>
+                      <span className={css.approvalKindPill}>
+                        {item.kind === "po" ? "PO" : item.kind === "transfer" ? "Transfer" : "Return"}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <PaginationControls
+                page={approvalsPage}
+                pageCount={approvalsPageCount}
+                onPrev={() => setApprovalsPage((p) => Math.max(0, p - 1))}
+                onNext={() => setApprovalsPage((p) => Math.min(approvalsPageCount - 1, p + 1))}
+                rangeLabel={`${approvalsPage * APPROVALS_PAGE_SIZE + 1}–${Math.min(approvalItems.length, (approvalsPage + 1) * APPROVALS_PAGE_SIZE)} of ${approvalItems.length}`}
+              />
+            </>
+          )}
+        </DashboardPanel>
+        </MasonryItem>
+
+        <MasonryItem>
+        <DashboardPanel
+          title="Branch Revenue Contribution"
+          subtitle={`Share of ${formatYearMonth(yearMonth)} sales`}
+          icon={<IconUsers size={15} />}
+          compact
+        >
+          {revenueContribution.length === 0 ? (
+            <p className={css.emptyState}>No branches to show.</p>
+          ) : (
+            <ul className={css.healthFlatList}>
+              {revenueContribution.map((r) => (
+                <li key={r.branchId}>
+                  <span className={css.healthFlatRow}>
+                    <span
+                      className={css.healthSignalIcon}
+                      style={{ background: `color-mix(in srgb, ${r.color} 16%, var(--pc-card-bg))`, color: r.color }}
+                      aria-hidden
+                    >
+                      <IconUsers size={13} strokeWidth={1.75} />
+                    </span>
+                    <span className={css.healthSignalLead}>
+                      <span className={css.healthSignalLabel}>{r.name}</span>
+                    </span>
+                    <span className={css.healthSignalTrack}>
+                      <span
+                        className={css.healthSignalFill}
+                        style={{ width: `${Math.max(2, r.pct)}%`, background: r.color }}
+                      />
+                    </span>
+                    <span className={css.healthSignalValue}>{r.pct.toFixed(0)}%</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DashboardPanel>
+        </MasonryItem>
+
+        <MasonryItem>
         <DashboardPanel title="Inventory Health" icon={<IconPackage size={15} />} compact>
           <div className={css.healthBoard}>
             <div className={css.healthTop}>
@@ -412,7 +605,7 @@ export function OwnerDashboard({ data }: Props) {
               <Link href="/inventory/movements?category=sales" className={css.healthPositiveCallout}>
                 <IconActivity size={16} strokeWidth={2.2} aria-hidden />
                 <span className={css.healthPositiveText}>
-                  <strong>{fastMoversCount}</strong> fast movers this week — moving well, no action
+                  <strong>{fastMoversCount}</strong> fast movers today — moving well, no action
                   needed.
                 </span>
                 <IconChevronRight
@@ -453,12 +646,16 @@ export function OwnerDashboard({ data }: Props) {
             </div>
           </div>
         </DashboardPanel>
+        </MasonryItem>
 
-        <AiInsightsCard insights={allInsights} footerHref="/analytics" compact />
+        <MasonryItem>
+          <AiInsightsCard insights={allInsights} footerHref="/analytics" compact />
+        </MasonryItem>
 
+        <MasonryItem>
         <DashboardPanel
           title="Team & Branch Snapshot"
-          subtitle="Daily branch performance vs target"
+          subtitle="This month's branch performance vs target"
           icon={<IconUsers size={15} />}
           compact
           headerRight={
@@ -502,8 +699,7 @@ export function OwnerDashboard({ data }: Props) {
                   <thead>
                     <tr>
                       <th>Branch</th>
-                      <th>Today&apos;s Sales</th>
-                      <th>Target</th>
+                      <th>MTD Sales</th>
                       <th>Achievement</th>
                       <th>Status</th>
                     </tr>
@@ -531,9 +727,11 @@ export function OwnerDashboard({ data }: Props) {
                               {isBest ? <span className={css.teamBestBadge}>Best</span> : null}
                             </span>
                           </td>
-                          <td className={css.teamNum}>{formatMoney(row.todaySales)}</td>
-                          <td className={`${css.muted} ${css.teamNum}`}>
-                            {row.targetAmount != null ? formatMoney(row.targetAmount) : "—"}
+                          <td className={css.teamNum}>
+                            {formatMoney(row.monthSales)}
+                            {row.targetAmount != null ? (
+                              <span className={css.teamNumTarget}>/ {formatMoney(row.targetAmount)}</span>
+                            ) : null}
                           </td>
                           <td>
                             {pct != null ? (
@@ -594,7 +792,8 @@ export function OwnerDashboard({ data }: Props) {
             </div>
           )}
         </DashboardPanel>
-      </div>
+        </MasonryItem>
+      </MasonryGrid>
 
       <QuickActionsBar
         title="Owner Quick Actions"

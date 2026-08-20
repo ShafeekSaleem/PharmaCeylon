@@ -1,0 +1,3130 @@
+.page {
+  display: flex;
+  flex-direction: column;
+}
+
+.heroGrid {
+  margin-bottom: 1rem;
+}
+
+/* ── Category nav (primary) ── */
+
+.categoryNav {
+  display: flex;
+  gap: 1.2rem;
+  border-bottom: 1px solid var(--pc-border);
+  margin-bottom: 0;
+  overflow-x: auto;
+}
+
+.categoryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.1rem;
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.categoryBtn:hover {
+  color: var(--pc-foreground);
+}
+
+.categoryBtnActive {
+  color: var(--pc-primary);
+  border-bottom-color: var(--pc-primary);
+  font-weight: 650;
+}
+
+.soonTag {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  opacity: 0.7;
+}
+
+/* ── Secondary tabs — plain underline text tabs, no pill background ── */
+
+.reportPills {
+  display: flex;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0.4rem 0 0.45rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.reportPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: none;
+  background: none;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 500;
+  padding: 0.12rem 0;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.reportPill:hover {
+  color: var(--pc-foreground);
+}
+
+.reportPillActive {
+  color: var(--pc-primary);
+  font-weight: 650;
+  border-bottom-color: var(--pc-primary);
+}
+
+/* ── Filter bar ── */
+
+.filterbar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.filterfield {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.filterfield label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.inlineCheckField {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.inlineCheckField input {
+  accent-color: var(--pc-primary);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.branchPill {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.rsWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.rsTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 9.5rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.79rem;
+  font-weight: 500;
+  padding: 0.32rem 0.6rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.rsTriggerLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rsTrigger:hover {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
+}
+
+.rsTriggerOpen {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.rsTrigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rsChevron {
+  flex-shrink: 0;
+  color: var(--pc-primary);
+  transition: transform 0.15s ease;
+}
+
+.rsTriggerOpen .rsChevron {
+  transform: rotate(180deg);
+}
+
+.rsMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: max(100%, 12rem);
+  max-height: min(280px, 60vh);
+  overflow-y: auto;
+  padding: 0.3rem;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+}
+
+.rsOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.42rem 0.55rem;
+  border: none;
+  border-radius: calc(var(--pc-radius-sm) - 2px);
+  background: transparent;
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.81rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rsOption:hover {
+  background: var(--pc-muted-bg);
+}
+
+.rsOption:disabled {
+  color: var(--pc-muted-fg);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rsOption:disabled:hover {
+  background: transparent;
+}
+
+.rsOptionActive {
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 8%, var(--pc-card-bg));
+  font-weight: 600;
+}
+
+.rsOptionActive svg {
+  flex-shrink: 0;
+}
+
+.scopeswitch {
+  display: flex;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+}
+
+.scopeswitch button,
+.segmented button {
+  border: none;
+  background: #fff;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.77rem;
+  font-weight: 500;
+  padding: 0.28rem 0.65rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.scopeswitch button + button,
+.segmented button + button {
+  border-left: 1px solid var(--pc-border);
+}
+
+.scopeswitch button.on,
+.segmented button.on {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.scopeswitch.disabled button {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.filterNote {
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+  font-style: italic;
+}
+
+.resetBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: none;
+  background: none;
+  color: var(--pc-primary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.resetBtn:hover {
+  color: var(--pc-primary-hover);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.exportWrap {
+  position: relative;
+}
+
+.exportMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 11rem;
+  background: #fff;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 0.3rem;
+}
+
+.exportMenu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  color: var(--pc-foreground);
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.exportMenu button:hover:not(:disabled) {
+  background: var(--pc-muted-bg);
+}
+
+.exportMenu button:disabled {
+  color: var(--pc-muted-fg);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.exportMenu .soonTag {
+  margin-left: 0.5rem;
+}
+
+/* ── Section scaffolding ── */
+
+.card {
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 0.6rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.cardhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+  flex-wrap: wrap;
+}
+
+/* Matches the dashboard's `.panelTitle` convention (uppercase, muted, letter-spaced) so every
+   card header reads consistently across the app — covers .cardhead and .toolbarrow titles alike
+   since both live inside a .card ancestor. */
+.card h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.cardhead p {
+  margin: 0.05rem 0 0;
+  font-size: 0.73rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 0.6rem;
+}
+
+/* Gross Profit's Goal Tracker / Drivers / Insights row — 3 equal compact columns. */
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+@media (max-width: 1200px) {
+  .grid3 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .grid3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Trims a card's padding/min-height for dense multi-column rows (Goal Tracker / Drivers) instead
+   of the roomier default `.card` sizing meant for a 2-column row. Flex column so its body (see
+   `.compactCardBody`) can grow and vertically center when the grid row's default stretch makes
+   this card taller than its own natural content height (e.g. to match a taller sibling). */
+.compactCard {
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.compactCardBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Lets a `.grid2` row's two cards size to their own content instead of both stretching to
+   match whichever is taller (CSS Grid's default `align-items: stretch`). */
+.gridAlignStart {
+  align-items: start;
+}
+
+/* Sizes the shared `SimpleDonutChart`'s chart column via the `--donut-max-size` custom
+   property it reads (see dashboard.module.css's `.donutChartCol`) — bigger than the
+   dashboard's default so it doesn't look undersized next to Category Insights. */
+.categoryMixWrap {
+  --donut-max-size: 210px;
+  padding: 0.55rem 0.7rem;
+}
+
+/* Interactive child-breakdown strip under the Category Sales donut — shows the hovered
+   department's own leaf categories as a tinted, 100%-stacked horizontal bar. */
+.childBreakdown {
+  margin-top: 0.6rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--pc-border);
+}
+
+.childBreakdownHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.childBreakdownHead span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--pc-muted-fg);
+  font-weight: 500;
+}
+
+.childBreakdownHead span i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.childBreakdownHead b {
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.childBreakdownBar {
+  display: flex;
+  width: 100%;
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  gap: 1.5px;
+  background: var(--pc-muted-bg);
+}
+
+.childBreakdownSeg {
+  height: 100%;
+  transition: opacity 0.15s ease;
+}
+
+.childBreakdownSeg:hover {
+  opacity: 0.82;
+}
+
+.childBreakdownLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.7rem;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.childBreakdownLegend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+}
+
+.childBreakdownLegend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.childBreakdownLegend em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.grid2Even {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.cardFlexCol {
+  display: flex;
+  flex-direction: column;
+}
+
+.heatmapGrow {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--pc-border) 80%, transparent);
+}
+
+.peakBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-primary) 9%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 26%, var(--pc-border));
+  color: var(--pc-primary);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.peakBadge b {
+  color: var(--pc-foreground);
+  font-weight: 650;
+}
+
+.peakBadgeValue {
+  font-weight: 700;
+  color: var(--pc-primary);
+}
+
+/* The first row of panels after the hero tiles — kept a consistent height across every report
+   page (matched against Sales Summary's chart-driven row) so pages don't feel inconsistent as you
+   navigate between them. Sparse content (e.g. a short insights list) centers in the space instead
+   of leaving a dead zone at the bottom. */
+.firstRow > .card {
+  display: flex;
+  flex-direction: column;
+  min-height: 23.25rem;
+}
+
+.firstRow > .card .actionsPanel,
+.firstRow > .card .barlistCompact {
+  flex: 1;
+  justify-content: center;
+}
+
+.dailySalesRow {
+  display: grid;
+  grid-template-columns: 1.7fr 0.85fr;
+  gap: 0.6rem;
+}
+
+/** Lets a grid row's columns size to their own content instead of stretching to match the tallest
+ * sibling — for rows pairing two cards that aren't meant to track each other's height. */
+.alignStart {
+  align-items: start;
+}
+
+/** Branch Performance table + Performance Map — a bit more even than .dailySalesRow since the map
+ * needs real width to stay legible, not just a narrow sidebar. align-items:start so the table (which
+ * can run to many rows) doesn't force the map's card to stretch/shrink to match its height. */
+.performanceRow {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 0.6rem;
+  align-items: start;
+}
+
+/** Matches `.performanceRow`'s column ratio so Branch Sales' top row (Sales Trend by Branch /
+   Branch Alerts) lines up with Branch Performance / Performance Map beneath it — the shared
+   `.grid2` ratio (1.35fr 1fr) is tuned for other report pages and doesn't align with this
+   page's wider second row. */
+.branchTrendRow {
+  grid-template-columns: 1.5fr 1fr;
+}
+
+/** One masonry-style column: Sales Trend + Branch Performance stack on the left, Branch Alerts +
+   Performance Map stack on the right, each column's own content determining where its next card
+   starts — instead of two separate row-locked grids, where a taller right-hand card (e.g. more
+   alert items) left dead space under the shorter left card before the next row could begin. */
+.branchColStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+@media (max-width: 1200px) {
+  .performanceRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1200px) {
+  .dailySalesRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chipRow {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.chip {
+  border: 1px solid var(--pc-border);
+  background: #fff;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chip.on {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  border-color: color-mix(in srgb, var(--pc-primary) 35%, var(--pc-border));
+}
+
+.cardLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cardLink:hover {
+  color: var(--pc-primary-hover);
+}
+
+.cardFooterLink {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--pc-border);
+}
+
+.reviewBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  width: 100%;
+  margin-top: 0.6rem;
+  border: 1px solid var(--pc-border);
+  background: #fff;
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.42rem 0.8rem;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+}
+
+.reviewBtn:hover {
+  background: var(--pc-muted-bg);
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+/* ── Chart ── */
+
+.chartWrap {
+  position: relative;
+}
+
+.chartWrap svg {
+  display: block;
+  width: 100%;
+  height: 185px;
+  overflow: visible;
+}
+
+.chartTooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.08s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 32%, var(--pc-border));
+  border-radius: var(--pc-radius-sm, 8px);
+  padding: 0.38rem 0.55rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  white-space: nowrap;
+}
+
+.chartTooltipLabel {
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.chartTooltipValue {
+  font-size: 0.76rem;
+  font-weight: 650;
+  color: var(--pc-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chartTooltipMuted {
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+}
+
+.gridline {
+  stroke: var(--pc-border);
+  stroke-width: 1;
+}
+
+.axislabel {
+  fill: var(--pc-muted-fg);
+  font-size: 10px;
+  font-family: var(--pc-font);
+}
+
+/* ── HTML-based chart axes (dashboard-aligned) — labels live outside the scaled SVG
+   viewBox so they never get stretched/distorted and never overlap, unlike SVG <text>
+   positioned inside a non-uniformly-scaled (preserveAspectRatio="none") chart. ── */
+
+.chartPlotWithY {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.4rem;
+}
+
+.chartPlot {
+  position: relative;
+  min-width: 0;
+}
+
+.chartYAxis {
+  position: relative;
+  width: 3.4rem;
+  min-width: 3.4rem;
+}
+
+.chartYLabel {
+  position: absolute;
+  right: 0.3rem;
+  transform: translateY(-50%);
+  font-size: 0.68rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--pc-muted-fg);
+}
+
+.chartLabels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.2rem;
+  margin-top: 0.4rem;
+  padding-left: calc(3.4rem + 0.4rem);
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+}
+
+.chartLabels span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.chartLabelActive {
+  color: var(--pc-primary);
+  font-weight: 500;
+}
+
+.crosshair {
+  stroke: var(--pc-muted-fg);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0;
+}
+
+.previousLine {
+  stroke: var(--pc-muted-fg);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  fill: none;
+  opacity: 0.55;
+}
+
+.chartLegend {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+}
+
+.chartLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.legendSwatch {
+  width: 14px;
+  height: 2.5px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.chartLegendBtn {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--pc-radius-sm, 6px);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.chartLegendBtn:hover {
+  background: var(--pc-muted-bg);
+  color: var(--pc-foreground);
+}
+
+.chartLegendBtnActive {
+  color: var(--pc-foreground);
+  font-weight: 650;
+  background: var(--pc-muted-bg);
+}
+
+.chartLegendMore {
+  align-self: center;
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+  opacity: 0.8;
+}
+
+.legendDot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  margin-right: 0.3rem;
+}
+
+/* ── Donut chart ── */
+
+/* ── Payment Mix: leader pill + caption below the (shared) SimpleDonutChart ── */
+
+.mixLeaderMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.7rem 0 0;
+}
+
+.mixLeaderPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-primary-hover) 14%, var(--pc-primary-soft));
+  color: var(--pc-primary-hover);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mixLeaderCaption {
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Payment method icon + label (table cells, mix legend context) ── */
+
+.paymentMethodCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.paymentMethodIconSq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  flex-shrink: 0;
+  border-radius: 7px;
+}
+
+.chartTopOffset {
+  margin-top: 1.1rem;
+}
+
+.tableFootnote {
+  margin: 0.6rem 0 0;
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Heatmap ── */
+
+.heatmapWrap {
+  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+}
+
+.heatmapGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 560px;
+}
+
+.heatmapHeaderRow,
+.heatmapRow {
+  display: grid;
+  grid-template-columns: 2.4rem repeat(var(--heatmap-cols, 15), 1fr);
+  gap: 4px;
+  align-items: center;
+}
+
+.heatmapCornerLabel {
+  font-size: 0.65rem;
+  color: var(--pc-muted-fg);
+}
+
+.heatmapHourLabel {
+  font-size: 0.66rem;
+  color: var(--pc-muted-fg);
+  text-align: center;
+}
+
+.heatmapDayLabel {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  font-weight: 600;
+}
+
+.heatmapCell {
+  height: 26px;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.heatmapLegendRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+}
+
+.heatmapLegendScale {
+  display: flex;
+  gap: 2px;
+}
+
+.heatmapLegendSwatch {
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* ── Bar rows (leaderboards, used standalone e.g. Overview) ── */
+
+.barlist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.barrow {
+  display: grid;
+  grid-template-columns: 11rem 1fr 6.5rem;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.barlabelcol {
+  min-width: 0;
+}
+
+.barname {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 550;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.barsub {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bartrack {
+  position: relative;
+  height: 10px;
+  background: var(--pc-muted-bg);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.barfill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--pc-gradient-main);
+}
+
+.barfillDanger {
+  background: linear-gradient(135deg, #dc2626, #f97316);
+}
+
+.barvalue {
+  text-align: right;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.barvalue small {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.deltaUp { color: #15803d !important; }
+.deltaDown { color: #b91c1c !important; }
+
+.barlistCompact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.barrowCompact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.barrowCompact:last-child {
+  border-bottom: none;
+}
+
+.barrowCompact .barname {
+  font-size: 0.79rem;
+  font-weight: 550;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.barrowCompact .barvalue {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Inline table bar (thin bar beside a table-cell value) ── */
+
+.inlineBarCell {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 9rem;
+}
+
+.inlineBarCell span {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.inlineBarTrack {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
+}
+
+.inlineBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--pc-gradient-main);
+}
+
+.inlineBarFillDanger {
+  background: linear-gradient(90deg, #dc2626, #f97316);
+}
+
+/* ── Summary bars (Overview Profitability Summary) ── */
+
+.summaryBars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.summaryBarRow {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr 6.5rem;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+}
+
+.summaryBarLabel {
+  color: var(--pc-muted-fg);
+}
+
+.summaryBarValue {
+  text-align: right;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Urgency / severity cards ── */
+
+.severityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+.severityCard {
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.severityCard.critical {
+  border-color: color-mix(in srgb, #dc2626 30%, var(--pc-border));
+  background: color-mix(in srgb, #dc2626 4%, var(--pc-card-bg));
+}
+
+.severityCard.watch {
+  border-color: color-mix(in srgb, #ea580c 26%, var(--pc-border));
+  background: color-mix(in srgb, #ea580c 4%, var(--pc-card-bg));
+}
+
+.severityCard.notice {
+  border-color: color-mix(in srgb, #ca8a04 22%, var(--pc-border));
+  background: color-mix(in srgb, #ca8a04 3%, var(--pc-card-bg));
+}
+
+.severityTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.severityLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.83rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.severityIcon {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.severityRange {
+  font-size: 0.71rem;
+  color: var(--pc-muted-fg);
+  margin-left: 2.1rem;
+}
+
+.severityCount {
+  font-size: 1.25rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.35rem;
+}
+
+.severityValue {
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.actionPill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.actionPill.critical {
+  background: var(--pc-destructive);
+  color: #fff;
+}
+
+.actionPill.watch {
+  background: #ea580c;
+  color: #fff;
+}
+
+.actionPill.notice {
+  background: color-mix(in srgb, #ca8a04 18%, #fff);
+  color: #92620a;
+}
+
+.severityCta {
+  margin-top: 0.5rem;
+  align-self: flex-end;
+  border: 1px solid var(--pc-destructive);
+  color: var(--pc-destructive);
+  background: #fff;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.32rem 0.7rem;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+}
+
+.severityCta:hover {
+  background: var(--pc-alert-error-bg);
+}
+
+/* ── Ageing distribution ── */
+
+.ageingGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.55rem;
+}
+
+.ageingCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--pc-border);
+}
+
+.ageingCard.tint0 { background: color-mix(in srgb, #ca8a04 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, #ca8a04 22%, var(--pc-border)); }
+.ageingCard.tint1 { background: color-mix(in srgb, #ea580c 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, #ea580c 22%, var(--pc-border)); }
+.ageingCard.tint2 { background: color-mix(in srgb, #dc2626 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, #dc2626 22%, var(--pc-border)); }
+
+.ageingLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ageingRange {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.ageingRight {
+  text-align: right;
+}
+
+.ageingValue {
+  font-size: 0.86rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.ageingPct {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.ageingTotalCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.15rem;
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  background: var(--pc-muted-bg);
+}
+
+.ageingTotalLabel {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  font-weight: 600;
+}
+
+.ageingTotalValue {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Action / recommendation badges (table cells) ── */
+
+.badge2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.16rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.badge2.dispose { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
+.badge2.transfer { background: color-mix(in srgb, var(--pc-primary) 14%, #fff); color: var(--pc-primary-hover); }
+.badge2.discount { background: color-mix(in srgb, #ea580c 15%, #fff); color: #c2410c; }
+.badge2.markdown { background: color-mix(in srgb, #ea580c 15%, #fff); color: #c2410c; }
+.badge2.monitor { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
+.badge2.return { background: color-mix(in srgb, #7c3aed 14%, #fff); color: #6d28d9; }
+.badge2.discontinue { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
+
+/* ── Opportunity / insight callout (Margin Opportunities) ── */
+
+.opportunityCallout {
+  background: color-mix(in srgb, #ca8a04 10%, #fff);
+  border: 1px solid color-mix(in srgb, #ca8a04 28%, var(--pc-border));
+  border-radius: var(--pc-radius-sm);
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.6rem;
+}
+
+.opportunityCalloutHead {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: #854d0e;
+  margin-bottom: 0.2rem;
+}
+
+.opportunityCalloutValue {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.opportunityCalloutSub {
+  font-size: 0.74rem;
+  color: var(--pc-muted-fg);
+}
+
+.opportunityRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.38rem 0;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 0.76rem;
+}
+
+.opportunityRow:last-of-type {
+  border-bottom: none;
+}
+
+.opportunityName {
+  font-weight: 550;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.opportunityMeta {
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.opportunityMetaDanger {
+  color: var(--pc-destructive);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.opportunityValue {
+  font-weight: 650;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Actions/insights side panel ── */
+
+.actionsPanel {
+  display: flex;
+  flex-direction: column;
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--pc-border);
+  cursor: pointer;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.actionRow:last-of-type {
+  border-bottom: none;
+}
+
+.actionRow:hover {
+  background: var(--pc-muted-bg);
+  margin: 0 -0.4rem;
+  padding: 0.45rem 0.4rem;
+  border-radius: 6px;
+}
+
+.actionIconSq {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.actionIconSq.primary { background: var(--pc-primary-soft); color: var(--pc-primary); }
+.actionIconSq.warning { background: color-mix(in srgb, #ea580c 14%, #fff); color: #c2410c; }
+.actionIconSq.danger { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
+.actionIconSq.purple { background: color-mix(in srgb, #7c3aed 12%, #fff); color: #6d28d9; }
+.actionIconSq.muted { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
+
+.actionBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.actionTitle {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.actionDesc {
+  font-size: 0.73rem;
+  color: var(--pc-muted-fg);
+}
+
+.actionCount {
+  text-align: right;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.actionCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  padding: 0.32rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.actionCta.primary { background: var(--pc-primary-soft); color: var(--pc-primary); }
+.actionCta.warning { background: color-mix(in srgb, #ea580c 14%, #fff); color: #c2410c; }
+.actionCta.danger { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
+.actionCta.purple { background: color-mix(in srgb, #7c3aed 14%, #fff); color: #6d28d9; }
+.actionCta.muted { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
+
+.actionCount small {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Insight cards (bordered box per insight, with a colored count pill and example chips) ── */
+
+.insightCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.insightCardBox {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  padding: 0.65rem 0.7rem;
+}
+
+.insightCardTop {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.insightCardTop:disabled {
+  cursor: default;
+}
+
+.insightCardTop:not(:disabled):hover .actionTitle {
+  color: var(--pc-primary);
+}
+
+.insightCountPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.insightCountPill.primary { background: var(--pc-primary-soft); color: var(--pc-primary); }
+.insightCountPill.warning { background: color-mix(in srgb, #ea580c 14%, #fff); color: #c2410c; }
+.insightCountPill.danger { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
+.insightCountPill.purple { background: color-mix(in srgb, #7c3aed 14%, #fff); color: #6d28d9; }
+.insightCountPill.muted { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
+
+.chipRow2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+}
+
+.chip2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 15rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+}
+
+.chip2Label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.chip2Link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.chip2Link:hover {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-primary) 8%, var(--pc-muted-bg));
+  color: var(--pc-primary);
+}
+
+.chip2 b {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.chip2Neutral {
+  color: var(--pc-muted-fg) !important;
+}
+
+.insightPagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 0.65rem;
+}
+
+.insightPageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  cursor: pointer;
+}
+
+.insightPageBtn:hover:not(:disabled) {
+  background: var(--pc-muted-bg);
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.insightPageBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.insightPageInfo {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.primaryActionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.75rem;
+  border: 1px solid var(--pc-border);
+  background: #fff;
+  color: var(--pc-primary);
+  font-family: inherit;
+  font-size: 0.83rem;
+  font-weight: 650;
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+}
+
+.primaryActionBtn:hover {
+  background: var(--pc-primary-soft);
+}
+
+/* ── Table toolbar ── */
+
+.toolbarrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.toolbarActions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.searchbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  padding: 0.3rem 0.55rem;
+  background: #fff;
+  min-width: 200px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.searchbox:hover {
+  border-color: var(--pc-primary);
+}
+
+.searchbox:focus-within {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.searchbox svg {
+  color: var(--pc-muted-fg);
+  flex-shrink: 0;
+}
+
+.searchbox input {
+  border: none;
+  outline: none;
+  font-size: 0.82rem;
+  width: 100%;
+  background: none;
+  color: var(--pc-foreground);
+  font-family: inherit;
+}
+
+.filterPopoverWrap {
+  position: relative;
+}
+
+.filterPopover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 13rem;
+  background: #fff;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 0.5rem;
+}
+
+.filterPopover label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--pc-foreground);
+  padding: 0.4rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.filterPopover label:hover {
+  background: var(--pc-muted-bg);
+}
+
+.filterBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--pc-border);
+  background: #fff;
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.36rem 0.7rem;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+}
+
+.filterBtn:hover {
+  background: var(--pc-muted-bg);
+}
+
+.filterCount {
+  background: var(--pc-primary);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+
+/* Standalone Category tree field (matches Products/Catalog's Category filter) — each filter
+   is its own visible control instead of being bundled into a generic "Filters" popover. */
+.categoryFilterField {
+  flex: 0 1 240px;
+  min-width: 200px;
+}
+
+/* Toggle chips — same tone-pill design as the Catalog page's quick filter chips
+   (`quick-chips.tsx`'s `.chip`/`.chipAmber`/`.chipRose`/`.chipActive`). */
+.toggleChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.1s;
+}
+
+.toggleChip:hover {
+  transform: translateY(-1px);
+}
+
+.toggleChipActive {
+  font-weight: 650;
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.toggleChipAmber {
+  background: color-mix(in srgb, #d97706 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #d97706 32%, var(--pc-border));
+  color: #b45309;
+}
+
+.toggleChipRose {
+  background: color-mix(in srgb, #e11d48 11%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #e11d48 26%, var(--pc-border));
+  color: #be123c;
+}
+
+.activeFilterSlot {
+  margin-bottom: 0.6rem;
+}
+
+.rankingScroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--pc-muted-fg) 45%, var(--pc-border)) transparent;
+}
+
+.rankToggle {
+  display: flex;
+  gap: 0.3rem;
+}
+
+/* ── Inline row-action icons (two direct links instead of a kebab menu) ── */
+
+.rowIconGroup {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.rowIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 6px;
+  color: var(--pc-muted-fg);
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.rowIconBtn:hover {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.focusClearBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 30%, var(--pc-border));
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 650;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.focusClearBtn:hover {
+  background: color-mix(in srgb, var(--pc-primary) 16%, var(--pc-primary-soft));
+}
+
+.oppInfoIcon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--pc-muted-fg);
+  cursor: default;
+}
+
+.filterClearBtn {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding-top: 0.5rem;
+  border: none;
+  border-top: 1px solid var(--pc-border);
+  background: none;
+  color: var(--pc-primary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+
+.filterClearBtn:hover {
+  color: var(--pc-primary-hover);
+}
+
+/* ── Kebab row-action menu ── */
+
+.kebabWrap {
+  position: relative;
+  display: inline-block;
+}
+
+.kebabBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: none;
+  background: none;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.kebabBtn:hover {
+  background: var(--pc-muted-bg);
+  color: var(--pc-foreground);
+}
+
+.kebabMenu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  min-width: 10rem;
+  background: #fff;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  padding: 0.3rem;
+}
+
+.kebabMenu a,
+.kebabMenu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 0.8rem;
+  color: var(--pc-foreground);
+  background: none;
+  border: none;
+  padding: 0.42rem 0.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+
+.kebabMenu a:hover,
+.kebabMenu button:hover {
+  background: var(--pc-muted-bg);
+  color: var(--pc-primary);
+}
+
+/* ── Table ── */
+
+.tablewrap {
+  width: 100%;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  overflow: visible;
+}
+
+.tablescroll {
+  overflow-x: auto;
+}
+
+table.rt {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.82rem;
+}
+
+table.rt thead th {
+  padding: 0.55rem 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  border-bottom: 2px solid var(--pc-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+table.rt th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+table.rt th.sortable:hover {
+  color: var(--pc-primary);
+}
+
+table.rt th .thinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+table.rt th .sorticon {
+  font-size: 0.55rem;
+  opacity: 0.3;
+}
+
+table.rt th.sorted .sorticon {
+  opacity: 1;
+  color: var(--pc-primary);
+}
+
+table.rt tbody td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--pc-border);
+  vertical-align: middle;
+  color: var(--pc-foreground);
+}
+
+table.rt tbody tr:last-child td {
+  border-bottom: none;
+}
+
+table.rt tbody tr:hover td {
+  background: var(--pc-muted-bg);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mutedcell {
+  color: var(--pc-muted-fg);
+  font-size: 0.77rem;
+}
+
+.skucode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  word-break: break-word;
+}
+
+.rowNum {
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+  width: 1.6rem;
+}
+
+.comingSoon {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 2.5rem 1.5rem;
+  background: var(--pc-card-bg);
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  max-width: 32rem;
+}
+
+.comingSoon h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--pc-foreground);
+}
+
+.comingSoon p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.5;
+}
+
+.errorState {
+  padding: 1rem;
+  font-size: 0.85rem;
+  color: var(--pc-alert-error-text);
+  background: var(--pc-alert-error-bg);
+  border: 1px solid var(--pc-alert-error-border);
+  border-radius: var(--pc-radius-sm);
+}
+
+.emptyNote {
+  font-size: 0.85rem;
+  color: var(--pc-muted-fg);
+  padding: 1rem 0;
+}
+
+/* Profitability Goal Tracker semicircular gauge (margin-gauge.tsx). */
+.gaugeWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem 0 0.2rem;
+}
+
+.gaugeSvgWrap {
+  position: relative;
+  width: 100%;
+  max-width: 240px;
+}
+
+.gaugeSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.gaugeTrack {
+  fill: var(--pc-muted-bg);
+}
+
+.gaugeTargetTick {
+  stroke: var(--pc-foreground);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.gaugeCenter {
+  position: absolute;
+  left: 50%;
+  bottom: 2%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.gaugeCenter strong {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--pc-foreground);
+  line-height: 1.1;
+}
+
+.gaugeCenter span {
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 0.15rem;
+}
+
+.gaugeFooter {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.4rem;
+}
+
+.gaugeFooter > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.gaugeFooter b {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.gaugeFooterLabel {
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Gross Profit Mix treemap (category-treemap.tsx) — absolutely positioned tiles over a
+   percentage-based virtual box computed by the squarify layout. */
+.treemapWrap {
+  position: relative;
+  width: 100%;
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+}
+
+.treemapTile {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 0.4rem 0.5rem;
+  border: 1.5px solid var(--pc-card-bg);
+  cursor: pointer;
+  text-align: left;
+  color: #fff;
+  overflow: hidden;
+  transition: filter 0.15s ease;
+}
+
+.treemapTile:hover {
+  filter: brightness(1.08);
+  z-index: 1;
+}
+
+.treemapTileBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.treemapTileBody b {
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.treemapTileBody em {
+  font-style: normal;
+  font-size: 0.74rem;
+  font-weight: 600;
+  opacity: 0.92;
+}
+
+.treemapTileBody small {
+  font-size: 0.68rem;
+  opacity: 0.8;
+}
+
+.treemapTileBodyCompact {
+  font-size: 0.66rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Category Profitability Breakdown expandable table (category-hierarchy-table.tsx) — bespoke,
+   not the shared DataTable, so a parent's children can render directly beneath it regardless of
+   sort (see the component's own doc comment for why). Mirrors DataTable's compact look. */
+.hierTableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.hierTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8rem;
+}
+
+.hierTable thead th {
+  padding: 0.45rem 0.65rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  border-bottom: 2px solid var(--pc-border);
+  text-align: left;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.hierSortable {
+  cursor: pointer;
+}
+
+.hierSortable:hover {
+  color: var(--pc-primary);
+}
+
+.hierThInner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.hierSortIcon {
+  font-size: 0.55rem;
+  color: var(--pc-muted-fg);
+  opacity: 0.3;
+  transition: opacity 0.12s;
+}
+
+.hierSortActive {
+  opacity: 1;
+  color: var(--pc-primary);
+}
+
+.hierTable tbody td {
+  padding: 0.45rem 0.65rem;
+  color: var(--pc-foreground);
+  border-bottom: 1px solid var(--pc-border);
+  vertical-align: middle;
+}
+
+.hierParentRow td {
+  font-weight: 600;
+}
+
+.hierParentRow:hover td {
+  background: var(--pc-muted-bg);
+}
+
+.hierChildRow td {
+  background: color-mix(in srgb, var(--pc-muted-bg) 55%, transparent);
+  font-size: 0.78rem;
+}
+
+.hierChildName {
+  padding-left: 2.1rem !important;
+  color: var(--pc-muted-fg);
+}
+
+.hierExpandBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-right: 0.35rem;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.65rem;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.hierExpandBtn:disabled {
+  cursor: default;
+  visibility: hidden;
+}
+
+.hierSkeleton {
+  height: 0.8rem;
+  border-radius: 4px;
+  background: var(--pc-muted-bg);
+}
+
+/* Gross Profit page: bridge footnote, Profitability Drivers mini-cards, and the compact category
+   contribution list. */
+.bridgeNote {
+  margin: 0.5rem 0 0;
+  font-size: 0.73rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.5;
+}
+
+.inlineLinkBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--pc-primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.driverGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.driverCard {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.15rem 0.4rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+}
+
+.driverDot {
+  grid-row: 1 / span 2;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.driverCard b {
+  grid-column: 2 / span 2;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.driverCard > span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.driverCard small {
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+}
+
+.driverCard em {
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  justify-self: end;
+}
+
+.contribList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.contribRow {
+  display: grid;
+  grid-template-columns: 9rem 1fr 3.2rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.contribName {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contribPct {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--pc-muted-fg);
+  text-align: right;
+}
+
+.gaugeEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem 0.5rem;
+  text-align: center;
+}
+
+/* Profitability Goal Tracker's contextual message (met/missed target) below the gauge. */
+.goalMessageBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--pc-radius-sm);
+  border: 1px solid transparent;
+}
+
+.goalMessageBox b {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.goalMessageBox p {
+  margin: 0.15rem 0 0;
+  font-size: 0.73rem;
+  line-height: 1.4;
+  color: var(--pc-muted-fg);
+}
+
+.goalMessageIcon {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.goalMessageSuccess {
+  background: color-mix(in srgb, #16a34a 10%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #16a34a 28%, var(--pc-border));
+}
+
+.goalMessageSuccess .goalMessageIcon,
+.goalMessageSuccess b {
+  color: #16a34a;
+}
+
+.goalMessageWarning {
+  background: color-mix(in srgb, #ea580c 10%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #ea580c 28%, var(--pc-border));
+}
+
+.goalMessageWarning .goalMessageIcon,
+.goalMessageWarning b {
+  color: #ea580c;
+}
+
+.goalActionRow {
+  margin-top: 0.6rem;
+  display: flex;
+  justify-content: center;
+}
+
+/* Goal Tracker card: gauge on the left, message box + button on the right — replaces the
+   earlier stacked layout now that the card sits in a narrower 3-column row. */
+.goalTrackerRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.goalTrackerLeft {
+  flex: 1 1 50%;
+  min-width: 150px;
+}
+
+.goalTrackerRight {
+  flex: 1 1 50%;
+  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.goalTrackerRight .goalMessageBox {
+  margin-top: 0;
+  width: 100%;
+}
+
+@media (max-width: 980px) {
+  .grid2,
+  .grid2Even {
+    grid-template-columns: 1fr;
+  }
+  .severityGrid,
+  .ageingGrid {
+    grid-template-columns: 1fr;
+  }
+  .barrow {
+    grid-template-columns: 8rem 1fr 5.5rem;
+  }
+}
+
+/* ── Network alert strip (Branch Sales) ── */
+
+.networkAlert {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--pc-radius-sm, 8px);
+  border: 1px solid color-mix(in srgb, #dc2626 30%, var(--pc-border));
+  background: color-mix(in srgb, #dc2626 6%, var(--pc-card-bg));
+  color: var(--pc-foreground);
+  font-size: 0.82rem;
+}
+
+.networkAlertPositive {
+  border-color: color-mix(in srgb, #16a34a 30%, var(--pc-border));
+  background: color-mix(in srgb, #16a34a 6%, var(--pc-card-bg));
+}
+
+.networkAlertIcon {
+  flex-shrink: 0;
+  color: #b91c1c;
+}
+
+.networkAlertPositive .networkAlertIcon {
+  color: #15803d;
+}
+
+.networkAlertBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.networkAlertCta {
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, #dc2626 40%, var(--pc-border));
+  background: var(--pc-card-bg);
+  color: #b91c1c;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  padding: 0.32rem 0.7rem;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.networkAlertCta:hover {
+  background: color-mix(in srgb, #dc2626 10%, var(--pc-card-bg));
+}
+
+.networkAlertPositive .networkAlertCta {
+  border-color: color-mix(in srgb, #16a34a 40%, var(--pc-border));
+  color: #15803d;
+}
+
+.networkAlertPositive .networkAlertCta:hover {
+  background: color-mix(in srgb, #16a34a 10%, var(--pc-card-bg));
+}
+
+/* ── Sales Trend by Branch header controls (View / Daily-Weekly / Compare 2) ── */
+
+.trendHeadControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.compare2Row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: -0.3rem 0 0.6rem;
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.compare2Row > div {
+  min-width: 10rem;
+}
+
+/* ── Branch Performance table: colored rank circle + revenue bar (merged from the former standalone
+   Branch Comparison ranking view) ── */
+
+.rankCircle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.rankBarCell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 11rem;
+}
+
+.rankBarTrack {
+  position: relative;
+  flex: 1;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
+}
+
+.rankBarFill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.rankBarValue {
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rankBarValue small {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+}
+
+.rankTargetCell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.rankTargetPill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-foreground);
+}
+
+.rankTargetBar {
+  width: 3.6rem;
+  height: 0.3rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
+}
+
+.rankTargetBar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #dc2626;
+}
+
+/* ── Performance Map (bubble/quadrant chart) ── */
+
+.mapWrap {
+  position: relative;
+}
+
+.mapSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mapQuadrantLabel {
+  font-size: 10.5px;
+  font-weight: 650;
+  fill: var(--pc-muted-fg);
+  cursor: default;
+}
+
+.mapAxisTick {
+  font-size: 10.5px;
+  font-weight: 500;
+  fill: var(--pc-muted-fg);
+}
+
+.mapAxisTitle {
+  font-size: 10.5px;
+  font-weight: 700;
+  fill: var(--pc-foreground);
+}
+
+.mapBubbleLabel {
+  font-size: 10.5px;
+  font-weight: 650;
+  fill: var(--pc-foreground);
+}
+
+.mapBubble {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.15s ease, fill-opacity 0.15s ease, stroke-width 0.15s ease;
+}
+
+.mapBubble:hover {
+  transform: scale(1.12);
+  fill-opacity: 0.5;
+  stroke-width: 2.5;
+}
+
+.mapLegendRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--pc-border);
+}
+
+.mapLegendGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.mapLegendTitle {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.mapLegendBubbles {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+}
+
+.mapLegendBubbles i {
+  display: inline-block;
+  border-radius: 50%;
+  background: var(--pc-muted-bg);
+  border: 1.5px solid var(--pc-muted-fg);
+}
+
+.mapLegendChips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* Margin Risk Distribution scatter (margin-scatter-chart.tsx) — plain dots, CSS-only hover (no
+   per-point React state) since a chart like this can have hundreds of points. */
+.scatterDot {
+  cursor: pointer;
+  transition: r 0.1s ease, fill-opacity 0.1s ease;
+}
+
+.scatterDot:hover {
+  r: 5;
+  fill-opacity: 0.75;
+}
+
+.scatterLegendChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.scatterLegendChip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* ── Shift Performance card (Cashier Performance) ── */
+
+.shiftViewBy {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+}
+
+.shiftList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.shiftRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+}
+
+.shiftRowBest {
+  border-color: color-mix(in srgb, #16a34a 40%, var(--pc-border));
+  background: color-mix(in srgb, #16a34a 5%, var(--pc-card-bg));
+}
+
+.shiftInfo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 0 0 11rem;
+  min-width: 9rem;
+}
+
+.shiftIconWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.shiftIconWrap.amber {
+  background: color-mix(in srgb, #f59e0b 16%, var(--pc-card-bg));
+  color: #b45309;
+}
+
+.shiftIconWrap.green {
+  background: color-mix(in srgb, #16a34a 14%, var(--pc-card-bg));
+  color: #15803d;
+}
+
+.shiftIconWrap.indigo {
+  background: color-mix(in srgb, #4f46e5 14%, var(--pc-card-bg));
+  color: #4338ca;
+}
+
+.shiftInfoText {
+  min-width: 0;
+}
+
+.shiftLabelRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.shiftLabel {
+  font-size: 0.86rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+}
+
+.shiftBestBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #15803d;
+  background: color-mix(in srgb, #16a34a 16%, #fff);
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.shiftShare {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.shiftMetrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(6.5rem, 1fr));
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.shiftMetricCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.shiftMetricLabel {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.shiftMetricValue {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.shiftMetricValuePrimary {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.shiftMetricBarTrack {
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
+  margin-top: 0.15rem;
+}
+
+.shiftMetricBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--pc-primary);
+}

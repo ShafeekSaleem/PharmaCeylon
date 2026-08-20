@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import {
@@ -16,6 +16,7 @@ import {
   type SeriesPoint,
 } from "./simple-charts";
 import { DashboardPanel } from "./dashboard-panel";
+import { MetricCell, pctChange } from "./metric-cell";
 import css from "../dashboard.module.css";
 
 type TrendDays = 7 | 14 | 30;
@@ -44,65 +45,6 @@ function withBranch(path: string, branchId: string | null | undefined): string {
   if (!branchId) return path;
   const qs = `branchId=${encodeURIComponent(branchId)}`;
   return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
-}
-
-function pctChange(curr: number, prev: number): number | null {
-  if (!Number.isFinite(curr) || !Number.isFinite(prev)) return null;
-  if (prev === 0) return curr === 0 ? 0 : null;
-  return ((curr - prev) / Math.abs(prev)) * 100;
-}
-
-function formatPct(n: number): string {
-  return `${Math.abs(n).toFixed(1)}%`;
-}
-
-type MetricTrend = {
-  pct: number | null;
-  compareLabel: string;
-};
-
-function MetricCell({
-  label,
-  value,
-  icon,
-  iconTone,
-  trend,
-}: {
-  label: string;
-  value: string;
-  icon: ReactNode;
-  iconTone: "revenue" | "purchases" | "profit";
-  trend?: MetricTrend;
-}) {
-  const pct = trend?.pct ?? null;
-  const up = pct != null && pct >= 0;
-  const down = pct != null && pct < 0;
-
-  return (
-    <div className={css.overviewMetric}>
-      <span
-        className={`${css.overviewMetricIcon} ${css[`overviewMetricIcon_${iconTone}`]}`}
-        aria-hidden
-      >
-        {icon}
-      </span>
-      <div className={css.overviewMetricCopy}>
-        <span className={css.overviewMetricLabel}>{label}</span>
-        <span className={css.overviewMetricValue}>{value}</span>
-        {pct != null && trend ? (
-          <span
-            className={`${css.overviewMetricTrend} ${
-              up ? css.overviewMetricTrend_up : css.overviewMetricTrend_down
-            }`}
-          >
-            <span aria-hidden>{up ? "↑" : down ? "↓" : ""}</span>
-            {formatPct(pct)}
-            <span className={css.overviewMetricTrendVs}>{trend.compareLabel}</span>
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
 }
 
 export function BusinessOverviewPanel({

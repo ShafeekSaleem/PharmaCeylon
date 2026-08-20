@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useMemo, useRef, useState, type MouseEvent } from "react";
 import css from "../dashboard.module.css";
 
 export type ChartPoint = { label: string; value: number };
@@ -295,7 +295,275 @@ export function SimpleLineChart({
   );
 }
 
-function formatCompactAxis(n: number): string {
+export type MultiSeries = { id: string; label: string; color: string; points: ChartPoint[] };
+
+type MultiLineChartProps = {
+  series: MultiSeries[];
+  height?: number;
+  formatValue?: (n: number) => string;
+  showYAxis?: boolean;
+  /** Which series is the permanent focus (its area gradient + full-weight line). Falls back to the first series (callers pass series pre-sorted by rank). */
+  focusId?: string | null;
+  /** Fires when the user clicks a legend entry (or, best-effort, a line) to change the permanent focus. */
+  onFocusChange?: (id: string) => void;
+  /** Branches present in the data but not rendered (already capped by the caller) — shown as a muted "+N branches" legend suffix. */
+  hiddenCount?: number;
+};
+
+/** One branch's line is the visual focus (full color/weight + a soft area
+ * gradient); the rest stay as thin, muted context lines behind it — so the
+ * chart stays readable as more branches are added instead of every series
+ * fighting for attention. Hovering a line/legend entry previews focus;
+ * clicking a legend entry makes it permanent. */
+export function MultiLineChart({
+  series,
+  height = 200,
+  formatValue = (n) => String(Math.round(n)),
+  showYAxis = true,
+  focusId = null,
+  onFocusChange,
+  hiddenCount = 0,
+}: MultiLineChartProps) {
+  const gradId = useId();
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [hoverLineId, setHoverLineId] = useState<string | null>(null);
+  const nonEmpty = series.filter((s) => s.points.length > 0);
+  const effectiveFocusId = hoverLineId ?? focusId ?? nonEmpty[0]?.id ?? null;
+  const focusedForDelta = nonEmpty.find((s) => s.id === effectiveFocusId) ?? nonEmpty[0] ?? null;
+
+  // Computed unconditionally (before the early return below) so hook call order never changes.
+  const tooltipDelta = useMemo(() => {
+    if (!focusedForDelta || hoverIdx == null || hoverIdx === 0) return null;
+    const prev = focusedForDelta.points[hoverIdx - 1]?.value;
+    const cur = focusedForDelta.points[hoverIdx]?.value;
+    if (!prev || cur == null) return null;
+    const pct = ((cur - prev) / prev) * 100;
+    return { pct, tone: pct >= 0 ? ("success" as const) : ("danger" as const) };
+  }, [hoverIdx, focusedForDelta]);
+
+  if (nonEmpty.length === 0) {
+    return <p className={css.emptyState}>No trend data yet.</p>;
+  }
+
+  const len = nonEmpty[0]!.points.length;
+  const allValues = nonEmpty.flatMap((s) => s.points.map((p) => p.value));
+  const rawMax = Math.max(...allValues, 1);
+  const max = rawMax * 1.2;
+  const padL = showYAxis ? 12 : 28;
+  const padR = 16;
+  const padTop = 16;
+  const padBottom = 16;
+  const w = 520;
+  const h = height;
+  const innerW = w - padL - padR;
+  const innerH = h - padTop - padBottom;
+
+  const toCoords = (pts: ChartPoint[]) =>
+    pts.map((p, i) => {
+      const x = padL + (pts.length === 1 ? innerW / 2 : (i / (pts.length - 1)) * innerW);
+      const y = padTop + innerH - (p.value / max) * innerH;
+      return { x, y, ...p };
+    });
+
+  const seriesCoords = nonEmpty.map((s) => ({ ...s, coords: toCoords(s.points) }));
+  const firstCoords = seriesCoords[0]!.coords;
+  const focused = seriesCoords.find((s) => s.id === effectiveFocusId) ?? seriesCoords[0]!;
+  const focusedArea = `${smoothPathThroughPoints(focused.coords)} L ${focused.coords[focused.coords.length - 1]!.x.toFixed(1)} ${(padTop + innerH).toFixed(1)} L ${focused.coords[0]!.x.toFixed(1)} ${(padTop + innerH).toFixed(1)} Z`;
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const labels = nonEmpty[0]!.points.map((p) => p.label);
+  const xLabelCap = len > 10 ? 7 : len;
+  const visibleXLabels = sparseLabelIndices(len, xLabelCap);
+  const activeX = hoverIdx != null ? firstCoords[hoverIdx]!.x : null;
+  /** Clamped so the tooltip's own width never pushes it past the chart edges. */
+  const tipLeftPct = activeX != null ? Math.min(80, Math.max(20, (activeX / w) * 100)) : 0;
+  /** Docked just under the chart's top headroom — that band is always clear
+   * of data lines (see the 1.2x max multiplier above) so it never floats up
+   * and out of the card the way an above-the-point tooltip would. */
+  const tipTopPct = (padTop / h) * 100;
+
+  const tooltipValue = hoverIdx != null ? focused.points[hoverIdx]!.value : null;
+
+  /** Single handler drives both the hovered date column (for the tooltip)
+   * and the nearest line under the cursor (for hover-to-preview focus) —
+   * simpler and more reliable than stacking separate hit shapes per line. */
+  function handleMouseMove(e: MouseEvent<SVGSVGElement>) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const mx = ((e.clientX - rect.left) / rect.width) * w;
+    const my = ((e.clientY - rect.top) / rect.height) * h;
+    const relX = Math.min(Math.max(mx - padL, 0), innerW);
+    const idx = len > 1 ? Math.round((relX / innerW) * (len - 1)) : 0;
+    setHoverIdx(idx);
+
+    let nearestId: string | null = null;
+    let bestDist = 16; // px tolerance in viewBox units
+    for (const s of seriesCoords) {
+      const y = s.coords[idx]?.y;
+      if (y == null) continue;
+      const dist = Math.abs(y - my);
+      if (dist < bestDist) {
+        bestDist = dist;
+        nearestId = s.id;
+      }
+    }
+    setHoverLineId(nearestId);
+  }
+
+  function handleMouseLeave() {
+    setHoverIdx(null);
+    setHoverLineId(null);
+  }
+
+  function handleClick() {
+    if (hoverLineId) onFocusChange?.(hoverLineId);
+  }
+
+  const visibleLegendSeries = nonEmpty;
+
+  return (
+    <div className={`${css.chartWrap} ${css.chartWrapInteractive}`} onMouseLeave={handleMouseLeave}>
+      <div className={showYAxis ? css.chartPlotWithY : css.chartPlotStack}>
+        {showYAxis ? (
+          <div className={css.chartYAxis} aria-hidden>
+            {yTicks.map((t) => {
+              const yPct = ((padTop + innerH * (1 - t)) / h) * 100;
+              return (
+                <span key={t} className={css.chartYLabel} style={{ top: `${yPct}%` }}>
+                  {formatCompactAxis(max * t)}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className={css.chartPlot}>
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${w} ${h}`}
+            className={css.chartSvg}
+            role="img"
+            aria-label="Multi-series line chart"
+            preserveAspectRatio="xMidYMid meet"
+            onMouseMove={handleMouseMove}
+            onClick={handleClick}
+          >
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={focused.color} stopOpacity="0.2" />
+                <stop offset="55%" stopColor={focused.color} stopOpacity="0.08" />
+                <stop offset="100%" stopColor={focused.color} stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {yTicks.map((t) => {
+              const y = padTop + innerH * (1 - t);
+              return <line key={t} x1={padL} x2={w - padR} y1={y} y2={y} className={css.chartGrid} />;
+            })}
+            <path d={focusedArea} fill={`url(#${gradId})`} />
+            {seriesCoords
+              .filter((s) => s.id !== focused.id)
+              .map((s) => (
+                <path
+                  key={s.id}
+                  d={smoothPathThroughPoints(s.coords)}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth="1.25"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  opacity="0.4"
+                  vectorEffect="non-scaling-stroke"
+                  style={{ cursor: onFocusChange ? "pointer" : undefined }}
+                />
+              ))}
+            <path
+              d={smoothPathThroughPoints(focused.coords)}
+              fill="none"
+              stroke={focused.color}
+              strokeWidth="2.25"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              style={{ cursor: onFocusChange ? "pointer" : undefined }}
+            />
+            {focused.coords.map((c, i) => (
+              <circle
+                key={`marker-${focused.id}-${i}`}
+                cx={c.x}
+                cy={c.y}
+                r={hoverIdx === i ? 3.5 : 2.75}
+                fill={focused.color}
+                opacity={hoverIdx == null || hoverIdx === i ? 1 : 0.5}
+                pointerEvents="none"
+              />
+            ))}
+            {activeX != null ? (
+              <g pointerEvents="none">
+                <line x1={activeX} x2={activeX} y1={padTop} y2={padTop + innerH} className={css.chartHoverGuide} />
+              </g>
+            ) : null}
+          </svg>
+          {hoverIdx != null && tooltipValue != null ? (
+            <div
+              className={`${css.chartTooltip} ${css.chartTooltipMulti}`}
+              style={{ left: `${tipLeftPct}%`, top: `${tipTopPct}%` }}
+              role="tooltip"
+            >
+              <span className={css.chartTooltipLabel}>{labels[hoverIdx]}</span>
+              <span className={css.chartTooltipFocusRow}>
+                <i style={{ background: focused.color }} aria-hidden />
+                {focused.label}
+              </span>
+              <span className={css.chartTooltipValue}>{formatValue(tooltipValue)}</span>
+              {tooltipDelta ? (
+                <span className={`${css.chartTooltipDelta} ${css[`chartTooltipValue_${tooltipDelta.tone}`]}`}>
+                  {tooltipDelta.pct >= 0 ? "↑" : "↓"} {Math.abs(tooltipDelta.pct).toFixed(1)}% vs previous day
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <div
+          className={css.chartLabels}
+          style={{
+            paddingLeft: `${(padL / w) * 100}%`,
+            paddingRight: `${(padR / w) * 100}%`,
+          }}
+        >
+          {labels.map((l, i) => (
+            <span
+              key={`${l}-${i}`}
+              className={hoverIdx === i ? css.chartLabelActive : undefined}
+              aria-hidden={!visibleXLabels.has(i)}
+            >
+              {visibleXLabels.has(i) ? l : ""}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className={`${css.chartLegend} ${css.chartLegendCenter}`}>
+        {visibleLegendSeries.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className={`${css.chartLegendBtn}${s.id === effectiveFocusId ? ` ${css.chartLegendBtnActive}` : ""}`}
+            onMouseEnter={() => setHoverLineId(s.id)}
+            onMouseLeave={() => setHoverLineId(null)}
+            onClick={() => onFocusChange?.(s.id)}
+            aria-pressed={s.id === effectiveFocusId}
+          >
+            <i style={{ background: s.color }} aria-hidden /> {s.label}
+          </button>
+        ))}
+        {hiddenCount > 0 ? <span className={css.chartLegendMore}>+{hiddenCount} branches</span> : null}
+      </div>
+    </div>
+  );
+}
+
+export function formatCompactAxis(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
   if (n >= 1000) return `${Math.round(n / 1000)}K`;
   return String(Math.round(n));
@@ -359,25 +627,213 @@ export function SimpleBarChart({
   height = 160,
   color = "var(--pc-primary)",
 }: BarChartProps) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
   if (points.length === 0) {
     return <p className={css.emptyState}>No chart data yet.</p>;
   }
   const max = Math.max(...points.map((p) => p.value), 1);
+  const peakIdx = points.reduce(
+    (best, p, i, arr) => (p.value > arr[best]!.value ? i : best),
+    0,
+  );
 
   return (
-    <div className={css.barChart} style={{ height }}>
-      {points.map((p, i) => (
-        <div key={`${p.label}-${i}`} className={css.barCol}>
-          <div className={css.barTrack}>
-            <div
-              className={css.bar}
-              style={{ height: `${Math.max(4, (p.value / max) * 100)}%`, background: color }}
-              title={`${p.label}: ${p.value}`}
-            />
+    <div className={css.barChart} style={{ height }} onMouseLeave={() => setHoverIdx(null)}>
+      {points.map((p, i) => {
+        const pct = Math.max(4, (p.value / max) * 100);
+        const isHover = hoverIdx === i;
+        return (
+          <div key={`${p.label}-${i}`} className={css.barCol}>
+            <div className={css.barTrack}>
+              {isHover ? (
+                <div
+                  className={css.chartTooltip}
+                  style={{ left: "50%", top: `${100 - pct}%` }}
+                  role="tooltip"
+                >
+                  <span className={css.chartTooltipLabel}>
+                    {p.label}
+                    {i === peakIdx ? " · Peak" : ""}
+                  </span>
+                  <span className={css.chartTooltipValue}>{p.value.toLocaleString()}</span>
+                </div>
+              ) : null}
+              <div
+                className={css.bar}
+                style={{
+                  height: `${pct}%`,
+                  background: color,
+                  opacity: hoverIdx == null || isHover ? 1 : 0.45,
+                  filter: isHover ? "brightness(1.1)" : undefined,
+                }}
+                onMouseEnter={() => setHoverIdx(i)}
+              />
+            </div>
+            <span className={css.barLabel}>{p.label}</span>
           </div>
-          <span className={css.barLabel}>{p.label}</span>
-        </div>
-      ))}
+        );
+      })}
+    </div>
+  );
+}
+
+export type FootfallPoint = { label: string; value: number | null; reference: number };
+
+type FootfallChartProps = {
+  points: FootfallPoint[];
+  peakIndex?: number | null;
+  unit?: string;
+  height?: number;
+  maxXLabels?: number;
+};
+
+type DeltaTone = "success" | "warning" | "danger";
+
+/** Growth vs. the reference pace is success-green; degrowth splits warning
+ * (orange, a mild dip) from danger (red, a sharp one) at -25%. */
+function deltaTone(pct: number): DeltaTone {
+  if (pct >= 0) return "success";
+  return pct <= -25 ? "danger" : "warning";
+}
+
+function deltaText(value: number, reference: number): { text: string; tone: DeltaTone } | null {
+  if (!reference) return null;
+  const pct = ((value - reference) / reference) * 100;
+  const tone = deltaTone(pct);
+  return { text: `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% vs avg`, tone };
+}
+
+/** Bar height = footfall count; bar color intensity = today's own busy/quiet
+ * ranking; dashed line = the reference pace (avg for that bucket). */
+export function FootfallIntensityChart({
+  points,
+  peakIndex = null,
+  unit = "bills",
+  height = 150,
+  maxXLabels,
+}: FootfallChartProps) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  if (points.length === 0) {
+    return <p className={css.emptyState}>No footfall data yet.</p>;
+  }
+
+  const w = 520;
+  const h = height;
+  const padL = 6, padR = 6, padTop = 20, padBottom = 20;
+  const innerW = w - padL - padR;
+  const innerH = h - padTop - padBottom;
+  const n = points.length;
+  const slot = innerW / n;
+  const barW = Math.min(slot * 0.64, 30);
+  /** Below this, a value label would collide with its neighbors — skip it. */
+  const showValueLabels = barW >= 13;
+
+  const known = points.filter((p) => p.value != null).map((p) => p.value as number);
+  const maxV = Math.max(...known, ...points.map((p) => p.reference), 1) * 1.18;
+  const minKnown = known.length ? Math.min(...known) : 0;
+  const maxKnown = known.length ? Math.max(...known) : 1;
+  const range = Math.max(maxKnown - minKnown, 1);
+
+  function colorFor(v: number): string {
+    const t = Math.max(0, Math.min(1, (v - minKnown) / range));
+    return `color-mix(in srgb, var(--pc-primary-hover) ${Math.round(t * 100)}%, color-mix(in srgb, var(--pc-primary) 30%, #fff))`;
+  }
+
+  const refCoords = points.map((p, i) => ({
+    x: padL + slot * i + slot / 2,
+    y: padTop + innerH - (p.reference / maxV) * innerH,
+  }));
+  const refPath = "M " + refCoords.map((c) => `${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(" L ");
+
+  const xLabelCap = maxXLabels ?? (n > 20 ? 8 : n > 10 ? 7 : n);
+  const visibleXLabels = sparseLabelIndices(n, xLabelCap);
+
+  const active = hoverIdx != null ? points[hoverIdx] : null;
+  const activeX = hoverIdx != null ? padL + slot * hoverIdx + slot / 2 : 0;
+  const activeY = hoverIdx != null && active?.value != null
+    ? padTop + innerH - (active.value / maxV) * innerH
+    : padTop;
+
+  return (
+    <div className={`${css.chartWrap} ${css.chartWrapInteractive}`} onMouseLeave={() => setHoverIdx(null)}>
+      <div className={css.chartPlot}>
+        <svg
+          viewBox={`0 0 ${w} ${h}`}
+          className={css.chartSvg}
+          role="img"
+          aria-label="Footfall by period vs. reference pace"
+          preserveAspectRatio="none"
+        >
+          <path d={refPath} fill="none" stroke="var(--pc-muted-fg)" strokeWidth="1.4" strokeDasharray="3 3" opacity="0.85" />
+          {points.map((p, i) => {
+            if (p.value == null) return null;
+            const x = padL + slot * i + slot / 2;
+            const bh = (p.value / maxV) * innerH;
+            const by = padTop + innerH - bh;
+            const isPeak = i === peakIndex;
+            return (
+              <g key={`${p.label}-${i}`}>
+                <rect
+                  x={(x - barW / 2).toFixed(1)}
+                  y={by.toFixed(1)}
+                  width={barW.toFixed(1)}
+                  height={Math.max(2, bh).toFixed(1)}
+                  rx="4"
+                  fill={colorFor(p.value)}
+                  stroke={isPeak ? "var(--pc-primary-hover)" : "none"}
+                  strokeWidth={isPeak ? 1.5 : 0}
+                  opacity={hoverIdx == null || hoverIdx === i ? 1 : 0.55}
+                  onMouseEnter={() => setHoverIdx(i)}
+                  style={{ cursor: "pointer", transition: "opacity 0.15s ease" }}
+                />
+                {showValueLabels ? (
+                  <text
+                    x={x.toFixed(1)}
+                    y={(by - 4).toFixed(1)}
+                    textAnchor="middle"
+                    fontSize="9.5"
+                    fontWeight="700"
+                    fill="var(--pc-muted-fg)"
+                    style={{ pointerEvents: "none" }}
+                  >
+                    {p.value}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+        </svg>
+        {active && active.value != null ? (
+          <div
+            className={css.chartTooltip}
+            style={{ left: `${(activeX / w) * 100}%`, top: `${(activeY / h) * 100}%` }}
+            role="tooltip"
+          >
+            <span className={css.chartTooltipLabel}>{active.label}</span>
+            {(() => {
+              const delta = deltaText(active.value, active.reference);
+              return delta ? (
+                <span className={`${css.chartTooltipValue} ${css[`chartTooltipValue_${delta.tone}`]}`}>
+                  {delta.text}
+                </span>
+              ) : (
+                <span className={css.chartTooltipValue}>
+                  {active.value} {unit}
+                </span>
+              );
+            })()}
+          </div>
+        ) : null}
+      </div>
+      <div className={css.chartLabels}>
+        {points.map((p, i) => (
+          <span key={`${p.label}-${i}`} title={p.label}>
+            {visibleXLabels.has(i) ? p.label : ""}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -588,6 +1044,12 @@ type DonutProps = {
   centerValue?: string;
   /** Place legend beside the pie (Cash Flow). */
   legendBeside?: boolean;
+  /** When set, shows the formatted raw amount next to the percent in the legend. */
+  formatValue?: (n: number) => string;
+  /** Fires whenever the hovered/focused slice changes (arc or legend entry), null when nothing
+   *  is active — lets a caller drive secondary UI (e.g. a per-slice breakdown chart) off the
+   *  same hover state instead of duplicating the interaction. */
+  onHoverChange?: (index: number | null) => void;
 };
 
 function donutArcPath(
@@ -621,8 +1083,14 @@ export function SimpleDonutChart({
   centerLabel,
   centerValue,
   legendBeside = true,
+  formatValue,
+  onHoverChange,
 }: DonutProps) {
-  const [hovered, setHovered] = useState<number | null>(null);
+  const [hovered, setHoveredState] = useState<number | null>(null);
+  const setHovered = (index: number | null) => {
+    setHoveredState(index);
+    onHoverChange?.(index);
+  };
 
   if (slices.length === 0) {
     return <p className={css.emptyState}>No payment mix data yet.</p>;
@@ -719,7 +1187,7 @@ export function SimpleDonutChart({
             <li key={seg.label}>
               <button
                 type="button"
-                className={`${css.donutLegendBtn} ${isActive ? css.donutLegendBtnActive : ""}`}
+                className={`${css.donutLegendBtn} ${formatValue ? css.donutLegendBtn_withValue : ""} ${isActive ? css.donutLegendBtnActive : ""}`}
                 onMouseEnter={() => setHovered(seg.index)}
                 onFocus={() => setHovered(seg.index)}
                 onMouseLeave={() => setHovered(null)}
@@ -727,6 +1195,7 @@ export function SimpleDonutChart({
               >
                 <i style={{ background: seg.color }} aria-hidden />
                 <span>{seg.label}</span>
+                {formatValue ? <b className={css.donutLegendAmount}>{formatValue(seg.value)}</b> : null}
                 <em>{seg.pct.toFixed(1)}%</em>
               </button>
             </li>

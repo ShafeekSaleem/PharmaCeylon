@@ -6,7 +6,6 @@ import { useRoleAccess } from "@/lib/use-role-access";
 import { DashboardHeader } from "./components/dashboard-header";
 import { useDashboardData } from "./hooks/use-dashboard-data";
 import { resolvePrimaryDashboardRole } from "./lib/dashboard-role";
-import { AnalystDashboard } from "./roles/analyst-dashboard";
 import { CashierDashboard } from "./roles/cashier-dashboard";
 import { InventoryClerkDashboard } from "./roles/inventory-clerk-dashboard";
 import { ManagerDashboard } from "./roles/manager-dashboard";
@@ -57,7 +56,6 @@ export default function DashboardPage() {
       {viewRole === "pharmacist" ? <PharmacistDashboard data={data} /> : null}
       {viewRole === "cashier" ? <CashierDashboard data={data} /> : null}
       {viewRole === "inventory_clerk" ? <InventoryClerkDashboard data={data} /> : null}
-      {viewRole === "analyst" ? <AnalystDashboard data={data} /> : null}
     </div>
   );
 }

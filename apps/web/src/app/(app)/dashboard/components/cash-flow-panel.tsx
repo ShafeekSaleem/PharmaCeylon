@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { IconCreditCard } from "@/components/icons";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
-import type { FinancialSnapshot } from "../hooks/use-dashboard-data";
 import { DashboardPanel } from "./dashboard-panel";
 import { PeriodToggle } from "./period-toggle";
 import { paymentMixColor } from "../lib/payment-mix-colors";
@@ -19,7 +19,6 @@ const MIX_OPTIONS = [
 ] as const;
 
 type Props = {
-  financial: FinancialSnapshot | null;
   /** When set, payment mix filters to this branch; omit for tenant-wide. */
   analyticsBranchId?: string | null;
 };
@@ -30,7 +29,7 @@ function withBranch(path: string, branchId: string | null | undefined): string {
   return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
 }
 
-export function CashFlowPanel({ financial, analyticsBranchId = null }: Props) {
+export function CashFlowPanel({ analyticsBranchId = null }: Props) {
   const [mixPeriod, setMixPeriod] = useState<MixPeriod>("this_month");
   const [slices, setSlices] = useState<
     Array<{ label: string; value: number; color: string }>
@@ -89,6 +88,12 @@ export function CashFlowPanel({ financial, analyticsBranchId = null }: Props) {
   const periodLabel =
     MIX_OPTIONS.find((o) => o.value === mixPeriod)?.label ?? "This month";
 
+  const leader = useMemo(() => {
+    if (slices.length === 0) return null;
+    const top = slices.reduce((a, b) => (b.value > a.value ? b : a));
+    return { label: top.label, pct: paymentMixTotal > 0 ? (top.value / paymentMixTotal) * 100 : 0 };
+  }, [slices, paymentMixTotal]);
+
   return (
     <DashboardPanel
       title="Cash Flow & Payments"
@@ -112,39 +117,24 @@ export function CashFlowPanel({ financial, analyticsBranchId = null }: Props) {
         ) : slices.length === 0 ? (
           <p className={css.emptyState}>No tender data for this period.</p>
         ) : (
-          <SimpleDonutChart
-            slices={slices}
-            centerValue={centerValue}
-            centerLabel={periodLabel}
-            legendBeside
-          />
+          <>
+            <SimpleDonutChart
+              slices={slices}
+              centerValue={centerValue}
+              centerLabel={periodLabel}
+              legendBeside
+            />
+            {leader ? (
+              <p className={css.footfallFooterMeta}>
+                <span className={css.footfallPeakPill}>
+                  <IconCreditCard size={11} strokeWidth={2.5} aria-hidden />
+                  {leader.label} leads
+                </span>
+                <span className={css.muted}>{leader.pct.toFixed(0)}% of {periodLabel.toLowerCase()}&apos;s tenders</span>
+              </p>
+            ) : null}
+          </>
         )}
-        <div className={css.cashFlowSummary}>
-          <div>
-            <span className={css.muted}>Receivables</span>
-            <span className={css.statEmph}>
-              {financial
-                ? formatMoney(financial.receivablesOutstanding)
-                : "—"}
-            </span>
-            <span className={css.placeholderNote}>
-              {financial
-                ? `${financial.receivablesCustomerCount} customers`
-                : "—"}
-            </span>
-          </div>
-          <div>
-            <span className={css.muted}>Payables</span>
-            <span className={css.statEmph}>
-              {financial ? formatMoney(financial.payablesOutstanding) : "—"}
-            </span>
-            <span className={css.placeholderNote}>
-              {financial
-                ? `${financial.payablesSupplierCount} suppliers`
-                : "—"}
-            </span>
-          </div>
-        </div>
       </div>
     </DashboardPanel>
   );

@@ -412,6 +412,12 @@
   flex-shrink: 0;
 }
 
+.monthPill_warning {
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 12%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-alert-warning-icon) 30%, var(--pc-border));
+  color: var(--pc-alert-warning-text);
+}
+
 .subHeading {
   margin: 0 0 0.55rem;
   font-size: 0.8rem;
@@ -659,6 +665,21 @@
   background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, transparent);
 }
 
+.overviewMetricIcon_bills {
+  color: var(--pc-secondary-cyan);
+  background: color-mix(in srgb, var(--pc-secondary-cyan) 14%, transparent);
+}
+
+.overviewMetricIcon_avg {
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 14%, transparent);
+}
+
+.overviewMetricIcon_peak {
+  color: var(--pc-alert-warning-icon, #d97706);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon, #d97706) 14%, transparent);
+}
+
 .overviewMetricCopy {
   display: flex;
   flex-direction: column;
@@ -747,28 +768,6 @@
 .cashFlowBody .donutWrapModern {
   flex: 1;
   min-height: 0;
-}
-
-.cashFlowSummary {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.55rem;
-  padding: 0.5rem 0.6rem;
-  border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
-  border-radius: var(--pc-radius-sm, 8px);
-  background: color-mix(in srgb, var(--pc-card-bg) 94%, var(--pc-muted-bg));
-  flex-shrink: 0;
-}
-
-.cashFlowSummary > div {
-  display: flex;
-  flex-direction: column;
-  gap: 0.12rem;
-  min-width: 0;
-}
-
-.cashFlowSummary .statEmph {
-  font-size: 0.88rem;
 }
 
 .chartAxisLabel {
@@ -1472,6 +1471,7 @@ a.aiItem:hover {
 }
 
 .barTrack {
+  position: relative;
   flex: 1;
   width: 100%;
   display: flex;
@@ -1505,7 +1505,8 @@ a.aiItem:hover {
   width: 100%;
   border-radius: 5px 5px 0 0;
   min-height: 4px;
-  transition: height 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  cursor: pointer;
+  transition: height 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease, filter 0.15s ease;
 }
 
 .barPrimary {
@@ -1526,6 +1527,157 @@ a.aiItem:hover {
 
 .chartLegendSwatch_accent {
   background: var(--pc-secondary-cyan);
+}
+
+.chartLegendSwatch_quiet {
+  background: color-mix(in srgb, var(--pc-primary) 30%, #fff);
+}
+
+.chartLegendSwatch_busy {
+  background: var(--pc-primary-hover);
+}
+
+.chartLegendDash {
+  width: 0.75rem;
+  height: 0;
+  border-radius: 0;
+  border-top: 2px dashed var(--pc-muted-fg);
+  margin-right: 0.3rem;
+  vertical-align: middle;
+}
+
+/* ---- Masonry grid: replaces mainSplit/grid2/grid3 as one continuous flow ---- */
+.masonryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 4px;
+  grid-auto-flow: row;
+  gap: 0.7rem;
+  margin-bottom: 0.7rem;
+}
+
+/* Shadow lives on the item wrapper, not the inner .panel — .panel's own
+   box-shadow would extend past this box and get hard-clipped by the
+   overflow below, showing as a sharp notch instead of a soft shadow. */
+.masonryItem {
+  min-width: 0;
+  max-height: 620px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(15, 23, 42, 0.055);
+  transition: box-shadow 0.2s ease;
+  /* Grid items stretch to fill their row-span by default, which — combined
+     with row-span bucketing — leaves the shadow/border box extending past
+     the real card content below. Size to content instead. */
+  align-self: start;
+}
+
+.masonryItem:hover {
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06), 0 14px 34px rgba(15, 23, 42, 0.07);
+}
+
+/* Plain block, not a grid item — its height is driven purely by content,
+   which is what MasonryGrid measures to decide the outer item's row-span.
+   Not stretched to the bucketed reservation: a short card stays its natural
+   height, and any bucket-rounding slack is just quiet gap before the next
+   row, instead of dead space stretched inside the card. */
+.masonryItemInner {
+  min-width: 0;
+}
+
+.masonryItemInner > .panel {
+  box-shadow: none;
+  border-radius: 0;
+}
+
+@media (max-width: 960px) {
+  .masonryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .masonryItem {
+    grid-column: span 1 !important;
+    grid-row: auto !important;
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
+/* ---- Pagination (prev/next) for list panels with more rows than shown ---- */
+.paginationRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--pc-border) 80%, transparent);
+}
+
+.paginationLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.paginationBtns {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.paginationBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.paginationBtn:hover:not(:disabled) {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.paginationBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.paginationBtn:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 1px;
+}
+
+.footfallFooterMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.footfallPeakPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-primary-hover) 14%, var(--pc-primary-soft));
+  color: var(--pc-primary-hover);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.footfallPeakPill svg {
+  flex-shrink: 0;
 }
 
 .barLabel {
@@ -1549,6 +1701,38 @@ a.aiItem:hover {
   justify-content: center;
   margin-top: 0;
   margin-bottom: 0.35rem;
+}
+
+.chartLegendBtn {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--pc-radius-sm, 6px);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.chartLegendBtn:hover {
+  background: var(--pc-muted-bg);
+  color: var(--pc-foreground);
+}
+
+.chartLegendBtnActive {
+  color: var(--pc-foreground);
+  font-weight: 650;
+  background: var(--pc-muted-bg);
+}
+
+.chartLegendMore {
+  align-self: center;
+  font-size: 0.68rem;
+  color: var(--pc-muted-fg);
+  opacity: 0.8;
 }
 
 .chartWrapInteractive .chartPlot {
@@ -1659,6 +1843,51 @@ a.aiItem:hover {
   line-height: 1.15;
 }
 
+.chartTooltipValue_success {
+  color: var(--pc-alert-success-text, #166534);
+}
+
+.chartTooltipValue_warning {
+  color: var(--pc-alert-warning-text, #92400e);
+}
+
+.chartTooltipValue_danger {
+  color: var(--pc-alert-error-text, #991b1b);
+}
+
+.chartTooltipMulti {
+  min-width: 8rem;
+  max-width: 13rem;
+  white-space: normal;
+  gap: 0.15rem;
+  /* Docked just below the hovered column's top headroom instead of floating
+     above the point — avoids overshooting the card's top edge. */
+  transform: translate(-50%, 0);
+}
+
+.chartTooltipFocusRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.chartTooltipFocusRow i {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.chartTooltipDelta {
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+
 .chartHoverGuide {
   stroke: color-mix(in srgb, var(--pc-primary) 40%, var(--pc-border));
   stroke-width: 1;
@@ -1707,7 +1936,10 @@ a.aiItem:hover {
 
 .donutChartCol {
   position: relative;
-  width: min(100%, 168px);
+  /* Callers can size the donut up/down by setting --donut-max-size on an ancestor —
+     CSS custom properties inherit across module boundaries, so this stays overridable
+     from outside this file (e.g. Reports' Category Sales donut) without a new prop. */
+  width: min(100%, var(--donut-max-size, 168px));
   aspect-ratio: 1;
   justify-self: center;
   flex-shrink: 0;
@@ -1826,6 +2058,44 @@ a.aiItem:hover {
   font-variant-numeric: tabular-nums;
   font-size: 0.7rem;
   color: var(--pc-muted-fg);
+}
+
+/* Two rows — label gets the full width on its own line, amount + % share
+   the line below — so the raw amount doesn't truncate the label in a
+   narrow card (e.g. "Mobile Wallet" next to "LKR 1,058.00"). */
+.donutLegendBtn_withValue {
+  grid-template-columns: 0.5rem minmax(0, 1fr) auto;
+  grid-template-areas:
+    "dot label label"
+    ". amount pct";
+  row-gap: 0.1rem;
+}
+
+.donutLegendBtn_withValue i {
+  grid-area: dot;
+}
+
+.donutLegendBtn_withValue span {
+  grid-area: label;
+}
+
+.donutLegendBtn_withValue .donutLegendAmount {
+  grid-area: amount;
+  justify-self: start;
+}
+
+.donutLegendBtn_withValue em {
+  grid-area: pct;
+  justify-self: end;
+}
+
+.donutLegendAmount {
+  font-style: normal;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  color: var(--pc-foreground);
+  white-space: nowrap;
 }
 
 .donutLegendBtnActive em {
@@ -2249,6 +2519,7 @@ a.aiItem:hover {
 }
 
 .productAvatar {
+  position: relative;
   width: 2.25rem;
   height: 2.25rem;
   border-radius: var(--pc-radius-sm);
@@ -2403,6 +2674,29 @@ a.aiItem:hover {
   background: var(--pc-primary-soft);
 }
 
+.pipelineIcon_return {
+  color: var(--pc-alert-warning-icon);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 14%, var(--pc-card-bg));
+}
+
+.pipelineIcon_stocktake {
+  color: var(--pc-accent-navy);
+  background: color-mix(in srgb, var(--pc-accent-navy) 14%, var(--pc-card-bg));
+}
+
+.approvalKindPill {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .pipelineRowBody {
   flex: 1;
   min-width: 0;
@@ -2551,6 +2845,19 @@ a.aiItem:hover {
   scrollbar-width: thin;
 }
 
+/* Wraps to fill available panel height instead of scrolling — used where the
+   panel is paired with a taller sibling and a single scroll row would leave
+   a large empty gap underneath. */
+.productStripWrap {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  padding-bottom: 0;
+}
+
+.productStripWrap .productChip {
+  flex: 1 1 9.5rem;
+}
+
 .productChip {
   flex: 0 0 auto;
   min-width: 9.5rem;
@@ -2564,6 +2871,8 @@ a.aiItem:hover {
   flex-direction: row;
   align-items: flex-start;
   gap: 0.55rem;
+  text-decoration: none;
+  color: inherit;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
@@ -2601,6 +2910,7 @@ a.aiItem:hover {
   color: var(--pc-primary);
   font-variant-numeric: tabular-nums;
 }
+
 
 /* Legacy layout pieces kept for any residual use */
 .dashboard {
@@ -3289,18 +3599,80 @@ a.aiItem:hover {
 }
 
 .teamSnapTable {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  table-layout: fixed;
+  width: 100%;
 }
 
 .teamSnapTable th,
 .teamSnapTable td {
-  padding: 0.45rem 0.4rem;
+  padding: 0.4rem 0.3rem;
   vertical-align: middle;
+  overflow: hidden;
+}
+
+.teamSnapTable th:first-child,
+.teamSnapTable td:first-child {
+  padding-left: 0;
+}
+
+.teamSnapTable th:last-child,
+.teamSnapTable td:last-child {
+  padding-right: 0;
 }
 
 .teamSnapTable th {
   font-weight: 500;
-  font-size: 0.65rem;
+  font-size: 0.63rem;
+}
+
+.teamSnapTable th:nth-child(1),
+.teamSnapTable td:nth-child(1) {
+  width: 34%;
+}
+
+.teamSnapTable th:nth-child(2),
+.teamSnapTable td:nth-child(2) {
+  width: 22%;
+}
+
+.teamSnapTable th:nth-child(3),
+.teamSnapTable td:nth-child(3) {
+  width: 28%;
+}
+
+.teamSnapTable th:nth-child(4),
+.teamSnapTable td:nth-child(4) {
+  width: 16%;
+}
+
+.teamSnapTable .progressWrap {
+  min-width: 0;
+  gap: 0.3rem;
+}
+
+.teamSnapTable .progressLabel {
+  min-width: 1.6rem;
+  font-size: 0.63rem;
+}
+
+.teamSnapTable .teamStatus {
+  font-size: 0.64rem;
+  gap: 0.22rem;
+}
+
+.teamSnapTable .teamStatusIcon {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex-shrink: 0;
+}
+
+.teamNumTarget {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 400;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
 }
 
 .teamRowBest td {
@@ -3571,6 +3943,125 @@ a.aiItem:hover {
   outline-offset: 1px;
 }
 
+/* ---- Branch multiselect dropdown (Branch Sales Trend compare filter) ---- */
+
+.branchMultiSelect {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.branchMultiSelectTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.branchMultiSelectTrigger:hover {
+  color: var(--pc-foreground);
+  border-color: color-mix(in srgb, var(--pc-primary) 30%, var(--pc-border));
+}
+
+.branchMultiSelectTriggerActive {
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  border-color: color-mix(in srgb, var(--pc-primary) 40%, var(--pc-border));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.branchMultiSelectTrigger:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 1px;
+}
+
+.branchMultiSelectChevron {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.branchMultiSelectMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 11rem;
+  max-width: 15rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: 0.35rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm, 10px);
+  background: var(--pc-card-bg);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+.branchMultiSelectOption {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.branchMultiSelectOption:hover {
+  background: var(--pc-muted-bg);
+}
+
+.branchMultiSelectOption:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 1px;
+}
+
+.branchMultiSelectOptionActive {
+  color: var(--pc-primary);
+  font-weight: 600;
+}
+
+.branchMultiSelectOptionActive svg {
+  color: var(--pc-primary);
+  flex-shrink: 0;
+}
+
+.branchMultiSelectOptionLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branchMultiSelectDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.branchMultiSelectDivider {
+  height: 1px;
+  margin: 0.3rem 0.1rem;
+  background: color-mix(in srgb, var(--pc-border) 85%, transparent);
+}
+
 /* ---- Hero band ---- */
 
 .hero {
@@ -3639,12 +4130,237 @@ a.aiItem:hover {
   color: var(--pc-muted-fg);
 }
 
+.heroBreakdownRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.heroBreakdownItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.heroBreakdownDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
 .heroSpark {
   position: absolute;
   right: 1.4rem;
   bottom: 1.1rem;
   opacity: 0.9;
   pointer-events: none;
+}
+
+/* Reserves room so meta text never runs under the corner link. */
+.heroCellWithLink {
+  padding-bottom: 2.4rem;
+}
+
+/* Anchored by `right`, so growing on hover expands leftward — the arrow
+   stays put in the corner and the revealed label pushes out from under it. */
+.heroCellLink {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  height: 1.5rem;
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+  transition: background 0.18s ease, color 0.18s ease, gap 0.18s ease, padding 0.18s ease;
+}
+
+.heroCellLink svg {
+  flex-shrink: 0;
+}
+
+.heroCellLinkText {
+  display: inline-block;
+  max-width: 0;
+  opacity: 0;
+  font-size: 0.68rem;
+  font-weight: 650;
+  overflow: hidden;
+  transition: max-width 0.2s ease, opacity 0.15s ease;
+}
+
+.heroCellLink:hover,
+.heroCellLink:focus-visible {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  gap: 0.3rem;
+  padding: 0 0.55rem;
+}
+
+.heroCellLink:hover .heroCellLinkText,
+.heroCellLink:focus-visible .heroCellLinkText {
+  max-width: 9rem;
+  opacity: 1;
+}
+
+.heroCellLink:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 1px;
+}
+
+/* ---- Customer breakdown: composition bar ---- */
+.compBoard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.compHeadline {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.compHeadlineIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 12px;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  flex-shrink: 0;
+}
+
+.compHeadline div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.compHeadline strong {
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+}
+
+.compHeadline span {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  font-weight: 500;
+}
+
+.compGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.compGroupHead {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--pc-muted-fg);
+}
+
+.compGroupSub {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.compRow {
+  display: flex;
+  flex-direction: column;
+}
+
+.compTrack {
+  display: flex;
+  width: 100%;
+  height: 2rem;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--pc-muted-bg);
+  box-shadow: inset 0 0 0 1px var(--pc-border);
+}
+
+.compTrack[data-size="sm"] {
+  height: 1.4rem;
+}
+
+.compSeg {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 0;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1), filter 0.15s ease;
+}
+
+/* Themed tooltip anchored to the segment itself, not the whole chart. */
+.compSeg .chartTooltip {
+  left: 50%;
+  top: auto;
+  bottom: 100%;
+  transform: translate(-50%, -8px);
+  z-index: 5;
+}
+
+.compSeg:hover {
+  filter: brightness(1.08);
+}
+
+.compSeg + .compSeg {
+  box-shadow: -1px 0 0 var(--pc-card-bg);
+}
+
+.compSeg_cyan {
+  background: var(--pc-secondary-cyan);
+}
+
+.compSeg_primary {
+  background: var(--pc-primary);
+}
+
+.compSeg_soft {
+  background: color-mix(in srgb, var(--pc-primary) 32%, #fff);
+  color: var(--pc-foreground);
+}
+
+.compSeg_strong {
+  background: var(--pc-primary-hover);
+}
+
+.compSwatch_cyan {
+  background: var(--pc-secondary-cyan);
+}
+
+.compSwatch_primary {
+  background: var(--pc-primary);
+}
+
+.compSwatch_soft {
+  background: color-mix(in srgb, var(--pc-primary) 32%, #fff);
+}
+
+.compSwatch_strong {
+  background: var(--pc-primary-hover);
 }
 
 /* Keep meta text from running under the sparkline's reserved bottom-right column. */
