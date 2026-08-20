@@ -8,6 +8,7 @@ import {
   ModalButton,
   ModalFooter,
 } from "@/components/ui";
+import { CATALOG_SOURCE_OPTIONS } from "../constants";
 import css from "../products.module.css";
 import type { Product, ProductCategory, ProductForm, ProductTag } from "../types";
 import { FieldHint } from "./field-hint";
@@ -87,6 +88,19 @@ export function ProductFormModal({
           />
         </div>
         <div className={css.fieldsCol}>
+          <FormField
+            label="Product type"
+            as="select"
+            value={form.source}
+            onChange={(e) => onFieldChange("source", e.target.value as ProductForm["source"])}
+            disabled={saving}
+          >
+            {CATALOG_SOURCE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </FormField>
           <FormField
             label="SKU"
             required
@@ -193,7 +207,7 @@ export function ProductFormModal({
         <FormField
           label="Storage"
           value={form.storage}
-          onChange={(e) => onFieldChange("storage", (e.target as HTMLInputElement).value)}
+          onChange={(e) => onFieldChange("storage", e.target.value)}
           error={fieldErrors.storage}
           disabled={saving}
           placeholder="e.g. Store below 25°C"
@@ -209,6 +223,8 @@ export function ProductFormModal({
         />
       </div>
 
+      {form.source === "NMRA" && (
+        <>
       <h3 className={css.sectionTitle}>NMRA registration</h3>
       <div className={css.twoCol}>
         <FormField
@@ -258,6 +274,8 @@ export function ProductFormModal({
           disabled={saving}
         />
       </div>
+        </>
+      )}
 
       <div className={css.sectionHead}>
         <h3 className={css.sectionTitle}>Categories &amp; tags</h3>

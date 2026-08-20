@@ -48,39 +48,66 @@
   gap: 0.3rem;
 }
 
+/* Tone-pill design — same as the Catalog page's quick filter chips
+   (`quick-chips.tsx`'s `.chip`/`.chipEmerald`/`.chipAmber`/etc.) and the Reports page's
+   toggle chips: always-tinted by semantic tone, with a bold/ring modifier when active. */
 .statusPill {
-  padding: 0.32rem 0.65rem;
-  border: 1px solid var(--pc-border);
+  display: inline-flex;
+  align-items: center;
+  padding: 0.32rem 0.7rem;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--pc-card-bg);
-  color: var(--pc-muted-fg);
   font-family: inherit;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition: transform 0.1s;
 }
 
 .statusPill:hover:not(:disabled) {
-  border-color: var(--pc-primary);
-  color: var(--pc-primary);
+  transform: translateY(-1px);
 }
 
 .statusPill:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
 }
 
 .statusPillActive {
-  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
-  color: var(--pc-primary);
+  font-weight: 650;
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 25%, transparent);
 }
 
-.showingCount {
-  font-size: 0.75rem;
-  color: var(--pc-muted-fg);
-  white-space: nowrap;
+.statusPillTeal {
+  background: color-mix(in srgb, var(--pc-primary) 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
+  color: color-mix(in srgb, var(--pc-primary) 85%, #0f172a);
+}
+
+.statusPillEmerald {
+  background: color-mix(in srgb, #059669 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #059669 30%, var(--pc-border));
+  color: #047857;
+}
+
+.statusPillSky {
+  background: color-mix(in srgb, #0284c7 13%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #0284c7 28%, var(--pc-border));
+  color: #0369a1;
+}
+
+.statusPillAmber {
+  background: color-mix(in srgb, #d97706 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #d97706 32%, var(--pc-border));
+  color: #b45309;
+}
+
+.statusPillRose {
+  background: color-mix(in srgb, #e11d48 11%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #e11d48 26%, var(--pc-border));
+  color: #be123c;
 }
 
 .toolbarActions {
@@ -220,37 +247,6 @@
 .filterCheckDisabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
-
-.clearBtnSlot {
-  flex: 0 0 6.75rem;
-  display: flex;
-  align-items: center;
-}
-
-.clearBtn {
-  padding: 0.55rem 0.85rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-card-bg);
-  color: var(--pc-muted-fg);
-  font-family: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color 0.15s, border-color 0.15s, background 0.15s, opacity 0.15s;
-}
-
-.clearBtn:hover:not(:disabled) {
-  color: var(--pc-foreground);
-  border-color: var(--pc-primary);
-  background: var(--pc-muted-bg);
-}
-
-.clearBtnHidden {
-  visibility: hidden;
-  pointer-events: none;
 }
 
 .columnsBtn {

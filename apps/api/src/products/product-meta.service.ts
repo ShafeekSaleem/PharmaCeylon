@@ -3,38 +3,166 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { CategoryDimension, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
+import { ONBOARDING_DEPARTMENT_GROUPS } from "../catalog/commercial-category-template";
 import {
   CreateProductAliasDto,
   CreateProductCategoryDto,
   CreateProductTagDto,
+  MoveProductsCategoryDto,
+  ReorderCategoriesDto,
   UpdateProductCategoryDto,
 } from "./dto/product-relations.dto";
 
+export type CommercialCategoryTreeNode = {
+  id: string;
+  name: string;
+  canonicalKey: string | null;
+  source: string;
+  isSystem: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  productCount: number;
+  children: CommercialCategoryTreeNode[];
+};
+
+/**
+ * This service manages COMMERCIAL categories (merchandise/business categories — Settings →
+ * Catalog → Categories and the Products create/edit form's "Category" field). Dosage Form /
+ * NMRA Schedule / Registration Type are import-derived classification facets managed
+ * exclusively by the NMRA import pipeline (`nmra-import.service.ts`) — they are intentionally
+ * NOT editable through these endpoints, per the "Category = merchandise, not regulatory
+ * classification" architecture (see root CLAUDE.md).
+ */
 @Injectable()
 export class ProductMetaService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly categoryTaxonomy: CategoryTaxonomyService,
+  ) {}
 
-  async listCategories(tenantId: string) {
+  async listCategories(tenantId: string, dimension: CategoryDimension = "COMMERCIAL") {
     const rows = await this.prisma.productCategory.findMany({
-      where: { tenantId },
-      orderBy: [{ name: "asc" }],
+      where: { tenantId, dimension },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       include: { _count: { select: { categoryMaps: true } } },
     });
+
+    // Products are filed on leaf categories, not the parent/department row itself, so a
+    // parent's own direct count is normally 0 — roll children's counts up into every
+    // ancestor so `productCount` reflects everything under it (matches the "Category"
+    // filter facet's rollup in catalog.service.ts).
+    const directCount = new Map(rows.map((r) => [r.id, r._count.categoryMaps]));
+    const childrenOf = new Map<string, string[]>();
+    for (const r of rows) {
+      if (!r.parentCategoryId) continue;
+      const list = childrenOf.get(r.parentCategoryId) ?? [];
+      list.push(r.id);
+      childrenOf.set(r.parentCategoryId, list);
+    }
+    const rolledUpCache = new Map<string, number>();
+    const rolledUpCount = (id: string): number => {
+      const cached = rolledUpCache.get(id);
+      if (cached !== undefined) return cached;
+      const total =
+        (directCount.get(id) ?? 0) +
+        (childrenOf.get(id) ?? []).reduce((sum, childId) => sum + rolledUpCount(childId), 0);
+      rolledUpCache.set(id, total);
+      return total;
+    };
+
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
       parentCategoryId: r.parentCategoryId,
-      productCount: r._count.categoryMaps,
+      dimension: r.dimension,
+      canonicalKey: r.canonicalKey,
+      source: r.source,
+      isSystem: r.isSystem,
+      isActive: r.isActive,
+      sortOrder: r.sortOrder,
+      productCount: rolledUpCount(r.id),
     }));
   }
 
+  /** Full COMMERCIAL Department → Category tree (all rows, active or not) for Settings management. */
+  async listCommercialTree(tenantId: string) {
+    const [rows, counts] = await Promise.all([
+      this.prisma.productCategory.findMany({
+        where: { tenantId, dimension: "COMMERCIAL" },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      }),
+      this.prisma.productCategoryMap.groupBy({
+        by: ["categoryId"],
+        where: { tenantId, dimension: "COMMERCIAL" },
+        _count: true,
+      }),
+    ]);
+    const countByCategory = new Map(counts.map((c) => [c.categoryId, c._count]));
+    const byParent = new Map<string | null, typeof rows>();
+    for (const r of rows) {
+      const key = r.parentCategoryId;
+      const list = byParent.get(key) ?? [];
+      list.push(r);
+      byParent.set(key, list);
+    }
+    // Products are filed on leaf categories, not the department row itself, so a
+    // department's own direct count is normally 0 — roll children's counts up into
+    // every ancestor (children are built first, so their own rollup is already final).
+    const build = (parentId: string | null): CommercialCategoryTreeNode[] =>
+      (byParent.get(parentId) ?? []).map((r) => {
+        const children = build(r.id);
+        const ownCount = countByCategory.get(r.id) ?? 0;
+        const childrenTotal = children.reduce((sum, c) => sum + c.productCount, 0);
+        return {
+          id: r.id,
+          name: r.name,
+          canonicalKey: r.canonicalKey,
+          source: r.source,
+          isSystem: r.isSystem,
+          isActive: r.isActive,
+          sortOrder: r.sortOrder,
+          productCount: ownCount + childrenTotal,
+          children,
+        };
+      });
+    return build(null);
+  }
+
+  /** Onboarding "what does your pharmacy sell" status — which department groups are enabled. */
+  async onboardingStatus(tenantId: string) {
+    await this.categoryTaxonomy.ensureCommercialTemplate(tenantId);
+    const departments = await this.prisma.productCategory.findMany({
+      where: { tenantId, dimension: "COMMERCIAL", parentCategoryId: null, canonicalKey: { not: null } },
+      select: { canonicalKey: true, isActive: true },
+    });
+    const activeByKey = new Map(departments.map((d) => [d.canonicalKey!, d.isActive]));
+    return ONBOARDING_DEPARTMENT_GROUPS.map((group) => ({
+      label: group.label,
+      enabled: group.departmentKeys.every((key) => activeByKey.get(key) ?? false),
+    }));
+  }
+
+  async applyOnboardingSelection(tenantId: string, departments: string[]) {
+    await this.categoryTaxonomy.applyOnboardingSelection(tenantId, departments);
+    return this.onboardingStatus(tenantId);
+  }
+
   async createCategory(tenantId: string, dto: CreateProductCategoryDto) {
+    if (dto.parentCategoryId) {
+      const parent = await this.prisma.productCategory.findFirst({
+        where: { id: dto.parentCategoryId, tenantId, dimension: "COMMERCIAL" },
+      });
+      if (!parent) throw new NotFoundException("Parent category not found");
+    }
     try {
       return await this.prisma.productCategory.create({
         data: {
           tenantId,
+          dimension: "COMMERCIAL",
+          source: "TENANT",
           name: dto.name.trim(),
           parentCategoryId: dto.parentCategoryId ?? null,
         },
@@ -48,7 +176,19 @@ export class ProductMetaService {
   }
 
   async updateCategory(tenantId: string, id: string, dto: UpdateProductCategoryDto) {
-    await this.ensureCategory(tenantId, id);
+    const existing = await this.ensureCommercialCategory(tenantId, id);
+    if (dto.parentCategoryId) {
+      if (dto.parentCategoryId === id) {
+        throw new ConflictException("A category cannot be its own parent");
+      }
+      const parent = await this.prisma.productCategory.findFirst({
+        where: { id: dto.parentCategoryId, tenantId, dimension: "COMMERCIAL" },
+      });
+      if (!parent) throw new NotFoundException("Parent category not found");
+    }
+    if (existing.isSystem && dto.parentCategoryId !== undefined) {
+      throw new ConflictException("System categories can't be moved to a different parent");
+    }
     return this.prisma.productCategory.update({
       where: { id },
       data: {
@@ -56,12 +196,63 @@ export class ProductMetaService {
         ...(dto.parentCategoryId !== undefined
           ? { parentCategoryId: dto.parentCategoryId }
           : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+        ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
       },
     });
   }
 
+  async reorderCategories(tenantId: string, dto: ReorderCategoriesDto) {
+    const ids = dto.items.map((i) => i.id);
+    const count = await this.prisma.productCategory.count({
+      where: { tenantId, dimension: "COMMERCIAL", id: { in: ids } },
+    });
+    if (count !== ids.length) {
+      throw new ConflictException("One or more categories are invalid");
+    }
+    await this.prisma.$transaction(
+      dto.items.map((item) =>
+        this.prisma.productCategory.update({
+          where: { id: item.id },
+          data: { sortOrder: item.sortOrder },
+        }),
+      ),
+    );
+    return { ok: true };
+  }
+
+  /** Reassign a batch of products' primary COMMERCIAL category (e.g. before disabling a category). */
+  async moveProductsCategory(tenantId: string, dto: MoveProductsCategoryDto) {
+    for (const productId of dto.productIds) {
+      await this.categoryTaxonomy.setPrimaryCommercialCategory(tenantId, productId, dto.toCategoryId, {
+        assignmentSource: "MANUAL",
+      });
+    }
+    return { ok: true, moved: dto.productIds.length };
+  }
+
+  /**
+   * Deleting a COMMERCIAL category is only allowed for tenant-created, empty, childless
+   * categories — everything else (system/template categories, categories with products or
+   * subcategories, and anything with historical sales resolved through it) must be disabled
+   * instead, so historical reporting never loses its category relationships.
+   */
   async deleteCategory(tenantId: string, id: string) {
-    await this.ensureCategory(tenantId, id);
+    const existing = await this.ensureCommercialCategory(tenantId, id);
+    if (existing.isSystem) {
+      throw new ConflictException(
+        "System categories can't be deleted — disable them instead (Settings → Catalog → Categories).",
+      );
+    }
+    const [productCount, childCount] = await Promise.all([
+      this.prisma.productCategoryMap.count({ where: { tenantId, categoryId: id } }),
+      this.prisma.productCategory.count({ where: { tenantId, parentCategoryId: id } }),
+    ]);
+    if (productCount > 0 || childCount > 0) {
+      throw new ConflictException(
+        "Category still has products or subcategories — move or reassign them, or disable this category instead of deleting it.",
+      );
+    }
     await this.prisma.productCategory.delete({ where: { id } });
     return { ok: true };
   }
@@ -157,6 +348,15 @@ export class ProductMetaService {
     return { ok: true };
   }
 
+  /**
+   * Sets a product's COMMERCIAL category associations (the Products create/edit form's
+   * "Category" field). Only touches COMMERCIAL-dimension maps — Dosage Form / NMRA Schedule /
+   * Registration Type maps written by the NMRA import are left untouched, so editing a
+   * product's commercial category can never wipe its regulatory classification.
+   *
+   * The first id becomes the primary category (all financial/profitability reporting groups
+   * by this); any further ids are secondary, discovery-only associations.
+   */
   async syncProductCategories(
     tenantId: string,
     productId: string,
@@ -166,17 +366,24 @@ export class ProductMetaService {
     const unique = [...new Set(categoryIds)];
     if (unique.length) {
       const count = await this.prisma.productCategory.count({
-        where: { tenantId, id: { in: unique } },
+        where: { tenantId, id: { in: unique }, dimension: "COMMERCIAL" },
       });
       if (count !== unique.length) {
         throw new ConflictException("One or more categories are invalid");
       }
     }
-    await this.prisma.productCategoryMap.deleteMany({ where: { tenantId, productId } });
-    if (unique.length) {
-      await this.prisma.productCategoryMap.createMany({
-        data: unique.map((categoryId) => ({ tenantId, productId, categoryId })),
-      });
+
+    await this.prisma.productCategoryMap.deleteMany({
+      where: { tenantId, productId, dimension: "COMMERCIAL", categoryId: { notIn: unique } },
+    });
+    if (unique.length === 0) return;
+
+    const [primaryId, ...secondaryIds] = unique;
+    await this.categoryTaxonomy.setPrimaryCommercialCategory(tenantId, productId, primaryId, {
+      assignmentSource: "MANUAL",
+    });
+    for (const categoryId of secondaryIds) {
+      await this.categoryTaxonomy.addSecondaryCommercialCategory(tenantId, productId, categoryId);
     }
   }
 
@@ -201,8 +408,10 @@ export class ProductMetaService {
 
   async loadProductRelations(tenantId: string, productId: string) {
     const [categoryMaps, tagMaps, aliases] = await this.prisma.$transaction([
+      // COMMERCIAL only — see the productInclude comment in products.service.ts for why
+      // "categories" must never mix in Dosage Form/Schedule/Registration Type maps.
       this.prisma.productCategoryMap.findMany({
-        where: { tenantId, productId },
+        where: { tenantId, productId, dimension: "COMMERCIAL" },
         include: { category: true },
       }),
       this.prisma.productTagMap.findMany({
@@ -221,8 +430,10 @@ export class ProductMetaService {
     };
   }
 
-  private async ensureCategory(tenantId: string, id: string) {
-    const row = await this.prisma.productCategory.findFirst({ where: { id, tenantId } });
+  private async ensureCommercialCategory(tenantId: string, id: string) {
+    const row = await this.prisma.productCategory.findFirst({
+      where: { id, tenantId, dimension: "COMMERCIAL" },
+    });
     if (!row) throw new NotFoundException("Category not found");
     return row;
   }

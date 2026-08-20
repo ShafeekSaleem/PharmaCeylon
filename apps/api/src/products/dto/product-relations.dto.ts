@@ -1,11 +1,17 @@
 import {
+  ArrayMinSize,
   IsArray,
+  IsBoolean,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  Min,
   ValidateIf,
+  ValidateNested,
 } from "class-validator";
+import { Type } from "class-transformer";
 
 export class ProductRelationsDto {
   @IsOptional()
@@ -40,6 +46,47 @@ export class UpdateProductCategoryDto {
   @ValidateIf((_, v) => v !== null)
   @IsUUID()
   parentCategoryId?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+}
+
+class ReorderCategoryItemDto {
+  @IsUUID()
+  id!: string;
+
+  @IsInt()
+  @Min(0)
+  sortOrder!: number;
+}
+
+export class ReorderCategoriesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ReorderCategoryItemDto)
+  items!: ReorderCategoryItemDto[];
+}
+
+export class MoveProductsCategoryDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsUUID("4", { each: true })
+  productIds!: string[];
+
+  @IsUUID()
+  toCategoryId!: string;
+}
+
+export class OnboardingSelectionDto {
+  @IsArray()
+  @IsString({ each: true })
+  departments!: string[];
 }
 
 export class CreateProductTagDto {

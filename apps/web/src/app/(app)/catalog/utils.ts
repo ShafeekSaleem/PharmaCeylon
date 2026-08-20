@@ -48,7 +48,7 @@ export function hasActiveFilters(f: CatalogFilters): boolean {
       f.controlled ||
       f.dosageForm ||
       f.brandName ||
-      f.categoryId ||
+      f.commercialCategoryIds.length ||
       f.tagId ||
       f.stockStatus,
   );
@@ -61,7 +61,7 @@ export function hasBrowseFilters(f: CatalogFilters): boolean {
       f.controlled ||
       f.dosageForm ||
       f.brandName ||
-      f.categoryId ||
+      f.commercialCategoryIds.length ||
       f.tagId ||
       f.stockStatus,
   );
@@ -70,6 +70,7 @@ export function hasBrowseFilters(f: CatalogFilters): boolean {
 export function filtersFromSearchParams(params: URLSearchParams): CatalogFilters {
   const stockStatus = (params.get("stock") as CatalogFilters["stockStatus"]) || "";
   const inStock = stockStatus === "in" || params.get("inStock") === "1";
+  const categoryParam = params.get("categoryId") ?? "";
   return {
     q: params.get("q") ?? "",
     exact: params.get("exact") === "1",
@@ -77,7 +78,9 @@ export function filtersFromSearchParams(params: URLSearchParams): CatalogFilters
     controlled: params.get("controlled") === "1",
     dosageForm: params.get("dosageForm") ?? "",
     brandName: params.get("brandName") ?? "",
-    categoryId: params.get("categoryId") ?? "",
+    commercialCategoryIds: categoryParam
+      ? [...new Set(categoryParam.split(",").map((s) => s.trim()).filter(Boolean))]
+      : [],
     tagId: params.get("tagId") ?? "",
     stockStatus: stockStatus || (inStock ? "in" : ""),
   };
@@ -93,7 +96,7 @@ export function filtersToSearchParams(
   if (f.controlled) params.set("controlled", "1");
   if (f.dosageForm) params.set("dosageForm", f.dosageForm);
   if (f.brandName) params.set("brandName", f.brandName);
-  if (f.categoryId) params.set("categoryId", f.categoryId);
+  if (f.commercialCategoryIds.length) params.set("categoryId", f.commercialCategoryIds.join(","));
   if (f.tagId) params.set("tagId", f.tagId);
   const stock = f.stockStatus || (f.inStock ? "in" : "");
   if (stock) params.set("stock", stock);
@@ -114,7 +117,9 @@ export function buildSearchQuery(
   if (f.controlled) params.set("isControlled", "true");
   if (f.dosageForm) params.set("dosageForm", f.dosageForm);
   if (f.brandName) params.set("brandName", f.brandName);
-  if (f.categoryId) params.set("categoryId", f.categoryId);
+  if (f.commercialCategoryIds.length) {
+    params.set("commercialCategoryId", f.commercialCategoryIds.join(","));
+  }
   if (f.tagId) params.set("tagId", f.tagId);
   if (opts?.matchType && opts.matchType !== "all") {
     params.set("matchType", opts.matchType);

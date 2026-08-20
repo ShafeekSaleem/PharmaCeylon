@@ -52,7 +52,7 @@ const CSV_HEADER = [
   "Dossier no.",
   "Country of origin",
   "Local agent",
-  "Categories",
+  "Commercial Category",
   "Status",
   "Requires prescription",
   "Controlled",
@@ -73,6 +73,7 @@ type ProductListQuery = {
   status?: string;
   lowStock?: boolean;
   categoryId?: string;
+  commercialCategoryId?: string;
   tagId?: string;
   sortBy?: string;
   sortDir?: string;
@@ -107,7 +108,12 @@ function resolveOrderBy(
 }
 
 const productInclude = {
-  categoryMaps: { include: { category: true } },
+  // COMMERCIAL only. This feeds the edit form's `categoryIds` field, which round-trips
+  // unchanged through `ProductMetaService.syncProductCategories` on every save — that method
+  // now validates every id is a COMMERCIAL category, so returning Dosage Form/Schedule/
+  // Registration Type maps here would make saving ANY NMRA product fail with "One or more
+  // categories are invalid" even when the user never touched categories.
+  categoryMaps: { where: { dimension: "COMMERCIAL" as const }, include: { category: true } },
   tagMaps: { include: { tag: true } },
   aliases: { orderBy: { aliasText: "asc" as const } },
 };
@@ -148,7 +154,9 @@ export class ProductsService {
         skip,
         take,
         include: {
-          categoryMaps: { include: { category: true } },
+          // COMMERCIAL only — see productInclude above for why this must never leak
+          // Dosage Form/Schedule/Registration Type maps into the same "categories" field.
+          categoryMaps: { where: { dimension: "COMMERCIAL" }, include: { category: true } },
           tagMaps: { include: { tag: true } },
         },
       }),
@@ -228,7 +236,12 @@ export class ProductsService {
         skip,
         take: EXPORT_BATCH_SIZE,
         include: {
-          categoryMaps: { include: { category: true } },
+          // Primary COMMERCIAL category only — Dosage Form/Schedule/Registration Type already
+          // have their own explicit columns below and must never be blended into this one.
+          categoryMaps: {
+            where: { dimension: "COMMERCIAL", isPrimary: true },
+            include: { category: { include: { parent: true } } },
+          },
         },
       });
       if (rows.length === 0) break;
@@ -239,7 +252,12 @@ export class ProductsService {
           qtyOnHand === null
             ? null
             : resolveStockStatus(qtyOnHand, p.reorderLevel);
-        const categories = p.categoryMaps.map((m) => m.category.name).join("; ");
+        const primaryCategory = p.categoryMaps[0]?.category;
+        const commercialCategory = primaryCategory
+          ? primaryCategory.parent
+            ? `${primaryCategory.parent.name} / ${primaryCategory.name}`
+            : primaryCategory.name
+          : "";
         lines.push(
           [
             p.sku,
@@ -259,7 +277,7 @@ export class ProductsService {
             p.dossierNo,
             p.countryOfOrigin,
             p.localAgent,
-            categories,
+            commercialCategory,
             p.isActive ? "Active" : "Inactive",
             p.requiresPrescription || p.isControlled ? "Yes" : "No",
             p.isControlled ? "Yes" : "No",
@@ -423,6 +441,7 @@ export class ProductsService {
         data: {
           tenantId,
           sku: dto.sku.trim(),
+          source: dto.source ?? "MANUAL",
           barcode: dto.barcode?.trim() || null,
           name: dto.name.trim(),
           brandName: dto.brandName?.trim() || null,
@@ -478,6 +497,7 @@ export class ProductsService {
     await this.prisma.product.update({
       where: { id },
       data: {
+        ...(dto.source !== undefined ? { source: dto.source } : {}),
         ...(dto.barcode !== undefined ? { barcode: dto.barcode?.trim() || null } : {}),
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.brandName !== undefined ? { brandName: dto.brandName?.trim() || null } : {}),
@@ -525,6 +545,7 @@ export class ProductsService {
     const after = await this.getById(tenantId, id);
     const tracked = [
       "name",
+      "source",
       "barcode",
       "genericName",
       "brandName",

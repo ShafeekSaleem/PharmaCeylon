@@ -8,6 +8,11 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import {
+  CategoryTaxonomyService,
+  type RegulatoryDimension,
+} from "../catalog/category-taxonomy.service";
+import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-category-template";
+import {
   createNmraJob,
   getNmraJob,
   patchNmraJob,
@@ -52,6 +57,7 @@ export class NmraImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly categoryTaxonomy: CategoryTaxonomyService,
   ) {}
 
   private parseFile(file: Express.Multer.File): NmraProductRow[] {
@@ -331,6 +337,7 @@ export class NmraImportService {
           registrationNo: row.registrationNo,
           taxCategory: "Standard rate",
           reorderLevel: 0,
+          source: "NMRA",
           ...mutable,
           barcode,
         });
@@ -487,28 +494,36 @@ export class NmraImportService {
     rows: NmraProductRow[],
     byReg: Map<string, ExistingForNmraUpsert>,
   ): Promise<number> {
-    const parentNames = ["Dosage form", "NMRA Schedule", "Registration type"] as const;
-    const parentIdByName = new Map<string, string>();
+    const dimensionByParentName: Record<
+      "Dosage form" | "NMRA Schedule" | "Registration type",
+      RegulatoryDimension
+    > = {
+      "Dosage form": "DOSAGE_FORM",
+      "NMRA Schedule": "NMRA_SCHEDULE",
+      "Registration type": "REGISTRATION_TYPE",
+    };
 
-    for (const name of parentNames) {
-      const existing = await this.prisma.productCategory.findFirst({
-        where: { tenantId, name, parentCategoryId: null },
-      });
-      if (existing) {
-        parentIdByName.set(name, existing.id);
-      } else {
-        const created = await this.prisma.productCategory.create({
-          data: { tenantId, name, parentCategoryId: null },
-        });
-        parentIdByName.set(name, created.id);
-      }
+    const rootIds = await this.categoryTaxonomy.dimensionRootIds(tenantId);
+    const parentIdByName = new Map<string, string>();
+    for (const [parentName, dimension] of Object.entries(dimensionByParentName) as Array<
+      [keyof typeof dimensionByParentName, RegulatoryDimension]
+    >) {
+      const id = rootIds[dimension] ?? (await this.categoryTaxonomy.ensureDimensionRoot(tenantId, dimension));
+      parentIdByName.set(parentName, id);
     }
 
-    const neededChildren = new Map<string, { parentId: string; name: string }>();
+    const neededChildren = new Map<
+      string,
+      { parentId: string; name: string; dimension: RegulatoryDimension }
+    >();
     for (const row of rows) {
       for (const key of nmraCategoryKeysForRow(row)) {
         const parentId = parentIdByName.get(key.parent)!;
-        neededChildren.set(`${parentId}\0${key.name}`, { parentId, name: key.name });
+        neededChildren.set(`${parentId}\0${key.name}`, {
+          parentId,
+          name: key.name,
+          dimension: dimensionByParentName[key.parent],
+        });
       }
     }
 
@@ -533,6 +548,9 @@ export class NmraImportService {
         tenantId,
         name: child.name,
         parentCategoryId: child.parentId,
+        dimension: child.dimension,
+        source: "NMRA_IMPORT",
+        isSystem: true,
       });
     }
     for (const chunk of chunkArray(missingChildren, RELATION_BATCH)) {
@@ -540,9 +558,11 @@ export class NmraImportService {
     }
 
     const maps: Prisma.ProductCategoryMapCreateManyInput[] = [];
+    const productIdsThisBatch = new Set<string>();
     for (const row of rows) {
       const product = byReg.get(row.registrationNo);
       if (!product) continue;
+      productIdsThisBatch.add(product.id);
       for (const key of nmraCategoryKeysForRow(row)) {
         const parentId = parentIdByName.get(key.parent)!;
         const categoryId = childIdByKey.get(`${parentId}\0${key.name}`);
@@ -552,6 +572,9 @@ export class NmraImportService {
           tenantId,
           productId: product.id,
           categoryId,
+          dimension: dimensionByParentName[key.parent],
+          isPrimary: true,
+          assignmentSource: "NMRA_IMPORT",
         });
       }
     }
@@ -564,6 +587,22 @@ export class NmraImportService {
       });
       mapsAdded += res.count;
     }
+
+    // Every NMRA product should also carry a commercial (merchandising) classification.
+    // Imports never overwrite an existing commercial mapping; products still missing one
+    // land in the safe "Medicines → Unclassified Medicines" default — deterministic/AI
+    // commercial classification can refine this later without touching NMRA-sourced data.
+    await this.categoryTaxonomy.ensureCommercialTemplate(tenantId);
+    await this.categoryTaxonomy.assignMissingPrimaryCommercial(
+      tenantId,
+      [...productIdsThisBatch],
+      UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
+      "SYSTEM_DEFAULT",
+    );
+    // Tier 1 of the classification design: deterministic generic-name/dosage-form rules move
+    // confident matches out of Unclassified Medicines; anything ambiguous stays there for review.
+    await this.categoryTaxonomy.applyDeterministicMedicineClassification(tenantId);
+
     return mapsAdded;
   }
 

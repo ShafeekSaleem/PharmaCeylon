@@ -107,6 +107,7 @@ export class CatalogService {
         query.schedule ||
         query.isControlled ||
         query.categoryId ||
+        query.commercialCategoryId ||
         query.tagId ||
         query.lowStock ||
         query.inStock ||
@@ -135,6 +136,7 @@ export class CatalogService {
       status: "active",
       lowStock: query.lowStock,
       categoryId: query.categoryId,
+      commercialCategoryId: query.commercialCategoryId,
       tagId: query.tagId,
     };
 
@@ -282,8 +284,10 @@ export class CatalogService {
                 select: { aliasText: true },
                 take: 20,
               },
+              // COMMERCIAL only — these are the catalog-search result's category badges, not
+              // a mix of merchandising + regulatory (Dosage Form/Schedule/RegType) maps.
               categoryMaps: {
-                where: { tenantId },
+                where: { tenantId, dimension: "COMMERCIAL" },
                 include: { category: { select: { id: true, name: true } } },
                 take: 6,
               },
@@ -510,7 +514,7 @@ export class CatalogService {
       }),
     ]);
 
-    const [categoryRows, tagRows, parentRows] = await this.prisma.$transaction([
+    const [categoryRows, tagRows, parentRows, commercialRows] = await this.prisma.$transaction([
       this.prisma.productCategory.findMany({
         where: { tenantId, id: { in: categoryGroups.map((g) => g.categoryId) } },
         orderBy: { name: "asc" },
@@ -523,9 +527,18 @@ export class CatalogService {
         where: { tenantId, parentCategoryId: null },
         select: { id: true, name: true },
       }),
+      // Full active COMMERCIAL tree regardless of current product counts, so department/
+      // category navigation (Products filter, POS shortcuts) doesn't disappear at 0 products.
+      this.prisma.productCategory.findMany({
+        where: { tenantId, dimension: "COMMERCIAL", isActive: true },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        select: { id: true, name: true, parentCategoryId: true, canonicalKey: true },
+      }),
     ]);
 
-    const categoryCountMap = new Map(categoryGroups.map((g) => [g.categoryId, g._count]));
+    const categoryCountMap = new Map<string, number>(
+      categoryGroups.map((g) => [g.categoryId, g._count as number]),
+    );
     const tagCountMap = new Map(tagGroups.map((g) => [g.tagId, g._count]));
     const parentNameById = new Map(parentRows.map((p) => [p.id, p.name]));
 
@@ -545,12 +558,38 @@ export class CatalogService {
       parentName: c.parentCategoryId
         ? (parentNameById.get(c.parentCategoryId) ?? null)
         : null,
+      dimension: c.dimension,
     }));
 
-    const byParent = (parentName: string) =>
-      categories.filter(
-        (c) => c.parentName === parentName || c.parentName?.toLowerCase() === parentName.toLowerCase(),
-      );
+    const byDimension = (dimension: "DOSAGE_FORM" | "NMRA_SCHEDULE" | "REGISTRATION_TYPE") =>
+      categories.filter((c) => c.dimension === dimension);
+
+    const commercialDepartments = commercialRows
+      .filter((c) => !c.parentCategoryId)
+      .map((dept) => {
+        const children = commercialRows
+          .filter((c) => c.parentCategoryId === dept.id)
+          .map((c) => ({
+            id: c.id,
+            label: c.name,
+            canonicalKey: c.canonicalKey,
+            parentCategoryId: c.parentCategoryId,
+            count: categoryCountMap.get(c.id) ?? 0,
+          }));
+        // Products are filed on leaf categories, not the department itself, so the
+        // department's own direct count is normally 0 — roll up children so the
+        // department row shows the total this facet actually matches (selecting a
+        // department expands to its descendants, see `expandCommercialCategoryIds`).
+        const ownCount = categoryCountMap.get(dept.id) ?? 0;
+        const childrenTotal = children.reduce((sum, c) => sum + c.count, 0);
+        return {
+          id: dept.id,
+          label: dept.name,
+          canonicalKey: dept.canonicalKey,
+          count: ownCount + childrenTotal,
+          children,
+        };
+      });
 
     return {
       brands: brands.map((b) => ({ value: b.brandName!, count: b._count })),
@@ -561,11 +600,11 @@ export class CatalogService {
         count: s._count,
       })),
       categories,
-      formGroups: byParent("Dosage form").length
-        ? byParent("Dosage form")
-        : byParent("Form group"),
-      scheduleCategories: byParent("NMRA Schedule"),
-      registrationTypes: byParent("Registration type"),
+      formGroups: byDimension("DOSAGE_FORM"),
+      scheduleCategories: byDimension("NMRA_SCHEDULE"),
+      registrationTypes: byDimension("REGISTRATION_TYPE"),
+      /** COMMERCIAL department → category tree — active only. This is "Category" on the Products page / POS. */
+      commercialDepartments,
       tags: tagRows.map((t) => ({
         value: t.id,
         label: t.name,
@@ -598,8 +637,11 @@ export class CatalogService {
       where: { id: productId, tenantId },
       include: {
         aliases: { where: { tenantId }, select: { aliasText: true }, take: 20 },
+        // COMMERCIAL only — `dosageForm`/`schedule`/`regType` scalar fields already carry the
+        // regulatory classification below; this must not also list Dosage Form/Schedule/
+        // Registration Type category-map names under the same "categories" key.
         categoryMaps: {
-          where: { tenantId },
+          where: { tenantId, dimension: "COMMERCIAL" },
           include: { category: { select: { id: true, name: true } } },
         },
         tagMaps: {

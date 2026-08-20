@@ -26,10 +26,14 @@ export type TenantProductAlias = ProductAlias & {
 
 export type StockStatus = "out" | "low" | "ok";
 
+/** Catalog record origin. NMRA-specific fields only apply when source = NMRA. */
+export type CatalogSource = "NMRA" | "MANUAL" | "SUPPLIER" | "CSV_IMPORT" | "BARCODE";
+
 export type Product = {
   id: string;
   tenantId: string;
   sku: string;
+  source: CatalogSource;
   barcode: string | null;
   name: string;
   brandName: string | null;
@@ -158,6 +162,14 @@ export type ProductDetail = {
 
 export type FacetEntry = { value: string; count: number; label?: string };
 
+export type CommercialCategoryNode = {
+  id: string;
+  label: string;
+  canonicalKey: string | null;
+  count: number;
+  children?: CommercialCategoryNode[];
+};
+
 export type SummaryFacets = {
   brands: FacetEntry[];
   dosageForms: FacetEntry[];
@@ -165,6 +177,7 @@ export type SummaryFacets = {
   formGroups?: FacetEntry[];
   registrationTypes?: FacetEntry[];
   categories?: FacetEntry[];
+  commercialDepartments?: CommercialCategoryNode[];
   tags?: FacetEntry[];
   controlled: { value: boolean; count: number }[];
   status?: FacetEntry[];
@@ -178,6 +191,7 @@ export type SummaryFacets = {
 
 export type ProductForm = {
   sku: string;
+  source: CatalogSource;
   barcode: string;
   name: string;
   genericName: string;

@@ -1,3 +1,5 @@
+import type { CategoryTreeNode } from "@/components/ui";
+
 export type MatchType = "exact" | "generic" | "alias" | "partial";
 export type StockStatus = "healthy" | "low" | "out";
 
@@ -44,6 +46,8 @@ export type CatalogFacets = {
   brands: Array<{ value: string; count: number }>;
   dosageForms: Array<{ value: string; count: number }>;
   categories: Array<{ value: string; label: string; count: number }>;
+  /** Active COMMERCIAL department → category tree — this is the "Category" filter. */
+  commercialDepartments?: CategoryTreeNode[];
   tags: Array<{ value: string; label: string; count: number }>;
   controlled: Array<{ value: boolean; count: number }>;
   branchStockSummary: {
@@ -122,7 +126,8 @@ export type CatalogFilters = {
   controlled: boolean;
   dosageForm: string;
   brandName: string;
-  categoryId: string;
+  /** Commercial (merchandising) Category filter — one or more department/category ids. */
+  commercialCategoryIds: string[];
   tagId: string;
   stockStatus: "" | "in" | "low" | "out";
 };
@@ -134,7 +139,7 @@ export const DEFAULT_FILTERS: CatalogFilters = {
   controlled: false,
   dosageForm: "",
   brandName: "",
-  categoryId: "",
+  commercialCategoryIds: [],
   tagId: "",
   stockStatus: "",
 };

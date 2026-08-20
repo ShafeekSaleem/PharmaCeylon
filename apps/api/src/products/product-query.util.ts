@@ -11,9 +11,51 @@ export type ProductFilterQuery = {
   requiresPrescription?: boolean;
   status?: string;
   lowStock?: boolean;
+  /** Form group / Registration type category ids (regulatory dimensions, OR-matched together). */
   categoryId?: string;
+  /**
+   * Commercial ("Category" on the Products page) category id(s). Selecting a department
+   * matches every product under any of its descendant categories — expanded server-side via
+   * `expandCommercialCategoryIds`. Combined with `categoryId`/`schedule` as an independent AND
+   * clause so "Category" + "Schedule" + "Form group" can be combined orthogonally.
+   */
+  commercialCategoryId?: string;
   tagId?: string;
 };
+
+/**
+ * Expand a set of COMMERCIAL category ids to include all their descendants, so selecting a
+ * department (e.g. "Medicines") matches products filed under any of its categories/
+ * subcategories. Loads the tenant's full COMMERCIAL tree once (small, cacheable-sized dataset)
+ * rather than recursing per id.
+ */
+export async function expandCommercialCategoryIds(
+  prisma: PrismaService,
+  tenantId: string,
+  ids: string[],
+): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const all = await prisma.productCategory.findMany({
+    where: { tenantId, dimension: "COMMERCIAL" },
+    select: { id: true, parentCategoryId: true },
+  });
+  const childrenByParent = new Map<string, string[]>();
+  for (const c of all) {
+    if (!c.parentCategoryId) continue;
+    const list = childrenByParent.get(c.parentCategoryId) ?? [];
+    list.push(c.id);
+    childrenByParent.set(c.parentCategoryId, list);
+  }
+  const result = new Set<string>();
+  const stack = [...ids];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (result.has(id)) continue;
+    result.add(id);
+    for (const child of childrenByParent.get(id) ?? []) stack.push(child);
+  }
+  return [...result];
+}
 
 export type FacetExclude =
   | "dosageForm"
@@ -138,6 +180,14 @@ export async function buildProductWhere(
     }
   }
 
+  const commercialCategoryIdsRaw = parseCsv(query.commercialCategoryId);
+  const commercialCategoryIds = commercialCategoryIdsRaw.length
+    ? await expandCommercialCategoryIds(prisma, tenantId, commercialCategoryIdsRaw)
+    : [];
+  if (commercialCategoryIdsRaw.length && commercialCategoryIds.length === 0) {
+    return EMPTY_WHERE(tenantId);
+  }
+
   const where: Prisma.ProductWhereInput = {
     tenantId,
     ...(exclude !== "status"
@@ -176,6 +226,9 @@ export async function buildProductWhere(
       : categoryIds.length > 1
         ? { categoryMaps: { some: { tenantId, categoryId: { in: categoryIds } } } }
         : {}),
+    ...(commercialCategoryIds.length
+      ? { AND: [{ categoryMaps: { some: { tenantId, categoryId: { in: commercialCategoryIds } } } }] }
+      : {}),
     ...(tagIds.length === 1
       ? { tagMaps: { some: { tenantId, tagId: tagIds[0] } } }
       : tagIds.length > 1

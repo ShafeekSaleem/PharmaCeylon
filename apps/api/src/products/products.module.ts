@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AuditModule } from "../audit/audit.module";
+import { CatalogModule } from "../catalog/catalog.module";
 import {
   BarcodeImportController,
   NmraImportController,
@@ -12,7 +13,7 @@ import { ProductsService } from "./products.service";
 
 /** Products + NMRA/barcode import endpoints. */
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, CatalogModule],
   controllers: [
     ProductMetaController,
     NmraImportController,

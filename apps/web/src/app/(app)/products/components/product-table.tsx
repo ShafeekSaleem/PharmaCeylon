@@ -87,13 +87,10 @@ export function ProductTable({
                 {row.schedule && !visibleColumns.has("schedule") ? (
                   <span className={css.metaChip}>Schedule {row.schedule}</span>
                 ) : null}
+                {/* `row.categories` is COMMERCIAL-only (server-scoped) — no name-based
+                    filtering needed to keep Schedule/Dosage Form names out of this chip. */}
                 {(row.categories ?? [])
-                  .filter(
-                    (c) =>
-                      !c.name.includes("—") &&
-                      !/^Schedule\b/i.test(c.name) &&
-                      c.name.length < 28,
-                  )
+                  .filter((c) => !c.name.includes("—") && c.name.length < 28)
                   .slice(0, 1)
                   .map((c) => (
                     <span key={c.id} className={css.metaChip}>

@@ -263,7 +263,7 @@ export function formatHistorySummary(
     const obj = payload as Record<string, unknown>;
     const name = eventName.toLowerCase();
     if (name.includes("price") && obj.from != null && obj.to != null) {
-      return `Selling price changed from ${formatCurrency(obj.from)} to ${formatCurrency(obj.to)}`;
+      return `Selling price changed from ${formatCurrency(obj.from as string | number)} to ${formatCurrency(obj.to as string | number)}`;
     }
     if (name.startsWith("stock.") || name === "inventory.adjustment") {
       const parts: string[] = [];

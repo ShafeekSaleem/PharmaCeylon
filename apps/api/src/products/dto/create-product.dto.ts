@@ -2,18 +2,31 @@ import { Type } from "class-transformer";
 import {
   IsBoolean,
   IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
   MaxLength,
   Min,
 } from "class-validator";
+import type { CatalogSource } from "@prisma/client";
 import { ProductRelationsDto } from "./product-relations.dto";
+
+const CATALOG_SOURCES: CatalogSource[] = ["NMRA", "MANUAL", "SUPPLIER", "CSV_IMPORT", "BARCODE"];
 
 export class CreateProductDto extends ProductRelationsDto {
   @IsString()
   @MaxLength(64)
   sku!: string;
+
+  /**
+   * Catalog record origin. Defaults to MANUAL — NMRA-specific fields (schedule, regType,
+   * dossierNo, registrationNo/Date) are only required/expected when source = NMRA, so retail
+   * items (chocolate, diapers, shampoo, …) never need to fake pharmaceutical regulatory data.
+   */
+  @IsOptional()
+  @IsIn(CATALOG_SOURCES)
+  source?: CatalogSource;
 
   @IsOptional()
   @IsString()

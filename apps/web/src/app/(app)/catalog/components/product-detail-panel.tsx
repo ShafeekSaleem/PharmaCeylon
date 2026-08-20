@@ -35,7 +35,7 @@ type Props = {
 
 function canSeeCost(roles: string[]): boolean {
   return roles.some((r) =>
-    ["owner", "manager", "inventory_clerk", "analyst", "pharmacist"].includes(r),
+    ["owner", "manager", "inventory_clerk", "pharmacist"].includes(r),
   );
 }
 
@@ -301,7 +301,7 @@ export function ProductDetailPanel({
 
           {view.categories?.length || view.tags?.length ? (
             <div>
-              <h3 className={css.sectionTitle}>Categories & tags</h3>
+              <h3 className={css.sectionTitle}>Category & tags</h3>
               <div className={css.tagRow}>
                 {(view.categories ?? []).map((c) => (
                   <span key={c.id} className={css.flag}>

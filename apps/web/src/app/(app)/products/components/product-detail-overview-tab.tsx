@@ -103,25 +103,27 @@ export function ProductDetailOverviewTab({
         </div>
       </section>
 
-      <section className={detailCss.section}>
-        <h2 className={detailCss.sectionTitle}>
-          <span className={detailCss.sectionNumber}>3</span>
-          NMRA registration
-        </h2>
-        <div className={detailCss.fieldGrid}>
-          <Field label="Registration no." value={product.registrationNo} />
-          <Field label="Registration date" value={formatDate(product.registrationDate)} />
-          <Field
-            label="Schedule"
-            value={product.schedule}
-            badge={product.schedule ? "standard" : undefined}
-          />
-          <Field label="Registration type" value={product.regType} />
-          <Field label="Dossier no." value={product.dossierNo} />
-          <Field label="Country of origin" value={product.countryOfOrigin} />
-          <Field label="Local agent" value={product.localAgent} />
-        </div>
-      </section>
+      {product.source === "NMRA" && (
+        <section className={detailCss.section}>
+          <h2 className={detailCss.sectionTitle}>
+            <span className={detailCss.sectionNumber}>3</span>
+            NMRA registration
+          </h2>
+          <div className={detailCss.fieldGrid}>
+            <Field label="Registration no." value={product.registrationNo} />
+            <Field label="Registration date" value={formatDate(product.registrationDate)} />
+            <Field
+              label="Schedule"
+              value={product.schedule}
+              badge={product.schedule ? "standard" : undefined}
+            />
+            <Field label="Registration type" value={product.regType} />
+            <Field label="Dossier no." value={product.dossierNo} />
+            <Field label="Country of origin" value={product.countryOfOrigin} />
+            <Field label="Local agent" value={product.localAgent} />
+          </div>
+        </section>
+      )}
 
       <section className={detailCss.section}>
         <div className={detailCss.sectionHead}>
@@ -143,11 +145,11 @@ export function ProductDetailOverviewTab({
         <div className={detailCss.taxonomyGrid}>
           <div className={detailCss.taxonomyCard}>
             <h3 className={detailCss.taxonomyCardTitle}>
-              Categories
+              Commercial Category
               <span className={detailCss.taxonomyCount}>({categories.length})</span>
             </h3>
             {categories.length === 0 ? (
-              <p className={detailCss.muted}>No categories assigned.</p>
+              <p className={detailCss.muted}>No commercial category assigned.</p>
             ) : (
               <div className={detailCss.taxonomyChipList}>
                 {categories.map((c) => (

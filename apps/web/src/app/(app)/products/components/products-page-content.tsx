@@ -17,9 +17,11 @@ import {
 } from "@/components/icons";
 import {
   ActionButton,
+  ActiveFilterBanner,
   PageHeader,
   StatCard,
   StatGrid,
+  flattenCategoryTree,
   type SortDir,
 } from "@/components/ui";
 import { getBranchId } from "@/lib/auth-session";
@@ -29,11 +31,14 @@ import {
   COLUMN_STORAGE_KEY,
   DEFAULT_VISIBLE,
   PRODUCT_STAT_PILLS,
+  type KpiIconTone,
 } from "../constants";
 import {
+  CONTROLLED_LABELS,
   EMPTY_PRODUCT_FILTERS,
   productFiltersAreActive,
   ProductsFilterPanel,
+  STATUS_LABELS,
 } from "../products-filter-panel";
 import css from "../products.module.css";
 import type { ColumnKey, Product, StatFilter } from "../types";
@@ -55,6 +60,16 @@ import { NmraImportModal } from "./nmra-import-modal";
 import { ProductFormModal } from "./product-form-modal";
 import { ProductMetaManagerModal } from "./product-meta-manager-modal";
 import { ProductTable } from "./product-table";
+
+/** Same tone-pill mapping as the Catalog page's quick filter chips — keeps the "quick
+ *  status" pill design consistent across pages instead of each page inventing its own. */
+const STAT_PILL_TONE_CLASS: Record<KpiIconTone, string> = {
+  primary: css.statusPillTeal,
+  success: css.statusPillEmerald,
+  info: css.statusPillSky,
+  warning: css.statusPillAmber,
+  danger: css.statusPillRose,
+};
 
 export function ProductsPageContent() {
   const router = useRouter();
@@ -183,7 +198,6 @@ export function ProductsPageContent() {
     const f = appliedFilters;
     const onlyPillExtras =
       f.schedules.length === 0 &&
-      f.dosageForms.length === 0 &&
       f.formGroups.length === 0 &&
       f.registrationTypes.length === 0 &&
       f.brands.length === 0 &&
@@ -310,6 +324,51 @@ export function ProductsPageContent() {
     [list.filterFacets],
   );
 
+  const activeFilterPills = useMemo(() => {
+    const f = appliedFilters;
+    const facetsData = list.filterFacets;
+    const pills: { key: string; label: string }[] = [];
+
+    if (f.commercialCategories.length) {
+      const categoryOptions = flattenCategoryTree(facetsData?.commercialDepartments);
+      for (const id of f.commercialCategories) {
+        const label = categoryOptions.find((o) => o.value === id)?.label ?? id;
+        pills.push({ key: `cat-${id}`, label: `Category: ${label}` });
+      }
+    }
+    for (const code of f.schedules) {
+      const label = facetsData?.schedules?.find((s) => s.value === code)?.label ?? code;
+      pills.push({ key: `sch-${code}`, label: `Schedule: ${label}` });
+    }
+    for (const id of f.formGroups) {
+      const label = facetsData?.formGroups?.find((g) => g.value === id)?.label ?? id;
+      pills.push({ key: `fg-${id}`, label: `Form group: ${label}` });
+    }
+    for (const id of f.registrationTypes) {
+      const label = facetsData?.registrationTypes?.find((r) => r.value === id)?.label ?? id;
+      pills.push({ key: `rt-${id}`, label: `Registration type: ${label}` });
+    }
+    for (const brand of f.brands) {
+      pills.push({ key: `brand-${brand}`, label: `Brand: ${brand}` });
+    }
+    for (const id of f.tags) {
+      const label = facetsData?.tags?.find((t) => t.value === id)?.label ?? id;
+      pills.push({ key: `tag-${id}`, label: `Tag: ${label}` });
+    }
+    for (const status of f.status) {
+      pills.push({ key: `status-${status}`, label: STATUS_LABELS[status] ?? status });
+    }
+    for (const c of f.controlled) {
+      pills.push({ key: `ctrl-${c}`, label: CONTROLLED_LABELS[c] ?? c });
+    }
+    if (f.lowStock) pills.push({ key: "lowStock", label: "Low stock" });
+    if (f.requiresPrescription) {
+      pills.push({ key: "rx", label: "Prescription required" });
+    }
+
+    return pills;
+  }, [appliedFilters, list.filterFacets]);
+
   return (
     <div className={css.page}>
       <PageHeader
@@ -418,27 +477,15 @@ export function ProductsPageContent() {
                     role="tab"
                     aria-selected={active}
                     disabled={disabled}
-                    className={`${css.statusPill}${active ? ` ${css.statusPillActive}` : ""}`}
+                    className={`${css.statusPill} ${STAT_PILL_TONE_CLASS[pill.iconTone]}${
+                      active ? ` ${css.statusPillActive}` : ""
+                    }`}
                     onClick={() => toggleStatFilter(pill.id)}
                   >
                     {pill.label}
                   </button>
                 );
               })}
-            </div>
-            <span className={css.showingCount}>
-              Showing {list.total} product{list.total === 1 ? "" : "s"}
-            </span>
-            <div className={css.clearBtnSlot}>
-              <button
-                type="button"
-                className={`${css.clearBtn} ${!filtersActive ? css.clearBtnHidden : ""}`}
-                onClick={handleClearFilters}
-                disabled={!filtersActive}
-                tabIndex={filtersActive ? 0 : -1}
-              >
-                Clear filters
-              </button>
             </div>
           </div>
 
@@ -550,6 +597,14 @@ export function ProductsPageContent() {
             {exportError}
           </Alert>
         )}
+
+        <ActiveFilterBanner
+          active={filtersActive}
+          summary={`Filtered products · ${list.total} product${list.total === 1 ? "" : "s"}`}
+          pills={activeFilterPills}
+          onClear={handleClearFilters}
+          clearTooltip="Reset all product filters"
+        />
 
         <ProductTable
           products={list.products}

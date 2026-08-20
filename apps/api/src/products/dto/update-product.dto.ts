@@ -2,15 +2,23 @@ import { Type } from "class-transformer";
 import {
   IsBoolean,
   IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
   MaxLength,
   Min,
 } from "class-validator";
+import type { CatalogSource } from "@prisma/client";
 import { ProductRelationsDto } from "./product-relations.dto";
 
+const CATALOG_SOURCES: CatalogSource[] = ["NMRA", "MANUAL", "SUPPLIER", "CSV_IMPORT", "BARCODE"];
+
 export class UpdateProductDto extends ProductRelationsDto {
+  @IsOptional()
+  @IsIn(CATALOG_SOURCES)
+  source?: CatalogSource;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)
