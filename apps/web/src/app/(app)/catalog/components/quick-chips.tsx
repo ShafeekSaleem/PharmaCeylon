@@ -9,6 +9,7 @@ import {
   IconTag,
   IconX,
 } from "@/components/icons";
+import { flattenCategoryTree } from "@/components/ui";
 import css from "../catalog.module.css";
 import type { CatalogFacets, CatalogFilters } from "../types";
 
@@ -34,13 +35,13 @@ function toneClass(tone: ChipTone, active: boolean): string {
 
 export function QuickChips({ filters, facets, onChange }: Props) {
   const forms = facets?.dosageForms ?? [];
-  const categories = facets?.categories ?? [];
+  const categories = flattenCategoryTree(facets?.commercialDepartments);
   const tags = facets?.tags ?? [];
   const stock = facets?.branchStockSummary;
 
   const tablet = forms.find((f) => /tablet/i.test(f.value));
   const capsule = forms.find((f) => /capsule/i.test(f.value));
-  const antibiotics = categories.find((c) => /antibiotic/i.test(c.label));
+  const antibiotics = categories.find((c) => /anti-?infective|antibiotic/i.test(c.label));
   const rxTag = tags.find((t) => /rx|prescription|script/i.test(t.label));
 
   const tabletValue = tablet?.value ?? "Tablet";
@@ -124,15 +125,16 @@ export function QuickChips({ filters, facets, onChange }: Props) {
   }
 
   if (antibiotics) {
+    const isActive = filters.commercialCategoryIds.includes(antibiotics.value);
     chips.push({
       key: "antibiotics",
       label: "Antibiotics",
       tone: "teal",
-      active: filters.categoryId === antibiotics.value,
+      active: isActive,
       icon: <IconPackage size={14} />,
       onToggle: () =>
         onChange({
-          categoryId: filters.categoryId === antibiotics.value ? "" : antibiotics.value,
+          commercialCategoryIds: isActive ? [] : [antibiotics.value],
         }),
     });
   }

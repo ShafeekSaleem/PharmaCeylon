@@ -21,7 +21,16 @@ import {
   IconTruck,
 } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
-import { ActionButton, DataTable, PageHeader, StatCard, StatusBadge, type Column } from "@/components/ui";
+import {
+  ActionButton,
+  ActiveFilterBanner,
+  DataTable,
+  PageHeader,
+  StatCard,
+  StatusBadge,
+  type Column,
+  type FilterPill,
+} from "@/components/ui";
 import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
@@ -323,6 +332,28 @@ function PurchasingContent() {
     !!dateFrom ||
     !!dateTo ||
     !!productId;
+
+  const activeFilterPills: FilterPill[] = [
+    ...(statusFilter !== "all"
+      ? [{ key: "status", label: STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter }]
+      : []),
+    ...(supplierFilter !== "all"
+      ? [
+          {
+            key: "supplier",
+            label: `Supplier: ${supplierOptions.find((o) => o.value === supplierFilter)?.label ?? "Selected"}`,
+          },
+        ]
+      : []),
+    ...(dateFrom || dateTo
+      ? [
+          {
+            key: "date",
+            label: `Date: ${dateFrom ? formatDate(dateFrom) : "…"} – ${dateTo ? formatDate(dateTo) : "…"}`,
+          },
+        ]
+      : []),
+  ];
 
   function exportCsv() {
     const header = [
@@ -658,17 +689,12 @@ function PurchasingContent() {
 
             {orders.error && <Alert variant="error">{orders.error}</Alert>}
 
-            {filtersActive && (
-              <div className={css.activeFilter}>
-                <span>
-                  Filtered purchase orders · {filtered.length} order
-                  {filtered.length === 1 ? "" : "s"}
-                </span>
-                <button type="button" className={css.clearFilter} onClick={clearFilters}>
-                  Clear filter
-                </button>
-              </div>
-            )}
+            <ActiveFilterBanner
+              active={filtersActive}
+              summary={`Filtered purchase orders · ${filtered.length} order${filtered.length === 1 ? "" : "s"}`}
+              pills={activeFilterPills}
+              onClear={clearFilters}
+            />
 
             <DataTable
               columns={columns}

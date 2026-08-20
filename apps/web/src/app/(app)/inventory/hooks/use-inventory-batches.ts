@@ -11,6 +11,7 @@ export function useInventoryBatches(opts: {
   /** When true, only expired batches. */
   expired?: boolean | null;
   includeZero?: boolean;
+  controlled?: "controlled" | "regular" | null;
   q?: string;
 }) {
   const { branchId } = useAuth();
@@ -35,6 +36,7 @@ export function useInventoryBatches(opts: {
       }
       if (opts.expired === true) params.set("expired", "true");
       if (opts.includeZero === false) params.set("includeZero", "false");
+      if (opts.controlled) params.set("controlled", opts.controlled);
       const qs = params.toString();
       let data = await apiJson<BatchRow[]>(
         `/inventory/batches${qs ? `?${qs}` : ""}`,
@@ -61,6 +63,7 @@ export function useInventoryBatches(opts: {
     opts.nearExpiryDays,
     opts.expired,
     opts.includeZero,
+    opts.controlled,
     opts.q,
   ]);
 

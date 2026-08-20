@@ -21,8 +21,17 @@ import {
   IconX,
 } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
-import { ActionButton, DataTable, PageHeader, StatCard, StatusBadge, type Column } from "@/components/ui";
-import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import {
+  ActionButton,
+  ActiveFilterBanner,
+  DataTable,
+  PageHeader,
+  StatCard,
+  StatusBadge,
+  type Column,
+  type FilterPill,
+} from "@/components/ui";
+import { apiJson, fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
 import inventoryCss from "../inventory/inventory.module.css";
@@ -76,6 +85,28 @@ function ReturnsContent() {
 
   const productId = searchParams.get("productId");
   const statusParam = searchParams.get("status");
+  const returnParam = searchParams.get("return");
+
+  useEffect(() => {
+    if (!returnParam) return;
+    let cancelled = false;
+    apiJson<ReturnListItem>(`/returns/${returnParam}`)
+      .then((r) => {
+        if (!cancelled) setDetailReturn(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [returnParam]);
+
+  function clearReturnParam() {
+    if (!searchParams.get("return")) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("return");
+    const qs = next.toString();
+    router.replace(qs ? `/returns?${qs}` : "/returns");
+  }
 
   useEffect(() => {
     if (!statusParam) return;
@@ -281,6 +312,31 @@ function ReturnsContent() {
     !!dateFrom ||
     !!dateTo ||
     !!productId;
+
+  const activeFilterPills: FilterPill[] = [
+    ...(statusFilter !== "all"
+      ? [{ key: "status", label: STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter }]
+      : []),
+    ...(typeFilter !== "all"
+      ? [{ key: "type", label: TYPE_OPTIONS.find((o) => o.value === typeFilter)?.label ?? typeFilter }]
+      : []),
+    ...(branchFilter !== "all"
+      ? [
+          {
+            key: "branch",
+            label: `Branch: ${branchOptions.find((o) => o.value === branchFilter)?.label ?? "Selected"}`,
+          },
+        ]
+      : []),
+    ...(dateFrom || dateTo
+      ? [
+          {
+            key: "date",
+            label: `Date: ${dateFrom ? formatDate(dateFrom) : "…"} – ${dateTo ? formatDate(dateTo) : "…"}`,
+          },
+        ]
+      : []),
+  ];
 
   function exportCsv() {
     const header = [
@@ -612,22 +668,13 @@ function ReturnsContent() {
 
             {returns.error && <Alert variant="error">{returns.error}</Alert>}
 
-            {filtersActive && (
-              <div className={layoutCss.activeFilter}>
-                <span>
-                  Filtered returns · {filtered.length} return
-                  {filtered.length === 1 ? "" : "s"}
-                </span>
-                <button
-                  type="button"
-                  className={layoutCss.clearFilter}
-                  onClick={clearFilters}
-                  data-tooltip="Reset all return filters"
-                >
-                  Clear filter
-                </button>
-              </div>
-            )}
+            <ActiveFilterBanner
+              active={filtersActive}
+              summary={`Filtered returns · ${filtered.length} return${filtered.length === 1 ? "" : "s"}`}
+              pills={activeFilterPills}
+              onClear={clearFilters}
+              clearTooltip="Reset all return filters"
+            />
 
             <DataTable
               columns={columns}
@@ -789,7 +836,10 @@ function ReturnsContent() {
         returnItem={detailReturn}
         branchId={branchId}
         user={user}
-        onClose={() => setDetailReturn(null)}
+        onClose={() => {
+          setDetailReturn(null);
+          clearReturnParam();
+        }}
         onChanged={() => void returns.reload()}
       />
     </div>

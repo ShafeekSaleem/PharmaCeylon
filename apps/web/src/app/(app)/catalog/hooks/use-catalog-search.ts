@@ -117,7 +117,9 @@ export function useCatalogSearch({ filters, matchTab, debounceMs = 280 }: Option
         if (filters.dosageForm) params.set("dosageForm", filters.dosageForm);
         if (filters.brandName) params.set("brandName", filters.brandName);
         if (filters.controlled) params.set("isControlled", "true");
-        if (filters.categoryId) params.set("categoryId", filters.categoryId);
+        if (filters.commercialCategoryIds.length) {
+          params.set("commercialCategoryId", filters.commercialCategoryIds.join(","));
+        }
         if (filters.tagId) params.set("tagId", filters.tagId);
         params.set("status", "active");
         const f = await apiJson<CatalogFacets>(`/catalog/facets?${params.toString()}`);
@@ -135,7 +137,7 @@ export function useCatalogSearch({ filters, matchTab, debounceMs = 280 }: Option
     filters.dosageForm,
     filters.brandName,
     filters.controlled,
-    filters.categoryId,
+    filters.commercialCategoryIds,
     filters.tagId,
   ]);
 

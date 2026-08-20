@@ -13,6 +13,10 @@ type Props = {
 };
 
 /** Pharmacist sets a short till PIN so cashiers can co-sign without sharing full login. */
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 8);
+}
+
 export function PosSetPinModal({ open, onClose, onSaved, onError }: Props) {
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -72,9 +76,10 @@ export function PosSetPinModal({ open, onClose, onSaved, onError }: Props) {
             className={css.control}
             type="password"
             inputMode="numeric"
+            pattern="[0-9]*"
             autoComplete="off"
             value={pin}
-            onChange={(e) => setPin(e.target.value)}
+            onChange={(e) => setPin(digitsOnly(e.target.value))}
           />
         </label>
         <label className={css.field}>
@@ -83,9 +88,10 @@ export function PosSetPinModal({ open, onClose, onSaved, onError }: Props) {
             className={css.control}
             type="password"
             inputMode="numeric"
+            pattern="[0-9]*"
             autoComplete="off"
             value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
+            onChange={(e) => setConfirm(digitsOnly(e.target.value))}
           />
         </label>
         <label className={css.field}>

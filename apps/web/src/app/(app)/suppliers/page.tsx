@@ -16,7 +16,16 @@ import {
   IconSearch,
   IconUsers,
 } from "@/components/icons";
-import { ActionButton, DataTable, PageHeader, StatCard, StatusBadge, type Column } from "@/components/ui";
+import {
+  ActionButton,
+  ActiveFilterBanner,
+  DataTable,
+  PageHeader,
+  StatCard,
+  StatusBadge,
+  type Column,
+  type FilterPill,
+} from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
 import inventoryCss from "../inventory/inventory.module.css";
@@ -134,6 +143,24 @@ function SuppliersContent() {
     typeFilter !== "all" ||
     termsFilter !== "all" ||
     overdueOnly;
+
+  const activeFilterPills: FilterPill[] = [
+    ...(statusFilter !== "all"
+      ? [{ key: "status", label: STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter }]
+      : []),
+    ...(typeFilter !== "all"
+      ? [{ key: "type", label: TYPE_OPTIONS.find((o) => o.value === typeFilter)?.label ?? typeFilter }]
+      : []),
+    ...(termsFilter !== "all"
+      ? [
+          {
+            key: "terms",
+            label: PAYMENT_TERMS_OPTIONS.find((o) => o.value === termsFilter)?.label ?? termsFilter,
+          },
+        ]
+      : []),
+    ...(overdueOnly ? [{ key: "overdue", label: "Overdue balance" }] : []),
+  ];
 
   const paged = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
@@ -393,22 +420,13 @@ function SuppliersContent() {
             </button>
           </div>
 
-          {hasActiveFilters && (
-            <div className={layoutCss.activeFilter}>
-              <span>
-                Filtered suppliers · {filteredRows.length} supplier
-                {filteredRows.length === 1 ? "" : "s"}
-              </span>
-              <button
-                type="button"
-                className={layoutCss.clearFilter}
-                onClick={clearFilters}
-                data-tooltip="Reset all supplier filters"
-              >
-                Clear filter
-              </button>
-            </div>
-          )}
+          <ActiveFilterBanner
+            active={hasActiveFilters}
+            summary={`Filtered suppliers · ${filteredRows.length} supplier${filteredRows.length === 1 ? "" : "s"}`}
+            pills={activeFilterPills}
+            onClear={clearFilters}
+            clearTooltip="Reset all supplier filters"
+          />
 
           <DataTable
             columns={columns}

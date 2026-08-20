@@ -19,7 +19,16 @@ import {
   IconTruck,
 } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
-import { ActionButton, DataTable, PageHeader, StatCard, StatusBadge, type Column } from "@/components/ui";
+import {
+  ActionButton,
+  ActiveFilterBanner,
+  DataTable,
+  PageHeader,
+  StatCard,
+  StatusBadge,
+  type Column,
+  type FilterPill,
+} from "@/components/ui";
 import { apiJson, fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
@@ -294,6 +303,36 @@ function TransfersContent() {
     !!dateFrom ||
     !!dateTo ||
     !!productId;
+
+  const activeFilterPills: FilterPill[] = [
+    ...(statusFilter !== "all"
+      ? [{ key: "status", label: STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter }]
+      : []),
+    ...(fromBranchFilter !== "all"
+      ? [
+          {
+            key: "from",
+            label: `From: ${branchOptions.find((o) => o.value === fromBranchFilter)?.label ?? "Selected"}`,
+          },
+        ]
+      : []),
+    ...(toBranchFilter !== "all"
+      ? [
+          {
+            key: "to",
+            label: `To: ${branchOptions.find((o) => o.value === toBranchFilter)?.label ?? "Selected"}`,
+          },
+        ]
+      : []),
+    ...(dateFrom || dateTo
+      ? [
+          {
+            key: "date",
+            label: `Date: ${dateFrom ? formatDate(dateFrom) : "…"} – ${dateTo ? formatDate(dateTo) : "…"}`,
+          },
+        ]
+      : []),
+  ];
 
   function exportCsv() {
     const header = [
@@ -614,22 +653,13 @@ function TransfersContent() {
 
             {transfers.error && <Alert variant="error">{transfers.error}</Alert>}
 
-            {filtersActive && (
-              <div className={layoutCss.activeFilter}>
-                <span>
-                  Filtered transfers · {filtered.length} transfer
-                  {filtered.length === 1 ? "" : "s"}
-                </span>
-                <button
-                  type="button"
-                  className={layoutCss.clearFilter}
-                  onClick={clearFilters}
-                  data-tooltip="Reset all transfer filters"
-                >
-                  Clear filter
-                </button>
-              </div>
-            )}
+            <ActiveFilterBanner
+              active={filtersActive}
+              summary={`Filtered transfers · ${filtered.length} transfer${filtered.length === 1 ? "" : "s"}`}
+              pills={activeFilterPills}
+              onClear={clearFilters}
+              clearTooltip="Reset all transfer filters"
+            />
 
             <DataTable
               columns={columns}

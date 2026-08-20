@@ -15,7 +15,7 @@ import {
   IconTruck,
 } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
-import { ActionButton, PageHeader, StatCard } from "@/components/ui";
+import { ActionButton, ActiveFilterBanner, PageHeader, StatCard, type FilterPill } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { useProductMeta } from "../products/hooks/use-product-meta";
@@ -24,10 +24,10 @@ import { AdjustmentModal } from "./components/adjustment-modal";
 import { InventoryFilterSelect } from "./components/inventory-filter-select";
 import {
   EMPTY_INVENTORY_CATALOG_FILTERS,
-  InventoryMoreFilters,
+  InventoryFilterPanel,
   inventoryCatalogFiltersAreActive,
   type InventoryCatalogFilters,
-} from "./components/inventory-more-filters";
+} from "./components/inventory-filter-panel";
 import { StockTable } from "./components/stock-table";
 import { PAGE_SIZE, SUMMARY_PERIOD_OPTIONS } from "./constants";
 import { useInventoryStock, useInventorySummary } from "./hooks/use-inventory-stock";
@@ -60,12 +60,17 @@ function StockOverviewContent() {
   const [batchFilter, setBatchFilter] = useState(
     initialView === "expiring" ? "expiring" : "all",
   );
-  const [productFilter, setProductFilter] = useState("all");
+  const initialControlled = searchParams.get("controlled");
+  const [productFilter, setProductFilter] = useState(
+    initialControlled === "controlled" || initialControlled === "regular"
+      ? initialControlled
+      : "all",
+  );
   const [catalogFilters, setCatalogFilters] = useState<InventoryCatalogFilters>(
     EMPTY_INVENTORY_CATALOG_FILTERS,
   );
-  const [facetBrands, setFacetBrands] = useState<{ value: string; label: string }[]>([]);
-  const [facetForms, setFacetForms] = useState<{ value: string; label: string }[]>([]);
+  const [facetBrands, setFacetBrands] = useState<{ value: string; label: string; count: number }[]>([]);
+  const [facetForms, setFacetForms] = useState<{ value: string; label: string; count: number }[]>([]);
   const [adjustmentOpen, setAdjustmentOpen] = useState(
     searchParams.get("openAdjustment") === "1",
   );
@@ -101,10 +106,10 @@ function StockOverviewContent() {
     }>("/catalog/facets")
       .then((facets) => {
         setFacetBrands(
-          (facets.brands ?? []).map((b) => ({ value: b.value, label: b.value })),
+          (facets.brands ?? []).map((b) => ({ value: b.value, label: b.value, count: b.count })),
         );
         setFacetForms(
-          (facets.dosageForms ?? []).map((f) => ({ value: f.value, label: f.value })),
+          (facets.dosageForms ?? []).map((f) => ({ value: f.value, label: f.value, count: f.count })),
         );
       })
       .catch(() => {
@@ -181,11 +186,11 @@ function StockOverviewContent() {
     const byLabel = (left: { label: string }, right: { label: string }) =>
       left.label.localeCompare(right.label);
     return {
-      categories: productMeta.categories
-        .map((category) => ({ value: category.id, label: category.name }))
-        .sort(byLabel),
+      // Kept as raw rows (with parentCategoryId) — InventoryFilterPanel nests them into the
+      // same COMMERCIAL department tree the Products page's Category filter uses.
+      categories: productMeta.categories,
       tags: productMeta.tags
-        .map((tag) => ({ value: tag.id, label: tag.name }))
+        .map((tag) => ({ value: tag.id, label: tag.name, count: tag.productCount ?? 0 }))
         .sort(byLabel),
       brands: [...facetBrands].sort(byLabel),
       dosageForms: [...facetForms].sort(byLabel),
@@ -268,6 +273,37 @@ function StockOverviewContent() {
     !!productIdFilter ||
     inventoryCatalogFiltersAreActive(catalogFilters);
 
+  const VIEW_LABELS: Record<string, string> = { ok: "In stock", low: "Low stock", out: "Out of stock" };
+  const BATCH_LABELS: Record<string, string> = {
+    expiring: "Expiring soon",
+    with_batches: "Has batches",
+    no_batches: "No batches",
+  };
+  const PRODUCT_TYPE_LABELS: Record<string, string> = {
+    controlled: "Controlled",
+    regular: "Non-controlled",
+  };
+
+  const activeFilterPills: FilterPill[] = [
+    ...(view !== "all" ? [{ key: "view", label: `Stock: ${VIEW_LABELS[view] ?? view}` }] : []),
+    ...(batchFilter !== "all"
+      ? [{ key: "batch", label: `Batch: ${BATCH_LABELS[batchFilter] ?? batchFilter}` }]
+      : []),
+    ...(productFilter !== "all"
+      ? [{ key: "productType", label: PRODUCT_TYPE_LABELS[productFilter] ?? productFilter }]
+      : []),
+    ...catalogFilters.categories.map((id) => ({
+      key: `cat-${id}`,
+      label: `Category: ${productMeta.categories.find((c) => c.id === id)?.name ?? "Selected"}`,
+    })),
+    ...catalogFilters.brands.map((brand) => ({ key: `brand-${brand}`, label: `Brand: ${brand}` })),
+    ...catalogFilters.tags.map((id) => ({
+      key: `tag-${id}`,
+      label: `Tag: ${productMeta.tags.find((t) => t.id === id)?.name ?? "Selected"}`,
+    })),
+    ...catalogFilters.dosageForms.map((form) => ({ key: `form-${form}`, label: `Form: ${form}` })),
+  ];
+
   return (
     <>
       <ProductContextBanner />
@@ -347,6 +383,11 @@ function StockOverviewContent() {
       <div className={css.dashboard}>
         <div className={css.mainCol}>
           <div className={css.toolbar}>
+            <InventoryFilterPanel
+              value={catalogFilters}
+              options={catalogFilterOptions}
+              onChange={setCatalogFilters}
+            />
             <div className={css.searchWrap}>
               <IconSearch size={15} className={css.searchIcon} />
               <input
@@ -389,11 +430,6 @@ function StockOverviewContent() {
               ]}
               onChange={setProductFilter}
             />
-            <InventoryMoreFilters
-              value={catalogFilters}
-              options={catalogFilterOptions}
-              onChange={setCatalogFilters}
-            />
             <button
               type="button"
               className={css.exportButton}
@@ -412,21 +448,13 @@ function StockOverviewContent() {
 
           {stock.error && <Alert variant="error">{stock.error}</Alert>}
 
-          {filtersActive && (
-            <div className={css.activeFilter}>
-              <span>
-                Filtered inventory · {stock.total} item{stock.total === 1 ? "" : "s"}
-              </span>
-              <button
-                type="button"
-                className={css.clearFilter}
-                onClick={clearFilters}
-                data-tooltip="Reset all inventory filters"
-              >
-                Clear filter
-              </button>
-            </div>
-          )}
+          <ActiveFilterBanner
+            active={filtersActive}
+            summary={`Filtered inventory · ${stock.total} item${stock.total === 1 ? "" : "s"}`}
+            pills={activeFilterPills}
+            onClear={clearFilters}
+            clearTooltip="Reset all inventory filters"
+          />
 
           <StockTable
             rows={rows}

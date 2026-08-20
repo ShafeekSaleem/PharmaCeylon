@@ -33,7 +33,7 @@ import { usePosHolds } from "./hooks/use-pos-holds";
 import { usePosShortcuts } from "./hooks/use-pos-shortcuts";
 import { usePosToasts } from "./hooks/use-pos-toasts";
 import { useScanBeep } from "./hooks/use-scan-beep";
-import { checkout, createHold, getCustomer, getPrescription } from "./services/pos-api";
+import { checkout, createHold, findSaleByInvoice, getCustomer, getPrescription } from "./services/pos-api";
 import type {
   CartLine,
   Customer,
@@ -49,7 +49,7 @@ import type {
   SaleReceipt,
   TenderLine,
 } from "./types";
-import { formatMoney, newIdempotencyKey } from "./utils";
+import { formatMoney, makeLineKey, newIdempotencyKey } from "./utils";
 import css from "./pos.module.css";
 
 const RX_ROLES = ["owner", "manager", "pharmacist"] as const;
@@ -86,6 +86,8 @@ function PosWorkspace() {
   const deepPanel = searchParams.get("panel");
   const deepMode = searchParams.get("mode");
   const deepFocus = searchParams.get("focus");
+  const deepHoldId = searchParams.get("holdId");
+  const deepInvoice = searchParams.get("invoice");
 
   const { user } = useAuth();
   const { canAccess } = useRoleAccess();
@@ -94,6 +96,7 @@ function PosWorkspace() {
 
   const {
     products,
+    departments,
     productsById,
     vatRatePercent,
     recentSales,
@@ -196,31 +199,6 @@ function PosWorkspace() {
     }
   }, [deepProductId, products.length, productsById, addProduct, toasts]);
 
-  // Dashboard quick actions: /pos?panel=holds|customer&mode=returns&focus=search
-  const panelDeepLinkApplied = useRef(false);
-  useEffect(() => {
-    if (panelDeepLinkApplied.current) return;
-    if (!deepPanel && !deepMode && !deepFocus) return;
-    panelDeepLinkApplied.current = true;
-
-    if (deepMode === "returns" || deepMode === "retail" || deepMode === "prescription") {
-      setMode(deepMode);
-    }
-    if (deepPanel === "holds") setHoldsOpen(true);
-    if (deepPanel === "customer") setCustomerOpen(true);
-    if (deepPanel === "receipt" && lastReceipt) setReceipt(lastReceipt);
-    if (deepFocus === "search") {
-      window.setTimeout(() => searchRef.current?.focus(), 0);
-    }
-
-    const next = new URLSearchParams(searchParams.toString());
-    next.delete("panel");
-    next.delete("mode");
-    next.delete("focus");
-    const qs = next.toString();
-    router.replace(qs ? `/pos?${qs}` : "/pos", { scroll: false });
-  }, [deepFocus, deepMode, deepPanel, lastReceipt, router, searchParams]);
-
   // Keep the tendered amount in step with the total until the cashier types.
   useEffect(() => {
     if (paidTouched) return;
@@ -288,10 +266,24 @@ function PosWorkspace() {
         // Consumes the hold server-side first — it's gone from the parked list
         // the instant this resolves, so it can never be recalled a second time.
         const detail = await holds.recall(id);
-        const restored = detail.payload.lines.filter((line) => {
-          const product = productsById.get(line.productId);
-          return Boolean(product?.batches.some((b) => b.id === line.batchId));
-        });
+        // The hold's payload is stored as untyped JSON (Prisma.InputJsonValue) —
+        // rows written outside the normal park-cart flow (e.g. seed data) can omit
+        // key/discountPercent/addedAt, which silently turns totals into NaN
+        // (formatMoney then renders that as "0.00") once resolveLine runs the math.
+        const restored: CartLine[] = detail.payload.lines
+          .filter((line) => {
+            const product = productsById.get(line.productId);
+            return Boolean(product?.batches.some((b) => b.id === line.batchId));
+          })
+          .map((line, i) => ({
+            key: line.key || makeLineKey(line.productId, line.batchId),
+            productId: line.productId,
+            batchId: line.batchId,
+            qty: line.qty,
+            unitPrice: Number(line.unitPrice) || 0,
+            discountPercent: Number(line.discountPercent) || 0,
+            addedAt: line.addedAt ?? Date.now() + i,
+          }));
         const dropped = detail.payload.lines.length - restored.length;
         const meta = detail.payload.meta;
 
@@ -331,6 +323,73 @@ function PosWorkspace() {
     },
     [holds, productsById, cart, toasts],
   );
+
+  // Dashboard quick actions / row clicks:
+  // /pos?panel=holds[&holdId=]|customer&mode=returns&focus=search&invoice=
+  const panelDeepLinkApplied = useRef(false);
+  useEffect(() => {
+    if (panelDeepLinkApplied.current) return;
+    if (!deepPanel && !deepMode && !deepFocus && !deepInvoice) return;
+    // Recall's stock-availability check reads productsById, which is empty
+    // until the catalog finishes loading — recalling before then would drop
+    // every line as "no longer sellable" even when the stock is fine.
+    if (deepPanel === "holds" && deepHoldId && products.length === 0) return;
+    // recentSales loads alongside the catalog — wait for it so a fresh
+    // deep-link doesn't decide "no receipt" before the fetch resolves.
+    if (deepPanel === "receipt" && !lastReceipt && loading) return;
+    panelDeepLinkApplied.current = true;
+
+    if (deepMode === "returns" || deepMode === "retail" || deepMode === "prescription") {
+      setMode(deepMode);
+    }
+    if (deepPanel === "holds") {
+      if (deepHoldId) void recallHold(deepHoldId);
+      else setHoldsOpen(true);
+    }
+    if (deepPanel === "customer") setCustomerOpen(true);
+    if (deepPanel === "receipt") {
+      if (lastReceipt) {
+        setReceipt(lastReceipt);
+      } else if (recentSales[0]) {
+        void findSaleByInvoice(recentSales[0].invoiceNo)
+          .then(setReceipt)
+          .catch(() => toasts.error("Could not open the last receipt"));
+      } else {
+        toasts.error("No recent receipt to show yet");
+      }
+    }
+    if (deepInvoice) {
+      void findSaleByInvoice(deepInvoice)
+        .then(setReceipt)
+        .catch(() => toasts.error("Could not open that invoice"));
+    }
+    if (deepFocus === "search") {
+      window.setTimeout(() => searchRef.current?.focus(), 0);
+    }
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("panel");
+    next.delete("mode");
+    next.delete("focus");
+    next.delete("holdId");
+    next.delete("invoice");
+    const qs = next.toString();
+    router.replace(qs ? `/pos?${qs}` : "/pos", { scroll: false });
+  }, [
+    deepFocus,
+    deepHoldId,
+    deepInvoice,
+    deepMode,
+    deepPanel,
+    lastReceipt,
+    loading,
+    products.length,
+    recallHold,
+    recentSales,
+    router,
+    searchParams,
+    toasts,
+  ]);
 
   /* ── Checkout ────────────────────────────────────────────── */
 
@@ -661,6 +720,7 @@ function PosWorkspace() {
               tab={quickTab}
               onTabChange={setQuickTab}
               products={products}
+              departments={departments}
               recentSales={recentSales}
               cartLines={cart.resolved}
               onAdd={(product) => addProduct(product)}
@@ -851,7 +911,7 @@ function PosWorkspace() {
 
 export default function PosPage() {
   return (
-    <RolePageGuard roles={POS_ROLES}>
+    <RolePageGuard roles={POS_ROLES} permissions={["sales.pos_use"]}>
       <Suspense fallback={<p className={css.loading}>Opening the counter…</p>}>
         <PosWorkspace />
       </Suspense>

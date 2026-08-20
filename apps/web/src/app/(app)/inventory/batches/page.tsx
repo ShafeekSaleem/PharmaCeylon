@@ -28,6 +28,9 @@ function BatchesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const productId = searchParams.get("productId");
+  const controlledParam = searchParams.get("controlled");
+  const controlled =
+    controlledParam === "controlled" || controlledParam === "regular" ? controlledParam : null;
   const nearExpiryParam = searchParams.get("nearExpiryDays");
   const nearExpiryDays = (() => {
     if (!nearExpiryParam) return null;
@@ -126,6 +129,7 @@ function BatchesContent() {
     nearExpiryDays: expiryFilter === "near" ? (nearExpiryDays ?? 30) : null,
     expired: expiryFilter === "expired" || expiredParam ? true : null,
     includeZero,
+    controlled,
     q: debouncedQ,
   });
 
@@ -242,7 +246,11 @@ function BatchesContent() {
       <PageHeader
         subtitleOnly
         floatingActions
-        description="Batch-level stock ordered by expiry (FEFO). Quarantine expired or unsafe lots."
+        description={
+          controlled === "controlled"
+            ? "Batch-level stock ordered by expiry (FEFO). Showing controlled substances only. Quarantine expired or unsafe lots."
+            : "Batch-level stock ordered by expiry (FEFO). Quarantine expired or unsafe lots."
+        }
         actions={
           <>
             {canQuarantineExpired && summary.expiredOpen > 0 ? (

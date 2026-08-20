@@ -260,64 +260,9 @@
   align-items: center;
 }
 
-.activeFilters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: color-mix(in srgb, var(--pc-muted-fg) 5%, var(--pc-card-bg));
-  font-size: 0.8rem;
-}
-
-.activeFiltersLabel {
-  color: var(--pc-muted-fg);
-  font-weight: 600;
-}
-
-.activeFilter {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.55rem 0.85rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-card-bg));
-  font-size: 0.8rem;
-  color: var(--pc-foreground);
-}
-
-.activeFilterMain {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  min-width: 0;
-  flex: 1;
-}
-
-.activeFilterSummary {
-  font-weight: 550;
-}
-
-.activeFilterPills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.filterPill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.5rem;
-  border-radius: 999px;
-  background: var(--pc-card-bg);
-  border: 1px solid var(--pc-border);
-  font-size: 0.75rem;
+.facetFieldWide {
+  flex: 0 1 220px;
+  min-width: 190px;
 }
 
 .clearFilter {

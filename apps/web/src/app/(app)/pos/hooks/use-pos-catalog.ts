@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/use-auth";
 import { fetchPosCatalog, fetchRecentSales } from "../services/pos-api";
 import type { PosCatalog, PosProduct, RecentSale } from "../types";
 
-const EMPTY: PosCatalog = { vatRatePercent: 0, nearExpiryDays: 30, products: [] };
+const EMPTY: PosCatalog = { vatRatePercent: 0, nearExpiryDays: 30, products: [], departments: [] };
 
 /** Loads the branch's sellable catalog plus recent sales; reloads after every posted sale. */
 export function usePosCatalog() {
@@ -55,6 +55,7 @@ export function usePosCatalog() {
   return {
     catalog,
     products: catalog.products,
+    departments: catalog.departments,
     productsById,
     vatRatePercent: catalog.vatRatePercent,
     recentSales,

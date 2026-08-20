@@ -42,6 +42,7 @@ export const SHORTCUTS: { keys: string; action: string; group: string }[] = [
 export const QUICK_ADD_TABS = [
   { value: "top", label: "Top Products" },
   { value: "frequent", label: "Frequent Items" },
+  { value: "category", label: "Category" },
   { value: "recent", label: "Recent Sales" },
   { value: "suggested", label: "Suggested for this Sale" },
 ] as const;

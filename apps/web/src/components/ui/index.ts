@@ -12,3 +12,12 @@ export type {
   StatTrendTone,
 } from "./stat-card";
 export { ImageUpload, type ImageUploadProps } from "./image-upload";
+export {
+  TreeMultiSelect,
+  buildCategoryTree,
+  flattenCategoryTree,
+  type TreeOption,
+  type CategoryTreeNode,
+} from "./tree-multi-select";
+export { FilterPopover, FilterRow } from "./filter-popover";
+export { ActiveFilterBanner, type FilterPill } from "./active-filter-banner";

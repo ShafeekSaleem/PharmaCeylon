@@ -25,10 +25,10 @@ export function buildProductFilterParams(
     params.set("sortDir", sortDir || "asc");
   }
   if (q) params.set("q", q);
-  if (filterParams.dosageForm) params.set("dosageForm", filterParams.dosageForm);
   if (filterParams.brandName) params.set("brandName", filterParams.brandName);
   if (filterParams.schedule) params.set("schedule", filterParams.schedule);
   if (filterParams.categoryId) params.set("categoryId", filterParams.categoryId);
+  if (filterParams.commercialCategoryId) params.set("commercialCategoryId", filterParams.commercialCategoryId);
   if (filterParams.tagId) params.set("tagId", filterParams.tagId);
   if (filterParams.isControlled) params.set("isControlled", filterParams.isControlled);
   if (filterParams.lowStock) params.set("lowStock", "true");

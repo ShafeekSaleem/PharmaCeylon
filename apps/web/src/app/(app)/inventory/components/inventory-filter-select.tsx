@@ -8,6 +8,10 @@ import css from "../inventory.module.css";
 type Option = {
   value: string;
   label: string;
+  /** Shown as a rounded pill after the label — matches the count badge used by
+   *  `TreeMultiSelect`'s hierarchical options, so every filter dropdown in the app renders
+   *  counts the same way instead of each page embedding "(N)" into the label text. */
+  count?: number;
 };
 
 type Props = {
@@ -27,6 +31,8 @@ type Props = {
   deselectValue?: string;
   /** Render the menu in a portal to escape overflow/stacking contexts (e.g. sticky side cards). */
   portal?: boolean;
+  /** Extra class(es) merged onto the root wrapper, e.g. to widen the trigger in a specific page. */
+  className?: string;
 };
 
 export function InventoryFilterSelect({
@@ -42,6 +48,7 @@ export function InventoryFilterSelect({
   allowDeselect = false,
   deselectValue = "",
   portal = false,
+  className,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -161,7 +168,12 @@ export function InventoryFilterSelect({
                 setOpen(false);
               }}
             >
-              <span>{option.label}</span>
+              <span className={css.inventoryFilterOptionMain}>
+                <span>{option.label}</span>
+                {option.count !== undefined && (
+                  <span className={css.inventoryFilterOptionCount}>{option.count}</span>
+                )}
+              </span>
               {active && <IconCheck size={14} />}
             </button>
           );
@@ -174,7 +186,7 @@ export function InventoryFilterSelect({
   );
 
   return (
-    <div className={css.inventoryFilter} ref={ref}>
+    <div className={`${css.inventoryFilter} ${className ?? ""}`} ref={ref}>
       <button
         ref={triggerRef}
         type="button"

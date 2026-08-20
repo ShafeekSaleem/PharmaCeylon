@@ -1,5 +1,6 @@
 "use client";
 
+import { ActiveFilterBanner, flattenCategoryTree, TreeMultiSelect, type FilterPill } from "@/components/ui";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
 import css from "../catalog.module.css";
 import type { CatalogFacets, CatalogFilters } from "../types";
@@ -24,28 +25,25 @@ export function FacetFilters({
     { value: "", label: "All brands" },
     ...(facets?.brands ?? []).map((b) => ({
       value: b.value,
-      label: `${b.value} (${b.count})`,
+      label: b.value,
+      count: b.count,
     })),
   ];
   const formOptions = [
     { value: "", label: "All forms" },
     ...(facets?.dosageForms ?? []).map((f) => ({
       value: f.value,
-      label: `${f.value} (${f.count})`,
+      label: f.value,
+      count: f.count,
     })),
   ];
-  const categoryOptions = [
-    { value: "", label: "All categories" },
-    ...(facets?.categories ?? []).map((c) => ({
-      value: c.value,
-      label: `${c.label} (${c.count})`,
-    })),
-  ];
+  const categoryTreeOptions = flattenCategoryTree(facets?.commercialDepartments);
   const tagOptions = [
     { value: "", label: "All tags" },
     ...(facets?.tags ?? []).map((t) => ({
       value: t.value,
-      label: `${t.label} (${t.count})`,
+      label: t.label,
+      count: t.count,
     })),
   ];
   const stockOptions = [
@@ -67,16 +65,35 @@ export function FacetFilters({
             ? "In stock"
             : null;
 
+  const pills: FilterPill[] = [];
+  if (filters.exact) pills.push({ key: "exact", label: "Exact" });
+  if (filters.controlled) pills.push({ key: "controlled", label: "Controlled" });
+  if (stockLabel) pills.push({ key: "stock", label: stockLabel });
+  if (filters.brandName) pills.push({ key: "brand", label: `Brand: ${filters.brandName}` });
+  if (filters.dosageForm) pills.push({ key: "form", label: `Form: ${filters.dosageForm}` });
+  for (const id of filters.commercialCategoryIds) {
+    pills.push({
+      key: `cat-${id}`,
+      label: `Category: ${categoryTreeOptions.find((c) => c.value === id)?.label ?? "Selected"}`,
+    });
+  }
+  if (filters.tagId) {
+    pills.push({
+      key: "tag",
+      label: `Tag: ${facets?.tags.find((t) => t.value === filters.tagId)?.label ?? "Selected"}`,
+    });
+  }
+
   return (
     <>
       <div className={css.facetRow}>
-        <InventoryFilterSelect
+        <TreeMultiSelect
           label="Category"
-          value={filters.categoryId}
-          options={categoryOptions}
-          onChange={(value) => onChange({ categoryId: value })}
-          searchable
+          options={categoryTreeOptions}
+          selected={filters.commercialCategoryIds}
+          onChange={(commercialCategoryIds) => onChange({ commercialCategoryIds })}
           searchPlaceholder="Search categories…"
+          className={css.facetFieldWide}
         />
         <InventoryFilterSelect
           label="Brand"
@@ -85,12 +102,14 @@ export function FacetFilters({
           onChange={(value) => onChange({ brandName: value })}
           searchable
           searchPlaceholder="Search brands…"
+          className={css.facetFieldWide}
         />
         <InventoryFilterSelect
           label="Form"
           value={filters.dosageForm}
           options={formOptions}
           onChange={(value) => onChange({ dosageForm: value })}
+          className={css.facetFieldWide}
         />
         <InventoryFilterSelect
           label="Stock"
@@ -110,59 +129,17 @@ export function FacetFilters({
           onChange={(value) => onChange({ tagId: value })}
           searchable
           searchPlaceholder="Search tags…"
+          className={css.facetFieldWide}
         />
       </div>
 
-      {active ? (
-        <div className={css.activeFilter}>
-          <div className={css.activeFilterMain}>
-            <span className={css.activeFilterSummary}>
-              Filtered catalog
-              {resultCount != null ? (
-                <>
-                  {" "}
-                  · {resultCount} result{resultCount === 1 ? "" : "s"}
-                </>
-              ) : null}
-            </span>
-            <div className={css.activeFilterPills}>
-              {filters.exact ? <span className={css.filterPill}>Exact</span> : null}
-              {filters.controlled ? (
-                <span className={css.filterPill}>Controlled</span>
-              ) : null}
-              {stockLabel ? <span className={css.filterPill}>{stockLabel}</span> : null}
-              {filters.brandName ? (
-                <span className={css.filterPill}>Brand: {filters.brandName}</span>
-              ) : null}
-              {filters.dosageForm ? (
-                <span className={css.filterPill}>Form: {filters.dosageForm}</span>
-              ) : null}
-              {filters.categoryId ? (
-                <span className={css.filterPill}>
-                  Category:{" "}
-                  {facets?.categories.find((c) => c.value === filters.categoryId)
-                    ?.label ?? "Selected"}
-                </span>
-              ) : null}
-              {filters.tagId ? (
-                <span className={css.filterPill}>
-                  Tag:{" "}
-                  {facets?.tags.find((t) => t.value === filters.tagId)?.label ??
-                    "Selected"}
-                </span>
-              ) : null}
-            </div>
-          </div>
-          <button
-            type="button"
-            className={css.clearFilter}
-            onClick={onClear}
-            data-tooltip="Reset all catalog filters"
-          >
-            Clear filter
-          </button>
-        </div>
-      ) : null}
+      <ActiveFilterBanner
+        active={active}
+        summary={`Filtered catalog${resultCount != null ? ` · ${resultCount} result${resultCount === 1 ? "" : "s"}` : ""}`}
+        pills={pills}
+        onClear={onClear}
+        clearTooltip="Reset all catalog filters"
+      />
     </>
   );
 }

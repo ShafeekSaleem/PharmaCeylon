@@ -432,7 +432,9 @@ function CatalogContent() {
               facets={facets}
               recentViews={recentViews}
               onSearch={(q) => patchFilters({ q })}
-              onCategory={(categoryId) => patchFilters({ categoryId })}
+              onCategory={(categoryId) =>
+                patchFilters({ commercialCategoryIds: [categoryId] })
+              }
               onSelectProduct={selectProduct}
             />
           ) : showScanReady ? (

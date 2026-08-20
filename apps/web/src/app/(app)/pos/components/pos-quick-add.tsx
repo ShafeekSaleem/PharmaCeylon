@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { IconPlus, IconSparkles } from "@/components/icons";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { QUICK_ADD_TABS, type QuickAddTab } from "../constants";
-import type { PosProduct, RecentSale, ResolvedCartLine } from "../types";
+import type { PosDepartment, PosProduct, RecentSale, ResolvedCartLine } from "../types";
 import { formatMoney, formatTime } from "../utils";
 import css from "../pos.module.css";
 
@@ -14,6 +14,8 @@ type Props = {
   tab: QuickAddTab;
   onTabChange: (tab: QuickAddTab) => void;
   products: PosProduct[];
+  /** Active COMMERCIAL departments this tenant has enabled — drives the Category tab's chips. */
+  departments: PosDepartment[];
   recentSales: RecentSale[];
   cartLines: ResolvedCartLine[];
   onAdd: (product: PosProduct) => void;
@@ -52,11 +54,14 @@ export function PosQuickAdd({
   tab,
   onTabChange,
   products,
+  departments,
   recentSales,
   cartLines,
   onAdd,
   onRepeatSale,
 }: Props) {
+  const [selectedDept, setSelectedDept] = useState<string | null>(null);
+
   const cards = useMemo(() => {
     if (tab === "top") {
       return [...products]
@@ -68,11 +73,18 @@ export function PosQuickAdd({
         .sort((a, b) => b.lines90d - a.lines90d || a.name.localeCompare(b.name))
         .slice(0, CARD_LIMIT);
     }
+    if (tab === "category") {
+      if (!selectedDept) return [];
+      return products
+        .filter((p) => p.commercialDepartmentId === selectedDept)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .slice(0, CARD_LIMIT);
+    }
     if (tab === "suggested") {
       return suggestFor(cartLines, recentSales, products);
     }
     return [];
-  }, [tab, products, cartLines, recentSales]);
+  }, [tab, products, cartLines, recentSales, selectedDept]);
 
   return (
     <section className={css.card}>
@@ -98,6 +110,29 @@ export function PosQuickAdd({
           </button>
         ))}
       </div>
+
+      {tab === "category" && (
+        <div className={css.quickTabs} role="group" aria-label="Department" style={{ marginTop: "-0.25rem" }}>
+          {departments.length === 0 ? (
+            <p className={css.quickEmpty}>
+              No commercial departments enabled yet — turn some on in Settings → Catalog → Categories.
+            </p>
+          ) : (
+            departments.map((dept) => (
+              <button
+                key={dept.id}
+                type="button"
+                role="tab"
+                aria-selected={selectedDept === dept.id}
+                className={`${css.quickTab}${selectedDept === dept.id ? ` ${css.quickTabActive}` : ""}`}
+                onClick={() => setSelectedDept((cur) => (cur === dept.id ? null : dept.id))}
+              >
+                {dept.name}
+              </button>
+            ))
+          )}
+        </div>
+      )}
 
       <div className={css.quickStrip}>
         {tab === "recent" ? (
@@ -128,7 +163,13 @@ export function PosQuickAdd({
           <p className={css.quickEmpty}>
             {tab === "suggested"
               ? "Add an item to the cart to see items that usually sell with it."
-              : "No sellable stock at this branch yet."}
+              : tab === "category"
+                ? selectedDept
+                  ? "No sellable stock in this department at this branch."
+                  : departments.length > 0
+                    ? "Pick a department above to browse its products."
+                    : ""
+                : "No sellable stock at this branch yet."}
           </p>
         ) : (
           cards.map((product) => {

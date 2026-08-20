@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { PAGE_SIZE } from "../constants";
-import type { InventoryCatalogFilters } from "../components/inventory-more-filters";
+import type { InventoryCatalogFilters } from "../components/inventory-filter-panel";
 import type {
   InventorySummary,
   StockListResponse,

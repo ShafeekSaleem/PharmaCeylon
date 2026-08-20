@@ -25,16 +25,19 @@ type TooltipBox = {
 const VIEWPORT_MARGIN = 8;
 const ARROW_INSET = 10;
 
-function resolveTarget(node: EventTarget | null): HTMLElement | null {
+/** Not HTMLElement-only: chart bubbles/markers/quadrant labels carry `data-tooltip` on plain SVG
+ * elements too, and SVGElement is a sibling of HTMLElement (not a subtype), so narrowing to
+ * HTMLElement here would silently drop tooltips for every SVG-based chart. */
+function resolveTarget(node: EventTarget | null): Element | null {
   if (!(node instanceof Element)) return null;
   const el = node.closest("[data-tooltip]");
-  if (!(el instanceof HTMLElement)) return null;
+  if (!el) return null;
   const text = el.getAttribute("data-tooltip")?.trim();
   if (!text) return null;
   return el;
 }
 
-function readPlacement(el: HTMLElement): Placement | "auto" {
+function readPlacement(el: Element): Placement | "auto" {
   const attr = el.getAttribute("data-tooltip-placement");
   if (attr === "top" || attr === "bottom" || attr === "right" || attr === "left") {
     return attr;
@@ -42,7 +45,7 @@ function readPlacement(el: HTMLElement): Placement | "auto" {
   return "auto";
 }
 
-function measureAnchor(el: HTMLElement): TooltipAnchor {
+function measureAnchor(el: Element): TooltipAnchor {
   const text = el.getAttribute("data-tooltip")!.trim();
   const rect = el.getBoundingClientRect();
   const gap = 8;
@@ -120,7 +123,7 @@ export function FloatingTooltipHost() {
   }, []);
 
   useEffect(() => {
-    let active: HTMLElement | null = null;
+    let active: Element | null = null;
     let frame = 0;
 
     const hide = () => {
@@ -129,7 +132,7 @@ export function FloatingTooltipHost() {
       setBox(null);
     };
 
-    const show = (el: HTMLElement) => {
+    const show = (el: Element) => {
       active = el;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {

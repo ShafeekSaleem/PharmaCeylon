@@ -35,12 +35,20 @@ export type PosProduct = {
   batches: PosBatch[];
   units30d: number;
   lines90d: number;
+  /** Primary COMMERCIAL category — powers the Category quick-add tab, not Dosage Form. */
+  commercialCategoryId: string | null;
+  commercialCategoryName: string | null;
+  commercialDepartmentId: string | null;
 };
+
+export type PosDepartment = { id: string; name: string; canonicalKey: string | null };
 
 export type PosCatalog = {
   vatRatePercent: number;
   nearExpiryDays: number;
   products: PosProduct[];
+  /** Active COMMERCIAL departments for this tenant — never shows a department nobody enabled. */
+  departments: PosDepartment[];
 };
 
 export type CartLine = {

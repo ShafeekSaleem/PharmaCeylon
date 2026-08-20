@@ -12,7 +12,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
 
   return (
     <div className={css.page}>
-      <RolePageGuard roles={OPERATIONS_ROLES}>
+      <RolePageGuard roles={OPERATIONS_ROLES} permissions={["inventory.view"]}>
         <Suspense fallback={<div className={css.subnav} aria-hidden />}>
           <InventorySubnav />
         </Suspense>

@@ -17,7 +17,16 @@ import {
   IconPlus,
   IconSearch,
 } from "@/components/icons";
-import { ActionButton, DataTable, PageHeader, StatCard, StatusBadge, type Column } from "@/components/ui";
+import {
+  ActionButton,
+  ActiveFilterBanner,
+  DataTable,
+  PageHeader,
+  StatCard,
+  StatusBadge,
+  type Column,
+  type FilterPill,
+} from "@/components/ui";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
 import layoutCss from "../purchasing/purchasing.module.css";
@@ -146,6 +155,11 @@ export default function StocktakesPage() {
   }, [filtered, page]);
 
   const hasActiveFilters = !!search.trim() || statusFilter !== "all";
+
+  const activeFilterPills: FilterPill[] =
+    statusFilter !== "all"
+      ? [{ key: "status", label: STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter }]
+      : [];
 
   function clearFilters() {
     setSearch("");
@@ -442,21 +456,13 @@ export default function StocktakesPage() {
             </button>
           </div>
 
-          {hasActiveFilters ? (
-            <div className={layoutCss.activeFilter}>
-              <span>
-                Filtered stocktakes · {filtered.length} result{filtered.length === 1 ? "" : "s"}
-              </span>
-              <button
-                type="button"
-                className={layoutCss.clearFilter}
-                onClick={clearFilters}
-                data-tooltip="Reset all stocktake filters"
-              >
-                Clear filter
-              </button>
-            </div>
-          ) : null}
+          <ActiveFilterBanner
+            active={hasActiveFilters}
+            summary={`Filtered stocktakes · ${filtered.length} result${filtered.length === 1 ? "" : "s"}`}
+            pills={activeFilterPills}
+            onClear={clearFilters}
+            clearTooltip="Reset all stocktake filters"
+          />
 
           <DataTable
             columns={columns}

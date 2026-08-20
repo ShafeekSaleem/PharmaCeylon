@@ -1,6 +1,7 @@
 "use client";
 
 import { IconEye, IconGrid, IconSearch } from "@/components/icons";
+import { flattenCategoryTree } from "@/components/ui";
 import css from "../catalog.module.css";
 import type { CatalogFacets } from "../types";
 
@@ -21,7 +22,10 @@ export function CatalogDiscoveryEmpty({
   recentViews,
   onSelectProduct,
 }: Props) {
-  const categories = (facets?.categories ?? []).slice(0, 4);
+  const categories = flattenCategoryTree(facets?.commercialDepartments)
+    .filter((c) => (c.count ?? 0) > 0)
+    .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
+    .slice(0, 4);
   const recentTerms = recent.slice(0, 4);
 
   return (

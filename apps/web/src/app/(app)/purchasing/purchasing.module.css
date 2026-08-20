@@ -255,35 +255,6 @@
   color: var(--pc-primary);
 }
 
-.activeFilter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.55rem 0.85rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: color-mix(in srgb, var(--pc-primary) 6%, var(--pc-card-bg));
-  font-size: 0.8rem;
-  color: var(--pc-foreground);
-}
-
-.clearFilter {
-  border: none;
-  background: transparent;
-  padding: 0;
-  font-family: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--pc-primary);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.clearFilter:hover {
-  text-decoration: underline;
-}
-
 .alertList,
 .quickList {
   list-style: none;

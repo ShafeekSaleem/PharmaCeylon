@@ -18,9 +18,9 @@ function parseFilters(params: URLSearchParams): ProductFilters {
   const controlled = parseList(params.get("controlled")) as ("true" | "false")[];
   return {
     schedules: parseList(params.get("schedule")),
-    dosageForms: parseList(params.get("dosageForm")),
     formGroups: parseList(params.get("formGroup")),
     registrationTypes: parseList(params.get("regType")),
+    commercialCategories: parseList(params.get("category")),
     brands: parseList(params.get("brand")),
     tags: parseList(params.get("tagId")),
     status: status.filter((s) => s === "active" || s === "inactive"),
@@ -31,24 +31,24 @@ function parseFilters(params: URLSearchParams): ProductFilters {
 }
 
 function filtersToParams(filters: ProductFilters, base: URLSearchParams) {
-  base.delete("dosageForm");
   base.delete("brand");
   base.delete("schedule");
   base.delete("formGroup");
   base.delete("regType");
   base.delete("categoryId");
+  base.delete("category");
   base.delete("tagId");
   base.delete("status");
   base.delete("controlled");
   base.delete("lowStock");
   base.delete("rx");
-  if (filters.dosageForms.length) base.set("dosageForm", filters.dosageForms.join(","));
   if (filters.brands.length) base.set("brand", filters.brands.join(","));
   if (filters.schedules.length) base.set("schedule", filters.schedules.join(","));
   if (filters.formGroups.length) base.set("formGroup", filters.formGroups.join(","));
   if (filters.registrationTypes.length) {
     base.set("regType", filters.registrationTypes.join(","));
   }
+  if (filters.commercialCategories.length) base.set("category", filters.commercialCategories.join(","));
   if (filters.tags.length) base.set("tagId", filters.tags.join(","));
   if (filters.status.length) base.set("status", filters.status.join(","));
   if (filters.controlled.length) base.set("controlled", filters.controlled.join(","));
