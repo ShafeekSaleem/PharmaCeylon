@@ -50,6 +50,7 @@ export async function seedReceiveStock(
     sellingPrice: number | string;
     referenceId: string;
     receivedAt?: Date;
+    supplierId?: string;
   },
 ): Promise<SeedBatchRef> {
   const batch = await prisma.batch.create({
@@ -62,6 +63,7 @@ export async function seedReceiveStock(
       costPrice: dec(opts.costPrice),
       sellingPrice: dec(opts.sellingPrice),
       receivedAt: opts.receivedAt ?? new Date(),
+      supplierId: opts.supplierId,
     },
   });
 

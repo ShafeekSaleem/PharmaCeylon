@@ -25,9 +25,13 @@ type Props = {
   compact?: boolean;
   /** Rows beyond this many are paginated instead of all rendered at once. Defaults to 6. */
   pageSize?: number;
+  /** When set, each row becomes a clickable filter trigger (hover + active-state highlight) for
+   *  whatever downstream panel this list feeds. */
+  onRowClick?: (key: string) => void;
+  activeKey?: string | null;
 };
 
-export function BarRows({ rows, danger = false, compact = false, pageSize = 6 }: Props) {
+export function BarRows({ rows, danger = false, compact = false, pageSize = 6, onRowClick, activeKey }: Props) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const clampedPage = Math.min(page, totalPages);
@@ -62,7 +66,14 @@ export function BarRows({ rows, danger = false, compact = false, pageSize = 6 }:
       <>
         <div className={css.barlistCompact}>
           {pageRows.map((r) => (
-            <div className={css.barrowCompact} key={r.key}>
+            <div
+              className={`${css.barrowCompact}${onRowClick ? ` ${css.barrowClickable}` : ""}${activeKey === r.key ? ` ${css.barrowActive}` : ""}`}
+              key={r.key}
+              role={onRowClick ? "button" : undefined}
+              tabIndex={onRowClick ? 0 : undefined}
+              onClick={onRowClick ? () => onRowClick(r.key) : undefined}
+              onKeyDown={onRowClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick(r.key); } } : undefined}
+            >
               <span className={css.barname}>{r.label}</span>
               <span className={css.barvalue}>
                 {r.valueLabel}
@@ -82,7 +93,14 @@ export function BarRows({ rows, danger = false, compact = false, pageSize = 6 }:
         {pageRows.map((r) => {
           const pct = Math.max(4, (r.value / max) * 100);
           return (
-            <div className={css.barrow} key={r.key}>
+            <div
+              className={`${css.barrow}${onRowClick ? ` ${css.barrowClickable}` : ""}${activeKey === r.key ? ` ${css.barrowActive}` : ""}`}
+              key={r.key}
+              role={onRowClick ? "button" : undefined}
+              tabIndex={onRowClick ? 0 : undefined}
+              onClick={onRowClick ? () => onRowClick(r.key) : undefined}
+              onKeyDown={onRowClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick(r.key); } } : undefined}
+            >
               <div className={css.barlabelcol}>
                 <span className={css.barname}>{r.label}</span>
                 {r.sublabel ? <span className={css.barsub}>{r.sublabel}</span> : null}

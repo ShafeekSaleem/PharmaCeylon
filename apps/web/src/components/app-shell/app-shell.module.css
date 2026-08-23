@@ -207,6 +207,7 @@
 
 .main {
   flex: 1;
+  min-width: 0;
   margin-left: 220px;
   display: flex;
   flex-direction: column;

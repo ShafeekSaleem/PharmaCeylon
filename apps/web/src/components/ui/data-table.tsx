@@ -7,7 +7,7 @@ export type SortDir = "asc" | "desc";
 
 export type Column<T> = {
   key: string;
-  header: string;
+  header: ReactNode;
   sortable?: boolean;
   width?: string;
   render?: (row: T, index: number) => ReactNode;

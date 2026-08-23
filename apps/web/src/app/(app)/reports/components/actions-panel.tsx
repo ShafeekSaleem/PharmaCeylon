@@ -15,6 +15,10 @@ export type ActionPanelItem = {
   description: string;
   count: number;
   countLabel: string;
+  /** Overrides the `{count} {countLabel}` chip with a literal pre-formatted string (e.g. a money
+   *  value like "LKR 212,450") — `count`/`countLabel` are still required for callers that don't
+   *  need this, so every existing usage renders unchanged. */
+  countText?: string;
   /** Up to a few concrete examples shown as chips under the row — only used in `variant="cards"`. */
   examples?: ActionExample[];
   onClick?: () => void;
@@ -75,7 +79,7 @@ export function ActionsPanel({ title, items, onViewAll, primaryAction, variant =
                   <span className={css.actionDesc}>{item.description}</span>
                 </span>
                 <span className={`${css.insightCountPill} ${css[item.tone]}`}>
-                  {item.count} {item.countLabel}
+                  {item.countText ?? `${item.count} ${item.countLabel}`}
                   <IconChevronRight size={12} />
                 </span>
               </button>
@@ -118,6 +122,8 @@ export function ActionsPanel({ title, items, onViewAll, primaryAction, variant =
                   {item.ctaLabel}
                   <IconChevronRight size={13} />
                 </span>
+              ) : item.countText ? (
+                <span className={css.actionCount}>{item.countText}</span>
               ) : (
                 <span className={css.actionCount}>
                   {item.count}

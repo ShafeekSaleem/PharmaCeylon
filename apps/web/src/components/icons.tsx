@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-type IconProps = SVGProps<SVGSVGElement> & { size?: number };
+export type IconProps = SVGProps<SVGSVGElement> & { size?: number };
 
 function defaults(props: IconProps, size = 18): SVGProps<SVGSVGElement> {
   const { size: s = size, ...rest } = props;
@@ -692,6 +692,67 @@ export function IconHeadset(props: IconProps) {
   return (
     <svg {...defaults(props)}>
       <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
+    </svg>
+  );
+}
+
+/** Herbal/natural — used for the Vitamins & Supplements commercial category badge. */
+export function IconLeaf(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+    </svg>
+  );
+}
+
+/** Baby bottle — used for the Baby & Mother Care commercial category badge. */
+export function IconBaby(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M10 2h4" />
+      <path d="M11 2v3.34a4 4 0 0 1-1.53 3.14A4 4 0 0 0 8 11.62V20a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-8.38a4 4 0 0 0-1.47-3.14A4 4 0 0 1 13 5.34V2" />
+      <path d="M8 15h8" />
+    </svg>
+  );
+}
+
+/** Skincare droplet/serum — used for the Beauty & Skin Care commercial category badge. */
+export function IconDroplet(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M12 2.69s-6 6.4-6 10.53a6 6 0 0 0 12 0c0-4.13-6-10.53-6-10.53Z" />
+    </svg>
+  );
+}
+
+/** First-aid kit — used for the First Aid commercial category badge. */
+export function IconFirstAid(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <path d="M12 8v8M8 12h8" />
+    </svg>
+  );
+}
+
+/** Coffee cup — used for the Food & Beverages commercial category badge. */
+export function IconCoffee(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
+      <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
+      <path d="M6 2v2M10 2v2M14 2v2" />
+    </svg>
+  );
+}
+
+/** House — used for the Household & Convenience commercial category badge. */
+export function IconHome(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      <path d="M9 22V12h6v10" />
     </svg>
   );
 }

@@ -503,6 +503,7 @@ model Supplier {
   purchaseOrders PurchaseOrder[]
   goodsReturns   GoodsReturn[]
   invoices       SupplierInvoice[]
+  batches        Batch[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -758,11 +759,19 @@ model Batch {
   isQuarantined    Boolean   @default(false) @map("is_quarantined")
   quarantinedAt    DateTime? @map("quarantined_at")
   quarantineReason String?   @map("quarantine_reason") @db.VarChar(512)
+  /// Direct supplier reference, set at batch-creation time (goods receipt: from the PO's
+  /// supplier; manual stock adjustment: whoever entered it may tag one, since not every
+  /// opening-stock/adjustment batch has a PO behind it). Nullable — supplier is genuinely
+  /// unknown for some manually-entered batches. This is the authoritative lookup for "who
+  /// supplied this batch"; `GoodsReceiptItem → GoodsReceipt → PurchaseOrder → Supplier` is a
+  /// fallback for batches created before this column existed, not a replacement for it.
+  supplierId       String?   @map("supplier_id") @db.Uuid
   receivedAt       DateTime  @default(now()) @map("received_at")
   createdAt        DateTime  @default(now()) @map("created_at")
 
-  branch  Branch  @relation(fields: [branchId], references: [id])
-  product Product @relation(fields: [productId], references: [id])
+  branch   Branch    @relation(fields: [branchId], references: [id])
+  product  Product   @relation(fields: [productId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
 
   receiptItems           GoodsReceiptItem[]
   saleItems              SaleItem[]
@@ -775,6 +784,7 @@ model Batch {
   @@unique([tenantId, branchId, productId, batchNo])
   @@index([tenantId, branchId, productId])
   @@index([tenantId, branchId, isQuarantined])
+  @@index([tenantId, supplierId])
   @@map("batch")
 }
 

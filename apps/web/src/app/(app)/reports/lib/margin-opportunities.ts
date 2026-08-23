@@ -1,7 +1,5 @@
-/** Shared "why is this product/SKU low margin, and what should the pharmacy do about it" logic —
- *  used by both Margin by Product's "Margin Opportunities" panel and Low-Margin Products' own
- *  "Recommended Actions" panel + table, so the two pages never silently diverge on what counts as
- *  a pricing problem vs. a supplier-cost problem vs. a slow-moving-stock problem. */
+/** Shared "why is this product/SKU low margin, and what should the pharmacy do about it" logic,
+ *  backing Margin by Product's "Margin Opportunities" panel. */
 
 export type MarginOpportunityRow = {
   productId: string;
@@ -17,14 +15,6 @@ export type MarginOpportunityRow = {
  *  — the same signal Product Sales already uses for its own "slow movers" insight. */
 export function isSlowMover(r: { stockOnHand: number; unitsSold: number }): boolean {
   return r.stockOnHand >= 10 && r.stockOnHand / Math.max(1, r.unitsSold) >= 20;
-}
-
-/** Healthy-margin band colors — this codebase's existing convention (see `marginTier()`), not a
- *  screenshot value. */
-export function marginBandColor(pct: number, healthyPct = 35, watchPct = 20): string {
-  if (pct >= healthyPct) return "#16a34a";
-  if (pct >= watchPct) return "var(--pc-primary)";
-  return "#dc2626";
 }
 
 /**

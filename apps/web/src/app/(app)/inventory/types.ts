@@ -52,6 +52,7 @@ export type BatchRow = {
   isQuarantined: boolean;
   quarantinedAt: string | null;
   quarantineReason: string | null;
+  supplier: { id: string; name: string } | null;
   product: {
     id: string;
     sku: string;

@@ -181,7 +181,7 @@ export function BatchesTable({
             {row.isQuarantined && (
               <span
                 className={css.quarantineBadge}
-                title={row.quarantineReason ?? "Quarantined"}
+                data-tooltip={row.quarantineReason ?? "Quarantined"}
               >
                 Quarantined
               </span>
@@ -246,6 +246,20 @@ export function BatchesTable({
             </div>
           );
         },
+      },
+      {
+        key: "supplier",
+        header: "Supplier",
+        width: "150px",
+        getValue: (row) => row.supplier?.name ?? "",
+        render: (row) =>
+          row.supplier ? (
+            <span className={css.productMeta} data-tooltip={row.supplier.name}>
+              {row.supplier.name}
+            </span>
+          ) : (
+            <span className={css.productMeta}>—</span>
+          ),
       },
     ];
 

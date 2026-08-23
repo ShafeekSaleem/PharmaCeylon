@@ -5,6 +5,18 @@
  * `seed-retail-demo-products.ts` — it needs that script's products and "RTL-INIT" batches to
  * already exist.
  *
+ * Frequency per product/branch is department-weighted (`DEPARTMENT_SALES_PROFILE` — daily
+ * consumables like food/beverage or personal care sell far more often than a blood pressure
+ * monitor), spread across the same ~8-month window `seed-demo-ops.ts` uses so Medicines still
+ * dominates total transaction volume while every other department reads as a believable,
+ * proportionate minority rather than a flat, undifferentiated trickle.
+ *
+ * Unlike the Medicines side, RTL stock is never replenished mid-window, so each sale is clamped
+ * to the batch's actual remaining quantity (reconstructed from the ledger) to avoid selling into
+ * negative stock — the one deliberately under-stocked SKU per department
+ * (`LOW_STOCK_EXAMPLE_SKUS`, MAIN branch only) is *meant* to run out partway through, which is
+ * exactly what the clamp produces.
+ *
  * Idempotent — a (branch, product, sale index) combination is skipped if its invoice number
  * already exists, so reruns only fill in gaps rather than duplicating sales.
  *
@@ -16,13 +28,22 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { daysAgo, seedSale } from "./seed-helpers";
+import { DEMO_PRODUCTS, DEPARTMENT_SALES_PROFILE, departmentKeyOf } from "./seed-retail-demo-products";
 
-/** Modest per product/branch so the retail catalog reads as "real but secondary" next to the
- *  curated Medicines scenario, spread across the same ~90-day window the ops sales use. */
-const SALES_PER_PRODUCT_PER_BRANCH = 6;
-const WINDOW_DAYS = 88;
+/** Matches seed-demo-ops.ts' HISTORY_DAYS so both halves of the demo cover the same overall
+ *  timeframe (needed for Stock Health's 6-month ageing trend to have real data throughout). */
+const WINDOW_DAYS = 240;
+const DEFAULT_SALES_PER_WINDOW = 10;
 
-async function seedTenant(prisma: PrismaClient, tenantId: string, tenantCode: string) {
+const canonicalKeyBySku = new Map(DEMO_PRODUCTS.map((p) => [p.sku, p.canonicalKey]));
+
+function salesFrequencyFor(sku: string): number {
+  const canonicalKey = canonicalKeyBySku.get(sku);
+  if (!canonicalKey) return DEFAULT_SALES_PER_WINDOW;
+  return DEPARTMENT_SALES_PROFILE[departmentKeyOf(canonicalKey)]?.salesPerWindow ?? DEFAULT_SALES_PER_WINDOW;
+}
+
+export async function seedRetailDemoSales(prisma: PrismaClient, tenantId: string, tenantCode: string) {
   const branches = await prisma.branch.findMany({ where: { tenantId, isActive: true }, select: { id: true, code: true } });
   const cashier = await prisma.appUser.findFirst({ where: { tenantId }, select: { id: true } });
   if (branches.length === 0 || !cashier) {
@@ -49,7 +70,15 @@ async function seedTenant(prisma: PrismaClient, tenantId: string, tenantCode: st
       });
       if (!batch) continue;
 
-      for (let i = 0; i < SALES_PER_PRODUCT_PER_BRANCH; i++) {
+      const ledgerAgg = await prisma.stockLedger.aggregate({
+        where: { tenantId, branchId: branch.id, productId: product.id, batchId: batch.id },
+        _sum: { qtyDelta: true },
+      });
+      let remaining = ledgerAgg._sum.qtyDelta ?? 0;
+      const freq = salesFrequencyFor(product.sku);
+
+      for (let i = 0; i < freq; i++) {
+        if (remaining <= 0) break;
         const invoiceNo = `RTL-SALE-${product.sku}-${i}`;
         const existing = await prisma.sale.findFirst({
           where: { tenantId, branchId: branch.id, invoiceNo },
@@ -59,8 +88,8 @@ async function seedTenant(prisma: PrismaClient, tenantId: string, tenantCode: st
           skipped += 1;
           continue;
         }
-        const qty = 1 + Math.floor(Math.random() * 4);
-        const daysBack = Math.floor((i / SALES_PER_PRODUCT_PER_BRANCH) * WINDOW_DAYS) + Math.floor(Math.random() * 8);
+        const qty = Math.min(1 + Math.floor(Math.random() * 4), remaining);
+        const daysBack = Math.floor((i / freq) * WINDOW_DAYS) + Math.floor(Math.random() * 8);
         await seedSale(prisma, {
           tenantId,
           branchId: branch.id,
@@ -69,6 +98,7 @@ async function seedTenant(prisma: PrismaClient, tenantId: string, tenantCode: st
           soldAt: daysAgo(daysBack),
           lines: [{ productId: product.id, batchId: batch.id, qty, unitPrice: batch.sellingPrice }],
         });
+        remaining -= qty;
         created += 1;
       }
     }
@@ -96,14 +126,17 @@ async function main() {
       throw new Error(tenantCode ? `Tenant "${tenantCode}" not found.` : "No tenants found.");
     }
     for (const tenant of tenants) {
-      await seedTenant(prisma, tenant.id, tenant.code);
+      await seedRetailDemoSales(prisma, tenant.id, tenant.code);
     }
   } finally {
     await prisma.$disconnect();
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Only auto-run when executed directly — see the matching guard in seed-retail-demo-products.ts.
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

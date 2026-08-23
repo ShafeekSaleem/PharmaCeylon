@@ -1,16 +1,21 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { ppChange, formatPpTrend } from "../lib/format";
 import css from "../reports.module.css";
 
 type Props = {
   actualPct: number;
   targetPct: number | null;
-  /** Shown instead of the gauge when `targetPct` is null — no target has been configured yet,
-   *  so there's nothing honest to render as "the goal". */
+  /** Shown instead of the gauge when `targetPct` is null — no target has been configured yet, so
+   *  there's nothing honest to render as "the goal". */
   emptyState: ReactNode;
 };
+
+/** Within this many points of the target, treated as "on target" rather than a false-precision
+ *  above/below call on what's ultimately a noisy period-to-period number. */
+const ON_TARGET_BAND_PP = 0.5;
 
 const CX = 110;
 const CY = 108;
@@ -42,9 +47,9 @@ function ringPath(rOuter: number, rInner: number, startAngle: number, endAngle: 
   ].join(" ");
 }
 
-/** Semicircular actual-vs-target gauge for the Profitability Goal Tracker. Renders `emptyState`
- *  instead of a fabricated gauge when no target is configured. */
-export function MarginGauge({ actualPct, targetPct, emptyState }: Props) {
+/** Semicircular actual-vs-target gauge for Profit Summary's "Margin vs Target" card — same visual
+ *  language as the original `MarginGauge`, plus a status pill on top. */
+export function MarginVsTarget({ actualPct, targetPct, emptyState }: Props) {
   if (targetPct == null) {
     return <div className={css.gaugeEmpty}>{emptyState}</div>;
   }
@@ -55,16 +60,19 @@ export function MarginGauge({ actualPct, targetPct, emptyState }: Props) {
 
   const variance = ppChange(actualPct, targetPct);
   const met = actualPct >= targetPct;
+  const onTarget = Math.abs(variance) <= ON_TARGET_BAND_PP;
+  const status = onTarget ? "On Target" : met ? "Above Target" : "Below Target";
+  const statusVariant = onTarget ? "info" : met ? "success" : "warning";
 
   return (
     <div className={css.gaugeWrap}>
+      <div className={css.marginBarStatusRow}>
+        <StatusBadge status={status} label={status} variant={statusVariant} />
+      </div>
       <div className={css.gaugeSvgWrap}>
         <svg viewBox="0 0 220 130" role="img" aria-label="Gross margin vs target" className={css.gaugeSvg}>
           <path d={ringPath(R_OUTER, R_INNER, START_ANGLE, START_ANGLE + SWEEP_DEG)} className={css.gaugeTrack} />
-          <path
-            d={ringPath(R_OUTER, R_INNER, START_ANGLE, actualEndAngle)}
-            fill={met ? "var(--pc-primary)" : "#ea580c"}
-          />
+          <path d={ringPath(R_OUTER, R_INNER, START_ANGLE, actualEndAngle)} fill={met ? "var(--pc-primary)" : "#ea580c"} />
         </svg>
         <div className={css.gaugeCenter}>
           <strong>{actualPct.toFixed(1)}%</strong>

@@ -3,7 +3,6 @@ import {
   IconActivity,
   IconBarChart,
   IconBox,
-  IconClipboardList,
   IconTruck,
 } from "@/components/icons";
 
@@ -11,8 +10,7 @@ export type CategoryKey =
   | "sales"
   | "profitability"
   | "inventory"
-  | "purchasing"
-  | "operations";
+  | "purchasing";
 
 /** The reports this page actually renders against real data. Every other key below is a scoped-out placeholder — visible so the nav shape doesn't need a redesign when they're built, but not routed to real logic anywhere. */
 export type RealReportKey =
@@ -26,11 +24,31 @@ export type RealReportKey =
   | "gross-profit"
   | "margin-by-product"
   | "margin-by-category"
-  | "low-margin-products"
-  | "near-expiry"
-  | "dead-stock"
-  | "stock-value";
+  | "branch-profitability"
+  | "expiry-batch-risk"
+  | "inventory-summary"
+  | "stock-health"
+  | "stock-movement"
+  | "transfers-report"
+  | "stocktakes-report"
+  | "purchase-summary"
+  | "supplier-spend"
+  | "supplier-performance";
 export type ReportKey = RealReportKey | (string & {});
+
+/** Deep-links to a report key that has since been renamed/merged resolve to its replacement
+ *  instead of falling through to a blank/coming-soon state — bookmarks and any saved links keep
+ *  working. Dead Stock and Stock Ageing both merged into the single Stock Health report. */
+export const REPORT_KEY_ALIASES: Record<string, ReportKey> = {
+  "stock-value": "inventory-summary",
+  "dead-stock": "stock-health",
+  "stock-ageing": "stock-health",
+  "near-expiry": "expiry-batch-risk",
+};
+
+export function resolveReportKeyAlias(key: ReportKey): ReportKey {
+  return REPORT_KEY_ALIASES[key] ?? key;
+}
 
 export type PeriodOption = { value: number; label: string };
 
@@ -47,6 +65,10 @@ export type ReportDef = {
   periodLabel?: string;
   periodOptions?: PeriodOption[];
   defaultPeriod?: number;
+  /** Only shown once the tenant has at least this many branches — e.g. Branch Profitability is
+   *  meaningless (and would just be an empty comparison) for a single-branch tenant. Omitted =
+   *  always visible. */
+  minBranches?: number;
 };
 
 export type CategoryDef = {
@@ -77,10 +99,10 @@ export const CATEGORIES: CategoryDef[] = [
     label: "Profitability",
     icon: <IconBarChart size={16} />,
     reports: [
-      { key: "gross-profit", label: "Gross Profit", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
-      { key: "margin-by-product", label: "Margin by Product", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
-      { key: "margin-by-category", label: "Margin by Category", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
-      { key: "low-margin-products", label: "Low-Margin Products", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "gross-profit", label: "Profit Summary", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "margin-by-product", label: "Product Profitability", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "margin-by-category", label: "Category Profitability", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "branch-profitability", label: "Branch Profitability", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30, minBranches: 2 },
     ],
   },
   {
@@ -88,10 +110,11 @@ export const CATEGORIES: CategoryDef[] = [
     label: "Inventory",
     icon: <IconBox size={16} />,
     reports: [
-      { key: "stock-value", label: "Stock Value" },
+      { key: "inventory-summary", label: "Inventory Summary" },
+      { key: "stock-health", label: "Stock Health" },
       {
-        key: "near-expiry",
-        label: "Near Expiry",
+        key: "expiry-batch-risk",
+        label: "Expiry & Batch Risk",
         periodLabel: "Window",
         periodOptions: [
           { value: 30, label: "Within 30 days" },
@@ -100,41 +123,19 @@ export const CATEGORIES: CategoryDef[] = [
         ],
         defaultPeriod: 90,
       },
-      {
-        key: "dead-stock",
-        label: "Dead Stock",
-        periodLabel: "No sale in",
-        periodOptions: [
-          { value: 60, label: "60+ days" },
-          { value: 90, label: "90+ days" },
-          { value: 180, label: "180+ days" },
-        ],
-        defaultPeriod: 90,
-      },
-      { key: "stock-ageing", label: "Stock Ageing", comingSoon: true },
-      { key: "stock-movement", label: "Stock Movement", comingSoon: true },
+      { key: "stock-movement", label: "Movement & Turnover", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "transfers-report", label: "Transfers", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "stocktakes-report", label: "Stocktakes", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
     ],
   },
   {
     key: "purchasing",
     label: "Purchasing",
     icon: <IconTruck size={16} />,
-    comingSoon: true,
     reports: [
-      { key: "purchase-summary", label: "Purchase Summary", comingSoon: true },
-      { key: "supplier-spend", label: "Supplier Spend", comingSoon: true },
-      { key: "supplier-performance", label: "Supplier Performance", comingSoon: true },
-    ],
-  },
-  {
-    key: "operations",
-    label: "Operations",
-    icon: <IconClipboardList size={16} />,
-    comingSoon: true,
-    reports: [
-      { key: "transfers-summary", label: "Transfers", comingSoon: true },
-      { key: "returns-summary", label: "Returns", comingSoon: true },
-      { key: "stocktake-summary", label: "Stocktakes", comingSoon: true },
+      { key: "purchase-summary", label: "Purchase Summary", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "supplier-spend", label: "Supplier Spend", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "supplier-performance", label: "Supplier Performance", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
     ],
   },
 ];

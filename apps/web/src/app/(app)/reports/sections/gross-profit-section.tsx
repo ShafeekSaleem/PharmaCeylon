@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -11,64 +11,47 @@ import {
   IconCheckCircle,
   IconChevronRight,
   IconDollarSign,
-  IconGrid,
+  IconHome,
   IconPill,
-  IconShield,
-  IconShoppingBag,
   IconSparkles,
-  IconStethoscope,
   IconTrophy,
-  IconUser,
-  IconUsers,
 } from "@/components/icons";
 import { StatGrid, StatCard } from "@/components/ui/stat-card";
 import { ActionButton } from "@/components/ui";
+import { getCategoryVisual, getCategoryStatTone } from "@/lib/category-icons";
 import {
+  fetchBranchMargin,
   fetchCategoryComparison,
   fetchMarginComparison,
-  fetchProfitabilityTarget,
-  fetchReturnsAndDiscounts,
   fetchSalesTrendWithComparison,
   type MarginTotals,
 } from "../lib/fetchers";
+import { useProfitabilityTarget } from "../lib/use-profitability-target";
 import { formatMoney, formatPctTrend, formatPpTrend, pctChange, ppChange } from "../lib/format";
 import { bucketTrend, type ChartGranularity } from "../lib/chart-bucketing";
 import { TrendChart } from "../components/trend-chart";
 import { WaterfallChart, type WaterfallStep } from "../components/waterfall-chart";
-import { MarginGauge } from "../components/margin-gauge";
-import { InlineBarCell } from "../components/inline-bar-cell";
+import { MarginVsTarget } from "../components/margin-vs-target";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
 import type { CategoryKey, ReportKey } from "../lib/nav-config";
-import type { BranchTrendPoint, CategoryRow, ExportPayload, OnExportData, Scope } from "../lib/types";
+import type { BranchMarginRow, BranchTrendPoint, CategoryRow, ExportPayload, MarginRow, OnExportData, Scope } from "../lib/types";
 import css from "../reports.module.css";
 
 type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
-type CategoryEnriched = CategoryRow & { revenueN: number; costN: number; marginN: number; marginPct: number; growthPct: number | null };
-
-/** Best-effort department → icon mapping (cosmetic only, matched on display name) — this
- *  codebase's icon set has no per-department icons, so this picks the closest fit. */
-const DEPARTMENT_ICONS: Record<string, ReactNode> = {
-  Medicines: <IconPill size={16} />,
-  "Vitamins & Supplements": <IconArchive size={16} />,
-  "Baby & Mother Care": <IconUsers size={16} />,
-  "Personal Care": <IconUser size={16} />,
-  "Beauty & Skin Care": <IconSparkles size={16} />,
-  "Medical Devices": <IconStethoscope size={16} />,
-  "First Aid": <IconShield size={16} />,
-  "Nutrition & Wellness": <IconActivity size={16} />,
-  "Food & Beverages": <IconShoppingBag size={16} />,
-  "Household & Convenience": <IconBox size={16} />,
+type CategoryEnriched = CategoryRow & {
+  revenueN: number;
+  costN: number;
+  marginN: number;
+  marginPct: number;
+  growthPct: number | null;
+  /** Null when there's no comparable prior-period revenue for this category — never fabricated. */
+  previousMarginPct: number | null;
 };
-const DRIVER_ICON_TONES = ["primary", "info", "success", "warning"] as const;
 
-function driverIcon(name: string): ReactNode {
-  return DEPARTMENT_ICONS[name] ?? <IconGrid size={16} />;
-}
-
-/** Executive profitability overview — owns Revenue/COGS/Gross Profit/Blended Margin, the profit
- *  bridge, and the goal tracker. Category and product-level detail intentionally live on Margin
- *  by Category / Margin by Product instead of being duplicated here. */
+/** Executive profitability overview — owns Net Revenue/COGS/Gross Profit/Blended Margin, the
+ *  change bridge, and target tracking. Full category/product/branch drill-down intentionally
+ *  lives on their own dedicated pages; this page links out to them rather than duplicating. */
 export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportData }: Props) {
   const router = useRouter();
   const [currentTotals, setCurrentTotals] = useState<MarginTotals>({ revenue: 0, cost: 0, margin: 0, unitsSold: 0 });
@@ -76,9 +59,9 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
   const [revenuePoints, setRevenuePoints] = useState<BranchTrendPoint[]>([]);
   const [previousRevenuePoints, setPreviousRevenuePoints] = useState<BranchTrendPoint[]>([]);
   const [categories, setCategories] = useState<CategoryEnriched[]>([]);
-  const [totalReturns, setTotalReturns] = useState(0);
-  const [targetPct, setTargetPct] = useState<number | null>(null);
-  const [targetLoaded, setTargetLoaded] = useState(false);
+  const [productRows, setProductRows] = useState<MarginRow[]>([]);
+  const [branchRows, setBranchRows] = useState<BranchMarginRow[]>([]);
+  const { targetPct, targetLoaded } = useProfitabilityTarget();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [granularity, setGranularity] = useState<ChartGranularity>("daily");
@@ -91,22 +74,22 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
       fetchMarginComparison(days, scope, isOwner),
       fetchSalesTrendWithComparison(days, scope, null),
       fetchCategoryComparison(days, scope, isOwner),
-      fetchReturnsAndDiscounts(days, scope, isOwner),
     ])
-      .then(([margin, trend, cats, returns]) => {
+      .then(([margin, trend, cats]) => {
         if (cancelled) return;
         setCurrentTotals(margin.currentTotals);
         setPreviousTotals(margin.previousTotals);
         setRevenuePoints(trend.currentPoints);
         setPreviousRevenuePoints(trend.previousPoints);
-        setTotalReturns(returns.totalReturnValue);
+        setProductRows(margin.current);
         setCategories(
           cats.current.map((c) => {
             const revenueN = Number(c.revenue);
             const costN = Number(c.cost);
             const marginN = revenueN - costN;
             const prev = cats.previousByCategory.get(c.categoryId);
-            return { ...c, revenueN, costN, marginN, marginPct: revenueN > 0 ? (marginN / revenueN) * 100 : 0, growthPct: prev ? pctChange(revenueN, prev.revenue) : null };
+            const previousMarginPct = prev && prev.revenue > 0 ? (prev.margin / prev.revenue) * 100 : null;
+            return { ...c, revenueN, costN, marginN, marginPct: revenueN > 0 ? (marginN / revenueN) * 100 : 0, growthPct: prev ? pctChange(revenueN, prev.revenue) : null, previousMarginPct };
           }),
         );
       })
@@ -121,20 +104,20 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
     };
   }, [days, scope, isOwner]);
 
+  // Independent of scope/branch — Branch Profitability's own endpoint always covers every branch
+  // (see `fetchBranchMargin`'s doc comment), used here only to surface a "Top Branch" contributor
+  // tile when the tenant genuinely has more than one.
   useEffect(() => {
     let cancelled = false;
-    fetchProfitabilityTarget()
+    fetchBranchMargin(days)
       .then((res) => {
-        if (!cancelled) setTargetPct(res.targetGrossMarginPercent);
+        if (!cancelled) setBranchRows(res.branches);
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setTargetLoaded(true);
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [days]);
 
   const blendedMarginPct = currentTotals.revenue > 0 ? (currentTotals.margin / currentTotals.revenue) * 100 : 0;
   const previousBlendedMarginPct = previousTotals.revenue > 0 ? (previousTotals.margin / previousTotals.revenue) * 100 : 0;
@@ -146,62 +129,116 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
   const bucketedCurrent = useMemo(() => bucketTrend(estimatedProfitPoints, granularity), [estimatedProfitPoints, granularity]);
   const bucketedPrevious = useMemo(() => bucketTrend(estimatedPreviousProfitPoints, granularity), [estimatedPreviousProfitPoints, granularity]);
 
-  const bestCategory = [...categories].sort((a, b) => b.marginN - a.marginN)[0] ?? null;
+  const rankedByMargin = useMemo(() => [...categories].sort((a, b) => b.marginN - a.marginN), [categories]);
+  const bestCategory = rankedByMargin[0] ?? null;
+  const topProduct = useMemo(() => (productRows.length === 0 ? null : [...productRows].sort((a, b) => Number(b.margin) - Number(a.margin))[0]!), [productRows]);
+  // Only surfaced (a) once there are genuinely 2+ branches to compare, and (b) while viewing "All
+  // branches" — `branchRows` always covers the whole tenant regardless of the page's own scope
+  // toggle, but `currentTotals` (the "% of profit" denominator below) is THIS branch's own total
+  // when scoped to one branch, so a cross-branch comparison against it would be nonsense (another
+  // branch's margin divided by this branch's total — not even guaranteed to stay under 100%).
+  const topBranch = useMemo(
+    () => (scope !== "tenant" || branchRows.length < 2 ? null : [...branchRows].sort((a, b) => Number(b.margin) - Number(a.margin))[0]!),
+    [scope, branchRows],
+  );
+
+  // The category with the steepest own-margin decline vs. the comparison period (not just the
+  // slowest revenue growth) — a genuine risk signal a reader can't already see on the trend/bridge
+  // charts above, which only show the portfolio's blended figures.
+  const marginErosion = useMemo(() => {
+    const candidates = categories
+      .filter((c): c is CategoryEnriched & { previousMarginPct: number } => c.previousMarginPct != null && c.revenueN > 0)
+      .map((c) => ({ c, deltaPp: c.marginPct - c.previousMarginPct }));
+    const worst = candidates.sort((a, b) => a.deltaPp - b.deltaPp)[0];
+    // 1pp+ decline only — smaller moves are noise, not a real erosion signal worth flagging.
+    return worst && worst.deltaPp < -1 ? worst : null;
+  }, [categories]);
 
   const actionItems: ActionPanelItem[] = useMemo(() => {
     const out: ActionPanelItem[] = [];
     if (bestCategory) {
       const shareOfProfit = currentTotals.margin > 0 ? (bestCategory.marginN / currentTotals.margin) * 100 : 0;
+      const marginGapPp = bestCategory.marginPct - blendedMarginPct;
       out.push({
         key: "best-category",
         icon: <IconTrophy size={16} />,
         tone: "primary",
         title: "Best Contributor Category",
-        description: `${bestCategory.name} contributed ${formatMoney(bestCategory.marginN)} gross profit (${shareOfProfit.toFixed(1)}% of total).`,
+        description: `${bestCategory.name} generates ${shareOfProfit.toFixed(1)}% of gross profit at a ${bestCategory.marginPct.toFixed(1)}% margin — ${Math.abs(marginGapPp).toFixed(1)}pp ${marginGapPp >= 0 ? "above" : "below"} the portfolio average, making it ${marginGapPp >= 0 ? "a genuine profit engine, not just a volume driver" : "disproportionately important to protect despite thinner margins"}.`,
         count: 1,
         countLabel: "category",
+        onClick: () => onNavigate("profitability", "margin-by-category"),
         examples: [{ label: bestCategory.name, badge: `${shareOfProfit.toFixed(0)}% of profit`, tone: "positive" }],
       });
     }
     if (previousTotals.revenue > 0) {
-      const revenueDelta = currentTotals.revenue - previousTotals.revenue;
-      const profitDelta = currentTotals.margin - previousTotals.margin;
+      // previousTotals.revenue > 0 already guarantees pctChange's only-null case (zero prior
+      // value) can't happen here — the `?? 0` is just satisfying the general signature.
+      const revenueGrowthPct = pctChange(currentTotals.revenue, previousTotals.revenue) ?? 0;
+      const costGrowthPct = (previousTotals.cost > 0 ? pctChange(currentTotals.cost, previousTotals.cost) : 0) ?? 0;
+      const marginPtDelta = blendedMarginPct - previousBlendedMarginPct;
+      const costOutpacing = costGrowthPct > revenueGrowthPct;
       out.push({
         key: "driver",
         icon: <IconActivity size={16} />,
-        tone: profitDelta >= 0 ? "primary" : "danger",
-        title: "Gross Profit Change Driver",
-        description: `Revenue ${revenueDelta >= 0 ? "increased" : "decreased"} by ${formatMoney(Math.abs(revenueDelta))} (${formatPctTrend(pctChange(currentTotals.revenue, previousTotals.revenue))}), leading to a ${formatMoney(Math.abs(profitDelta))} gross-profit ${profitDelta >= 0 ? "increase" : "decrease"}.`,
+        tone: marginPtDelta >= 0 ? "primary" : "danger",
+        title: costOutpacing ? "Cost Pressure on Margin" : "Margin Expansion Driver",
+        description: costOutpacing
+          ? `Gross margin ${marginPtDelta >= 0 ? "held roughly flat" : `fell ${Math.abs(marginPtDelta).toFixed(1)}pp`} because COGS grew ${formatPctTrend(costGrowthPct)} — faster than revenue's ${formatPctTrend(revenueGrowthPct)} — eating into the gain.`
+          : `Gross margin ${marginPtDelta >= 0 ? `improved ${marginPtDelta.toFixed(1)}pp` : "held roughly flat"} as revenue grew ${formatPctTrend(revenueGrowthPct)}, outpacing COGS' ${formatPctTrend(costGrowthPct)} growth.`,
         count: 1,
         countLabel: "period",
-        examples: [{ label: "Revenue", badge: formatPctTrend(pctChange(currentTotals.revenue, previousTotals.revenue)), tone: revenueDelta >= 0 ? "positive" : "negative" }],
+        examples: [{ label: "Margin", badge: formatPpTrend(marginPtDelta), tone: marginPtDelta >= 0 ? "positive" : "negative" }],
       });
     }
-    const topOpportunity = [...categories].filter((c) => c.growthPct != null && c.growthPct > 0).sort((a, b) => (b.growthPct ?? 0) - (a.growthPct ?? 0))[0];
-    if (topOpportunity) {
+    if (marginErosion) {
+      const { c, deltaPp } = marginErosion;
+      const revenueContext = c.growthPct == null ? "" : c.growthPct >= 0 ? `, despite revenue ${c.growthPct === 0 ? "holding steady" : `growing ${formatPctTrend(c.growthPct)}`}` : "";
       out.push({
-        key: "opportunity",
-        icon: <IconSparkles size={16} />,
-        tone: "purple",
-        title: "Top Opportunity",
-        description: `${topOpportunity.name} has the highest growth this period (${formatPctTrend(topOpportunity.growthPct ?? 0)}).`,
+        key: "erosion",
+        icon: <IconAlertTriangle size={16} />,
+        tone: "danger",
+        title: "Margin Erosion",
+        description: `${c.name}'s margin slipped ${Math.abs(deltaPp).toFixed(1)}pp to ${c.marginPct.toFixed(1)}% versus the comparison period${revenueContext} — cost pressure here is outrunning pricing.`,
         count: 1,
         countLabel: "category",
         onClick: () => onNavigate("profitability", "margin-by-category"),
-        examples: [{ label: topOpportunity.name, badge: formatPctTrend(topOpportunity.growthPct ?? 0), tone: "positive" }],
+        examples: [{ label: c.name, badge: `${deltaPp.toFixed(1)}pp`, tone: "negative" }],
       });
+    } else {
+      const topOpportunity = [...categories].filter((c) => c.growthPct != null && c.growthPct > 0).sort((a, b) => (b.growthPct ?? 0) - (a.growthPct ?? 0))[0];
+      if (topOpportunity) {
+        out.push({
+          key: "opportunity",
+          icon: <IconSparkles size={16} />,
+          tone: "purple",
+          title: "Top Growth Opportunity",
+          description: `${topOpportunity.name} grew ${formatPctTrend(topOpportunity.growthPct ?? 0)} this period at a ${topOpportunity.marginPct.toFixed(1)}% margin — worth doubling down on while the momentum holds.`,
+          count: 1,
+          countLabel: "category",
+          onClick: () => onNavigate("profitability", "margin-by-category"),
+          examples: [{ label: topOpportunity.name, badge: formatPctTrend(topOpportunity.growthPct ?? 0), tone: "positive" }],
+        });
+      }
     }
     return out;
-  }, [bestCategory, previousTotals, currentTotals, categories, onNavigate]);
+  }, [bestCategory, previousTotals, currentTotals, categories, blendedMarginPct, previousBlendedMarginPct, marginErosion, onNavigate]);
 
-  const rankedByMargin = useMemo(() => [...categories].sort((a, b) => b.marginN - a.marginN), [categories]);
-  const topDrivers = rankedByMargin.slice(0, 4);
-  const contributionRows = rankedByMargin.slice(0, 8);
-
+  // "Why did gross profit change" (period-over-period attribution), not "how does revenue become
+  // gross profit" (composition) — the KPI cards already show revenue/COGS/GP in full, so a
+  // composition bridge repeats them without adding anything. `previousTotals.margin` is a "total"
+  // step (overwrites the running baseline directly, see WaterfallChart), so this stays pixel-exact
+  // regardless of Decimal/float rounding in the intermediate deltas.
+  const revenueDelta = currentTotals.revenue - previousTotals.revenue;
+  const costDelta = currentTotals.cost - previousTotals.cost;
+  const hasComparablePeriod = previousTotals.revenue > 0;
   const waterfallSteps: WaterfallStep[] = [
-    { key: "revenue", label: "Revenue", kind: "total", value: currentTotals.revenue },
-    { key: "cogs", label: "Cost of Goods Sold", kind: "deduction", value: currentTotals.cost },
-    { key: "gp", label: "Gross Profit", kind: "total", value: currentTotals.margin },
+    { key: "prevGp", label: "Previous Period GP", kind: "total", value: previousTotals.margin },
+    { key: "revenueDelta", label: "Revenue Δ", kind: revenueDelta >= 0 ? "addition" : "deduction", value: Math.abs(revenueDelta) },
+    // Inverted vs. Revenue's mapping — a COGS *increase* reduces gross profit, so a rising cost
+    // (costDelta >= 0) is a "deduction" step, the same direction a falling cost would be for revenue.
+    { key: "cogsDelta", label: "COGS Δ", kind: costDelta >= 0 ? "deduction" : "addition", value: Math.abs(costDelta) },
+    { key: "curGp", label: "Current Period GP", kind: "total", value: currentTotals.margin },
   ];
 
   useEffect(() => {
@@ -232,7 +269,7 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
     <div>
       <StatGrid columns={4} dense className={css.heroGrid}>
         <StatCard size="sm" showMenu={false}
-          title="Revenue"
+          title="Net Revenue"
           value={loading ? "…" : formatMoney(currentTotals.revenue)}
           subtitle={`vs previous ${days} days`}
           icon={<IconDollarSign size={16} />}
@@ -263,7 +300,7 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
         />
       </StatGrid>
 
-      <div className={`${css.grid2} ${css.firstRow} ${css.gridAlignStart}`}>
+      <div className={`${css.grid2} ${css.firstRow} ${css.snugFirstRow}`}>
         <div className={css.card}>
           <div className={css.cardhead}>
             <div>
@@ -278,40 +315,35 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
               ))}
             </div>
           </div>
-          <TrendChart points={bucketedCurrent} previousPoints={bucketedPrevious} tooltipFormat={formatMoney} currentLabel={`Last ${days} days`} previousLabel={`Previous ${days} days`} />
+          <TrendChart points={bucketedCurrent} previousPoints={bucketedPrevious} tooltipFormat={formatMoney} currentLabel={`Last ${days} days`} previousLabel={`Previous ${days} days`} height={214} />
         </div>
 
         <div className={css.card}>
           <div className={css.cardhead}>
             <div>
-              <h3>Profit Bridge</h3>
-              <p>How revenue becomes gross profit</p>
+              <h3>Gross Profit Change Bridge</h3>
+              <p>Why gross profit changed vs. the comparison period</p>
             </div>
           </div>
-          <WaterfallChart steps={waterfallSteps} formatValue={formatMoney} />
-          {totalReturns > 0 ? (
-            <p className={css.bridgeNote}>
-              {formatMoney(totalReturns)} in customer returns this period aren&apos;t reflected above (line-level discounts already are, inside Revenue) — see{" "}
-              <button type="button" className={css.inlineLinkBtn} onClick={() => onNavigate("sales", "returns-discounts")}>
-                Returns &amp; Discounts
-              </button>
-              .
-            </p>
-          ) : null}
+          {hasComparablePeriod ? (
+            <WaterfallChart steps={waterfallSteps} formatValue={formatMoney} />
+          ) : (
+            <p className={css.emptyNote}>Not enough history yet to show a period-over-period bridge.</p>
+          )}
         </div>
       </div>
 
-      <div className={css.grid3}>
+      <div className={`${css.grid3} ${css.gridAlignStart}`}>
         <div className={`${css.card} ${css.compactCard}`}>
           <div className={css.cardhead}>
             <div>
-              <h3>Profitability Goal Tracker</h3>
+              <h3>Margin vs Target</h3>
               <p>Gross margin target for this period</p>
             </div>
           </div>
           <div className={css.compactCardBody}>
             {targetLoaded && targetPct == null ? (
-              <MarginGauge
+              <MarginVsTarget
                 actualPct={blendedMarginPct}
                 targetPct={targetPct}
                 emptyState={
@@ -325,29 +357,27 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
               />
             ) : null}
             {targetLoaded && targetPct != null ? (
-              <div className={css.goalTrackerRow}>
-                <div className={css.goalTrackerLeft}>
-                  <MarginGauge actualPct={blendedMarginPct} targetPct={targetPct} emptyState={null} />
-                </div>
-                <div className={css.goalTrackerRight}>
-                  <div className={`${css.goalMessageBox} ${blendedMarginPct >= targetPct ? css.goalMessageSuccess : css.goalMessageWarning}`}>
-                    <span className={css.goalMessageIcon}>
-                      {blendedMarginPct >= targetPct ? <IconCheckCircle size={15} /> : <IconAlertTriangle size={15} />}
-                    </span>
-                    <div>
-                      <b>{blendedMarginPct >= targetPct ? "Great job! You've exceeded your gross margin target." : "Below target margin this period."}</b>
-                      <p>
-                        {blendedMarginPct >= targetPct
-                          ? "Keep optimizing COGS and pricing to sustain growth."
-                          : `Review pricing and COGS to close the ${Math.abs(ppChange(blendedMarginPct, targetPct)).toFixed(1)}pp gap.`}
-                      </p>
-                    </div>
+              <>
+                <MarginVsTarget actualPct={blendedMarginPct} targetPct={targetPct} emptyState={null} />
+                <div className={`${css.goalMessageBox} ${blendedMarginPct >= targetPct ? css.goalMessageSuccess : css.goalMessageWarning}`}>
+                  <span className={css.goalMessageIcon}>
+                    {blendedMarginPct >= targetPct ? <IconCheckCircle size={15} /> : <IconAlertTriangle size={15} />}
+                  </span>
+                  <div>
+                    <b>{blendedMarginPct >= targetPct ? "Great job! You've exceeded your gross margin target." : "Below target margin this period."}</b>
+                    <p>
+                      {blendedMarginPct >= targetPct
+                        ? "Keep optimizing COGS and pricing to sustain growth."
+                        : `Review pricing and COGS to close the ${Math.abs(ppChange(blendedMarginPct, targetPct)).toFixed(1)}pp gap.`}
+                    </p>
                   </div>
+                </div>
+                <div className={css.goalActionRow}>
                   <ActionButton variant="secondary" onClick={() => router.push("/settings/profitability")}>
                     View Goal Settings
                   </ActionButton>
                 </div>
-              </div>
+              </>
             ) : null}
           </div>
         </div>
@@ -355,62 +385,55 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
         <div className={`${css.card} ${css.compactCard}`}>
           <div className={css.cardhead}>
             <div>
-              <h3>Profitability Drivers</h3>
-              <p>Top commercial departments by gross profit</p>
+              <h3>Top Profit Contributors</h3>
+              <p>Highest gross-profit category, product{topBranch ? " and branch" : ""}</p>
             </div>
           </div>
           <div className={css.compactCardBody}>
-            {topDrivers.length === 0 ? (
+            {!bestCategory && !topProduct ? (
               <p className={css.emptyNote}>No categorized sales in this range yet.</p>
             ) : (
-              <StatGrid columns={2} dense>
-                {topDrivers.map((d, i) => (
+              <div className={css.statStack}>
+                {bestCategory ? (
                   <StatCard
-                    key={d.categoryId}
                     size="sm"
                     showMenu={false}
-                    title={d.name}
-                    value={`${d.marginPct.toFixed(1)}%`}
-                    subtitle={formatMoney(d.marginN)}
-                    icon={driverIcon(d.name)}
-                    iconTone={DRIVER_ICON_TONES[i % DRIVER_ICON_TONES.length]}
-                    trend={d.growthPct != null ? { value: formatPctTrend(d.growthPct), direction: d.growthPct >= 0 ? "up" : "down", tone: d.growthPct >= 0 ? "positive" : "danger" } : undefined}
+                    title="Top Category"
+                    value={bestCategory.name}
+                    subtitle={`${formatMoney(bestCategory.marginN)} · ${currentTotals.margin > 0 ? ((bestCategory.marginN / currentTotals.margin) * 100).toFixed(1) : "0"}% of profit`}
+                    icon={(() => { const { Icon } = getCategoryVisual(undefined, bestCategory.name); return <Icon size={16} />; })()}
+                    iconTone={getCategoryStatTone(undefined, bestCategory.name)}
+                    onClick={() => onNavigate("profitability", "margin-by-category")}
                   />
-                ))}
-              </StatGrid>
+                ) : null}
+                {topProduct ? (
+                  <StatCard
+                    size="sm"
+                    showMenu={false}
+                    title="Top Product"
+                    value={topProduct.name}
+                    subtitle={`${formatMoney(Number(topProduct.margin))} · ${currentTotals.margin > 0 ? ((Number(topProduct.margin) / currentTotals.margin) * 100).toFixed(1) : "0"}% of profit`}
+                    icon={<IconBox size={16} />}
+                    onClick={() => onNavigate("profitability", "margin-by-product")}
+                  />
+                ) : null}
+                {topBranch ? (
+                  <StatCard
+                    size="sm"
+                    showMenu={false}
+                    title="Top Branch"
+                    value={topBranch.name}
+                    subtitle={`${formatMoney(Number(topBranch.margin))} · ${currentTotals.margin > 0 ? ((Number(topBranch.margin) / currentTotals.margin) * 100).toFixed(1) : "0"}% of profit`}
+                    icon={<IconHome size={16} />}
+                    onClick={() => onNavigate("profitability", "branch-profitability")}
+                  />
+                ) : null}
+              </div>
             )}
           </div>
         </div>
 
-        <ActionsPanel title="Profitability Insights" items={actionItems} variant="cards" pageSize={3} />
-      </div>
-
-      <div className={css.card}>
-        <div className={css.cardhead}>
-          <div>
-            <h3>Gross Profit Contribution by Commercial Category</h3>
-            <p>Share of gross profit by category</p>
-          </div>
-          <button type="button" className={css.cardLink} onClick={() => onNavigate("profitability", "margin-by-category")}>
-            View margin by category <IconChevronRight size={13} />
-          </button>
-        </div>
-        {contributionRows.length === 0 ? (
-          <p className={css.emptyNote}>No categorized sales in this range yet.</p>
-        ) : (
-          <div className={css.contribList}>
-            {contributionRows.map((c) => {
-              const contributionPct = currentTotals.margin > 0 ? (c.marginN / currentTotals.margin) * 100 : 0;
-              return (
-                <div key={c.categoryId} className={css.contribRow}>
-                  <span className={css.contribName}>{c.name}</span>
-                  <InlineBarCell valueLabel={formatMoney(c.marginN)} pct={contributionPct} />
-                  <span className={css.contribPct}>{contributionPct.toFixed(1)}%</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <ActionsPanel title="Profitability Actions" items={actionItems} variant="cards" pageSize={3} />
       </div>
     </div>
   );

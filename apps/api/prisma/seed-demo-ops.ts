@@ -1,6 +1,14 @@
 /**
- * Bulk demo operations for dashboards / analytics (~3 months of activity).
+ * Bulk demo operations for dashboards / analytics (~8 months of activity).
  * Called from seed.ts after NMRA catalog + scenario fixtures.
+ *
+ * The window is deliberately wider than any report's own date-range filter (max "Last 90
+ * days") because Stock Health's ageing trend reconstructs the last 6 *months* of age
+ * composition from the ledger — if all stock were received within the last 90 days, the
+ * older trend points would be flat zero. Batch `receivedAt` values below are staggered across
+ * the full window for the same reason: a realistic pharmacy has a spread of stock ages, not a
+ * single cliff, and the spread is what lets Stock Ageing/Dead Stock surface genuine 91-180 and
+ * 180+ day examples instead of only ever showing "everything is fresh."
  *
  * Idempotent with full seed re-runs (seed.ts clears ops first).
  */
@@ -24,8 +32,8 @@ import {
   type NmraProductRow,
 } from "../src/nmra/nmra-normalize";
 
-const BATCH = 400;
-const HISTORY_DAYS = 90;
+const BATCH = 150;
+const HISTORY_DAYS = 240;
 /** Target daily sales across all branches (weekday; weekends lower). */
 const SALES_PER_DAY_WEEKDAY = 55;
 const SALES_PER_DAY_WEEKEND = 32;
@@ -114,7 +122,7 @@ type StockLot = {
  * 1) Activate stratified sellable set; deactivate remaining catalog.
  * 2) Ensure synthetic barcodes on sellable SKUs missing one.
  * 3) Stock secondary branches + near-expiry samples.
- * 4) Generate ~90 days of sales / POs / GRNs / transfers / returns with coherent ledger.
+ * 4) Generate ~8 months of sales / POs / GRNs / transfers / returns with coherent ledger.
  */
 export async function seedDemoOps(
   prisma: PrismaClient,
@@ -335,7 +343,10 @@ export async function seedDemoOps(
       const monthsAhead = 6 + (i % 12);
       const expiry = new Date(Date.UTC(2026, 8, 1));
       expiry.setUTCMonth(expiry.getUTCMonth() + monthsAhead);
-      const receivedAt = daysAgo(50 + (i % 20));
+      // Staggered across the full history window (not a flat 50-70 days) so each secondary
+      // branch — viewable on its own via the branch filter — has its own realistic age spread
+      // rather than looking artificially all-fresh once you're not looking at MAIN.
+      const receivedAt = daysAgo(20 + ((i * 17) % 220));
 
       batchRows.push({
         id: batchId,
@@ -347,6 +358,7 @@ export async function seedDemoOps(
         costPrice: dec(pricing.cost),
         sellingPrice: dec(pricing.sell),
         receivedAt,
+        supplierId: supplierIds.length > 0 ? supplierIds[i % supplierIds.length] : undefined,
       });
       ledgerRows.push({
         id: randomUUID(),
@@ -404,6 +416,7 @@ export async function seedDemoOps(
       costPrice: dec(pricing.cost),
       sellingPrice: dec(pricing.sell),
       receivedAt,
+      supplierId: supplierIds.length > 0 ? supplierIds[i % supplierIds.length] : undefined,
     });
     ledgerRows.push({
       id: randomUUID(),
@@ -458,7 +471,8 @@ export async function seedDemoOps(
     const monthsAhead = 5 + (i % 14);
     const expiry = new Date(Date.UTC(2026, 8, 1));
     expiry.setUTCMonth(expiry.getUTCMonth() + monthsAhead);
-    const receivedAt = daysAgo(55);
+    // Staggered (not a flat 55 days) for the same reason as the secondary-branch stock above.
+    const receivedAt = daysAgo(15 + ((i * 13) % 215));
     const qty = pricing.qty;
     mainTopUpBatches.push({
       id: batchId,
@@ -470,6 +484,7 @@ export async function seedDemoOps(
       costPrice: dec(pricing.cost),
       sellingPrice: dec(pricing.sell),
       receivedAt,
+      supplierId: supplierIds.length > 0 ? supplierIds[i % supplierIds.length] : undefined,
     });
     mainTopUpLedger.push({
       id: randomUUID(),
@@ -519,8 +534,12 @@ export async function seedDemoOps(
   let grSeq = 200;
   const activeSuppliers = supplierIds.length ? supplierIds : [];
 
-  // ~12 weekly replenishment cycles over 90 days
-  for (let week = 0; week < 12; week++) {
+  // Weekly replenishment cycles spanning the full history window (scales with HISTORY_DAYS so
+  // supply keeps pace with the sales volume generated below — without this, extending
+  // HISTORY_DAYS alone would starve later days of stock since replenishment stayed fixed at 12
+  // weeks/~84 days while demand grew to match the full window).
+  const REPLENISHMENT_WEEKS = Math.ceil(HISTORY_DAYS / 7);
+  for (let week = 0; week < REPLENISHMENT_WEEKS; week++) {
     const daysBack = HISTORY_DAYS - week * 7 - 2;
     if (daysBack < 1) continue;
     for (const branch of branches) {
@@ -585,6 +604,7 @@ export async function seedDemoOps(
           costPrice: dec(unitCost),
           sellingPrice: dec(sell),
           receivedAt: receivedOn,
+          supplierId,
         });
         grItemRows.push({
           id: randomUUID(),
@@ -607,8 +627,15 @@ export async function seedDemoOps(
           createdBy: users.clerkId,
           occurredAt: receivedOn,
         });
-        // Update in-memory stock — prefer replenished lot as current sellable
-        lot.qty += orderedQty;
+        // Switch the tracked "current sellable" lot to this new batch. Reset (not add) —
+        // every later sale_out for this product/branch is posted against `lot.batchId`, so if
+        // this pooled `qty` carried the old batch's leftover forward, sales would debit more
+        // than THIS specific batch's own `orderedQty` purchase_in ever credited it, eventually
+        // driving that batch's real ledger balance negative once cumulative debits exceed its
+        // own receipt. The old batch's untouched leftover isn't lost — it just correctly stays
+        // parked on the old batchId as aging stock, which is what a real goods-receipt switch
+        // looks like anyway.
+        lot.qty = orderedQty;
         lot.batchId = batchId;
         lot.costPrice = dec(unitCost);
         lot.sellingPrice = dec(sell);
@@ -659,7 +686,7 @@ export async function seedDemoOps(
   );
 
   // ── Historical sales ─────────────────────────────────────────────────────
-  console.log("── Demo ops: historical sales (~90 days) ──");
+  console.log(`── Demo ops: historical sales (~${HISTORY_DAYS} days) ──`);
   const saleRows: Prisma.SaleCreateManyInput[] = [];
   const saleItemRows: Prisma.SaleItemCreateManyInput[] = [];
   const paymentRows: Prisma.SalePaymentCreateManyInput[] = [];
@@ -1076,8 +1103,13 @@ export async function seedDemoOps(
       });
       const destKey = `${to.id}:${prod.id}`;
       const destLot = stockLots.get(destKey);
-      if (destLot) destLot.qty += qty;
-      else {
+      // Same reset-not-add rule as the PO replenishment switch above: point at the new batch
+      // and track only what IT was actually credited, so later sales can never debit more than
+      // this specific batchId's own transfer_in receipt.
+      if (destLot) {
+        destLot.qty = qty;
+        destLot.batchId = destBatchId;
+      } else {
         stockLots.set(destKey, {
           batchId: destBatchId,
           productId: prod.id,

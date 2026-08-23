@@ -193,6 +193,7 @@ export class InventoryService {
         isQuarantined: true,
         quarantinedAt: true,
         quarantineReason: true,
+        supplier: { select: { id: true, name: true } },
         product: {
           select: {
             id: true,
@@ -260,6 +261,7 @@ export class InventoryService {
         isQuarantined: b.isQuarantined,
         quarantinedAt: b.quarantinedAt?.toISOString() ?? null,
         quarantineReason: b.quarantineReason,
+        supplier: b.supplier ? { id: b.supplier.id, name: b.supplier.name } : null,
         product: {
           id: b.product.id,
           sku: b.product.sku,
@@ -803,6 +805,10 @@ export class InventoryService {
         if (Number.isNaN(expiryDate.getTime())) {
           throw new BadRequestException("Invalid expiry date");
         }
+        if (dto.newBatch.supplierId) {
+          const supplier = await tx.supplier.findFirst({ where: { id: dto.newBatch.supplierId, tenantId } });
+          if (!supplier) throw new BadRequestException("Invalid supplier");
+        }
         const created = await tx.batch.create({
           data: {
             tenantId,
@@ -812,6 +818,7 @@ export class InventoryService {
             expiryDate,
             costPrice: dto.newBatch.costPrice,
             sellingPrice: dto.newBatch.sellingPrice,
+            supplierId: dto.newBatch.supplierId,
           },
         });
         batchId = created.id;

@@ -7,10 +7,16 @@ type Props = {
   category: CategoryKey;
   report: ReportKey;
   onNavigate: (category: CategoryKey, report?: ReportKey) => void;
+  /** Tenant's branch count, for reports (e.g. Branch Profitability) that only make sense once
+   *  there's more than one branch to compare — see `ReportDef.minBranches`. Pass `Infinity`
+   *  (not `0`) while the branch list is still loading, so a genuinely multi-branch tenant never
+   *  sees the tab flash hidden before the fetch resolves. */
+  branchCount: number;
 };
 
-export function CategoryNav({ category, report, onNavigate }: Props) {
+export function CategoryNav({ category, report, onNavigate, branchCount }: Props) {
   const active = CATEGORIES.find((c) => c.key === category) ?? CATEGORIES[0]!;
+  const visibleReports = active.reports.filter((r) => r.minBranches == null || branchCount >= r.minBranches);
 
   return (
     <>
@@ -29,9 +35,9 @@ export function CategoryNav({ category, report, onNavigate }: Props) {
         ))}
       </nav>
 
-      {active.reports.length > 0 ? (
+      {visibleReports.length > 0 ? (
         <div className={css.reportPills} role="tablist" aria-label={`${active.label} reports`}>
-          {active.reports.map((r) => (
+          {visibleReports.map((r) => (
             <button
               key={r.key}
               type="button"

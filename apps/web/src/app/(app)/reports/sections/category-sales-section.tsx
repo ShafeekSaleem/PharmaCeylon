@@ -9,6 +9,7 @@ import { formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import { CategoryMixCard } from "../components/category-mix-card";
 import { CategoryChildBreakdown } from "../components/category-child-breakdown";
 import { categoryMixColor } from "../lib/category-mix-colors";
+import { CategoryIconBadge } from "@/lib/category-icons";
 import { InlineBarCell } from "../components/inline-bar-cell";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
 import { ReportSelect } from "../components/report-select";
@@ -330,8 +331,20 @@ export function CategorySalesSection({ scope, isOwner, days, onExportData, group
     return () => onExportData(null);
   }, [filteredRows, tableTotalRevenue, days, onExportData, groupBy, tableNameLabel, drilledParent]);
 
+  // Icons only make sense for the commercial-department dimension's top-level rows — a drilled-in
+  // department's own sub-categories, and the other lenses (Dosage Form/Schedule/Registration
+  // Type), aren't Commercial Categories and have no icon in that set.
+  const showCategoryIcon = groupBy === "commercial" && !drilledParent;
+
   const columns: Column<PerformanceRow>[] = [
-    { key: "name", header: tableNameLabel },
+    { key: "name", header: tableNameLabel, render: (r) => (
+      showCategoryIcon ? (
+        <span className={css.categoryCell}>
+          <CategoryIconBadge name={r.name} size={19} />
+          <span>{r.name}</span>
+        </span>
+      ) : r.name
+    ) },
     {
       key: "revenueN",
       header: "Net Sales",

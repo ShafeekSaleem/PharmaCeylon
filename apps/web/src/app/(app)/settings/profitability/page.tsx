@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
 import { PageHeader, ActionButton } from "@/components/ui";
 import { usePermissions } from "@/lib/permissions";
+import { invalidateProfitabilityTargetCache } from "@/app/(app)/reports/lib/use-profitability-target";
 import { fetchProfitabilityTargetSetting, saveProfitabilityTargetSetting } from "./api";
 
 export default function ProfitabilitySettingsPage() {
@@ -46,6 +47,7 @@ export default function ProfitabilitySettingsPage() {
     setSaving(true);
     try {
       await saveProfitabilityTargetSetting(value);
+      invalidateProfitabilityTargetCache();
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save the target");

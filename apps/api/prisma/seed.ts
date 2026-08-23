@@ -29,6 +29,8 @@ import {
 import { seedDemoOps } from "./seed-demo-ops";
 import { DEMO_STOCK_REG_NOS, seedNmraCatalog } from "./seed-nmra";
 import { ensureRbacSeed } from "./rbac-seed";
+import { seedRetailDemoProducts } from "./seed-retail-demo-products";
+import { seedRetailDemoSales } from "./seed-retail-demo-sales";
 import {
   demoPricingForProduct,
   demoStockLineForIndex,
@@ -574,6 +576,11 @@ async function main() {
 
   const supplier1 = { id: supplierByCode.get("SUP-001")!, paymentTermsDays: 30 };
   const supplier2 = { id: supplierByCode.get("SUP-002")!, paymentTermsDays: 45 };
+  // Rotation used to tag every directly-received demo batch with a plausible supplier — Batch
+  // now carries `supplierId` directly rather than relying solely on the PO→GRN→Supplier chain
+  // (which is empty for batches received outside a formal PO, same as a manual stock adjustment
+  // in the real app), so Near Expiry / Batch Risk's supplier filter has real lineage to filter on.
+  const allSupplierIds = [...supplierByCode.values()];
 
   // Extra demo search synonyms for stocked items (NMRA already seeds reg/brand aliases).
   const aliasDefs = [
@@ -614,7 +621,12 @@ async function main() {
       costPrice: line.cost,
       sellingPrice: line.sell,
       referenceId: seedGrId,
-      receivedAt: daysAgo(45),
+      // Staggered 20–230 days back (not a flat 45) so Stock Health's 6-month ageing trend has a
+      // real distribution to show instead of a cliff of "everything is 45 days old" — products
+      // that later get replenished by seedDemoOps' weekly cycle skew back toward fresh, so this
+      // naturally correlates "still on its founding batch" with "slow mover," same as real life.
+      receivedAt: daysAgo(20 + Math.round((i / Math.max(1, MAIN_STOCK.length - 1)) * 210)),
+      supplierId: allSupplierIds[i % allSupplierIds.length],
     });
     batchByKey.set(`MAIN:${line.sku}`, ref);
   }
@@ -654,7 +666,9 @@ async function main() {
       costPrice: line.cost,
       sellingPrice: line.sell,
       referenceId: seedGrExpandedId,
-      receivedAt: daysAgo(40),
+      // Staggered across the same wide window as MAIN_STOCK above, for the same reason.
+      receivedAt: daysAgo(15 + ((i * 13) % 220)),
+      supplierId: allSupplierIds[i % allSupplierIds.length],
     });
     expandedStocked += 1;
     if ((i + 1) % 100 === 0 || i + 1 === expandedRegs.length) {
@@ -673,7 +687,7 @@ async function main() {
       { sku: "PCL-0024", qty: 4, daysUntilExpiry: 22, suffix: "NEAR-C" },
       { sku: "PCL-0013", qty: 8, daysUntilExpiry: 5, suffix: "NEAR-D" },
     ];
-  for (const line of nearExpiryLines) {
+  for (const [i, line] of nearExpiryLines.entries()) {
     const productId = productBySku.get(line.sku)!;
     const stock = MAIN_STOCK.find((s) => s.sku === line.sku);
     await seedReceiveStock(prisma, {
@@ -688,6 +702,7 @@ async function main() {
       sellingPrice: stock?.sell ?? 75,
       referenceId: seedGrNearId,
       receivedAt: daysAgo(60),
+      supplierId: allSupplierIds[i % allSupplierIds.length],
     });
   }
 
@@ -705,6 +720,7 @@ async function main() {
     sellingPrice: expiredStock?.sell ?? 15,
     referenceId: seedGrNearId,
     receivedAt: daysAgo(120),
+    supplierId: supplier1.id,
   });
   await prisma.batch.update({
     where: { id: expiredRef.batchId },
@@ -716,7 +732,7 @@ async function main() {
   });
 
   const seedGr2Id = "00000000-0000-4000-8000-000000000002";
-  for (const line of BRANCH2_STOCK) {
+  for (const [i, line] of BRANCH2_STOCK.entries()) {
     const productId = productBySku.get(line.sku)!;
     const ref = await seedReceiveStock(prisma, {
       tenantId: tenant.id,
@@ -730,6 +746,7 @@ async function main() {
       sellingPrice: line.sell,
       referenceId: seedGr2Id,
       receivedAt: daysAgo(30),
+      supplierId: allSupplierIds[i % allSupplierIds.length],
     });
     batchByKey.set(`BRANCH2:${line.sku}`, ref);
   }
@@ -2347,6 +2364,17 @@ async function main() {
     customerIds,
   });
 
+  // ── Retail demo catalog (non-Medicines departments) ──────────────────────
+  // Must run AFTER seedDemoOps: seedDemoOps deactivates every product not in its curated
+  // Medicines "sellable" set before re-activating that set, so running this earlier would leave
+  // every RTL- product deactivated. Layered on top here, it's untouched by that sweep and adds
+  // Vitamins & Supplements / Baby Care / Personal Care / Beauty / Medical Devices / First Aid /
+  // Nutrition / Food & Beverage / Household — so Reports → Profitability and Inventory show a
+  // real, department-weighted revenue mix instead of Medicines-only data.
+  console.log("\nSeeding retail demo catalog (non-Medicines departments)…");
+  await seedRetailDemoProducts(prisma, tenant.id, tenant.code);
+  await seedRetailDemoSales(prisma, tenant.id, tenant.code);
+
   // ── Held sales (Pharmacist "Prescription Verification Queue" demo data) ──
   console.log("Seeding held sales (Prescription Verification Queue demo data)…");
   const heldSaleDefs: Array<{
@@ -2554,11 +2582,11 @@ async function main() {
     `  Held sales: ${heldSaleDefs.length} (${heldSaleDefs.filter((d) => d.needsPharmacist).length} awaiting pharmacist)`,
   );
 
-  // Monthly branch sales targets for last 3 calendar months (Owner-set → manager).
-  // Daily sales already span ~90 days via seed-demo-ops (covers ≥2 months).
+  // Monthly branch sales targets for last 8 calendar months (Owner-set → manager) — matches the
+  // ~8-month window seed-demo-ops/seed-retail-demo-sales generate daily sales history for.
   const nowYm = new Date();
   let targetsSeeded = 0;
-  for (let monthsAgo = 2; monthsAgo >= 0; monthsAgo--) {
+  for (let monthsAgo = 7; monthsAgo >= 0; monthsAgo--) {
     const cursor = new Date(nowYm.getFullYear(), nowYm.getMonth() - monthsAgo, 1);
     const yearMonth = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
     const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
@@ -2662,10 +2690,10 @@ async function main() {
     `Ops extras: barcodes+${demoOps.barcodesAdded}, near-expiry batches ${demoOps.nearExpiryBatches}, secondary stock lots ${demoOps.branchBatches}`,
   );
   console.log(
-    `Targets:    ${targetsSeeded} branch-month rows (last 3 months, assigned to manager)`,
+    `Targets:    ${targetsSeeded} branch-month rows (last 8 months, assigned to manager)`,
   );
   console.log(
-    `Daily sales history: ~${demoOps.sales} ops invoices across ~90 days (≥2 months)`,
+    `Daily sales history: ~${demoOps.sales} ops invoices across ~8 months, plus retail sales across every non-Medicines department`,
   );
   console.log("\nLogins (passwords from SEED_*_PASSWORD or defaults):");
   console.log("  owner@pharmaceylon.demo      — owner");

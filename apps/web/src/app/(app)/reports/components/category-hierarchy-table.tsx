@@ -1,6 +1,8 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { IconChevronRight } from "@/components/icons";
+import { CategoryIconBadge } from "@/lib/category-icons";
 import { InlineBarCell } from "./inline-bar-cell";
 import { formatMoney, formatPctTrend } from "../lib/format";
 import css from "../reports.module.css";
@@ -38,15 +40,23 @@ type Props = {
   rows: HierarchyParentRow[];
   loading?: boolean;
   emptyTitle?: string;
+  /** When set, that row is force-expanded in addition to whatever the user has toggled — e.g. a
+   *  filter/selection elsewhere on the page drilling into one category. */
+  focusId?: string | null;
 };
 
 /** Bespoke (not the generic `DataTable`) expandable parent/child table: parent rows are
  *  sortable, but a parent's children always render directly beneath it regardless of sort —
  *  `DataTable`'s single flat sort would otherwise scatter children away from their parent. */
-export function CategoryHierarchyTable({ rows, loading = false, emptyTitle = "No categories match" }: Props) {
+export function CategoryHierarchyTable({ rows, loading = false, emptyTitle = "No categories match", focusId = null }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>("marginN");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  useEffect(() => {
+    if (!focusId) return;
+    setExpanded((cur) => (cur.has(focusId) ? cur : new Set(cur).add(focusId)));
+  }, [focusId]);
 
   const maxRevenue = Math.max(1, ...rows.map((r) => r.revenueN));
 
@@ -137,7 +147,7 @@ export function CategoryHierarchyTable({ rows, loading = false, emptyTitle = "No
             const isOpen = expanded.has(p.categoryId);
             return (
               <Fragment key={p.categoryId}>
-                <tr className={css.hierParentRow}>
+                <tr className={p.categoryId === focusId ? `${css.hierParentRow} ${css.hierParentRowFocus}` : css.hierParentRow}>
                   <td>
                     <button
                       type="button"
@@ -147,8 +157,9 @@ export function CategoryHierarchyTable({ rows, loading = false, emptyTitle = "No
                       aria-label={isOpen ? `Collapse ${p.name}` : `Expand ${p.name}`}
                       disabled={p.children.length === 0}
                     >
-                      {p.children.length > 0 ? (isOpen ? "▾" : "▸") : ""}
+                      {p.children.length > 0 ? <IconChevronRight size={13} className={isOpen ? css.hierExpandIconOpen : ""} /> : null}
                     </button>
+                    <CategoryIconBadge name={p.name} size={18} className={css.hierCategoryIcon} />
                     {p.name}
                   </td>
                   <td style={{ textAlign: "right" }}>

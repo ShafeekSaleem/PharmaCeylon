@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import type { Scope } from "./types";
-import { CATEGORIES, type CategoryKey, type ReportKey, defaultReportFor } from "./nav-config";
+import { CATEGORIES, type CategoryKey, type ReportKey, defaultReportFor, resolveReportKeyAlias } from "./nav-config";
 
 const SCOPE_KEY = "pharmaceylon.reports.scope";
 
@@ -53,7 +53,7 @@ export function useReportsFilters() {
   const categoryParam = (searchParams.get("category") ?? "sales") as CategoryKey;
   const category = CATEGORIES.some((c) => c.key === categoryParam) ? categoryParam : "sales";
   const reportParam = searchParams.get("report") as ReportKey | null;
-  const report: ReportKey = reportParam ?? defaultReportFor(category) ?? "";
+  const report: ReportKey = (reportParam ? resolveReportKeyAlias(reportParam) : null) ?? defaultReportFor(category) ?? "";
 
   const navigate = useCallback(
     (nextCategory: CategoryKey, nextReport?: ReportKey) => {

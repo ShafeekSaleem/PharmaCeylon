@@ -18,6 +18,13 @@ const CATEGORY_MIX_PALETTE = [
   "#dc2626", // red — matches the "At Risk"/danger insight tone
   "color-mix(in srgb, var(--pc-secondary-cyan) 55%, var(--pc-muted-fg))",
   "color-mix(in srgb, var(--pc-accent-navy) 50%, var(--pc-primary))",
+  // Extra blends so a 13-way breakdown (e.g. Near Expiry's Medicines sub-categories) still gets
+  // a distinct color per entry instead of repeating from index 8 onward.
+  "color-mix(in srgb, #7c3aed 55%, var(--pc-primary))",
+  "color-mix(in srgb, #ea580c 55%, var(--pc-accent-navy))",
+  "color-mix(in srgb, #dc2626 45%, var(--pc-secondary-cyan))",
+  "color-mix(in srgb, var(--pc-primary) 45%, #7c3aed)",
+  "color-mix(in srgb, var(--pc-accent-navy) 45%, #dc2626)",
 ];
 
 export const CATEGORY_MIX_OTHERS_COLOR = "var(--pc-muted-fg)";
@@ -25,6 +32,32 @@ export const CATEGORY_MIX_OTHERS_COLOR = "var(--pc-muted-fg)";
 export function categoryMixColor(index: number): string {
   return CATEGORY_MIX_PALETTE[index % CATEGORY_MIX_PALETTE.length]!;
 }
+
+/**
+ * Deliberately narrow, theme-aligned palette for the Stock Value treemap — unlike
+ * `categoryMixColor`'s full categorical rainbow (used where every slice needs a maximally
+ * distinct hue, e.g. a donut legend), a treemap's tiles are large filled areas, so a "calmer"
+ * single-family progression (teal → cyan → green) reads as one cohesive surface instead of a
+ * loud multi-color chart. Deliberately excludes red/navy-blue/dark-orange (this app's
+ * warning/danger/alert hues elsewhere) so a big teal or cyan tile is never mistaken for a risk
+ * signal. Kept dark enough (not tinted all the way to pastel) for white tile text to stay
+ * legible — see `.treemapTileContent` — mixing further toward white drops contrast below a
+ * readable level for these particular hues (they're lighter than e.g. navy or red to begin with).
+ */
+const TREEMAP_TONE_PALETTE = [
+  "color-mix(in srgb, var(--pc-primary) 92%, #fff)",
+  "color-mix(in srgb, var(--pc-secondary-cyan) 88%, #fff)",
+  "color-mix(in srgb, #16a34a 85%, #fff)",
+  "color-mix(in srgb, var(--pc-primary) 70%, #fff)",
+  "color-mix(in srgb, var(--pc-secondary-cyan) 68%, #fff)",
+  "color-mix(in srgb, #16a34a 65%, #fff)",
+];
+
+export function categoryMixColorLight(index: number): string {
+  return TREEMAP_TONE_PALETTE[index % TREEMAP_TONE_PALETTE.length]!;
+}
+
+export const CATEGORY_MIX_OTHERS_COLOR_LIGHT = "color-mix(in srgb, var(--pc-muted-fg) 78%, #fff)";
 
 /**
  * Tints a parent department's own donut color for its child-breakdown bar, so the breakdown

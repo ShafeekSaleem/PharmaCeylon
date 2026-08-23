@@ -30,6 +30,13 @@ export class NewBatchForAdjustmentDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   sellingPrice!: number;
+
+  /** Optional — not every opening-stock/adjustment batch has a known supplier, but capturing it
+   *  when the person entering the adjustment does know it keeps supplier-side reporting
+   *  (Near Expiry, Supplier Spend/Performance) able to find this batch later. */
+  @IsOptional()
+  @IsUUID()
+  supplierId?: string;
 }
 
 export class StockAdjustmentDto {

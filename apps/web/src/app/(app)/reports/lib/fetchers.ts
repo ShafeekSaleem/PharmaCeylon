@@ -1,5 +1,8 @@
 import { apiJson } from "@/lib/auth-client";
 import type {
+  BranchMarginResponse,
+  BranchMarginRow,
+  BranchMarginTrendResponse,
   BranchPerformanceResponse,
   BranchTrendResponse,
   BranchTrendPoint,
@@ -9,6 +12,7 @@ import type {
   CommercialCategoryRow,
   DeadStockResponse,
   MarginRow,
+  MarginTrendByCategoryResponse,
   NearExpiryResponse,
   PaymentMethodRow,
   ProfitabilityTarget,
@@ -20,7 +24,17 @@ import type {
   SalesDailyResponse,
   SalesSummary,
   Scope,
-  StockValueResponse,
+  StockAgeingResponse,
+  StockHealthResponse,
+  InventorySummaryResponse,
+  MovementGranularity,
+  MovementTypeFilterKey,
+  StockMovementResponse,
+  TransfersReportResponse,
+  StocktakesReportResponse,
+  PurchaseSummaryResponse,
+  SupplierSpendResponse,
+  SupplierPerformanceResponse,
 } from "./types";
 
 function scopeQs(scope: Scope, isOwner: boolean): string {
@@ -54,16 +68,93 @@ export function fetchCommercialCategories() {
   return apiJson<CommercialCategoryRow[]>("/products/categories");
 }
 
-export function fetchNearExpiry(withinDays: number) {
-  return apiJson<NearExpiryResponse>(`/reports/near-expiry?withinDays=${withinDays}`);
+export function fetchNearExpiry(
+  withinDays: number,
+  scope: Scope,
+  isOwner: boolean,
+  categoryId?: string | null,
+  supplierId?: string | null,
+) {
+  const qs =
+    `/reports/near-expiry?withinDays=${withinDays}${scopeQs(scope, isOwner)}` +
+    (categoryId ? `&categoryId=${categoryId}` : "") +
+    (supplierId ? `&supplierId=${supplierId}` : "");
+  return apiJson<NearExpiryResponse>(qs);
 }
 
-export function fetchDeadStock(days: number, scope: Scope, isOwner: boolean) {
-  return apiJson<DeadStockResponse>(`/reports/dead-stock?days=${days}${scopeQs(scope, isOwner)}`);
+/** Lightweight active-supplier list for the Near Expiry page's Supplier filter dropdown. */
+export function fetchSuppliersForFilter() {
+  return apiJson<Array<{ id: string; name: string; isActive?: boolean }>>("/suppliers?status=active");
 }
 
-export function fetchStockValue(scope: Scope, isOwner: boolean) {
-  return apiJson<StockValueResponse>(`/reports/stock-value?${scopeQs(scope, isOwner).replace(/^&/, "")}`);
+export function fetchDeadStock(days: number, scope: Scope, isOwner: boolean, categoryId?: string | null, supplierId?: string | null) {
+  const qs =
+    `/reports/dead-stock?days=${days}${scopeQs(scope, isOwner)}` +
+    (categoryId ? `&categoryId=${categoryId}` : "") +
+    (supplierId ? `&supplierId=${supplierId}` : "");
+  return apiJson<DeadStockResponse>(qs);
+}
+
+export function fetchStockMovement(
+  days: number,
+  scope: Scope,
+  isOwner: boolean,
+  categoryId?: string | null,
+  supplierId?: string | null,
+  movementType?: MovementTypeFilterKey | null,
+  granularity?: MovementGranularity | null,
+) {
+  const qs =
+    `/reports/stock-movement?days=${days}${scopeQs(scope, isOwner)}` +
+    (categoryId ? `&categoryId=${categoryId}` : "") +
+    (supplierId ? `&supplierId=${supplierId}` : "") +
+    (movementType ? `&movementType=${movementType}` : "") +
+    (granularity ? `&granularity=${granularity}` : "");
+  return apiJson<StockMovementResponse>(qs);
+}
+
+export function fetchTransfersReport(days: number) {
+  return apiJson<TransfersReportResponse>(`/reports/transfers?days=${days}`);
+}
+
+export function fetchStocktakesReport(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<StocktakesReportResponse>(`/reports/stocktakes?days=${days}${scopeQs(scope, isOwner)}`);
+}
+
+export function fetchPurchaseSummary(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<PurchaseSummaryResponse>(`/reports/purchase-summary?days=${days}${scopeQs(scope, isOwner)}`);
+}
+
+export function fetchSupplierSpend(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<SupplierSpendResponse>(`/reports/supplier-spend?days=${days}${scopeQs(scope, isOwner)}`);
+}
+
+export function fetchSupplierPerformance(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<SupplierPerformanceResponse>(`/reports/supplier-performance?days=${days}${scopeQs(scope, isOwner)}`);
+}
+
+export function fetchInventorySummary(scope: Scope, isOwner: boolean, categoryId?: string | null, supplierId?: string | null) {
+  const qs =
+    `/reports/inventory-summary?${scopeQs(scope, isOwner).replace(/^&/, "")}` +
+    (categoryId ? `&categoryId=${categoryId}` : "") +
+    (supplierId ? `&supplierId=${supplierId}` : "");
+  return apiJson<InventorySummaryResponse>(qs);
+}
+
+export function fetchStockHealth(scope: Scope, isOwner: boolean, categoryId?: string | null, supplierId?: string | null) {
+  const qs =
+    `/reports/stock-health?${scopeQs(scope, isOwner).replace(/^&/, "")}` +
+    (categoryId ? `&categoryId=${categoryId}` : "") +
+    (supplierId ? `&supplierId=${supplierId}` : "");
+  return apiJson<StockHealthResponse>(qs);
+}
+
+export function fetchStockAgeing(scope: Scope, isOwner: boolean, categoryId?: string | null, supplierId?: string | null) {
+  const qs =
+    `/reports/stock-ageing?${scopeQs(scope, isOwner).replace(/^&/, "")}` +
+    (categoryId ? `&categoryId=${categoryId}` : "") +
+    (supplierId ? `&supplierId=${supplierId}` : "");
+  return apiJson<StockAgeingResponse>(qs);
 }
 
 export function fetchBranchSalesTrend(days: number) {
@@ -170,15 +261,36 @@ export async function fetchMarginComparison(days: number, scope: Scope, isOwner:
 
   // Distinct SKUs active in the previous window — computed from the full `combined` set (not just
   // `previousByProduct`, which only covers products also active *now*) so products that sold only
-  // in the previous window still count instead of being silently dropped.
+  // in the previous window still count instead of being silently dropped. `previousRows` reuses the
+  // same full-`combined`-set derivation to give callers a real previous-period product list (e.g. for
+  // recomputing a top-N concentration or a margin-band share as of the prior period), not just the
+  // subset also active today that `previousByProduct` covers.
   const currentByProduct = new Map(current.map((r) => [r.productId, r]));
   let previousActiveSkuCount = 0;
+  const previousRows: Array<MarginRow & { revenueN: number; costN: number; marginN: number; marginPct: number }> = [];
   for (const row of combined) {
-    const curRevenue = currentByProduct.has(row.productId) ? Number(currentByProduct.get(row.productId)!.revenue) : 0;
-    if (Number(row.revenue) - curRevenue > 0) previousActiveSkuCount++;
+    const curRow = currentByProduct.get(row.productId);
+    const curRevenue = curRow ? Number(curRow.revenue) : 0;
+    const revenueN = Number(row.revenue) - curRevenue;
+    if (revenueN > 0) {
+      previousActiveSkuCount++;
+      const costN = (curRow ? Number(row.cost) - Number(curRow.cost) : Number(row.cost));
+      const marginN = revenueN - costN;
+      previousRows.push({
+        ...row,
+        revenue: String(revenueN),
+        cost: String(costN),
+        margin: String(marginN),
+        unitsSold: row.unitsSold - (curRow?.unitsSold ?? 0),
+        revenueN,
+        costN,
+        marginN,
+        marginPct: (marginN / revenueN) * 100,
+      });
+    }
   }
 
-  return { current, currentTotals, previousTotals, previousByProduct, previousActiveSkuCount };
+  return { current, currentTotals, previousTotals, previousByProduct, previousActiveSkuCount, previousRows };
 }
 
 /** Subtracts `current` numeric fields from a `days*2` combined fetch to derive the immediately-preceding
@@ -206,6 +318,12 @@ function subtractByKey<TRow extends Record<string, unknown>>(
 
 export function fetchSalesByCategory(days: number, scope: Scope, isOwner: boolean, groupBy: CategoryGroupBy = "commercial") {
   return apiJson<SalesByCategoryResponse>(`/reports/sales-by-category?days=${days}${scopeQs(scope, isOwner)}&groupBy=${groupBy}`);
+}
+
+/** Daily revenue/cost per top-level COMMERCIAL department — powers Margin by Category's trend
+ *  line chart. Real per-day data (not a comparison fetch), so a single call is enough. */
+export function fetchMarginTrendByCategory(days: number, scope: Scope, isOwner: boolean) {
+  return apiJson<MarginTrendByCategoryResponse>(`/reports/margin-trend-by-category?days=${days}${scopeQs(scope, isOwner)}`);
 }
 
 function sumCategoryTotals(rows: CategoryRow[]): MarginTotals {
@@ -334,4 +452,47 @@ export function fetchSalesByHour(days: number, scope: Scope, isOwner: boolean) {
 
 export function fetchBranchPerformance(yearMonth?: string) {
   return apiJson<BranchPerformanceResponse>(`/analytics/branch-performance${yearMonth ? `?yearMonth=${yearMonth}` : ""}`);
+}
+
+/** Every active branch's revenue/COGS/gross profit for the window — no `scope`/branch param,
+ *  this always covers the whole tenant (see `BranchMarginRow`'s doc comment). */
+export function fetchBranchMargin(days: number) {
+  return apiJson<BranchMarginResponse>(`/reports/branch-margin?days=${days}`);
+}
+
+export function fetchBranchMarginTrend(days: number) {
+  return apiJson<BranchMarginTrendResponse>(`/reports/branch-margin-trend?days=${days}`);
+}
+
+function sumBranchTotals(rows: BranchMarginRow[]): MarginTotals {
+  return rows.reduce(
+    (acc, r) => ({
+      revenue: acc.revenue + Number(r.revenue),
+      cost: acc.cost + Number(r.cost),
+      margin: acc.margin + Number(r.margin),
+      unitsSold: acc.unitsSold + Number(r.unitsSold),
+    }),
+    { revenue: 0, cost: 0, margin: 0, unitsSold: 0 },
+  );
+}
+
+/** Same double-fetch-and-diff technique as `fetchCategoryComparison` — one `days*2` call split
+ *  into current/previous halves, rather than a second server-side "previous period" convention. */
+export async function fetchBranchMarginComparison(days: number) {
+  const [current, combined] = await Promise.all([fetchBranchMargin(days), fetchBranchMargin(days * 2)]);
+  const previousByBranch = subtractByKey(current.branches, combined.branches, (r) => r.branchId, [
+    "revenue",
+    "cost",
+    "margin",
+    "unitsSold",
+  ]);
+  const currentTotals = sumBranchTotals(current.branches);
+  const combinedTotals = sumBranchTotals(combined.branches);
+  const previousTotals: MarginTotals = {
+    revenue: combinedTotals.revenue - currentTotals.revenue,
+    cost: combinedTotals.cost - currentTotals.cost,
+    margin: combinedTotals.margin - currentTotals.margin,
+    unitsSold: combinedTotals.unitsSold - currentTotals.unitsSold,
+  };
+  return { current: current.branches, previousByBranch, currentTotals, previousTotals };
 }

@@ -15,7 +15,7 @@ import { randomUUID } from "crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { CategoryTaxonomyOps } from "../src/catalog/category-taxonomy.util";
-import { seedReceiveStock, dec, daysFromNow } from "./seed-helpers";
+import { seedReceiveStock, daysFromNow } from "./seed-helpers";
 
 type DemoProduct = {
   sku: string;
@@ -54,7 +54,7 @@ function p(
   };
 }
 
-const DEMO_PRODUCTS: DemoProduct[] = [
+export const DEMO_PRODUCTS: DemoProduct[] = [
   // Vitamins & Supplements
   p("Vitamin C 1000mg Effervescent (20s)", "Redoxon", "VITAMINS_SUPPLEMENTS_VITAMINS", 650, 950, { packSize: "20 tablets" }),
   p("Vitamin D3 1000IU Softgel (60s)", "Nature's Bounty", "VITAMINS_SUPPLEMENTS_VITAMINS", 900, 1350, { packSize: "60 softgels" }),
@@ -137,14 +137,70 @@ const DEPARTMENTS_TO_ENABLE = [
   "HOUSEHOLD_CONVENIENCE",
 ];
 
-async function seedTenant(prisma: PrismaClient, tenantId: string, tenantCode: string) {
+/**
+ * Relative real-life transaction frequency per department over the ~8-month sales window
+ * `seed-retail-demo-sales.ts` generates — daily-consumable departments (food/beverage,
+ * personal care, household) sell far more often than big-ticket, rarely-repurchased ones
+ * (medical devices). Medicines still dominates total transaction volume by a wide margin (see
+ * `seed-demo-ops.ts`); this table only controls the realistic *mix* among the non-Medicines
+ * departments, not their share of total store revenue.
+ */
+export const DEPARTMENT_SALES_PROFILE: Record<string, { salesPerWindow: number }> = {
+  VITAMINS_SUPPLEMENTS: { salesPerWindow: 14 },
+  BABY_CARE: { salesPerWindow: 18 },
+  PERSONAL_CARE: { salesPerWindow: 24 },
+  BEAUTY_SKIN_CARE: { salesPerWindow: 11 },
+  MEDICAL_DEVICES: { salesPerWindow: 4 },
+  FIRST_AID: { salesPerWindow: 8 },
+  NUTRITION_WELLNESS: { salesPerWindow: 10 },
+  FOOD_BEVERAGE: { salesPerWindow: 26 },
+  HOUSEHOLD_CONVENIENCE: { salesPerWindow: 20 },
+};
+
+/** Every DEMO_PRODUCTS canonicalKey is `${department}_${subcategory}`, so a prefix match against
+ *  the profile table above always resolves to exactly one department. */
+export function departmentKeyOf(canonicalKey: string): string {
+  return Object.keys(DEPARTMENT_SALES_PROFILE).find((dept) => canonicalKey.startsWith(dept)) ?? "OTHER";
+}
+
+const AVG_QTY_PER_SALE = 2.5;
+/** Normal stock gets ~1.8x the expected total demand over the window so it never runs out —
+ *  RTL products aren't replenished mid-window the way the Medicines side is. */
+const NORMAL_COVERAGE_MULTIPLIER = 1.8;
+/** The one deliberately under-stocked "low stock" example per department gets just over half
+ *  of expected demand, so it genuinely depletes toward zero partway through the window. */
+const LOW_STOCK_COVERAGE_MULTIPLIER = 0.55;
+
+function initialStockQty(canonicalKey: string, isLowStockExample: boolean, jitter: number): number {
+  const freq = DEPARTMENT_SALES_PROFILE[departmentKeyOf(canonicalKey)]?.salesPerWindow ?? 10;
+  const coverage = isLowStockExample ? LOW_STOCK_COVERAGE_MULTIPLIER : NORMAL_COVERAGE_MULTIPLIER;
+  return Math.max(5, Math.round(freq * AVG_QTY_PER_SALE * coverage * jitter));
+}
+
+/** One SKU per department — the first one listed — deliberately under-stocked at MAIN only, so
+ *  Inventory Summary / Stock Health / Reorder Alerts have a real "low stock" example in every
+ *  commercial department, not just Medicines, while the same product stays healthy at the other
+ *  branches (a genuine transfer-opportunity signal, not just a broken-looking zero). */
+export const LOW_STOCK_EXAMPLE_SKUS: ReadonlySet<string> = (() => {
+  const seenDept = new Set<string>();
+  const skus = new Set<string>();
+  for (const dp of DEMO_PRODUCTS) {
+    const dept = departmentKeyOf(dp.canonicalKey);
+    if (seenDept.has(dept)) continue;
+    seenDept.add(dept);
+    skus.add(dp.sku);
+  }
+  return skus;
+})();
+
+export async function seedRetailDemoProducts(prisma: PrismaClient, tenantId: string, tenantCode: string) {
   const taxonomy = new CategoryTaxonomyOps(prisma);
   await taxonomy.ensureCommercialTemplate(tenantId);
   for (const key of DEPARTMENTS_TO_ENABLE) {
     await taxonomy.setDepartmentEnabled(tenantId, key, true);
   }
 
-  const branches = await prisma.branch.findMany({ where: { tenantId, isActive: true }, select: { id: true } });
+  const branches = await prisma.branch.findMany({ where: { tenantId, isActive: true }, select: { id: true, code: true } });
   const anyUser = await prisma.appUser.findFirst({ where: { tenantId }, select: { id: true } });
   if (branches.length === 0 || !anyUser) {
     console.log(`[${tenantCode}] no active branches/users — skipping stock receipt (products/categories still seeded)`);
@@ -190,6 +246,8 @@ async function seedTenant(prisma: PrismaClient, tenantId: string, tenantCode: st
           select: { id: true },
         });
         if (hasStock) continue;
+        const isLowStockExample = branch.code === "MAIN" && LOW_STOCK_EXAMPLE_SKUS.has(dp.sku);
+        const jitter = 0.85 + Math.random() * 0.3;
         await seedReceiveStock(prisma, {
           tenantId,
           branchId: branch.id,
@@ -197,9 +255,9 @@ async function seedTenant(prisma: PrismaClient, tenantId: string, tenantCode: st
           userId: anyUser.id,
           batchNo: "RTL-INIT",
           expiryDate: daysFromNow(540),
-          qty: 40 + Math.floor(Math.random() * 60),
-          costPrice: dec(dp.costPrice),
-          sellingPrice: dec(dp.sellingPrice),
+          qty: initialStockQty(dp.canonicalKey, isLowStockExample, jitter),
+          costPrice: dp.costPrice,
+          sellingPrice: dp.sellingPrice,
           referenceId: randomUUID(),
         });
         stocked += 1;
@@ -232,14 +290,19 @@ async function main() {
       throw new Error(tenantCode ? `Tenant "${tenantCode}" not found.` : "No tenants found.");
     }
     for (const tenant of tenants) {
-      await seedTenant(prisma, tenant.id, tenant.code);
+      await seedRetailDemoProducts(prisma, tenant.id, tenant.code);
     }
   } finally {
     await prisma.$disconnect();
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Only auto-run when executed directly (`npx tsx prisma/seed-retail-demo-products.ts`) — this
+// module is also imported by seed.ts, which must NOT trigger a second, unscoped, all-tenants run
+// as a side effect of importing `seedRetailDemoProducts`.
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
