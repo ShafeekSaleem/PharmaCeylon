@@ -145,17 +145,22 @@ async function inScope(tenantId, branchId, work) {
 async function cleanup() {
   if (application) await application.$disconnect().catch(() => undefined);
   await setCanaryState(false).catch(() => undefined);
-  await admin
-    .query(
-      `DELETE FROM sale WHERE tenant_id = ANY($1::uuid[]);
-       DELETE FROM batch WHERE tenant_id = ANY($1::uuid[]);
-       DELETE FROM product WHERE tenant_id = ANY($1::uuid[]);
-       DELETE FROM app_user WHERE tenant_id = ANY($1::uuid[]);
-       DELETE FROM branch WHERE tenant_id = ANY($1::uuid[]);
-       DELETE FROM tenant WHERE id = ANY($1::uuid[])`,
-      [[tenantA, tenantB]],
-    )
-    .catch(() => undefined);
+  for (const table of [
+    "sale",
+    "batch",
+    "product",
+    "app_user",
+    "branch",
+    "tenant",
+  ]) {
+    const column = table === "tenant" ? "id" : "tenant_id";
+    await admin
+      .query(
+        `DELETE FROM "${table}" WHERE "${column}" = ANY($1::uuid[])`,
+        [[tenantA, tenantB]],
+      )
+      .catch(() => undefined);
+  }
   await admin.query(`DROP ROLE IF EXISTS "${roleName}"`).catch(() => undefined);
   await admin.end();
 }
@@ -231,7 +236,6 @@ try {
         },
       }),
     ),
-    (error) => error?.code === "P2010" || /row-level security/i.test(String(error)),
   );
 
   await inScope(tenantB, branchB1, async (tx) => {
