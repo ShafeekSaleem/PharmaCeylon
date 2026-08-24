@@ -8,6 +8,20 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pharmaceylon_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pharmaceylon_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       # Prisma 7 loads prisma.config.ts even for client generation. No DB
       # connection is opened by generate/type-check/build, but the variable
@@ -38,6 +52,9 @@ jobs:
         env:
           JWT_ACCESS_SECRET: ci-access-secret
           JWT_REFRESH_SECRET: ci-refresh-secret
+
+      - name: PostgreSQL RLS proof
+        run: npm run test:rls-poc -w api
 
       - name: Build API
         run: npm run build -w api

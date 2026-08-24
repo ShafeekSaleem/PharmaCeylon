@@ -11,6 +11,7 @@
     "check:tenant-scope": "node scripts/check-tenant-scoped-mutations.mjs",
     "lint": "npm run check:tenant-scope && tsc -p tsconfig.json --noEmit",
     "test": "jest",
+    "test:rls-poc": "node scripts/test-rls-poc.mjs",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "prisma:generate": "prisma generate",
