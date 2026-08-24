@@ -653,7 +653,7 @@ export class SuppliersService {
     const status = invoiceStatusFromAmounts(invoice.totalAmount, paidAmount);
 
     const updated = await this.prisma.supplierInvoice.update({
-      where: { id: invoice.id },
+      where: { id: invoice.id, tenantId },
       data: {
         paidAmount,
         status,
