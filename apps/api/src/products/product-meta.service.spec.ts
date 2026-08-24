@@ -146,7 +146,9 @@ describe("ProductMetaService — commercial category scoping", () => {
 
       const result = await service.deleteCategory(tenantId, "cat-1");
       expect(result).toEqual({ ok: true });
-      expect(prisma.productCategory.delete).toHaveBeenCalledWith({ where: { id: "cat-1" } });
+      expect(prisma.productCategory.delete).toHaveBeenCalledWith({
+        where: { id: "cat-1", tenantId },
+      });
     });
 
     it("throws NotFoundException for a category outside the tenant (tenant isolation)", async () => {
