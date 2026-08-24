@@ -7,6 +7,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { assertOneScopedMutation } from "../common/scoped-mutation.util";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { ProductMetaService } from "./product-meta.service";
@@ -494,8 +495,8 @@ export class ProductsService {
 
   async update(tenantId: string, userId: string, id: string, dto: UpdateProductDto) {
     const before = await this.getById(tenantId, id);
-    await this.prisma.product.update({
-      where: { id },
+    const mutation = await this.prisma.product.updateMany({
+      where: { id, tenantId },
       data: {
         ...(dto.source !== undefined ? { source: dto.source } : {}),
         ...(dto.barcode !== undefined ? { barcode: dto.barcode?.trim() || null } : {}),
@@ -539,6 +540,7 @@ export class ProductsService {
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
+    assertOneScopedMutation(mutation, "Product");
     await this.meta.syncProductCategories(tenantId, id, dto.categoryIds);
     await this.meta.syncProductTags(tenantId, id, dto.tagIds);
 
@@ -600,7 +602,8 @@ export class ProductsService {
     const existing = await this.prisma.product.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException("Product not found");
     try {
-      await this.prisma.product.delete({ where: { id } });
+      const mutation = await this.prisma.product.deleteMany({ where: { id, tenantId } });
+      assertOneScopedMutation(mutation, "Product");
       await this.audit.log({
         tenantId,
         actorUserId: userId,
