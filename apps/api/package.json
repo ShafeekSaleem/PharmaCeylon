@@ -12,10 +12,12 @@
     "lint": "npm run check:tenant-scope && tsc -p tsconfig.json --noEmit",
     "test": "jest",
     "test:rls-poc": "node scripts/test-rls-poc.mjs",
+    "test:rls-canary": "node scripts/test-rls-canary-policies.mjs",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "prisma:studio": "prisma studio"
   },
