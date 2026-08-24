@@ -144,7 +144,7 @@ export class CategoryTaxonomyOps {
     });
     if (!dept) throw new NotFoundException(`Unknown department canonicalKey: ${canonicalKey}`);
     await this.prisma.$transaction([
-      this.prisma.productCategory.update({ where: { id: dept.id }, data: { isActive } }),
+      this.prisma.productCategory.update({ where: { id: dept.id, tenantId }, data: { isActive } }),
       this.prisma.productCategory.updateMany({
         where: { tenantId, parentCategoryId: dept.id },
         data: { isActive },
