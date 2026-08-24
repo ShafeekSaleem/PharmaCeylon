@@ -11,7 +11,7 @@ type Props = {
   onClear: () => void;
   onScanBarcode?: () => void;
   scanArmed?: boolean;
-  inputRef?: RefObject<HTMLInputElement | null>;
+  inputRef?: RefObject<HTMLInputElement>;
 };
 
 export function SearchHero({
