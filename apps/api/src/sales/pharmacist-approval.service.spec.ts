@@ -79,6 +79,7 @@ describe("PharmacistApprovalService", () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(prisma.appUser.update).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: approverId, tenantId },
         data: expect.objectContaining({ failedPosPinAttempts: 1 }),
       }),
     );
