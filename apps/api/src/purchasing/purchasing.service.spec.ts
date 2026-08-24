@@ -131,7 +131,7 @@ describe("PurchasingService", () => {
 
     const res = await service.approvePurchaseOrder("t1", "b1", "u1", "po-1");
     expect(res!.status).toBe(PoStatus.issued);
-    expect(prisma.purchaseOrder.updateMany as jest.Mock).toHaveBeenCalledWith({
+    expect((prisma.purchaseOrder as { updateMany: jest.Mock }).updateMany).toHaveBeenCalledWith({
       where: { id: "po-1", tenantId: "t1", branchId: "b1" },
       data: { status: PoStatus.issued },
     });
