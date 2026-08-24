@@ -15,7 +15,13 @@ describe("ProductsService — category dimension scoping", () => {
   const productId = "product-1";
 
   type PrismaMock = {
-    product: { findFirst: jest.Mock; findMany: jest.Mock; count: jest.Mock };
+    product: {
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+      count: jest.Mock;
+      updateMany: jest.Mock;
+      deleteMany: jest.Mock;
+    };
   };
 
   function makeService() {
@@ -33,6 +39,8 @@ describe("ProductsService — category dimension scoping", () => {
         }),
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(1),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     const audit = { log: jest.fn() } as unknown as AuditService;
@@ -73,5 +81,21 @@ describe("ProductsService — category dimension scoping", () => {
     // if this ever includes a Dosage Form/Schedule/RegType id, ProductMetaService.
     // syncProductCategories will reject the save with "One or more categories are invalid".
     expect(product.categories).toEqual([{ id: "cat-commercial-1", name: "Anti-infectives" }]);
+  });
+
+  it("scopes the final product update by tenant as well as id", async () => {
+    const { service, prisma } = makeService();
+    await service.update(tenantId, "user-1", productId, { name: "Updated name" });
+    expect(prisma.product.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: productId, tenantId } }),
+    );
+  });
+
+  it("scopes the final product delete by tenant as well as id", async () => {
+    const { service, prisma } = makeService();
+    await service.remove(tenantId, "user-1", productId);
+    expect(prisma.product.deleteMany).toHaveBeenCalledWith({
+      where: { id: productId, tenantId },
+    });
   });
 });
