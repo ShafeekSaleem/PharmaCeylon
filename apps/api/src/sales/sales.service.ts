@@ -615,7 +615,7 @@ export class SalesService {
       }
 
       await tx.sale.update({
-        where: { id: saleId },
+        where: { id: saleId, tenantId, branchId },
         data: { status: SaleStatus.voided },
       });
     });
@@ -805,7 +805,7 @@ export class SalesService {
           : SaleStatus.partially_refunded;
 
       await tx.sale.update({
-        where: { id: saleId },
+        where: { id: saleId, tenantId, branchId },
         data: { status: nextStatus },
       });
     });
