@@ -116,7 +116,7 @@ describe("AuthService", () => {
       expect(prisma.session.create).toHaveBeenCalledTimes(1);
       expect(prisma.session.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "session-1" },
+          where: { id: "session-1", tenantId: "tenant-id" },
           data: expect.objectContaining({ refreshTokenHash: "hashed" }),
         }),
       );
@@ -186,7 +186,7 @@ describe("AuthService", () => {
       // old session marked revoked → rotated
       expect(prisma.session.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "session-1" },
+          where: { id: "session-1", tenantId: "tenant-id" },
           data: expect.objectContaining({
             revokedReason: SESSION_REVOKED_REASONS.rotated,
             replacedById: "session-2",
