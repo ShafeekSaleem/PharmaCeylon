@@ -689,7 +689,8 @@ export class StocktakesService {
     this.assertHeaderEditable(row.status);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx$1where: { id, tenantId, branchId },
+      await tx.stocktake.update({
+        where: { id, tenantId, branchId },
         data: {
           ...(dto.title !== undefined ? { title: dto.title?.trim() || null } : {}),
           ...(dto.areaLabel !== undefined ? { areaLabel: dto.areaLabel?.trim() || null } : {}),
@@ -921,7 +922,8 @@ export class StocktakesService {
       throw new BadRequestException("Set a scheduled time before scheduling the stocktake");
     }
 
-    await this.prisma$1where: { id, tenantId, branchId },
+    await this.prisma.stocktake.update({
+      where: { id, tenantId, branchId },
       data: { status: StocktakeStatus.scheduled },
     });
 
@@ -987,7 +989,8 @@ export class StocktakesService {
         }
       }
 
-      await tx$1where: { id, tenantId, branchId },
+      await tx.stocktake.update({
+        where: { id, tenantId, branchId },
         data: {
           status: StocktakeStatus.counting,
           frozenAt: now,
@@ -1028,7 +1031,8 @@ export class StocktakesService {
 
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      await tx$1where: { id, tenantId, branchId },
+      await tx.stocktake.update({
+        where: { id, tenantId, branchId },
         data: { status: StocktakeStatus.submitted, submittedAt: now },
       });
       await tx.stocktakeLine.updateMany({
@@ -1062,7 +1066,8 @@ export class StocktakesService {
       throw new BadRequestException("Only submitted stocktakes can enter review");
     }
     const now = new Date();
-    await this.prisma$1where: { id, tenantId, branchId },
+    await this.prisma.stocktake.update({
+      where: { id, tenantId, branchId },
       data: {
         status: StocktakeStatus.under_review,
         reviewStartedAt: now,
@@ -1143,7 +1148,8 @@ export class StocktakesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx$1where: { id, tenantId, branchId },
+      await tx.stocktake.update({
+        where: { id, tenantId, branchId },
         data: { status: StocktakeStatus.counting },
       });
       await tx.stocktakeLine.updateMany({
@@ -1207,7 +1213,8 @@ export class StocktakesService {
 
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      await tx$1where: { id, tenantId, branchId },
+      await tx.stocktake.update({
+        where: { id, tenantId, branchId },
         data: {
           status: StocktakeStatus.approved,
           approvedBy: userId,
@@ -1317,7 +1324,8 @@ export class StocktakesService {
         });
       }
 
-      await tx$1where: { id, tenantId, branchId },
+      await tx.stocktake.update({
+        where: { id, tenantId, branchId },
         data: {
           status: StocktakeStatus.posted,
           postedBy: userId,
@@ -1352,7 +1360,8 @@ export class StocktakesService {
       throw new BadRequestException("Only posted stocktakes can be completed");
     }
     const now = new Date();
-    await this.prisma$1where: { id, tenantId, branchId },
+    await this.prisma.stocktake.update({
+      where: { id, tenantId, branchId },
       data: {
         status: StocktakeStatus.completed,
         completedBy: userId,
@@ -1385,7 +1394,8 @@ export class StocktakesService {
       throw new BadRequestException("Only open stocktakes can be cancelled");
     }
 
-    await this.prisma$1where: { id, tenantId, branchId },
+    await this.prisma.stocktake.update({
+      where: { id, tenantId, branchId },
       data: { status: StocktakeStatus.cancelled },
     });
 
