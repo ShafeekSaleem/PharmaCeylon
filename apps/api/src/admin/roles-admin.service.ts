@@ -133,7 +133,7 @@ export class RolesAdminService {
     }
 
     const updated = await this.prisma.role.update({
-      where: { id: roleId },
+      where: { id: roleId, tenantId },
       data: {
         ...(dto.name != null ? { name: dto.name.trim() } : {}),
         ...(dto.description !== undefined ? { description: dto.description?.trim() || null } : {}),
@@ -182,7 +182,7 @@ export class RolesAdminService {
       ...(toRemove.length
         ? [
             this.prisma.rolePermission.deleteMany({
-              where: { roleId, permissionKey: { in: toRemove } },
+              where: { tenantId, roleId, permissionKey: { in: toRemove } },
             }),
           ]
         : []),
@@ -216,14 +216,14 @@ export class RolesAdminService {
       throw new ForbiddenException("Built-in roles can't be deleted");
     }
 
-    const assignedCount = await this.prisma.userBranchRole.count({ where: { roleId } });
+    const assignedCount = await this.prisma.userBranchRole.count({ where: { tenantId, roleId } });
     if (assignedCount > 0) {
       throw new ConflictException(
         "Reassign every staff member off this role before deleting it.",
       );
     }
 
-    await this.prisma.role.delete({ where: { id: roleId } });
+    await this.prisma.role.delete({ where: { id: roleId, tenantId } });
     this.permissions.invalidateRole(roleId);
 
     await this.audit.log({
