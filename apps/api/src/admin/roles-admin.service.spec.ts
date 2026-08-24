@@ -116,6 +116,23 @@ describe("RolesAdminService", () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it("scopes the final role update to the tenant", async () => {
+      prisma.role.findFirst.mockResolvedValue({ id: "role-1", isSystem: false });
+      prisma.role.update.mockResolvedValue({
+        id: "role-1",
+        name: "Shift Supervisor",
+        description: null,
+      });
+
+      await service.updateRole(tenantId, actorUserId, "role-1", {
+        name: "Shift Supervisor",
+      });
+
+      expect(prisma.role.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "role-1", tenantId } }),
+      );
+    });
+
     it("404s for a role outside the tenant", async () => {
       prisma.role.findFirst.mockResolvedValue(null);
       await expect(
@@ -147,7 +164,7 @@ describe("RolesAdminService", () => {
       });
 
       expect(prisma.rolePermission.deleteMany).toHaveBeenCalledWith({
-        where: { roleId: "role-1", permissionKey: { in: ["products.view"] } },
+        where: { tenantId, roleId: "role-1", permissionKey: { in: ["products.view"] } },
       });
       expect(prisma.rolePermission.createMany).toHaveBeenCalledWith({
         data: [{ tenantId, roleId: "role-1", permissionKey: "stocktakes.use" }],
@@ -189,7 +206,7 @@ describe("RolesAdminService", () => {
 
       const result = await service.deleteRole(tenantId, actorUserId, "role-1");
 
-      expect(prisma.role.delete).toHaveBeenCalledWith({ where: { id: "role-1" } });
+      expect(prisma.role.delete).toHaveBeenCalledWith({ where: { id: "role-1", tenantId } });
       expect(permissions.invalidateRole).toHaveBeenCalledWith("role-1");
       expect(result).toEqual({ ok: true });
     });
