@@ -25,7 +25,7 @@ type Props = {
   mode: PosMode;
   onModeChange: (mode: PosMode) => void;
   onSelect: (product: PosProduct) => void;
-  inputRef: RefObject<HTMLInputElement | null>;
+  inputRef: RefObject<HTMLInputElement>;
   disabled?: boolean;
   /** Hide product search (e.g. Returns mode uses invoice search instead). */
   searchDisabled?: boolean;
