@@ -446,7 +446,7 @@ export class ReturnsService {
       }
 
       return tx.goodsReturn.update({
-        where: { id },
+        where: { id, tenantId, branchId },
         data: {
           type,
           customerName: customerName?.trim() || null,
