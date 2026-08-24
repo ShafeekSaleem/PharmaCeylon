@@ -148,6 +148,7 @@ describe("SalesService.refundSale", () => {
 
     expect(txState.saleUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: saleId, tenantId, branchId },
         data: { status: SaleStatus.refunded },
       }),
     );
@@ -210,6 +211,7 @@ describe("SalesService.refundSale", () => {
 
     expect(txState.saleUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: saleId, tenantId, branchId },
         data: { status: SaleStatus.partially_refunded },
       }),
     );

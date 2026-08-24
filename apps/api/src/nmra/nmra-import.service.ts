@@ -407,7 +407,7 @@ export class NmraImportService {
         for (const item of chunk) {
           try {
             await tx.product.update({
-              where: { id: item.id },
+              where: { id: item.id, tenantId },
               data: item.data,
             });
             updated += 1;
@@ -752,7 +752,7 @@ export class NmraImportService {
           continue;
         }
         await this.prisma.product.update({
-          where: { id: product.id },
+          where: { id: product.id, tenantId },
           data: { barcode },
         });
         await this.prisma.productAlias.createMany({

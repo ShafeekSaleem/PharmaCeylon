@@ -695,7 +695,7 @@ export class TransfersService {
           }
 
           const bumped = await tx.transferItem.updateMany({
-            where: { id: line.id, receivedQty: line.receivedQty },
+            where: { id: line.id, tenantId, receivedQty: line.receivedQty },
             data: { receivedQty: line.receivedQty + qtyToReceive },
           });
           if (bumped.count !== 1) {
@@ -758,6 +758,8 @@ export class TransfersService {
         const statusClaimed = await tx.transfer.updateMany({
           where: {
             id: t.id,
+            tenantId,
+            toBranchId,
             status: {
               in: [TransferStatus.in_transit, TransferStatus.partially_received],
             },

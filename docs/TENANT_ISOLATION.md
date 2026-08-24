@@ -50,6 +50,27 @@ Child ids supplied by a client must be validated in the same tenant before they
 are connected. For branch-owned children such as batches, validate the branch
 as well.
 
+## Automated mutation enforcement
+
+`npm run check:tenant-scope --workspace=apps/api` derives the tenant-owned
+Prisma delegates from `prisma/schema.prisma` and scans non-test API source.
+Every `update`, `updateMany`, `delete`, and `deleteMany` on those delegates
+must include `tenantId` in its final `where` object.
+
+The check runs as part of the API lint task. It intentionally does not infer
+scope from a pre-read: the final write must defend itself.
+
+Two narrow exception labels are supported and require an inline reason:
+
+- `tenant-scope: system-auth` for authentication lifecycle writes whose input
+  is a verified, globally unique user/session identity rather than a
+  tenant-selected resource id.
+- `tenant-scope: verified-parent` when a lower-level helper receives only an id
+  after its caller has already verified the tenant-owned parent.
+
+Exceptions are review points, not general suppressions. Prefer passing
+`tenantId` into the function and scoping the mutation whenever practical.
+
 ## Review checklist
 
 For every endpoint or background job:
@@ -65,10 +86,11 @@ For every endpoint or background job:
 
 ## Defence in depth roadmap
 
-1. Expand two-tenant regression tests across sales, inventory, purchasing,
-   transfers, returns, stocktakes, reports, analytics, and administration.
-2. Convert remaining id-only final writes to scoped mutations.
-3. Introduce a request-aware tenant data-access layer.
-4. Add static CI checks for direct unscoped Prisma access.
-5. Prototype PostgreSQL row-level security after connection-pool and transaction
-   semantics are proven.
+- [x] Scope high-risk product, supplier, held-sale, and purchasing mutations.
+- [x] Scope remaining tenant-owned service mutations or document the narrow
+  authentication lifecycle exception.
+- [x] Enforce tenant scope on Prisma mutations during CI.
+- [ ] Expand two-tenant integration coverage for branch workflows and reports.
+- [ ] Introduce a request-aware tenant data-access layer.
+- [ ] Prototype PostgreSQL row-level security after connection-pool and
+  transaction semantics are proven; see `RLS_PROTOTYPE_PLAN.md`.

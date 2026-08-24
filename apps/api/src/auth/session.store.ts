@@ -91,6 +91,7 @@ export class SessionStore {
         },
         tx,
       );
+      // tenant-scope: system-auth — previous session comes from a verified refresh-token chain.
       await tx.session.update({
         where: { id: args.previous.id },
         data: {
@@ -105,6 +106,7 @@ export class SessionStore {
   }
 
   async revokeById(sessionId: string, reason: SessionRevokeReason): Promise<void> {
+    // tenant-scope: system-auth — sessionId comes from a signed refresh token.
     await this.prisma.session.updateMany({
       where: { id: sessionId, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: reason },
@@ -117,6 +119,7 @@ export class SessionStore {
    * forces re-authentication for every device in that chain.
    */
   async revokeFamily(familyId: string, reason: SessionRevokeReason): Promise<number> {
+    // tenant-scope: system-auth — familyId comes from a verified refresh session.
     const result = await this.prisma.session.updateMany({
       where: { familyId, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: reason },
@@ -130,6 +133,7 @@ export class SessionStore {
   }
 
   async revokeAllForUser(userId: string, reason: SessionRevokeReason): Promise<number> {
+    // tenant-scope: system-auth — callers supply a verified globally unique user identity.
     const result = await this.prisma.session.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: reason },

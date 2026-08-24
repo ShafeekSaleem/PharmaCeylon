@@ -96,7 +96,7 @@ export class AuthService {
           : null;
 
       await this.prisma.appUser.update({
-        where: { id: user.id },
+        where: { id: user.id, tenantId: user.tenantId },
         data: {
           failedLoginAttempts: attempts,
           ...(lockout ? { lockedUntil: lockout } : {}),
@@ -108,7 +108,7 @@ export class AuthService {
 
     if (user.failedLoginAttempts > 0 || user.lockedUntil) {
       await this.prisma.appUser.update({
-        where: { id: user.id },
+        where: { id: user.id, tenantId: user.tenantId },
         data: { failedLoginAttempts: 0, lockedUntil: null },
       });
     }
@@ -213,10 +213,12 @@ export class AuthService {
    */
   async logoutAll(userId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // tenant-scope: system-auth — userId is a verified globally unique identity.
       await tx.session.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date(), revokedReason: SESSION_REVOKED_REASONS.logoutAll },
       });
+      // tenant-scope: system-auth — the same verified user identity scopes this token bump.
       await tx.appUser.update({
         where: { id: userId },
         data: { tokenVersion: { increment: 1 } },
@@ -238,6 +240,7 @@ export class AuthService {
    * OR USER_CONTEXT_TTL_SECONDS (cached lookup); whichever bites first.
    */
   async invalidateUserContext(userId: string): Promise<void> {
+    // tenant-scope: verified-parent — callers tenant-check the target before invalidating its cache.
     await this.prisma.appUser.update({
       where: { id: userId },
       data: { tokenVersion: { increment: 1 } },
@@ -262,10 +265,12 @@ export class AuthService {
         ? SESSION_REVOKED_REASONS.passwordChanged
         : SESSION_REVOKED_REASONS.adminInvalidated;
     await this.prisma.$transaction(async (tx) => {
+      // tenant-scope: system-auth — userId is a verified globally unique identity.
       await tx.session.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date(), revokedReason: sessionReason },
       });
+      // tenant-scope: system-auth — the same verified user identity scopes this token bump.
       await tx.appUser.update({
         where: { id: userId },
         data: { tokenVersion: { increment: 1 } },
@@ -350,13 +355,13 @@ export class AuthService {
 
       const realHash = await bcrypt.hash(refreshToken, 10);
       await tx.session.update({
-        where: { id: session.id },
+        where: { id: session.id, tenantId: args.user.tenantId },
         data: { refreshTokenHash: realHash, lastUsedAt: new Date() },
       });
 
       if (args.previousSession) {
         await tx.session.update({
-          where: { id: args.previousSession.id },
+          where: { id: args.previousSession.id, tenantId: args.previousSession.tenantId },
           data: {
             revokedAt: new Date(),
             revokedReason: SESSION_REVOKED_REASONS.rotated,
@@ -410,6 +415,7 @@ export class AuthService {
   }
 
   private async bumpTokenVersion(userId: string): Promise<void> {
+    // tenant-scope: system-auth — only refresh-session reuse detection calls this with a verified userId.
     await this.prisma.appUser.update({
       where: { id: userId },
       data: { tokenVersion: { increment: 1 } },

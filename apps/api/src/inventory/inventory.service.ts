@@ -313,7 +313,7 @@ export class InventoryService {
 
     const now = new Date();
     const updated = await this.prisma.batch.update({
-      where: { id: batch.id },
+      where: { id: batch.id, tenantId, branchId },
       data: {
         isQuarantined: true,
         quarantinedAt: now,
@@ -361,7 +361,7 @@ export class InventoryService {
     }
 
     const updated = await this.prisma.batch.update({
-      where: { id: batch.id },
+      where: { id: batch.id, tenantId, branchId },
       data: {
         isQuarantined: false,
         quarantinedAt: null,
@@ -422,7 +422,7 @@ export class InventoryService {
     await this.prisma.$transaction(async (tx) => {
       for (const batch of candidates) {
         await tx.batch.update({
-          where: { id: batch.id },
+          where: { id: batch.id, tenantId, branchId },
           data: {
             isQuarantined: true,
             quarantinedAt: now,

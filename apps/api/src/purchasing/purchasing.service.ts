@@ -530,7 +530,7 @@ export class PurchasingService {
             : locked.status;
 
         await tx.purchaseOrder.update({
-          where: { id: locked.id },
+          where: { id: locked.id, tenantId, branchId },
           data: { status: newStatus },
         });
 

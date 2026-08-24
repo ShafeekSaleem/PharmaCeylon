@@ -120,7 +120,7 @@ export class PharmacistApprovalService {
 
     const posPinHash = await bcrypt.hash(pin, 10);
     await this.prisma.appUser.update({
-      where: { id: userId },
+      where: { id: userId, tenantId },
       data: {
         posPinHash,
         failedPosPinAttempts: 0,
@@ -157,7 +157,7 @@ export class PharmacistApprovalService {
     if (!ok) throw new UnauthorizedException("Login password is incorrect");
 
     await this.prisma.appUser.update({
-      where: { id: userId },
+      where: { id: userId, tenantId },
       data: {
         posPinHash: null,
         failedPosPinAttempts: 0,
@@ -231,7 +231,7 @@ export class PharmacistApprovalService {
           ? new Date(Date.now() + PIN_LOCK_MINUTES * 60_000)
           : null;
       await this.prisma.appUser.update({
-        where: { id: user.id },
+        where: { id: user.id, tenantId },
         data: {
           failedPosPinAttempts: failures,
           posPinLockedUntil: locked,
@@ -255,7 +255,7 @@ export class PharmacistApprovalService {
 
     if (user.failedPosPinAttempts > 0 || user.posPinLockedUntil) {
       await this.prisma.appUser.update({
-        where: { id: user.id },
+        where: { id: user.id, tenantId },
         data: { failedPosPinAttempts: 0, posPinLockedUntil: null },
       });
     }

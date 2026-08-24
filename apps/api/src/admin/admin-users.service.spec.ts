@@ -195,7 +195,7 @@ describe("AdminUsersService", () => {
       await service.removeBranchRole(tenantId, ownerId, true, targetId, "mapping-1");
 
       expect(prisma.userBranchRole.delete).toHaveBeenCalledWith({
-        where: { id: "mapping-1" },
+        where: { id: "mapping-1", tenantId },
       });
       expect(userContext.invalidate).toHaveBeenCalledWith(targetId);
     });
@@ -232,7 +232,10 @@ describe("AdminUsersService", () => {
 
       expect(result.fullName).toBe("Renamed");
       expect(prisma.appUser.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ fullName: "Renamed" }) }),
+        expect.objectContaining({
+          where: { id: targetId, tenantId },
+          data: expect.objectContaining({ fullName: "Renamed" }),
+        }),
       );
       expect(userContext.invalidate).not.toHaveBeenCalled();
     });
@@ -385,7 +388,7 @@ describe("AdminUsersService", () => {
       expect(prisma.userBranchRole.deleteMany).toHaveBeenCalledWith({
         where: { tenantId, userId: targetId },
       });
-      expect(prisma.appUser.delete).toHaveBeenCalledWith({ where: { id: targetId } });
+      expect(prisma.appUser.delete).toHaveBeenCalledWith({ where: { id: targetId, tenantId } });
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({ eventName: "user.deleted" }),
       );
@@ -476,7 +479,7 @@ describe("AdminUsersService", () => {
 
       expect(result).toEqual({ reset: true });
       expect(prisma.appUser.update).toHaveBeenCalledWith({
-        where: { id: targetId },
+        where: { id: targetId, tenantId },
         data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null },
       });
       expect(audit.log).toHaveBeenCalledWith(

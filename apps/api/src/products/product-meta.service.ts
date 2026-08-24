@@ -190,7 +190,7 @@ export class ProductMetaService {
       throw new ConflictException("System categories can't be moved to a different parent");
     }
     return this.prisma.productCategory.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.parentCategoryId !== undefined
@@ -213,7 +213,7 @@ export class ProductMetaService {
     await this.prisma.$transaction(
       dto.items.map((item) =>
         this.prisma.productCategory.update({
-          where: { id: item.id },
+          where: { id: item.id, tenantId },
           data: { sortOrder: item.sortOrder },
         }),
       ),
@@ -253,7 +253,7 @@ export class ProductMetaService {
         "Category still has products or subcategories — move or reassign them, or disable this category instead of deleting it.",
       );
     }
-    await this.prisma.productCategory.delete({ where: { id } });
+    await this.prisma.productCategory.delete({ where: { id, tenantId } });
     return { ok: true };
   }
 
@@ -287,7 +287,7 @@ export class ProductMetaService {
     await this.ensureTag(tenantId, id);
     try {
       return await this.prisma.productTag.update({
-        where: { id },
+        where: { id, tenantId },
         data: dto.name !== undefined ? { name: dto.name.trim() } : {},
       });
     } catch (e) {
@@ -300,7 +300,7 @@ export class ProductMetaService {
 
   async deleteTag(tenantId: string, id: string) {
     await this.ensureTag(tenantId, id);
-    await this.prisma.productTag.delete({ where: { id } });
+    await this.prisma.productTag.delete({ where: { id, tenantId } });
     return { ok: true };
   }
 
@@ -344,7 +344,7 @@ export class ProductMetaService {
       where: { id: aliasId, tenantId, productId },
     });
     if (!row) throw new NotFoundException("Alias not found");
-    await this.prisma.productAlias.delete({ where: { id: aliasId } });
+    await this.prisma.productAlias.delete({ where: { id: aliasId, tenantId, productId } });
     return { ok: true };
   }
 

@@ -198,7 +198,7 @@ export class AdminUsersService {
     if (row.role === RoleName.owner && !actorIsOwner) {
       throw new ForbiddenException("Only an owner can remove another owner's role mapping");
     }
-    await this.prisma.userBranchRole.delete({ where: { id: mappingId } });
+    await this.prisma.userBranchRole.delete({ where: { id: mappingId, tenantId } });
     this.userContext.invalidate(targetUserId);
     await this.audit.log({
       tenantId,
@@ -246,7 +246,7 @@ export class AdminUsersService {
     }
 
     const updated = await this.prisma.appUser.update({
-      where: { id: targetUserId },
+      where: { id: targetUserId, tenantId },
       data: {
         ...(dto.fullName != null ? { fullName: dto.fullName.trim() } : {}),
         ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
@@ -324,7 +324,7 @@ export class AdminUsersService {
     try {
       await this.prisma.$transaction([
         this.prisma.userBranchRole.deleteMany({ where: { tenantId, userId: targetUserId } }),
-        this.prisma.appUser.delete({ where: { id: targetUserId } }),
+        this.prisma.appUser.delete({ where: { id: targetUserId, tenantId } }),
       ]);
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code;
@@ -397,7 +397,7 @@ export class AdminUsersService {
     }
 
     await this.prisma.appUser.update({
-      where: { id: targetUserId },
+      where: { id: targetUserId, tenantId },
       data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null },
     });
 
