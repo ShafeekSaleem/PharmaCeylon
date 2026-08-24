@@ -30,7 +30,7 @@ export async function nextDocumentNumber(
     value = 1;
   } else {
     const updated = await tx.documentSequence.update({
-      where: { id: existing.id },
+      where: { id: existing.id, tenantId, branchId },
       data: { nextValue: { increment: 1 } },
     });
     value = updated.nextValue - 1;
