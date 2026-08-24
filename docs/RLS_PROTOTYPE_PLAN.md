@@ -13,6 +13,33 @@ context through the connection pool or breaking tenant-wide workflows.
 
 The prototype is not production-ready until every exit gate below passes.
 
+## Phase 3 foundation status
+
+Implemented in this phase:
+
+- `TenantTransactionContext` owns an interactive Prisma transaction, sets
+  `app.tenant_id` and `app.branch_id` with transaction-local
+  `set_config(..., true)`, and exposes the same transaction client through
+  `AsyncLocalStorage`.
+- Nested work may reuse the context only when tenant and branch match; attempting
+  to switch either scope fails before another query is issued.
+- `npm run test:rls-poc --workspace=apps/api` creates an ephemeral
+  non-superuser/`NOBYPASSRLS` role and RLS-protected table in PostgreSQL,
+  verifies tenant A/B read isolation and `WITH CHECK` write rejection, then
+  proves both settings are cleared when the same pooled connection is reused.
+- The proof runs in CI and removes its temporary schema and role in a
+  `finally` block.
+
+Not enabled in this phase:
+
+- no production table has RLS enabled;
+- no HTTP interceptor automatically opens tenant transactions;
+- existing services have not yet been switched from the root
+  `PrismaService` to `TenantTransactionContext.client`.
+
+Those constraints are intentional. Enabling policies before every query path
+uses the transaction-aware client would cause partial or misleading isolation.
+
 ## Architecture decision
 
 Use transaction-local PostgreSQL settings:
@@ -45,11 +72,12 @@ use `FORCE ROW LEVEL SECURITY` after migration/seed behaviour is verified.
 
 ## Prototype sequence
 
-1. Add a request transaction/context abstraction without enabling policies.
-   Verify nested service calls share one Prisma transaction client.
-2. Add integration tests that repeatedly alternate two tenants through a pool
-   and prove the tenant setting is absent after each transaction.
-3. Enable RLS on three canary tables representing different shapes:
+1. **Completed:** add a transaction/context abstraction without enabling
+   production policies; nested calls share one Prisma transaction client.
+2. **Completed:** run a real PostgreSQL proof with two tenants and verify
+   transaction-local settings disappear when the pool reuses its connection.
+3. **Next:** migrate all access paths for three canary tables and only then
+   enable RLS on those tables:
    `Product` (tenant-wide), `Batch` (tenant + branch), and `Sale`
    (transactional aggregate).
 4. Test direct reads, aggregates, creates, updates, deletes, nested writes,
