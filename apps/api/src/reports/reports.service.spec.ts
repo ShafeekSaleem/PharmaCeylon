@@ -342,6 +342,8 @@ describe("ReportsService profitability reconciliation", () => {
     saleItem: { findMany: jest.Mock };
     stockLedger: { groupBy: jest.Mock };
     goodsReturnItem: { findMany: jest.Mock };
+    branch: { findMany: jest.Mock };
+    sale: { groupBy: jest.Mock };
   };
   let taxonomy: {
     primaryCommercialCategoryByProductIds: jest.Mock;
@@ -354,6 +356,8 @@ describe("ReportsService profitability reconciliation", () => {
       saleItem: { findMany: jest.fn() },
       stockLedger: { groupBy: jest.fn().mockResolvedValue([]) },
       goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
+      branch: { findMany: jest.fn().mockResolvedValue([]) },
+      sale: { groupBy: jest.fn().mockResolvedValue([]) },
     };
     taxonomy = {
       primaryCommercialCategoryByProductIds: jest.fn(),
@@ -541,6 +545,37 @@ describe("ReportsService profitability reconciliation", () => {
     expect(marginRows.find((r) => r.productId === "p1")?.brandName).toBe("Zylo");
     expect(marginRows.find((r) => r.productId === "p2")?.brandName).toBeNull();
   });
+
+  it("marginByProduct's total revenue equals branchSales' summed revenue for the same window (both tax-inclusive, both netted the same way)", async () => {
+    const rows = [
+      {
+        productId: "p1",
+        qty: 2,
+        lineTotal: new Prisma.Decimal(100),
+        batch: { costPrice: new Prisma.Decimal(20) },
+        product: { id: "p1", sku: "SKU1", name: "Product 1" },
+        sale: { id: "s1", soldAt: new Date(), branchId: "b1" },
+      },
+    ];
+    prisma.saleItem.findMany.mockResolvedValue(rows);
+    prisma.goodsReturnItem.findMany.mockResolvedValue([
+      { ...returnItem("p1", 1, 30, 10), goodsReturn: { createdAt: new Date(), branchId: "b1" } },
+    ]);
+    taxonomy.primaryCommercialCategoryByProductIds.mockResolvedValue(new Map());
+    prisma.branch.findMany.mockResolvedValue([{ id: "b1", code: "MAIN", name: "Main", city: null }]);
+    prisma.sale.groupBy.mockResolvedValue([{ branchId: "b1", _count: { _all: 1 } }]);
+
+    const marginRows = await service.marginByProduct(tenantId, null, 30);
+    const branchResult = await service.branchSales(tenantId, 30);
+
+    const marginRevenueTotal = marginRows.reduce((s, r) => s + Number(r.revenue), 0);
+    const branchRevenueTotal = branchResult.branches.reduce((s, b) => s + Number(b.revenue), 0);
+
+    // Sale: revenue 100. Return: revenue -30. Net: 70, on both sides.
+    expect(marginRevenueTotal).toBeCloseTo(70, 5);
+    expect(branchRevenueTotal).toBeCloseTo(70, 5);
+    expect(marginRevenueTotal).toBeCloseTo(branchRevenueTotal, 5);
+  });
 });
 
 describe("ReportsService.branchMargin", () => {
@@ -666,6 +701,370 @@ describe("ReportsService.branchMarginTrend", () => {
       expect.objectContaining({ date: "2026-01-01", revenue: "100", cost: "40" }),
       expect.objectContaining({ date: "2026-01-05", revenue: "-50", cost: "-20" }),
     ]);
+  });
+});
+
+describe("ReportsService.branchSales", () => {
+  const tenantId = "tenant-1";
+  let prisma: {
+    branch: { findMany: jest.Mock };
+    saleItem: { findMany: jest.Mock };
+    goodsReturnItem: { findMany: jest.Mock };
+    sale: { groupBy: jest.Mock };
+  };
+  let service: ReportsService;
+
+  beforeEach(() => {
+    prisma = {
+      branch: { findMany: jest.fn().mockResolvedValue([]) },
+      saleItem: { findMany: jest.fn().mockResolvedValue([]) },
+      goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
+      sale: { groupBy: jest.fn().mockResolvedValue([]) },
+    };
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+  });
+
+  it("returns every active branch, including one with zero activity in the window, instead of only branches with sales", async () => {
+    prisma.branch.findMany.mockResolvedValue([
+      { id: "b1", code: "MAIN", name: "Main", city: "Colombo" },
+      { id: "b2", code: "QUIET", name: "Quiet Branch", city: "Galle" },
+    ]);
+    prisma.saleItem.findMany.mockResolvedValue([{ qty: 2, lineTotal: new Prisma.Decimal(100), sale: { branchId: "b1" } }]);
+    prisma.sale.groupBy.mockResolvedValue([{ branchId: "b1", _count: { _all: 1 } }]);
+
+    const result = await service.branchSales(tenantId, 30);
+
+    expect(result.branches).toEqual([
+      expect.objectContaining({ branchId: "b1", revenue: "100", transactions: 1, unitsSold: 2 }),
+      expect.objectContaining({ branchId: "b2", revenue: "0", transactions: 0, unitsSold: 0 }),
+    ]);
+  });
+
+  it("nets a completed customer return against the branch it was returned at, even across two branches", async () => {
+    prisma.branch.findMany.mockResolvedValue([
+      { id: "b1", code: "MAIN", name: "Main", city: "Colombo" },
+      { id: "b2", code: "OTHER", name: "Other", city: "Kandy" },
+    ]);
+    prisma.saleItem.findMany.mockResolvedValue([{ qty: 1, lineTotal: new Prisma.Decimal(100), sale: { branchId: "b1" } }]);
+    prisma.sale.groupBy.mockResolvedValue([{ branchId: "b1", _count: { _all: 1 } }]);
+    prisma.goodsReturnItem.findMany.mockResolvedValue([
+      { ...returnItem("p1", 1, 30, 10), goodsReturn: { createdAt: new Date(), branchId: "b2" } },
+    ]);
+
+    const result = await service.branchSales(tenantId, 30);
+
+    expect(result.branches).toEqual([
+      expect.objectContaining({ branchId: "b1", revenue: "100" }),
+      expect.objectContaining({ branchId: "b2", revenue: "-30" }),
+    ]);
+  });
+
+  it("transactions come from a per-sale count, not per line item — a 3-line sale still counts as 1 transaction", async () => {
+    prisma.branch.findMany.mockResolvedValue([{ id: "b1", code: "MAIN", name: "Main", city: "Colombo" }]);
+    prisma.saleItem.findMany.mockResolvedValue([
+      { qty: 1, lineTotal: new Prisma.Decimal(10), sale: { branchId: "b1" } },
+      { qty: 1, lineTotal: new Prisma.Decimal(20), sale: { branchId: "b1" } },
+      { qty: 1, lineTotal: new Prisma.Decimal(30), sale: { branchId: "b1" } },
+    ]);
+    prisma.sale.groupBy.mockResolvedValue([{ branchId: "b1", _count: { _all: 1 } }]);
+
+    const result = await service.branchSales(tenantId, 30);
+
+    expect(result.branches[0]).toEqual(expect.objectContaining({ revenue: "60", transactions: 1 }));
+  });
+
+  it("excludes voided sales and only requests completed customer returns", async () => {
+    await service.branchSales(tenantId, 30);
+
+    expect(prisma.saleItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ sale: expect.objectContaining({ status: { in: ["posted", "partially_refunded"] } }) }) }),
+    );
+    expect(prisma.sale.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ status: { in: ["posted", "partially_refunded"] } }) }),
+    );
+    expect(prisma.goodsReturnItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ goodsReturn: expect.objectContaining({ type: "customer", status: "completed" }) }) }),
+    );
+  });
+});
+
+describe("ReportsService.branchSalesTrend", () => {
+  const tenantId = "tenant-1";
+  let prisma: {
+    branch: { findMany: jest.Mock };
+    saleItem: { findMany: jest.Mock };
+    goodsReturnItem: { findMany: jest.Mock };
+  };
+  let service: ReportsService;
+
+  beforeEach(() => {
+    prisma = {
+      branch: { findMany: jest.fn().mockResolvedValue([]) },
+      saleItem: { findMany: jest.fn().mockResolvedValue([]) },
+      goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+  });
+
+  it("keys points by (date, branchId), keeping two branches on the same day as separate points", async () => {
+    const day1 = new Date("2026-01-01T09:00:00Z");
+    prisma.branch.findMany.mockResolvedValue([
+      { id: "b1", name: "Main" },
+      { id: "b2", name: "Other" },
+    ]);
+    prisma.saleItem.findMany.mockResolvedValue([
+      { lineTotal: new Prisma.Decimal(50), sale: { branchId: "b1", soldAt: day1 } },
+      { lineTotal: new Prisma.Decimal(30), sale: { branchId: "b2", soldAt: day1 } },
+    ]);
+
+    const result = await service.branchSalesTrend(tenantId, 30);
+
+    expect(result.points).toEqual([
+      expect.objectContaining({ date: "2026-01-01", branchId: "b1", name: "Main", revenue: "50" }),
+      expect.objectContaining({ date: "2026-01-01", branchId: "b2", name: "Other", revenue: "30" }),
+    ]);
+  });
+
+  it("nets a completed return into the bucket for its own date and branch", async () => {
+    const saleDay = new Date("2026-01-01T09:00:00Z");
+    const returnDay = new Date("2026-01-05T09:00:00Z");
+    prisma.branch.findMany.mockResolvedValue([{ id: "b1", name: "Main" }]);
+    prisma.saleItem.findMany.mockResolvedValue([{ lineTotal: new Prisma.Decimal(100), sale: { branchId: "b1", soldAt: saleDay } }]);
+    prisma.goodsReturnItem.findMany.mockResolvedValue([
+      { ...returnItem("p1", 1, 50, 20), goodsReturn: { createdAt: returnDay, branchId: "b1" } },
+    ]);
+
+    const result = await service.branchSalesTrend(tenantId, 30);
+
+    expect(result.points).toEqual([
+      expect.objectContaining({ date: "2026-01-01", revenue: "100" }),
+      expect.objectContaining({ date: "2026-01-05", revenue: "-50" }),
+    ]);
+  });
+});
+
+describe("ReportsService.salesSummary", () => {
+  const tenantId = "tenant-1";
+  let prisma: { sale: { findMany: jest.Mock } };
+  let service: ReportsService;
+
+  beforeEach(() => {
+    prisma = { sale: { findMany: jest.fn().mockResolvedValue([]) } };
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+  });
+
+  it("only requests posted/partially_refunded sales — a voided sale never reaches the count/total", async () => {
+    await service.salesSummary(tenantId, "branch-1", 30);
+
+    expect(prisma.sale.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ status: { in: ["posted", "partially_refunded"] } }) }),
+    );
+  });
+
+  it("sums grandTotal and counts rows from whatever the (now status-filtered) query returns", async () => {
+    prisma.sale.findMany.mockResolvedValue([
+      { grandTotal: new Prisma.Decimal(100), soldAt: new Date(), invoiceNo: "INV-1" },
+      { grandTotal: new Prisma.Decimal(50), soldAt: new Date(), invoiceNo: "INV-2" },
+    ]);
+
+    const result = await service.salesSummary(tenantId, null, 30);
+
+    expect(result).toEqual(expect.objectContaining({ count: 2, grandTotal: "150" }));
+  });
+});
+
+describe("ReportsService.salesByCashier", () => {
+  const tenantId = "tenant-1";
+  let prisma: { sale: { findMany: jest.Mock }; appUser: { findMany: jest.Mock } };
+  let service: ReportsService;
+
+  beforeEach(() => {
+    prisma = {
+      sale: { findMany: jest.fn().mockResolvedValue([]) },
+      appUser: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+  });
+
+  it("excludes a voided sale's discount from discountTotal, but still counts it toward corrections", async () => {
+    const now = new Date();
+    prisma.sale.findMany.mockResolvedValue([
+      { soldBy: "u1", grandTotal: new Prisma.Decimal(100), discountTotal: new Prisma.Decimal(10), status: "posted", soldAt: now },
+      { soldBy: "u1", grandTotal: new Prisma.Decimal(50), discountTotal: new Prisma.Decimal(20), status: "voided", soldAt: now },
+    ]);
+    prisma.appUser.findMany.mockResolvedValue([{ id: "u1", fullName: "Cashier One" }]);
+
+    const result = await service.salesByCashier(tenantId, null, 30);
+
+    // revenue/transactions ignore the voided sale entirely; discountTotal only reflects the
+    // posted sale's discount (10, not 30 = 10+20); corrections still counts the voided sale.
+    expect(result.cashiers[0]).toEqual(
+      expect.objectContaining({ revenue: "100", transactions: 1, discountTotal: "10", corrections: 1 }),
+    );
+  });
+});
+
+describe("ReportsService.salesByPaymentMethod", () => {
+  const tenantId = "tenant-1";
+  let prisma: { salePayment: { findMany: jest.Mock } };
+  let service: ReportsService;
+
+  beforeEach(() => {
+    prisma = { salePayment: { findMany: jest.fn().mockResolvedValue([]) } };
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+  });
+
+  it("only requests posted/partially_refunded sales — a voided sale's tender never counts as revenue or a transaction", async () => {
+    await service.salesByPaymentMethod(tenantId, "branch-1", 30);
+
+    expect(prisma.salePayment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ sale: expect.objectContaining({ status: { in: ["posted", "partially_refunded"] } }) }),
+      }),
+    );
+  });
+
+  it("a partially_refunded sale's tender still counts toward refundedAtThisMethod", async () => {
+    prisma.salePayment.findMany.mockResolvedValue([
+      { method: "cash", amount: new Prisma.Decimal(100), saleId: "s1", sale: { status: "partially_refunded", soldAt: new Date() } },
+    ]);
+
+    const result = await service.salesByPaymentMethod(tenantId, null, 30);
+
+    expect(result.methods[0]).toEqual(expect.objectContaining({ method: "cash", revenue: "100", refundedAtThisMethod: "100" }));
+  });
+});
+
+describe("ReportsService.returnsAndDiscounts", () => {
+  const tenantId = "tenant-1";
+  let prisma: { goodsReturn: { findMany: jest.Mock }; saleItem: { findMany: jest.Mock; groupBy: jest.Mock } };
+  let service: ReportsService;
+
+  beforeEach(() => {
+    prisma = {
+      goodsReturn: { findMany: jest.fn().mockResolvedValue([]) },
+      saleItem: { findMany: jest.fn().mockResolvedValue([]), groupBy: jest.fn().mockResolvedValue([]) },
+    };
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+  });
+
+  it("only requests completed customer returns — a draft/pending_approval return is excluded", async () => {
+    await service.returnsAndDiscounts(tenantId, "branch-1", 30);
+
+    expect(prisma.goodsReturn.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId, type: "customer", status: "completed", branchId: "branch-1" }),
+      }),
+    );
+  });
+
+  it("sums totalReturnValue only from whatever the (now completed-only) query returns", async () => {
+    prisma.goodsReturn.findMany.mockResolvedValue([
+      {
+        id: "r1",
+        reason: "Damaged",
+        amount: new Prisma.Decimal(40),
+        createdAt: new Date(),
+        saleId: "s1",
+        items: [{ productId: "p1", qty: 1, unitPrice: new Prisma.Decimal(40), product: { sku: "SKU1", name: "Product 1" } }],
+      },
+    ]);
+
+    const result = await service.returnsAndDiscounts(tenantId, null, 30);
+
+    expect(result.totalReturnValue).toBe(40);
+    expect(result.returnedItemCount).toBe(1);
+  });
+
+  it("topReturnedProducts breaks a product's returns down by reason without splitting its own qty/returnRatePct across rows", async () => {
+    prisma.goodsReturn.findMany.mockResolvedValue([
+      {
+        id: "r1",
+        reason: "Damaged",
+        amount: new Prisma.Decimal(40),
+        createdAt: new Date(),
+        saleId: "s1",
+        items: [{ productId: "p1", qty: 2, unitPrice: new Prisma.Decimal(20), product: { sku: "SKU1", name: "Product 1" } }],
+      },
+      {
+        id: "r2",
+        reason: "Wrong item",
+        amount: new Prisma.Decimal(20),
+        createdAt: new Date(),
+        saleId: "s2",
+        items: [{ productId: "p1", qty: 1, unitPrice: new Prisma.Decimal(20), product: { sku: "SKU1", name: "Product 1" } }],
+      },
+    ]);
+    prisma.saleItem.groupBy.mockResolvedValue([{ productId: "p1", _sum: { qty: 10 } }]);
+
+    const result = await service.returnsAndDiscounts(tenantId, null, 30);
+
+    expect(result.topReturnedProducts).toHaveLength(1);
+    const row = result.topReturnedProducts[0]!;
+    // The row's own qty/returnRatePct reflect all 3 returned units against the product's real sold
+    // qty (10) — not understated by only counting whichever reason happens to be looked at.
+    expect(row.qty).toBe(3);
+    expect(row.returnRatePct).toBeCloseTo(30, 5);
+    expect(row.reasons).toEqual(
+      expect.arrayContaining([
+        { reason: "Damaged", value: 40, qty: 2 },
+        { reason: "Wrong item", value: 20, qty: 1 },
+      ]),
+    );
+    expect(row.reasons).toHaveLength(2);
+    // Sorted descending by value — "Damaged" (40) is the product's dominant reason.
+    expect(row.reasons[0]!.reason).toBe("Damaged");
+  });
+});
+
+describe("ReportsService.salesDaily", () => {
+  const tenantId = "tenant-1";
+  let prisma: { sale: { findMany: jest.Mock }; goodsReturnItem: { findMany: jest.Mock } };
+  let service: ReportsService;
+
+  beforeEach(() => {
+    prisma = {
+      sale: { findMany: jest.fn().mockResolvedValue([]) },
+      goodsReturnItem: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    service = new ReportsService(prisma as never, {} as unknown as CategoryTaxonomyService);
+  });
+
+  it("only requests completed customer returns for the returns column", async () => {
+    await service.salesDaily(tenantId, "branch-1", 7);
+
+    expect(prisma.goodsReturnItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ goodsReturn: expect.objectContaining({ type: "customer", status: "completed", branchId: "branch-1" }) }),
+      }),
+    );
+  });
+
+  it("netSales is grandTotal-based (tax-inclusive) minus netted returns — discounts no longer subtracted a second time", async () => {
+    // "Yesterday" rather than a hardcoded date literal — comfortably inside a 5-day window
+    // regardless of the machine's local timezone vs. the service's UTC-ISO day-key bucketing
+    // (summing across every row below, rather than asserting on one exact day-key, is what
+    // actually makes this test timezone-safe — the two together avoid a flaky boundary case).
+    const recent = new Date();
+    recent.setDate(recent.getDate() - 1);
+    prisma.sale.findMany.mockResolvedValue([{ soldAt: recent, grandTotal: new Prisma.Decimal(115), discountTotal: new Prisma.Decimal(5) }]);
+    prisma.goodsReturnItem.findMany.mockResolvedValue([
+      { ...returnItem("p1", 1, 20, 8), goodsReturn: { createdAt: recent, branchId: "branch-1" } },
+    ]);
+
+    const result = await service.salesDaily(tenantId, "branch-1", 5);
+
+    const totals = result.rows.reduce(
+      (acc, r) => ({
+        transactions: acc.transactions + r.transactions,
+        grossSales: acc.grossSales + Number(r.grossSales),
+        discounts: acc.discounts + Number(r.discounts),
+        returns: acc.returns + Number(r.returns),
+        netSales: acc.netSales + Number(r.netSales),
+      }),
+      { transactions: 0, grossSales: 0, discounts: 0, returns: 0, netSales: 0 },
+    );
+    expect(totals).toEqual({ transactions: 1, grossSales: 115, discounts: 5, returns: 20, netSales: 95 });
   });
 });
 

@@ -114,14 +114,16 @@ export function FilterBar({
       {showCompare ? (
         <div className={css.filterfield}>
           <label>Compare</label>
+          {/* Only one comparison basis actually exists (the immediately-preceding equal-length
+           *  window) — a real dropdown with a silently-ignored onChange, or a second option that
+           *  can never be selected, both imply a choice that isn't there. Disabled rather than
+           *  interactive is the honest state here. */}
           <ReportSelect
             ariaLabel="Compare"
             value="prev"
             onChange={() => {}}
-            options={[
-              { value: "prev", label: `vs Previous ${period ?? 30} days` },
-              { value: "year", label: "vs Same period last year (Soon)", disabled: true },
-            ]}
+            disabled
+            options={[{ value: "prev", label: `vs Previous ${period ?? 30} days` }]}
           />
         </div>
       ) : null}

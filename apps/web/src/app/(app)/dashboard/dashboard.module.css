@@ -1966,6 +1966,14 @@ a.aiItem:hover {
   filter: brightness(1.05);
 }
 
+/* A click-selected slice (as opposed to merely hovered) — stays marked after the pointer moves
+   away, so a persisted selection reads as "chosen" and not just "whatever's currently under the
+   cursor." */
+.donutSegmentActive {
+  stroke: var(--pc-foreground);
+  stroke-width: 1.5px;
+}
+
 .donutCenter {
   position: absolute;
   inset: 0;

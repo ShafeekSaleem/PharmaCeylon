@@ -2,18 +2,23 @@
 
 import css from "../reports.module.css";
 
-/** `marginPct: null` means no sales in that category that week — distinct from an actual 0%
- *  margin sale, and must never be colored as if it were the worst cell in the grid. */
-export type HeatmapRow = { id: string; label: string; weeks: Array<{ date: string; label: string; marginPct: number | null }> };
+/** `value: null` means no sales in that entity's week — distinct from an actual 0-valued week,
+ *  and must never be colored as if it were the worst cell in the grid. */
+export type WeekHeatmapRow = { id: string; label: string; weeks: Array<{ date: string; label: string; value: number | null }> };
 
 type Props = {
-  /** Already sorted (e.g. descending by overall margin %) — the caller owns ranking. */
-  rows: HeatmapRow[];
+  /** Already sorted (e.g. descending by overall revenue/margin) — the caller owns ranking. */
+  rows: WeekHeatmapRow[];
   onRowClick?: (id: string) => void;
   activeId?: string | null;
   /** Header for the row-label column — this component is generic enough to be reused for any
-   *  entity × week margin grid (Category Profitability, Branch Profitability), not just categories. */
+   *  entity × week grid (Category Profitability, Branch Profitability, Category Sales' growth
+   *  heatmap), not just categories or margin specifically. */
   rowHeader?: string;
+  /** How to render a cell's raw value — defaults to a 1-decimal percentage (margin %, growth %). */
+  formatValue?: (n: number) => string;
+  legendLowLabel?: string;
+  legendHighLabel?: string;
 };
 
 /** Theme-consistent 3-stop heat color (teal → orange → red-orange) for a 0..1 position, reusing
@@ -37,15 +42,24 @@ function heatCellBackground(t: number): string {
   return `color-mix(in srgb, ${heatColor(t)} ${Math.round(intensity)}%, var(--pc-card-bg))`;
 }
 
-/** Week-by-category margin % grid, each cell tinted by its value relative to the data's own
- *  min/max — a heatmap scales to many more categories at once than a multi-line chart can read. */
-export function CategoryMarginHeatmap({ rows, onRowClick, activeId, rowHeader = "Category" }: Props) {
+/** Week-by-entity value grid (margin %, growth %, ...), each cell tinted by its value relative to
+ *  the data's own min/max — a heatmap scales to many more rows at once than a multi-line chart can
+ *  read. Generic over what the value actually represents; callers own the metric and its labels. */
+export function EntityWeekHeatmap({
+  rows,
+  onRowClick,
+  activeId,
+  rowHeader = "Category",
+  formatValue = (n) => `${n.toFixed(1)}%`,
+  legendLowLabel = "Lower",
+  legendHighLabel = "Higher",
+}: Props) {
   const nonEmpty = rows.filter((r) => r.weeks.length > 0);
   if (nonEmpty.length === 0) {
     return <p className={css.emptyNote}>No trend data for this range yet.</p>;
   }
 
-  const allValues = nonEmpty.flatMap((r) => r.weeks.map((w) => w.marginPct)).filter((v): v is number => v != null);
+  const allValues = nonEmpty.flatMap((r) => r.weeks.map((w) => w.value)).filter((v): v is number => v != null);
   const min = Math.min(...allValues, 0);
   const max = Math.max(...allValues, 1);
   const span = max - min || 1;
@@ -76,17 +90,17 @@ export function CategoryMarginHeatmap({ rows, onRowClick, activeId, rowHeader = 
                   )}
                 </td>
                 {r.weeks.map((w, i) => {
-                  if (w.marginPct == null) {
+                  if (w.value == null) {
                     return (
                       <td key={i} className={`${css.catHeatCell} ${css.catHeatCellEmpty}`}>
                         No sales
                       </td>
                     );
                   }
-                  const t = (w.marginPct - min) / span;
+                  const t = (w.value - min) / span;
                   return (
                     <td key={i} className={css.catHeatCell} style={{ background: heatCellBackground(t) }}>
-                      {w.marginPct.toFixed(1)}%
+                      {formatValue(w.value)}
                     </td>
                   );
                 })}
@@ -96,9 +110,9 @@ export function CategoryMarginHeatmap({ rows, onRowClick, activeId, rowHeader = 
         </table>
       </div>
       <div className={css.catHeatLegend}>
-        <span>Lower margin</span>
+        <span>{legendLowLabel}</span>
         <span className={css.catHeatLegendBar} />
-        <span>Higher margin</span>
+        <span>{legendHighLabel}</span>
       </div>
     </div>
   );

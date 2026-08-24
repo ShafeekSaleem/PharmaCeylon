@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconAlertTriangle, IconCheckCircle, IconPill, IconTrophy } from "@/components/icons";
+import { IconAlertTriangle, IconCheckCircle, IconEye, IconPill, IconTrophy } from "@/components/icons";
 import { StatGrid, StatCard } from "@/components/ui/stat-card";
 import { ActiveFilterBanner, type FilterPill } from "@/components/ui";
 import { fetchCategoryComparison, fetchMarginTrendByCategory } from "../lib/fetchers";
@@ -9,13 +9,14 @@ import { useProfitabilityTarget } from "../lib/use-profitability-target";
 import { formatCompactMoney, formatDateShort, formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import { CategoryBenchmarkChart } from "../components/category-benchmark-chart";
 import { CategoryOpportunityMatrix, type OpportunityTag, type QuadrantKey } from "../components/category-opportunity-matrix";
-import { CategoryMarginHeatmap, type HeatmapRow } from "../components/category-margin-heatmap";
+import { EntityWeekHeatmap, type WeekHeatmapRow } from "../components/entity-week-heatmap";
 import { CategoryHierarchyTable, type HierarchyParentRow } from "../components/category-hierarchy-table";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
+import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { CategoryChildRow, CategoryTrendPoint, ExportPayload, OnExportData, Scope } from "../lib/types";
 import css from "../reports.module.css";
 
-type Props = { scope: Scope; isOwner: boolean; days: number; onExportData: OnExportData };
+type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
 /** Same fallback Product Profitability's low-margin toggle uses when no tenant target is set. */
 const DEFAULT_MARGIN_TARGET_PCT = 20;
@@ -85,7 +86,7 @@ function weeklyMarginSeries(points: CategoryTrendPoint[], days: number): Array<{
 
 /** Category-level profitability, COMMERCIAL dimension only — "which parts of the business
  *  generate profit?". Product-level detail lives on Margin by Product instead. */
-export function MarginByCategorySection({ scope, isOwner, days, onExportData }: Props) {
+export function MarginByCategorySection({ scope, isOwner, days, onNavigate, onExportData }: Props) {
   const [rows, setRows] = useState<CategoryEnriched[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -203,7 +204,7 @@ export function MarginByCategorySection({ scope, isOwner, days, onExportData }: 
 
   // ── Category Margin Trend — weekly margin %, every category (a heatmap scales to more rows
   //    than a multi-line chart could stay readable with) ──────────────────────────────────────
-  const heatmapRows: HeatmapRow[] = useMemo(() => {
+  const heatmapRows: WeekHeatmapRow[] = useMemo(() => {
     const byCategory = new Map<string, CategoryTrendPoint[]>();
     for (const p of trendPoints) {
       const list = byCategory.get(p.categoryId) ?? [];
@@ -212,7 +213,11 @@ export function MarginByCategorySection({ scope, isOwner, days, onExportData }: 
     }
     return [...rows]
       .sort((a, b) => b.marginPct - a.marginPct)
-      .map((r) => ({ id: r.categoryId, label: r.name, weeks: weeklyMarginSeries(byCategory.get(r.categoryId) ?? [], days) }));
+      .map((r) => ({
+        id: r.categoryId,
+        label: r.name,
+        weeks: weeklyMarginSeries(byCategory.get(r.categoryId) ?? [], days).map((w) => ({ date: w.date, label: w.label, value: w.marginPct })),
+      }));
   }, [rows, trendPoints, days]);
 
   const highlightItems: ActionPanelItem[] = [
@@ -256,6 +261,19 @@ export function MarginByCategorySection({ scope, isOwner, days, onExportData }: 
           countLabel: "% margin",
           onClick: () => toggleCategoryFilter(biggestOpportunity.categoryId),
           examples: [{ label: biggestOpportunity.name, badge: `${biggestOpportunity.marginPct.toFixed(1)}%`, tone: "negative" as const }],
+        }]
+      : []),
+    ...(topContributor
+      ? [{
+          key: "view-demand",
+          icon: <IconEye size={16} />,
+          tone: "muted" as const,
+          title: "View Demand in Category Sales",
+          description: "This page is margin only — see revenue, units sold and growth per category.",
+          count: 1,
+          countLabel: "report",
+          onClick: () => onNavigate("sales", "category-sales"),
+          examples: [{ label: topContributor.name, badge: "Top by gross profit", tone: "neutral" as const }],
         }]
       : []),
   ];
@@ -360,7 +378,7 @@ export function MarginByCategorySection({ scope, isOwner, days, onExportData }: 
           {loading || trendLoading ? (
             <p className={css.emptyNote}>Loading trend…</p>
           ) : (
-            <CategoryMarginHeatmap rows={heatmapRows} onRowClick={toggleCategoryFilter} activeId={selectedCategoryId} />
+            <EntityWeekHeatmap rows={heatmapRows} onRowClick={toggleCategoryFilter} activeId={selectedCategoryId} />
           )}
         </div>
 

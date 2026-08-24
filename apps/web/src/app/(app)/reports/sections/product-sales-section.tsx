@@ -12,28 +12,30 @@ import {
   type CategoryTreeNode,
   type FilterPill,
 } from "@/components/ui";
-import { fetchCommercialCategories, fetchMarginComparison, fetchSalesComparison, type MarginTotals } from "../lib/fetchers";
+import { fetchCommercialCategories, fetchMarginComparison, type MarginTotals } from "../lib/fetchers";
 import { formatMoney, formatPctTrend, pctChange } from "../lib/format";
 import { RankingTableCard } from "../components/ranking-table-card";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
+import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { CommercialCategoryRow, ExportPayload, MarginRow, OnExportData, Scope } from "../lib/types";
 import css from "../reports.module.css";
 
-type Props = { scope: Scope; isOwner: boolean; days: number; onExportData: OnExportData };
-
-const LOW_MARGIN_THRESHOLD_PCT = 20;
+type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
 type RankBy = "revenue" | "unitsSold" | "growth";
 const RANK_LABELS: Record<RankBy, string> = { revenue: "Revenue", unitsSold: "Units Sold", growth: "Growth" };
 
-type EnrichedRow = MarginRow & { revenueN: number; costN: number; marginN: number; marginPct: number; growthPct: number | null };
+// Demand/volume only — no cost or margin here, that's Product Profitability's job (see the Sales
+// vs Profitability duplication boundary this whole redesign enforces). `previousRevenueN` is kept
+// (not just the derived `growthPct`) so the Declining Demand insight can gate on "had meaningful
+// revenue last period," not just "revenue fell," the same way Fastest Growing gates on a revenue
+// floor rather than flagging a product that grew from LKR 1 to LKR 2.
+type EnrichedRow = MarginRow & { revenueN: number; previousRevenueN: number; growthPct: number | null };
 
-type InsightFocus = "fast" | "slow" | "risk";
+type InsightFocus = "fast" | "declining" | "risk" | "penetration";
 
-export function ProductSalesSection({ scope, isOwner, days, onExportData }: Props) {
+export function ProductSalesSection({ scope, isOwner, days, onNavigate, onExportData }: Props) {
   const [rows, setRows] = useState<EnrichedRow[]>([]);
-  const [transactions, setTransactions] = useState(0);
-  const [previousTransactions, setPreviousTransactions] = useState(0);
   const [previousTotals, setPreviousTotals] = useState<MarginTotals>({ revenue: 0, cost: 0, margin: 0, unitsSold: 0 });
   const [previousActiveSkus, setPreviousActiveSkus] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -42,7 +44,6 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
   const [search, setSearch] = useState("");
 
   const [lowStockOnly, setLowStockOnly] = useState(false);
-  const [lowMarginOnly, setLowMarginOnly] = useState(false);
   /** Selected COMMERCIAL category/department ids — same filter as Products/Catalog. */
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
   const [categoryRows, setCategoryRows] = useState<CommercialCategoryRow[]>([]);
@@ -58,26 +59,20 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([fetchMarginComparison(days, scope, isOwner), fetchSalesComparison(days, scope, isOwner)])
-      .then(([margin, sales]) => {
+    fetchMarginComparison(days, scope, isOwner)
+      .then((margin) => {
         if (cancelled) return;
         const enriched: EnrichedRow[] = margin.current.map((r) => {
           const revenueN = Number(r.revenue);
-          const costN = Number(r.cost);
-          const marginN = revenueN - costN;
           const prev = margin.previousByProduct.get(r.productId);
           return {
             ...r,
             revenueN,
-            costN,
-            marginN,
-            marginPct: revenueN > 0 ? (marginN / revenueN) * 100 : 0,
+            previousRevenueN: prev?.revenue ?? 0,
             growthPct: prev ? pctChange(revenueN, prev.revenue) : null,
           };
         });
         setRows(enriched);
-        setTransactions(sales.current.count);
-        setPreviousTransactions(sales.previous.count);
         setPreviousTotals(margin.previousTotals);
         setPreviousActiveSkus(margin.previousActiveSkuCount);
       })
@@ -94,8 +89,19 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
 
   const totalRevenue = rows.reduce((s, r) => s + r.revenueN, 0);
   const totalUnits = rows.reduce((s, r) => s + r.unitsSold, 0);
-  const avgUnitsPerTxn = transactions > 0 ? totalUnits / transactions : 0;
-  const previousAvgUnitsPerTxn = previousTransactions > 0 ? previousTotals.unitsSold / previousTransactions : 0;
+
+  const topByRevenue = useMemo(() => (rows.length === 0 ? null : [...rows].sort((a, b) => b.revenueN - a.revenueN)[0]!), [rows]);
+  const topProductSharePct = topByRevenue && totalRevenue > 0 ? (topByRevenue.revenueN / totalRevenue) * 100 : 0;
+  const growingCount = useMemo(() => rows.filter((r) => r.growthPct != null && r.growthPct > 0).length, [rows]);
+  const decliningCount = useMemo(() => rows.filter((r) => r.growthPct != null && r.growthPct < 0).length, [rows]);
+
+  const concentration = useMemo(() => {
+    if (totalRevenue === 0) return { top10Pct: 0, top50Pct: 0 };
+    const sorted = [...rows].sort((a, b) => b.revenueN - a.revenueN);
+    const top10 = sorted.slice(0, 10).reduce((s, r) => s + r.revenueN, 0);
+    const top50 = sorted.slice(0, 50).reduce((s, r) => s + r.revenueN, 0);
+    return { top10Pct: (top10 / totalRevenue) * 100, top50Pct: (top50 / totalRevenue) * 100 };
+  }, [rows, totalRevenue]);
 
   const categoryTree = useMemo<CategoryTreeNode[]>(() => {
     const byParent = new Map<string | null, CommercialCategoryRow[]>();
@@ -151,15 +157,28 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
     const withGrowth = rows.filter((r) => r.growthPct != null) as Array<EnrichedRow & { growthPct: number }>;
     return withGrowth.filter((r) => r.growthPct >= 25 && r.revenueN >= 500).sort((a, b) => b.growthPct - a.growthPct);
   }, [rows]);
-  // "Slow" = meaningful stock (≥10 units) that would take 20+ periods to sell through at the current pace.
-  const slowMovers = useMemo(
-    () => rows.filter((r) => r.stockOnHand >= 10 && r.stockOnHand / Math.max(1, r.unitsSold) >= 20).sort((a, b) => b.stockOnHand - a.stockOnHand),
-    [rows],
-  );
+  // Mirror of Fastest Growing — a real revenue floor last period (not just "revenue fell") so a
+  // brand-new, barely-selling SKU doesn't get flagged as "declining" off a near-zero base.
+  const decliningDemand = useMemo(() => {
+    const withGrowth = rows.filter((r) => r.growthPct != null) as Array<EnrichedRow & { growthPct: number }>;
+    return withGrowth.filter((r) => r.growthPct <= -25 && r.previousRevenueN >= 500).sort((a, b) => a.growthPct - b.growthPct);
+  }, [rows]);
   const lowStockRisk = useMemo(
     () => rows.filter((r) => r.stockOnHand <= 5 && r.unitsSold > 0).sort((a, b) => a.stockOnHand - b.stockOnHand),
     [rows],
   );
+  // Proxy for "opportunity to reach more transactions": high unit volume at a low average selling
+  // price relative to the page — real basket/transaction-penetration data isn't available (no
+  // per-transaction composition here), so this stays honestly framed as a price/bundling signal
+  // rather than claiming to measure actual basket penetration.
+  const highVolumeLowPrice = useMemo(() => {
+    const withPrice = rows.filter((r) => r.unitsSold > 0).map((r) => ({ ...r, avgPrice: r.revenueN / r.unitsSold }));
+    if (withPrice.length === 0) return [];
+    const overallAvgPrice = withPrice.reduce((s, r) => s + r.avgPrice, 0) / withPrice.length;
+    return withPrice
+      .filter((r) => r.unitsSold >= 20 && r.avgPrice < overallAvgPrice * 0.5)
+      .sort((a, b) => b.unitsSold - a.unitsSold);
+  }, [rows]);
 
   function focusInsight(key: InsightFocus) {
     setInsightFocus((cur) => (cur === key ? null : key));
@@ -181,17 +200,17 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
             examples: fastestGrowing.slice(0, 3).map((r) => ({ label: r.name, badge: formatPctTrend(r.growthPct), tone: "positive" as const, href: `/inventory?productId=${r.productId}` })),
           }]
         : []),
-      ...(slowMovers.length > 0
+      ...(decliningDemand.length > 0
         ? [{
-            key: "slow",
+            key: "declining",
             icon: <IconPause size={16} />,
             tone: "warning" as const,
-            title: "Slow movers",
-            description: "Low sales velocity relative to stock on hand.",
-            count: slowMovers.length,
-            countLabel: slowMovers.length === 1 ? "product" : "products",
-            onClick: () => focusInsight("slow"),
-            examples: slowMovers.slice(0, 3).map((r) => ({ label: r.name, badge: `${r.stockOnHand} in stock`, tone: "neutral" as const, href: `/inventory?productId=${r.productId}` })),
+            title: "Declining demand",
+            description: "Meaningful sales last period, sustained decline this period.",
+            count: decliningDemand.length,
+            countLabel: decliningDemand.length === 1 ? "product" : "products",
+            onClick: () => focusInsight("declining"),
+            examples: decliningDemand.slice(0, 3).map((r) => ({ label: r.name, badge: formatPctTrend(r.growthPct), tone: "negative" as const, href: `/inventory?productId=${r.productId}` })),
           }]
         : []),
       ...(lowStockRisk.length > 0
@@ -200,15 +219,41 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
             icon: <IconAlertTriangle size={16} />,
             tone: "purple" as const,
             title: "Low stock risk",
-            description: "Selling well but 5 or fewer units on hand.",
+            description: "Selling well but 5 or fewer units on hand — demand constrained by availability.",
             count: lowStockRisk.length,
             countLabel: lowStockRisk.length === 1 ? "product" : "products",
             onClick: () => focusInsight("risk"),
             examples: lowStockRisk.slice(0, 3).map((r) => ({ label: r.name, badge: `${r.stockOnHand} left`, tone: "negative" as const, href: `/inventory?productId=${r.productId}` })),
           }]
         : []),
+      ...(highVolumeLowPrice.length > 0
+        ? [{
+            key: "penetration",
+            icon: <IconArchive size={16} />,
+            tone: "muted" as const,
+            title: "High volume, low average price",
+            description: "Sells in high volume at a low average price — a bundling or price/value review candidate.",
+            count: highVolumeLowPrice.length,
+            countLabel: highVolumeLowPrice.length === 1 ? "product" : "products",
+            onClick: () => focusInsight("penetration"),
+            examples: highVolumeLowPrice.slice(0, 3).map((r) => ({ label: r.name, badge: `${r.unitsSold.toLocaleString("en-IN")} units`, tone: "neutral" as const, href: `/inventory?productId=${r.productId}` })),
+          }]
+        : []),
+      ...(topByRevenue
+        ? [{
+            key: "view-margin",
+            icon: <IconEye size={16} />,
+            tone: "muted" as const,
+            title: "View Margin in Product Profitability",
+            description: "This page is demand only — see cost, gross profit and margin % per product.",
+            count: 1,
+            countLabel: "report",
+            onClick: () => onNavigate("profitability", "margin-by-product"),
+            examples: [{ label: topByRevenue.name, badge: `${topProductSharePct.toFixed(1)}% of revenue`, tone: "neutral" as const }],
+          }]
+        : []),
     ],
-    [fastestGrowing, slowMovers, lowStockRisk],
+    [fastestGrowing, decliningDemand, lowStockRisk, highVolumeLowPrice, topByRevenue, topProductSharePct, onNavigate],
   );
 
   const filteredRows = useMemo(() => {
@@ -222,21 +267,23 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
       out = out.filter((r) => allowedNames.has(r.category));
     }
     if (lowStockOnly) out = out.filter((r) => r.stockOnHand <= 5);
-    if (lowMarginOnly) out = out.filter((r) => r.marginPct < LOW_MARGIN_THRESHOLD_PCT);
     if (insightFocus === "fast") {
       const ids = new Set(fastestGrowing.map((r) => r.productId));
       out = out.filter((r) => ids.has(r.productId));
-    } else if (insightFocus === "slow") {
-      const ids = new Set(slowMovers.map((r) => r.productId));
+    } else if (insightFocus === "declining") {
+      const ids = new Set(decliningDemand.map((r) => r.productId));
       out = out.filter((r) => ids.has(r.productId));
     } else if (insightFocus === "risk") {
       const ids = new Set(lowStockRisk.map((r) => r.productId));
       out = out.filter((r) => ids.has(r.productId));
+    } else if (insightFocus === "penetration") {
+      const ids = new Set(highVolumeLowPrice.map((r) => r.productId));
+      out = out.filter((r) => ids.has(r.productId));
     }
     return out;
-  }, [rows, search, categoryFilter, namesUnderCategoryId, lowStockOnly, lowMarginOnly, insightFocus, fastestGrowing, slowMovers, lowStockRisk]);
+  }, [rows, search, categoryFilter, namesUnderCategoryId, lowStockOnly, insightFocus, fastestGrowing, decliningDemand, lowStockRisk, highVolumeLowPrice]);
 
-  const activeFilterCount = categoryFilter.length + (lowStockOnly ? 1 : 0) + (lowMarginOnly ? 1 : 0);
+  const activeFilterCount = categoryFilter.length + (lowStockOnly ? 1 : 0);
 
   const activeFilterPills: FilterPill[] = [
     ...categoryFilter.map((id) => ({
@@ -244,9 +291,6 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
       label: `Category: ${categoryTreeOptions.find((c) => c.value === id)?.label ?? "Selected"}`,
     })),
     ...(lowStockOnly ? [{ key: "lowStock", label: "Low stock only (≤5 units)" }] : []),
-    ...(lowMarginOnly
-      ? [{ key: "lowMargin", label: `Low margin only (<${LOW_MARGIN_THRESHOLD_PCT}%)` }]
-      : []),
   ];
 
   useEffect(() => {
@@ -256,8 +300,8 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
     }
     const payload: ExportPayload = {
       filename: `product-sales-${days}d.csv`,
-      headers: ["Product", "SKU", "Category", "Units Sold", "Revenue", "Gross Profit", "Margin %", "Stock on Hand"],
-      rows: filteredRows.map((r) => [r.name, r.sku, r.category, r.unitsSold, r.revenueN, r.marginN, r.marginPct.toFixed(1), r.stockOnHand]),
+      headers: ["Product", "SKU", "Category", "Units Sold", "Revenue", "Growth %", "Stock on Hand"],
+      rows: filteredRows.map((r) => [r.name, r.sku, r.category, r.unitsSold, r.revenueN, r.growthPct == null ? "" : r.growthPct.toFixed(1), r.stockOnHand]),
     };
     onExportData(payload);
     return () => onExportData(null);
@@ -269,8 +313,14 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
     { key: "category", header: "Category" },
     { key: "unitsSold", header: "Units Sold", align: "right", sortable: true, getValue: (r) => r.unitsSold, render: (r) => r.unitsSold.toLocaleString("en-IN") },
     { key: "revenueN", header: "Revenue", align: "right", sortable: true, getValue: (r) => r.revenueN, render: (r) => formatMoney(r.revenueN) },
-    { key: "marginN", header: "Gross Profit", align: "right", sortable: true, getValue: (r) => r.marginN, render: (r) => formatMoney(r.marginN) },
-    { key: "marginPct", header: "Margin %", align: "right", sortable: true, getValue: (r) => r.marginPct, render: (r) => `${r.marginPct.toFixed(1)}%` },
+    {
+      key: "growthPct",
+      header: "Growth",
+      align: "right",
+      sortable: true,
+      getValue: (r) => r.growthPct ?? 0,
+      render: (r) => (r.growthPct == null ? "—" : <span className={r.growthPct >= 0 ? css.deltaUp : css.deltaDown}>{formatPctTrend(r.growthPct)}</span>),
+    },
     { key: "stockOnHand", header: "Stock on Hand", align: "right", sortable: true, getValue: (r) => r.stockOnHand, render: (r) => r.stockOnHand.toLocaleString("en-IN") },
     {
       key: "actions",
@@ -295,11 +345,11 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
     <div>
       <StatGrid columns={4} dense className={css.heroGrid}>
         <StatCard size="sm" showMenu={false}
-          title="Product Revenue"
-          value={loading ? "…" : formatMoney(totalRevenue)}
-          subtitle={`vs previous ${days} days`}
-          icon={<IconDollarSign size={16} />}
-          trend={!loading && previousTotals.revenue > 0 ? { value: formatPctTrend(pctChange(totalRevenue, previousTotals.revenue)), direction: totalRevenue >= previousTotals.revenue ? "up" : "down", tone: totalRevenue >= previousTotals.revenue ? "positive" : "danger" } : undefined}
+          title="Products Sold"
+          value={loading ? "…" : rows.length}
+          subtitle={`Distinct SKUs, last ${days} days`}
+          icon={<IconArchive size={16} />}
+          trend={!loading && previousActiveSkus > 0 ? { value: formatPctTrend(pctChange(rows.length, previousActiveSkus)), direction: rows.length >= previousActiveSkus ? "up" : "down", tone: rows.length >= previousActiveSkus ? "positive" : "danger" } : undefined}
         />
         <StatCard size="sm" showMenu={false}
           title="Units Sold"
@@ -310,20 +360,18 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
           trend={!loading && previousTotals.unitsSold > 0 ? { value: formatPctTrend(pctChange(totalUnits, previousTotals.unitsSold)), direction: totalUnits >= previousTotals.unitsSold ? "up" : "down", tone: totalUnits >= previousTotals.unitsSold ? "positive" : "danger" } : undefined}
         />
         <StatCard size="sm" showMenu={false}
-          title="Avg. Units per Transaction"
-          value={loading ? "…" : avgUnitsPerTxn.toFixed(2)}
-          subtitle="Basket depth"
-          icon={<IconArchive size={16} />}
+          title="Top Product Contribution"
+          value={loading ? "…" : `${topProductSharePct.toFixed(1)}%`}
+          subtitle={topByRevenue ? topByRevenue.name : "Share of product revenue"}
+          icon={<IconDollarSign size={16} />}
           iconTone="info"
-          trend={!loading && previousAvgUnitsPerTxn > 0 ? { value: formatPctTrend(pctChange(avgUnitsPerTxn, previousAvgUnitsPerTxn)), direction: avgUnitsPerTxn >= previousAvgUnitsPerTxn ? "up" : "down", tone: avgUnitsPerTxn >= previousAvgUnitsPerTxn ? "positive" : "danger" } : undefined}
         />
         <StatCard size="sm" showMenu={false}
-          title="Active SKUs"
-          value={loading ? "…" : rows.length}
-          subtitle={`Sold in the last ${days} days`}
+          title="Products Growing"
+          value={loading ? "…" : growingCount.toLocaleString("en-IN")}
+          subtitle={`${decliningCount.toLocaleString("en-IN")} declining`}
           icon={<IconArchive size={16} />}
           iconTone="warning"
-          trend={!loading && previousActiveSkus > 0 ? { value: formatPctTrend(pctChange(rows.length, previousActiveSkus)), direction: rows.length >= previousActiveSkus ? "up" : "down", tone: rows.length >= previousActiveSkus ? "positive" : "danger" } : undefined}
         />
       </StatGrid>
 
@@ -343,10 +391,16 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
           extraColumns={[
             { key: "unitsSold", header: "Units Sold", align: "right", render: (r) => r.unitsSold.toLocaleString("en-IN") },
             { key: "growth", header: "Growth", align: "right", render: (r) => (r.growthPct == null ? "—" : <span className={r.growthPct >= 0 ? css.deltaUp : css.deltaDown}>{formatPctTrend(r.growthPct)}</span>) },
-            { key: "marginPct", header: "Margin", align: "right", render: (r) => `${r.marginPct.toFixed(1)}%` },
           ]}
           loading={loading}
           emptyTitle="No products in this range"
+          footer={
+            !loading && rows.length > 0 ? (
+              <span className={css.mutedcell}>
+                Top 10 products = {concentration.top10Pct.toFixed(1)}% of revenue · Top 50 = {concentration.top50Pct.toFixed(1)}%
+              </span>
+            ) : undefined
+          }
         />
 
         <ActionsPanel
@@ -363,7 +417,13 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
             All Products
             {insightFocus ? (
               <button type="button" className={css.focusClearBtn} onClick={() => setInsightFocus(null)}>
-                {insightFocus === "fast" ? "Fastest-growing" : insightFocus === "slow" ? "Slow movers" : "Low stock risk"} ×
+                {insightFocus === "fast"
+                  ? "Fastest-growing"
+                  : insightFocus === "declining"
+                    ? "Declining demand"
+                    : insightFocus === "risk"
+                      ? "Low stock risk"
+                      : "High volume, low price"} ×
               </button>
             ) : null}
           </h3>
@@ -389,15 +449,6 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
               <IconArchive size={14} />
               Low stock only
             </button>
-            <button
-              type="button"
-              className={`${css.toggleChip} ${css.toggleChipRose} ${lowMarginOnly ? css.toggleChipActive : ""}`}
-              onClick={() => setLowMarginOnly((v) => !v)}
-              aria-pressed={lowMarginOnly}
-            >
-              <IconDollarSign size={14} />
-              Low margin only (&lt;{LOW_MARGIN_THRESHOLD_PCT}%)
-            </button>
           </div>
         </div>
 
@@ -410,7 +461,6 @@ export function ProductSalesSection({ scope, isOwner, days, onExportData }: Prop
               onClear={() => {
                 setCategoryFilter([]);
                 setLowStockOnly(false);
-                setLowMarginOnly(false);
               }}
               clearTooltip="Reset all product filters"
             />

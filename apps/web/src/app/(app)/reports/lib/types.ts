@@ -648,7 +648,21 @@ export type SalesByPaymentMethodResponse = { days: number; methods: PaymentMetho
 
 export type ReturnReasonRow = { reason: string; value: number; count: number };
 export type DiscountLeakageRow = { productId: string; sku: string; name: string; amount: number };
-export type ReturnedProductRow = { productId: string; sku: string; name: string; value: number; qty: number; soldQty: number; returnRatePct: number | null };
+/** One return reason's slice of a single product's total returns — `qty`/`value` here are already
+ *  included in the parent row's own `qty`/`value` (a sum across every reason), not additive on top. */
+export type ReturnedProductReasonRow = { reason: string; value: number; qty: number };
+
+export type ReturnedProductRow = {
+  productId: string;
+  sku: string;
+  name: string;
+  value: number;
+  qty: number;
+  soldQty: number;
+  returnRatePct: number | null;
+  /** Sorted descending by value — `reasons[0]` is this product's dominant return reason. */
+  reasons: ReturnedProductReasonRow[];
+};
 
 export type ReturnsDiscountsResponse = {
   days: number;
@@ -669,32 +683,9 @@ export type SalesByHourResponse = {
   counts: number[][];
 };
 
-export type BranchPerformanceRow = {
-  branchId: string;
-  code: string;
-  name: string;
-  city: string | null;
-  todaySales: number;
-  todayTxnCount: number;
-  monthSales: number;
-  monthTxnCount: number;
-  targetAmount: number | null;
-  achievementPct: number | null;
-  vsPrevMonthPct: number | null;
-  manager: { id: string; fullName: string; email: string } | null;
-  targetId: string | null;
-};
-
-export type BranchPerformanceResponse = {
-  yearMonth: string;
-  generatedAt: string;
-  branches: BranchPerformanceRow[];
-  totals: { todaySales: number; monthSales: number; targetAmount: number };
-};
-
-/** Revenue/COGS/gross profit per branch — the Profitability-owned counterpart to
- *  `BranchPerformanceRow` (which is sales/target-only, no cost/margin dimension). Always covers
- *  every active branch, unlike every other Profitability fetch (no `scope`/branch filter applies). */
+/** Revenue/COGS/gross profit per branch — the Profitability-owned counterpart to `BranchSalesRow`
+ *  (which is demand-only, no cost/margin dimension). Always covers every active branch, unlike
+ *  every other Profitability fetch (no `scope`/branch filter applies). */
 export type BranchMarginRow = {
   branchId: string;
   code: string;
@@ -710,3 +701,11 @@ export type BranchMarginResponse = { days: number; branches: BranchMarginRow[] }
 
 export type BranchMarginTrendPoint = { date: string; branchId: string; name: string; revenue: string; cost: string };
 export type BranchMarginTrendResponse = { days: number; points: BranchMarginTrendPoint[] };
+
+/** Revenue/transaction/units-sold per branch — the Sales-owned counterpart to `BranchMarginRow`
+ *  (demand only, no cost/margin dimension). Always covers every active branch, same convention. */
+export type BranchSalesRow = { branchId: string; code: string; name: string; city: string | null; revenue: string; transactions: number; unitsSold: number };
+export type BranchSalesResponse = { days: number; branches: BranchSalesRow[] };
+
+export type BranchSalesTrendPoint = { date: string; branchId: string; name: string; revenue: string };
+export type BranchSalesTrendResponse = { days: number; points: BranchSalesTrendPoint[] };

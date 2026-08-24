@@ -15,8 +15,10 @@ type Props = {
 
 const GRANULARITY_LABEL: Record<ChartGranularity, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
 
-/** Payment Trend answers "how is usage of each method changing over time" — deliberately just the
- * time series; revenue distribution lives in PaymentMixCard, operational health in the comparison table. */
+/** Payment Trend answers "how is usage of each method changing over time" — the page's one primary
+ * mix visualization (a revenue-distribution donut was removed as redundant with this trend chart
+ * plus the KPI row's own Cash/Card/Digital Share tiles); operational health lives in the
+ * comparison table below. */
 export function PaymentTrendCard({ labels, series, granularity, onGranularityChange }: Props) {
   return (
     <div className={css.card}>

@@ -3,7 +3,9 @@ import type {
   BranchMarginResponse,
   BranchMarginRow,
   BranchMarginTrendResponse,
-  BranchPerformanceResponse,
+  BranchSalesResponse,
+  BranchSalesRow,
+  BranchSalesTrendResponse,
   BranchTrendResponse,
   BranchTrendPoint,
   CategoryChildRow,
@@ -326,6 +328,45 @@ export function fetchMarginTrendByCategory(days: number, scope: Scope, isOwner: 
   return apiJson<MarginTrendByCategoryResponse>(`/reports/margin-trend-by-category?days=${days}${scopeQs(scope, isOwner)}`);
 }
 
+/** Matches `analytics.service.ts`'s own branch-sales-trend label convention (weekday for a short
+ *  window, "Mon D" once it's too long for weekday labels to stay legible) so a Net Sales trend
+ *  built from `marginTrendByCategory` looks identical to the chart it's replacing. */
+function dayLabel(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  return days <= 7 ? d.toLocaleDateString(undefined, { weekday: "short" }) : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Sales Summary's trend line, but built on the same tax-inclusive, returns-netted revenue basis
+ *  `marginByProduct`/Profitability's Net Revenue already use — summing `marginTrendByCategory`'s
+ *  per-category points into one daily total — instead of `/analytics/branch-sales-trend`, which
+ *  isn't returns-netted and would make this chart quietly disagree with the page's own Net Sales
+ *  KPI (and with Profitability) whenever the tenant has return activity. One `days*2` call, split
+ *  into current/previous halves locally, same technique as every other comparison fetcher here.
+ *  `marginTrendByCategory` only emits a point for a (date, categoryId) that actually had activity,
+ *  so the full day range is filled in explicitly — a day with zero sales anywhere still gets a
+ *  zero-value point instead of silently vanishing from the chart. */
+export async function fetchNetSalesTrendComparison(days: number, scope: Scope, isOwner: boolean) {
+  const resp = await fetchMarginTrendByCategory(days * 2, scope, isOwner);
+  const revenueByDate = new Map<string, number>();
+  for (const p of resp.points) revenueByDate.set(p.date, (revenueByDate.get(p.date) ?? 0) + Number(p.revenue));
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const points: BranchTrendPoint[] = [];
+  for (let i = days * 2 - 1; i >= 0; i--) {
+    const d = new Date(todayStart);
+    d.setDate(d.getDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    points.push({ label: dayLabel(iso, days), date: iso, value: revenueByDate.get(iso) ?? 0 });
+  }
+
+  const previousPoints = points.slice(0, days);
+  const currentPoints = points.slice(days);
+  const total = currentPoints.reduce((s, p) => s + p.value, 0);
+  const previousTotal = previousPoints.reduce((s, p) => s + p.value, 0);
+  return { currentPoints, previousPoints, total, previousTotal };
+}
+
 function sumCategoryTotals(rows: CategoryRow[]): MarginTotals {
   return rows.reduce(
     (acc, r) => ({
@@ -450,10 +491,6 @@ export function fetchSalesByHour(days: number, scope: Scope, isOwner: boolean) {
   return apiJson<SalesByHourResponse>(`/reports/sales-by-hour?days=${days}${scopeQs(scope, isOwner)}`);
 }
 
-export function fetchBranchPerformance(yearMonth?: string) {
-  return apiJson<BranchPerformanceResponse>(`/analytics/branch-performance${yearMonth ? `?yearMonth=${yearMonth}` : ""}`);
-}
-
 /** Every active branch's revenue/COGS/gross profit for the window — no `scope`/branch param,
  *  this always covers the whole tenant (see `BranchMarginRow`'s doc comment). */
 export function fetchBranchMargin(days: number) {
@@ -492,6 +529,47 @@ export async function fetchBranchMarginComparison(days: number) {
     revenue: combinedTotals.revenue - currentTotals.revenue,
     cost: combinedTotals.cost - currentTotals.cost,
     margin: combinedTotals.margin - currentTotals.margin,
+    unitsSold: combinedTotals.unitsSold - currentTotals.unitsSold,
+  };
+  return { current: current.branches, previousByBranch, currentTotals, previousTotals };
+}
+
+/** Every active branch's revenue/transactions/units sold for the window — the Sales-owned
+ *  counterpart to `fetchBranchMargin` (demand only, no cost/margin dimension). No `scope`/branch
+ *  param, always covers the whole tenant (see `BranchSalesRow`'s doc comment), and — unlike the
+ *  page this replaces — its period selector actually changes every KPI/table/matrix on the page. */
+export function fetchBranchSalesReport(days: number) {
+  return apiJson<BranchSalesResponse>(`/reports/branch-sales?days=${days}`);
+}
+
+export function fetchBranchSalesReportTrend(days: number) {
+  return apiJson<BranchSalesTrendResponse>(`/reports/branch-sales-trend?days=${days}`);
+}
+
+function sumBranchSalesTotals(rows: BranchSalesRow[]): { revenue: number; transactions: number; unitsSold: number } {
+  return rows.reduce(
+    (acc, r) => ({
+      revenue: acc.revenue + Number(r.revenue),
+      transactions: acc.transactions + r.transactions,
+      unitsSold: acc.unitsSold + r.unitsSold,
+    }),
+    { revenue: 0, transactions: 0, unitsSold: 0 },
+  );
+}
+
+/** Same double-fetch-and-diff technique as `fetchBranchMarginComparison`. */
+export async function fetchBranchSalesReportComparison(days: number) {
+  const [current, combined] = await Promise.all([fetchBranchSalesReport(days), fetchBranchSalesReport(days * 2)]);
+  const previousByBranch = subtractByKey(current.branches, combined.branches, (r) => r.branchId, [
+    "revenue",
+    "transactions",
+    "unitsSold",
+  ]);
+  const currentTotals = sumBranchSalesTotals(current.branches);
+  const combinedTotals = sumBranchSalesTotals(combined.branches);
+  const previousTotals = {
+    revenue: combinedTotals.revenue - currentTotals.revenue,
+    transactions: combinedTotals.transactions - currentTotals.transactions,
     unitsSold: combinedTotals.unitsSold - currentTotals.unitsSold,
   };
   return { current: current.branches, previousByBranch, currentTotals, previousTotals };

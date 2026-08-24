@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   IconChevronDown,
-  IconChevronRight,
   IconChevronUp,
   IconCheckCircle,
   IconCloudSun,
   IconDollarSign,
   IconMoon,
+  IconSearch,
   IconShield,
   IconShoppingBag,
   IconSun,
@@ -18,20 +18,26 @@ import {
 } from "@/components/icons";
 import { StatGrid, StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { DataTable, type Column } from "@/components/ui/data-table";
+import { ActiveFilterBanner, type FilterPill } from "@/components/ui";
+import { InlineBarCell } from "../components/inline-bar-cell";
 import { fetchCashierAggregateComparison } from "../lib/fetchers";
 import { formatMoney, formatPctTrend, pctChange } from "../lib/format";
-import { RankingTableCard } from "../components/ranking-table-card";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
+import { CashierThroughputMatrix, type CashierMatrixPoint } from "../components/cashier-throughput-matrix";
 import { ShiftPerformanceCard, type ShiftDatum, type ShiftIconTone, type ShiftMetric } from "../components/shift-performance-card";
+import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { CashierRow, ExportPayload, OnExportData, Scope, ShiftRow } from "../lib/types";
 import css from "../reports.module.css";
 
-type Props = { scope: Scope; isOwner: boolean; days: number; onExportData: OnExportData };
+type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
 type EnrichedCashier = CashierRow & { revenueN: number; avgBasketN: number; discountRateN: number };
 
-const LEADERBOARD_PREVIEW_SIZE = 5;
-const LEADERBOARD_PAGE_SIZE = 10;
+/** Same palette Branch Sales' own matrix/trend chart use — a cashier reads as one consistent
+ *  color across the Cashier Comparison matrix and (were it ever reused elsewhere) any other chart
+ *  on this page, the same "one entity, one color" convention the rest of this redesign follows. */
+const CASHIER_PALETTE = ["#0d9488", "#0891b2", "#7c3aed", "#ea580c", "#16a34a", "#c2410c", "#64748b"];
 
 const SHIFT_ICONS: Record<string, ReactNode> = {
   morning: <IconSun size={18} />,
@@ -51,13 +57,22 @@ function discountTone(pct: number): "success" | "primary" | "warning" {
   return "success";
 }
 
+/** Lower is better here, unlike most StatCard tones — a rising exception rate is worse, not
+ *  better, so this feeds a static severity color rather than a directional up/down trend. */
+function exceptionRateTone(pct: number): "success" | "warning" | "danger" {
+  if (pct >= 5) return "danger";
+  if (pct >= 2) return "warning";
+  return "success";
+}
+
 export function CashierPerformanceSection({ scope, isOwner, days, onExportData }: Props) {
   const [cashiers, setCashiers] = useState<EnrichedCashier[]>([]);
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [previousRevenue, setPreviousRevenue] = useState(0);
   const [previousTransactions, setPreviousTransactions] = useState(0);
   const [previousActiveCashierCount, setPreviousActiveCashierCount] = useState(0);
-  const [leaderboardExpanded, setLeaderboardExpanded] = useState(false);
+  const [selectedCashierId, setSelectedCashierId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [shiftMetric, setShiftMetric] = useState<ShiftMetric>("revenue");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +81,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setSelectedCashierId(null);
     fetchCashierAggregateComparison(days, scope, isOwner)
       .then((res) => {
         if (cancelled) return;
@@ -87,15 +103,16 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
   }, [days, scope, isOwner]);
 
   const sortedCashiers = useMemo(() => [...cashiers].sort((a, b) => b.revenueN - a.revenueN), [cashiers]);
+  const colorMap = useMemo(() => new Map(sortedCashiers.map((c, i) => [c.userId, CASHIER_PALETTE[i % CASHIER_PALETTE.length]!])), [sortedCashiers]);
 
   const totalRevenue = cashiers.reduce((s, c) => s + c.revenueN, 0);
   const totalTxns = cashiers.reduce((s, c) => s + c.transactions, 0);
-  const revenuePerCashier = cashiers.length > 0 ? totalRevenue / cashiers.length : 0;
   const txnsPerCashier = cashiers.length > 0 ? totalTxns / cashiers.length : 0;
   const avgBasketOverall = totalTxns > 0 ? totalRevenue / totalTxns : 0;
 
   const avgDiscountRate = cashiers.length > 0 ? cashiers.reduce((s, c) => s + c.discountRateN, 0) / cashiers.length : 0;
   const avgCorrectionRate = cashiers.length > 0 ? cashiers.reduce((s, c) => s + (c.transactions > 0 ? c.corrections / c.transactions : 0), 0) / cashiers.length : 0;
+  const exceptionRatePct = avgCorrectionRate * 100;
 
   const topPerformer = sortedCashiers[0] ?? null;
   const needsSupport = [...cashiers].filter((c) => c.transactions > 0).sort((a, b) => a.revenueN - b.revenueN)[0] ?? null;
@@ -103,11 +120,17 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
   const unusualDiscount = cashiers.filter((c) => c.discountRateN > avgDiscountRate * 1.5 && c.discountRateN > 5);
   const highVoidRate = cashiers.filter((c) => c.transactions > 0 && c.corrections / c.transactions > Math.max(0.05, avgCorrectionRate * 1.5));
 
-  function scrollToLeaderboard() {
-    document.getElementById("cashier-leaderboard")?.scrollIntoView({ behavior: "smooth" });
+  function scrollToComparison() {
+    document.getElementById("cashier-comparison")?.scrollIntoView({ behavior: "smooth" });
+  }
+  function scrollToDetail() {
+    document.getElementById("cashier-detail")?.scrollIntoView({ behavior: "smooth" });
   }
   function scrollToShiftPerformance() {
     document.getElementById("shift-performance")?.scrollIntoView({ behavior: "smooth" });
+  }
+  function toggleCashierFilter(userId: string) {
+    setSelectedCashierId((cur) => (cur === userId ? null : userId));
   }
 
   const coachingItems: ActionPanelItem[] = [
@@ -120,7 +143,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
           description: `${topPerformer.name} — ${formatMoney(topPerformer.revenueN)} revenue`,
           count: topPerformer.transactions,
           countLabel: "sales",
-          onClick: scrollToLeaderboard,
+          onClick: scrollToDetail,
           examples: [{ label: topPerformer.name, badge: formatMoney(topPerformer.revenueN), tone: "positive" as const }],
         }]
       : []),
@@ -133,7 +156,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
           description: `${highestBasketCashier.name} — ${formatMoney(highestBasketCashier.avgBasketN)} average basket`,
           count: highestBasketCashier.transactions,
           countLabel: "sales",
-          onClick: scrollToLeaderboard,
+          onClick: scrollToDetail,
           examples: [{ label: highestBasketCashier.name, badge: formatMoney(highestBasketCashier.avgBasketN), tone: "positive" as const }],
         }]
       : []),
@@ -146,7 +169,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
           description: `${needsSupport.name} — lowest revenue this period`,
           count: needsSupport.transactions,
           countLabel: "sales",
-          onClick: scrollToLeaderboard,
+          onClick: scrollToDetail,
           examples: [{ label: needsSupport.name, badge: formatMoney(needsSupport.revenueN), tone: "neutral" as const }],
         }]
       : []),
@@ -159,7 +182,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
           description: "Discount rate well above the team average.",
           count: unusualDiscount.length,
           countLabel: unusualDiscount.length === 1 ? "cashier" : "cashiers",
-          onClick: scrollToLeaderboard,
+          onClick: scrollToDetail,
           examples: unusualDiscount.slice(0, 3).map((c) => ({ label: c.name, badge: `${c.discountRateN.toFixed(1)}%`, tone: "neutral" as const })),
         }]
       : []),
@@ -172,7 +195,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
           description: "High voids/corrections relative to the team average.",
           count: highVoidRate.length,
           countLabel: highVoidRate.length === 1 ? "cashier" : "cashiers",
-          onClick: scrollToLeaderboard,
+          onClick: scrollToDetail,
           examples: highVoidRate.slice(0, 3).map((c) => ({ label: c.name, badge: `${((c.corrections / c.transactions) * 100).toFixed(1)}%`, tone: "negative" as const })),
         }]
       : []),
@@ -278,9 +301,49 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
       : []),
   ];
 
+  const matrixPoints: CashierMatrixPoint[] = useMemo(
+    () => sortedCashiers.map((c) => ({ id: c.userId, label: c.name, transactions: c.transactions, avgBasket: c.avgBasketN, revenue: c.revenueN })),
+    [sortedCashiers],
+  );
+
+  const filteredCashiers = useMemo(() => {
+    let out = selectedCashierId ? sortedCashiers.filter((c) => c.userId === selectedCashierId) : sortedCashiers;
+    if (search) out = out.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
+    return out;
+  }, [sortedCashiers, selectedCashierId, search]);
+
+  const maxRevenue = Math.max(...cashiers.map((c) => c.revenueN), 1);
+
+  const detailColumns: Column<EnrichedCashier>[] = useMemo(
+    () => [
+      { key: "name", header: "Cashier" },
+      {
+        key: "revenueN",
+        header: "Revenue",
+        align: "right",
+        sortable: true,
+        getValue: (r) => r.revenueN,
+        render: (r) => <InlineBarCell valueLabel={formatMoney(r.revenueN)} pct={(r.revenueN / maxRevenue) * 100} />,
+      },
+      { key: "transactions", header: "Transactions", align: "right", sortable: true, getValue: (r) => r.transactions, render: (r) => r.transactions.toLocaleString("en-IN") },
+      { key: "avgBasketN", header: "Avg Basket", align: "right", sortable: true, getValue: (r) => r.avgBasketN, render: (r) => formatMoney(r.avgBasketN) },
+      {
+        key: "discountRateN",
+        header: "Discount Rate",
+        align: "right",
+        sortable: true,
+        getValue: (r) => r.discountRateN,
+        render: (r) => <StatusBadge status={discountTone(r.discountRateN)} variant={discountTone(r.discountRateN)} label={`${r.discountRateN.toFixed(1)}%`} />,
+      },
+      { key: "corrections", header: "Voids/Corrections", align: "right", sortable: true, getValue: (r) => r.corrections, render: (r) => r.corrections },
+    ],
+    [maxRevenue],
+  );
+
   if (error) return <div className={css.errorState}>{error}</div>;
 
-  const visibleCashiers = leaderboardExpanded ? sortedCashiers : sortedCashiers.slice(0, LEADERBOARD_PREVIEW_SIZE);
+  const selectedCashierName = selectedCashierId ? cashiers.find((c) => c.userId === selectedCashierId)?.name : undefined;
+  const filterPills: FilterPill[] = selectedCashierName ? [{ key: "cashier", label: selectedCashierName }] : [];
 
   return (
     <div>
@@ -292,14 +355,6 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
           subtitle={`Last ${days} days`}
           icon={<IconUsers size={16} />}
           trend={!loading && previousActiveCashierCount > 0 ? { value: formatPctTrend(pctChange(cashiers.length, previousActiveCashierCount)), direction: cashiers.length >= previousActiveCashierCount ? "up" : "down", tone: cashiers.length >= previousActiveCashierCount ? "positive" : "danger" } : undefined}
-        />
-        <StatCard size="sm" showMenu={false}
-          title="Revenue per Cashier"
-          value={loading ? "…" : formatMoney(revenuePerCashier)}
-          subtitle={`vs previous ${days} days`}
-          icon={<IconDollarSign size={16} />}
-          iconTone="success"
-          trend={!loading && previousRevenue > 0 && previousActiveCashierCount > 0 ? { value: formatPctTrend(pctChange(revenuePerCashier, previousRevenue / previousActiveCashierCount)), direction: revenuePerCashier >= previousRevenue / previousActiveCashierCount ? "up" : "down", tone: revenuePerCashier >= previousRevenue / previousActiveCashierCount ? "positive" : "danger" } : undefined}
         />
         <StatCard
           size="sm" showMenu={false}
@@ -319,39 +374,26 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
           iconTone="warning"
           trend={!loading && previousRevenue > 0 && previousTransactions > 0 ? { value: formatPctTrend(pctChange(avgBasketOverall, previousRevenue / previousTransactions)), direction: avgBasketOverall >= previousRevenue / previousTransactions ? "up" : "down", tone: avgBasketOverall >= previousRevenue / previousTransactions ? "positive" : "danger" } : undefined}
         />
+        <StatCard
+          size="sm" showMenu={false}
+          title="Exception Rate"
+          value={loading ? "…" : `${exceptionRatePct.toFixed(1)}%`}
+          subtitle="Voids/corrections ÷ transactions, per cashier"
+          icon={<IconShield size={16} />}
+          iconTone={loading ? "info" : exceptionRateTone(exceptionRatePct)}
+        />
       </StatGrid>
 
-      <div className={`${css.grid2} ${css.firstRow}`}>
-        <RankingTableCard
-          id="cashier-leaderboard"
-          title="Cashier Leaderboard"
-          rows={visibleCashiers}
-          rowKey={(r) => r.userId}
-          primaryHeader="Cashier"
-          primaryLabel={(r) => r.name}
-          barHeader="Revenue"
-          barValue={(r) => r.revenueN}
-          barLabel={(r) => formatMoney(r.revenueN)}
-          extraColumns={[
-            { key: "transactions", header: "Transactions", align: "right", render: (r) => r.transactions.toLocaleString("en-IN") },
-            { key: "avgBasket", header: "Avg Basket", align: "right", render: (r) => formatMoney(r.avgBasketN) },
-            { key: "discountRate", header: "Discount Rate", align: "right", render: (r) => <StatusBadge status={discountTone(r.discountRateN)} variant={discountTone(r.discountRateN)} label={`${r.discountRateN.toFixed(1)}%`} /> },
-            { key: "corrections", header: "Voids/Corrections", align: "right", render: (r) => r.corrections },
-          ]}
-          loading={loading}
-          emptyTitle="No sales in this range"
-          pageSize={leaderboardExpanded ? LEADERBOARD_PAGE_SIZE : undefined}
-          footer={
-            sortedCashiers.length > LEADERBOARD_PREVIEW_SIZE ? (
-              <div className={css.cardFooterLink}>
-                <button type="button" className={css.cardLink} onClick={() => setLeaderboardExpanded((v) => !v)}>
-                  {leaderboardExpanded ? "Show top 5 only" : "View full leaderboard"}
-                  <IconChevronRight size={13} />
-                </button>
-              </div>
-            ) : undefined
-          }
-        />
+      <div className={`${css.grid2} ${css.firstRow} ${css.snugFirstRow} ${css.gridAlignStart}`}>
+        <div className={css.card} id="cashier-comparison">
+          <div className={css.cardhead}>
+            <div>
+              <h3>Cashier Comparison</h3>
+              <p>Transactions × avg. basket — bubble size = revenue</p>
+            </div>
+          </div>
+          <CashierThroughputMatrix points={matrixPoints} formatValue={formatMoney} colorFor={(id) => colorMap.get(id) ?? "#64748b"} onBubbleClick={toggleCashierFilter} activeId={selectedCashierId} />
+        </div>
 
         <ActionsPanel title="Coaching & Monitoring" items={coachingItems} variant="cards" onViewAll={scrollToShiftPerformance} />
       </div>
@@ -360,6 +402,30 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
         <ShiftPerformanceCard id="shift-performance" shifts={shiftData} metric={shiftMetric} onMetricChange={setShiftMetric} />
 
         <ActionsPanel title="Shift Insights" items={shiftInsightItems} variant="cards" />
+      </div>
+
+      <div className={css.card} id="cashier-detail">
+        <div className={css.toolbarrow}>
+          <h3 style={{ margin: 0 }}>Cashier Detail</h3>
+          <div className={css.toolbarActions}>
+            <div className={css.searchbox}>
+              <IconSearch size={14} />
+              <input placeholder="Search cashier" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+          </div>
+        </div>
+        {selectedCashierName ? (
+          <div className={css.activeFilterSlot}>
+            <ActiveFilterBanner
+              active
+              summary={`Filtered by cashier · ${filteredCashiers.length} row${filteredCashiers.length === 1 ? "" : "s"}`}
+              pills={filterPills}
+              onClear={() => setSelectedCashierId(null)}
+              clearTooltip="Show every cashier"
+            />
+          </div>
+        ) : null}
+        <DataTable columns={detailColumns} data={filteredCashiers} rowKey={(r) => r.userId} loading={loading} pageSize={10} emptyTitle="No sales in this range" compact />
       </div>
     </div>
   );

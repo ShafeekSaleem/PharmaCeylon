@@ -7,16 +7,16 @@ import { paymentMixColor } from "@/app/(app)/dashboard/lib/payment-mix-colors";
 import { fetchPaymentMethodComparison } from "../lib/fetchers";
 import { formatDateShort, formatMoney, formatPctTrend, formatPpTrend, pctChange, ppChange } from "../lib/format";
 import { bucketTrend, type ChartGranularity } from "../lib/chart-bucketing";
-import { PaymentMixCard } from "../components/payment-mix-card";
 import { PaymentTrendCard } from "../components/payment-trend-card";
 import { PaymentMethodComparisonTable, type ComparisonRow, type ComparisonStatus } from "../components/payment-comparison-table";
 import { paymentMethodLabel } from "../components/payment-method-icon";
 import type { MultiLineSeries } from "../components/multi-line-chart";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
+import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { ExportPayload, OnExportData, PaymentMethodRow, Scope } from "../lib/types";
 import css from "../reports.module.css";
 
-type Props = { scope: Scope; isOwner: boolean; days: number; onExportData: OnExportData };
+type Props = { scope: Scope; isOwner: boolean; days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
 type Row = PaymentMethodRow & { revenueN: number; avgTicketN: number; refundedN: number };
 
@@ -81,7 +81,8 @@ export function PaymentMethodsSection({ scope, isOwner, days, onExportData }: Pr
   const prevDigital = prevWallet != null && prevBankTransfer != null ? prevWallet + prevBankTransfer : null;
   const previousAvgTicket = previousTransactions > 0 ? previousRevenue / previousTransactions : null;
 
-  const donutSlices = sortedRows.map((r) => ({ label: paymentMethodLabel(r.method), value: r.revenueN, color: paymentMixColor(r.method) }));
+  const leader = sortedRows[0] ?? null;
+  const leaderPct = leader && totalRevenue > 0 ? (leader.revenueN / totalRevenue) * 100 : 0;
 
   const bucketedTrend = useMemo(() => {
     const points = trend.map((t) => ({ label: formatDateShort(t.date), date: t.date, value: 0 }));
@@ -175,6 +176,19 @@ export function PaymentMethodsSection({ scope, isOwner, days, onExportData }: Pr
     if (comparisonRows.length === 0) return [];
     const items: ActionPanelItem[] = [];
 
+    if (leader) {
+      items.push({
+        key: "leader",
+        icon: <IconTrophy size={16} />,
+        tone: "primary",
+        title: "Leading Payment Method",
+        description: `${paymentMethodLabel(leader.method)} leads — ${leaderPct.toFixed(0)}% of this period's tenders.`,
+        count: 1,
+        countLabel: "method",
+        examples: [{ label: paymentMethodLabel(leader.method), badge: `${leaderPct.toFixed(0)}%`, tone: "positive" }],
+      });
+    }
+
     const highestTicket = [...comparisonRows].sort((a, b) => b.avgTicket - a.avgTicket)[0]!;
     items.push({
       key: "ticket",
@@ -233,15 +247,19 @@ export function PaymentMethodsSection({ scope, isOwner, days, onExportData }: Pr
     }
 
     return items;
-  }, [comparisonRows]);
+  }, [comparisonRows, leader, leaderPct]);
 
   if (error) return <div className={css.errorState}>{error}</div>;
 
   return (
     <div>
       <StatGrid columns={4} dense className={css.heroGrid}>
-        <StatCard size="sm" showMenu={false} title="Cash Share" value={loading ? "…" : `${cashSharePct.toFixed(1)}%`} subtitle={`vs previous ${days} days`} icon={<IconBanknote size={16} />} trend={!loading && prevCash != null ? { value: formatPpTrend(ppChange(cashSharePct, prevCash)), direction: cashSharePct >= prevCash ? "up" : "down", tone: cashSharePct >= prevCash ? "positive" : "danger" } : undefined} />
-        <StatCard size="sm" showMenu={false} title="Card Share" value={loading ? "…" : `${cardSharePct.toFixed(1)}%`} subtitle={`vs previous ${days} days`} icon={<IconCreditCard size={16} />} iconTone="info" trend={!loading && prevCard != null ? { value: formatPpTrend(ppChange(cardSharePct, prevCard)), direction: cardSharePct >= prevCard ? "up" : "down", tone: cardSharePct >= prevCard ? "positive" : "danger" } : undefined} />
+        {/* Share-of-revenue KPIs are compositional (they sum to 100% across methods) — one method's
+         *  share rising necessarily means another's falls, so there's no inherent "good"/"bad"
+         *  direction to color here the way there is for revenue or an error rate. Neutral tone,
+         *  real direction arrow. */}
+        <StatCard size="sm" showMenu={false} title="Cash Share" value={loading ? "…" : `${cashSharePct.toFixed(1)}%`} subtitle={`vs previous ${days} days`} icon={<IconBanknote size={16} />} trend={!loading && prevCash != null ? { value: formatPpTrend(ppChange(cashSharePct, prevCash)), direction: cashSharePct >= prevCash ? "up" : "down", tone: "neutral" } : undefined} />
+        <StatCard size="sm" showMenu={false} title="Card Share" value={loading ? "…" : `${cardSharePct.toFixed(1)}%`} subtitle={`vs previous ${days} days`} icon={<IconCreditCard size={16} />} iconTone="info" trend={!loading && prevCard != null ? { value: formatPpTrend(ppChange(cardSharePct, prevCard)), direction: cardSharePct >= prevCard ? "up" : "down", tone: "neutral" } : undefined} />
         <StatCard
           size="sm" showMenu={false}
           title="Digital Wallet Share"
@@ -249,7 +267,7 @@ export function PaymentMethodsSection({ scope, isOwner, days, onExportData }: Pr
           subtitle="Mobile wallet + bank transfer"
           icon={<IconSmartphone size={16} />}
           iconTone="success"
-          trend={!loading && prevDigital != null ? { value: formatPpTrend(ppChange(digitalSharePct, prevDigital)), direction: digitalSharePct >= prevDigital ? "up" : "down", tone: digitalSharePct >= prevDigital ? "positive" : "danger" } : undefined}
+          trend={!loading && prevDigital != null ? { value: formatPpTrend(ppChange(digitalSharePct, prevDigital)), direction: digitalSharePct >= prevDigital ? "up" : "down", tone: "neutral" } : undefined}
         />
         <StatCard
           size="sm" showMenu={false}
@@ -262,25 +280,11 @@ export function PaymentMethodsSection({ scope, isOwner, days, onExportData }: Pr
         />
       </StatGrid>
 
-      <div className={`${css.dailySalesRow} ${css.firstRow}`}>
+      <div className={css.firstRow}>
         <PaymentTrendCard labels={trendLabels} series={multiSeries} granularity={granularity} onGranularityChange={setGranularity} />
-
-        <div className={css.card}>
-          <div className={css.cardhead}>
-            <div>
-              <h3>
-                Payment Mix{" "}
-                <span className={css.oppInfoIcon} data-tooltip="Where revenue comes from — distribution across payment methods only.">
-                  <IconInfo size={13} />
-                </span>
-              </h3>
-            </div>
-          </div>
-          <PaymentMixCard rows={donutSlices} totalRevenue={totalRevenue} periodLabel={`Last ${days} days`} />
-        </div>
       </div>
 
-      <div className={css.dailySalesRow}>
+      <div className={`${css.dailySalesRow} ${css.alignStart}`}>
         <div className={css.card} id="payment-comparison-table">
           <div className={css.cardhead}>
             <div>

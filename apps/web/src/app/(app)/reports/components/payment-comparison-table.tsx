@@ -25,8 +25,8 @@ type Props = {
 };
 
 /** Payment Method Comparison answers "which channel performs well or has issues" — operational
- * health (transactions, net revenue, refunds, growth, status), deliberately not repeating the
- * Payment Mix card's Share % column. */
+ * health (transactions, net revenue, refunds, growth, status), deliberately not a revenue-share
+ * column (the KPI row's Cash/Card/Digital Share tiles already own that number). */
 export function PaymentMethodComparisonTable({ rows, loading }: Props) {
   const columns: Column<ComparisonRow>[] = [
     { key: "method", header: "Method", render: (r) => <PaymentMethodIcon method={r.method} /> },
