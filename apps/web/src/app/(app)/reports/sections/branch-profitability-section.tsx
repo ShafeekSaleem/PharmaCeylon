@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { IconAlertTriangle, IconDollarSign, IconHome, IconPill, IconTrophy } from "@/components/icons";
+import { IconAlertTriangle, IconDollarSign, IconEye, IconHome, IconPill, IconTrophy } from "@/components/icons";
 import { StatGrid, StatCard } from "@/components/ui/stat-card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusBadge, type BadgeVariant } from "@/components/ui/status-badge";
@@ -11,12 +11,13 @@ import { useProfitabilityTarget } from "../lib/use-profitability-target";
 import { formatDateShort, formatMoney, formatPctTrend, formatPpTrend, pctChange } from "../lib/format";
 import { BranchProfitabilityMatrix, type BranchMatrixPoint, type BranchMatrixQuadrant } from "../components/branch-profitability-matrix";
 import { RankingTableCard } from "../components/ranking-table-card";
-import { CategoryMarginHeatmap, type HeatmapRow } from "../components/category-margin-heatmap";
+import { EntityWeekHeatmap, type WeekHeatmapRow } from "../components/entity-week-heatmap";
 import { ActionsPanel, type ActionPanelItem } from "../components/actions-panel";
+import type { CategoryKey, ReportKey } from "../lib/nav-config";
 import type { BranchMarginTrendPoint, ExportPayload, OnExportData } from "../lib/types";
 import css from "../reports.module.css";
 
-type Props = { days: number; onExportData: OnExportData };
+type Props = { days: number; onNavigate: (c: CategoryKey, r?: ReportKey) => void; onExportData: OnExportData };
 
 /** Same fallback every other Profitability page uses when no tenant target is configured. */
 const DEFAULT_MARGIN_TARGET_PCT = 20;
@@ -100,7 +101,7 @@ function weeklyMarginSeries(points: BranchMarginTrendPoint[], days: number): Arr
  *  counterpart to Sales → Branch Sales (revenue/attainment only, no cost/margin dimension).
  *  Multi-branch tenants only; `reports-workspace.tsx` hides this tab entirely for a single-branch
  *  tenant rather than rendering an empty comparison here. */
-export function BranchProfitabilitySection({ days, onExportData }: Props) {
+export function BranchProfitabilitySection({ days, onNavigate, onExportData }: Props) {
   const [rows, setRows] = useState<BranchEnriched[]>([]);
   const [trendPoints, setTrendPoints] = useState<BranchMarginTrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,14 +204,18 @@ export function BranchProfitabilitySection({ days, onExportData }: Props) {
     [rows],
   );
 
-  const heatmapRows: HeatmapRow[] = useMemo(() => {
+  const heatmapRows: WeekHeatmapRow[] = useMemo(() => {
     const byBranch = new Map<string, BranchMarginTrendPoint[]>();
     for (const p of trendPoints) {
       const list = byBranch.get(p.branchId) ?? [];
       list.push(p);
       byBranch.set(p.branchId, list);
     }
-    return rows.map((r) => ({ id: r.branchId, label: r.name, weeks: weeklyMarginSeries(byBranch.get(r.branchId) ?? [], days) }));
+    return rows.map((r) => ({
+      id: r.branchId,
+      label: r.name,
+      weeks: weeklyMarginSeries(byBranch.get(r.branchId) ?? [], days).map((w) => ({ date: w.date, label: w.label, value: w.marginPct })),
+    }));
   }, [rows, trendPoints, days]);
 
   const insightItems: ActionPanelItem[] = useMemo(() => {
@@ -272,8 +277,22 @@ export function BranchProfitabilitySection({ days, onExportData }: Props) {
         examples: [{ label: growthOpp.name, badge: `${growthOpp.marginPct.toFixed(1)}%`, tone: "positive" }],
       });
     }
-    return out.slice(0, 4);
-  }, [rows, networkRevenue, networkMarginPct]);
+    if (rows.length > 0) {
+      const topByMargin = [...rows].sort((a, b) => b.marginN - a.marginN)[0]!;
+      out.push({
+        key: "view-demand",
+        icon: <IconEye size={16} />,
+        tone: "muted",
+        title: "View Demand in Branch Sales",
+        description: "This page is margin only — see revenue, transactions and basket value per branch.",
+        count: 1,
+        countLabel: "report",
+        onClick: () => onNavigate("sales", "branch-sales"),
+        examples: [{ label: topByMargin.name, badge: "Top by gross profit", tone: "neutral" }],
+      });
+    }
+    return out.slice(0, 5);
+  }, [rows, networkRevenue, networkMarginPct, onNavigate]);
 
   const filteredRows = selectedBranchId ? rows.filter((r) => r.branchId === selectedBranchId) : rows;
   const selectedBranchName = selectedBranchId ? rows.find((r) => r.branchId === selectedBranchId)?.name : undefined;
@@ -387,7 +406,7 @@ export function BranchProfitabilitySection({ days, onExportData }: Props) {
           {loading || trendLoading ? (
             <p className={css.emptyNote}>Loading trend…</p>
           ) : (
-            <CategoryMarginHeatmap rows={heatmapRows} onRowClick={toggleBranchFilter} activeId={selectedBranchId} rowHeader="Branch" />
+            <EntityWeekHeatmap rows={heatmapRows} onRowClick={toggleBranchFilter} activeId={selectedBranchId} rowHeader="Branch" />
           )}
         </div>
 

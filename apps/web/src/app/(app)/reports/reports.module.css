@@ -1006,33 +1006,6 @@
 
 /* ── Donut chart ── */
 
-/* ── Payment Mix: leader pill + caption below the (shared) SimpleDonutChart ── */
-
-.mixLeaderMeta {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  margin: 0.7rem 0 0;
-}
-
-.mixLeaderPill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--pc-primary-hover) 14%, var(--pc-primary-soft));
-  color: var(--pc-primary-hover);
-  font-size: 0.68rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.mixLeaderCaption {
-  font-size: 0.8rem;
-  color: var(--pc-muted-fg);
-}
-
 /* ── Payment method icon + label (table cells, mix legend context) ── */
 
 .paymentMethodCell {
@@ -2092,10 +2065,20 @@ button.treemapTile:hover {
    toolbar with several filter widgets (category tree, margin band, brand, toggle chips, search)
    force its own min-content width onto every ancestor up to the page itself, since nothing above
    it constrains width other than by shrinking — the actual bug wasn't a missing `min-width:0`
-   (`.card` already has one), it was this row never getting the chance to wrap in the first place. */
+   (`.card` already has one), it was this row never getting the chance to wrap in the first place.
+   `flex: 1 1 auto` + `min-width: 0` matters beyond just "fill the row": a `flex-wrap: wrap` flex
+   item sized by the default `width: auto` doesn't reliably resolve to the sum of its unwrapped
+   children's widths (verified live — Chromium's own intrinsic-size computation for a multi-line
+   flex container came out narrower than its content needed), so filter widgets could wrap onto a
+   second line with most of the toolbar's own width sitting empty. Explicitly claiming the row's
+   remaining space sidesteps that auto-sizing entirely — wrapping now only happens when the
+   viewport genuinely can't fit everything. */
 .toolbarActions {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
   gap: 0.5rem;
   align-items: center;
 }
@@ -2606,6 +2589,13 @@ table.rt tbody tr:hover td {
   width: 1.6rem;
 }
 
+/* RankingTableCard's own persisted-selection marker — the downstream table's ActiveFilterBanner
+   is the primary "you have a filter active" signal, this just marks which row drove it. */
+.rankingPrimaryActive {
+  color: var(--pc-primary);
+  font-weight: 700;
+}
+
 .comingSoon {
   display: flex;
   flex-direction: column;
@@ -2891,6 +2881,20 @@ table.rt tbody tr:hover td {
 
 .hierChildRow:hover td {
   background: color-mix(in srgb, var(--pc-muted-bg) 80%, transparent);
+}
+
+/* A plain (non-parent, non-child) hierTable row that's clickable as its own filter trigger —
+   e.g. Product Profitability's GP-by-tier rows. Deliberately not `.hierParentRow`: that class's
+   bold text + top divider is reserved for genuine section-header rows, and applying it here would
+   make an ordinary clickable row look identical to a real summary row like "All Products". Hover
+   uses the same muted tint `.hierParentRow:hover` does; the persisted-selection tint reuses the
+   already-shared `.hierParentRowFocus`. */
+.hierRowClickable {
+  cursor: pointer;
+}
+
+.hierRowClickable:hover td {
+  background: var(--pc-muted-bg);
 }
 
 .hierChildName {
@@ -3741,9 +3745,6 @@ table.rt tbody tr:hover td {
   top: 50%;
   transform: translate(10px, -50%);
   padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: var(--pc-card-bg);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
   font-size: 0.7rem;
   font-weight: 700;
   white-space: nowrap;
@@ -4955,7 +4956,7 @@ button.mirrorRow:hover {
 
 .scoreRadialGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
   gap: 0.5rem;
   flex: 1;
   align-content: start;
@@ -5000,14 +5001,21 @@ button.mirrorRow:hover {
 }
 
 .scoreRadialName {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: var(--pc-foreground);
   text-align: center;
-  max-width: 6.5rem;
+  max-width: 7.5rem;
+  line-height: 1.15;
+  /* Two lines before falling back to an ellipsis — long distributor names ("Island OTC Wholesale
+   * Distributors") were unreadable single-line-truncated to a handful of characters; the card's own
+   * `data-tooltip` still covers the rare name too long even for two lines. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .scoreRadialGrade {

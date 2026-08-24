@@ -39,6 +39,23 @@ export type BranchMarginTrendPoint = {
   cost: string;
 };
 
+export type BranchSalesRow = {
+  branchId: string;
+  code: string;
+  name: string;
+  city: string | null;
+  revenue: string;
+  transactions: number;
+  unitsSold: number;
+};
+
+export type BranchSalesTrendPoint = {
+  date: string;
+  branchId: string;
+  name: string;
+  revenue: string;
+};
+
 const SHIFT_RANGES: Array<{ key: "morning" | "afternoon" | "evening"; label: string; hours: (h: number) => boolean }> = [
   { key: "morning", label: "Morning", hours: (h) => h >= 6 && h < 12 },
   { key: "afternoon", label: "Afternoon", hours: (h) => h >= 12 && h < 18 },
@@ -839,6 +856,7 @@ export class ReportsService {
         tenantId,
         ...(branchId ? { branchId } : {}),
         soldAt: { gte: since },
+        status: { in: ["posted", "partially_refunded"] },
       },
       select: { grandTotal: true, soldAt: true, invoiceNo: true },
     });
@@ -2406,6 +2424,116 @@ export class ReportsService {
     return { days, points };
   }
 
+  /** Every branch, revenue/units summed the same way `branchMargin` does (status-filtered SaleItems,
+   *  netted against completed customer returns) but without the COGS join — this is Branch Sales'
+   *  demand story, not Branch Profitability's margin one, and it's what fixes Branch Sales' period
+   *  selector actually doing something (the page used to be powered by `analytics.service.ts`'s
+   *  calendar-month-only `branchPerformance`). Transaction counts come from a separate `Sale.groupBy`
+   *  (an item-level aggregate would double-count a multi-line sale) and are never returns-netted,
+   *  matching every other report's convention that a return doesn't undo a transaction happening. */
+  async branchSales(tenantId: string, days = 30): Promise<{ days: number; branches: BranchSalesRow[] }> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [branches, items, returnItems, saleCounts] = await Promise.all([
+      this.prisma.branch.findMany({
+        where: { tenantId, isActive: true },
+        orderBy: { name: "asc" },
+        select: { id: true, code: true, name: true, city: true },
+      }),
+      this.prisma.saleItem.findMany({
+        where: {
+          tenantId,
+          sale: { tenantId, soldAt: { gte: since }, status: { in: ["posted", "partially_refunded"] } },
+        },
+        select: { qty: true, lineTotal: true, sale: { select: { branchId: true } } },
+      }),
+      this.netCustomerReturnItems(tenantId, null, since),
+      this.prisma.sale.groupBy({
+        by: ["branchId"],
+        where: { tenantId, soldAt: { gte: since }, status: { in: ["posted", "partially_refunded"] } },
+        _count: { _all: true },
+      }),
+    ]);
+
+    type Agg = { revenue: Prisma.Decimal; unitsSold: number };
+    const byBranch = new Map<string, Agg>();
+    const applyToBranch = (branchId: string, revenueDelta: Prisma.Decimal, unitsDelta: number) => {
+      const cur = byBranch.get(branchId) ?? { revenue: new Prisma.Decimal(0), unitsSold: 0 };
+      cur.revenue = cur.revenue.add(revenueDelta);
+      cur.unitsSold += unitsDelta;
+      byBranch.set(branchId, cur);
+    };
+    for (const it of items) {
+      applyToBranch(it.sale.branchId, it.lineTotal, it.qty);
+    }
+    for (const ret of returnItems) {
+      applyToBranch(ret.goodsReturn.branchId, ret.unitPrice.mul(ret.qty).neg(), -ret.qty);
+    }
+    const transactionsByBranch = new Map(saleCounts.map((g) => [g.branchId, g._count._all]));
+
+    return {
+      days,
+      branches: branches.map((b) => {
+        const agg = byBranch.get(b.id) ?? { revenue: new Prisma.Decimal(0), unitsSold: 0 };
+        return {
+          branchId: b.id,
+          code: b.code,
+          name: b.name,
+          city: b.city,
+          revenue: agg.revenue.toString(),
+          transactions: transactionsByBranch.get(b.id) ?? 0,
+          unitsSold: agg.unitsSold,
+        };
+      }),
+    };
+  }
+
+  /** Daily revenue per branch, for Branch Sales' trend chart — same shape/rollup convention as
+   *  `branchMarginTrend`, just revenue-only (no cost dimension, this page has no margin story). */
+  async branchSalesTrend(tenantId: string, days = 30): Promise<{ days: number; points: BranchSalesTrendPoint[] }> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [branches, items, returnItems] = await Promise.all([
+      this.prisma.branch.findMany({ where: { tenantId, isActive: true }, select: { id: true, name: true } }),
+      this.prisma.saleItem.findMany({
+        where: {
+          tenantId,
+          sale: { tenantId, soldAt: { gte: since }, status: { in: ["posted", "partially_refunded"] } },
+        },
+        select: { lineTotal: true, sale: { select: { branchId: true, soldAt: true } } },
+      }),
+      this.netCustomerReturnItems(tenantId, null, since),
+    ]);
+    const nameByBranch = new Map(branches.map((b) => [b.id, b.name]));
+
+    type Agg = { branchId: string; name: string; revenue: Prisma.Decimal };
+    const byKey = new Map<string, Agg>();
+    const applyToTrend = (branchId: string, date: string, revenueDelta: Prisma.Decimal) => {
+      const name = nameByBranch.get(branchId) ?? "Unknown Branch";
+      const key = `${date}|${branchId}`;
+      const cur = byKey.get(key) ?? { branchId, name, revenue: new Prisma.Decimal(0) };
+      cur.revenue = cur.revenue.add(revenueDelta);
+      byKey.set(key, cur);
+    };
+    for (const it of items) {
+      applyToTrend(it.sale.branchId, it.sale.soldAt.toISOString().slice(0, 10), it.lineTotal);
+    }
+    for (const ret of returnItems) {
+      applyToTrend(ret.goodsReturn.branchId, ret.goodsReturn.createdAt.toISOString().slice(0, 10), ret.unitPrice.mul(ret.qty).neg());
+    }
+
+    const points = [...byKey.entries()].map(([key, v]) => ({
+      date: key.split("|")[0]!,
+      branchId: v.branchId,
+      name: v.name,
+      revenue: v.revenue.toString(),
+    }));
+
+    return { days, points };
+  }
+
   /** Per-cashier (Sale.soldBy) leaderboard, plus the same sales bucketed into 3 shifts by hour-of-day. */
   async salesByCashier(tenantId: string, branchId: string | null, days = 30) {
     const since = new Date();
@@ -2422,11 +2550,13 @@ export class ReportsService {
       if (sale.status === "posted" || sale.status === "partially_refunded") {
         agg.revenue = agg.revenue.add(sale.grandTotal);
         agg.transactions += 1;
+        // Same status gate as revenue — a voided sale's discount shouldn't inflate discountRatePct
+        // (revenue's denominator) while never itself contributing to revenue.
+        agg.discountTotal = agg.discountTotal.add(sale.discountTotal);
       }
       if (sale.status === "voided" || sale.status === "refunded" || sale.status === "partially_refunded") {
         agg.corrections += 1;
       }
-      agg.discountTotal = agg.discountTotal.add(sale.discountTotal);
     }
 
     const byUser = new Map<string, Agg>();
@@ -2479,7 +2609,10 @@ export class ReportsService {
     since.setDate(since.getDate() - days);
 
     const payments = await this.prisma.salePayment.findMany({
-      where: { tenantId, sale: { tenantId, ...(branchId ? { branchId } : {}), soldAt: { gte: since } } },
+      where: {
+        tenantId,
+        sale: { tenantId, ...(branchId ? { branchId } : {}), soldAt: { gte: since }, status: { in: ["posted", "partially_refunded"] } },
+      },
       select: { method: true, amount: true, saleId: true, sale: { select: { status: true, soldAt: true } } },
     });
 
@@ -2491,7 +2624,9 @@ export class ReportsService {
       const cur = byMethod.get(p.method) ?? { revenue: new Prisma.Decimal(0), saleIds: new Set<string>(), refunded: new Prisma.Decimal(0) };
       cur.revenue = cur.revenue.add(p.amount);
       cur.saleIds.add(p.saleId);
-      if (p.sale.status === "refunded" || p.sale.status === "partially_refunded") {
+      // "refunded" (fully refunded) sales are now excluded by the query's own status filter above —
+      // only partially_refunded sales can still appear here, so this can never match "refunded".
+      if (p.sale.status === "partially_refunded") {
         cur.refunded = cur.refunded.add(p.amount);
       }
       byMethod.set(p.method, cur);
@@ -2535,7 +2670,10 @@ export class ReportsService {
 
     const [returns, discountItems] = await Promise.all([
       this.prisma.goodsReturn.findMany({
-        where: { tenantId, type: "customer", ...(branchId ? { branchId } : {}), createdAt: { gte: since } },
+        // completed only — matches netCustomerReturnItems' convention: a draft/pending_approval/
+        // rejected/cancelled return never actually moved stock or cash, so counting it here would
+        // overstate returns vs. every other report that nets returns out of revenue.
+        where: { tenantId, type: "customer", status: GoodsReturnStatus.completed, ...(branchId ? { branchId } : {}), createdAt: { gte: since } },
         select: {
           id: true,
           reason: true,
@@ -2575,12 +2713,27 @@ export class ReportsService {
       byDiscountProduct.set(it.productId, cur);
     }
 
-    const byReturnedProduct = new Map<string, { productId: string; sku: string; name: string; value: number; qty: number }>();
+    // Still keyed by product alone (so `qty`/`returnRatePct` below stay the product's real,
+    // unsplit return rate — splitting the row itself by reason would understate the rate for any
+    // product returned under more than one reason) — but each row now also carries its own
+    // per-reason breakdown, so the frontend's "click a reason bar" filter can narrow the returned-
+    // products table to just that reason's products and show a real Reason column, without
+    // corrupting the rate every other part of this page already relies on.
+    const byReturnedProduct = new Map<
+      string,
+      { productId: string; sku: string; name: string; value: number; qty: number; reasonBreakdown: Map<string, { value: number; qty: number }> }
+    >();
     for (const r of returns) {
+      const reason = r.reason?.trim() || "Unspecified";
       for (const it of r.items) {
-        const cur = byReturnedProduct.get(it.productId) ?? { productId: it.productId, sku: it.product.sku, name: it.product.name, value: 0, qty: 0 };
-        cur.value += Number(it.unitPrice) * it.qty;
+        const cur = byReturnedProduct.get(it.productId) ?? { productId: it.productId, sku: it.product.sku, name: it.product.name, value: 0, qty: 0, reasonBreakdown: new Map() };
+        const itemValue = Number(it.unitPrice) * it.qty;
+        cur.value += itemValue;
         cur.qty += it.qty;
+        const rb = cur.reasonBreakdown.get(reason) ?? { value: 0, qty: 0 };
+        rb.value += itemValue;
+        rb.qty += it.qty;
+        cur.reasonBreakdown.set(reason, rb);
         byReturnedProduct.set(it.productId, cur);
       }
     }
@@ -2617,7 +2770,19 @@ export class ReportsService {
       topReturnedProducts: [...byReturnedProduct.values()]
         .map((p) => {
           const soldQty = soldQtyMap.get(p.productId) ?? 0;
-          return { ...p, soldQty, returnRatePct: soldQty > 0 ? (p.qty / soldQty) * 100 : null };
+          const reasons = [...p.reasonBreakdown.entries()]
+            .map(([reason, v]) => ({ reason, value: v.value, qty: v.qty }))
+            .sort((a, b) => b.value - a.value);
+          return {
+            productId: p.productId,
+            sku: p.sku,
+            name: p.name,
+            value: p.value,
+            qty: p.qty,
+            soldQty,
+            returnRatePct: soldQty > 0 ? (p.qty / soldQty) * 100 : null,
+            reasons,
+          };
         })
         .sort((a, b) => b.value - a.value)
         .slice(0, 50),
@@ -2650,16 +2815,20 @@ export class ReportsService {
     return { days, weekdayLabels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], grid, counts };
   }
 
-  /** One row per calendar day in range — gross sales (pre-discount), discounts, returns (bucketed by
-   * the return's own date, same as `returnsAndDiscounts()`), and the net of the three. Every day in
-   * the window gets a row even with no activity, so the table always shows a full `days`-row range. */
+  /** One row per calendar day in range — gross sales (tax-inclusive, same `grandTotal` basis
+   * `marginByProduct`/Profitability use, so this table's `netSales` reconciles with the rest of
+   * the reports module instead of quietly running on a different, tax-exclusive total), discounts
+   * (informational only now — already folded into `grossSales` via `grandTotal`, no longer
+   * subtracted a second time), returns (completed only, netted the same way `netCustomerReturnItems`
+   * nets everywhere else, bucketed by the return's own date). Every day in the window gets a row
+   * even with no activity, so the table always shows a full `days`-row range. */
   async salesDaily(tenantId: string, branchId: string | null, days = 30) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const rangeStart = new Date(todayStart);
     rangeStart.setDate(rangeStart.getDate() - (days - 1));
 
-    const [sales, returns] = await Promise.all([
+    const [sales, returnItems] = await Promise.all([
       this.prisma.sale.findMany({
         where: {
           tenantId,
@@ -2667,12 +2836,9 @@ export class ReportsService {
           soldAt: { gte: rangeStart },
           status: { in: ["posted", "partially_refunded"] },
         },
-        select: { soldAt: true, subtotal: true, discountTotal: true },
+        select: { soldAt: true, grandTotal: true, discountTotal: true },
       }),
-      this.prisma.goodsReturn.findMany({
-        where: { tenantId, type: "customer", ...(branchId ? { branchId } : {}), createdAt: { gte: rangeStart } },
-        select: { createdAt: true, amount: true },
-      }),
+      this.netCustomerReturnItems(tenantId, branchId, rangeStart),
     ]);
 
     const dayKeys: string[] = [];
@@ -2690,14 +2856,14 @@ export class ReportsService {
       const cur = byDay.get(key);
       if (!cur) continue;
       cur.transactions += 1;
-      cur.grossSales = cur.grossSales.add(s.subtotal);
+      cur.grossSales = cur.grossSales.add(s.grandTotal);
       cur.discounts = cur.discounts.add(s.discountTotal);
     }
-    for (const r of returns) {
-      const key = r.createdAt.toISOString().slice(0, 10);
+    for (const ret of returnItems) {
+      const key = ret.goodsReturn.createdAt.toISOString().slice(0, 10);
       const cur = byDay.get(key);
       if (!cur) continue;
-      cur.returns = cur.returns.add(r.amount);
+      cur.returns = cur.returns.add(ret.unitPrice.mul(ret.qty));
     }
 
     return {
@@ -2710,7 +2876,9 @@ export class ReportsService {
           grossSales: d.grossSales.toString(),
           discounts: d.discounts.toString(),
           returns: d.returns.toString(),
-          netSales: d.grossSales.sub(d.discounts).sub(d.returns).toString(),
+          // grossSales is grandTotal-based, so discounts are already netted in — subtracting them
+          // again here would double-count. Returns are the only thing left to back out.
+          netSales: d.grossSales.sub(d.returns).toString(),
         };
       }),
     };

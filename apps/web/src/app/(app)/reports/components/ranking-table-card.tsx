@@ -35,6 +35,11 @@ type Props<T> = {
   /** Rows per page — enables the DataTable's built-in pagination when smaller than `rows.length`
    * (e.g. 10 rows/page over a 50-row top-N list) instead of showing every row at once. */
   pageSize?: number;
+  /** Fires when a row is clicked — for a caller that wants the selection to drive a downstream
+   *  filter (e.g. narrowing a detail table to just this row). */
+  onRowClick?: (row: T) => void;
+  /** The row to show as persistently selected — the caller's own filter state. */
+  activeId?: string | null;
 };
 
 /** A ranked leaderboard: # · name · thin magnitude bar · caller-supplied columns, with an optional
@@ -62,6 +67,8 @@ export function RankingTableCard<T>({
   emptyTitle,
   maxBodyHeight,
   pageSize,
+  onRowClick,
+  activeId,
 }: Props<T>) {
   const max = Math.max(...rows.map(barValue), 1);
 
@@ -72,7 +79,7 @@ export function RankingTableCard<T>({
       header: primaryHeader,
       render: (r) => (
         <>
-          {primaryLabel(r)}
+          <span className={activeId != null && activeId === rowKey(r) ? css.rankingPrimaryActive : undefined}>{primaryLabel(r)}</span>
           {primarySub?.(r) ? <div className={css.mutedcell}>{primarySub(r)}</div> : null}
         </>
       ),
@@ -117,6 +124,7 @@ export function RankingTableCard<T>({
           compact
           stickyHeader={!!maxBodyHeight}
           emptyTitle={emptyTitle ?? "No data for this range"}
+          onRowClick={onRowClick}
         />
       </div>
       {footer}

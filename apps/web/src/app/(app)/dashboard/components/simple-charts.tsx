@@ -1050,6 +1050,13 @@ type DonutProps = {
    *  is active — lets a caller drive secondary UI (e.g. a per-slice breakdown chart) off the
    *  same hover state instead of duplicating the interaction. */
   onHoverChange?: (index: number | null) => void;
+  /** Fires when a slice (arc or legend entry) is clicked — for a caller that wants a click to
+   *  make a selection stick after the pointer moves away, distinct from the transient hover
+   *  preview `onHoverChange` already covers. */
+  onSliceClick?: (index: number) => void;
+  /** The slice to show as persistently selected (independent of hover) — e.g. the caller's own
+   *  "this category is the active filter" state, driven by `onSliceClick`. */
+  activeIndex?: number | null;
 };
 
 function donutArcPath(
@@ -1085,6 +1092,8 @@ export function SimpleDonutChart({
   legendBeside = true,
   formatValue,
   onHoverChange,
+  onSliceClick,
+  activeIndex = null,
 }: DonutProps) {
   const [hovered, setHoveredState] = useState<number | null>(null);
   const setHovered = (index: number | null) => {
@@ -1117,7 +1126,7 @@ export function SimpleDonutChart({
     return { ...slice, index, pct, start, end, fullRing: rawSweep >= 359.5 };
   });
 
-  const active = hovered != null ? segments[hovered] : null;
+  const active = hovered != null ? segments[hovered] : activeIndex != null ? (segments[activeIndex] ?? null) : null;
   const displayValue = active
     ? `${active.pct.toFixed(1)}%`
     : centerValue;
@@ -1132,10 +1141,12 @@ export function SimpleDonutChart({
         <svg viewBox="0 0 120 120" className={css.donutSvg} role="img" aria-label="Payment mix">
           <circle cx={cx} cy={cy} r={rOuter + 2} className={css.donutHalo} />
           {segments.map((seg) => {
-            const isActive = hovered === seg.index;
-            const dimmed = hovered != null && !isActive;
-            const ro = isActive ? rOuter + 2.5 : rOuter;
-            const ri = isActive ? rInner - 1 : rInner;
+            const isHovered = hovered === seg.index;
+            const isSelected = activeIndex === seg.index;
+            const dimmed = hovered != null && !isHovered;
+            const ro = isHovered ? rOuter + 2.5 : rOuter;
+            const ri = isHovered ? rInner - 1 : rInner;
+            const segClassName = `${css.donutSegment}${isSelected ? ` ${css.donutSegmentActive}` : ""}`;
             if (seg.fullRing) {
               return (
                 <circle
@@ -1146,10 +1157,11 @@ export function SimpleDonutChart({
                   fill="none"
                   stroke={seg.color}
                   strokeWidth={ro - ri}
-                  className={css.donutSegment}
+                  className={segClassName}
                   opacity={dimmed ? 0.35 : 1}
                   onMouseEnter={() => setHovered(seg.index)}
                   onFocus={() => setHovered(seg.index)}
+                  onClick={onSliceClick ? () => onSliceClick(seg.index) : undefined}
                   tabIndex={0}
                   role="listitem"
                   aria-label={`${seg.label}: ${seg.pct.toFixed(1)} percent`}
@@ -1161,10 +1173,11 @@ export function SimpleDonutChart({
                 key={seg.label}
                 d={donutArcPath(cx, cy, ro, ri, seg.start, seg.end)}
                 fill={seg.color}
-                className={css.donutSegment}
+                className={segClassName}
                 opacity={dimmed ? 0.35 : 1}
                 onMouseEnter={() => setHovered(seg.index)}
                 onFocus={() => setHovered(seg.index)}
+                onClick={onSliceClick ? () => onSliceClick(seg.index) : undefined}
                 tabIndex={0}
                 role="listitem"
                 aria-label={`${seg.label}: ${seg.pct.toFixed(1)} percent`}
@@ -1182,7 +1195,7 @@ export function SimpleDonutChart({
       </div>
       <ul className={css.donutLegendModern}>
         {segments.map((seg) => {
-          const isActive = hovered === seg.index;
+          const isActive = hovered === seg.index || activeIndex === seg.index;
           return (
             <li key={seg.label}>
               <button
@@ -1192,6 +1205,7 @@ export function SimpleDonutChart({
                 onFocus={() => setHovered(seg.index)}
                 onMouseLeave={() => setHovered(null)}
                 onBlur={() => setHovered(null)}
+                onClick={onSliceClick ? () => onSliceClick(seg.index) : undefined}
               >
                 <i style={{ background: seg.color }} aria-hidden />
                 <span>{seg.label}</span>

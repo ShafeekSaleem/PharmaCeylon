@@ -355,4 +355,19 @@ export class ReportsController {
   branchMarginTrend(@CurrentUser() user: RequestUser, @Query("days") days?: string) {
     return this.reports.branchMarginTrend(user.tenantId, days ? Number(days) : 30);
   }
+
+  // Branch Sales, same "every branch, no @RequireBranchId()/scope" shape as Branch Margin above —
+  // this is the rolling-`days`-window replacement for analytics.service.ts's calendar-month-only
+  // branchPerformance/branchSalesTrend (which stay untouched — the Dashboard still depends on them).
+  @RequirePermission("reports.view")
+  @Get("branch-sales")
+  branchSales(@CurrentUser() user: RequestUser, @Query("days") days?: string) {
+    return this.reports.branchSales(user.tenantId, days ? Number(days) : 30);
+  }
+
+  @RequirePermission("reports.view")
+  @Get("branch-sales-trend")
+  branchSalesTrend(@CurrentUser() user: RequestUser, @Query("days") days?: string) {
+    return this.reports.branchSalesTrend(user.tenantId, days ? Number(days) : 30);
+  }
 }

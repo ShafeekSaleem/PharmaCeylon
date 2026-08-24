@@ -88,7 +88,7 @@ export const CATEGORIES: CategoryDef[] = [
       { key: "sales-summary", label: "Sales Summary", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "product-sales", label: "Product Sales", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "category-sales", label: "Category Sales", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
-      { key: "branch-sales", label: "Branch Sales", periodLabel: "Period", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
+      { key: "branch-sales", label: "Branch Sales", periodLabel: "Period", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30, minBranches: 2 },
       { key: "cashier-performance", label: "Cashier Performance", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "payment-methods", label: "Payment Methods", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },
       { key: "returns-discounts", label: "Returns", periodLabel: "Range", periodOptions: DAYS_PERIOD_OPTIONS, defaultPeriod: 30 },

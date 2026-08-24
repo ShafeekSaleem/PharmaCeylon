@@ -136,6 +136,8 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
   const [topConcentrationOnly, setTopConcentrationOnly] = useState(false);
   const [highMarginOnly, setHighMarginOnly] = useState(false);
   const [marginGroupFocus, setMarginGroupFocus] = useState<"below10" | "mid1020" | "above20" | null>(null);
+  const [tierFocus, setTierFocus] = useState<string | null>(null);
+  const [productFocus, setProductFocus] = useState<string | null>(null);
 
   function scrollToTable() {
     document.getElementById("all-products-table")?.scrollIntoView({ behavior: "smooth" });
@@ -154,6 +156,14 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
   }
   function toggleMarginGroup(key: "below10" | "mid1020" | "above20") {
     setMarginGroupFocus((cur) => (cur === key ? null : key));
+    scrollToTable();
+  }
+  function toggleTierFocus(key: string) {
+    setTierFocus((cur) => (cur === key ? null : key));
+    scrollToTable();
+  }
+  function toggleProductFocus(productId: string) {
+    setProductFocus((cur) => (cur === productId ? null : productId));
     scrollToTable();
   }
 
@@ -232,7 +242,7 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
       GP_TIER_DEFS.map((t) => {
         const set = rankedByMargin.slice(t.from, t.to === Infinity ? undefined : t.to);
         const marginSum = set.reduce((s, r) => s + r.marginN, 0);
-        return { ...t, marginSum, sharePct: currentTotals.margin > 0 ? (marginSum / currentTotals.margin) * 100 : 0 };
+        return { ...t, marginSum, sharePct: currentTotals.margin > 0 ? (marginSum / currentTotals.margin) * 100 : 0, productIds: new Set(set.map((r) => r.productId)) };
       }),
     [rankedByMargin, currentTotals.margin],
   );
@@ -304,6 +314,19 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
           examples: stockReview.slice(0, 3).map((r) => ({ label: r.name, badge: `${r.stockOnHand} units · ${formatCompactMoney(r.revenueN)}`, tone: "neutral" as const })),
         }]
       : []),
+    ...(rankedByMargin.length > 0
+      ? [{
+          key: "view-demand",
+          icon: <IconSearch size={16} />,
+          tone: "muted" as const,
+          title: "View Demand in Product Sales",
+          description: "This page is margin only — see revenue, units sold and growth per product.",
+          count: 1,
+          countLabel: "report",
+          onClick: () => onNavigate("sales", "product-sales"),
+          examples: [{ label: rankedByMargin[0]!.name, badge: "Top by gross profit", tone: "neutral" as const }],
+        }]
+      : []),
   ];
 
   const medianRevenue = useMemo(() => median(soldRows.map((r) => r.revenueN)), [soldRows]);
@@ -373,11 +396,17 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
     if (opportunityFocus === "pricing") out = out.filter((r) => pricingReview.includes(r));
     else if (opportunityFocus === "supplier") out = out.filter((r) => supplierNegotiation.includes(r));
     else if (opportunityFocus === "stock") out = out.filter((r) => stockReview.includes(r));
+    if (tierFocus) {
+      const tierIds = gpTiers.find((t) => t.key === tierFocus)?.productIds;
+      out = out.filter((r) => tierIds?.has(r.productId));
+    }
+    if (productFocus) out = out.filter((r) => r.productId === productFocus);
     return out;
   }, [
     soldRows, search, categoryFilter, namesUnderCategoryId, marginBandFilter, brandFilter, lowMarginOnly, highRevenueOnly,
     topConcentrationOnly, topConcentrationIds, highMarginOnly, marginGroupFocus,
     effectiveTargetPct, medianRevenue, opportunityFocus, pricingReview, supplierNegotiation, stockReview,
+    tierFocus, gpTiers, productFocus,
   ]);
 
   const activeFilterPills: FilterPill[] = [
@@ -387,6 +416,8 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
     ...(lowMarginOnly ? [{ key: "lowMargin", label: `Low margin only (<${effectiveTargetPct.toFixed(0)}%)` }] : []),
     ...(highRevenueOnly ? [{ key: "highRevenue", label: "High revenue only (≥ median)" }] : []),
     ...(topConcentrationOnly ? [{ key: "topConcentration", label: `Top ${TOP_GP_CONCENTRATION_N} by gross profit` }] : []),
+    ...(tierFocus ? [{ key: "tier", label: gpTiers.find((t) => t.key === tierFocus)?.label ?? "Selected tier" }] : []),
+    ...(productFocus ? [{ key: "product", label: rankedByMargin.find((r) => r.productId === productFocus)?.name ?? "Selected product" }] : []),
     ...(highMarginOnly ? [{ key: "highMargin", label: `High margin only (≥${HIGH_MARGIN_THRESHOLD_PCT}%)` }] : []),
     ...(marginGroupFocus ? [{ key: "marginGroup", label: `Margin group: ${marginGroupFocus === "below10" ? "Below 10%" : marginGroupFocus === "mid1020" ? "10–20%" : "Above 20%"}` }] : []),
     ...(opportunityFocus ? [{ key: "opportunity", label: `Segment: ${opportunityFocus === "pricing" ? "Pricing Review" : opportunityFocus === "supplier" ? "Supplier Negotiation" : "Stock Review"}` }] : []),
@@ -530,7 +561,7 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
           <div className={css.cardhead}>
             <div>
               <h3>Gross Profit Contribution by Product Tiers</h3>
-              <p>How much of total profitability the top products drive vs. the long tail</p>
+              <p>How much of total profitability the top products drive vs. the long tail — click a tier to filter the table below</p>
             </div>
           </div>
           <div className={css.hierTableWrap}>
@@ -544,7 +575,13 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
               </thead>
               <tbody>
                 {gpTiers.map((t) => (
-                  <tr key={t.key}>
+                  <tr
+                    key={t.key}
+                    className={`${css.hierRowClickable}${tierFocus === t.key ? ` ${css.hierParentRowFocus}` : ""}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleTierFocus(t.key)}
+                  >
                     <td>{t.label}</td>
                     <td style={{ textAlign: "right" }}>
                       <InlineBarCell valueLabel={`${t.sharePct.toFixed(1)}%`} pct={t.sharePct} />
@@ -566,8 +603,11 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
       <div className={`${css.grid2} ${css.firstRow}`}>
         <RankingTableCard
           title="Top Products by Gross Profit"
+          subtitle="Click a row to filter the table below"
           rows={rankedByMargin.slice(0, 5)}
           rowKey={(r) => r.productId}
+          onRowClick={(r) => toggleProductFocus(r.productId)}
+          activeId={productFocus}
           primaryLabel={(r) => r.name}
           primarySub={(r) => r.sku}
           barHeader="Gross Profit"
@@ -599,14 +639,7 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
 
       <div className={css.card} id="all-products-table">
         <div className={css.toolbarrow}>
-          <h3 style={{ margin: 0 }}>
-            All Products Profitability
-            {opportunityFocus ? (
-              <button type="button" className={css.focusClearBtn} onClick={() => setOpportunityFocus(null)}>
-                {opportunityFocus === "pricing" ? "Pricing Review" : opportunityFocus === "supplier" ? "Supplier Negotiation" : "Stock Review"} ×
-              </button>
-            ) : null}
-          </h3>
+          <h3 style={{ margin: 0 }}>All Products Profitability</h3>
           <div className={css.toolbarActions}>
             <div className={css.filterfield}>
               <label>Category</label>
@@ -658,6 +691,8 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
                 setHighMarginOnly(false);
                 setMarginGroupFocus(null);
                 setOpportunityFocus(null);
+                setTierFocus(null);
+                setProductFocus(null);
               }}
               clearTooltip="Reset all product filters"
             />

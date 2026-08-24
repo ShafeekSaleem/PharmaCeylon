@@ -86,12 +86,19 @@ export function ReportsWorkspace() {
   const branchesLoaded = branches.length > 0;
   const branchCount = branchesLoaded ? branches.length : Infinity;
 
-  // Deep-link guard: a bookmarked/shared `?report=branch-profitability` link on a since-reduced
-  // or always-single-branch tenant redirects to the category's default report instead of
-  // rendering a report that no longer applies (or showing a misleading "coming soon" panel).
+  // Deep-link guard: a bookmarked/shared `?report=branch-profitability`/`?report=branch-sales`
+  // link on a since-reduced or always-single-branch tenant redirects to the category's default
+  // report instead of rendering a report that no longer applies (or showing a misleading
+  // "coming soon" panel).
   useEffect(() => {
     if (branchesLoaded && report === "branch-profitability" && branches.length < 2) {
       navigate("profitability");
+    }
+  }, [branchesLoaded, report, branches.length, navigate]);
+
+  useEffect(() => {
+    if (branchesLoaded && report === "branch-sales" && branches.length < 2) {
+      navigate("sales");
     }
   }, [branchesLoaded, report, branches.length, navigate]);
 
@@ -294,33 +301,34 @@ export function ReportsWorkspace() {
       ) : report === "sales-summary" ? (
         <SalesSection key={report} scope={scope} isOwner={isOwner} branchId={branchId} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "product-sales" ? (
-        <ProductSalesSection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
+        <ProductSalesSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "category-sales" ? (
         <CategorySalesSection
           key={report}
           scope={scope}
           isOwner={isOwner}
           days={period}
+          onNavigate={navigate}
           onExportData={setExportPayload}
           groupBy={categoryGroupBy}
           excludeUnclassified={excludeUnclassified}
         />
       ) : report === "branch-sales" ? (
-        <BranchSalesSection key={report} days={period} cityFilter={branchCity} onExportData={setExportPayload} />
+        <BranchSalesSection key={report} days={period} cityFilter={branchCity} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "cashier-performance" ? (
-        <CashierPerformanceSection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
+        <CashierPerformanceSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "payment-methods" ? (
-        <PaymentMethodsSection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
+        <PaymentMethodsSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "returns-discounts" ? (
-        <ReturnsDiscountsSection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
+        <ReturnsDiscountsSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "gross-profit" ? (
         <GrossProfitSection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "margin-by-product" ? (
         <ProfitabilitySection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "margin-by-category" ? (
-        <MarginByCategorySection key={report} scope={scope} isOwner={isOwner} days={period} onExportData={setExportPayload} />
+        <MarginByCategorySection key={report} scope={scope} isOwner={isOwner} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "branch-profitability" ? (
-        <BranchProfitabilitySection key={report} days={period} onExportData={setExportPayload} />
+        <BranchProfitabilitySection key={report} days={period} onNavigate={navigate} onExportData={setExportPayload} />
       ) : report === "expiry-batch-risk" ? (
         <NearExpirySection
           key={report}
