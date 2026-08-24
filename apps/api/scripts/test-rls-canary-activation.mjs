@@ -8,6 +8,11 @@ import pg from "pg";
 const { Pool } = pg;
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
+if (process.env.RLS_CANARY_TEST_ACK !== "ephemeral-database") {
+  throw new Error(
+    "Set RLS_CANARY_TEST_ACK=ephemeral-database; this test mutates RLS state and fixtures",
+  );
+}
 
 const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
 const roleName = `pc_canary_${suffix}`;
@@ -161,11 +166,28 @@ async function cleanup() {
       )
       .catch(() => undefined);
   }
+  await admin.query(`DROP OWNED BY "${roleName}"`).catch(() => undefined);
   await admin.query(`DROP ROLE IF EXISTS "${roleName}"`).catch(() => undefined);
   await admin.end();
 }
 
 try {
+  const initialState = await admin.query(
+    `SELECT relrowsecurity, relforcerowsecurity
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = ANY($1::text[])`,
+    [["product", "batch", "sale"]],
+  );
+  assert.equal(initialState.rows.length, 3);
+  assert.ok(
+    initialState.rows.every(
+      (row) => !row.relrowsecurity && !row.relforcerowsecurity,
+    ),
+    "Activation proof requires an ephemeral database with inactive canaries",
+  );
+
   await seedFixtures();
   await admin.query(
     `CREATE ROLE "${roleName}" LOGIN PASSWORD '${rolePassword}'
