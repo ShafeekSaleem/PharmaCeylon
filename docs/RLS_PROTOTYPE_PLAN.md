@@ -40,6 +40,30 @@ Not enabled in this phase:
 Those constraints are intentional. Enabling policies before every query path
 uses the transaction-aware client would cause partial or misleading isolation.
 
+## Phase 4 canary status
+
+Implemented in this phase:
+
+- `PrismaService` is wrapped by a transaction-aware proxy. During an active
+  tenant context, existing delegate calls and nested `$transaction` calls use
+  the same interactive transaction client and pooled connection.
+- An authenticated-request interceptor can open the context after JWT, CSRF,
+  tenant/branch, and role guards have succeeded.
+- The interceptor is opt-in through
+  `TENANT_TRANSACTION_CONTEXT_ENABLED=true`; the default remains `false`.
+- Inert `USING` and `WITH CHECK` policies are staged for the mapped
+  `product`, `batch`, and `sale` tables.
+- CI now deploys the complete migration history and verifies those policies
+  exist while `relrowsecurity` and `relforcerowsecurity` remain disabled.
+
+Activation requirements:
+
+1. Provision a separate non-owner, `NOBYPASSRLS` application database role.
+2. Enable the request transaction flag in a non-production environment.
+3. Exercise product, inventory/batch, checkout/sale, reports, NMRA import, and
+   background paths under realistic load.
+4. Only then enable and force RLS for the canary tables in a separate migration.
+
 ## Architecture decision
 
 Use transaction-local PostgreSQL settings:
@@ -76,12 +100,13 @@ use `FORCE ROW LEVEL SECURITY` after migration/seed behaviour is verified.
    production policies; nested calls share one Prisma transaction client.
 2. **Completed:** run a real PostgreSQL proof with two tenants and verify
    transaction-local settings disappear when the pool reuses its connection.
-3. **Next:** migrate all access paths for three canary tables and only then
-   enable RLS on those tables:
-   `Product` (tenant-wide), `Batch` (tenant + branch), and `Sale`
-   (transactional aggregate).
-4. Test direct reads, aggregates, creates, updates, deletes, nested writes,
-   interactive transactions, and deliberate missing-scope queries.
+3. **Completed:** route existing Prisma access through the active request
+   transaction and stage disabled policies for `Product`, `Batch`, and
+   `Sale`.
+4. **Next:** activate the transaction boundary with a non-owner application
+   role in test/staging, then test direct reads, aggregates, creates, updates,
+   deletes, nested writes, deliberate missing-scope queries, and performance
+   before enabling canary RLS.
 5. Verify non-HTTP paths: authentication, seed, NMRA import, scheduled jobs,
    migrations, and support scripts.
 6. Expand policy generation to all tenant-owned models and compare the policy
@@ -95,10 +120,10 @@ The tenant portion of each policy should be equivalent to:
 
 ```sql
 USING (
-  "tenantId" = nullif(current_setting('app.tenant_id', true), '')::uuid
+  "tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid
 )
 WITH CHECK (
-  "tenantId" = nullif(current_setting('app.tenant_id', true), '')::uuid
+  "tenant_id" = nullif(current_setting('app.tenant_id', true), '')::uuid
 )
 ```
 

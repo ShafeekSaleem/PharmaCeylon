@@ -1,16 +1,10 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "./prisma.service";
-
-export type TenantTransactionScope = {
-  tenantId: string;
-  branchId?: string;
-};
-
-type ActiveTenantTransaction = TenantTransactionScope & {
-  client: Prisma.TransactionClient;
-};
+import {
+  tenantTransactionStorage,
+  TenantTransactionScope,
+} from "./tenant-transaction.store";
 
 /**
  * Holds the Prisma transaction that owns PostgreSQL's transaction-local RLS
@@ -22,24 +16,22 @@ type ActiveTenantTransaction = TenantTransactionScope & {
  */
 @Injectable()
 export class TenantTransactionContext {
-  private readonly storage = new AsyncLocalStorage<ActiveTenantTransaction>();
-
   constructor(private readonly prisma: PrismaService) {}
 
   /** Current transaction client, or the root client outside a tenant transaction. */
   get client(): Prisma.TransactionClient {
-    return this.storage.getStore()?.client ?? this.prisma;
+    return tenantTransactionStorage.getStore()?.client ?? this.prisma;
   }
 
   get scope(): TenantTransactionScope | null {
-    const active = this.storage.getStore();
+    const active = tenantTransactionStorage.getStore();
     return active
       ? { tenantId: active.tenantId, ...(active.branchId ? { branchId: active.branchId } : {}) }
       : null;
   }
 
   get isActive(): boolean {
-    return this.storage.getStore() != null;
+    return tenantTransactionStorage.getStore() != null;
   }
 
   /**
@@ -54,7 +46,7 @@ export class TenantTransactionContext {
     const branchId = scope.branchId?.trim() || undefined;
     if (!tenantId) throw new Error("Tenant transaction requires tenantId");
 
-    const active = this.storage.getStore();
+    const active = tenantTransactionStorage.getStore();
     if (active) {
       if (active.tenantId !== tenantId || active.branchId !== branchId) {
         throw new Error("Cannot change tenant or branch inside an active tenant transaction");
@@ -73,7 +65,7 @@ export class TenantTransactionContext {
           branchId ?? "",
         );
 
-        return this.storage.run(
+        return tenantTransactionStorage.run(
           { tenantId, ...(branchId ? { branchId } : {}), client: tx },
           () => work(tx),
         );

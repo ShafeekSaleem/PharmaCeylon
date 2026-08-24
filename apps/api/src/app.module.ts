@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AdminModule } from "./admin/admin.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
@@ -13,6 +13,7 @@ import { InventoryModule } from "./inventory/inventory.module";
 import { ProductsModule } from "./products/products.module";
 import { PricingModule } from "./pricing/pricing.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { TenantTransactionInterceptor } from "./prisma/tenant-transaction.interceptor";
 import { PurchasingModule } from "./purchasing/purchasing.module";
 import { ReportsModule } from "./reports/reports.module";
 import { ReturnsModule } from "./returns/returns.module";
@@ -63,6 +64,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: TenantBranchGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_INTERCEPTOR, useClass: TenantTransactionInterceptor },
   ],
 })
 export class AppModule {}

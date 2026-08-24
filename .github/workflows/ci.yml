@@ -44,6 +44,9 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate -w api
 
+      - name: Apply Prisma migrations
+        run: npm run prisma:deploy -w api
+
       - name: Lint (turbo)
         run: npm run lint
 
@@ -55,6 +58,9 @@ jobs:
 
       - name: PostgreSQL RLS proof
         run: npm run test:rls-poc -w api
+
+      - name: Validate staged RLS canary policies
+        run: npm run test:rls-canary -w api
 
       - name: Build API
         run: npm run build -w api
