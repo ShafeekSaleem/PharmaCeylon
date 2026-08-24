@@ -8,6 +8,11 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      # Prisma 7 loads prisma.config.ts even for client generation. No DB
+      # connection is opened by generate/type-check/build, but the variable
+      # must be present for the config module to load.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pharmaceylon_ci
     steps:
       - uses: actions/checkout@v4
 

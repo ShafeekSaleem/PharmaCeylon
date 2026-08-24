@@ -212,7 +212,7 @@ export function PurchaseSummarySection({ scope, isOwner, days, onExportData }: P
           <div className={css.cardhead}>
             <div>
               <h3>PO Lifecycle</h3>
-              <p>Where this period's orders stand</p>
+              <p>Where this period&apos;s orders stand</p>
             </div>
           </div>
           <BarRows rows={lifecycleRows} pageSize={7} onRowClick={toggleStatus} activeKey={selectedStatus} />

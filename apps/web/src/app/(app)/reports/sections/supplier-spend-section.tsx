@@ -172,7 +172,7 @@ export function SupplierSpendSection({ scope, isOwner, days, onExportData }: Pro
           <div className={css.cardhead}>
             <div>
               <h3>Category × Supplier Dependency</h3>
-              <p>Share of each category's spend held by its top suppliers</p>
+              <p>Share of each category&apos;s spend held by its top suppliers</p>
             </div>
           </div>
           <CategorySupplierMatrix

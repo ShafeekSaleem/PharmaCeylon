@@ -5,6 +5,7 @@ import {
 } from "@nestjs/common";
 import { PoPriority, PoStatus, Prisma, StockMovementType } from "@prisma/client";
 import { nextDocumentNumber } from "../common/document-sequence.util";
+import { assertOneScopedMutation } from "../common/scoped-mutation.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
@@ -156,7 +157,7 @@ export class PurchasingService {
   async cancelPurchaseOrder(tenantId: string, branchId: string, userId: string, id: string) {
     const po = await this.getPurchaseOrder(tenantId, branchId, id);
     if (po.status === PoStatus.cancelled) {
-      return this.prisma.purchaseOrder.findFirst({ where: { id } });
+      return po;
     }
     if (
       po.status === PoStatus.received ||
@@ -165,10 +166,12 @@ export class PurchasingService {
     ) {
       throw new BadRequestException("Cannot cancel a PO that already has receipts");
     }
-    const updated = await this.prisma.purchaseOrder.update({
-      where: { id },
+    const mutation = await this.prisma.purchaseOrder.updateMany({
+      where: { id, tenantId, branchId },
       data: { status: PoStatus.cancelled },
     });
+    assertOneScopedMutation(mutation, "Purchase order");
+    const updated = { ...po, status: PoStatus.cancelled };
     await this.audit.log({
       tenantId,
       branchId,
@@ -221,8 +224,8 @@ export class PurchasingService {
       }
     }
 
-    const updated = await this.prisma.purchaseOrder.update({
-      where: { id },
+    const mutation = await this.prisma.purchaseOrder.updateMany({
+      where: { id, tenantId, branchId },
       data: {
         ...(dto.expectedOn !== undefined
           ? { expectedOn: dto.expectedOn ? new Date(dto.expectedOn) : null }
@@ -239,12 +242,9 @@ export class PurchasingService {
           ? { deliveryInstructions: dto.deliveryInstructions?.trim() || null }
           : {}),
       },
-      include: {
-        supplier: true,
-        items: { include: { product: true } },
-        goodsReceipts: { include: { items: { include: { batch: true, product: true } } } },
-      },
     });
+    assertOneScopedMutation(mutation, "Purchase order");
+    const updated = await this.getPurchaseOrder(tenantId, branchId, id);
 
     await this.audit.log({
       tenantId,
@@ -600,10 +600,12 @@ export class PurchasingService {
     if (po.status !== PoStatus.draft) {
       throw new BadRequestException("Only draft POs can be issued");
     }
-    const updated = await this.prisma.purchaseOrder.update({
-      where: { id },
+    const mutation = await this.prisma.purchaseOrder.updateMany({
+      where: { id, tenantId, branchId },
       data: { status: PoStatus.issued },
     });
+    assertOneScopedMutation(mutation, "Purchase order");
+    const updated = { ...po, status: PoStatus.issued };
     await this.audit.log({
       tenantId,
       branchId,
@@ -621,10 +623,12 @@ export class PurchasingService {
     if (po.status !== PoStatus.pending_approval) {
       throw new BadRequestException("Only pending approval POs can be approved");
     }
-    const updated = await this.prisma.purchaseOrder.update({
-      where: { id },
+    const mutation = await this.prisma.purchaseOrder.updateMany({
+      where: { id, tenantId, branchId },
       data: { status: PoStatus.issued },
     });
+    assertOneScopedMutation(mutation, "Purchase order");
+    const updated = { ...po, status: PoStatus.issued };
     await this.audit.log({
       tenantId,
       branchId,
@@ -642,10 +646,12 @@ export class PurchasingService {
     if (po.status !== PoStatus.pending_approval) {
       throw new BadRequestException("Only pending approval POs can be rejected");
     }
-    const updated = await this.prisma.purchaseOrder.update({
-      where: { id },
+    const mutation = await this.prisma.purchaseOrder.updateMany({
+      where: { id, tenantId, branchId },
       data: { status: PoStatus.cancelled },
     });
+    assertOneScopedMutation(mutation, "Purchase order");
+    const updated = { ...po, status: PoStatus.cancelled };
     await this.audit.log({
       tenantId,
       branchId,
@@ -663,10 +669,12 @@ export class PurchasingService {
     if (po.status !== PoStatus.partially_received) {
       throw new BadRequestException("Only partially received POs can be short-closed");
     }
-    const updated = await this.prisma.purchaseOrder.update({
-      where: { id },
+    const mutation = await this.prisma.purchaseOrder.updateMany({
+      where: { id, tenantId, branchId },
       data: { status: PoStatus.short_closed },
     });
+    assertOneScopedMutation(mutation, "Purchase order");
+    const updated = { ...po, status: PoStatus.short_closed };
     await this.audit.log({
       tenantId,
       branchId,

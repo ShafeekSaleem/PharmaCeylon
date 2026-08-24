@@ -16,7 +16,7 @@ describe("PurchasingService", () => {
         findFirst: jest.fn(),
         count: jest.fn(),
         create: jest.fn(),
-        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       goodsReceipt: { count: jest.fn(), findFirst: jest.fn() },
       $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -71,7 +71,7 @@ describe("PurchasingService", () => {
       supplier: {},
       goodsReceipts: [],
     });
-    (prisma.purchaseOrder as { update: jest.Mock }).update.mockResolvedValue({
+    (prisma.purchaseOrder as { updateMany: jest.Mock }).updateMany.mockResolvedValue({ count: 1,
       id: "po-1",
       status: PoStatus.cancelled,
     });
@@ -124,13 +124,17 @@ describe("PurchasingService", () => {
       supplier: {},
       goodsReceipts: [],
     });
-    (prisma.purchaseOrder as { update: jest.Mock }).update.mockResolvedValue({
+    (prisma.purchaseOrder as { updateMany: jest.Mock }).updateMany.mockResolvedValue({ count: 1,
       id: "po-1",
       status: PoStatus.issued,
     });
 
     const res = await service.approvePurchaseOrder("t1", "b1", "u1", "po-1");
     expect(res!.status).toBe(PoStatus.issued);
+    expect((prisma.purchaseOrder as { updateMany: jest.Mock }).updateMany).toHaveBeenCalledWith({
+      where: { id: "po-1", tenantId: "t1", branchId: "b1" },
+      data: { status: PoStatus.issued },
+    });
     expect(audit.log as jest.Mock).toHaveBeenCalledWith(
       expect.objectContaining({ eventName: "purchase_order.approved" }),
     );

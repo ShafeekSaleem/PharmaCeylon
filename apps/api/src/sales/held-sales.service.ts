@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { nextDocumentNumber } from "../common/document-sequence.util";
+import { assertOneScopedMutation } from "../common/scoped-mutation.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { HoldSaleDto } from "./dto/hold-sale.dto";
 
@@ -104,7 +105,8 @@ export class HeldSalesService {
         where: { id, tenantId, branchId },
       });
       if (!row) throw new NotFoundException("Held sale not found");
-      await tx.heldSale.delete({ where: { id } });
+      const mutation = await tx.heldSale.deleteMany({ where: { id, tenantId, branchId } });
+      assertOneScopedMutation(mutation, "Held sale");
       return {
         id: row.id,
         holdRef: row.holdRef,
@@ -123,7 +125,8 @@ export class HeldSalesService {
       select: { id: true },
     });
     if (!existing) throw new NotFoundException("Held sale not found");
-    await this.prisma.heldSale.delete({ where: { id } });
+    const mutation = await this.prisma.heldSale.deleteMany({ where: { id, tenantId, branchId } });
+    assertOneScopedMutation(mutation, "Held sale");
     return { id, discarded: true };
   }
 }

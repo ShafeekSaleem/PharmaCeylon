@@ -11,6 +11,7 @@ import {
   SupplierType,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { assertOneScopedMutation } from "../common/scoped-mutation.util";
 import { AuditService } from "../audit/audit.service";
 import { CreateSupplierDto } from "./dto/create-supplier.dto";
 import { UpdateSupplierDto } from "./dto/update-supplier.dto";
@@ -536,8 +537,8 @@ export class SuppliersService {
       status = statusFromIsActive(dto.isActive);
     }
 
-    const supplier = await this.prisma.supplier.update({
-      where: { id },
+    const mutation = await this.prisma.supplier.updateMany({
+      where: { id, tenantId },
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.type !== undefined ? { type: dto.type } : {}),
@@ -555,14 +556,15 @@ export class SuppliersService {
           : {}),
       },
     });
+    assertOneScopedMutation(mutation, "Supplier");
     await this.audit.log({
       tenantId,
       actorUserId: userId,
       eventName: "supplier.updated",
       entityName: "supplier",
-      entityId: supplier.id,
+      entityId: id,
     });
-    return this.getById(tenantId, supplier.id);
+    return this.getById(tenantId, id);
   }
 
   async createInvoice(
