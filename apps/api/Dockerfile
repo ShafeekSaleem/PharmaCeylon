@@ -40,8 +40,23 @@ COPY --from=pruner /app/out/full/ ./
 
 RUN npm rebuild \
     && npm run build -w @pharmaceylon/shared \
-    && npm run build -w api \
-    && npm prune --omit=dev --ignore-scripts
+    && npm run build -w api
+
+# Keep the Prisma CLI, config, and migration history in a separate one-shot
+# image. It is intentionally not included in the long-running API image.
+FROM builder AS migrator
+
+ENV NODE_ENV=production
+
+USER node
+WORKDIR /app
+
+CMD ["npm", "run", "prisma:deploy", "-w", "api"]
+
+# Remove build and migration tooling before assembling the API runtime image.
+FROM builder AS production-dependencies
+
+RUN npm prune --omit=dev --ignore-scripts
 
 # The final stage contains runtime dependencies and compiled output only.
 FROM base AS runtime
@@ -49,7 +64,7 @@ FROM base AS runtime
 ENV NODE_ENV=production \
     PORT=3001
 
-COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=builder --chown=node:node /app/packages/shared/package.json ./packages/shared/package.json

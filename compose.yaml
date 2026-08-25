@@ -24,6 +24,20 @@ services:
       start_period: 10s
     stop_grace_period: 30s
 
+  migrate:
+    image: pharmaceylon-api-migrate:local
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migrator
+    restart: "no"
+    init: true
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-pharmaceylon}?schema=public"
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     image: pharmaceylon-api:local
     build:
@@ -55,6 +69,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     stop_grace_period: 30s
 
 volumes:
