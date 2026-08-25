@@ -85,6 +85,16 @@ cd apps/web && npm run dev
 cd apps/mobile && npx expo start
 ```
 
+Run PostgreSQL and the compiled API in Docker while keeping Next.js on the host:
+
+```bash
+docker compose --env-file .env.docker up -d --build api
+npm run dev -w web
+```
+
+Stop the host-running API before publishing container port `3001`. See
+**[docs/DOCKER.md](docs/DOCKER.md)** for the Phase 2 image walkthrough.
+
 ## License
 
 Proprietary — all rights reserved.
