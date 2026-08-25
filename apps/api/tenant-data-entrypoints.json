@@ -76,5 +76,27 @@
       "reason": "Read-only schema-derived policy inventory validation."
     }
   ],
-  "backgroundWorkers": []
+  "backgroundWorkers": [],
+  "rawSqlReview": [
+    {
+      "path": "src/prisma/tenant-transaction-context.service.ts",
+      "mode": "scope-setup",
+      "reason": "Sets transaction-local tenant and branch settings with bound parameters."
+    },
+    {
+      "path": "src/prisma/rls-canary-startup.validator.ts",
+      "mode": "startup-validation",
+      "reason": "Reads PostgreSQL role and RLS catalog state; it does not read domain rows."
+    },
+    {
+      "path": "purchasing/purchasing.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks a purchase order by id, tenant_id, and branch_id with bound parameters."
+    },
+    {
+      "path": "scripts/test-rls-canary-activation.mjs",
+      "mode": "ephemeral-test",
+      "reason": "CI-only scoped transaction setup in a self-cleaning database proof."
+    }
+  ]
 }
