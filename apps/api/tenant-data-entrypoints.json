@@ -89,7 +89,7 @@
       "reason": "Reads PostgreSQL role and RLS catalog state; it does not read domain rows."
     },
     {
-      "path": "purchasing/purchasing.service.ts",
+      "path": "src/purchasing/purchasing.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks a purchase order by id, tenant_id, and branch_id with bound parameters."
     },
