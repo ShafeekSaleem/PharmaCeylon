@@ -4,7 +4,7 @@ Monorepo for the PharmaCeylon pharmacy management platform.
 
 ## Stack
 
-- **API:** NestJS, Prisma, PostgreSQL, Redis (JWT access + refresh)
+- **API:** NestJS, Prisma, PostgreSQL (JWT access + refresh)
 - **Web:** Next.js (marketing + app)
 - **Mobile:** Expo (React Native)
 - **Tooling:** Turborepo, npm workspaces
@@ -23,12 +23,24 @@ packages/
 ## Prerequisites
 
 - Node.js 20+
-- PostgreSQL 16+ (local or managed)
-- Redis 7+ (local or managed)
+- Docker Desktop with Docker Compose (recommended for local PostgreSQL)
+- PostgreSQL 16+ when not using Docker
+- Redis 7+ (optional; reserved for future features)
 
 ## Setup
 
-1. Install dependencies from the repo root:
+1. Start PostgreSQL with Docker:
+
+   ```bash
+   cp .env.docker.example .env.docker
+   docker compose --env-file .env.docker up -d db
+   ```
+
+   Windows PowerShell users can replace `cp` with `Copy-Item`. See
+   **[docs/DOCKER.md](docs/DOCKER.md)** for the beginner walkthrough, verification,
+   daily commands, data persistence, and troubleshooting.
+
+2. Install dependencies from the repo root:
 
    ```bash
    npm install
@@ -36,20 +48,19 @@ packages/
 
    This runs `prepare`, which builds `@pharmaceylon/shared` once so Nest/Next can import it.
 
-2. Copy environment examples and fill in values:
+3. Copy environment examples and fill in values:
 
    - `apps/api/.env.example` → `apps/api/.env`
    - `apps/web/.env.example` → `apps/web/.env.local`
 
-3. Run database migrations (from `apps/api`):
+4. Run database migrations and generate the Prisma client from the repository root:
 
    ```bash
-   cd apps/api
-   npx prisma migrate dev --name init
-   npx prisma generate
+   npm run prisma:migrate -w api
+   npm run prisma:generate -w api
    ```
 
-4. Align Expo native dependency versions (recommended after install):
+5. Align Expo native dependency versions (recommended after install):
 
    ```bash
    cd apps/mobile
