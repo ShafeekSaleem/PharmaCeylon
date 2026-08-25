@@ -92,6 +92,29 @@ Still not enabled by repository migration:
 - non-HTTP paths and representative staging load still require an environment
   soak before the canary can advance.
 
+## Phase 6 schema-wide readiness status
+
+Implemented in this phase:
+
+- every direct database client, public controller, pre-context service,
+  background-worker decorator and Prisma raw-SQL path is checked against the
+  reasoned `tenant-data-entrypoints.json` inventory;
+- the audit confirms there are no scheduled/queue workers today, NMRA import
+  remains inside an authenticated request, and seed programs use the migration
+  owner rather than the runtime application role;
+- tenant `USING` and `WITH CHECK` policies are staged for all 42
+  tenant-owned Prisma models;
+- CI derives the expected PostgreSQL table names from `schema.prisma` and
+  fails when any tenant-owned model lacks a deployed tenant policy;
+- all schema-wide policies remain disabled; only the existing Product, Batch,
+  and Sale canaries are exercised with ENABLE/FORCE inside the ephemeral CI
+  proof;
+- identity tables are placed in the final activation wave because
+  login/refresh and JWT context lookup occur before tenant transaction setup.
+
+See `TENANT_ACCESS_PATH_AUDIT.md` for the classified paths, rollout waves and
+remaining environment evidence.
+
 ## Architecture decision
 
 Use transaction-local PostgreSQL settings:
@@ -135,15 +158,18 @@ use `FORCE ROW LEVEL SECURITY` after migration/seed behaviour is verified.
    ENABLE/FORCE the real canary tables, and test direct reads, aggregates,
    creates, updates, deletes, missing-scope behaviour, branch behaviour, and a
    transaction latency smoke threshold.
-5. **Next in staging:** activate the transaction boundary and canary policies
-   with the runbook, then soak product, inventory, checkout, reporting, NMRA
-   import, and worker paths under representative traffic.
-6. Verify every non-HTTP path: authentication, seed, NMRA import, scheduled
-   jobs, migrations, and support scripts.
-7. Expand policy generation to all tenant-owned models and compare the policy
-   inventory against `schema.prisma` in CI.
-8. Roll out in observe/test environments first, then stage, then production
-   behind an explicit deployment checklist.
+5. **Completed in the repository:** classify authentication, seed, NMRA import,
+   raw-SQL, administration and future-worker entry points.
+6. **Completed in the repository:** stage policies for all 42 tenant-owned
+   models and compare the deployed inventory with `schema.prisma` in CI.
+7. **Next in staging:** activate the transaction boundary and Wave 0 canary
+   policies with the runbook, then soak product, inventory, checkout,
+   reporting and NMRA import under representative traffic.
+8. Roll out later waves in test/staging only after their query-plan and workflow
+   gates pass; activate identity tables last with an approved authentication
+   bootstrap design.
+9. Rehearse backup/restore, break-glass and rollback, then perform progressive
+   production activation behind an explicit deployment checklist.
 
 ## Policy shape
 

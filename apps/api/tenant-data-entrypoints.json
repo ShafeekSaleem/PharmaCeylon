@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "publicControllers": [
+    {
+      "path": "src/auth/auth.controller.ts",
+      "mode": "pre-authentication",
+      "reason": "Login and refresh establish user and tenant context from globally unique credentials or session tokens."
+    },
+    {
+      "path": "src/health/health.controller.ts",
+      "mode": "database-readiness",
+      "reason": "Liveness is database-free; readiness executes SELECT 1 without reading tenant data."
+    }
+  ],
+  "preContextServices": [
+    {
+      "path": "src/auth/auth.service.ts",
+      "mode": "verified-global-identity",
+      "reason": "Login resolves a globally unique email; refresh resolves a hashed session token before tenant context exists."
+    },
+    {
+      "path": "src/auth/user-context.service.ts",
+      "mode": "verified-jwt-subject",
+      "reason": "JWT subject lookup builds the trusted tenant and branch context used by request guards."
+    }
+  ],
+  "directDatabaseClients": [
+    {
+      "path": "prisma/backfill-catalog-taxonomy.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit tenant-by-tenant catalog maintenance program."
+    },
+    {
+      "path": "prisma/retire-demo-admin.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit legacy-user maintenance with final writes scoped by the resolved tenant."
+    },
+    {
+      "path": "prisma/seed-retail-demo-products.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit demo seed program with tenant selection."
+    },
+    {
+      "path": "prisma/seed-retail-demo-sales.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit demo seed program with tenant selection."
+    },
+    {
+      "path": "prisma/seed.ts",
+      "mode": "migration-owner",
+      "reason": "Controlled seed program, never executed with the runtime application role."
+    },
+    {
+      "path": "prisma/upsert-demo-owner.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit demo-user maintenance that rejects cross-tenant reassignment."
+    },
+    {
+      "path": "scripts/manage-rls-canary.mjs",
+      "mode": "controlled-admin",
+      "reason": "Acknowledgement-gated table-owner operation."
+    },
+    {
+      "path": "scripts/prepare-rls-application-role.mjs",
+      "mode": "controlled-admin",
+      "reason": "Acknowledgement-gated database role grant operation."
+    },
+    {
+      "path": "scripts/test-rls-canary-activation.mjs",
+      "mode": "ephemeral-test",
+      "reason": "CI-only activation proof guarded by an ephemeral-database acknowledgement."
+    },
+    {
+      "path": "scripts/test-rls-canary-policies.mjs",
+      "mode": "ci-validation",
+      "reason": "Read-only staged canary policy validation."
+    },
+    {
+      "path": "scripts/test-rls-poc.mjs",
+      "mode": "ephemeral-test",
+      "reason": "Self-cleaning PostgreSQL isolation and pool proof."
+    },
+    {
+      "path": "scripts/test-rls-policy-inventory.mjs",
+      "mode": "ci-validation",
+      "reason": "Read-only schema-derived policy inventory validation."
+    },
+    {
+      "path": "src/prisma/prisma.service.ts",
+      "mode": "runtime-root",
+      "reason": "The single Nest runtime client; authenticated domain access is routed through the tenant transaction proxy."
+    }
+  ],
+  "backgroundWorkers": [],
+  "rawSqlReview": [
+    {
+      "path": "scripts/test-rls-canary-activation.mjs",
+      "mode": "ephemeral-test",
+      "reason": "CI-only scoped transaction setup in a self-cleaning database proof."
+    },
+    {
+      "path": "src/health/health.controller.ts",
+      "mode": "database-readiness",
+      "reason": "Public readiness executes only SELECT 1 and cannot access tenant rows."
+    },
+    {
+      "path": "src/prisma/rls-canary-startup.validator.ts",
+      "mode": "startup-validation",
+      "reason": "Reads PostgreSQL role and RLS catalog state; it does not read domain rows."
+    },
+    {
+      "path": "src/prisma/tenant-transaction-context.service.ts",
+      "mode": "scope-setup",
+      "reason": "Sets transaction-local tenant and branch settings with bound parameters."
+    },
+    {
+      "path": "src/purchasing/purchasing.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks a purchase order by id, tenant_id, and branch_id with bound parameters."
+    }
+  ]
+}
