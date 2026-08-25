@@ -15,9 +15,9 @@ entry disappears or is introduced without classification.
 | Authenticated HTTP domain requests | JWT/tenant/branch guards followed by the opt-in tenant transaction interceptor | Use the non-owner application role and transaction-local tenant/branch settings |
 | Login and refresh | Public auth controller; globally unique email or hashed session token establishes identity before tenant context exists | Keep identity tables out of the first activation wave; approve a dedicated bootstrap design before their RLS is enabled |
 | JWT user-context lookup | Verified JWT subject loads the user and role mappings before the request transaction opens | Same bootstrap decision as login/refresh |
-| Health endpoints | Public and database-free | No tenant context required |
+| Health endpoints | Public liveness is database-free; readiness executes only `SELECT 1` | No tenant context or domain-table access required |
 | NMRA import | Authenticated request service using the shared proxied PrismaService | Runs inside the request tenant transaction; no detached worker exists today |
-| Seed programs | Direct Prisma clients launched explicitly | Migration-owner role only; never use the runtime application URL |
+| Seed and maintenance programs | Direct Prisma clients launched explicitly; tenant maintenance writes are scoped after identity resolution | Migration-owner role only; never use the runtime application URL |
 | RLS administration/tests | Separate `pg`/Prisma clients in acknowledgement-gated or self-cleaning scripts | Migration administrator or ephemeral CI database only |
 | Scheduled jobs/queue workers | None implemented | Any future worker must be added to the inventory and open `TenantTransactionContext.run` per tenant/branch |
 | Raw SQL | Tenant setting infrastructure, startup catalog validation, scoped PO lock, and ephemeral activation proof | Every path is inventoried; domain SQL must bind tenant and branch values |
