@@ -77,3 +77,31 @@ jobs:
         run: npm run build -w web
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:3000/api/v1
+
+      - name: Validate Docker Compose
+        run: docker compose --env-file .env.docker.example config --quiet
+
+      - name: Build API container image
+        run: docker compose --env-file .env.docker.example build api
+
+      - name: Smoke-test API container image
+        run: |
+          docker run --detach --name pharmaceylon-api-ci --network host \
+            --env DATABASE_URL="$DATABASE_URL" \
+            --env JWT_ACCESS_SECRET=ci-access-secret \
+            --env JWT_REFRESH_SECRET=ci-refresh-secret \
+            pharmaceylon-api:local
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3001/api/v1/health > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs pharmaceylon-api-ci
+          exit 1
+
+      - name: Clean up API smoke-test container
+        if: always()
+        run: docker rm --force pharmaceylon-api-ci 2>/dev/null || true
