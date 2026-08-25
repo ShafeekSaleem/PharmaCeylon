@@ -44,36 +44,59 @@ async function main() {
     }
 
     const passwordHash = await bcrypt.hash(ownerPassword, 10);
-    const owner = await prisma.appUser.upsert({
+    const existingOwner = await prisma.appUser.findUnique({
       where: { email: OWNER_EMAIL },
-      update: {
-        tenantId: tenant.id,
-        fullName: "Seed Owner",
-        isActive: true,
-        passwordHash,
-      },
-      create: {
-        tenantId: tenant.id,
-        email: OWNER_EMAIL,
-        fullName: "Seed Owner",
-        passwordHash,
-      },
+      select: { id: true, tenantId: true },
     });
+    if (existingOwner && existingOwner.tenantId !== tenant.id) {
+      throw new Error(
+        `${OWNER_EMAIL} belongs to a different tenant; refusing to reassign it`,
+      );
+    }
+
+    let ownerId: string;
+    if (existingOwner) {
+      const updated = await prisma.appUser.updateMany({
+        where: { id: existingOwner.id, tenantId: tenant.id },
+        data: {
+          fullName: "Seed Owner",
+          isActive: true,
+          passwordHash,
+        },
+      });
+      if (updated.count !== 1) {
+        throw new Error("Demo owner changed tenant or disappeared during update");
+      }
+      ownerId = existingOwner.id;
+    } else {
+      const created = await prisma.appUser.create({
+        data: {
+          tenantId: tenant.id,
+          email: OWNER_EMAIL,
+          fullName: "Seed Owner",
+          passwordHash,
+        },
+        select: { id: true },
+      });
+      ownerId = created.id;
+    }
 
     await prisma.userBranchRole.deleteMany({
-      where: { tenantId: tenant.id, userId: owner.id },
+      where: { tenantId: tenant.id, userId: ownerId },
     });
     await prisma.userBranchRole.createMany({
       data: branches.map((branch) => ({
         tenantId: tenant.id,
-        userId: owner.id,
+        userId: ownerId,
         branchId: branch.id,
         role: RoleName.owner,
       })),
     });
 
-    console.log(`Upserted ${OWNER_EMAIL} as owner on branches: ${branches.map((b) => b.code).join(", ")}`);
-    console.log(`Password: SEED_OWNER_PASSWORD or default Owner123!`);
+    console.log(
+      `Upserted ${OWNER_EMAIL} as owner on branches: ${branches.map((b) => b.code).join(", ")}`,
+    );
+    console.log("Password: SEED_OWNER_PASSWORD or default Owner123!");
   } finally {
     await prisma.$disconnect();
   }
