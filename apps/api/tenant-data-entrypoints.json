@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "publicControllers": [
+    {
+      "path": "src/auth/auth.controller.ts",
+      "mode": "pre-authentication",
+      "reason": "Login and refresh establish user and tenant context from globally unique credentials or session tokens."
+    },
+    {
+      "path": "src/health/health.controller.ts",
+      "mode": "database-free",
+      "reason": "Liveness and readiness endpoints do not access tenant data."
+    }
+  ],
+  "preContextServices": [
+    {
+      "path": "src/auth/auth.service.ts",
+      "mode": "verified-global-identity",
+      "reason": "Login resolves a globally unique email; refresh resolves a hashed session token before tenant context exists."
+    },
+    {
+      "path": "src/auth/user-context.service.ts",
+      "mode": "verified-jwt-subject",
+      "reason": "JWT subject lookup builds the trusted tenant and branch context used by request guards."
+    }
+  ],
+  "directDatabaseClients": [
+    {
+      "path": "src/prisma/prisma.service.ts",
+      "mode": "runtime-root",
+      "reason": "The single Nest runtime client; authenticated domain access is routed through the tenant transaction proxy."
+    },
+    {
+      "path": "prisma/seed.ts",
+      "mode": "migration-owner",
+      "reason": "Controlled seed program, never executed with the runtime application role."
+    },
+    {
+      "path": "prisma/seed-retail-demo-products.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit demo seed program with tenant selection."
+    },
+    {
+      "path": "prisma/seed-retail-demo-sales.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit demo seed program with tenant selection."
+    },
+    {
+      "path": "scripts/manage-rls-canary.mjs",
+      "mode": "controlled-admin",
+      "reason": "Acknowledgement-gated table-owner operation."
+    },
+    {
+      "path": "scripts/prepare-rls-application-role.mjs",
+      "mode": "controlled-admin",
+      "reason": "Acknowledgement-gated database role grant operation."
+    },
+    {
+      "path": "scripts/test-rls-canary-activation.mjs",
+      "mode": "ephemeral-test",
+      "reason": "CI-only activation proof guarded by an ephemeral-database acknowledgement."
+    },
+    {
+      "path": "scripts/test-rls-canary-policies.mjs",
+      "mode": "ci-validation",
+      "reason": "Read-only staged canary policy validation."
+    },
+    {
+      "path": "scripts/test-rls-poc.mjs",
+      "mode": "ephemeral-test",
+      "reason": "Self-cleaning PostgreSQL isolation and pool proof."
+    },
+    {
+      "path": "scripts/test-rls-policy-inventory.mjs",
+      "mode": "ci-validation",
+      "reason": "Read-only schema-derived policy inventory validation."
+    }
+  ],
+  "backgroundWorkers": []
+}
