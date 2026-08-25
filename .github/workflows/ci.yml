@@ -81,8 +81,14 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose --env-file .env.docker.example config --quiet
 
-      - name: Build API container image
-        run: docker compose --env-file .env.docker.example build api
+      - name: Build migration and API container images
+        run: docker compose --env-file .env.docker.example build migrate api
+
+      - name: Smoke-test migration container image
+        run: |
+          docker run --rm --network host \
+            --env DATABASE_URL="$DATABASE_URL" \
+            pharmaceylon-api-migrate:local
 
       - name: Smoke-test API container image
         run: |
