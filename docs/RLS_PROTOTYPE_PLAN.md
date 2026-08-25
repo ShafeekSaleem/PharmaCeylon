@@ -64,6 +64,34 @@ Activation requirements:
    background paths under realistic load.
 4. Only then enable and force RLS for the canary tables in a separate migration.
 
+## Phase 5 staging activation status
+
+Implemented in this phase:
+
+- a guarded role-preparation command validates an existing application login as
+  `NOSUPERUSER NOBYPASSRLS`, confirms it owns no application tables, and
+  grants runtime privileges without transferring ownership;
+- guarded status/enable/disable commands manage only the three canary tables,
+  require an explicit acknowledgement for changes, and validate the
+  non-bypassing application role before activation;
+- application startup fails closed when `RLS_CANARY_ENFORCED=true` unless the
+  request transaction boundary is enabled, the runtime role cannot bypass RLS
+  or own a canary table, and all three tables have ENABLE/FORCE RLS;
+- CI temporarily enables RLS on the real Product, Batch, and Sale tables,
+  connects through an ephemeral non-owner role, and proves missing-scope,
+  tenant, branch, read, create, update, and delete behaviour through Prisma;
+- the live proof includes a scoped-transaction latency smoke threshold and
+  always restores the table flags, fixtures, and role;
+- `docs/RLS_CANARY_RUNBOOK.md` defines the staging sequence, validation window,
+  rollback order, and remaining production approval boundary.
+
+Still not enabled by repository migration:
+
+- no checked-in migration automatically enables RLS;
+- production activation is not approved;
+- non-HTTP paths and representative staging load still require an environment
+  soak before the canary can advance.
+
 ## Architecture decision
 
 Use transaction-local PostgreSQL settings:
@@ -103,15 +131,18 @@ use `FORCE ROW LEVEL SECURITY` after migration/seed behaviour is verified.
 3. **Completed:** route existing Prisma access through the active request
    transaction and stage disabled policies for `Product`, `Batch`, and
    `Sale`.
-4. **Next:** activate the transaction boundary with a non-owner application
-   role in test/staging, then test direct reads, aggregates, creates, updates,
-   deletes, nested writes, deliberate missing-scope queries, and performance
-   before enabling canary RLS.
-5. Verify non-HTTP paths: authentication, seed, NMRA import, scheduled jobs,
-   migrations, and support scripts.
-6. Expand policy generation to all tenant-owned models and compare the policy
+4. **Completed in CI:** validate a non-owner application role, temporarily
+   ENABLE/FORCE the real canary tables, and test direct reads, aggregates,
+   creates, updates, deletes, missing-scope behaviour, branch behaviour, and a
+   transaction latency smoke threshold.
+5. **Next in staging:** activate the transaction boundary and canary policies
+   with the runbook, then soak product, inventory, checkout, reporting, NMRA
+   import, and worker paths under representative traffic.
+6. Verify every non-HTTP path: authentication, seed, NMRA import, scheduled
+   jobs, migrations, and support scripts.
+7. Expand policy generation to all tenant-owned models and compare the policy
    inventory against `schema.prisma` in CI.
-7. Roll out in observe/test environments first, then stage, then production
+8. Roll out in observe/test environments first, then stage, then production
    behind an explicit deployment checklist.
 
 ## Policy shape

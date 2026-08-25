@@ -62,6 +62,11 @@ jobs:
       - name: Validate staged RLS canary policies
         run: npm run test:rls-canary -w api
 
+      - name: Exercise real RLS canary activation
+        run: npm run test:rls-canary-activation -w api
+        env:
+          RLS_CANARY_TEST_ACK: ephemeral-database
+
       - name: Build API
         run: npm run build -w api
 
