@@ -8,8 +8,8 @@
     },
     {
       "path": "src/health/health.controller.ts",
-      "mode": "database-free",
-      "reason": "Liveness and readiness endpoints do not access tenant data."
+      "mode": "database-readiness",
+      "reason": "Liveness is database-free; readiness executes SELECT 1 without reading tenant data."
     }
   ],
   "preContextServices": [
@@ -26,14 +26,14 @@
   ],
   "directDatabaseClients": [
     {
-      "path": "src/prisma/prisma.service.ts",
-      "mode": "runtime-root",
-      "reason": "The single Nest runtime client; authenticated domain access is routed through the tenant transaction proxy."
+      "path": "prisma/backfill-catalog-taxonomy.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit tenant-by-tenant catalog maintenance program."
     },
     {
-      "path": "prisma/seed.ts",
+      "path": "prisma/retire-demo-admin.ts",
       "mode": "migration-owner",
-      "reason": "Controlled seed program, never executed with the runtime application role."
+      "reason": "Explicit legacy-user maintenance with final writes scoped by the resolved tenant."
     },
     {
       "path": "prisma/seed-retail-demo-products.ts",
@@ -44,6 +44,16 @@
       "path": "prisma/seed-retail-demo-sales.ts",
       "mode": "migration-owner",
       "reason": "Explicit demo seed program with tenant selection."
+    },
+    {
+      "path": "prisma/seed.ts",
+      "mode": "migration-owner",
+      "reason": "Controlled seed program, never executed with the runtime application role."
+    },
+    {
+      "path": "prisma/upsert-demo-owner.ts",
+      "mode": "migration-owner",
+      "reason": "Explicit demo-user maintenance that rejects cross-tenant reassignment."
     },
     {
       "path": "scripts/manage-rls-canary.mjs",
@@ -74,14 +84,24 @@
       "path": "scripts/test-rls-policy-inventory.mjs",
       "mode": "ci-validation",
       "reason": "Read-only schema-derived policy inventory validation."
+    },
+    {
+      "path": "src/prisma/prisma.service.ts",
+      "mode": "runtime-root",
+      "reason": "The single Nest runtime client; authenticated domain access is routed through the tenant transaction proxy."
     }
   ],
   "backgroundWorkers": [],
   "rawSqlReview": [
     {
-      "path": "src/prisma/tenant-transaction-context.service.ts",
-      "mode": "scope-setup",
-      "reason": "Sets transaction-local tenant and branch settings with bound parameters."
+      "path": "scripts/test-rls-canary-activation.mjs",
+      "mode": "ephemeral-test",
+      "reason": "CI-only scoped transaction setup in a self-cleaning database proof."
+    },
+    {
+      "path": "src/health/health.controller.ts",
+      "mode": "database-readiness",
+      "reason": "Public readiness executes only SELECT 1 and cannot access tenant rows."
     },
     {
       "path": "src/prisma/rls-canary-startup.validator.ts",
@@ -89,14 +109,14 @@
       "reason": "Reads PostgreSQL role and RLS catalog state; it does not read domain rows."
     },
     {
+      "path": "src/prisma/tenant-transaction-context.service.ts",
+      "mode": "scope-setup",
+      "reason": "Sets transaction-local tenant and branch settings with bound parameters."
+    },
+    {
       "path": "src/purchasing/purchasing.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks a purchase order by id, tenant_id, and branch_id with bound parameters."
-    },
-    {
-      "path": "scripts/test-rls-canary-activation.mjs",
-      "mode": "ephemeral-test",
-      "reason": "CI-only scoped transaction setup in a self-cleaning database proof."
     }
   ]
 }
