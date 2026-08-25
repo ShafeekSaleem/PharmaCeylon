@@ -1,8 +1,8 @@
 # Docker development guide
 
-This guide introduces Docker to PharmaCeylon one step at a time. In Phase 1,
-Docker runs PostgreSQL only. The API and web app still run directly on your
-computer, preserving the normal hot-reload development workflow.
+This guide introduces Docker to PharmaCeylon one step at a time. Phase 1 runs
+PostgreSQL in Docker. Phase 2 adds a production-style image for the NestJS API,
+while the Next.js web app continues to run directly on your computer.
 
 ## What Phase 1 creates
 
@@ -177,3 +177,148 @@ values or intentionally reset the local volume.
 - The API health-readiness endpoint succeeds after the API starts.
 - PostgreSQL data remains after `docker compose down` and another `up`.
 
+## Phase 2: run the API from an image
+
+Phase 2 packages the API, its production dependencies, the generated Prisma
+client, and compiled JavaScript into the `pharmaceylon-api:local` image. The
+source TypeScript and build-only dependencies are not used when the container
+starts.
+
+The Dockerfile uses several stages:
+
+| Stage | Purpose |
+| --- | --- |
+| `base` | Provides Node.js 22 and required operating-system libraries. |
+| `pruner` | Uses Turborepo to keep only the API and shared workspace inputs. |
+| `builder` | Installs dependencies, generates Prisma, and compiles the API. |
+| `runtime` | Runs only the compiled API as the non-root `node` user. |
+
+The final image is an immutable template. Compose creates a running API
+container from that image and supplies environment-specific configuration at
+runtime.
+
+### Update your local Docker environment
+
+If `.env.docker` already exists, do not overwrite it. Add the following Phase 2
+values and preserve any local customization such as `POSTGRES_PORT=5433`:
+
+```dotenv
+API_PORT=3001
+WEB_ORIGINS=http://localhost:3000
+JWT_ACCESS_SECRET=local-docker-access-secret-change-before-production
+JWT_REFRESH_SECRET=local-docker-refresh-secret-change-before-production
+JWT_ACCESS_TTL_SECONDS=900
+JWT_REFRESH_TTL_SECONDS=1209600
+USER_CONTEXT_TTL_SECONDS=30
+OPENAPI_ENABLED=true
+STRUCTURED_HTTP_LOG=true
+```
+
+These JWT values are only for development on your computer. Never reuse them in
+a shared, staging, or production environment.
+
+### Understand the two PostgreSQL ports
+
+If your `.env.docker` contains `POSTGRES_PORT=5433`, the connections are:
+
+| Client | Database address | Reason |
+| --- | --- | --- |
+| API running on your computer | `localhost:5433` | It enters Docker through the published host port. |
+| API running in Compose | `db:5432` | It uses the private Compose network and PostgreSQL's internal port. |
+
+The containerized API receives `db:5432` automatically from `compose.yaml`.
+Do not change it to `db:5433`; `5433` exists only on the host side of the port
+mapping.
+
+### Apply migrations before starting the image
+
+Phase 3 will add a dedicated one-time migration container. Until then, continue
+to run migrations from your computer using the host-facing database port:
+
+```powershell
+npm run prisma:migrate -w api
+```
+
+Your `apps/api/.env` should therefore still use `localhost:5433` when that is
+the host port you selected.
+
+### Build the API image
+
+Stop the host-running NestJS API first so port `3001` is available. The web app
+may remain running.
+
+From the repository root:
+
+```powershell
+docker compose --env-file .env.docker build api
+```
+
+`build` executes the Dockerfile and creates the image. It does not start an API
+container. Inspect the result:
+
+```powershell
+docker image ls pharmaceylon-api
+```
+
+### Start the API container
+
+```powershell
+docker compose --env-file .env.docker up -d api
+docker compose --env-file .env.docker ps
+```
+
+Compose waits for `db` to report healthy before starting `api`. The API should
+then progress from `health: starting` to `healthy`.
+
+Check its logs and endpoints:
+
+```powershell
+docker compose --env-file .env.docker logs -f api
+```
+
+Press `Ctrl+C` after observing the startup logs, then run:
+
+```powershell
+Invoke-RestMethod http://localhost:3001/api/v1/health
+Invoke-RestMethod http://localhost:3001/api/v1/health/ready
+```
+
+The liveness endpoint confirms the Node.js process responds. The readiness
+endpoint additionally confirms that it can query PostgreSQL through the private
+Compose network.
+
+The locally running Next.js app can continue using
+`API_PROXY_TARGET=http://127.0.0.1:3001`, because the API container publishes
+port `3001` back to the host.
+
+### Image rebuilds versus container restarts
+
+- Configuration-only changes in `.env.docker` require recreating the container:
+  `docker compose --env-file .env.docker up -d --force-recreate api`.
+- Source-code changes require rebuilding the immutable image:
+  `docker compose --env-file .env.docker up -d --build api`.
+- A normal restart reuses the existing image:
+  `docker compose --env-file .env.docker restart api`.
+
+### Uploaded-file persistence
+
+The API writes uploads to `/app/apps/api/storage/uploads` inside the container.
+Compose mounts the `pharmaceylon_api_uploads` named volume there, so recreating
+the API container does not delete uploaded files.
+
+Inspect the volume:
+
+```powershell
+docker volume inspect pharmaceylon_api_uploads
+```
+
+As with the database volume, `docker compose down --volumes` deletes this data.
+
+### Phase 2 completion checklist
+
+- `docker compose ... build api` creates `pharmaceylon-api:local`.
+- Both `db` and `api` report `healthy`.
+- `/api/v1/health` responds successfully.
+- `/api/v1/health/ready` confirms database connectivity.
+- The locally running Next.js app works through the containerized API.
+- API logs appear through `docker compose logs api`.
