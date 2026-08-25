@@ -71,6 +71,19 @@ Two narrow exception labels are supported and require an inline reason:
 Exceptions are review points, not general suppressions. Prefer passing
 `tenantId` into the function and scoping the mutation whenever practical.
 
+## Automated entry-point enforcement
+
+The same lint command validates `tenant-data-entrypoints.json`. It inventories
+all direct Prisma/PostgreSQL clients, public controllers, pre-context services,
+worker/queue entry points, and Prisma raw-SQL paths. Introducing a new public,
+background, raw-SQL, or direct-client path fails CI until its tenant-context and
+database-role behaviour is explicitly classified.
+
+The current audit and activation waves are documented in
+`TENANT_ACCESS_PATH_AUDIT.md`. CI also derives all tenant-owned tables from
+`schema.prisma` and verifies a staged tenant `USING`/`WITH CHECK` policy
+exists for every model.
+
 ## Review checklist
 
 For every endpoint or background job:
@@ -90,7 +103,16 @@ For every endpoint or background job:
 - [x] Scope remaining tenant-owned service mutations or document the narrow
   authentication lifecycle exception.
 - [x] Enforce tenant scope on Prisma mutations during CI.
-- [ ] Expand two-tenant integration coverage for branch workflows and reports.
-- [ ] Introduce a request-aware tenant data-access layer.
-- [ ] Prototype PostgreSQL row-level security after connection-pool and
-  transaction semantics are proven; see `RLS_PROTOTYPE_PLAN.md`.
+- [x] Add two-tenant Product/Batch/Sale integration coverage, including branch,
+  missing-scope, write rejection and connection-pool cleanup.
+- [x] Introduce the request-aware tenant transaction/proxy layer.
+- [x] Prototype PostgreSQL row-level security and validate a non-owner
+  `NOBYPASSRLS` role in CI.
+- [x] Inventory public, pre-context, direct-client, raw-SQL and future worker
+  entry points in CI.
+- [x] Stage and validate tenant policies for all 42 tenant-owned Prisma models
+  without enabling them.
+- [ ] Activate and soak the Product/Batch/Sale canary in a real staging
+  environment.
+- [ ] Roll out later table waves after query-plan, authentication-bootstrap,
+  backup/restore and break-glass gates pass.
