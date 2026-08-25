@@ -1,8 +1,9 @@
 # Docker development guide
 
 This guide introduces Docker to PharmaCeylon one step at a time. Phase 1 runs
-PostgreSQL in Docker. Phase 2 adds a production-style image for the NestJS API,
-while the Next.js web app continues to run directly on your computer.
+PostgreSQL in Docker. Phase 2 adds a production-style image for the NestJS API.
+Phase 3 applies committed Prisma migrations through a one-shot container. The
+Next.js web app continues to run directly on your computer.
 
 ## What Phase 1 creates
 
@@ -230,17 +231,12 @@ The containerized API receives `db:5432` automatically from `compose.yaml`.
 Do not change it to `db:5433`; `5433` exists only on the host side of the port
 mapping.
 
-### Apply migrations before starting the image
+### Database migrations
 
-Phase 3 will add a dedicated one-time migration container. Until then, continue
-to run migrations from your computer using the host-facing database port:
-
-```powershell
-npm run prisma:migrate -w api
-```
-
-Your `apps/api/.env` should therefore still use `localhost:5433` when that is
-the host port you selected.
+Phase 3 adds a dedicated one-time migration container. Starting the API through
+Compose now applies committed migrations automatically before the API starts.
+Use `prisma migrate dev` on your computer only when developing and committing a
+new migration.
 
 ### Build the API image
 
@@ -322,3 +318,142 @@ As with the database volume, `docker compose down --volumes` deletes this data.
 - `/api/v1/health/ready` confirms database connectivity.
 - The locally running Next.js app works through the containerized API.
 - API logs appear through `docker compose logs api`.
+
+## Phase 3: one-shot database migrations
+
+The `migrate` service runs `prisma migrate deploy`. It waits for PostgreSQL to
+be healthy, applies all pending migration files, and exits. The API depends on
+that successful exit, so it cannot start against an outdated schema.
+
+```mermaid
+flowchart LR
+    DB["db becomes healthy"] --> Migrate["migrate applies Prisma files"]
+    Migrate --> Success["migrate exits 0"]
+    Success --> API["api starts"]
+```
+
+An exit code of `0` means success. A non-zero exit means the migration failed;
+Compose leaves the API stopped so the schema problem can be investigated rather
+than serving requests with incompatible code.
+
+### Why migrations use a separate image target
+
+The long-running API should not contain migration tooling or TypeScript build
+dependencies. The Dockerfile therefore produces two related images:
+
+| Image | Lifetime | Contains |
+| --- | --- | --- |
+| `pharmaceylon-api-migrate:local` | Runs once and exits | Prisma CLI, migration history, config, and required dependencies |
+| `pharmaceylon-api:local` | Long-running service | Production dependencies and compiled API only |
+
+Both are built from the same source revision, preventing the application image
+and migration history from drifting apart.
+
+### `migrate dev` versus `migrate deploy`
+
+| Command | Where it belongs | Purpose |
+| --- | --- | --- |
+| `prisma migrate dev` | Developer computer | Creates and tests new migration files while changing the schema. |
+| `prisma migrate deploy` | Migration container/CI/deployment | Applies existing committed migrations without creating new ones. |
+
+The migration container uses `deploy`. It never invents schema changes and does
+not run the seed script.
+
+### Build both images
+
+From the repository root:
+
+```powershell
+docker compose --env-file .env.docker build migrate api
+```
+
+Docker can reuse the shared builder layers, so the two targets do not require
+performing every build step twice.
+
+Inspect both images:
+
+```powershell
+docker image ls pharmaceylon-api*
+```
+
+### Run only the migration job
+
+You can safely run the migration job manually whenever you want to check for
+pending migrations:
+
+```powershell
+docker compose --env-file .env.docker run --rm migrate
+```
+
+If the database is already current, Prisma reports that there are no pending
+migrations and the temporary container is removed because of `--rm`.
+
+### Start the ordered stack
+
+Stop the existing API container so you can clearly observe the dependency flow:
+
+```powershell
+docker compose --env-file .env.docker stop api
+docker compose --env-file .env.docker up -d --build api
+docker compose --env-file .env.docker ps --all
+```
+
+The expected lifecycle is:
+
+1. `db` becomes healthy.
+2. `migrate` runs and exits with code `0`.
+3. `api` starts and becomes healthy.
+
+The migration container showing `Exited (0)` is correct. It is a completed job,
+not a failed or missing service.
+
+Inspect its output:
+
+```powershell
+docker compose --env-file .env.docker logs migrate
+```
+
+Then verify the API and database connection:
+
+```powershell
+Invoke-RestMethod http://localhost:3001/api/v1/health
+Invoke-RestMethod http://localhost:3001/api/v1/health/ready
+```
+
+### When a migration fails
+
+Do not bypass the migration dependency or manually mark it successful. Read the
+logs first:
+
+```powershell
+docker compose --env-file .env.docker logs migrate
+```
+
+After correcting the migration or configuration, rebuild and run it again:
+
+```powershell
+docker compose --env-file .env.docker build migrate
+docker compose --env-file .env.docker run --rm migrate
+docker compose --env-file .env.docker up -d api
+```
+
+Prisma migrations are expected to be forward-moving and reviewed before
+deployment. Database backups and safe expand/contract schema changes will be
+part of the later production deployment phase.
+
+### Local versus future production database roles
+
+The local Compose stack currently uses the PostgreSQL owner credentials for both
+migration and application connections. That is acceptable for local learning.
+In an RLS-enabled staging or production environment, the migration job must use
+the migration-owner role, while the API must use the restricted non-owner,
+`NOBYPASSRLS` application role.
+
+### Phase 3 completion checklist
+
+- Both migration and API images build successfully.
+- `docker compose run --rm migrate` exits successfully.
+- `docker compose up -d api` orders `db`, `migrate`, then `api`.
+- `migrate` appears as `Exited (0)` in `docker compose ps --all`.
+- The API becomes healthy only after migration completion.
+- The readiness endpoint confirms PostgreSQL connectivity.
