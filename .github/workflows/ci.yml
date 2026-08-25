@@ -81,8 +81,8 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose --env-file .env.docker.example config --quiet
 
-      - name: Build migration and API container images
-        run: docker compose --env-file .env.docker.example build migrate api
+      - name: Build migration, API, and web container images
+        run: docker compose --env-file .env.docker.example build migrate api web
 
       - name: Smoke-test migration container image
         run: |
@@ -92,8 +92,14 @@ jobs:
 
       - name: Smoke-test API container image
         run: |
-          docker run --detach --name pharmaceylon-api-ci --network host \
-            --env DATABASE_URL="$DATABASE_URL" \
+          docker network create pharmaceylon-ci
+
+          docker run --detach --name pharmaceylon-api-ci \
+            --network pharmaceylon-ci \
+            --network-alias api \
+            --add-host host.docker.internal:host-gateway \
+            --publish 127.0.0.1:3001:3001 \
+            --env DATABASE_URL="${DATABASE_URL/127.0.0.1/host.docker.internal}" \
             --env JWT_ACCESS_SECRET=ci-access-secret \
             --env JWT_REFRESH_SECRET=ci-refresh-secret \
             pharmaceylon-api:local
@@ -108,6 +114,27 @@ jobs:
           docker logs pharmaceylon-api-ci
           exit 1
 
-      - name: Clean up API smoke-test container
+      - name: Smoke-test web container and API proxy
+        run: |
+          docker run --detach --name pharmaceylon-web-ci \
+            --network pharmaceylon-ci \
+            --publish 127.0.0.1:3000:3000 \
+            pharmaceylon-web:local
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then
+              curl --fail --silent http://127.0.0.1:3000/api/v1/health > /dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs pharmaceylon-web-ci
+          exit 1
+
+      - name: Clean up container smoke tests
         if: always()
-        run: docker rm --force pharmaceylon-api-ci 2>/dev/null || true
+        run: |
+          docker rm --force pharmaceylon-web-ci 2>/dev/null || true
+          docker rm --force pharmaceylon-api-ci 2>/dev/null || true
+          docker network rm pharmaceylon-ci 2>/dev/null || true
