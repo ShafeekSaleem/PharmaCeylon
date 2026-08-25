@@ -62,6 +62,9 @@ jobs:
       - name: Validate staged RLS canary policies
         run: npm run test:rls-canary -w api
 
+      - name: Validate complete tenant RLS policy inventory
+        run: npm run test:rls-policy-inventory -w api
+
       - name: Exercise real RLS canary activation
         run: npm run test:rls-canary-activation -w api
         env:
