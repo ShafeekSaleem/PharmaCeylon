@@ -4,6 +4,9 @@ This guide introduces Docker to PharmaCeylon one step at a time. Phase 1 runs
 PostgreSQL in Docker. Phase 2 adds a production-style image for the NestJS API.
 Phase 3 applies committed Prisma migrations through a one-shot container.
 Phase 4 packages Next.js and runs the complete local web stack in Compose.
+Phase 5 adds daily commands, readiness verification, bounded logs, and real
+Compose lifecycle tests. If you have completed Phases 1-4, start at
+[Phase 5](#phase-5-operate-and-verify-the-complete-local-stack).
 
 ## What Phase 1 creates
 
@@ -134,9 +137,9 @@ Only use this when you intentionally want to delete all local PostgreSQL data:
 docker compose --env-file .env.docker down --volumes
 ```
 
-This deletes the named volume and cannot be undone unless you have a backup.
-The database will be empty the next time it starts, so migrations and seeding
-must be run again.
+This deletes **both the database and uploaded-file volumes** and cannot be undone
+unless you have backups. The database will be empty the next time it starts.
+Do not use this to fix a port conflict, restart problem, or failed migration.
 
 ## Troubleshooting
 
@@ -332,9 +335,10 @@ flowchart LR
     Success --> API["api starts"]
 ```
 
-An exit code of `0` means success. A non-zero exit means the migration failed;
-Compose leaves the API stopped so the schema problem can be investigated rather
-than serving requests with incompatible code.
+An exit code of `0` means success. A non-zero exit blocks dependent API/web
+startup. This dependency gate does not stop an API that was already running:
+stop API/web before deliberately testing a migration failure or performing a
+schema change incompatible with the old application.
 
 ### Why migrations use a separate image target
 
@@ -631,3 +635,185 @@ local data.
 - `http://localhost:3000/api/v1/health` works through the Next.js proxy.
 - Login/auth cookies and API calls work through the same browser origin.
 - Uploaded files load through `/uploads/*` via the web proxy.
+
+## Phase 5: operate and verify the complete local stack
+
+You already have all four services. This phase makes their daily operation and
+verification consistent. It does not activate RLS, seed demo data, change your
+database credentials, add Redis, or deploy anything to a server.
+
+### Start here after Phase 4
+
+Keep your existing `.env.docker`; **do not copy over it**. No new variables are
+required. Your chosen `POSTGRES_PORT` can remain `5432` or `5433`.
+
+Use a current Docker Desktop with Compose supporting `up --wait` and
+`--wait-timeout` (Compose 2.20+ or newer). Host Node.js 22 is recommended for
+the npm helpers; they use no installed project dependencies. Application
+dependencies are installed inside the image builds.
+
+Stop any host-running API/web processes, then run from the repository root in
+PowerShell, Bash, or Terminal:
+
+```powershell
+npm run docker:config
+npm run docker:up
+npm run docker:check
+npm run docker:ps
+```
+
+On a new checkout only, create `.env.docker` from `.env.docker.example` first.
+
+| Command | What you are learning |
+| --- | --- |
+| `docker:config` | Validates configuration quietly, without printing rendered secrets. |
+| `docker:up` | Builds images, creates/recreates containers, starts dependencies, and waits for health. |
+| `docker:check` | Reads container states and probes the actual web/API/database request path. It writes no data. |
+| `docker:ps` | Includes stopped containers, so the successful migration job remains visible. |
+
+`docker:up` expands to:
+
+```powershell
+docker compose --env-file .env.docker up -d --build --wait --wait-timeout 180 web
+```
+
+The same stack can also run in the foreground with logs:
+
+```powershell
+docker compose --env-file .env.docker up --build
+```
+
+The npm helper selects `web`, which brings up its dependencies. `--wait` waits
+for health, and `--wait-timeout 180` bounds the final readiness wait; it is not
+a total image-build or migration time limit. A slow first build can take several
+minutes. A timeout does not remove containers: inspect logs before retrying.
+
+Expected state after success:
+
+| Service | State | Why |
+| --- | --- | --- |
+| `db` | Running, healthy | PostgreSQL accepts connections. |
+| `migrate` | Exited (0) | Committed migrations finished successfully. |
+| `api` | Running, healthy | Its readiness endpoint can query PostgreSQL. |
+| `web` | Running, healthy | Next.js serves a page after the API becomes ready. |
+
+Open `http://localhost:3000`, or the host port set in `WEB_PORT`.
+
+### What `docker:check` verifies
+
+The checker reads Compose's resolved settings in memory, without logging secrets.
+It verifies all four states, then checks the web HTML page, API liveness and
+readiness directly, and the same two API endpoints through the Next.js proxy.
+An HTTP 200 alone is not enough: readiness must return `ok: true` and
+`database: true`. Each HTTP request has a five-second timeout; failures exit
+non-zero. Run this after startup finishes, not while containers are still warming.
+
+The checker also catches inconsistent browser configuration. If you use web
+port `3002`, these three settings must agree:
+
+```dotenv
+WEB_PORT=3002
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3002/api/v1
+WEB_ORIGINS=http://localhost:3002
+```
+
+Keep `API_PROXY_TARGET=http://api:3001`. Rebuild `web` after changing its build
+arguments; restart alone cannot rewrite an already-built JavaScript bundle.
+The checker validates current Compose configuration and HTTP behavior, not every
+URL embedded in a stale browser bundle. Use `docker:up` after source/config changes.
+
+### Everyday commands
+
+| Goal | Command |
+| --- | --- |
+| Rebuild and start after pulling code | `npm run docker:up` |
+| Start existing images without rebuilding | `npm run docker:start` |
+| Build all three application images only | `npm run docker:build` |
+| Check status / request path | `npm run docker:ps` / `npm run docker:check` |
+| Follow the last 100 log lines | `npm run docker:logs` |
+| Follow only web/API | `npm run docker:logs -- web api` |
+| Inspect migration output | `docker compose --env-file .env.docker logs migrate` |
+| Re-run committed migrations using the built image | `npm run docker:migrate` |
+| Stop but keep containers | `npm run docker:stop` |
+| Remove containers/network, retain both named volumes | `npm run docker:down` |
+| Start only PostgreSQL | `npm run docker:db` |
+| Inspect resource use | `docker stats` |
+
+`docker:start` requires already-built images. `docker:migrate` uses the existing
+migrator image; build first if migration files have changed. Press `Ctrl+C` to
+stop following logs without stopping the services. Log rotation now retains at
+most three 10 MB files per container, limiting local log disk growth.
+
+`docker:db` does not stop API/web containers that are already running. To switch
+back to hot-reload development:
+
+```powershell
+docker compose --env-file .env.docker stop web api
+npm run docker:db
+npm run dev
+```
+
+Your host API then needs `localhost:POSTGRES_PORT` in `apps/api/.env`; the
+container API always uses `db:5432`. Ensure the host web configuration uses the
+host API target, normally `http://127.0.0.1:3001`.
+
+### Networking and persistence
+
+All services remain on the project-scoped `pharmaceylon_default` bridge network.
+Only loopback host ports are published. This is local isolation, not a production
+firewall: containers on that network can communicate with one another, and
+outbound access remains available for features such as NMRA imports.
+
+Existing volume names remain `pharmaceylon_postgres_data` and
+`pharmaceylon_api_uploads`. Do not change the Compose project name or use `-p`
+for your everyday stack: another project gets different, initially empty volumes,
+which can make your data appear missing. There is intentionally no destructive
+`docker:reset` npm shortcut.
+
+For a manual persistence check, note an existing product and uploaded logo,
+run `docker:down`, then `docker:start` and `docker:check`. Sign in and confirm
+both remain. These commands do not delete named volumes, but persistence is
+not a backup; production backup/restore procedures remain a later phase.
+
+### What CI proves, and what you still test manually
+
+The `docker-stack` job starts the actual Compose file on an empty, disposable
+database, separate from the application/RLS test database. It uses host DB port
+5433 and web port 3002 to exercise non-default port configuration. It verifies:
+
+- Full migration history applies before API/web startup.
+- Container health, API database readiness, and the Next.js API proxy.
+- Both application containers run as non-root users.
+- The uploads volume is writable and files load through the web proxy.
+- A migration rerun does not duplicate history.
+- A test database record and upload survive container/network removal and recreation.
+- A deliberately failing migration blocks API/web from starting on a stopped stack.
+
+The lifecycle script refuses to run without the CI environment, a specifically
+named CI project, and an explicit disposable-project acknowledgement. It must
+never be pointed at your everyday development database. Only CI cleanup deletes
+that CI project's volumes. The ordinary `docker:check` command is read-only.
+
+Health checks do not prove every business flow. Before calling your local stack
+fully verified, manually test login/logout/refresh, tenant/branch switching,
+product search, inventory, a test checkout, reports, upload retrieval, and an
+NMRA import. Use local test data. A newly migrated database is empty until you
+explicitly run the existing seed process described in [LOCAL_DEV.md](LOCAL_DEV.md).
+
+Docker health status is diagnostic; `restart: unless-stopped` restarts exited
+processes, not a process merely marked unhealthy. Compose startup dependencies
+do not provide ongoing failover or production orchestration.
+
+### Scope after Phase 5
+
+This remains a local HTTP setup using local owner database credentials, insecure
+HTTP cookies, and disabled RLS flags. It is not production-ready simply because
+the images run. Phase 6 adds registry publication, immutable tags and vulnerability
+scanning; deployment, TLS, restricted database roles, RLS activation, backups,
+and shared upload storage follow when an environment exists. Redis/mobile stay
+outside this stack for now.
+
+Official references: [Compose startup ordering](https://docs.docker.com/compose/how-tos/startup-order/),
+[Compose up](https://docs.docker.com/reference/cli/docker/compose/up/),
+[Compose networking](https://docs.docker.com/compose/how-tos/networking/), and
+[Compose down / volume behavior](https://docs.docker.com/reference/cli/docker/compose/down/).

@@ -11,7 +11,19 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "prepare": "npm run build -w @pharmaceylon/shared"
+    "prepare": "npm run build -w @pharmaceylon/shared",
+    "docker:config": "docker compose --env-file .env.docker config --quiet",
+    "docker:build": "docker compose --env-file .env.docker build migrate api web",
+    "docker:up": "docker compose --env-file .env.docker up -d --build --wait --wait-timeout 180 web",
+    "docker:start": "docker compose --env-file .env.docker up -d --no-build --wait --wait-timeout 180 web",
+    "docker:db": "docker compose --env-file .env.docker up -d db",
+    "docker:ps": "docker compose --env-file .env.docker ps --all",
+    "docker:logs": "docker compose --env-file .env.docker logs --follow --tail 100",
+    "docker:stop": "docker compose --env-file .env.docker stop",
+    "docker:down": "docker compose --env-file .env.docker down",
+    "docker:migrate": "docker compose --env-file .env.docker run --rm migrate",
+    "docker:check": "node scripts/docker/check-stack.mjs",
+    "test:docker-scripts": "node --test scripts/docker/check-stack.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.5.3",

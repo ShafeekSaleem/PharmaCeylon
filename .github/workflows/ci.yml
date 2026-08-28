@@ -78,63 +78,52 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:3000/api/v1
 
+  docker-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Separate volumes/network from both developer data and the RLS job DB.
+      COMPOSE_PROJECT_NAME: pharmaceylon-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      POSTGRES_PORT: "5433"
+      WEB_PORT: "3002"
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3002/api/v1
+      WEB_ORIGINS: http://localhost:3002
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test Docker verification scripts
+        run: npm run test:docker-scripts
+
+      - name: Prepare disposable CI configuration
+        run: cp .env.docker.example .env.docker
+
       - name: Validate Docker Compose
-        run: docker compose --env-file .env.docker.example config --quiet
+        run: npm run docker:config
 
       - name: Build migration, API, and web container images
-        run: docker compose --env-file .env.docker.example build migrate api web
+        run: npm run docker:build
 
-      - name: Smoke-test migration container image
-        run: |
-          docker run --rm --network host \
-            --env DATABASE_URL="$DATABASE_URL" \
-            pharmaceylon-api-migrate:local
+      - name: Start actual Compose stack against an empty database
+        run: npm run docker:start
 
-      - name: Smoke-test API container image
-        run: |
-          docker network create pharmaceylon-ci
+      - name: Verify health, readiness, and web proxy
+        run: npm run docker:check
 
-          docker run --detach --name pharmaceylon-api-ci \
-            --network pharmaceylon-ci \
-            --network-alias api \
-            --add-host host.docker.internal:host-gateway \
-            --publish 127.0.0.1:3001:3001 \
-            --env DATABASE_URL="${DATABASE_URL/127.0.0.1/host.docker.internal}" \
-            --env JWT_ACCESS_SECRET=ci-access-secret \
-            --env JWT_REFRESH_SECRET=ci-refresh-secret \
-            pharmaceylon-api:local
+      - name: Verify persistence, migration reruns, and failed-migration gate
+        run: node scripts/docker/test-stack-lifecycle.mjs
+        env:
+          DOCKER_LIFECYCLE_TEST_ACK: ephemeral-compose-project
 
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:3001/api/v1/health > /dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs pharmaceylon-api-ci
-          exit 1
-
-      - name: Smoke-test web container and API proxy
-        run: |
-          docker run --detach --name pharmaceylon-web-ci \
-            --network pharmaceylon-ci \
-            --publish 127.0.0.1:3000:3000 \
-            pharmaceylon-web:local
-
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then
-              curl --fail --silent http://127.0.0.1:3000/api/v1/health > /dev/null
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs pharmaceylon-web-ci
-          exit 1
-
-      - name: Clean up container smoke tests
+      - name: Show Compose diagnostics
         if: always()
         run: |
-          docker rm --force pharmaceylon-web-ci 2>/dev/null || true
-          docker rm --force pharmaceylon-api-ci 2>/dev/null || true
-          docker network rm pharmaceylon-ci 2>/dev/null || true
+          docker compose --env-file .env.docker.example ps --all
+          docker compose --env-file .env.docker.example logs --no-color --tail 150
+
+      - name: Remove only this disposable CI stack and its test volumes
+        if: always()
+        run: docker compose --env-file .env.docker.example down --volumes --remove-orphans
