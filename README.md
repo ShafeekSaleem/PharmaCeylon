@@ -88,12 +88,18 @@ cd apps/mobile && npx expo start
 Run the complete local web stack in Docker:
 
 ```bash
-docker compose --env-file .env.docker up -d --build web
+npm run docker:config
+npm run docker:up
+npm run docker:check
 ```
 
 Compose starts PostgreSQL, runs the one-shot migration job, starts the API, and
-then starts Next.js. Stop host-running API/web processes before publishing ports
-`3001` and `3000`. See
+then starts Next.js, waiting for healthy services. Keep your existing `.env.docker`
+and chosen ports; create it from the example only on a new checkout. Stop
+host-running API/web processes before publishing ports `3001` and `3000`.
+`npm run docker:ps` includes the completed migration job; `npm run docker:logs`
+follows logs. `npm run docker:down` removes containers but preserves database and
+upload volumes. No npm helper resets or seeds data automatically. See
 **[docs/DOCKER.md](docs/DOCKER.md)** for the Docker learning walkthrough.
 
 ## License

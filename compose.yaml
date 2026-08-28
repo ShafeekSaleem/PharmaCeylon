@@ -1,9 +1,17 @@
 name: pharmaceylon
 
+# Bound local log growth without changing the existing project/volume names.
+x-local-logging: &local-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *local-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pharmaceylon}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -31,6 +39,7 @@ services:
       dockerfile: apps/api/Dockerfile
       target: migrator
     restart: "no"
+    logging: *local-logging
     init: true
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-pharmaceylon}?schema=public"
@@ -45,6 +54,7 @@ services:
       dockerfile: apps/api/Dockerfile
       target: runtime
     restart: unless-stopped
+    logging: *local-logging
     init: true
     environment:
       NODE_ENV: production
@@ -66,6 +76,13 @@ services:
       - "127.0.0.1:${API_PORT:-3001}:3001"
     volumes:
       - api_uploads:/app/apps/api/storage/uploads
+    # The image retains a liveness check; Compose gates web on DB readiness.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/v1/health/ready').then(async (r) => { const b = await r.json(); if (!r.ok || b.ok !== true || b.database !== true) process.exit(1); }).catch(() => process.exit(1));"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
     depends_on:
       db:
         condition: service_healthy
@@ -83,6 +100,7 @@ services:
         NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3000/api/v1}"
         API_PROXY_TARGET: "${API_PROXY_TARGET:-http://api:3001}"
     restart: unless-stopped
+    logging: *local-logging
     init: true
     environment:
       NODE_ENV: production
@@ -99,3 +117,9 @@ services:
 volumes:
   postgres_data:
   api_uploads:
+
+# Compose already used this project-scoped network in Phases 1-4. Keep its
+# identity; service DNS stays db/api/web and outbound NMRA access stays available.
+networks:
+  default:
+    driver: bridge
