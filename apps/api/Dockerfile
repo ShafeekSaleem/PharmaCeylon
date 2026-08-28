@@ -46,6 +46,10 @@ RUN npm rebuild \
 # image. It is intentionally not included in the long-running API image.
 FROM builder AS migrator
 
+ARG IMAGE_REVISION=local
+LABEL org.opencontainers.image.source="https://github.com/ShafeekSaleem/PharmaCeylon" \
+    org.opencontainers.image.revision=${IMAGE_REVISION}
+
 ENV NODE_ENV=production
 
 USER node
@@ -60,6 +64,10 @@ RUN npm prune --omit=dev --ignore-scripts
 
 # The final stage contains runtime dependencies and compiled output only.
 FROM base AS runtime
+
+ARG IMAGE_REVISION=local
+LABEL org.opencontainers.image.source="https://github.com/ShafeekSaleem/PharmaCeylon" \
+    org.opencontainers.image.revision=${IMAGE_REVISION}
 
 ENV NODE_ENV=production \
     PORT=3001

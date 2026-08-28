@@ -1,0 +1,23 @@
+# Use with compose.yaml, .env.docker and a generated .env.images release lock.
+# Requires Docker Compose 2.24.4+. All source-build definitions are removed.
+services:
+  api:
+    image: ${API_IMAGE:?Download the release lock as .env.images}
+    build: !reset null
+    platform: linux/amd64
+    labels:
+      io.pharmaceylon.expected-revision: ${RELEASE_SHA:?Missing RELEASE_SHA in .env.images}
+  migrate:
+    image: ${MIGRATE_IMAGE:?Download the release lock as .env.images}
+    build: !reset null
+    platform: linux/amd64
+    labels:
+      io.pharmaceylon.expected-revision: ${RELEASE_SHA:?Missing RELEASE_SHA in .env.images}
+  web:
+    image: ${WEB_IMAGE:?Download the release lock as .env.images}
+    build: !reset null
+    platform: linux/amd64
+    environment:
+      API_PROXY_TARGET: http://api:3001
+    labels:
+      io.pharmaceylon.expected-revision: ${RELEASE_SHA:?Missing RELEASE_SHA in .env.images}
