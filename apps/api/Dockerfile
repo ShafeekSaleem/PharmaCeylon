@@ -46,25 +46,44 @@ RUN npm rebuild \
 # image. It is intentionally not included in the long-running API image.
 FROM builder AS migrator
 
+# The migration job runs the already-installed Prisma CLI directly. Package
+# managers are build tools and are not needed in any published image.
+RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
+ARG IMAGE_REVISION=local
+LABEL org.opencontainers.image.source="https://github.com/ShafeekSaleem/PharmaCeylon" \
+    org.opencontainers.image.revision=${IMAGE_REVISION}
+
 ENV NODE_ENV=production
+ENV PATH="/app/apps/api/node_modules/.bin:/app/node_modules/.bin:${PATH}"
 
 USER node
-WORKDIR /app
+WORKDIR /app/apps/api
 
-CMD ["npm", "run", "prisma:deploy", "-w", "api"]
+CMD ["prisma", "migrate", "deploy"]
 
 # Remove build and migration tooling before assembling the API runtime image.
 FROM builder AS production-dependencies
 
-RUN npm prune --omit=dev --ignore-scripts
+RUN npm prune --omit=dev --ignore-scripts \
+    && mkdir -p /app/apps/api/node_modules
 
 # The final stage contains runtime dependencies and compiled output only.
 FROM base AS runtime
+
+RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
+ARG IMAGE_REVISION=local
+LABEL org.opencontainers.image.source="https://github.com/ShafeekSaleem/PharmaCeylon" \
+    org.opencontainers.image.revision=${IMAGE_REVISION}
 
 ENV NODE_ENV=production \
     PORT=3001
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder --chown=node:node /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=builder --chown=node:node /app/packages/shared/package.json ./packages/shared/package.json

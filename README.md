@@ -102,6 +102,19 @@ follows logs. `npm run docker:down` removes containers but preserves database an
 upload volumes. No npm helper resets or seeds data automatically. See
 **[docs/DOCKER.md](docs/DOCKER.md)** for the Docker learning walkthrough.
 
+## Versioned Docker images (Phase 6)
+
+CI tests and scans PR images without publishing them. Successful merged PRs to
+`develop` publish matching API, migration, and web images to GHCR, then verify
+the pulled digests in a source-free bundle. The verified `release-bundle` Actions
+artifact includes Compose configuration, a digest-pinned release lock and helper
+commands; application source and `npm install` are not required to run it.
+
+Keep using `npm run docker:up` for source builds. To run a published version,
+follow [docs/DOCKER_IMAGES.md](docs/DOCKER_IMAGES.md) for registry login, image
+pulls, updates, and rollback limitations. The first real registry publication
+happens after merging Phase 6 and passing its publication checks.
+
 ## License
 
 Proprietary — all rights reserved.

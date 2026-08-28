@@ -24,7 +24,7 @@ RUN turbo prune web --docker
 # API_PROXY_TARGET is used to generate Next's server-side rewrite manifest.
 FROM base AS builder
 
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:3000/api/v1
+ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
 ARG API_PROXY_TARGET=http://api:3001
 
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
@@ -45,6 +45,15 @@ RUN npm rebuild \
 # Next standalone output contains the traced runtime dependencies and server.
 FROM base AS runtime
 
+RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
+ARG IMAGE_REVISION=local
+ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
+LABEL org.opencontainers.image.source="https://github.com/ShafeekSaleem/PharmaCeylon" \
+    org.opencontainers.image.revision=${IMAGE_REVISION} \
+    io.pharmaceylon.api-base=${NEXT_PUBLIC_API_BASE_URL}
+
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
@@ -63,4 +72,3 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:3000/').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"]
 
 CMD ["node", "server.js"]
-

@@ -23,7 +23,15 @@
     "docker:down": "docker compose --env-file .env.docker down",
     "docker:migrate": "docker compose --env-file .env.docker run --rm migrate",
     "docker:check": "node scripts/docker/check-stack.mjs",
-    "test:docker-scripts": "node --test scripts/docker/check-stack.test.mjs"
+    "test:docker-scripts": "node --experimental-strip-types --test scripts/docker/check-stack.test.mjs scripts/docker/release-images.test.mjs",
+    "docker:images:config": "node scripts/docker/images.mjs config",
+    "docker:images:pull": "node scripts/docker/images.mjs pull",
+    "docker:images:up": "node scripts/docker/images.mjs up",
+    "docker:images:check": "node scripts/docker/images.mjs check",
+    "docker:images:ps": "node scripts/docker/images.mjs ps",
+    "docker:images:logs": "node scripts/docker/images.mjs logs",
+    "docker:images:stop": "node scripts/docker/images.mjs stop",
+    "docker:images:down": "node scripts/docker/images.mjs down"
   },
   "devDependencies": {
     "prettier": "^3.5.3",
@@ -31,5 +39,12 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2",
+    "multer": "2.2.0",
+    "sharp": "0.35.3",
+    "js-yaml@4.1.1": "4.3.1",
+    "postcss": "8.5.18"
   }
 }

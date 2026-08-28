@@ -2,8 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [develop, main, master]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
@@ -28,9 +31,9 @@ jobs:
       # must be present for the config module to load.
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pharmaceylon_ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -86,12 +89,13 @@ jobs:
       COMPOSE_PROJECT_NAME: pharmaceylon-ci-${{ github.run_id }}-${{ github.run_attempt }}
       POSTGRES_PORT: "5433"
       WEB_PORT: "3002"
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:3002/api/v1
+      NEXT_PUBLIC_API_BASE_URL: /api/v1
+      IMAGE_REVISION: ${{ github.sha }}
       WEB_ORIGINS: http://localhost:3002
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
 
@@ -118,6 +122,46 @@ jobs:
         env:
           DOCKER_LIFECYCLE_TEST_ACK: ephemeral-compose-project
 
+      - name: Test push, digest pull, and source-free bundle with a disposable registry
+        run: node scripts/docker/test-local-registry.mjs
+
+      - name: Install checksum-verified Trivy 0.74.0
+        run: |
+          curl --fail --location --retry 3 https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz -o "$RUNNER_TEMP/trivy.tar.gz"
+          printf '%s  %s\n' '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a' "$RUNNER_TEMP/trivy.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP" trivy
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Scan all three images and enforce vulnerability policy
+        run: node scripts/docker/scan-images.mjs
+
+      - name: Retain vulnerability reports and SBOMs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-reports-${{ github.sha }}
+          path: |
+            release/scan-*.json
+            release/sbom-*.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Export the exact tested and scanned images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'ShafeekSaleem/PharmaCeylon'
+        run: node scripts/docker/release-images.mjs export
+
+      - name: Hand off tested images to the restricted publisher
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'ShafeekSaleem/PharmaCeylon'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tested-images-${{ github.sha }}
+          path: |
+            release/images.tar
+            release/image-set.json
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
       - name: Show Compose diagnostics
         if: always()
         run: |
@@ -127,3 +171,92 @@ jobs:
       - name: Remove only this disposable CI stack and its test volumes
         if: always()
         run: docker compose --env-file .env.docker.example down --volumes --remove-orphans
+
+  publish-images:
+    needs: [build-and-test, docker-stack]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'ShafeekSaleem/PharmaCeylon'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: ghcr-develop-publication
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Require this commit to come from a merged PR to develop
+        run: node scripts/docker/check-publish-source.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tested-images-${{ github.sha }}
+          path: release
+      - name: Load and verify the tested image set (no rebuild)
+        run: |
+          docker image load -i release/images.tar
+          node scripts/docker/release-images.mjs verify
+      - name: Log in to GHCR with a repository-scoped temporary token
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish commit/run tags and record pulled digests
+        run: node scripts/docker/release-images.mjs publish
+      - name: Hand off candidate bundle for independent read-only verification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-release-${{ github.sha }}
+          path: release/bundle/
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+
+  verify-published-images:
+    needs: publish-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: candidate-release-${{ github.sha }}
+          path: release/bundle
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull exact GHCR digests and run the source-free bundle
+        run: node scripts/docker/test-image-bundle.mjs release/bundle
+      - name: Remove ephemeral test settings from the distributable bundle
+        run: rm -f release/bundle/.env.docker release/bundle/.env.images
+      - name: Publish verified release bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-bundle
+          path: release/bundle/
+          include-hidden-files: true
+          retention-days: 30
+          if-no-files-found: error
+      - name: Summarize the verified release
+        run: |
+          echo '### Verified Docker release' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Download the release-bundle artifact; it contains digest-pinned release.env and the operating guide.' >> "$GITHUB_STEP_SUMMARY"
+          cat release/bundle/release.env >> "$GITHUB_STEP_SUMMARY"

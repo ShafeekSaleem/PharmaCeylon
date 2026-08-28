@@ -12,6 +12,8 @@ out/
 .env
 .env.*.local
 .env.docker
+.env.images
+release/
 *.log
 
 # IDE
@@ -36,4 +38,3 @@ apps/api/storage/
 
 # Test / coverage
 coverage/
-

@@ -25,6 +25,28 @@ async function main() {
   const migrations = () => sql('SELECT count(*) FROM public._prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;');
 
   await checkStack();
+  compose(["exec", "-T", "api", "node", "-e", `
+    const assert = require('node:assert/strict');
+    (async () => {
+      const bcrypt = require('bcrypt');
+      const hash = await bcrypt.hash('ci-dependency-smoke', 4);
+      assert.equal(await bcrypt.compare('ci-dependency-smoke', hash), true);
+      assert.equal(await bcrypt.compare('wrong-password', hash), false);
+      const XLSX = require('xlsx');
+      const rows = [['sku', 'qty'], ['CI-SKU', 7]];
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), 'Smoke');
+      const bytes = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' });
+      const read = XLSX.read(bytes, { type: 'buffer' });
+      assert.deepEqual(XLSX.utils.sheet_to_json(read.Sheets.Smoke, { header: 1 }), rows);
+      const sharp = require('sharp');
+      const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#ffffff' } }).png().toBuffer();
+      const resized = await sharp(png).resize(1, 1).png().toBuffer();
+      assert.equal((await sharp(resized).metadata()).width, 1);
+      assert.equal(require('node:fs').existsSync('/usr/local/lib/node_modules/npm'), false);
+    })().catch((error) => { console.error(error.message); process.exit(1); });
+  `]);
+  console.log("PASS: bcrypt hash verification, XLSX workbook round-trip, and sharp image processing.");
   const migrationCount = migrations();
   assert.ok(Number(migrationCount) > 0, "Empty DB must have been migrated by Compose");
   sql(`CREATE SCHEMA docker_phase5_probe;

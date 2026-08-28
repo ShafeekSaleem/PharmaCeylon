@@ -7,6 +7,8 @@ Phase 4 packages Next.js and runs the complete local web stack in Compose.
 Phase 5 adds daily commands, readiness verification, bounded logs, and real
 Compose lifecycle tests. If you have completed Phases 1-4, start at
 [Phase 5](#phase-5-operate-and-verify-the-complete-local-stack).
+For registry publishing and digest-pinned image releases, see
+[Phase 6: Docker images](DOCKER_IMAGES.md).
 
 ## What Phase 1 creates
 
@@ -808,7 +810,7 @@ do not provide ongoing failover or production orchestration.
 
 This remains a local HTTP setup using local owner database credentials, insecure
 HTTP cookies, and disabled RLS flags. It is not production-ready simply because
-the images run. Phase 6 adds registry publication, immutable tags and vulnerability
+the images run. Phase 6 adds registry publication, digest-pinned releases and vulnerability
 scanning; deployment, TLS, restricted database roles, RLS activation, backups,
 and shared upload storage follow when an environment exists. Redis/mobile stay
 outside this stack for now.

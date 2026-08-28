@@ -6,9 +6,12 @@ export const root = fileURLToPath(new URL("../../", import.meta.url));
 
 // No shell interpolation, no dotenv parser, and no rendered secrets in output.
 // Compose itself resolves .env.docker and shell overrides on every platform.
-export function compose(args, { capture = true, input, files = [] } = {}) {
+export function compose(args, { capture = true, input, files = [], images = false } = {}) {
   const result = spawnSync("docker", [
-    "compose", "--env-file", ".env.docker", "-f", "compose.yaml",
+    "compose", "--env-file", ".env.docker",
+    ...(images ? ["--env-file", ".env.images"] : []),
+    "-f", "compose.yaml",
+    ...(images ? ["-f", "compose.images.yaml"] : []),
     ...files.flatMap((file) => ["-f", file]), ...args,
   ], {
     cwd: root,
@@ -59,13 +62,13 @@ export function hostOrigin(config, service, port) {
   return `http://localhost:${mapping.published}`;
 }
 
-export function validateBrowserConfig(config) {
+export function validateBrowserConfig(config, { images = false } = {}) {
   const origin = hostOrigin(config, "web", 3000);
   const args = config.services.web.build?.args ?? {};
-  if (args.NEXT_PUBLIC_API_BASE_URL !== `${origin}/api/v1`) {
-    throw new Error("NEXT_PUBLIC_API_BASE_URL must match http://localhost:WEB_PORT/api/v1. Correct .env.docker and rebuild web.");
+  if (!images && !["/api/v1", `${origin}/api/v1`].includes(args.NEXT_PUBLIC_API_BASE_URL)) {
+    throw new Error("NEXT_PUBLIC_API_BASE_URL must be /api/v1 or match http://localhost:WEB_PORT/api/v1. Correct .env.docker and rebuild web.");
   }
-  if (args.API_PROXY_TARGET !== "http://api:3001") {
+  if ((!images && args.API_PROXY_TARGET !== "http://api:3001") || (images && config.services.web.environment.API_PROXY_TARGET !== "http://api:3001")) {
     throw new Error("API_PROXY_TARGET must be http://api:3001 inside Docker. Correct .env.docker and rebuild web.");
   }
   const origins = (config.services.api.environment.WEB_ORIGINS ?? "").split(",").map((value) => value.trim());
@@ -93,11 +96,11 @@ export async function checkEndpoint(url, kind, request = fetch) {
   }
 }
 
-export async function checkStack() {
-  const config = JSON.parse(compose(["config", "--format", "json"]));
-  const web = validateBrowserConfig(config);
+export async function checkStack({ images = false } = {}) {
+  const config = JSON.parse(compose(["config", "--format", "json"], { images }));
+  const web = validateBrowserConfig(config, { images });
   const api = hostOrigin(config, "api", 3001);
-  validateServices(parseServices(compose(["ps", "--all", "--format", "json"])));
+  validateServices(parseServices(compose(["ps", "--all", "--format", "json"], { images })));
   console.log("PASS: db/api/web healthy; migrate exited 0.");
   // Use IPv4 because the published ports intentionally bind only to 127.0.0.1.
   for (const [url, kind] of [
@@ -114,5 +117,5 @@ export async function checkStack() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  checkStack().catch((error) => { console.error(error.message); process.exitCode = 1; });
+  checkStack({ images: process.argv.includes("--images") }).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
