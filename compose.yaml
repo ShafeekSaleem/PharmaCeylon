@@ -73,6 +73,29 @@ services:
         condition: service_completed_successfully
     stop_grace_period: 30s
 
+  web:
+    image: pharmaceylon-web:local
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: runtime
+      args:
+        NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3000/api/v1}"
+        API_PROXY_TARGET: "${API_PROXY_TARGET:-http://api:3001}"
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      API_PROXY_TARGET: "${API_PROXY_TARGET:-http://api:3001}"
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    stop_grace_period: 30s
+
 volumes:
   postgres_data:
   api_uploads:

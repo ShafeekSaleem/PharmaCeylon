@@ -2,8 +2,8 @@
 
 This guide introduces Docker to PharmaCeylon one step at a time. Phase 1 runs
 PostgreSQL in Docker. Phase 2 adds a production-style image for the NestJS API.
-Phase 3 applies committed Prisma migrations through a one-shot container. The
-Next.js web app continues to run directly on your computer.
+Phase 3 applies committed Prisma migrations through a one-shot container.
+Phase 4 packages Next.js and runs the complete local web stack in Compose.
 
 ## What Phase 1 creates
 
@@ -457,3 +457,177 @@ the migration-owner role, while the API must use the restricted non-owner,
 - `migrate` appears as `Exited (0)` in `docker compose ps --all`.
 - The API becomes healthy only after migration completion.
 - The readiness endpoint confirms PostgreSQL connectivity.
+
+## Phase 4: containerize Next.js
+
+Phase 4 packages the Next.js application using standalone output and adds it as
+the `web` Compose service. The browser now enters through the web container,
+while Next proxies API and upload requests to the API over Docker's private
+network.
+
+```mermaid
+flowchart LR
+    Browser["Browser localhost:3000"] --> Web["web container :3000"]
+    Web -->|"api:3001"| API["api container :3001"]
+    API --> DB["db container :5432"]
+```
+
+### Browser addresses versus Docker service names
+
+The browser runs on Windows, outside Docker. It can use `localhost`, but it
+cannot resolve Compose service names such as `web`, `api`, or `db`.
+
+| Connection | Address |
+| --- | --- |
+| Browser to Next.js | `http://localhost:3000` |
+| Browser API URL | `http://localhost:3000/api/v1` |
+| Next.js container to NestJS | `http://api:3001` |
+| NestJS container to PostgreSQL | `db:5432` |
+
+The browser uses the same Next.js origin for page and API requests. Next's
+server-side rewrite forwards `/api/v1/*` and `/uploads/*` to `api:3001` without
+exposing the Docker hostname to browser JavaScript.
+
+### Standalone Next.js output
+
+`output: "standalone"` makes Next.js trace and copy the production files needed
+by its server. `outputFileTracingRoot` is set to the repository root so the
+standalone output also includes dependencies from `packages/shared`.
+
+The final `pharmaceylon-web:local` image contains the standalone server, static
+assets, and public files. It runs as the non-root `node` user and does not need
+the complete monorepo or the Next.js CLI at startup.
+
+### Update `.env.docker`
+
+Add these Phase 4 settings to the existing file:
+
+```dotenv
+WEB_PORT=3000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3000/api/v1
+API_PROXY_TARGET=http://api:3001
+```
+
+`NEXT_PUBLIC_API_BASE_URL` is embedded into browser JavaScript during the image
+build. `API_PROXY_TARGET` is used to generate the server rewrite manifest during
+that same build. If either value changes, rebuild the web image.
+`API_PROXY_TARGET` must remain `http://api:3001` for this Compose stack.
+
+If host port `3000` is already occupied and you choose another port, update all
+three related values consistently. For example:
+
+```dotenv
+WEB_PORT=3002
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3002/api/v1
+WEB_ORIGINS=http://localhost:3002
+```
+
+The internal `API_PROXY_TARGET` still remains `http://api:3001`.
+
+### Build the complete application images
+
+Stop any host-running Next.js and NestJS processes first so ports `3000` and
+`3001` are available. Then run:
+
+```powershell
+docker compose --env-file .env.docker build migrate api web
+```
+
+Inspect the images:
+
+```powershell
+docker image ls pharmaceylon-*
+```
+
+### Start the full stack
+
+Starting `web` automatically starts everything it depends on:
+
+```powershell
+docker compose --env-file .env.docker up -d web
+docker compose --env-file .env.docker ps --all
+```
+
+Expected state:
+
+| Service | Expected status |
+| --- | --- |
+| `db` | Running and healthy |
+| `migrate` | Exited successfully with code `0` |
+| `api` | Running and healthy |
+| `web` | Running and healthy |
+
+Open the application at:
+
+```text
+http://localhost:3000
+```
+
+Verify both the web server and its API proxy from PowerShell:
+
+```powershell
+Invoke-WebRequest http://localhost:3000
+Invoke-RestMethod http://localhost:3000/api/v1/health
+Invoke-RestMethod http://localhost:3000/api/v1/health/ready
+```
+
+The second and third commands deliberately use port `3000`. A successful result
+proves the request passed through Next.js and reached the API container.
+
+### Observe the stack
+
+Follow web and API logs together:
+
+```powershell
+docker compose --env-file .env.docker logs -f web api
+```
+
+Press `Ctrl+C` to stop following logs without stopping containers.
+
+View resource usage:
+
+```powershell
+docker stats
+```
+
+### Rebuild after changes
+
+The containerized stack runs compiled production output, not hot reload.
+
+- Next.js source or public assets changed: rebuild `web`.
+- API source changed: rebuild `api` and `migrate` so code and migrations remain
+  aligned.
+- `NEXT_PUBLIC_*` changed: rebuild `web` because public variables are embedded
+  during `next build`.
+- Runtime-only API secrets changed: recreate `api`; an image rebuild is not
+  required.
+
+Rebuild and recreate the full stack with:
+
+```powershell
+docker compose --env-file .env.docker up -d --build web
+```
+
+For rapid day-to-day coding, it remains valid to run API/web processes on the
+host with hot reload and keep only PostgreSQL in Docker. The full container stack
+is for production-like verification and deployment preparation.
+
+### Stop the stack
+
+```powershell
+docker compose --env-file .env.docker down
+```
+
+This removes the containers and network but preserves PostgreSQL and upload
+volumes. Do not add `--volumes` unless you intentionally want to erase that
+local data.
+
+### Phase 4 completion checklist
+
+- The migration, API, and web images build successfully.
+- `web`, `api`, and `db` report healthy.
+- `migrate` exits successfully.
+- `http://localhost:3000` loads the application.
+- `http://localhost:3000/api/v1/health` works through the Next.js proxy.
+- Login/auth cookies and API calls work through the same browser origin.
+- Uploaded files load through `/uploads/*` via the web proxy.
