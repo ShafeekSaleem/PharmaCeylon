@@ -45,6 +45,9 @@ RUN npm rebuild \
 # Next standalone output contains the traced runtime dependencies and server.
 FROM base AS runtime
 
+RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
 ARG IMAGE_REVISION=local
 ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
 LABEL org.opencontainers.image.source="https://github.com/ShafeekSaleem/PharmaCeylon" \

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { releaseTag, assertImage } from "./release-images.mjs";
-import { validateImageConfig } from "./images.mjs";
+import { assertContainerImage, validateImageConfig } from "./images.mjs";
 import { assessReport } from "./scan-images.mjs";
 import { getApiBaseUrl } from "../../apps/web/src/lib/api-base.ts";
 
@@ -24,6 +24,10 @@ test("image identity and public-URL checks reject mismatched or nonportable arti
   assert.throws(() => assertImage(info, "b".repeat(40), "web"));
   info.Config.Labels["io.pharmaceylon.api-base"] = "http://localhost:3000/api/v1";
   assert.throws(() => assertImage(info, revision, "web"));
+  const container = { Image: "sha256:tested", Config: { Labels: { "io.pharmaceylon.expected-revision": revision } } };
+  assertContainerImage(container, { Id: "sha256:tested" }, revision, "web");
+  assert.throws(() => assertContainerImage(container, { Id: "sha256:older" }, revision, "web"));
+  assert.throws(() => assertContainerImage(container, { Id: "sha256:tested" }, "b".repeat(40), "web"));
 });
 const imageConfig = () => ({ services: Object.fromEntries([
   ["api", "pharmaceylon-api"], ["migrate", "pharmaceylon-api-migrate"], ["web", "pharmaceylon-web"],

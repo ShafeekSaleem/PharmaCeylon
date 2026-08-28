@@ -2,7 +2,21 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkStack, compose, validateBrowserConfig } from "./check-stack.mjs";
-import { assertImage, imageNames, inspect } from "./release-images.mjs";
+import { assertImage, docker, imageNames, inspect } from "./release-images.mjs";
+
+export function assertContainerImage(container, image, revision, service) {
+  assert.equal(container.Image, image.Id, `${service}: container is not running the selected release image`);
+  assert.equal(container.Config.Labels?.["io.pharmaceylon.expected-revision"], revision, `${service}: container has a different release lock`);
+}
+
+function checkContainerImages(config, revision) {
+  for (const service of Object.keys(imageNames)) {
+    const ids = compose(["ps", "--all", "--quiet", service], { images: true }).trim().split(/\s+/).filter(Boolean);
+    assert.equal(ids.length, 1, `${service}: expected exactly one release container`);
+    const container = JSON.parse(docker(["container", "inspect", ids[0]]))[0];
+    assertContainerImage(container, inspect(config.services[service].image), revision, service);
+  }
+}
 
 export function validateImageConfig(config) {
   let revision;
@@ -41,7 +55,11 @@ export async function runImages(action) {
     run(["stop", "web", "api"]);
     run(["up", "-d", "--no-build", "--wait", "--wait-timeout", "180", "web"]);
     await checkStack({ images: true });
-  } else if (action === "check") await checkStack({ images: true });
+    checkContainerImages(config, revision);
+  } else if (action === "check") {
+    await checkStack({ images: true });
+    checkContainerImages(config, revision);
+  }
   else if (action === "ps") run(["ps", "--all"]);
   else if (action === "logs") run(["logs", "--follow", "--tail", "100"]);
   else if (action === "down" || action === "stop") run([action]);

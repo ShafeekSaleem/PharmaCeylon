@@ -151,6 +151,27 @@ Handler receives the same runtime target. Host development can keep its existing
 absolute browser URL and host API target. This phase does not add server-side
 authenticated data fetching to the shared browser API helper.
 
+## Dependency remediation included in this phase
+
+The first scan found fixable vulnerabilities in existing dependencies. Remediation
+includes Next.js 15.5.24, bcrypt 6, sharp 0.35, SheetJS CE 0.20.3 from its official
+distribution URL, and refreshed transitive dependency locks. The API and web
+runtime images no longer ship npm/Yarn. The migrator calls the installed Prisma
+CLI directly and also excludes global package managers.
+
+Targeted root overrides address pinned upstream dependencies: Prisma config's
+`deepmerge-ts`, Nest's `multer`/`js-yaml`, and Next's `postcss`/`sharp`. Remove these overrides
+only when upstream constraints include fixed versions. The deepmerge-ts 8 change
+affects Map-merging semantics; this app's Prisma config uses plain configuration
+objects, and CI reruns migration/config loading plus the real RLS proofs. The
+Prisma major version and database schema are unchanged.
+
+CI additionally exercises real bcrypt hashing/comparison, an XLSX workbook
+round-trip, and sharp resizing in the API image. Native package and parser updates
+still warrant local login, uploads, and NMRA import tests before release approval.
+The official SheetJS URL and integrity are pinned in the npm lockfile; this avoids
+the outdated npm-registry `xlsx` release without changing import names.
+
 ## Updating and rollback
 
 Keep each release's `release.env` and `release.json` together. Before updating,

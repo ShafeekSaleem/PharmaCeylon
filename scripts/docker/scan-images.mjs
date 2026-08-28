@@ -31,7 +31,7 @@ function scan() {
     blocked += policy.blocking.length;
     console.log(`${service}: ${policy.blocking.length} fixable HIGH/CRITICAL findings block publication; ${policy.unfixed.length} unfixed HIGH/CRITICAL findings require review.`);
     for (const finding of [...policy.blocking, ...policy.unfixed]) {
-      console.log(`${finding.Severity} ${finding.VulnerabilityID} ${finding.PkgName}@${finding.InstalledVersion} -> ${finding.FixedVersion || "no vendor fix recorded"}`);
+      console.log(`${finding.Severity} ${finding.VulnerabilityID} ${finding.PkgName}@${finding.InstalledVersion} -> ${finding.FixedVersion || "no vendor fix recorded"} ${finding.PkgPath || ""}`);
     }
   }
   assert.equal(blocked, 0, `${blocked} fixable HIGH/CRITICAL findings block publication. See scan report artifacts; do not add blanket exclusions.`);
