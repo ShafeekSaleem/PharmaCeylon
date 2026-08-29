@@ -27,7 +27,6 @@ Tenants may also create **custom roles** (see `docs/API_CONTRACT.md` and the Use
 | Purchasing | `/purchasing` | yes | yes | yes | — | yes |
 | Transfers | `/transfers` | yes | yes | yes | — | yes |
 | Reports | `/reports` | yes | yes | — | — | — |
-| Analytics | `/analytics` | yes | yes | — | — | — |
 | Audit Log | `/audit` | yes | yes | — | — | — |
 | Users & Roles | `/users` | yes | yes* | — | — | — |
 | Settings | `/settings` | yes | yes* | — | — | — |
@@ -46,7 +45,7 @@ These are the named groups used in `app-shell.tsx` for nav-level visibility:
 | `POS_ROLES` | owner, manager, pharmacist, cashier | POS / Checkout |
 | `CATALOG_ROLES` | owner, manager, cashier, inventory_clerk | Products |
 | `OPERATIONS_ROLES` | owner, manager, pharmacist, inventory_clerk | Suppliers, Inventory, Purchasing, Transfers |
-| `INSIGHTS_ROLES` | owner, manager | Reports, Analytics |
+| `INSIGHTS_ROLES` | owner, manager | Reports |
 
 Pages without a `roles` restriction (Dashboard, Search Catalog) are visible to all authenticated users.
 

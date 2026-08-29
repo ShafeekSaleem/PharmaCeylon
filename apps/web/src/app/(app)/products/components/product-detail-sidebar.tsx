@@ -269,7 +269,7 @@ export function ProductDetailSidebar({
             </div>
           </dl>
           <Link
-            href={`/audit?entityName=product&entityId=${productId}`}
+            href={`/audit?entityName=product&entityId=${productId}&entityLabel=${encodeURIComponent(product.name)}`}
             className={detailCss.footerLink}
           >
             View full audit log

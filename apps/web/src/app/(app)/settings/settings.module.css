@@ -1,0 +1,427 @@
+.page {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+.lead {
+  margin: 0 0 1.25rem;
+  font-size: 0.9rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.45;
+  max-width: 760px;
+}
+
+/* ── Sub-nav rail — vertical, grouped, mirrors app-shell.module.css's sidebar nav ── */
+
+.subnav {
+  width: 240px;
+  flex-shrink: 0;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  padding: 0.75rem;
+  position: sticky;
+  top: 1rem;
+}
+
+.subnavGroup {
+  margin-bottom: 0.25rem;
+}
+
+.subnavGroupLabel {
+  display: block;
+  padding: 0.5rem 0.6rem 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pc-muted-fg);
+}
+
+.subnavItem {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 1px;
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.81rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  text-decoration: none;
+}
+
+.subnavItem:hover {
+  background: var(--pc-muted-bg);
+}
+
+.subnavItemActive {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-weight: 600;
+}
+
+.subnavIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pc-muted-fg);
+}
+
+.subnavItemActive .subnavIcon {
+  color: var(--pc-primary);
+}
+
+/* ── Panel / cards — shared by every settings sub-page ── */
+
+.panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.card {
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  padding: 1.25rem;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cardDesc {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 720px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+  .page {
+    flex-direction: column;
+  }
+  .subnav {
+    width: 100%;
+    position: static;
+    max-height: none;
+  }
+}
+
+.subLabel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  margin: 1.15rem 0 0.6rem;
+}
+
+.subLabel:first-of-type {
+  margin-top: 0;
+}
+
+.rowItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.rowItem:last-child {
+  border-bottom: none;
+}
+
+.rowLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.rowHint {
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  margin-top: 0.15rem;
+}
+
+.saveRow {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.1rem;
+}
+
+.statRow {
+  display: flex;
+  gap: 1.75rem;
+  margin: 0.9rem 0 1.1rem;
+}
+
+.statNum {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.statLbl {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  margin-top: 0.1rem;
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-foreground);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.chipOn {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.infoRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 0.83rem;
+}
+
+.infoRow:last-child {
+  border-bottom: none;
+}
+
+.infoLabel {
+  color: var(--pc-muted-fg);
+}
+
+.infoValue {
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.avatarLarge {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--pc-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.avatarLarge img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarUpload {
+  width: 64px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.table td {
+  padding: 0.65rem 0.75rem;
+  font-size: 0.83rem;
+  color: var(--pc-foreground);
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.iconGhostBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pc-muted-fg);
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.iconGhostBtn:hover {
+  background: var(--pc-muted-bg);
+  color: var(--pc-foreground);
+}
+
+.optionRow {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.optionCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 92px;
+  padding: 0.8rem 0.5rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  background: var(--pc-card-bg);
+  position: relative;
+  cursor: pointer;
+}
+
+.optionCardSelected {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.optionCard:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.optionCardIcon {
+  color: var(--pc-muted-fg);
+}
+
+.optionCardSelected .optionCardIcon {
+  color: var(--pc-primary);
+}
+
+.optionSoonBadge {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+}
+
+.swatchRow {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatchSelected {
+  outline: 2px solid var(--pc-foreground);
+  outline-offset: 2px;
+}
+
+.pillRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pill {
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--pc-foreground);
+  cursor: pointer;
+}
+
+.pillSelected {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-weight: 600;
+}
+
+.badgeLocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.7rem;
+  font-weight: 500;
+}

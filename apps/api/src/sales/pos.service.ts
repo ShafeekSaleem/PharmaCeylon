@@ -247,8 +247,17 @@ export class PosService {
     });
     products.sort((a, b) => a.name.localeCompare(b.name));
 
+    const tenantVatSettings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { vatRatePercent: true },
+    });
+    const effectiveVatRatePercent =
+      tenantVatSettings?.vatRatePercent != null
+        ? Number(tenantVatSettings.vatRatePercent)
+        : this.tax.getVatRatePercent();
+
     return {
-      vatRatePercent: this.tax.getVatRatePercent(),
+      vatRatePercent: effectiveVatRatePercent,
       nearExpiryDays: NEAR_EXPIRY_DAYS,
       products,
       /** Active COMMERCIAL departments — drives the POS browsing chips (tenant-scoped, never empty departments the tenant hasn't enabled). */

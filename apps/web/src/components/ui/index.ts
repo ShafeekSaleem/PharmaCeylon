@@ -12,6 +12,7 @@ export type {
   StatTrendTone,
 } from "./stat-card";
 export { ImageUpload, type ImageUploadProps } from "./image-upload";
+export { ToggleSwitch, type ToggleSwitchProps } from "./toggle-switch";
 export {
   TreeMultiSelect,
   buildCategoryTree,

@@ -32,6 +32,8 @@ export type DataTableProps<T> = {
   total?: number;
   onPageChange?: (page: number) => void;
   onRowClick?: (row: T) => void;
+  /** Extra class(es) applied to a row's `<tr>`, e.g. to flag a critical/flagged row. */
+  rowClassName?: (row: T, index: number) => string | undefined;
   compact?: boolean;
   className?: string;
   stickyHeader?: boolean;
@@ -66,6 +68,7 @@ export function DataTable<T>({
   total: controlledTotal,
   onPageChange,
   onRowClick,
+  rowClassName,
   compact = false,
   className,
   stickyHeader = false,
@@ -216,6 +219,7 @@ export function DataTable<T>({
             {pagedData.map((row, i) => (
               <tr
                 key={rowKey(row)}
+                className={rowClassName?.(row, i)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
                 {columns.map((col) => (

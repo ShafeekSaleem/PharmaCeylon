@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Req } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -10,12 +10,17 @@ import { PrismaService } from "../prisma/prisma.service";
 import { PermissionsService } from "../security/permissions.service";
 import { PERMISSION_KEYS } from "../security/permission-catalog";
 import { UpdateProfitabilityTargetDto } from "./dto/update-profitability-target.dto";
+import { TenantService } from "./tenant.service";
+import { UpdateTenantProfileDto } from "./dto/update-tenant-profile.dto";
+import { CreateBranchDto } from "./dto/create-branch.dto";
+import { UpdateBranchDto } from "./dto/update-branch.dto";
 
 @Controller("tenant")
 export class TenantController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
+    private readonly tenantService: TenantService,
   ) {}
 
   @Get("context")
@@ -110,5 +115,42 @@ export class TenantController {
       : user.branchRoles;
     const granted = await this.permissions.resolveGrantedKeys(candidates);
     return { permissionKeys: [...granted] };
+  }
+
+  /** Settings → General → Tenant Profile. Open read (any authenticated user); only
+   *  owner/manager (`tenant.management`) can change it. */
+  @Get("profile")
+  getProfile(@CurrentUser() user: RequestUser) {
+    return this.tenantService.getProfile(user.tenantId);
+  }
+
+  @RequirePermission("tenant.management")
+  @Patch("profile")
+  updateProfile(@CurrentUser() user: RequestUser, @Body() dto: UpdateTenantProfileDto) {
+    return this.tenantService.updateProfile(user.tenantId, user.userId, dto);
+  }
+
+  /** Settings → General → Branches. Unscoped (every branch, not just the caller's own
+   *  branchRoles) — distinct from the self-scoped GET /tenant/branches above. */
+  @RequirePermission("tenant.branches_view")
+  @Get("branches/all")
+  listAllBranches(@CurrentUser() user: RequestUser) {
+    return this.tenantService.listAllBranches(user.tenantId);
+  }
+
+  @RequirePermission("tenant.branches_manage")
+  @Post("branches")
+  createBranch(@CurrentUser() user: RequestUser, @Body() dto: CreateBranchDto) {
+    return this.tenantService.createBranch(user.tenantId, user.userId, dto);
+  }
+
+  @RequirePermission("tenant.branches_manage")
+  @Patch("branches/:branchId")
+  updateBranch(
+    @CurrentUser() user: RequestUser,
+    @Param("branchId", ParseUUIDPipe) branchId: string,
+    @Body() dto: UpdateBranchDto,
+  ) {
+    return this.tenantService.updateBranch(user.tenantId, user.userId, branchId, dto);
   }
 }

@@ -1,0 +1,130 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  IconUser,
+  IconHome,
+  IconMapPin,
+  IconGrid,
+  IconShoppingCart,
+  IconPackage,
+  IconBox,
+  IconMail,
+  IconCheckCircle,
+  IconBarChart,
+  IconLock,
+  IconSparkles,
+} from "@/components/icons";
+import { usePermissions } from "@/lib/permissions";
+import css from "../settings.module.css";
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+  /** Items with no `adminOnly` are reachable by every role — self-service pages. */
+  adminOnly?: boolean;
+};
+
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "General",
+    items: [
+      { href: "/settings/my-profile", label: "My Profile", icon: <IconUser size={16} /> },
+      {
+        href: "/settings/tenant-profile",
+        label: "Tenant Profile",
+        icon: <IconHome size={16} />,
+        adminOnly: true,
+      },
+      { href: "/settings/branches", label: "Branches", icon: <IconMapPin size={16} />, adminOnly: true },
+    ],
+  },
+  {
+    label: "Modules",
+    items: [
+      { href: "/settings/main", label: "Main", icon: <IconGrid size={16} />, adminOnly: true },
+      {
+        href: "/settings/catalog",
+        label: "Catalog",
+        icon: <IconPackage size={16} />,
+        adminOnly: true,
+      },
+      {
+        href: "/settings/operations",
+        label: "Operations",
+        icon: <IconBox size={16} />,
+        adminOnly: true,
+      },
+    ],
+  },
+  {
+    label: "Alerts & Approvals",
+    items: [
+      {
+        href: "/settings/alerts-recipients",
+        label: "Recipients & Channels",
+        icon: <IconMail size={16} />,
+        adminOnly: true,
+      },
+      {
+        href: "/settings/approval-rules",
+        label: "Approval Rules",
+        icon: <IconCheckCircle size={16} />,
+        adminOnly: true,
+      },
+      {
+        href: "/settings/insights-reports",
+        label: "Insights & Reports",
+        icon: <IconBarChart size={16} />,
+        adminOnly: true,
+      },
+    ],
+  },
+  {
+    label: "Security & Access",
+    items: [
+      { href: "/settings/password-login", label: "Password & Login", icon: <IconLock size={16} /> },
+    ],
+  },
+  {
+    label: "Preferences",
+    items: [{ href: "/settings/appearance", label: "Appearance", icon: <IconSparkles size={16} /> }],
+  },
+];
+
+export function SettingsSubnav() {
+  const pathname = usePathname();
+  const { permissionKeys } = usePermissions();
+  const isAdmin = permissionKeys.includes("tenant.management");
+
+  return (
+    <nav className={css.subnav} aria-label="Settings sections">
+      {NAV_GROUPS.map((group) => {
+        const items = group.items.filter((item) => !item.adminOnly || isAdmin);
+        if (items.length === 0) return null;
+        return (
+          <div key={group.label} className={css.subnavGroup}>
+            <span className={css.subnavGroupLabel}>{group.label}</span>
+            {items.map((item) => {
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`${css.subnavItem}${active ? ` ${css.subnavItemActive}` : ""}`}
+                >
+                  <span className={css.subnavIcon}>{item.icon}</span>
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}

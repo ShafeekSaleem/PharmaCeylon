@@ -8,6 +8,10 @@ export type ImageUploadProps = {
   value?: string | null;
   onChange: (url: string | null) => void;
   folder?: string;
+  /** Overrides the upload route (default `/uploads/image?context=<folder>`, permission-gated).
+   *  Used for self-scoped uploads like the avatar route (`/auth/me/avatar`), which every role
+   *  may call regardless of the `uploads.image` permission. */
+  endpoint?: string;
   disabled?: boolean;
   className?: string;
 };
@@ -19,6 +23,7 @@ export function ImageUpload({
   value,
   onChange,
   folder = "products",
+  endpoint,
   disabled = false,
   className,
 }: ImageUploadProps) {
@@ -52,7 +57,7 @@ export function ImageUpload({
         const formData = new FormData();
         formData.append("file", file);
 
-        const res = await apiFetch(`/uploads/image?context=${folder}`, {
+        const res = await apiFetch(endpoint ?? `/uploads/image?context=${folder}`, {
           method: "POST",
           body: formData,
         });
@@ -70,7 +75,7 @@ export function ImageUpload({
         setUploading(false);
       }
     },
-    [folder, onChange],
+    [folder, endpoint, onChange],
   );
 
   const handleDrop = useCallback(

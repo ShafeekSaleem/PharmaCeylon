@@ -1,0 +1,37 @@
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 2rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--pc-border);
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.switchOn {
+  background: var(--pc-primary);
+}
+
+.switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.switchThumb {
+  position: absolute;
+  top: 0.13rem;
+  left: 0.13rem;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.switchOn .switchThumb {
+  transform: translateX(0.85rem);
+}

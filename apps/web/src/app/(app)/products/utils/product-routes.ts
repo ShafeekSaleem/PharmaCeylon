@@ -116,7 +116,9 @@ export function productOperationalLinks(
       id: "audit",
       label: "Audit log",
       description: "Full change history for this product",
-      href: `/audit?entityName=product&entityId=${productId}`,
+      href: `/audit?entityName=product&entityId=${productId}${
+        ctx?.name ? `&entityLabel=${encodeURIComponent(ctx.name)}` : ""
+      }`,
       ready: true,
       roles: ADMIN_ROLES,
     },

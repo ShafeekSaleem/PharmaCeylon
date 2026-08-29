@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { RoleName } from "@prisma/client";
 import * as bcrypt from "bcrypt";
+import { AuditService } from "../audit/audit.service";
+import { UploadsService } from "../uploads/uploads.service";
 import { AuthService } from "./auth.service";
 import { SESSION_REVOKED_REASONS, SessionStore } from "./session.store";
 import { UserContextService } from "./user-context.service";
@@ -16,6 +18,8 @@ describe("AuthService", () => {
   let configService: ConfigService;
   let sessionStore: jest.Mocked<SessionStore>;
   let userContext: jest.Mocked<UserContextService>;
+  let auditService: jest.Mocked<AuditService>;
+  let uploadsService: jest.Mocked<UploadsService>;
   let service: AuthService;
 
   const baseUser = {
@@ -86,7 +90,23 @@ describe("AuthService", () => {
       clearAll: jest.fn(),
     } as unknown as jest.Mocked<UserContextService>;
 
-    service = new AuthService(prisma, jwtService, configService, sessionStore, userContext);
+    auditService = {
+      log: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<AuditService>;
+
+    uploadsService = {
+      uploadImage: jest.fn(),
+    } as unknown as jest.Mocked<UploadsService>;
+
+    service = new AuthService(
+      prisma,
+      jwtService,
+      configService,
+      sessionStore,
+      userContext,
+      auditService,
+      uploadsService,
+    );
   });
 
   describe("login", () => {
@@ -131,6 +151,9 @@ describe("AuthService", () => {
         service.login({ email: "demo@pharma.com", password: "wrong" }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
       expect(prisma.session.create).not.toHaveBeenCalled();
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ eventName: "auth.login_failed", entityId: baseUser.id }),
+      );
     });
 
     it("rejects an unknown email or inactive user/tenant", async () => {

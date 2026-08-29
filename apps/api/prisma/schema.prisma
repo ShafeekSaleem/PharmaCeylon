@@ -240,6 +240,11 @@ model Tenant {
   /// Tenant-configured gross margin % goal shown on Reports → Profitability → Gross Profit's
   /// goal tracker. Null until an owner/manager sets one in Settings — never defaulted/fabricated.
   targetGrossMarginPercent Decimal? @map("target_gross_margin_percent") @db.Decimal(5, 2)
+  /// Operating defaults shown in Settings → General → Tenant Profile, apply across every branch.
+  currency                String   @default("LKR")
+  dateFormat              String   @default("DD/MM/YYYY") @map("date_format")
+  fiscalYearStartMonth    Int      @default(1) @map("fiscal_year_start_month")
+  businessRegistrationNo  String?  @map("business_registration_no")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -251,6 +256,7 @@ model Tenant {
   supplierInvoices SupplierInvoice[]
   customers        Customer[]
   roles            Role[]
+  settings         TenantSettings?
 
   @@map("tenant")
 }
@@ -315,12 +321,114 @@ model BranchMonthlyTarget {
   @@map("branch_monthly_target")
 }
 
+/// Tenant-wide feature defaults and policy toggles surfaced across Settings → Modules /
+/// Alerts & Approvals / Security & Access. One row per tenant, lazily created on first
+/// read/write via upsert (see TenantSettingsService) — every column has a sensible default
+/// so a tenant with no row yet still resolves to sane behavior.
+model TenantSettings {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @map("tenant_id") @db.Uuid
+
+  // ── Dashboard widgets (Settings → Modules → Main) ──
+  showSalesTodayWidget        Boolean @default(true) @map("show_sales_today_widget")
+  showLowStockWidget          Boolean @default(true) @map("show_low_stock_widget")
+  showExpiringBatchesWidget   Boolean @default(true) @map("show_expiring_batches_widget")
+  showTopProductsWidget       Boolean @default(true) @map("show_top_products_widget")
+  showRecentActivityWidget    Boolean @default(false) @map("show_recent_activity_widget")
+  showBranchPerformanceWidget Boolean @default(true) @map("show_branch_performance_widget")
+
+  // ── POS / checkout defaults (Settings → Modules → Main) ──
+  posQuickAddEnabled      Boolean @default(true) @map("pos_quick_add_enabled")
+  posHeldSalesEnabled     Boolean @default(true) @map("pos_held_sales_enabled")
+  posRequireCustomer      Boolean @default(false) @map("pos_require_customer")
+  posAutoPrintReceipt     Boolean @default(true) @map("pos_auto_print_receipt")
+  posDefaultPaymentMethod String  @default("cash") @map("pos_default_payment_method")
+  posMaxDiscountPercent   Decimal @default(10) @db.Decimal(5, 2) @map("pos_max_discount_percent")
+
+  // ── Receipt & invoice customization (Settings → Modules → Main) ──
+  receiptPaperSize         String  @default("80mm") @map("receipt_paper_size")
+  receiptCopies            Int     @default(1) @map("receipt_copies")
+  receiptHeaderText        String? @map("receipt_header_text")
+  receiptFooterText        String? @map("receipt_footer_text")
+  receiptShowLogo          Boolean @default(true) @map("receipt_show_logo")
+  receiptShowVatBreakdown  Boolean @default(true) @map("receipt_show_vat_breakdown")
+  receiptShowStaffName     Boolean @default(true) @map("receipt_show_staff_name")
+  receiptShowLoyaltyPoints Boolean @default(false) @map("receipt_show_loyalty_points")
+
+  // ── Product display (Settings → Modules → Catalog) ──
+  defaultProductView         String  @default("grid") @map("default_product_view")
+  showControlledBadgeInLists Boolean @default(true) @map("show_controlled_badge_in_lists")
+
+  // ── Tax configuration (Settings → Modules → Catalog) ──
+  /// Overrides PRICING_VAT_RATE_PERCENT when set; env var stays the fallback when null.
+  vatRatePercent               Decimal? @db.Decimal(5, 2) @map("vat_rate_percent")
+  vatCalculationMethod         String   @default("exclusive") @map("vat_calculation_method")
+  prescriptionTaxExempt        Boolean  @default(true) @map("prescription_tax_exempt")
+  showTaxBreakdownOnDocuments  Boolean  @default(true) @map("show_tax_breakdown_on_documents")
+
+  // ── Inventory & stock policies (Settings → Modules → Operations) ──
+  lowStockThresholdUnits          Int     @default(20) @map("low_stock_threshold_units")
+  expiryWarningDays               Int     @default(30) @map("expiry_warning_days")
+  defaultStockView                String  @default("batch") @map("default_stock_view")
+  stockPickingMethod              String  @default("fefo") @map("stock_picking_method")
+  barcodeAdjustmentsEnabled       Boolean @default(true) @map("barcode_adjustments_enabled")
+  blockExpiredBatchSalesAtPos     Boolean @default(true) @map("block_expired_batch_sales_at_pos")
+  requireBatchExpiryOnGoodsReceipt Boolean @default(true) @map("require_batch_expiry_on_goods_receipt")
+  allowNegativeStock               Boolean @default(false) @map("allow_negative_stock")
+
+  // ── Purchasing defaults (Settings → Modules → Operations) ──
+  poNumberPrefix                 String  @default("PO-") @map("po_number_prefix")
+  defaultSupplierPaymentTermsDays Int     @default(30) @map("default_supplier_payment_terms_days")
+  autoReceiveOnInvoiceMatch       Boolean @default(false) @map("auto_receive_on_invoice_match")
+
+  // ── Transfers & returns defaults (Settings → Modules → Operations) ──
+  defaultReturnWindowDays   Int     @default(14) @map("default_return_window_days")
+  requireTransferReasonNote Boolean @default(true) @map("require_transfer_reason_note")
+
+  // ── Stocktake defaults (Settings → Modules → Operations) ──
+  stocktakeDefaultCountMethod      String  @default("full") @map("stocktake_default_count_method")
+  stocktakeVarianceTolerancePercent Decimal @default(2) @db.Decimal(5, 2) @map("stocktake_variance_tolerance_percent")
+
+  // ── Alerts: recipients & channels ──
+  alertEmailDigestEnabled   Boolean @default(true)  @map("alert_email_digest_enabled")
+  alertNotifyOwner          Boolean @default(true)  @map("alert_notify_owner")
+  alertNotifyManager        Boolean @default(true)  @map("alert_notify_manager")
+  alertNotifyPharmacist     Boolean @default(false) @map("alert_notify_pharmacist")
+  alertNotifyInventoryClerk Boolean @default(true)  @map("alert_notify_inventory_clerk")
+
+  // ── Approval rules ──
+  approvalRequiredPurchaseOrderThreshold Decimal? @db.Decimal(14, 2) @map("approval_required_po_threshold")
+  approvalRequiredForBranchTransfers     Boolean  @default(true) @map("approval_required_for_branch_transfers")
+  approvalRequiredReturnThreshold        Decimal? @db.Decimal(14, 2) @map("approval_required_return_threshold")
+
+  // ── Insights & reports ──
+  defaultReportPeriod       String  @default("this_month") @map("default_report_period")
+  showFootfallAnalytics     Boolean @default(true)  @map("show_footfall_analytics")
+  weeklySummaryEmailEnabled Boolean @default(false) @map("weekly_summary_email_enabled")
+
+  // ── Security policy ──
+  sessionTimeoutMinutes         Int     @default(30)  @map("session_timeout_minutes")
+  auditLogRetentionDays         Int     @default(365) @map("audit_log_retention_days")
+  passwordMinLength             Int     @default(8)   @map("password_min_length")
+  passwordRequireNumberOrSymbol Boolean @default(true) @map("password_require_number_or_symbol")
+  passwordExpiryDays            Int     @default(0)   @map("password_expiry_days")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("tenant_settings")
+}
+
 model AppUser {
   id                   String    @id @default(uuid()) @db.Uuid
   tenantId             String    @map("tenant_id") @db.Uuid
   /// Globally unique — login resolves tenant from this email alone (subdomains may refine UX later).
   email                String    @unique
   fullName             String    @map("full_name")
+  phone                String?   @map("phone")
+  avatarUrl            String?   @map("avatar_url")
   passwordHash         String    @map("password_hash")
   /// Optional short till PIN (bcrypt). Used for pharmacist co-sign at POS without switching sessions.
   posPinHash           String?   @map("pos_pin_hash")

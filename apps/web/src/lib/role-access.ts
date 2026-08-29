@@ -91,10 +91,12 @@ export function rolesForPath(pathname: string): RoleName[] | undefined {
     { prefix: "/catalog", roles: CATALOG_ROLES },
     { prefix: "/products", roles: CATALOG_ROLES },
     { prefix: "/reports", roles: INSIGHTS_ROLES },
-    { prefix: "/analytics", roles: INSIGHTS_ROLES },
     { prefix: "/audit", roles: ADMIN_ROLES },
     { prefix: "/users", roles: ADMIN_ROLES },
-    { prefix: "/settings", roles: ADMIN_ROLES },
+    // No blanket "/settings" entry: My Profile, Password & Login, and Appearance under
+    // /settings are open to every role; the admin-only subtrees (Tenant Profile, Branches,
+    // Main/Catalog/Operations, Alerts & Approvals, and the admin part of Security) each gate
+    // themselves via RolePageGuard in their own layout.tsx instead — see settings-subnav.tsx.
   ];
 
   const match = rules

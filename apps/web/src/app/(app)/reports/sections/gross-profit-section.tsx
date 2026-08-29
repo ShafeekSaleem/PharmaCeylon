@@ -349,7 +349,7 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
                 emptyState={
                   <>
                     <p className={css.emptyNote}>No profitability target set yet.</p>
-                    <Link href="/settings/profitability" className={css.cardLink}>
+                    <Link href="/settings/catalog" className={css.cardLink}>
                       Set a goal <IconChevronRight size={13} />
                     </Link>
                   </>
@@ -373,7 +373,7 @@ export function GrossProfitSection({ scope, isOwner, days, onNavigate, onExportD
                   </div>
                 </div>
                 <div className={css.goalActionRow}>
-                  <ActionButton variant="secondary" onClick={() => router.push("/settings/profitability")}>
+                  <ActionButton variant="secondary" onClick={() => router.push("/settings/catalog")}>
                     View Goal Settings
                   </ActionButton>
                 </div>

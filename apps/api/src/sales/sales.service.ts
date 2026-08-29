@@ -325,6 +325,17 @@ export class SalesService {
 
         const todayUtc = startOfTodayUtc();
 
+        // Resolved once per checkout, not per line — TenantSettings.vatRatePercent overrides
+        // the env-configured PRICING_VAT_RATE_PERCENT default when a tenant has set one.
+        const tenantVatSettings = await tx.tenantSettings.findUnique({
+          where: { tenantId },
+          select: { vatRatePercent: true },
+        });
+        const effectiveVatRatePercent =
+          tenantVatSettings?.vatRatePercent != null
+            ? Number(tenantVatSettings.vatRatePercent)
+            : this.tax.getVatRatePercent();
+
         for (const item of dto.items) {
           let batch =
             item.batchId != null && String(item.batchId).trim() !== ""
@@ -389,7 +400,12 @@ export class SalesService {
           const taxAmount =
             item.taxAmount !== undefined && item.taxAmount !== null && String(item.taxAmount).trim() !== ""
               ? d(item.taxAmount as string)
-              : this.tax.computeLineVatExclusive(unitPrice, item.qty, discountAmount);
+              : this.tax.computeLineVatExclusiveAtRate(
+                  effectiveVatRatePercent,
+                  unitPrice,
+                  item.qty,
+                  discountAmount,
+                );
           const base = unitPrice.mul(item.qty);
           const lineTotal = base.sub(discountAmount).add(taxAmount);
 

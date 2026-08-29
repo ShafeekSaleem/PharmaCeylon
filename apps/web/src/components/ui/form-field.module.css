@@ -53,6 +53,12 @@
   box-shadow: 0 0 0 3px var(--pc-focus-ring);
 }
 
+/* Settings → Preferences → Appearance's density preference (default "comfortable" — no rule
+   needed). Reaches this shared component via a data attribute on <html>, see lib/appearance.ts. */
+:global(html[data-density="compact"]) .control {
+  padding: 0.4rem 0.6rem;
+}
+
 .control::placeholder {
   color: var(--pc-muted-fg);
 }

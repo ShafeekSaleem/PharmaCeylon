@@ -515,7 +515,7 @@ export function ProfitabilitySection({ scope, isOwner, days, onNavigate, onExpor
               <h3>Product Profitability Distribution</h3>
               <p>Number of products and revenue exposure by margin band</p>
             </div>
-            <Link href="/settings/profitability" className={css.cardLink}>
+            <Link href="/settings/catalog" className={css.cardLink}>
               Adjust target margin <IconChevronRight size={13} />
             </Link>
           </div>

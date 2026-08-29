@@ -25,7 +25,6 @@ export function PmsNav() {
     ["/reports", "Reports"],
     ["/audit", "Audit"],
     ["/catalog", "Catalog"],
-    ["/analytics", "Analytics"],
   ] as const;
 
   return (

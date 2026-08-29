@@ -24,12 +24,23 @@ export class TaxService {
   }
 
   computeLineVatExclusive(unitPrice: Prisma.Decimal, qty: number, discountAmount: Prisma.Decimal): Prisma.Decimal {
+    return this.computeLineVatExclusiveAtRate(this.vatRatePercent, unitPrice, qty, discountAmount);
+  }
+
+  /** Same computation as `computeLineVatExclusive`, but at an explicit rate — used when a
+   *  tenant has set `TenantSettings.vatRatePercent`, overriding the env-configured default. */
+  computeLineVatExclusiveAtRate(
+    ratePercent: number,
+    unitPrice: Prisma.Decimal,
+    qty: number,
+    discountAmount: Prisma.Decimal,
+  ): Prisma.Decimal {
     const base = unitPrice.mul(qty).sub(discountAmount);
     const taxable = base.lt(0) ? new Prisma.Decimal(0) : base;
-    if (this.vatRatePercent === 0) {
+    if (ratePercent === 0) {
       return new Prisma.Decimal(0);
     }
-    const raw = taxable.mul(this.vatRatePercent).div(100);
+    const raw = taxable.mul(ratePercent).div(100);
     return raw.toDecimalPlaces(2);
   }
 }

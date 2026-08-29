@@ -649,7 +649,7 @@ export function OwnerDashboard({ data }: Props) {
         </MasonryItem>
 
         <MasonryItem>
-          <AiInsightsCard insights={allInsights} footerHref="/analytics" compact />
+          <AiInsightsCard insights={allInsights} footerHref="/reports" compact />
         </MasonryItem>
 
         <MasonryItem>

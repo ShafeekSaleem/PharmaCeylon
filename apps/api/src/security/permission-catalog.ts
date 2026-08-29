@@ -455,6 +455,14 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     defaultRoles: [owner, manager, pharmacist, cashier, inventory_clerk],
   },
   {
+    key: "tenant.branches_manage",
+    module: "tenant",
+    label: "Manage branches",
+    description: "Create and edit the tenant's branch list.",
+    defaultRoles: [owner, manager],
+    dependencies: ["tenant.branches_view"],
+  },
+  {
     key: "tenant.management",
     module: "tenant",
     label: "Tenant management",

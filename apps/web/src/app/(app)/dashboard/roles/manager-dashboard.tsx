@@ -733,7 +733,7 @@ export function ManagerDashboard({ data }: Props) {
         </MasonryItem>
 
         <MasonryItem>
-          <AiInsightsCard insights={allInsights} footerHref="/analytics" />
+          <AiInsightsCard insights={allInsights} footerHref="/reports" />
         </MasonryItem>
 
         <MasonryItem>

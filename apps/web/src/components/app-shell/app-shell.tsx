@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import { AppearanceEffect } from "./appearance-effect";
 import {
   IconGrid,
   IconShoppingCart,
@@ -15,7 +16,6 @@ import {
   IconTruck,
   IconRefresh,
   IconBarChart,
-  IconActivity,
   IconFileText,
   IconUsers,
   IconSettings,
@@ -83,7 +83,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Insights",
     items: [
       { href: "/reports", label: "Reports", icon: <IconBarChart size={18} />, roles: INSIGHTS_ROLES },
-      { href: "/analytics", label: "Analytics", icon: <IconActivity size={18} />, roles: INSIGHTS_ROLES },
       { href: "/audit", label: "Audit Log", icon: <IconFileText size={18} />, roles: ADMIN_ROLES },
     ],
   },
@@ -91,7 +90,9 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Admin",
     items: [
       { href: "/users", label: "Users & Roles", icon: <IconUsers size={18} />, roles: ADMIN_ROLES },
-      { href: "/settings", label: "Settings", icon: <IconSettings size={18} />, roles: ADMIN_ROLES },
+      // Open to every role — My Profile/Password & Login/Appearance live under here too;
+      // the admin-only subtrees self-gate in their own layout.tsx (see settings-subnav.tsx).
+      { href: "/settings", label: "Settings", icon: <IconSettings size={18} /> },
     ],
   },
 ];
@@ -274,6 +275,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className={styles.shell}>
+      <AppearanceEffect />
       {/* Mobile backdrop */}
       {mobileOpen && (
         <div className={styles.backdrop} onClick={() => setMobileOpen(false)} />

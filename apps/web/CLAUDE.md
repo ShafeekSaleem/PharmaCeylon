@@ -16,7 +16,7 @@ There is no test script in this package (no test runner configured yet) — veri
 
 ## Routing structure (App Router, `src/app/`)
 
-- `(app)/` — authenticated app pages: `analytics`, `audit`, `catalog`, `dashboard`, `inventory`, `pos`, `products`, `purchasing`, `reports`, `returns`, `settings`, `stocktakes`, `suppliers`, `transfers`, `users`.
+- `(app)/` — authenticated app pages: `audit`, `catalog`, `dashboard`, `inventory`, `pos`, `products`, `purchasing`, `reports`, `returns`, `settings`, `stocktakes`, `suppliers`, `transfers`, `users`.
 - `(shell)/` — `dashboard`, `login` (an alternate/legacy shell layout — check which one is live before adding a page in either group; don't assume both are maintained equally).
 - `login/` (top-level) and `page.tsx` / `not-found.tsx` — entry/marketing-adjacent routes.
 - `api/v1/` — Next Route Handlers that exist *in addition to* the `next.config.ts` rewrite (e.g. NMRA import confirm needs a 10-minute timeout the generic rewrite doesn't give it). Route Handlers here take precedence over the `/api/v1/:path*` rewrite to the Nest API — check here first if an API call isn't reaching Nest as expected.

@@ -29,11 +29,14 @@ export function RolePageGuard({
   children,
 }: Props) {
   const { canAccess } = useRoleAccess();
-  const { permissionKeys, loading } = usePermissions();
+  const { permissionKeys, loading, hasLoadedOnce } = usePermissions();
 
   if (permissions) {
-    // Avoid a denied flash before the first permission fetch resolves.
-    if (loading) return null;
+    // Avoid a denied flash before the first permission fetch resolves. A later
+    // refetch (e.g. triggered by switching branches) keeps showing the page with
+    // the previous grant instead of unmounting it — unmounting would discard any
+    // local UI state (filters, search text, open modals) on every branch switch.
+    if (loading && !hasLoadedOnce) return null;
     if (!hasPermission(permissionKeys, permissions)) {
       return <RoleAccessDenied title={title} description={description ?? roleDeniedMessage(roles)} />;
     }

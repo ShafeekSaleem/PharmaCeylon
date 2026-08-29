@@ -1,11 +1,20 @@
-import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { AppUser, Prisma, RoleName, Session } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import { randomBytes } from "node:crypto";
+import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { UploadsService } from "../uploads/uploads.service";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 import { LoginDto } from "./dto/login.dto";
+import { UpdateMyProfileDto } from "./dto/update-my-profile.dto";
 import {
   AccessTokenPayload,
   RefreshTokenPayload,
@@ -53,6 +62,8 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly sessions: SessionStore,
     private readonly userContext: UserContextService,
+    private readonly auditService: AuditService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -101,6 +112,15 @@ export class AuthService {
           failedLoginAttempts: attempts,
           ...(lockout ? { lockedUntil: lockout } : {}),
         },
+      });
+
+      await this.auditService.log({
+        tenantId: user.tenantId,
+        actorUserId: user.id,
+        eventName: "auth.login_failed",
+        entityName: "app_user",
+        entityId: user.id,
+        payload: { attempts, locked: !!lockout, ipAddress: meta.ipAddress ?? null },
       });
 
       throw new UnauthorizedException("Invalid credentials");
@@ -292,6 +312,88 @@ export class AuthService {
       throw new UnauthorizedException("User not found");
     }
     return this.mapUser(user, user.tenant?.code, user.userBranchRoles);
+  }
+
+  /** Settings → General → My Profile — read the caller's own editable + read-only fields. */
+  async getMyProfile(userId: string) {
+    const user = await this.prisma.appUser.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, email: true, fullName: true, phone: true, avatarUrl: true, createdAt: true },
+    });
+    return user;
+  }
+
+  async updateMyProfile(userId: string, dto: UpdateMyProfileDto) {
+    // tenant-scope: system-auth — userId is a verified globally unique identity.
+    const user = await this.prisma.appUser.update({
+      where: { id: userId },
+      data: {
+        ...(dto.fullName != null ? { fullName: dto.fullName.trim() } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+      },
+      select: { id: true, email: true, fullName: true, phone: true, avatarUrl: true, createdAt: true },
+    });
+    return user;
+  }
+
+  /** Uploads directly via UploadsService rather than the permission-gated POST /uploads/image
+   *  route — that endpoint's `uploads.image` permission excludes `cashier`, and every role
+   *  needs to be able to set their own profile photo. */
+  async updateMyAvatar(userId: string, file: Express.Multer.File) {
+    const { url } = await this.uploadsService.uploadImage(file, "avatars");
+    // tenant-scope: system-auth — userId is a verified globally unique identity.
+    const user = await this.prisma.appUser.update({
+      where: { id: userId },
+      data: { avatarUrl: url },
+      select: { id: true, avatarUrl: true },
+    });
+    return user;
+  }
+
+  /** Self-service password change. Verifies the current password, enforces the tenant's
+   *  password policy, then hard-revokes every session (already-built hook, see
+   *  `revokeAllSessions`) so the user must sign back in everywhere — including this device. */
+  async changePassword(tenantId: string, userId: string, dto: ChangePasswordDto): Promise<void> {
+    const user = await this.prisma.appUser.findUniqueOrThrow({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+
+    const currentValid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!currentValid) {
+      throw new UnauthorizedException("Current password is incorrect");
+    }
+
+    const policy = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { passwordMinLength: true, passwordRequireNumberOrSymbol: true },
+    });
+    const minLength = policy?.passwordMinLength ?? 8;
+    const requireNumberOrSymbol = policy?.passwordRequireNumberOrSymbol ?? true;
+
+    if (dto.newPassword.length < minLength) {
+      throw new BadRequestException(`Password must be at least ${minLength} characters`);
+    }
+    if (requireNumberOrSymbol && !/[0-9]|[^A-Za-z0-9]/.test(dto.newPassword)) {
+      throw new BadRequestException("Password must include a number or symbol");
+    }
+
+    const newHash = await bcrypt.hash(dto.newPassword, 10);
+    // tenant-scope: system-auth — userId is a verified globally unique identity.
+    await this.prisma.appUser.update({
+      where: { id: userId },
+      data: { passwordHash: newHash },
+    });
+
+    await this.revokeAllSessions(userId, "password_changed");
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: userId,
+      eventName: "auth.password_changed",
+      entityName: "app_user",
+      entityId: userId,
+    });
   }
 
   // ---------------------------------------------------------------------------

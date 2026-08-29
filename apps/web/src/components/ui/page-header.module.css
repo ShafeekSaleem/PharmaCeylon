@@ -88,6 +88,12 @@
   cursor: not-allowed;
 }
 
+/* Settings → Preferences → Appearance's density preference — see form-field.module.css's
+   matching rule for the full explanation. */
+:global(html[data-density="compact"]) .actionBtn {
+  padding: 0.35rem 0.75rem;
+}
+
 .actionIcon {
   display: flex;
   align-items: center;

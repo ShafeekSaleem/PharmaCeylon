@@ -1,16 +1,21 @@
+/// <reference types="multer" />
 import {
   Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
   UnauthorizedException,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { Public } from "../security/decorators/public.decorator";
@@ -25,8 +30,10 @@ import {
   setCsrfCookie,
   setRefreshCookie,
 } from "./cookies";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 import { LoginDto } from "./dto/login.dto";
 import { RefreshTokenDto } from "./dto/refresh-token.dto";
+import { UpdateMyProfileDto } from "./dto/update-my-profile.dto";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 
 type CookieAwareRequest = Request & {
@@ -106,6 +113,42 @@ export class AuthController {
   @Get("me")
   me(@CurrentUser() user: RequestUser) {
     return this.authService.getMe(user.userId);
+  }
+
+  /**
+   * Settings → General → My Profile. Self-scoped, no `@RequirePermission` — every
+   * authenticated user (any role) can view/edit their own profile, same posture as `GET /auth/me`.
+   */
+  @Get("me/profile")
+  getMyProfile(@CurrentUser() user: RequestUser) {
+    return this.authService.getMyProfile(user.userId);
+  }
+
+  @Patch("me/profile")
+  updateMyProfile(@CurrentUser() user: RequestUser, @Body() dto: UpdateMyProfileDto) {
+    return this.authService.updateMyProfile(user.userId, dto);
+  }
+
+  @UseInterceptors(FileInterceptor("file"))
+  @Post("me/avatar")
+  updateMyAvatar(
+    @CurrentUser() user: RequestUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.authService.updateMyAvatar(user.userId, file);
+  }
+
+  /** Hard-revokes every session (including this one) — the frontend should redirect to
+   *  /login on success; the access token this request used is now dead. */
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Post("me/change-password")
+  async changePassword(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.authService.changePassword(user.tenantId, user.userId, dto);
+    clearAuthCookies(res, readCookieEnv(this.configService));
   }
 
   // ---------------------------------------------------------------------------

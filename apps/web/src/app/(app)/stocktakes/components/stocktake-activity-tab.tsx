@@ -294,7 +294,7 @@ export function StocktakeActivityTab({ stocktake }: Props) {
     (line) => line.countStatus === "recount_requested",
   ).length;
   const notesCount = stocktake.lines.filter((line) => (line.note ?? "").trim() !== "").length;
-  const auditHref = `/audit?entityName=stocktake&entityId=${encodeURIComponent(stocktake.id)}`;
+  const auditHref = `/audit?entityName=stocktake&entityId=${encodeURIComponent(stocktake.id)}&entityLabel=${encodeURIComponent(stocktake.stocktakeNumber)}`;
 
   const eventOptions = useMemo(() => {
     const set = new Set(activity.map((item) => eventLabel(item.eventName)));
