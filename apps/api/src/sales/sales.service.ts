@@ -243,6 +243,34 @@ export class SalesService {
       }
     }
 
+    const checkoutPolicy = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { posRequireCustomer: true, posMaxDiscountPercent: true },
+    });
+    if (checkoutPolicy?.posRequireCustomer && !dto.customerId) {
+      throw new BadRequestException("Select a customer before completing this sale");
+    }
+    const effectiveRoles = this.branchEffectiveRoles(branchRoles, branchId);
+    const mayOverrideDiscount = effectiveRoles.some(
+      (role) => role === RoleName.owner || role === RoleName.manager,
+    );
+    const maximumDiscountPercent = Number(checkoutPolicy?.posMaxDiscountPercent ?? 10);
+    if (!mayOverrideDiscount) {
+      for (const item of dto.items) {
+        const gross = d(item.unitPrice).mul(item.qty);
+        const discount = d(item.discountAmount ?? "0");
+        if (discount.lt(0) || discount.gt(gross)) {
+          throw new BadRequestException("Line discount must be between zero and the line subtotal");
+        }
+        const discountPercent = gross.isZero() ? 0 : discount.div(gross).mul(100).toNumber();
+        if (discountPercent > maximumDiscountPercent) {
+          throw new ForbiddenException(
+            `Discount exceeds the ${maximumDiscountPercent}% limit and requires a manager`,
+          );
+        }
+      }
+    }
+
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
       where: { tenantId, id: { in: productIds }, isActive: true },

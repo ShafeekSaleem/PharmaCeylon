@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { SettingsSubnav } from "./components/settings-subnav";
+import { SettingsScope } from "./components/settings-scope";
 import css from "./settings.module.css";
 
 /**
@@ -14,7 +15,10 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   return (
     <div className={css.page}>
       <SettingsSubnav />
-      <div className={css.panel}>{children}</div>
+      <div className={css.panel}>
+        <SettingsScope />
+        {children}
+      </div>
     </div>
   );
 }

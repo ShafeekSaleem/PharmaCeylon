@@ -15,6 +15,7 @@ type Props = {
   holdCount: number;
   busy: boolean;
   beepEnabled: boolean;
+  holdsEnabled?: boolean;
   /** When true (Returns mode), park/clear/new sale actions that touch the cart are disabled. */
   saleActionsDisabled?: boolean;
   onNewSale: () => void;
@@ -30,6 +31,7 @@ export function PosActionBar({
   holdCount,
   busy,
   beepEnabled,
+  holdsEnabled = true,
   saleActionsDisabled = false,
   onNewSale,
   onHold,
@@ -50,7 +52,7 @@ export function PosActionBar({
         <IconPlus size={15} />
         New sale
       </button>
-      <button
+      {holdsEnabled && <button
         type="button"
         className={css.toolBtn}
         onClick={onHold}
@@ -59,8 +61,8 @@ export function PosActionBar({
       >
         <IconPause size={15} />
         Hold
-      </button>
-      <button
+      </button>}
+      {holdsEnabled && <button
         type="button"
         className={css.toolBtn}
         onClick={onRecall}
@@ -70,7 +72,7 @@ export function PosActionBar({
         <IconRotateCcw size={15} />
         Recall
         {holdCount > 0 && <span className={css.holdCount}>{holdCount}</span>}
-      </button>
+      </button>}
       <button
         type="button"
         className={`${css.toolBtn} ${css.toolBtnDanger}`}

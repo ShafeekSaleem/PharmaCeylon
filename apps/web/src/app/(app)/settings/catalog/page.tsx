@@ -262,7 +262,6 @@ function TaxConfigurationCard({ settings, onSaved, canEdit }: CardProps) {
       const updated = await saveTaxSettings({
         vatRatePercent,
         vatCalculationMethod: draft.vatCalculationMethod,
-        prescriptionTaxExempt: draft.prescriptionTaxExempt,
         showTaxBreakdownOnDocuments: draft.showTaxBreakdownOnDocuments,
       });
       onSaved(updated);
@@ -310,15 +309,6 @@ function TaxConfigurationCard({ settings, onSaved, canEdit }: CardProps) {
         </FormField>
       </div>
       <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-        <div className={css.rowLabel}>Prescription medicines are tax-exempt</div>
-        <ToggleSwitch
-          checked={draft.prescriptionTaxExempt}
-          onChange={(v) => setDraft((d) => ({ ...d, prescriptionTaxExempt: v }))}
-          disabled={!canEdit}
-          label="Prescription medicines are tax-exempt"
-        />
-      </div>
-      <div className={css.rowItem}>
         <div className={css.rowLabel}>Show tax breakdown on receipts and invoices</div>
         <ToggleSwitch
           checked={draft.showTaxBreakdownOnDocuments}

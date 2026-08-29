@@ -4,7 +4,6 @@ import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { TaxService } from "../pricing/tax.service";
 import { PrismaService } from "../prisma/prisma.service";
 
-const NEAR_EXPIRY_DAYS = 30;
 const TOP_PRODUCTS_WINDOW_DAYS = 30;
 const FREQUENT_ITEMS_WINDOW_DAYS = 90;
 
@@ -82,6 +81,12 @@ export class PosService {
 
   async catalog(tenantId: string, branchId: string) {
     const todayUtc = startOfTodayUtc();
+
+    const tenantSettings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { expiryWarningDays: true },
+    });
+    const nearExpiryDays = tenantSettings?.expiryWarningDays ?? 30;
 
     const batches = await this.prisma.batch.findMany({
       where: {
@@ -212,7 +217,7 @@ export class PosService {
         costPrice: batch.costPrice.toFixed(2),
         qtyOnHand,
         daysToExpiry,
-        nearExpiry: daysToExpiry <= NEAR_EXPIRY_DAYS,
+        nearExpiry: daysToExpiry <= nearExpiryDays,
       });
       entry.qtyOnHand += qtyOnHand;
     }
@@ -258,7 +263,7 @@ export class PosService {
 
     return {
       vatRatePercent: effectiveVatRatePercent,
-      nearExpiryDays: NEAR_EXPIRY_DAYS,
+      nearExpiryDays,
       products,
       /** Active COMMERCIAL departments — drives the POS browsing chips (tenant-scoped, never empty departments the tenant hasn't enabled). */
       departments,

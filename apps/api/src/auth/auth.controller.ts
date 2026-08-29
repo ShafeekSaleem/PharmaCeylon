@@ -2,9 +2,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Req,
@@ -136,6 +139,26 @@ export class AuthController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.authService.updateMyAvatar(user.userId, file);
+  }
+
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Delete("me/avatar")
+  removeMyAvatar(@CurrentUser() user: RequestUser) {
+    return this.authService.removeMyAvatar(user.userId);
+  }
+
+  @Get("me/sessions")
+  listMySessions(@CurrentUser() user: RequestUser) {
+    return this.authService.listMySessions(user.userId);
+  }
+
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Delete("me/sessions/:sessionId")
+  revokeMySession(
+    @CurrentUser() user: RequestUser,
+    @Param("sessionId", ParseUUIDPipe) sessionId: string,
+  ) {
+    return this.authService.revokeMySession(user.tenantId, user.userId, sessionId);
   }
 
   /** Hard-revokes every session (including this one) — the frontend should redirect to

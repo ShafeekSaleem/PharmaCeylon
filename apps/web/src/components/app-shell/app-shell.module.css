@@ -489,6 +489,14 @@
   flex-shrink: 0;
   letter-spacing: 0.02em;
   transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  overflow: hidden;
+  padding: 0;
+}
+
+.avatarBtn img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .avatarBtn:hover {

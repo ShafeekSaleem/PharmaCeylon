@@ -39,6 +39,7 @@ type Props = {
   onComplete: () => void;
   onPrint: () => void;
   onHold: () => void;
+  holdsEnabled?: boolean;
 };
 
 export function PosSummaryPanel({
@@ -57,6 +58,7 @@ export function PosSummaryPanel({
   onComplete,
   onPrint,
   onHold,
+  holdsEnabled = true,
 }: Props) {
   const isSplit = tenderMode === "split";
   const isCashLike = tenderMode === "cash" || isSplit;
@@ -248,10 +250,10 @@ export function PosSummaryPanel({
           <IconPrinter size={14} />
           Print Bill
         </button>
-        <button type="button" className={css.secondaryBtn} onClick={onHold} disabled={empty || busy}>
+        {holdsEnabled && <button type="button" className={css.secondaryBtn} onClick={onHold} disabled={empty || busy}>
           <IconSave size={14} />
           Save / Hold
-        </button>
+        </button>}
       </div>
     </section>
   );

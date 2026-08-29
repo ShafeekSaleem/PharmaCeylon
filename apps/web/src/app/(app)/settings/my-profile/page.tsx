@@ -6,7 +6,7 @@ import { PageHeader, ActionButton, FormField, ImageUpload } from "@/components/u
 import { useAuth } from "@/lib/use-auth";
 import { formatAllowedRoles, type RoleName } from "@/lib/role-access";
 import css from "../settings.module.css";
-import { fetchMyProfile, saveMyProfile } from "./api";
+import { fetchMyProfile, removeMyAvatar, saveMyProfile } from "./api";
 import type { MyProfile } from "./types";
 
 function splitName(fullName: string): { first: string; last: string } {
@@ -16,17 +16,8 @@ function splitName(fullName: string): { first: string; last: string } {
   return { first: trimmed.slice(0, idx), last: trimmed.slice(idx + 1) };
 }
 
-function initials(fullName: string): string {
-  return fullName
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
-}
-
 export default function MyProfilePage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
 
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [firstName, setFirstName] = useState("");
@@ -36,6 +27,11 @@ export default function MyProfilePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  const currentName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+  const isDirty = Boolean(
+    profile && (currentName !== profile.fullName || phone.trim() !== (profile.phone ?? "")),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -60,13 +56,17 @@ export default function MyProfilePage() {
   }, []);
 
   async function handleSave() {
+    if (!currentName) {
+      setError("Your name is required.");
+      return;
+    }
     setError(null);
     setSaved(false);
     setSaving(true);
     try {
-      const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
-      const updated = await saveMyProfile({ fullName, phone: phone.trim() || null });
+      const updated = await saveMyProfile({ fullName: currentName, phone: phone.trim() || null });
       setProfile(updated);
+      await refreshUser();
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save your profile");
@@ -86,23 +86,22 @@ export default function MyProfilePage() {
 
       <div className={css.card}>
         <div className={css.avatarRow}>
-          <div className={css.avatarLarge}>
-            {profile?.avatarUrl ? (
-              <img src={profile.avatarUrl} alt="" />
-            ) : (
-              initials(profile?.fullName ?? user?.fullName ?? "??")
-            )}
-          </div>
-          <div className={css.avatarUpload}>
-            <ImageUpload
-              value={null}
-              folder="avatars"
-              endpoint="/auth/me/avatar"
-              onChange={(url) => {
-                if (url) setProfile((p) => (p ? { ...p, avatarUrl: url } : p));
-              }}
-              disabled={loading}
-            />
+          <ImageUpload
+            value={profile?.avatarUrl}
+            folder="avatars"
+            endpoint="/auth/me/avatar"
+            shape="avatar"
+            onRemove={removeMyAvatar}
+            onChange={(url) => {
+              setProfile((p) => (p ? { ...p, avatarUrl: url } : p));
+              void refreshUser();
+            }}
+            disabled={loading}
+          />
+          <div className={css.avatarCopy}>
+            <div className={css.avatarTitle}>Profile photo</div>
+            <div className={css.rowHint}>JPEG, PNG or WebP. Maximum 2 MB.</div>
+            <div className={css.rowHint}>Click the photo to replace it, or drag a file onto the empty circle.</div>
           </div>
         </div>
 
@@ -123,7 +122,7 @@ export default function MyProfilePage() {
             label="Email"
             value={profile?.email ?? ""}
             disabled
-            hint="Changing your email will require re-verification."
+            hint="Contact an administrator to change your sign-in email."
           />
           <FormField
             label="Phone number"
@@ -156,7 +155,7 @@ export default function MyProfilePage() {
         </div>
 
         <div className={css.saveRow}>
-          <ActionButton onClick={handleSave} disabled={saving || loading}>
+          <ActionButton onClick={handleSave} disabled={saving || loading || !isDirty}>
             {saving ? "Saving…" : "Save changes"}
           </ActionButton>
         </div>

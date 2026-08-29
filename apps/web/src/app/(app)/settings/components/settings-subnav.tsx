@@ -10,9 +10,6 @@ import {
   IconShoppingCart,
   IconPackage,
   IconBox,
-  IconMail,
-  IconCheckCircle,
-  IconBarChart,
   IconLock,
   IconSparkles,
 } from "@/components/icons";
@@ -62,29 +59,6 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Alerts & Approvals",
-    items: [
-      {
-        href: "/settings/alerts-recipients",
-        label: "Recipients & Channels",
-        icon: <IconMail size={16} />,
-        adminOnly: true,
-      },
-      {
-        href: "/settings/approval-rules",
-        label: "Approval Rules",
-        icon: <IconCheckCircle size={16} />,
-        adminOnly: true,
-      },
-      {
-        href: "/settings/insights-reports",
-        label: "Insights & Reports",
-        icon: <IconBarChart size={16} />,
-        adminOnly: true,
-      },
-    ],
-  },
-  {
     label: "Security & Access",
     items: [
       { href: "/settings/password-login", label: "Password & Login", icon: <IconLock size={16} /> },
@@ -115,6 +89,7 @@ export function SettingsSubnav() {
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-current={active ? "page" : undefined}
                   className={`${css.subnavItem}${active ? ` ${css.subnavItemActive}` : ""}`}
                 >
                   <span className={css.subnavIcon}>{item.icon}</span>

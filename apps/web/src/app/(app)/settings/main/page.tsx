@@ -42,8 +42,8 @@ export default function MainSettingsPage() {
   return (
     <div>
       <PageHeader
-        title="Main"
-        description="Dashboard widgets, POS / checkout defaults, and receipt customization."
+        title="Point of Sale & Receipts"
+        description="Checkout behavior and customer-facing receipt defaults."
       />
       {error ? <Alert variant="error">{error}</Alert> : null}
 
@@ -51,7 +51,6 @@ export default function MainSettingsPage() {
         <p className={css.rowHint}>Loading…</p>
       ) : (
         <div className={css.panel}>
-          <DashboardWidgetsCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
           <PosDefaultsCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
           <ReceiptCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
         </div>
@@ -242,13 +241,11 @@ function ReceiptCard({ settings, onSaved, canEdit }: CardProps) {
     try {
       const updated = await saveReceiptSettings({
         receiptPaperSize: draft.receiptPaperSize,
-        receiptCopies: Number(draft.receiptCopies),
         receiptHeaderText: draft.receiptHeaderText,
         receiptFooterText: draft.receiptFooterText,
         receiptShowLogo: draft.receiptShowLogo,
         receiptShowVatBreakdown: draft.receiptShowVatBreakdown,
         receiptShowStaffName: draft.receiptShowStaffName,
-        receiptShowLoyaltyPoints: draft.receiptShowLoyaltyPoints,
       });
       onSaved(updated);
       setDraft(updated);
@@ -263,7 +260,6 @@ function ReceiptCard({ settings, onSaved, canEdit }: CardProps) {
     { key: "receiptShowLogo", label: "Show pharmacy logo on receipt" },
     { key: "receiptShowVatBreakdown", label: "Show VAT breakdown line" },
     { key: "receiptShowStaffName", label: "Show pharmacist / cashier name" },
-    { key: "receiptShowLoyaltyPoints", label: "Show customer loyalty points balance" },
   ];
 
   return (
@@ -273,7 +269,7 @@ function ReceiptCard({ settings, onSaved, canEdit }: CardProps) {
           <h2 className={css.cardTitle}>
             <IconReceipt size={16} /> Receipt &amp; Invoice Customization
           </h2>
-          <p className={css.cardDesc}>What prints on POS receipts and purchase/supplier invoices.</p>
+          <p className={css.cardDesc}>What appears on POS receipts and the printed bill.</p>
         </div>
       </div>
       {error ? <Alert variant="error">{error}</Alert> : null}
@@ -289,15 +285,6 @@ function ReceiptCard({ settings, onSaved, canEdit }: CardProps) {
           <option value="58mm">58mm thermal</option>
           <option value="a4">A4</option>
         </FormField>
-        <FormField
-          label="Copies to print"
-          type="number"
-          min={1}
-          max={5}
-          value={draft.receiptCopies}
-          onChange={(e) => setDraft((d) => ({ ...d, receiptCopies: Number(e.target.value) }))}
-          disabled={!canEdit}
-        />
         <FormField
           label="Header text"
           value={draft.receiptHeaderText ?? ""}

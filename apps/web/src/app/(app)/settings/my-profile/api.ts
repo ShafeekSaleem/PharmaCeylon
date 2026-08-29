@@ -12,3 +12,7 @@ export function saveMyProfile(input: { fullName: string; phone: string | null })
     body: JSON.stringify(input),
   });
 }
+
+export function removeMyAvatar(): Promise<void> {
+  return apiJson<void>("/auth/me/avatar", { method: "DELETE" });
+}

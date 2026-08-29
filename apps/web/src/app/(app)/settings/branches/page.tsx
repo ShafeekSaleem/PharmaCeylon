@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, StatusBadge } from "@/components/ui";
+import { PageHeader, ActionButton, StatusBadge, DataTable, type Column } from "@/components/ui";
 import { IconPlus, IconEdit, IconMapPin } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
+import { notifyBranchesChanged } from "@/lib/auth-client";
+import { useAuth } from "@/lib/use-auth";
 import css from "../settings.module.css";
 import { fetchAllBranches } from "./api";
 import { BranchFormModal } from "./components/branch-form-modal";
@@ -12,6 +14,7 @@ import type { Branch } from "./types";
 
 export default function BranchesPage() {
   const { permissionKeys } = usePermissions();
+  const { refreshUser } = useAuth();
   const canManage = permissionKeys.includes("tenant.branches_manage");
 
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -51,7 +54,61 @@ export default function BranchesPage() {
       const exists = prev.some((b) => b.id === saved.id);
       return exists ? prev.map((b) => (b.id === saved.id ? saved : b)) : [...prev, saved];
     });
+    notifyBranchesChanged();
+    void refreshUser();
   }
+
+  const columns: Column<Branch>[] = [
+    { key: "code", header: "Code", sortable: true },
+    { key: "name", header: "Name", sortable: true },
+    { key: "city", header: "City", sortable: true, render: (b) => b.city ?? "—" },
+    { key: "phone", header: "Phone", render: (b) => b.phone ?? "—" },
+    { key: "timezone", header: "Timezone" },
+    {
+      key: "licence",
+      header: "Licence",
+      getValue: (b) => b.pharmacyLicenceExpiry ?? "",
+      sortable: true,
+      render: (b) => {
+        if (!b.pharmacyLicenceNo) return <span className={css.mutedText}>Not recorded</span>;
+        const expired = Boolean(b.pharmacyLicenceExpiry && new Date(b.pharmacyLicenceExpiry) < new Date());
+        return (
+          <span className={expired ? css.dangerText : undefined}>
+            {b.pharmacyLicenceNo}{expired ? " · Expired" : ""}
+          </span>
+        );
+      },
+    },
+    {
+      key: "status",
+      header: "Status",
+      getValue: (b) => b.isActive ? "active" : "inactive",
+      sortable: true,
+      render: (b) => (
+        <StatusBadge
+          status={b.isActive ? "active" : "inactive"}
+          variant={b.isActive ? "success" : "muted"}
+          label={b.isActive ? "Active" : "Inactive"}
+        />
+      ),
+    },
+    {
+      key: "actions",
+      header: <span className={css.srOnly}>Actions</span>,
+      align: "right",
+      width: "52px",
+      render: (b) => canManage ? (
+        <button
+          type="button"
+          className={css.iconGhostBtn}
+          aria-label={`Edit ${b.name}`}
+          onClick={(event) => { event.stopPropagation(); openEdit(b); }}
+        >
+          <IconEdit size={14} />
+        </button>
+      ) : null,
+    },
+  ];
 
   return (
     <div>
@@ -68,57 +125,17 @@ export default function BranchesPage() {
       />
       {error ? <Alert variant="error">{error}</Alert> : null}
 
-      <div className={css.card}>
-        {loading ? (
-          <p className={css.rowHint}>Loading branches…</p>
-        ) : branches.length === 0 ? (
-          <p className={css.rowHint}>No branches yet.</p>
-        ) : (
-          <table className={css.table}>
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>City</th>
-                <th>Phone</th>
-                <th>Timezone</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {branches.map((b) => (
-                <tr key={b.id}>
-                  <td>{b.code}</td>
-                  <td>{b.name}</td>
-                  <td>{b.city ?? "—"}</td>
-                  <td>{b.phone ?? "—"}</td>
-                  <td>{b.timezone}</td>
-                  <td>
-                    <StatusBadge
-                      status={b.isActive ? "active" : "inactive"}
-                      variant={b.isActive ? "success" : "muted"}
-                      label={b.isActive ? "Active" : "Inactive"}
-                    />
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {canManage ? (
-                      <button
-                        type="button"
-                        className={css.iconGhostBtn}
-                        aria-label={`Edit ${b.name}`}
-                        onClick={() => openEdit(b)}
-                      >
-                        <IconEdit size={14} />
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <DataTable
+        columns={columns}
+        data={branches}
+        rowKey={(branch) => branch.id}
+        loading={loading}
+        pageSize={10}
+        emptyIcon={<IconMapPin size={28} />}
+        emptyTitle="No branches yet"
+        emptyDescription="Add your first pharmacy location to start assigning staff and stock."
+        onRowClick={canManage ? openEdit : undefined}
+      />
 
       {!canManage ? (
         <p className={css.rowHint} style={{ marginTop: "0.5rem" }}>

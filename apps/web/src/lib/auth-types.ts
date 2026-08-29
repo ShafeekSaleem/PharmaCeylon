@@ -9,6 +9,7 @@ export type AuthUser = {
   tenantCode?: string;
   email: string;
   fullName: string;
+  avatarUrl: string | null;
   roles: string[];
   branchRoles: BranchRole[];
 };

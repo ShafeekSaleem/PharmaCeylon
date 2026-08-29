@@ -245,6 +245,15 @@ model Tenant {
   dateFormat              String   @default("DD/MM/YYYY") @map("date_format")
   fiscalYearStartMonth    Int      @default(1) @map("fiscal_year_start_month")
   businessRegistrationNo  String?  @map("business_registration_no")
+  logoUrl                 String?  @map("logo_url")
+  addressLine1            String?  @map("address_line1")
+  addressLine2            String?  @map("address_line2")
+  city                    String?
+  postalCode              String?  @map("postal_code")
+  email                   String?
+  phone                   String?
+  taxIdentificationNo     String?  @map("tax_identification_no")
+  vatRegistrationNo       String?  @map("vat_registration_no")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -268,8 +277,17 @@ model Branch {
   name         String
   timezone     String
   addressLine1 String?  @map("address_line1")
+  addressLine2 String?  @map("address_line2")
   city         String?
+  district     String?
+  postalCode   String?  @map("postal_code")
   phone        String?
+  email        String?
+  pharmacyLicenceNo      String?   @map("pharmacy_licence_no")
+  pharmacyLicenceExpiry  DateTime? @map("pharmacy_licence_expiry") @db.Date
+  responsiblePharmacist  String?   @map("responsible_pharmacist")
+  pharmacistSlmcNo       String?   @map("pharmacist_slmc_no")
+  openingHours           String?   @map("opening_hours")
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")

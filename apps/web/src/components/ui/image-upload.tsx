@@ -12,6 +12,8 @@ export type ImageUploadProps = {
    *  Used for self-scoped uploads like the avatar route (`/auth/me/avatar`), which every role
    *  may call regardless of the `uploads.image` permission. */
   endpoint?: string;
+  onRemove?: () => Promise<void> | void;
+  shape?: "square" | "avatar";
   disabled?: boolean;
   className?: string;
 };
@@ -24,6 +26,8 @@ export function ImageUpload({
   onChange,
   folder = "products",
   endpoint,
+  onRemove,
+  shape = "square",
   disabled = false,
   className,
 }: ImageUploadProps) {
@@ -108,12 +112,20 @@ export function ImageUpload({
     inputRef.current?.click();
   };
 
-  const handleRemove = () => {
-    onChange(null);
+  const handleRemove = async () => {
     setError(null);
+    setUploading(true);
+    try {
+      await onRemove?.();
+      onChange(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove the image.");
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const wrapperClass = [styles.wrapper, disabled ? styles.disabled : "", className]
+  const wrapperClass = [styles.wrapper, shape === "avatar" ? styles.avatar : "", disabled ? styles.disabled : "", className]
     .filter(Boolean)
     .join(" ");
 
@@ -121,18 +133,30 @@ export function ImageUpload({
     return (
       <div className={wrapperClass}>
         <div className={styles.previewContainer}>
-          <img src={value} alt="Preview" className={styles.preview} />
+          <button type="button" className={styles.previewButton} onClick={handleClick} aria-label="Replace image">
+            <img src={value} alt="" className={styles.preview} />
+            <span className={styles.changeOverlay}>{uploading ? "Uploading…" : "Change"}</span>
+          </button>
           {!disabled && (
             <button
               type="button"
               className={styles.removeBtn}
-              onClick={handleRemove}
+              onClick={() => void handleRemove()}
               aria-label="Remove image"
             >
               &times;
             </button>
           )}
         </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={handleFileChange}
+          className={styles.hidden}
+          disabled={disabled || uploading}
+        />
+        {error && <span className={styles.error}>{error}</span>}
       </div>
     );
   }

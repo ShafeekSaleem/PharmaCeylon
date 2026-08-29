@@ -51,4 +51,11 @@ export class UploadsService {
 
     return { url, thumbUrl };
   }
+
+  async deleteImage(url: string): Promise<void> {
+    await this.storage.delete(url);
+    if (url.endsWith('.webp') && !url.endsWith('_thumb.webp')) {
+      await this.storage.delete(url.replace(/\.webp$/, '_thumb.webp'));
+    }
+  }
 }
