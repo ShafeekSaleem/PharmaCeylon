@@ -2043,6 +2043,40 @@
 
 /* Receipt drawer */
 
+.receiptBody {
+  margin: 0 auto;
+}
+
+.receiptBrand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding-bottom: 0.75rem;
+  text-align: center;
+}
+
+.receiptBrand img {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+}
+
+.receiptFooter {
+  margin: 0.9rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--pc-border);
+  color: var(--pc-muted-fg);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+@media print {
+  .receiptBody[data-paper-size="58mm"] { width: 58mm; }
+  .receiptBody[data-paper-size="80mm"] { width: 80mm; }
+  .receiptBody[data-paper-size="a4"] { width: 190mm; }
+}
+
 .receiptHead {
   display: flex;
   align-items: center;

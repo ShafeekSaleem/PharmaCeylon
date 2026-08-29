@@ -18,7 +18,7 @@ import { PosPharmacistPinModal } from "./components/pos-pharmacist-pin-modal";
 import { PosPrescriptionModal } from "./components/pos-prescription-modal";
 import { PosQuickActions } from "./components/pos-quick-actions";
 import { PosQuickAdd } from "./components/pos-quick-add";
-import { PosReceiptModal } from "./components/pos-receipt-modal";
+import { PosReceiptModal, type ReceiptPreferences } from "./components/pos-receipt-modal";
 import { PosReturnsPanel } from "./components/pos-returns-panel";
 import { PosSearchBar } from "./components/pos-search-bar";
 import { PosSetPinModal } from "./components/pos-set-pin-modal";
@@ -33,6 +33,8 @@ import { usePosHolds } from "./hooks/use-pos-holds";
 import { usePosShortcuts } from "./hooks/use-pos-shortcuts";
 import { usePosToasts } from "./hooks/use-pos-toasts";
 import { useScanBeep } from "./hooks/use-scan-beep";
+import { fetchTenantSettings } from "../settings/lib/tenant-settings";
+import { apiJson } from "@/lib/auth-client";
 import { checkout, createHold, findSaleByInvoice, getCustomer, getPrescription } from "./services/pos-api";
 import type {
   CartLine,
@@ -115,6 +117,21 @@ function PosWorkspace() {
   const [quickTab, setQuickTab] = useState<QuickAddTab>("top");
 
   const [tenderMode, setTenderMode] = useState<TenderMode>("cash");
+  const [posPrefs, setPosPrefs] = useState({
+    posQuickAddEnabled: true,
+    posHeldSalesEnabled: true,
+    posRequireCustomer: false,
+    posAutoPrintReceipt: true,
+  });
+  const [receiptPrefs, setReceiptPrefs] = useState<ReceiptPreferences>({
+    paperSize: "80mm",
+    headerText: null,
+    footerText: null,
+    showLogo: true,
+    showVatBreakdown: true,
+    showStaffName: true,
+  });
+  const [organization, setOrganization] = useState<{ displayName: string; logoUrl: string | null } | null>(null);
   const [amountPaid, setAmountPaid] = useState("0.00");
   const [paidTouched, setPaidTouched] = useState(false);
   const [splitAmounts, setSplitAmounts] = useState<Record<PaymentMethod, string>>(EMPTY_SPLIT);
@@ -151,6 +168,36 @@ function PosWorkspace() {
     (line) => line.product.requiresPrescription || line.product.isControlled,
   );
   const cashierName = user?.fullName ?? "Cashier";
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchTenantSettings()
+      .then((settings) => {
+        if (cancelled) return;
+        setPosPrefs({
+          posQuickAddEnabled: settings.posQuickAddEnabled,
+          posHeldSalesEnabled: settings.posHeldSalesEnabled,
+          posRequireCustomer: settings.posRequireCustomer,
+          posAutoPrintReceipt: settings.posAutoPrintReceipt,
+        });
+        setReceiptPrefs({
+          paperSize: settings.receiptPaperSize,
+          headerText: settings.receiptHeaderText,
+          footerText: settings.receiptFooterText,
+          showLogo: settings.receiptShowLogo,
+          showVatBreakdown: settings.receiptShowVatBreakdown,
+          showStaffName: settings.receiptShowStaffName,
+        });
+        if (["cash", "card", "mobile_wallet", "split"].includes(settings.posDefaultPaymentMethod)) {
+          setTenderMode(settings.posDefaultPaymentMethod as TenderMode);
+        }
+      })
+      .catch(() => {});
+    apiJson<{ displayName: string; logoUrl: string | null }>("/tenant/profile")
+      .then((profile) => { if (!cancelled) setOrganization(profile); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   /* ── Cart operations ─────────────────────────────────────── */
 
@@ -224,6 +271,10 @@ function PosWorkspace() {
   const holdSale = useCallback(
     async (opts?: { forPharmacist?: boolean }) => {
       if (cart.resolved.length === 0) return;
+      if (!posPrefs.posHeldSalesEnabled) {
+        toasts.warn("Held sales are disabled in Settings.");
+        return;
+      }
       const forPharmacist = opts?.forPharmacist === true;
       try {
         const labelBase =
@@ -257,7 +308,7 @@ function PosWorkspace() {
         toasts.error(e instanceof Error ? e.message : "Could not park this sale");
       }
     },
-    [cart, customer, prescription, notes, mode, toasts, resetSale, holds],
+    [cart, customer, prescription, notes, mode, toasts, resetSale, holds, posPrefs.posHeldSalesEnabled],
   );
 
   const recallHold = useCallback(
@@ -396,8 +447,9 @@ function PosWorkspace() {
   const blockedReason = useMemo(() => {
     if (cart.resolved.length === 0) return null;
     if (blockingAlerts.length > 0) return blockingAlerts[0]!.title;
+    if (posPrefs.posRequireCustomer && !customer) return "Select a customer before completing this sale";
     return null;
-  }, [cart.resolved.length, blockingAlerts]);
+  }, [cart.resolved.length, blockingAlerts, posPrefs.posRequireCustomer, customer]);
 
   const buildPayments = useCallback((): TenderLine[] => {
     const total = cart.totals.grandTotal;
@@ -437,7 +489,7 @@ function PosWorkspace() {
           idempotencyKey.current,
         );
         setPinOpen(false);
-        setReceipt(sale);
+        if (posPrefs.posAutoPrintReceipt) setReceipt(sale);
         setLastReceipt(sale);
         const dispenserNote =
           sale.dispenser && sale.dispenser.id !== sale.seller.id
@@ -469,6 +521,7 @@ function PosWorkspace() {
       reload,
       holds,
       beep,
+      posPrefs.posAutoPrintReceipt,
     ],
   );
 
@@ -665,6 +718,7 @@ function PosWorkspace() {
           cartDirty={cart.resolved.length > 0}
           holdCount={holds.holds.length}
           busy={posting}
+          holdsEnabled={posPrefs.posHeldSalesEnabled}
           beepEnabled={beepEnabled}
           saleActionsDisabled={mode === "returns"}
           onNewSale={startNewSale}
@@ -716,7 +770,7 @@ function PosWorkspace() {
               onRemove={cart.removeLine}
             />
 
-            <PosQuickAdd
+            {posPrefs.posQuickAddEnabled && <PosQuickAdd
               tab={quickTab}
               onTabChange={setQuickTab}
               products={products}
@@ -749,7 +803,7 @@ function PosWorkspace() {
                   toasts.warn(`Nothing from ${sale.invoiceNo} is sellable right now.`);
                 }
               }}
-            />
+            />}
           </div>
 
           <div className={css.sideCol}>
@@ -781,6 +835,7 @@ function PosWorkspace() {
                 else toasts.notify("Complete the sale to print its bill.");
               }}
               onHold={() => void holdSale()}
+              holdsEnabled={posPrefs.posHeldSalesEnabled}
             />
 
             <PosAlertsPanel
@@ -878,7 +933,12 @@ function PosWorkspace() {
 
       <PosShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
-      <PosReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
+      <PosReceiptModal
+        receipt={receipt}
+        onClose={() => setReceipt(null)}
+        preferences={receiptPrefs}
+        organization={organization}
+      />
 
       <Modal
         open={confirm !== null}

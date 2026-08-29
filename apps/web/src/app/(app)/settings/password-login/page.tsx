@@ -1,15 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, FormField, ToggleSwitch } from "@/components/ui";
+import { PageHeader, ActionButton, DataTable, FormField, type Column } from "@/components/ui";
 import { IconLock } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
 import { fetchTenantSettings, saveSecuritySettings, type TenantSettings } from "../lib/tenant-settings";
 import { ChangePasswordModal } from "./components/change-password-modal";
+import { apiJson } from "@/lib/auth-client";
+import { useAuth } from "@/lib/use-auth";
+
+type UserSession = {
+  id: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+};
+
+function deviceLabel(userAgent: string | null): string {
+  if (!userAgent) return "Unknown device";
+  const browser = userAgent.includes("Edg/") ? "Edge" : userAgent.includes("Chrome/") ? "Chrome" : userAgent.includes("Firefox/") ? "Firefox" : userAgent.includes("Safari/") ? "Safari" : "Browser";
+  const os = userAgent.includes("Windows") ? "Windows" : userAgent.includes("Android") ? "Android" : userAgent.includes("iPhone") || userAgent.includes("iPad") ? "iOS" : userAgent.includes("Mac OS") ? "macOS" : "Unknown OS";
+  return `${browser} on ${os}`;
+}
 
 export default function PasswordLoginPage() {
+  const router = useRouter();
+  const { logoutAll } = useAuth();
   const { permissionKeys } = usePermissions();
   const canEdit = permissionKeys.includes("tenant.management");
 
@@ -18,6 +39,53 @@ export default function PasswordLoginPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [sessions, setSessions] = useState<UserSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      setSessions(await apiJson<UserSession[]>("/auth/me/sessions"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load active sessions");
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadSessions(); }, [loadSessions]);
+
+  async function revokeSession(sessionId: string) {
+    setRevokingId(sessionId);
+    setError(null);
+    try {
+      await apiJson<void>(`/auth/me/sessions/${sessionId}`, { method: "DELETE" });
+      setSessions((current) => current.filter((session) => session.id !== sessionId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to sign out that session");
+    } finally {
+      setRevokingId(null);
+    }
+  }
+
+  const sessionColumns: Column<UserSession>[] = [
+    { key: "device", header: "Device", render: (session) => deviceLabel(session.userAgent) },
+    { key: "ipAddress", header: "IP address", render: (session) => session.ipAddress ?? "—" },
+    { key: "activity", header: "Last activity", render: (session) => new Date(session.lastUsedAt ?? session.createdAt).toLocaleString() },
+    { key: "expiresAt", header: "Expires", render: (session) => new Date(session.expiresAt).toLocaleDateString() },
+    {
+      key: "actions",
+      header: <span className={css.srOnly}>Actions</span>,
+      align: "right",
+      render: (session) => (
+        <ActionButton variant="secondary" onClick={() => void revokeSession(session.id)} disabled={revokingId === session.id}>
+          {revokingId === session.id ? "Signing out…" : "Sign out"}
+        </ActionButton>
+      ),
+    },
+  ];
 
   useEffect(() => {
     if (!canEdit) return;
@@ -40,16 +108,14 @@ export default function PasswordLoginPage() {
   async function handleSave() {
     if (!draft) return;
     setError(null);
+    setSaved(false);
     setSaving(true);
     try {
       const updated = await saveSecuritySettings({
-        sessionTimeoutMinutes: Number(draft.sessionTimeoutMinutes),
-        auditLogRetentionDays: Number(draft.auditLogRetentionDays),
         passwordMinLength: Number(draft.passwordMinLength),
-        passwordRequireNumberOrSymbol: draft.passwordRequireNumberOrSymbol,
-        passwordExpiryDays: Number(draft.passwordExpiryDays),
       });
       setDraft(updated);
+      setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -64,6 +130,7 @@ export default function PasswordLoginPage() {
         description="Your sign-in security, and the password policy applied to all staff."
       />
       {error ? <Alert variant="error">{error}</Alert> : null}
+      {saved ? <Alert variant="success">Password policy saved.</Alert> : null}
 
       <div className={css.card}>
         <div className={css.cardHead}>
@@ -84,6 +151,29 @@ export default function PasswordLoginPage() {
         </div>
       </div>
 
+      <div className={css.card} style={{ marginTop: "1rem" }}>
+        <div className={css.cardHead}>
+          <div>
+            <h2 className={css.cardTitle}>Active sessions</h2>
+            <p className={css.cardDesc}>Review devices that can refresh access to your account.</p>
+          </div>
+          <ActionButton
+            variant="secondary"
+            onClick={async () => { await logoutAll(); router.push("/login"); }}
+          >
+            Sign out everywhere
+          </ActionButton>
+        </div>
+        <DataTable
+          columns={sessionColumns}
+          data={sessions}
+          rowKey={(session) => session.id}
+          loading={sessionsLoading}
+          pageSize={5}
+          emptyTitle="No active sessions"
+        />
+      </div>
+
       {canEdit ? (
         <div className={css.card} style={{ marginTop: "1rem" }}>
           <div className={css.cardHead}>
@@ -95,47 +185,19 @@ export default function PasswordLoginPage() {
             <p className={css.rowHint}>Loading…</p>
           ) : (
             <>
-              <div className={css.formGrid}>
+              <p className={css.cardDesc}>
+                Use a long minimum password. The application does not force scheduled password
+                changes; staff should change passwords when compromise is suspected.
+              </p>
+              <div className={css.formGrid} style={{ marginTop: "1rem" }}>
                 <FormField
-                  label="Session timeout (minutes)"
+                  label="Minimum password length"
                   type="number"
-                  min={1}
-                  value={draft.sessionTimeoutMinutes}
-                  onChange={(e) => setDraft((d) => (d ? { ...d, sessionTimeoutMinutes: Number(e.target.value) } : d))}
-                />
-                <FormField
-                  as="select"
-                  label="Audit log retention"
-                  value={String(draft.auditLogRetentionDays)}
-                  onChange={(e) => setDraft((d) => (d ? { ...d, auditLogRetentionDays: Number(e.target.value) } : d))}
-                >
-                  <option value="90">90 days</option>
-                  <option value="180">180 days</option>
-                  <option value="365">1 year</option>
-                  <option value="730">2 years</option>
-                </FormField>
-                <FormField
-                  label="Minimum length"
-                  type="number"
-                  min={6}
+                  min={8}
                   max={64}
                   value={draft.passwordMinLength}
                   onChange={(e) => setDraft((d) => (d ? { ...d, passwordMinLength: Number(e.target.value) } : d))}
-                />
-                <FormField
-                  label="Password expiry in days (0 = never)"
-                  type="number"
-                  min={0}
-                  value={draft.passwordExpiryDays}
-                  onChange={(e) => setDraft((d) => (d ? { ...d, passwordExpiryDays: Number(e.target.value) } : d))}
-                />
-              </div>
-              <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-                <div className={css.rowLabel}>Require a number or symbol</div>
-                <ToggleSwitch
-                  checked={draft.passwordRequireNumberOrSymbol}
-                  onChange={(v) => setDraft((d) => (d ? { ...d, passwordRequireNumberOrSymbol: v } : d))}
-                  label="Require a number or symbol"
+                  hint="12 or more characters is recommended; passphrases are supported."
                 />
               </div>
               <div className={css.saveRow}>

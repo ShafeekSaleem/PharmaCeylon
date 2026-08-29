@@ -53,6 +53,13 @@
   box-shadow: 0 0 0 3px var(--pc-focus-ring);
 }
 
+.control:disabled {
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
 /* Settings → Preferences → Appearance's density preference (default "comfortable" — no rule
    needed). Reaches this shared component via a data attribute on <html>, see lib/appearance.ts. */
 :global(html[data-density="compact"]) .control {
@@ -88,6 +95,11 @@ select.control {
   background-repeat: no-repeat;
   background-position: right 0.7rem center;
   cursor: pointer;
+}
+
+select.control option {
+  color: var(--pc-foreground);
+  background: var(--pc-card-bg);
 }
 
 .errorText {

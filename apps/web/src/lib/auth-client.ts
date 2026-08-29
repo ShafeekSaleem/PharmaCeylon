@@ -176,6 +176,14 @@ export async function fetchTenantContext(): Promise<unknown> {
 
 export type TenantBranch = { id: string; code: string; name: string; city: string | null; timezone: string };
 
+export const BRANCHES_CHANGED_EVENT = "pharmaceylon-branches-changed";
+
+export function notifyBranchesChanged(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(BRANCHES_CHANGED_EVENT));
+  }
+}
+
 export async function fetchTenantBranches(): Promise<TenantBranch[]> {
   const res = await apiFetch("/tenant/branches");
   if (!res.ok) {

@@ -1,4 +1,4 @@
-import { ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { TaxService } from "../pricing/tax.service";
@@ -29,6 +29,7 @@ describe("SalesService controlled checkout authority", () => {
 
     prisma = {
       idempotencyRecord: { findUnique: jest.fn().mockResolvedValue(null) },
+      tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
       product: {
         findMany: jest.fn().mockResolvedValue([
           {
@@ -125,5 +126,46 @@ describe("SalesService controlled checkout authority", () => {
     ).rejects.toThrow("stop-after-authority");
     expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
     expect(txnEntered).toBe(true);
+  });
+
+  it("requires a customer when the POS policy is enabled", async () => {
+    (prisma.tenantSettings as { findUnique: jest.Mock }).findUnique.mockResolvedValue({
+      posRequireCustomer: true,
+      posMaxDiscountPercent: 10,
+    });
+
+    await expect(
+      service.checkout(
+        tenantId,
+        branchId,
+        cashierId,
+        [{ branchId, role: RoleName.cashier }],
+        { items: [line], prescriptionId: "rx-1" },
+        undefined,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(txnEntered).toBe(false);
+  });
+
+  it("requires a manager when a cashier exceeds the discount limit", async () => {
+    (prisma.tenantSettings as { findUnique: jest.Mock }).findUnique.mockResolvedValue({
+      posRequireCustomer: false,
+      posMaxDiscountPercent: 10,
+    });
+
+    await expect(
+      service.checkout(
+        tenantId,
+        branchId,
+        cashierId,
+        [{ branchId, role: RoleName.cashier }],
+        {
+          items: [{ ...line, discountAmount: "10.01" }],
+          prescriptionId: "rx-1",
+        },
+        undefined,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(txnEntered).toBe(false);
   });
 });

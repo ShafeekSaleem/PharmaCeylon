@@ -87,7 +87,12 @@ export class TenantSettingsService {
   }
 
   updateInventory(tenantId: string, actorUserId: string, dto: UpdateInventorySettingsDto) {
-    return this.patchDomain(tenantId, actorUserId, "tenant_settings.inventory_updated", dto);
+    return this.patchDomain(tenantId, actorUserId, "tenant_settings.inventory_updated", {
+      ...dto,
+      // Regulatory/stock-integrity invariants are policy, not tenant preferences.
+      blockExpiredBatchSalesAtPos: true,
+      allowNegativeStock: false,
+    });
   }
 
   updatePurchasing(tenantId: string, actorUserId: string, dto: UpdatePurchasingSettingsDto) {
@@ -124,7 +129,11 @@ export class TenantSettingsService {
   }
 
   updateSecurity(tenantId: string, actorUserId: string, dto: UpdateSecuritySettingsDto) {
-    return this.patchDomain(tenantId, actorUserId, "tenant_settings.security_updated", dto);
+    return this.patchDomain(tenantId, actorUserId, "tenant_settings.security_updated", {
+      ...dto,
+      passwordRequireNumberOrSymbol: false,
+      passwordExpiryDays: 0,
+    });
   }
 }
 

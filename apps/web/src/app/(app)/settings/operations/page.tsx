@@ -83,9 +83,7 @@ function InventoryCard({ settings, onSaved, canEdit }: CardProps) {
         defaultStockView: draft.defaultStockView,
         stockPickingMethod: draft.stockPickingMethod,
         barcodeAdjustmentsEnabled: draft.barcodeAdjustmentsEnabled,
-        blockExpiredBatchSalesAtPos: draft.blockExpiredBatchSalesAtPos,
         requireBatchExpiryOnGoodsReceipt: draft.requireBatchExpiryOnGoodsReceipt,
-        allowNegativeStock: draft.allowNegativeStock,
       });
       onSaved(updated);
       setDraft(updated);
@@ -98,12 +96,10 @@ function InventoryCard({ settings, onSaved, canEdit }: CardProps) {
 
   const toggles: { key: keyof TenantSettings; label: string }[] = [
     { key: "barcodeAdjustmentsEnabled", label: "Enable barcode scan for stock adjustments" },
-    { key: "blockExpiredBatchSalesAtPos", label: "Block sales of expired batches at POS" },
     {
       key: "requireBatchExpiryOnGoodsReceipt",
       label: "Require batch & expiry entry on every goods receipt",
     },
-    { key: "allowNegativeStock", label: "Allow negative stock (oversell)" },
   ];
 
   return (
@@ -169,6 +165,20 @@ function InventoryCard({ settings, onSaved, canEdit }: CardProps) {
           />
         </div>
       ))}
+      <div className={css.rowItem}>
+        <div>
+          <div className={css.rowLabel}>Expired-batch sales are blocked</div>
+          <div className={css.rowHint}>Mandatory safety control; cannot be disabled.</div>
+        </div>
+        <span className={css.badgeLocked}>Locked</span>
+      </div>
+      <div className={css.rowItem}>
+        <div>
+          <div className={css.rowLabel}>Negative stock is blocked</div>
+          <div className={css.rowHint}>Prevents untraceable overselling and inventory drift.</div>
+        </div>
+        <span className={css.badgeLocked}>Locked</span>
+      </div>
       {canEdit ? (
         <div className={css.saveRow}>
           <ActionButton onClick={handleSave} disabled={saving}>
@@ -192,7 +202,6 @@ function PurchasingCard({ settings, onSaved, canEdit }: CardProps) {
       const updated = await savePurchasingSettings({
         poNumberPrefix: draft.poNumberPrefix,
         defaultSupplierPaymentTermsDays: Number(draft.defaultSupplierPaymentTermsDays),
-        autoReceiveOnInvoiceMatch: draft.autoReceiveOnInvoiceMatch,
       });
       onSaved(updated);
       setDraft(updated);
@@ -230,15 +239,6 @@ function PurchasingCard({ settings, onSaved, canEdit }: CardProps) {
             setDraft((d) => ({ ...d, defaultSupplierPaymentTermsDays: Number(e.target.value) }))
           }
           disabled={!canEdit}
-        />
-      </div>
-      <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-        <div className={css.rowLabel}>Auto-receive stock when supplier invoice matches PO</div>
-        <ToggleSwitch
-          checked={draft.autoReceiveOnInvoiceMatch}
-          onChange={(v) => setDraft((d) => ({ ...d, autoReceiveOnInvoiceMatch: v }))}
-          disabled={!canEdit}
-          label="Auto-receive stock when supplier invoice matches PO"
         />
       </div>
       {canEdit ? (

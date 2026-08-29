@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { loginRequest, logoutAllRequest, logoutRequest } from "./auth-client";
+import { fetchMe, loginRequest, logoutAllRequest, logoutRequest } from "./auth-client";
 import type { AuthUser } from "./auth-types";
 import {
   loadStoredSession,
+  persistUser,
   setBranchId as persistBranchId,
 } from "./auth-session";
 
@@ -60,6 +61,12 @@ export function useAuth() {
     persistBranchId(id);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const user = await fetchMe();
+    persistUser(user);
+    return user;
+  }, []);
+
   return useMemo(
     () => ({
       user: s.user,
@@ -70,7 +77,8 @@ export function useAuth() {
       logout,
       logoutAll,
       setBranchId,
+      refreshUser,
     }),
-    [s.user, s.branchId, hydrated, login, logout, logoutAll, setBranchId],
+    [s.user, s.branchId, hydrated, login, logout, logoutAll, setBranchId, refreshUser],
   );
 }

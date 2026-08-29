@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PageHeader, StatusBadge } from "@/components/ui";
-import { IconSparkles, IconSun, IconMoon, IconCloudSun } from "@/components/icons";
+import { ActionButton, PageHeader } from "@/components/ui";
+import { IconSparkles } from "@/components/icons";
+import { useAuth } from "@/lib/use-auth";
 import {
   applyAppearancePrefs,
   readAppearancePrefs,
@@ -21,28 +22,36 @@ const ACCENT_SWATCHES: { value: AccentColor; color: string }[] = [
 ];
 
 export default function AppearancePage() {
+  const { user } = useAuth();
   const [prefs, setPrefs] = useState(DEFAULT_APPEARANCE_PREFS);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setPrefs(readAppearancePrefs());
+    setPrefs(readAppearancePrefs(user?.id));
     setReady(true);
-  }, []);
+  }, [user?.id]);
 
   function update(next: Partial<typeof prefs>) {
     setPrefs((p) => {
       const merged = { ...p, ...next };
-      writeAppearancePrefs(merged);
+      writeAppearancePrefs(merged, user?.id);
       applyAppearancePrefs(merged);
       return merged;
     });
+  }
+
+  function reset() {
+    setPrefs(DEFAULT_APPEARANCE_PREFS);
+    writeAppearancePrefs(DEFAULT_APPEARANCE_PREFS, user?.id);
+    applyAppearancePrefs(DEFAULT_APPEARANCE_PREFS);
   }
 
   return (
     <div>
       <PageHeader
         title="Appearance"
-        description="Personal display preferences — visible only to you, saved in this browser."
+        description="Personal display preferences for your account on this device."
+        actions={<ActionButton variant="secondary" onClick={reset} disabled={!ready}>Reset defaults</ActionButton>}
       />
 
       <div className={css.card}>
@@ -52,31 +61,6 @@ export default function AppearancePage() {
               <IconSparkles size={16} /> Display
             </h2>
           </div>
-        </div>
-
-        <p className={css.subLabel}>Theme</p>
-        <div className={css.optionRow}>
-          <button type="button" className={`${css.optionCard} ${css.optionCardSelected}`} disabled={!ready}>
-            <span className={css.optionCardIcon}>
-              <IconSun size={20} />
-            </span>
-            Light
-          </button>
-          <button type="button" className={css.optionCard} disabled>
-            <span className={css.optionSoonBadge}>
-              <StatusBadge status="soon" label="Soon" variant="muted" />
-            </span>
-            <span className={css.optionCardIcon}>
-              <IconMoon size={20} />
-            </span>
-            Dark
-          </button>
-          <button type="button" className={css.optionCard} disabled>
-            <span className={css.optionCardIcon}>
-              <IconCloudSun size={20} />
-            </span>
-            System
-          </button>
         </div>
 
         <p className={css.subLabel}>Accent color</p>
@@ -123,6 +107,15 @@ export default function AppearancePage() {
               {f[0].toUpperCase() + f.slice(1)}
             </button>
           ))}
+        </div>
+
+        <div className={css.appearancePreview}>
+          <div>
+            <div className={css.avatarTitle}>Preview</div>
+            <div className={css.rowHint}>Changes apply immediately across forms, tables and navigation.</div>
+          </div>
+          <button type="button" className={css.previewPrimary}>Primary action</button>
+          <span className={`${css.chip} ${css.chipOn}`}>Active</span>
         </div>
       </div>
     </div>

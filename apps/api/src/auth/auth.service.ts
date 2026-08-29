@@ -43,6 +43,7 @@ export type AuthUserView = {
   tenantCode?: string;
   email: string;
   fullName: string;
+  avatarUrl: string | null;
   roles: RoleName[];
   branchRoles: Array<{ branchId: string; role: RoleName }>;
 };
@@ -341,13 +342,67 @@ export class AuthService {
    *  needs to be able to set their own profile photo. */
   async updateMyAvatar(userId: string, file: Express.Multer.File) {
     const { url } = await this.uploadsService.uploadImage(file, "avatars");
+    const existing = await this.prisma.appUser.findUniqueOrThrow({
+      where: { id: userId },
+      select: { avatarUrl: true },
+    });
     // tenant-scope: system-auth — userId is a verified globally unique identity.
-    const user = await this.prisma.appUser.update({
+    await this.prisma.appUser.update({
       where: { id: userId },
       data: { avatarUrl: url },
-      select: { id: true, avatarUrl: true },
     });
-    return user;
+    if (existing.avatarUrl && existing.avatarUrl !== url) {
+      await this.uploadsService.deleteImage(existing.avatarUrl);
+    }
+    return { url };
+  }
+
+  async removeMyAvatar(userId: string): Promise<void> {
+    const existing = await this.prisma.appUser.findUniqueOrThrow({
+      where: { id: userId },
+      select: { avatarUrl: true },
+    });
+    // tenant-scope: system-auth — userId is a verified globally unique identity.
+    await this.prisma.appUser.update({
+      where: { id: userId },
+      data: { avatarUrl: null },
+    });
+    if (existing.avatarUrl) {
+      await this.uploadsService.deleteImage(existing.avatarUrl);
+    }
+  }
+
+  async listMySessions(userId: string) {
+    const now = new Date();
+    return this.prisma.session.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: now } },
+      select: {
+        id: true,
+        userAgent: true,
+        ipAddress: true,
+        createdAt: true,
+        lastUsedAt: true,
+        expiresAt: true,
+      },
+      orderBy: [{ lastUsedAt: "desc" }, { createdAt: "desc" }],
+    });
+  }
+
+  async revokeMySession(tenantId: string, userId: string, sessionId: string): Promise<void> {
+    const result = await this.prisma.session.updateMany({
+      where: { id: sessionId, tenantId, userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: SESSION_REVOKED_REASONS.logout },
+    });
+    if (result.count === 0) {
+      throw new BadRequestException("Session was not found or is already signed out");
+    }
+    await this.auditService.log({
+      tenantId,
+      actorUserId: userId,
+      eventName: "auth.session_revoked",
+      entityName: "session",
+      entityId: sessionId,
+    });
   }
 
   /** Self-service password change. Verifies the current password, enforces the tenant's
@@ -366,18 +421,13 @@ export class AuthService {
 
     const policy = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
-      select: { passwordMinLength: true, passwordRequireNumberOrSymbol: true },
+      select: { passwordMinLength: true },
     });
     const minLength = policy?.passwordMinLength ?? 8;
-    const requireNumberOrSymbol = policy?.passwordRequireNumberOrSymbol ?? true;
 
     if (dto.newPassword.length < minLength) {
       throw new BadRequestException(`Password must be at least ${minLength} characters`);
     }
-    if (requireNumberOrSymbol && !/[0-9]|[^A-Za-z0-9]/.test(dto.newPassword)) {
-      throw new BadRequestException("Password must include a number or symbol");
-    }
-
     const newHash = await bcrypt.hash(dto.newPassword, 10);
     // tenant-scope: system-auth — userId is a verified globally unique identity.
     await this.prisma.appUser.update({
@@ -537,6 +587,7 @@ export class AuthService {
       tenantCode,
       email: user.email,
       fullName: user.fullName,
+      avatarUrl: user.avatarUrl,
       roles: Array.from(roleSet),
       branchRoles,
     };

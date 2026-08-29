@@ -142,6 +142,10 @@ export class InventoryService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    const configuredWindow = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { expiryWarningDays: true },
+    });
     const nearWindowDays =
       query.nearExpiryDays != null &&
       Number.isFinite(query.nearExpiryDays) &&
@@ -232,7 +236,7 @@ export class InventoryService {
       }
     }
 
-    const windowDays = nearWindowDays ?? 30;
+    const windowDays = nearWindowDays ?? configuredWindow?.expiryWarningDays ?? 30;
     const mapped = batches.map((b) => {
       const qtyOnHand = qtyMap.get(b.id) ?? 0;
       const exp = new Date(b.expiryDate);

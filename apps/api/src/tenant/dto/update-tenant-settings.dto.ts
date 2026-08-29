@@ -100,7 +100,7 @@ export class UpdateInsightsSettingsDto {
 export class UpdateSecuritySettingsDto {
   @IsOptional() @IsInt() @Min(1) @Max(1440) sessionTimeoutMinutes?: number;
   @IsOptional() @IsInt() @Min(30) @Max(3650) auditLogRetentionDays?: number;
-  @IsOptional() @IsInt() @Min(6) @Max(64) passwordMinLength?: number;
+  @IsOptional() @IsInt() @Min(8) @Max(64) passwordMinLength?: number;
   @IsOptional() @IsBoolean() passwordRequireNumberOrSymbol?: boolean;
   /** 0 = never expires. */
   @IsOptional() @IsInt() @Min(0) @Max(3650) passwordExpiryDays?: number;

@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
-import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import { BRANCHES_CHANGED_EVENT, fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { AppearanceEffect } from "./appearance-effect";
 import {
   IconGrid,
@@ -106,6 +106,17 @@ for (const g of NAV_GROUPS) {
 PAGE_TITLES["/inventory/batches"] = "Batch stock";
 PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
 PAGE_TITLES["/inventory/movements"] = "Stock movements";
+PAGE_TITLES["/settings/my-profile"] = "My Profile";
+PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
+PAGE_TITLES["/settings/branches"] = "Branches";
+PAGE_TITLES["/settings/main"] = "Point of Sale & Receipts";
+PAGE_TITLES["/settings/catalog"] = "Catalog";
+PAGE_TITLES["/settings/operations"] = "Inventory & Operations";
+PAGE_TITLES["/settings/alerts-recipients"] = "Notifications";
+PAGE_TITLES["/settings/approval-rules"] = "Approval Rules";
+PAGE_TITLES["/settings/insights-reports"] = "Reports";
+PAGE_TITLES["/settings/password-login"] = "Password & Security";
+PAGE_TITLES["/settings/appearance"] = "Appearance";
 
 const COLLAPSE_KEY = "pc_sidebar_collapsed";
 
@@ -198,14 +209,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!isAuthenticated) router.replace("/login");
   }, [ready, isAuthenticated, router]);
 
-  useEffect(() => {
-    if (!ready || !isAuthenticated) return;
+  const loadBranches = useCallback(() => {
+    if (!ready || !isAuthenticated) return () => {};
     let cancelled = false;
     fetchTenantBranches()
       .then((b) => { if (!cancelled) setBranches(b); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [ready, isAuthenticated]);
+
+  useEffect(() => loadBranches(), [loadBranches]);
+
+  useEffect(() => {
+    const refresh = () => { loadBranches(); };
+    window.addEventListener(BRANCHES_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(BRANCHES_CHANGED_EVENT, refresh);
+  }, [loadBranches]);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -266,6 +285,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pageTitle = resolvePageTitle(pathname);
   const breadcrumbs = [...buildBreadcrumbs(pathname, lastSegmentLabel), ...extraCrumbs];
   const initials = user ? getInitials(user.fullName) : "??";
+  const isSettings = pathname === "/settings" || pathname.startsWith("/settings/");
 
   const sidebarCls = [
     styles.sidebar,
@@ -426,7 +446,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 onClick={() => setAvatarOpen((v) => !v)}
                 aria-label="User menu"
               >
-                {initials}
+                {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initials}
               </button>
               {avatarOpen && (
                 <div className={styles.avatarMenu}>
@@ -435,7 +455,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <div className={styles.avatarMenuEmail}>{user?.email}</div>
                   </div>
                   <div className={styles.avatarMenuBody}>
-                    <button type="button" className={styles.avatarMenuItem} onClick={() => setAvatarOpen(false)}>
+                    <button
+                      type="button"
+                      className={styles.avatarMenuItem}
+                      onClick={() => { setAvatarOpen(false); router.push("/settings/my-profile"); }}
+                    >
                       <IconUser size={16} /> Profile
                     </button>
                     <div className={styles.avatarMenuDivider} />
@@ -451,7 +475,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Sub-header */}
         <div className={styles.subheader}>
-          <span className={styles.branchBadge}>{branchName}</span>
+          {!isSettings && <span className={styles.branchBadge}>{branchName}</span>}
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className={styles.breadcrumbSegment}>
               <IconChevronRight size={12} />
@@ -463,7 +487,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           ))}
 
-          <div className={styles.subheaderRight}>
+          {!isSettings && <div className={styles.subheaderRight}>
             <span className={styles.branchLabel}>Switch branch</span>
             <div className={styles.branchDropWrap} ref={branchRef}>
               <button
@@ -494,7 +518,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Page content */}
@@ -502,7 +526,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* FAB — Quick POS (hidden on POS page) */}
-      {pathname !== "/pos" && (
+      {pathname !== "/pos" && !isSettings && (
         <Link href="/pos" className={styles.fab} aria-label="Quick POS (Ctrl+Shift+P)">
           <IconShoppingCart size={24} />
         </Link>

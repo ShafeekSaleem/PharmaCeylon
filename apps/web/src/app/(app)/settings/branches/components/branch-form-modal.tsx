@@ -15,7 +15,23 @@ type Props = {
   branch: Branch | null;
 };
 
-const EMPTY = { code: "", name: "", city: "", addressLine1: "", phone: "", timezone: "Asia/Colombo" };
+const EMPTY = {
+  code: "",
+  name: "",
+  city: "",
+  district: "",
+  addressLine1: "",
+  addressLine2: "",
+  postalCode: "",
+  phone: "",
+  email: "",
+  timezone: "Asia/Colombo",
+  pharmacyLicenceNo: "",
+  pharmacyLicenceExpiry: "",
+  responsiblePharmacist: "",
+  pharmacistSlmcNo: "",
+  openingHours: "",
+};
 
 export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
   const [form, setForm] = useState(EMPTY);
@@ -31,9 +47,18 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
         code: branch.code,
         name: branch.name,
         city: branch.city ?? "",
+        district: branch.district ?? "",
         addressLine1: branch.addressLine1 ?? "",
+        addressLine2: branch.addressLine2 ?? "",
+        postalCode: branch.postalCode ?? "",
         phone: branch.phone ?? "",
+        email: branch.email ?? "",
         timezone: branch.timezone,
+        pharmacyLicenceNo: branch.pharmacyLicenceNo ?? "",
+        pharmacyLicenceExpiry: branch.pharmacyLicenceExpiry?.slice(0, 10) ?? "",
+        responsiblePharmacist: branch.responsiblePharmacist ?? "",
+        pharmacistSlmcNo: branch.pharmacistSlmcNo ?? "",
+        openingHours: branch.openingHours ?? "",
       });
       setIsActive(branch.isActive);
     } else {
@@ -58,12 +83,36 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
         code: form.code.trim(),
         name: form.name.trim(),
         city: form.city.trim() || undefined,
+        district: form.district.trim() || undefined,
         addressLine1: form.addressLine1.trim() || undefined,
+        addressLine2: form.addressLine2.trim() || undefined,
+        postalCode: form.postalCode.trim() || undefined,
         phone: form.phone.trim() || undefined,
+        email: form.email.trim() || undefined,
         timezone: form.timezone.trim() || "Asia/Colombo",
+        pharmacyLicenceNo: form.pharmacyLicenceNo.trim() || undefined,
+        pharmacyLicenceExpiry: form.pharmacyLicenceExpiry || undefined,
+        responsiblePharmacist: form.responsiblePharmacist.trim() || undefined,
+        pharmacistSlmcNo: form.pharmacistSlmcNo.trim() || undefined,
+        openingHours: form.openingHours.trim() || undefined,
       };
       const saved = branch
-        ? await updateBranch(branch.id, { ...payload, isActive })
+        ? await updateBranch(branch.id, {
+            ...payload,
+            city: form.city.trim() || null,
+            district: form.district.trim() || null,
+            addressLine1: form.addressLine1.trim() || null,
+            addressLine2: form.addressLine2.trim() || null,
+            postalCode: form.postalCode.trim() || null,
+            phone: form.phone.trim() || null,
+            email: form.email.trim() || null,
+            pharmacyLicenceNo: form.pharmacyLicenceNo.trim() || null,
+            pharmacyLicenceExpiry: form.pharmacyLicenceExpiry || null,
+            responsiblePharmacist: form.responsiblePharmacist.trim() || null,
+            pharmacistSlmcNo: form.pharmacistSlmcNo.trim() || null,
+            openingHours: form.openingHours.trim() || null,
+            isActive,
+          })
         : await createBranch(payload);
       onSaved(saved);
       onClose();
@@ -80,6 +129,7 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
       onClose={onClose}
       title={branch ? `Edit Branch — ${branch.name}` : "Add Branch"}
       description="Branch details are visible to staff assigned to it, and on invoices printed from that branch."
+      size="lg"
       canDismiss={!saving}
       footer={
         <ModalFooter>
@@ -93,21 +143,40 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
       }
     >
       {error ? <Alert variant="error">{error}</Alert> : null}
+      <p className={css.modalSectionTitle}>Branch identity</p>
       <div className={css.formGrid}>
         <FormField label="Branch code" value={form.code} onChange={(e) => set("code", e.target.value)} required />
         <FormField label="Branch name" value={form.name} onChange={(e) => set("name", e.target.value)} required />
-        <FormField label="City" value={form.city} onChange={(e) => set("city", e.target.value)} />
-        <FormField label="Phone" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+        <FormField label="Phone" type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+        <FormField label="Email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
         <FormField
-          label="Address"
+          label="Address line 1"
           value={form.addressLine1}
           onChange={(e) => set("addressLine1", e.target.value)}
         />
+        <FormField label="Address line 2" value={form.addressLine2} onChange={(e) => set("addressLine2", e.target.value)} />
+        <FormField label="City" value={form.city} onChange={(e) => set("city", e.target.value)} />
+        <FormField label="District" value={form.district} onChange={(e) => set("district", e.target.value)} />
+        <FormField label="Postal code" value={form.postalCode} onChange={(e) => set("postalCode", e.target.value)} />
         <FormField
           label="Timezone"
           value={form.timezone}
           onChange={(e) => set("timezone", e.target.value)}
           hint="Sri Lanka uses a single timezone."
+        />
+      </div>
+
+      <p className={css.modalSectionTitle}>Pharmacy licence & supervision</p>
+      <div className={css.formGrid}>
+        <FormField label="NMRA pharmacy licence no." value={form.pharmacyLicenceNo} onChange={(e) => set("pharmacyLicenceNo", e.target.value)} />
+        <FormField label="Licence expiry" type="date" value={form.pharmacyLicenceExpiry} onChange={(e) => set("pharmacyLicenceExpiry", e.target.value)} />
+        <FormField label="Responsible pharmacist" value={form.responsiblePharmacist} onChange={(e) => set("responsiblePharmacist", e.target.value)} />
+        <FormField label="Pharmacist SLMC registration no." value={form.pharmacistSlmcNo} onChange={(e) => set("pharmacistSlmcNo", e.target.value)} />
+        <FormField
+          label="Opening hours"
+          value={form.openingHours}
+          onChange={(e) => set("openingHours", e.target.value)}
+          placeholder="Mon–Fri 08:00–20:00; Sat 08:00–18:00"
         />
       </div>
       {branch ? (

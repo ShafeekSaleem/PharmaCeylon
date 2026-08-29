@@ -1,4 +1,7 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { RoleName } from "@prisma/client";
+import { UserContextService } from "../auth/user-context.service";
+import { UploadsService } from "../uploads/uploads.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { UpdateTenantProfileDto } from "./dto/update-tenant-profile.dto";
@@ -10,6 +13,8 @@ export class TenantService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly userContext: UserContextService,
+    private readonly uploads: UploadsService,
   ) {}
 
   async getProfile(tenantId: string) {
@@ -25,11 +30,24 @@ export class TenantService {
         dateFormat: true,
         fiscalYearStartMonth: true,
         businessRegistrationNo: true,
+        logoUrl: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        postalCode: true,
+        email: true,
+        phone: true,
+        taxIdentificationNo: true,
+        vatRegistrationNo: true,
       },
     });
   }
 
   async updateProfile(tenantId: string, actorUserId: string, dto: UpdateTenantProfileDto) {
+    const existing = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { logoUrl: true },
+    });
     const tenant = await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
@@ -44,6 +62,15 @@ export class TenantService {
         ...(dto.businessRegistrationNo !== undefined
           ? { businessRegistrationNo: dto.businessRegistrationNo }
           : {}),
+        ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
+        ...(dto.addressLine1 !== undefined ? { addressLine1: dto.addressLine1 } : {}),
+        ...(dto.addressLine2 !== undefined ? { addressLine2: dto.addressLine2 } : {}),
+        ...(dto.city !== undefined ? { city: dto.city } : {}),
+        ...(dto.postalCode !== undefined ? { postalCode: dto.postalCode } : {}),
+        ...(dto.email !== undefined ? { email: dto.email } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+        ...(dto.taxIdentificationNo !== undefined ? { taxIdentificationNo: dto.taxIdentificationNo } : {}),
+        ...(dto.vatRegistrationNo !== undefined ? { vatRegistrationNo: dto.vatRegistrationNo } : {}),
       },
       select: {
         code: true,
@@ -55,6 +82,15 @@ export class TenantService {
         dateFormat: true,
         fiscalYearStartMonth: true,
         businessRegistrationNo: true,
+        logoUrl: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        postalCode: true,
+        email: true,
+        phone: true,
+        taxIdentificationNo: true,
+        vatRegistrationNo: true,
       },
     });
 
@@ -66,6 +102,10 @@ export class TenantService {
       entityId: tenantId,
       payload: { ...dto },
     });
+
+    if (dto.logoUrl !== undefined && existing.logoUrl && existing.logoUrl !== dto.logoUrl) {
+      await this.uploads.deleteImage(existing.logoUrl);
+    }
 
     return tenant;
   }
@@ -83,7 +123,16 @@ export class TenantService {
         name: true,
         city: true,
         addressLine1: true,
+        addressLine2: true,
+        district: true,
+        postalCode: true,
         phone: true,
+        email: true,
+        pharmacyLicenceNo: true,
+        pharmacyLicenceExpiry: true,
+        responsiblePharmacist: true,
+        pharmacistSlmcNo: true,
+        openingHours: true,
         timezone: true,
         isActive: true,
       },
@@ -93,17 +142,71 @@ export class TenantService {
 
   async createBranch(tenantId: string, actorUserId: string, dto: CreateBranchDto) {
     try {
-      const branch = await this.prisma.branch.create({
-        data: {
-          tenantId,
-          code: dto.code.trim(),
-          name: dto.name.trim(),
-          city: dto.city,
-          addressLine1: dto.addressLine1,
-          phone: dto.phone,
-          timezone: dto.timezone ?? "Asia/Colombo",
-        },
+      const actorMappings = await this.prisma.userBranchRole.findMany({
+        where: { tenantId, userId: actorUserId },
+        select: { role: true, roleId: true },
       });
+      const actorMapping =
+        actorMappings.find((mapping) => mapping.role === RoleName.owner) ??
+        actorMappings.find((mapping) => mapping.role === RoleName.manager) ??
+        actorMappings[0];
+      if (!actorMapping) {
+        throw new BadRequestException("The branch creator must have an assigned role");
+      }
+      const ownerMappings = await this.prisma.userBranchRole.findMany({
+        where: { tenantId, role: RoleName.owner },
+        select: { userId: true, roleId: true },
+        distinct: ["userId"],
+      });
+      const grants: Array<{
+        tenantId: string;
+        userId: string;
+        role: RoleName;
+        roleId: string | null;
+      }> = ownerMappings.map((mapping) => ({
+        tenantId,
+        userId: mapping.userId,
+        role: RoleName.owner,
+        roleId: mapping.roleId,
+      }));
+      if (!grants.some((grant) => grant.userId === actorUserId)) {
+        grants.push({
+          tenantId,
+          userId: actorUserId,
+          role: actorMapping.role,
+          roleId: actorMapping.roleId,
+        });
+      }
+
+      const branch = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.branch.create({
+          data: {
+            tenantId,
+            code: dto.code.trim(),
+            name: dto.name.trim(),
+            city: dto.city?.trim() || null,
+            addressLine1: dto.addressLine1?.trim() || null,
+            addressLine2: dto.addressLine2?.trim() || null,
+            phone: dto.phone?.trim() || null,
+            email: dto.email?.trim() || null,
+            district: dto.district?.trim() || null,
+            postalCode: dto.postalCode?.trim() || null,
+            pharmacyLicenceNo: dto.pharmacyLicenceNo?.trim() || null,
+            pharmacyLicenceExpiry: dto.pharmacyLicenceExpiry ? new Date(dto.pharmacyLicenceExpiry) : null,
+            responsiblePharmacist: dto.responsiblePharmacist?.trim() || null,
+            pharmacistSlmcNo: dto.pharmacistSlmcNo?.trim() || null,
+            openingHours: dto.openingHours?.trim() || null,
+            timezone: dto.timezone?.trim() || "Asia/Colombo",
+          },
+        });
+        await tx.userBranchRole.createMany({
+          data: grants.map((grant) => ({ ...grant, branchId: created.id })),
+          skipDuplicates: true,
+        });
+        return created;
+      });
+
+      for (const grant of grants) this.userContext.invalidate(grant.userId);
 
       await this.audit.log({
         tenantId,
@@ -129,9 +232,20 @@ export class TenantService {
     actorUserId: string,
     branchId: string,
     dto: UpdateBranchDto,
+    selectedBranchId?: string,
   ) {
     const existing = await this.prisma.branch.findFirst({ where: { id: branchId, tenantId } });
     if (!existing) throw new NotFoundException("Branch not found");
+
+    if (existing.isActive && dto.isActive === false) {
+      if (selectedBranchId === branchId) {
+        throw new BadRequestException("Switch to another branch before deactivating this branch");
+      }
+      const activeCount = await this.prisma.branch.count({ where: { tenantId, isActive: true } });
+      if (activeCount <= 1) {
+        throw new BadRequestException("The last active branch cannot be deactivated");
+      }
+    }
 
     try {
       const branch = await this.prisma.branch.update({
@@ -139,10 +253,21 @@ export class TenantService {
         data: {
           ...(dto.code != null ? { code: dto.code.trim() } : {}),
           ...(dto.name != null ? { name: dto.name.trim() } : {}),
-          ...(dto.city !== undefined ? { city: dto.city } : {}),
-          ...(dto.addressLine1 !== undefined ? { addressLine1: dto.addressLine1 } : {}),
-          ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
-          ...(dto.timezone != null ? { timezone: dto.timezone } : {}),
+          ...(dto.city !== undefined ? { city: dto.city?.trim() || null } : {}),
+          ...(dto.addressLine1 !== undefined ? { addressLine1: dto.addressLine1?.trim() || null } : {}),
+          ...(dto.addressLine2 !== undefined ? { addressLine2: dto.addressLine2?.trim() || null } : {}),
+          ...(dto.district !== undefined ? { district: dto.district?.trim() || null } : {}),
+          ...(dto.postalCode !== undefined ? { postalCode: dto.postalCode?.trim() || null } : {}),
+          ...(dto.phone !== undefined ? { phone: dto.phone?.trim() || null } : {}),
+          ...(dto.email !== undefined ? { email: dto.email?.trim() || null } : {}),
+          ...(dto.pharmacyLicenceNo !== undefined ? { pharmacyLicenceNo: dto.pharmacyLicenceNo?.trim() || null } : {}),
+          ...(dto.pharmacyLicenceExpiry !== undefined
+            ? { pharmacyLicenceExpiry: dto.pharmacyLicenceExpiry ? new Date(dto.pharmacyLicenceExpiry) : null }
+            : {}),
+          ...(dto.responsiblePharmacist !== undefined ? { responsiblePharmacist: dto.responsiblePharmacist?.trim() || null } : {}),
+          ...(dto.pharmacistSlmcNo !== undefined ? { pharmacistSlmcNo: dto.pharmacistSlmcNo?.trim() || null } : {}),
+          ...(dto.openingHours !== undefined ? { openingHours: dto.openingHours?.trim() || null } : {}),
+          ...(dto.timezone != null ? { timezone: dto.timezone.trim() } : {}),
           ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
         },
       });

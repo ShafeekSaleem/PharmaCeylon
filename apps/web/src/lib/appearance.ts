@@ -10,6 +10,10 @@ export type AppearancePrefs = {
 
 const STORAGE_KEY = "pc_appearance";
 
+function storageKey(userId?: string): string {
+  return userId ? `${STORAGE_KEY}:${userId}` : STORAGE_KEY;
+}
+
 export const DEFAULT_APPEARANCE_PREFS: AppearancePrefs = {
   accent: "teal",
   density: "comfortable",
@@ -31,10 +35,10 @@ const FONT_SIZE_PX: Record<FontSize, number> = {
   large: 17,
 };
 
-export function readAppearancePrefs(): AppearancePrefs {
+export function readAppearancePrefs(userId?: string): AppearancePrefs {
   if (typeof window === "undefined") return DEFAULT_APPEARANCE_PREFS;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey(userId));
     if (!raw) return DEFAULT_APPEARANCE_PREFS;
     const parsed = JSON.parse(raw) as Partial<AppearancePrefs>;
     return { ...DEFAULT_APPEARANCE_PREFS, ...parsed };
@@ -43,9 +47,9 @@ export function readAppearancePrefs(): AppearancePrefs {
   }
 }
 
-export function writeAppearancePrefs(prefs: AppearancePrefs): void {
+export function writeAppearancePrefs(prefs: AppearancePrefs, userId?: string): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    window.localStorage.setItem(storageKey(userId), JSON.stringify(prefs));
   } catch {
     // Private browsing / storage disabled — preference just won't survive a reload.
   }

@@ -10,9 +10,20 @@ import css from "../pos.module.css";
 type Props = {
   receipt: SaleReceipt | null;
   onClose: () => void;
+  preferences: ReceiptPreferences;
+  organization: { displayName: string; logoUrl: string | null } | null;
 };
 
-export function PosReceiptModal({ receipt, onClose }: Props) {
+export type ReceiptPreferences = {
+  paperSize: string;
+  headerText: string | null;
+  footerText: string | null;
+  showLogo: boolean;
+  showVatBreakdown: boolean;
+  showStaffName: boolean;
+};
+
+export function PosReceiptModal({ receipt, onClose, preferences, organization }: Props) {
   return (
     <Modal
       open={receipt !== null}
@@ -29,7 +40,15 @@ export function PosReceiptModal({ receipt, onClose }: Props) {
       }
     >
       {receipt && (
-        <>
+        <div className={css.receiptBody} data-paper-size={preferences.paperSize}>
+          {(preferences.showLogo && organization?.logoUrl) || preferences.headerText ? (
+            <div className={css.receiptBrand}>
+              {preferences.showLogo && organization?.logoUrl ? (
+                <img src={organization.logoUrl} alt="" />
+              ) : null}
+              <strong>{preferences.headerText || organization?.displayName}</strong>
+            </div>
+          ) : null}
           <div className={css.receiptHead}>
             <span className={css.receiptBadge}>
               <IconCheckCircle size={20} />
@@ -37,8 +56,8 @@ export function PosReceiptModal({ receipt, onClose }: Props) {
             <span className={css.productText}>
               <span className={css.receiptTitle}>{receipt.invoiceNo}</span>
               <span className={css.receiptSub}>
-                {formatDate(receipt.soldAt)} at {formatTime(receipt.soldAt)} ·{" "}
-                {receipt.seller.fullName}
+                {formatDate(receipt.soldAt)} at {formatTime(receipt.soldAt)}
+                {preferences.showStaffName ? ` · ${receipt.seller.fullName}` : ""}
               </span>
             </span>
           </div>
@@ -48,7 +67,7 @@ export function PosReceiptModal({ receipt, onClose }: Props) {
             {receipt.prescription
               ? ` · Rx ${receipt.prescription.rxNumber} (${receipt.prescription.patientName})`
               : ""}
-            {receipt.dispenser
+            {preferences.showStaffName && receipt.dispenser
               ? ` · Dispensed by ${receipt.dispenser.fullName}`
               : ""}
           </p>
@@ -84,10 +103,12 @@ export function PosReceiptModal({ receipt, onClose }: Props) {
               <span className={css.summaryLabel}>Discount</span>
               <span className={css.summaryValue}>- {formatMoney(receipt.discountTotal)}</span>
             </div>
-            <div className={css.summaryRow}>
-              <span className={css.summaryLabel}>VAT</span>
-              <span className={css.summaryValue}>{formatMoney(receipt.taxTotal)}</span>
-            </div>
+            {preferences.showVatBreakdown && (
+              <div className={css.summaryRow}>
+                <span className={css.summaryLabel}>VAT</span>
+                <span className={css.summaryValue}>{formatMoney(receipt.taxTotal)}</span>
+              </div>
+            )}
             <div className={css.receiptGrand}>
               <span>Total</span>
               <span>{formatMoney(receipt.grandTotal)}</span>
@@ -105,7 +126,8 @@ export function PosReceiptModal({ receipt, onClose }: Props) {
           </div>
 
           {receipt.notes && <p className={css.receiptSub}>Note: {receipt.notes}</p>}
-        </>
+          {preferences.footerText ? <p className={css.receiptFooter}>{preferences.footerText}</p> : null}
+        </div>
       )}
     </Modal>
   );

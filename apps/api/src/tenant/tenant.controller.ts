@@ -150,7 +150,8 @@ export class TenantController {
     @CurrentUser() user: RequestUser,
     @Param("branchId", ParseUUIDPipe) branchId: string,
     @Body() dto: UpdateBranchDto,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.tenantService.updateBranch(user.tenantId, user.userId, branchId, dto);
+    return this.tenantService.updateBranch(user.tenantId, user.userId, branchId, dto, req.branchId);
   }
 }
