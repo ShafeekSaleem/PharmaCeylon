@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ActionButton, PageHeader } from "@/components/ui";
-import { IconSparkles } from "@/components/icons";
+import { IconCheck, IconSparkles } from "@/components/icons";
 import { useAuth } from "@/lib/use-auth";
 import {
   applyAppearancePrefs,
@@ -72,10 +72,12 @@ export default function AppearancePage() {
               aria-label={`${s.value} accent`}
               aria-pressed={prefs.accent === s.value}
               className={`${css.swatch}${prefs.accent === s.value ? ` ${css.swatchSelected}` : ""}`}
-              style={{ background: s.color }}
+              style={{ background: s.color, "--swatch-ring": s.color } as React.CSSProperties}
               onClick={() => update({ accent: s.value })}
               disabled={!ready}
-            />
+            >
+              {prefs.accent === s.value ? <IconCheck size={15} /> : null}
+            </button>
           ))}
         </div>
 

@@ -118,13 +118,13 @@ export class TenantController {
   }
 
   /** Settings → General → Tenant Profile. Open read (any authenticated user); only
-   *  owner/manager (`tenant.management`) can change it. */
+   *  owner (`tenant.profile_manage`) can change it. */
   @Get("profile")
   getProfile(@CurrentUser() user: RequestUser) {
     return this.tenantService.getProfile(user.tenantId);
   }
 
-  @RequirePermission("tenant.management")
+  @RequirePermission("tenant.profile_manage")
   @Patch("profile")
   updateProfile(@CurrentUser() user: RequestUser, @Body() dto: UpdateTenantProfileDto) {
     return this.tenantService.updateProfile(user.tenantId, user.userId, dto);
@@ -138,12 +138,18 @@ export class TenantController {
     return this.tenantService.listAllBranches(user.tenantId);
   }
 
-  @RequirePermission("tenant.branches_manage")
+  /** Owner-only — creating a branch also grants owner-level access on it (see
+   *  TenantService.createBranch), so it can't be delegated the way editing can. */
+  @RequirePermission("tenant.branches_create")
   @Post("branches")
   createBranch(@CurrentUser() user: RequestUser, @Body() dto: CreateBranchDto) {
     return this.tenantService.createBranch(user.tenantId, user.userId, dto);
   }
 
+  /** `tenant.branches_manage` only confirms the caller holds it *somewhere* — it doesn't know
+   *  which branch this request targets. TenantService.updateBranch does the fine-grained check:
+   *  owner-anywhere may edit any branch in full; a manager may only edit a branch they hold the
+   *  manager role on, and only a restricted field set (see MANAGER_EDITABLE_BRANCH_FIELDS). */
   @RequirePermission("tenant.branches_manage")
   @Patch("branches/:branchId")
   updateBranch(
@@ -152,6 +158,13 @@ export class TenantController {
     @Body() dto: UpdateBranchDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.tenantService.updateBranch(user.tenantId, user.userId, branchId, dto, req.branchId);
+    return this.tenantService.updateBranch(
+      user.tenantId,
+      user.userId,
+      user.branchRoles,
+      branchId,
+      dto,
+      req.branchId,
+    );
   }
 }

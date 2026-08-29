@@ -193,6 +193,17 @@ export async function fetchTenantBranches(): Promise<TenantBranch[]> {
   return (await res.json()) as TenantBranch[];
 }
 
+/** Used for the app shell's breadcrumb badge on Settings pages — open read, any role. */
+export async function fetchTenantDisplayName(): Promise<string> {
+  const res = await apiFetch("/tenant/profile");
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(parseApiError(text, `Tenant profile failed (${res.status})`));
+  }
+  const data = (await res.json()) as { displayName: string };
+  return data.displayName;
+}
+
 export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await apiFetch(path, init);
   const text = await res.text();

@@ -1,12 +1,31 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { UserContextService } from "../auth/user-context.service";
 import { UploadsService } from "../uploads/uploads.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { BranchRole } from "../security/interfaces/authenticated-request.interface";
 import { UpdateTenantProfileDto } from "./dto/update-tenant-profile.dto";
 import { CreateBranchDto } from "./dto/create-branch.dto";
 import { UpdateBranchDto } from "./dto/update-branch.dto";
+
+/** Fields a manager (scoped to a branch they hold the manager role on) may change.
+ *  Identity (code/name), timezone, and activation are structural/tenant-wide concerns and
+ *  stay owner-only (tenant.branches_create-level access) — see TenantService.updateBranch. */
+const MANAGER_EDITABLE_BRANCH_FIELDS: readonly (keyof UpdateBranchDto)[] = [
+  "city",
+  "addressLine1",
+  "addressLine2",
+  "phone",
+  "email",
+  "district",
+  "postalCode",
+  "pharmacyLicenceNo",
+  "pharmacyLicenceExpiry",
+  "responsiblePharmacist",
+  "pharmacistSlmcNo",
+  "openingHours",
+];
 
 @Injectable()
 export class TenantService {
@@ -230,12 +249,40 @@ export class TenantService {
   async updateBranch(
     tenantId: string,
     actorUserId: string,
+    actorBranchRoles: BranchRole[],
     branchId: string,
     dto: UpdateBranchDto,
     selectedBranchId?: string,
   ) {
     const existing = await this.prisma.branch.findFirst({ where: { id: branchId, tenantId } });
     if (!existing) throw new NotFoundException("Branch not found");
+
+    // tenant.branches_manage only confirms the caller holds it *somewhere* in the tenant — it
+    // isn't branch-scoped. Enforce the finer rule here: owner-anywhere may edit any branch in
+    // full; a manager may only edit a branch they hold the manager role on, and only a
+    // restricted field set (identity/timezone/activation stay owner-only).
+    const isOwnerAnywhere = actorBranchRoles.some((br) => br.role === RoleName.owner);
+    if (!isOwnerAnywhere) {
+      const managesThisBranch = actorBranchRoles.some(
+        (br) => br.branchId === branchId && br.role === RoleName.manager,
+      );
+      if (!managesThisBranch) {
+        throw new ForbiddenException("You can only edit a branch where you are the manager");
+      }
+      // class-transformer's ValidationPipe populates every UpdateBranchDto field as an own key
+      // (undefined when the client didn't send it) — filter those out first, or every request
+      // would appear to "touch" every field regardless of what was actually sent.
+      const disallowedFields = Object.keys(dto).filter(
+        (key) =>
+          dto[key as keyof UpdateBranchDto] !== undefined &&
+          !MANAGER_EDITABLE_BRANCH_FIELDS.includes(key as keyof UpdateBranchDto),
+      );
+      if (disallowedFields.length > 0) {
+        throw new ForbiddenException(
+          `Managers cannot change: ${disallowedFields.join(", ")} — only an owner can`,
+        );
+      }
+    }
 
     if (existing.isActive && dto.isActive === false) {
       if (selectedBranchId === branchId) {

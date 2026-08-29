@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, FormField, ImageUpload } from "@/components/ui";
+import { PageHeader, ActionButton, FormField, ImageUpload, SelectField } from "@/components/ui";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
 import { fetchTenantProfile, saveTenantProfile } from "./api";
@@ -15,7 +15,7 @@ const MONTHS = [
 
 export default function TenantProfilePage() {
   const { permissionKeys } = usePermissions();
-  const canEdit = permissionKeys.includes("tenant.management");
+  const canEdit = permissionKeys.includes("tenant.profile_manage");
 
   const [profile, setProfile] = useState<TenantProfile | null>(null);
   const [savedProfile, setSavedProfile] = useState<TenantProfile | null>(null);
@@ -161,39 +161,31 @@ export default function TenantProfilePage() {
 
         <p className={css.subLabel}>Operating defaults — apply across every branch</p>
         <div className={css.formGrid}>
-          <FormField
-            as="select"
+          <SelectField
             label="Currency"
             value={profile?.currency ?? "LKR"}
-            onChange={(e) => set("currency", e.target.value)}
+            onChange={(v) => set("currency", v)}
             disabled={!canEdit || loading}
-          >
-            <option value="LKR">LKR — Sri Lankan Rupee</option>
-          </FormField>
-          <FormField
-            as="select"
+            options={[{ value: "LKR", label: "LKR — Sri Lankan Rupee" }]}
+          />
+          <SelectField
             label="Date format"
             value={profile?.dateFormat ?? "DD/MM/YYYY"}
-            onChange={(e) => set("dateFormat", e.target.value)}
+            onChange={(v) => set("dateFormat", v)}
             disabled={!canEdit || loading}
-          >
-            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-          </FormField>
-          <FormField
-            as="select"
+            options={[
+              { value: "DD/MM/YYYY", label: "DD/MM/YYYY" },
+              { value: "MM/DD/YYYY", label: "MM/DD/YYYY" },
+              { value: "YYYY-MM-DD", label: "YYYY-MM-DD" },
+            ]}
+          />
+          <SelectField
             label="Fiscal year start"
             value={String(profile?.fiscalYearStartMonth ?? 1)}
-            onChange={(e) => set("fiscalYearStartMonth", Number(e.target.value))}
+            onChange={(v) => set("fiscalYearStartMonth", Number(v))}
             disabled={!canEdit || loading}
-          >
-            {MONTHS.map((m, i) => (
-              <option key={m} value={i + 1}>
-                {m}
-              </option>
-            ))}
-          </FormField>
+            options={MONTHS.map((m, i) => ({ value: String(i + 1), label: m }))}
+          />
         </div>
 
         {canEdit ? (
@@ -204,7 +196,7 @@ export default function TenantProfilePage() {
           </div>
         ) : (
           <p className={css.rowHint} style={{ marginTop: "0.75rem" }}>
-            Only owners and managers can change tenant settings.
+            Only the owner can change the tenant profile.
           </p>
         )}
       </div>

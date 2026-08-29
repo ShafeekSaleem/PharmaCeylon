@@ -13,6 +13,9 @@ type Props = {
   onSaved: (branch: Branch) => void;
   /** null = create mode; a Branch = edit mode. */
   branch: Branch | null;
+  /** false when a manager is editing a branch they manage — identity (code/name), timezone,
+   *  and activation are owner-only; the server enforces this too. */
+  canEditIdentity: boolean;
 };
 
 const EMPTY = {
@@ -33,7 +36,7 @@ const EMPTY = {
   openingHours: "",
 };
 
-export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
+export function BranchFormModal({ open, onClose, onSaved, branch, canEditIdentity }: Props) {
   const [form, setForm] = useState(EMPTY);
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -72,16 +75,14 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
   }
 
   async function handleSave() {
-    if (!form.code.trim() || !form.name.trim()) {
+    if ((!branch || canEditIdentity) && (!form.code.trim() || !form.name.trim())) {
       setError("Branch code and name are required.");
       return;
     }
     setError(null);
     setSaving(true);
     try {
-      const payload = {
-        code: form.code.trim(),
-        name: form.name.trim(),
+      const operationalPayload = {
         city: form.city.trim() || undefined,
         district: form.district.trim() || undefined,
         addressLine1: form.addressLine1.trim() || undefined,
@@ -89,7 +90,6 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
         postalCode: form.postalCode.trim() || undefined,
         phone: form.phone.trim() || undefined,
         email: form.email.trim() || undefined,
-        timezone: form.timezone.trim() || "Asia/Colombo",
         pharmacyLicenceNo: form.pharmacyLicenceNo.trim() || undefined,
         pharmacyLicenceExpiry: form.pharmacyLicenceExpiry || undefined,
         responsiblePharmacist: form.responsiblePharmacist.trim() || undefined,
@@ -98,7 +98,7 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
       };
       const saved = branch
         ? await updateBranch(branch.id, {
-            ...payload,
+            ...operationalPayload,
             city: form.city.trim() || null,
             district: form.district.trim() || null,
             addressLine1: form.addressLine1.trim() || null,
@@ -111,9 +111,24 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
             responsiblePharmacist: form.responsiblePharmacist.trim() || null,
             pharmacistSlmcNo: form.pharmacistSlmcNo.trim() || null,
             openingHours: form.openingHours.trim() || null,
-            isActive,
+            // Identity (code/name), timezone, and activation are owner-only — a manager's
+            // request omits them entirely rather than sending unchanged values, since the
+            // server rejects a manager PATCH that includes any of these keys at all.
+            ...(canEditIdentity
+              ? {
+                  code: form.code.trim(),
+                  name: form.name.trim(),
+                  timezone: form.timezone.trim() || "Asia/Colombo",
+                  isActive,
+                }
+              : {}),
           })
-        : await createBranch(payload);
+        : await createBranch({
+            ...operationalPayload,
+            code: form.code.trim(),
+            name: form.name.trim(),
+            timezone: form.timezone.trim() || "Asia/Colombo",
+          });
       onSaved(saved);
       onClose();
     } catch (e) {
@@ -144,9 +159,27 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
     >
       {error ? <Alert variant="error">{error}</Alert> : null}
       <p className={css.modalSectionTitle}>Branch identity</p>
+      {!canEditIdentity ? (
+        <p className={css.rowHint} style={{ margin: "-0.5rem 0 0.75rem" }}>
+          As manager of this branch you can update its contact and licence details below. Only
+          the owner can rename/recode a branch, change its timezone, or activate/deactivate it.
+        </p>
+      ) : null}
       <div className={css.formGrid}>
-        <FormField label="Branch code" value={form.code} onChange={(e) => set("code", e.target.value)} required />
-        <FormField label="Branch name" value={form.name} onChange={(e) => set("name", e.target.value)} required />
+        <FormField
+          label="Branch code"
+          value={form.code}
+          onChange={(e) => set("code", e.target.value)}
+          required
+          disabled={!canEditIdentity}
+        />
+        <FormField
+          label="Branch name"
+          value={form.name}
+          onChange={(e) => set("name", e.target.value)}
+          required
+          disabled={!canEditIdentity}
+        />
         <FormField label="Phone" type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
         <FormField label="Email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
         <FormField
@@ -163,6 +196,7 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
           value={form.timezone}
           onChange={(e) => set("timezone", e.target.value)}
           hint="Sri Lanka uses a single timezone."
+          disabled={!canEditIdentity}
         />
       </div>
 
@@ -179,7 +213,7 @@ export function BranchFormModal({ open, onClose, onSaved, branch }: Props) {
           placeholder="Mon–Fri 08:00–20:00; Sat 08:00–18:00"
         />
       </div>
-      {branch ? (
+      {branch && canEditIdentity ? (
         <div className={css.rowItem} style={{ marginTop: "0.75rem" }}>
           <div>
             <div className={css.rowLabel}>Active</div>

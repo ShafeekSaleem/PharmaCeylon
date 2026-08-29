@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, FormField, ToggleSwitch } from "@/components/ui";
+import { PageHeader, ActionButton, SelectField, ToggleSwitch } from "@/components/ui";
 import { IconBarChart } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
@@ -72,17 +72,17 @@ export default function InsightsReportsPage() {
             </div>
           </div>
           <div className={css.formGrid}>
-            <FormField
-              as="select"
+            <SelectField
               label="Default report period"
               value={draft.defaultReportPeriod}
-              onChange={(e) => setDraft((d) => (d ? { ...d, defaultReportPeriod: e.target.value } : d))}
+              onChange={(v) => setDraft((d) => (d ? { ...d, defaultReportPeriod: v } : d))}
               disabled={!canEdit}
-            >
-              <option value="this_month">This month</option>
-              <option value="last_30_days">Last 30 days</option>
-              <option value="this_quarter">This quarter</option>
-            </FormField>
+              options={[
+                { value: "this_month", label: "This month" },
+                { value: "last_30_days", label: "Last 30 days" },
+                { value: "this_quarter", label: "This quarter" },
+              ]}
+            />
           </div>
           <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
             <div className={css.rowLabel}>Show footfall analytics on Reports</div>

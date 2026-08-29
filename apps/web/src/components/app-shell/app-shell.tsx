@@ -5,7 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
-import { BRANCHES_CHANGED_EVENT, fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import {
+  BRANCHES_CHANGED_EVENT,
+  fetchTenantBranches,
+  fetchTenantDisplayName,
+  type TenantBranch,
+} from "@/lib/auth-client";
 import { AppearanceEffect } from "./appearance-effect";
 import {
   IconGrid,
@@ -189,6 +194,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [branchOpen, setBranchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [branches, setBranches] = useState<TenantBranch[]>([]);
+  const [tenantName, setTenantName] = useState<string | null>(null);
   const avatarRef = useRef<HTMLDivElement>(null);
   const branchRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -219,6 +225,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [ready, isAuthenticated]);
 
   useEffect(() => loadBranches(), [loadBranches]);
+
+  useEffect(() => {
+    if (!ready || !isAuthenticated) return;
+    let cancelled = false;
+    fetchTenantDisplayName()
+      .then((name) => { if (!cancelled) setTenantName(name); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [ready, isAuthenticated]);
 
   useEffect(() => {
     const refresh = () => { loadBranches(); };
@@ -286,6 +301,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const breadcrumbs = [...buildBreadcrumbs(pathname, lastSegmentLabel), ...extraCrumbs];
   const initials = user ? getInitials(user.fullName) : "??";
   const isSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+  // Owner/manager settings reach tenant-wide (or, for a manager, several branches they
+  // manage) — show the tenant name. Every other role's settings are personal or scoped to
+  // their one branch, so the branch name reads more accurately there.
+  const settingsScopedToTenant =
+    user?.branchRoles.some((br) => br.role === "owner" || br.role === "manager") ?? false;
 
   const sidebarCls = [
     styles.sidebar,
@@ -475,7 +495,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Sub-header */}
         <div className={styles.subheader}>
-          {!isSettings && <span className={styles.branchBadge}>{branchName}</span>}
+          <span className={styles.branchBadge}>
+            {isSettings ? (settingsScopedToTenant ? (tenantName ?? "Tenant") : branchName) : branchName}
+          </span>
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className={styles.breadcrumbSegment}>
               <IconChevronRight size={12} />

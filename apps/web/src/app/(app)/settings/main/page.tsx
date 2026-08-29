@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, FormField, ToggleSwitch } from "@/components/ui";
+import { PageHeader, ActionButton, FormField, SelectField, ToggleSwitch } from "@/components/ui";
 import { IconGrid, IconShoppingCart, IconReceipt } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
@@ -198,17 +198,17 @@ function PosDefaultsCard({ settings, onSaved, canEdit }: CardProps) {
         </div>
       ))}
       <div className={css.formGrid} style={{ marginTop: "1rem" }}>
-        <FormField
-          as="select"
+        <SelectField
           label="Default payment method"
           value={draft.posDefaultPaymentMethod}
-          onChange={(e) => setDraft((d) => ({ ...d, posDefaultPaymentMethod: e.target.value }))}
+          onChange={(v) => setDraft((d) => ({ ...d, posDefaultPaymentMethod: v }))}
           disabled={!canEdit}
-        >
-          <option value="cash">Cash</option>
-          <option value="card">Card</option>
-          <option value="split">Split</option>
-        </FormField>
+          options={[
+            { value: "cash", label: "Cash" },
+            { value: "card", label: "Card" },
+            { value: "split", label: "Split" },
+          ]}
+        />
         <FormField
           label="Max discount without approval (%)"
           type="number"
@@ -274,17 +274,17 @@ function ReceiptCard({ settings, onSaved, canEdit }: CardProps) {
       </div>
       {error ? <Alert variant="error">{error}</Alert> : null}
       <div className={css.formGrid}>
-        <FormField
-          as="select"
+        <SelectField
           label="Receipt paper size"
           value={draft.receiptPaperSize}
-          onChange={(e) => setDraft((d) => ({ ...d, receiptPaperSize: e.target.value }))}
+          onChange={(v) => setDraft((d) => ({ ...d, receiptPaperSize: v }))}
           disabled={!canEdit}
-        >
-          <option value="80mm">80mm thermal</option>
-          <option value="58mm">58mm thermal</option>
-          <option value="a4">A4</option>
-        </FormField>
+          options={[
+            { value: "80mm", label: "80mm thermal" },
+            { value: "58mm", label: "58mm thermal" },
+            { value: "a4", label: "A4" },
+          ]}
+        />
         <FormField
           label="Header text"
           value={draft.receiptHeaderText ?? ""}

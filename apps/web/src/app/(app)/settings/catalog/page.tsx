@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, FormField, ToggleSwitch } from "@/components/ui";
+import { PageHeader, ActionButton, FormField, SelectField, ToggleSwitch } from "@/components/ui";
 import { IconPackage, IconDollarSign, IconChevronRight } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import { apiJson } from "@/lib/auth-client";
@@ -118,16 +118,16 @@ function ProductDisplayCard({ settings, onSaved, canEdit }: CardProps) {
       </div>
       {error ? <Alert variant="error">{error}</Alert> : null}
       <div className={css.formGrid}>
-        <FormField
-          as="select"
+        <SelectField
           label="Default product view"
           value={draft.defaultProductView}
-          onChange={(e) => setDraft((d) => ({ ...d, defaultProductView: e.target.value }))}
+          onChange={(v) => setDraft((d) => ({ ...d, defaultProductView: v }))}
           disabled={!canEdit}
-        >
-          <option value="grid">Grid</option>
-          <option value="list">List</option>
-        </FormField>
+          options={[
+            { value: "grid", label: "Grid" },
+            { value: "list", label: "List" },
+          ]}
+        />
       </div>
       <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
         <div className={css.rowLabel}>Show controlled-substance badge in product lists</div>
@@ -297,16 +297,16 @@ function TaxConfigurationCard({ settings, onSaved, canEdit }: CardProps) {
           disabled={!canEdit}
           placeholder="Server default"
         />
-        <FormField
-          as="select"
+        <SelectField
           label="Tax calculation method"
           value={draft.vatCalculationMethod}
-          onChange={(e) => setDraft((d) => ({ ...d, vatCalculationMethod: e.target.value }))}
+          onChange={(v) => setDraft((d) => ({ ...d, vatCalculationMethod: v }))}
           disabled={!canEdit}
-        >
-          <option value="exclusive">Exclusive — added on top of price</option>
-          <option value="inclusive">Inclusive — already in price</option>
-        </FormField>
+          options={[
+            { value: "exclusive", label: "Exclusive — added on top of price" },
+            { value: "inclusive", label: "Inclusive — already in price" },
+          ]}
+        />
       </div>
       <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
         <div className={css.rowLabel}>Show tax breakdown on receipts and invoices</div>

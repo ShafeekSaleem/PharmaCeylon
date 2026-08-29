@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
-import { Modal, ModalButton, ModalFooter } from "@/components/ui";
+import { Modal, ModalButton, ModalFooter, SelectField } from "@/components/ui";
 import type { CommercialCategoryNode } from "../types";
 import css from "../categories.module.css";
 
@@ -61,14 +61,15 @@ export function MoveProductsModal({ open, source, tree, loading, error, onClose,
           {source?.productCount === 1 ? "" : "s"}) to a new category. Nothing is deleted — this
           only changes the category, so historical sales stay reportable either way.
         </p>
-        <select className={css.selectField} value={targetId} onChange={(e) => setTargetId(e.target.value)}>
-          <option value="">Select a target category…</option>
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <SelectField
+          label="Target category"
+          value={targetId}
+          onChange={setTargetId}
+          options={[
+            { value: "", label: "Select a target category…" },
+            ...options.map((o) => ({ value: o.id, label: o.label })),
+          ]}
+        />
         <p className={css.dialogHint} style={{ marginTop: "0.5rem" }}>
           Only the first 200 products are moved in one go — rerun for larger categories.
         </p>

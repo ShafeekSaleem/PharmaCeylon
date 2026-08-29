@@ -112,16 +112,35 @@
   color: var(--pc-muted-fg);
 }
 
+.deptGroup:not(:last-child) {
+  border-bottom: 1px solid var(--pc-border);
+  margin-bottom: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+
 .row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.6rem;
+  padding: 0.55rem 0.6rem;
   border-radius: var(--pc-radius-sm);
 }
 
 .row:hover {
   background: var(--pc-hover-bg, rgba(127, 127, 127, 0.06));
+}
+
+.rowDept {
+  background: var(--pc-muted-bg);
+  margin-bottom: 1px;
+}
+
+.rowDept:hover {
+  background: color-mix(in srgb, var(--pc-muted-bg) 70%, var(--pc-hover-bg, rgba(127, 127, 127, 0.06)));
+}
+
+.rowDept .rowNameText {
+  font-weight: 700;
 }
 
 .rowInactive {
@@ -196,6 +215,15 @@
   flex: 0 0 auto;
 }
 
+.reorderGroup {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-right: 0.2rem;
+  padding-right: 0.35rem;
+  border-right: 1px solid var(--pc-border);
+}
+
 .iconBtn {
   width: 1.7rem;
   height: 1.7rem;
@@ -219,80 +247,9 @@
   cursor: not-allowed;
 }
 
-.switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  width: 2rem;
-  height: 1.15rem;
-  border-radius: 999px;
-  border: none;
-  background: var(--pc-border);
-  cursor: pointer;
-  flex: 0 0 auto;
-  transition: background 0.15s;
-}
-
-.switchOn {
-  background: var(--pc-primary);
-}
-
-.switch:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.switchThumb {
-  position: absolute;
-  top: 0.13rem;
-  left: 0.13rem;
-  width: 0.9rem;
-  height: 0.9rem;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.15s;
-}
-
-.switchOn .switchThumb {
-  transform: translateX(0.85rem);
-}
-
-.formRow {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.6rem 0.4rem 2.2rem;
-}
-
-.formInput {
-  flex: 1 1 auto;
-  padding: 0.4rem 0.55rem;
-  font-size: 0.82rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-input-bg);
-  color: var(--pc-foreground);
-  outline: none;
-}
-
-.formInput:focus {
-  border-color: var(--pc-primary);
-  box-shadow: 0 0 0 3px var(--pc-focus-ring);
-}
-
-.formBtn {
-  padding: 0.4rem 0.65rem;
-  font-size: 0.78rem;
-  border-radius: var(--pc-radius-sm);
-  border: 1px solid var(--pc-border);
-  background: var(--pc-input-bg);
-  cursor: pointer;
-}
-
-.formBtnPrimary {
-  border-color: var(--pc-primary);
-  background: var(--pc-primary);
-  color: #fff;
+.iconBtnDanger:hover {
+  background: var(--pc-destructive-soft);
+  color: var(--pc-destructive);
 }
 
 .dialogBody p {
@@ -303,15 +260,4 @@
 .dialogHint {
   font-size: 0.78rem;
   color: var(--pc-muted-fg);
-}
-
-.selectField {
-  width: 100%;
-  padding: 0.5rem 0.6rem;
-  font-size: 0.85rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-input-bg);
-  color: var(--pc-foreground);
-  margin-top: 0.4rem;
 }

@@ -1,0 +1,142 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.required {
+  color: var(--pc-destructive);
+  margin-left: 2px;
+}
+
+.controlWrap {
+  position: relative;
+}
+
+.control {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  color: var(--pc-foreground);
+  background: var(--pc-input-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+/* Settings → Preferences → Appearance's density preference — mirrors form-field.module.css. */
+:global(html[data-density="compact"]) .control {
+  padding: 0.4rem 0.6rem;
+}
+
+.control:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--pc-primary) 40%, var(--pc-border));
+}
+
+.control:focus-visible,
+.controlOpen {
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.control:disabled {
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
+.control.error {
+  border-color: var(--pc-destructive);
+}
+
+.controlValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--pc-muted-fg);
+  transition: transform 0.15s;
+}
+
+.controlOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  max-height: 15rem;
+  overflow-y: auto;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--pc-foreground);
+  cursor: pointer;
+}
+
+.optionActive {
+  background: var(--pc-muted-bg);
+}
+
+.optionSelected {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-weight: 600;
+}
+
+.optionSelected.optionActive {
+  background: color-mix(in srgb, var(--pc-primary-soft) 75%, var(--pc-muted-bg));
+}
+
+.errorText {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--pc-destructive);
+  line-height: 1.3;
+}
+
+.hintText {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.3;
+}

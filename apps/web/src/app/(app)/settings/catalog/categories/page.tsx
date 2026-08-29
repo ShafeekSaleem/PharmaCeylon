@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
-import { IconSearch } from "@/components/icons";
-import { PageHeader } from "@/components/ui";
+import { IconPlus, IconSearch } from "@/components/icons";
+import { ActionButton, PageHeader } from "@/components/ui";
 import { usePermissions } from "@/lib/permissions";
 import { ConfirmDialog } from "../../../products/components/confirm-dialog";
 import {
@@ -17,6 +17,7 @@ import {
   reorderCategories,
   updateCategory,
 } from "./api";
+import { CategoryFormModal, type CategoryModalState } from "./components/category-form-modal";
 import { CategoryTree } from "./components/category-tree";
 import { MoveProductsModal } from "./components/move-products-modal";
 import { OnboardingPanel } from "./components/onboarding-panel";
@@ -47,6 +48,10 @@ export default function CatalogCategoriesPage() {
   const [moveSource, setMoveSource] = useState<CommercialCategoryNode | null>(null);
   const [moveLoading, setMoveLoading] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
+
+  const [categoryModal, setCategoryModal] = useState<CategoryModalState | null>(null);
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,24 +100,28 @@ export default function CatalogCategoriesPage() {
     }
   }
 
-  async function handleRename(node: CommercialCategoryNode, name: string) {
-    setBusyId(node.id);
+  async function handleCategoryModalSubmit(name: string) {
+    if (!categoryModal) return;
+    setCategorySaving(true);
+    setCategoryError(null);
     try {
-      await updateCategory(node.id, { name });
+      if (categoryModal.mode === "rename") {
+        await updateCategory(categoryModal.node.id, { name });
+      } else {
+        await createCategory(name, categoryModal.parent?.id ?? null);
+      }
       await load();
+      setCategoryModal(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rename category");
+      setCategoryError(
+        err instanceof Error
+          ? err.message
+          : categoryModal.mode === "rename"
+            ? "Failed to rename category"
+            : "Failed to create category",
+      );
     } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function handleCreateChild(parent: CommercialCategoryNode | null, name: string) {
-    try {
-      await createCategory(name, parent?.id ?? null);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create category");
+      setCategorySaving(false);
     }
   }
 
@@ -185,6 +194,19 @@ export default function CatalogCategoriesPage() {
       <PageHeader
         title="Categories"
         description="Merchandise / business categories used across the Products page, POS, and reports. NMRA Schedule, Dosage Form, and Registration Type stay import-managed and are not editable here."
+        actions={
+          canWrite ? (
+            <ActionButton
+              icon={<IconPlus size={16} />}
+              onClick={() => {
+                setCategoryError(null);
+                setCategoryModal({ mode: "create", parent: null });
+              }}
+            >
+              New Department
+            </ActionButton>
+          ) : undefined
+        }
       />
 
       {error ? <Alert variant="error">{error}</Alert> : null}
@@ -225,8 +247,14 @@ export default function CatalogCategoriesPage() {
           canDelete={canDelete}
           busyId={busyId}
           onToggleActive={handleToggleActive}
-          onRename={handleRename}
-          onCreateChild={handleCreateChild}
+          onRequestRename={(node) => {
+            setCategoryError(null);
+            setCategoryModal({ mode: "rename", node });
+          }}
+          onRequestAddChild={(parent) => {
+            setCategoryError(null);
+            setCategoryModal({ mode: "create", parent });
+          }}
           onDelete={(node) => {
             setDeleteError(null);
             setDeleteTarget(node);
@@ -283,6 +311,14 @@ export default function CatalogCategoriesPage() {
         error={moveError}
         onClose={() => setMoveSource(null)}
         onConfirm={(targetId) => void handleConfirmMoveProducts(targetId)}
+      />
+
+      <CategoryFormModal
+        state={categoryModal}
+        saving={categorySaving}
+        error={categoryError}
+        onClose={() => setCategoryModal(null)}
+        onSubmit={(name) => void handleCategoryModalSubmit(name)}
       />
     </div>
   );

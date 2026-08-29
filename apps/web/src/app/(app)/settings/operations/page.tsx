@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, FormField, ToggleSwitch } from "@/components/ui";
+import { PageHeader, ActionButton, FormField, SelectField, ToggleSwitch } from "@/components/ui";
 import { IconBox, IconClipboardList, IconTruck, IconClipboard } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
@@ -132,27 +132,27 @@ function InventoryCard({ settings, onSaved, canEdit }: CardProps) {
           disabled={!canEdit}
           hint="Warn when a batch is within this many days of its expiry date."
         />
-        <FormField
-          as="select"
+        <SelectField
           label="Default stock view"
           value={draft.defaultStockView}
-          onChange={(e) => setDraft((d) => ({ ...d, defaultStockView: e.target.value }))}
+          onChange={(v) => setDraft((d) => ({ ...d, defaultStockView: v }))}
           disabled={!canEdit}
-        >
-          <option value="batch">Batch-level</option>
-          <option value="summary">Summary</option>
-        </FormField>
-        <FormField
-          as="select"
+          options={[
+            { value: "batch", label: "Batch-level" },
+            { value: "summary", label: "Summary" },
+          ]}
+        />
+        <SelectField
           label="Stock picking method"
           value={draft.stockPickingMethod}
-          onChange={(e) => setDraft((d) => ({ ...d, stockPickingMethod: e.target.value }))}
+          onChange={(v) => setDraft((d) => ({ ...d, stockPickingMethod: v }))}
           disabled={!canEdit}
           hint="Which batch POS and dispensing pick from first."
-        >
-          <option value="fefo">FEFO — First Expiry, First Out</option>
-          <option value="fifo">FIFO — First In, First Out</option>
-        </FormField>
+          options={[
+            { value: "fefo", label: "FEFO — First Expiry, First Out" },
+            { value: "fifo", label: "FIFO — First In, First Out" },
+          ]}
+        />
       </div>
       {toggles.map((row) => (
         <div key={row.key} className={css.rowItem}>
@@ -349,16 +349,16 @@ function StocktakeCard({ settings, onSaved, canEdit }: CardProps) {
       </div>
       {error ? <Alert variant="error">{error}</Alert> : null}
       <div className={css.formGrid}>
-        <FormField
-          as="select"
+        <SelectField
           label="Default count method"
           value={draft.stocktakeDefaultCountMethod}
-          onChange={(e) => setDraft((d) => ({ ...d, stocktakeDefaultCountMethod: e.target.value }))}
+          onChange={(v) => setDraft((d) => ({ ...d, stocktakeDefaultCountMethod: v }))}
           disabled={!canEdit}
-        >
-          <option value="full">Full count</option>
-          <option value="cycle">Cycle count</option>
-        </FormField>
+          options={[
+            { value: "full", label: "Full count" },
+            { value: "cycle", label: "Cycle count" },
+          ]}
+        />
         <FormField
           label="Variance tolerance (%)"
           type="number"

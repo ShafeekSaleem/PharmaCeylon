@@ -14,8 +14,18 @@ import type { Branch } from "./types";
 
 export default function BranchesPage() {
   const { permissionKeys } = usePermissions();
-  const { refreshUser } = useAuth();
-  const canManage = permissionKeys.includes("tenant.branches_manage");
+  const { refreshUser, user } = useAuth();
+  const canManageSome = permissionKeys.includes("tenant.branches_manage");
+  const canCreate = permissionKeys.includes("tenant.branches_create");
+  const isOwner = user?.branchRoles.some((br) => br.role === "owner") ?? false;
+
+  /** Owner may edit any branch in full; a manager may only edit a branch they hold the
+   *  manager role on, and only a restricted field set (enforced again server-side). */
+  function canEditBranch(branch: Branch): boolean {
+    if (isOwner) return true;
+    if (!canManageSome) return false;
+    return user?.branchRoles.some((br) => br.branchId === branch.id && br.role === "manager") ?? false;
+  }
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,7 +107,7 @@ export default function BranchesPage() {
       header: <span className={css.srOnly}>Actions</span>,
       align: "right",
       width: "52px",
-      render: (b) => canManage ? (
+      render: (b) => canEditBranch(b) ? (
         <button
           type="button"
           className={css.iconGhostBtn}
@@ -116,7 +126,7 @@ export default function BranchesPage() {
         title="Branches"
         description="Physical locations under this tenant. Staff are assigned roles per branch."
         actions={
-          canManage ? (
+          canCreate ? (
             <ActionButton icon={<IconPlus size={16} />} onClick={openAdd}>
               Add Branch
             </ActionButton>
@@ -134,12 +144,13 @@ export default function BranchesPage() {
         emptyIcon={<IconMapPin size={28} />}
         emptyTitle="No branches yet"
         emptyDescription="Add your first pharmacy location to start assigning staff and stock."
-        onRowClick={canManage ? openEdit : undefined}
+        onRowClick={canCreate || canManageSome ? (b: Branch) => { if (canEditBranch(b)) openEdit(b); } : undefined}
       />
 
-      {!canManage ? (
+      {!canCreate ? (
         <p className={css.rowHint} style={{ marginTop: "0.5rem" }}>
-          <IconMapPin size={12} /> Only owners and managers can add or edit branches.
+          <IconMapPin size={12} /> Only the owner can add new branches. Managers can edit branches
+          they&apos;re assigned to as manager.
         </p>
       ) : null}
 
@@ -148,6 +159,7 @@ export default function BranchesPage() {
         onClose={() => setModalOpen(false)}
         onSaved={handleSaved}
         branch={editing}
+        canEditIdentity={isOwner}
       />
     </div>
   );
