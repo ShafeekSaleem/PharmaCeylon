@@ -13,6 +13,7 @@ import {
   IconShoppingCart,
 } from "@/components/icons";
 import { apiJson } from "@/lib/auth-client";
+import { usePermissions } from "@/lib/permissions";
 import { useAuth } from "@/lib/use-auth";
 import css from "../catalog.module.css";
 import type {
@@ -50,7 +51,9 @@ export function ProductDetailPanel({
   onClose,
 }: Props) {
   const { user } = useAuth();
+  const { permissionKeys } = usePermissions();
   const showCost = canSeeCost(user?.roles ?? []);
+  const canUsePos = permissionKeys.includes("sales.pos_use");
   const [detail, setDetail] = useState<CatalogProductDetail | null>(null);
   const [alts, setAlts] = useState<CatalogAlternative[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -377,13 +380,15 @@ export function ProductDetailPanel({
             >
               View product
             </Link>
-            <Link
-              href={`/pos?productId=${encodeURIComponent(view.id)}`}
-              className={css.actionBtn}
-            >
-              <IconShoppingCart size={15} />
-              Add to POS
-            </Link>
+            {canUsePos ? (
+              <Link
+                href={`/pos?productId=${encodeURIComponent(view.id)}`}
+                className={css.actionBtn}
+              >
+                <IconShoppingCart size={15} />
+                Add to POS
+              </Link>
+            ) : null}
             <Link
               href={`/inventory?productId=${encodeURIComponent(view.id)}`}
               className={css.actionBtn}

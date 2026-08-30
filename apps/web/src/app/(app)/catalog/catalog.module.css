@@ -648,6 +648,11 @@
   background: color-mix(in srgb, var(--pc-primary) 5%, transparent);
 }
 
+.row:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
+}
+
 .rowSelected {
   background: color-mix(in srgb, var(--pc-primary) 10%, transparent);
 }

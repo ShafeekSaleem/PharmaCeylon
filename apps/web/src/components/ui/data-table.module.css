@@ -94,6 +94,11 @@
   cursor: pointer;
 }
 
+.clickable tbody tr:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
+}
+
 .compact thead th {
   padding: 0.45rem 0.65rem;
   font-size: 0.7rem;

@@ -23,6 +23,7 @@ import {
   type FilterPill,
 } from "@/components/ui";
 import { apiJson, type TenantBranch } from "@/lib/auth-client";
+import { usePermissions } from "@/lib/permissions";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
 import { ConfirmDialog } from "../products/components/confirm-dialog";
@@ -40,7 +41,10 @@ const PAGE_SIZE = 10;
 
 export default function UsersPage() {
   const { user } = useAuth();
+  const { permissionKeys } = usePermissions();
   const isOwner = Boolean(user?.roles.includes("owner"));
+  const canCreateUsers = permissionKeys.includes("users.create");
+  const canManageUsers = permissionKeys.includes("users.manage");
   const { users, loading, error, reload } = useAdminUsers();
 
   const [branches, setBranches] = useState<TenantBranch[]>([]);
@@ -214,6 +218,7 @@ export default function UsersPage() {
                 className={css.personName}
                 style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
                 onClick={() => setManageStaffId(row.id)}
+                disabled={!canManageUsers}
               >
                 {row.fullName}
               </button>
@@ -266,7 +271,7 @@ export default function UsersPage() {
         align: "right",
         render: (row) => {
           const targetIsOwner = row.userBranchRoles.some((r) => r.role === "owner");
-          const canManage = isOwner || !targetIsOwner;
+          const canManage = canManageUsers && (isOwner || !targetIsOwner);
           return (
             <div className={layoutCss.actionsCell}>
               <button
@@ -299,7 +304,7 @@ export default function UsersPage() {
         },
       },
     ],
-    [branchNameById, isOwner, user?.id],
+    [branchNameById, canManageUsers, isOwner, user?.id],
   );
 
   return (
@@ -309,7 +314,7 @@ export default function UsersPage() {
         floatingActions
         description="Staff accounts, branch assignments, and role access across your tenant."
         actions={
-          isOwner ? (
+          canCreateUsers ? (
             <ActionButton
               icon={<IconUserPlus size={16} />}
               tooltip="Add a new staff account"
@@ -428,7 +433,7 @@ export default function UsersPage() {
         emptyDescription={
           hasActiveFilters
             ? "Try clearing filters or adjusting your search"
-            : isOwner
+            : canCreateUsers
               ? "Add your first staff account to get started"
               : "Staff accounts for this tenant will appear here"
         }
@@ -436,28 +441,32 @@ export default function UsersPage() {
         compact
       />
 
-      <AddStaffModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onCreated={() => {
-          void reload();
-        }}
-      />
+      {canCreateUsers ? (
+        <AddStaffModal
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          onCreated={() => {
+            void reload();
+          }}
+        />
+      ) : null}
 
-      <ManageStaffModal
-        open={!!manageStaff}
-        staff={manageStaff}
-        currentUserId={user?.id ?? null}
-        actorIsOwner={isOwner}
-        onClose={() => setManageStaffId(null)}
-        onChanged={() => {
-          void reload();
-        }}
-        onDeleted={() => {
-          setManageStaffId(null);
-          void reload();
-        }}
-      />
+      {canManageUsers ? (
+        <ManageStaffModal
+          open={!!manageStaff}
+          staff={manageStaff}
+          currentUserId={user?.id ?? null}
+          actorIsOwner={isOwner}
+          onClose={() => setManageStaffId(null)}
+          onChanged={() => {
+            void reload();
+          }}
+          onDeleted={() => {
+            setManageStaffId(null);
+            void reload();
+          }}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={deleteTarget !== null}

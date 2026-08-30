@@ -69,6 +69,15 @@ export function ResultsTable({ items, selectedId, onSelect, highlightIndex }: Pr
                   highlighted ? ` ${css.rowHighlight}` : ""
                 }`}
                 onClick={() => onSelect(item.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(item.id);
+                  }
+                }}
                 data-selected={selected ? "true" : undefined}
               >
                 <td>
