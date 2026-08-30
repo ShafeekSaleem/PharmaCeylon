@@ -82,3 +82,38 @@ ALTER TABLE "notification_preference"
 ALTER TABLE "notification_preference"
   ADD CONSTRAINT "notification_preference_user_id_fkey"
   FOREIGN KEY ("user_id") REFERENCES "app_user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Stage tenant isolation policies for the new tenant-owned tables. This follows
+-- the Phase 6 policy inventory convention: policies are defined and testable,
+-- while row-level security remains disabled until the controlled rollout.
+DO $notification_policy_inventory$
+DECLARE
+  target_table text;
+BEGIN
+  FOREACH target_table IN ARRAY ARRAY[
+    'notification',
+    'notification_preference'
+  ]
+  LOOP
+    EXECUTE format(
+      'DROP POLICY IF EXISTS "pc_tenant_isolation" ON %I',
+      target_table
+    );
+    EXECUTE format(
+      'CREATE POLICY "pc_tenant_isolation" ON %I
+         USING (
+           "tenant_id" = NULLIF(current_setting(''app.tenant_id'', true), '''')::uuid
+         )
+         WITH CHECK (
+           "tenant_id" = NULLIF(current_setting(''app.tenant_id'', true), '''')::uuid
+         )',
+      target_table
+    );
+    EXECUTE format(
+      'COMMENT ON POLICY "pc_tenant_isolation" ON %I IS %L',
+      target_table,
+      'Phase 6 staged tenant policy; RLS remains disabled pending staged rollout.'
+    );
+  END LOOP;
+END
+$notification_policy_inventory$;
