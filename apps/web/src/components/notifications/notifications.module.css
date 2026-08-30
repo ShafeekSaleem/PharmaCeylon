@@ -1,0 +1,239 @@
+.centerWrap {
+  position: relative;
+}
+
+.bellButton {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+.bellButton:hover,
+.bellButtonActive {
+  color: var(--pc-primary);
+  background: var(--pc-muted-bg);
+  border-color: var(--pc-border);
+}
+
+.unreadBadge {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  border: 2px solid var(--pc-card-bg);
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 750;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: -48px;
+  z-index: 70;
+  width: min(410px, calc(100vw - 24px));
+  overflow: hidden;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.2);
+  animation: menuIn 0.14s ease;
+}
+
+.menuHeader {
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+.menuHeader div {
+  display: grid;
+  gap: 0.16rem;
+}
+.menuHeader strong {
+  font-size: 0.9rem;
+}
+.menuHeader span {
+  color: var(--pc-muted-fg);
+  font-size: 0.7rem;
+}
+.menuHeader button {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--pc-primary);
+  font: inherit;
+  font-size: 0.71rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.menuHeader button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.menuBody {
+  max-height: 430px;
+  overflow-y: auto;
+}
+.menuItem {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.72rem 0.8rem;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--pc-border) 72%, transparent);
+  background: transparent;
+  color: var(--pc-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.menuItem:hover {
+  background: var(--pc-muted-bg);
+}
+.menuItemUnread {
+  background: color-mix(in srgb, var(--pc-primary) 5%, var(--pc-card-bg));
+}
+
+.itemIcon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+}
+.severity_info {
+  color: var(--pc-alert-info-icon);
+  background: var(--pc-alert-info-bg);
+}
+.severity_warning {
+  color: var(--pc-alert-warning-icon);
+  background: var(--pc-alert-warning-bg);
+}
+.severity_critical {
+  color: var(--pc-alert-error-icon);
+  background: var(--pc-alert-error-bg);
+}
+
+.itemCopy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 0.17rem;
+}
+.itemTitle {
+  color: var(--pc-foreground);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.itemMessage {
+  overflow: hidden;
+  color: var(--pc-muted-fg);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.itemMeta {
+  color: var(--pc-muted-fg);
+  font-size: 0.65rem;
+}
+.unreadDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: var(--pc-primary);
+}
+
+.viewAll {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--pc-primary);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.viewAll:hover {
+  background: var(--pc-muted-bg);
+}
+
+.menuState,
+.emptyState {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1.2rem;
+  color: var(--pc-muted-fg);
+  font-size: 0.76rem;
+  text-align: center;
+}
+.menuState button {
+  border: 0;
+  background: transparent;
+  color: var(--pc-primary);
+  cursor: pointer;
+}
+.emptyState {
+  flex-direction: column;
+}
+.emptyState > span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--pc-alert-success-icon);
+  background: var(--pc-alert-success-bg);
+}
+.emptyState strong {
+  margin-top: 0.25rem;
+  color: var(--pc-foreground);
+  font-size: 0.82rem;
+}
+.emptyState small {
+  max-width: 270px;
+  line-height: 1.45;
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+}
+
+@media (max-width: 640px) {
+  .menu {
+    position: fixed;
+    top: 58px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+  }
+}

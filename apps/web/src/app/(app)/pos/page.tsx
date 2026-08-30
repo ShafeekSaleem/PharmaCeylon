@@ -85,6 +85,7 @@ function PosWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const deepProductId = searchParams.get("productId");
+  const deepCustomerId = searchParams.get("customerId");
   const deepPanel = searchParams.get("panel");
   const deepMode = searchParams.get("mode");
   const deepFocus = searchParams.get("focus");
@@ -154,6 +155,7 @@ function PosWorkspace() {
   const searchRef = useRef<HTMLInputElement>(null);
   const idempotencyKey = useRef(newIdempotencyKey());
   const seededDeepLink = useRef(false);
+  const seededCustomerDeepLink = useRef(false);
 
   const canRecordRx = canAccess([...RX_ROLES]);
   const canDispenseControlled = canAccess([...RX_ROLES]);
@@ -245,6 +247,15 @@ function PosWorkspace() {
       toasts.warn("That product has no sellable stock at this branch.");
     }
   }, [deepProductId, products.length, productsById, addProduct, toasts]);
+
+  // Deep link from global search: /pos?customerId=… starts a sale for that customer.
+  useEffect(() => {
+    if (seededCustomerDeepLink.current || !deepCustomerId) return;
+    seededCustomerDeepLink.current = true;
+    getCustomer(deepCustomerId)
+      .then((row) => setCustomer(row))
+      .catch(() => toasts.warn("That customer is no longer available."));
+  }, [deepCustomerId, toasts]);
 
   // Keep the tendered amount in step with the total until the cashier types.
   useEffect(() => {

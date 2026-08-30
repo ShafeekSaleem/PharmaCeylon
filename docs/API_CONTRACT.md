@@ -25,12 +25,12 @@ Controllers are annotated incrementally; sales routes include the richest operat
 
 Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys are scoped per **`tenantId` + `userId` + operation scope** so two users do not collide.
 
-| Operation | Scope (internal) | HTTP |
-|-----------|------------------|------|
-| POS checkout | `checkout` | `POST /api/v1/sales/checkout` |
-| Goods receipt | `receive_goods` | `POST /api/v1/purchasing/purchase-orders/receive` |
-| Transfer ship | `transfer_ship` | `POST /api/v1/transfers/:id/ship` |
-| Transfer receive | `transfer_receive` | `POST /api/v1/transfers/:id/receive` |
+| Operation        | Scope (internal)   | HTTP                                              |
+| ---------------- | ------------------ | ------------------------------------------------- |
+| POS checkout     | `checkout`         | `POST /api/v1/sales/checkout`                     |
+| Goods receipt    | `receive_goods`    | `POST /api/v1/purchasing/purchase-orders/receive` |
+| Transfer ship    | `transfer_ship`    | `POST /api/v1/transfers/:id/ship`                 |
+| Transfer receive | `transfer_receive` | `POST /api/v1/transfers/:id/receive`              |
 
 **Semantics**
 
@@ -50,6 +50,30 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 
 - **`PRICING_VAT_RATE_PERCENT`**: default `0`. When a checkout line omits `taxAmount`, VAT is computed as **exclusive** on `(unitPrice × qty − discountAmount)`, rounded half-up to 2 decimal places.
 - Set to the statutory rate for your deployment when you want server-driven VAT without the client sending line tax.
+
+## Global search
+
+- **`GET /api/v1/search?q=<term>&limit=5`** searches the active branch and tenant-scoped directories.
+- Results are grouped by entity type and include deep-link metadata for products, invoices, customers, suppliers, purchase orders, transfers, and stocktakes.
+- The API resolves the caller's effective branch permissions before querying each entity. A result from a domain the user cannot view is never fetched or returned.
+- Exact identifiers/barcodes rank ahead of prefix and contains matches. `limit` applies per result group and is capped at 10.
+
+## Notifications
+
+All notification routes are authenticated and recipient-scoped. Branch-specific list/count calls honor `x-branch-id`; tenant-wide notices use a null branch and remain visible.
+
+| HTTP        | Route                                | Purpose                                                                     |
+| ----------- | ------------------------------------ | --------------------------------------------------------------------------- |
+| `GET`       | `/api/v1/notifications`              | List active notices; supports `status`, `category`, `q`, `skip`, and `take` |
+| `GET`       | `/api/v1/notifications/unread-count` | Lightweight unread badge count                                              |
+| `PATCH`     | `/api/v1/notifications/:id/read`     | Mark one owned notice read                                                  |
+| `PATCH`     | `/api/v1/notifications/read-all`     | Mark visible branch/global notices read                                     |
+| `PATCH`     | `/api/v1/notifications/:id/archive`  | Archive one owned notice                                                    |
+| `GET/PATCH` | `/api/v1/notifications/preferences`  | Read or update the caller's category preferences                            |
+
+Operational alerts are durable, deduplicated projections. Header/page polling reconciles low-stock, expiry, purchase-order approval/overdue, transfer approval/receiving, and stocktake review/posting conditions at most once per user and branch every 20 seconds. When a condition clears, the notice is resolved instead of remaining as stale work.
+
+Apply migration `20260829183000_add_notifications` before enabling these endpoints.
 
 ## Versioning
 

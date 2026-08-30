@@ -5,12 +5,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
+import { usePermissions } from "@/lib/permissions";
 import {
   BRANCHES_CHANGED_EVENT,
   fetchTenantBranches,
   fetchTenantDisplayName,
   type TenantBranch,
 } from "@/lib/auth-client";
+import { GlobalSearch } from "@/components/global-search/global-search";
+import { NotificationCenter } from "@/components/notifications/notification-center";
 import { AppearanceEffect } from "./appearance-effect";
 import {
   IconGrid,
@@ -25,7 +28,6 @@ import {
   IconUsers,
   IconSettings,
   IconSearch,
-  IconBell,
   IconMenu,
   IconLogOut,
   IconUser,
@@ -111,6 +113,7 @@ for (const g of NAV_GROUPS) {
 PAGE_TITLES["/inventory/batches"] = "Batch stock";
 PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
 PAGE_TITLES["/inventory/movements"] = "Stock movements";
+PAGE_TITLES["/notifications"] = "Notifications";
 PAGE_TITLES["/settings/my-profile"] = "My Profile";
 PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
 PAGE_TITLES["/settings/branches"] = "Branches";
@@ -186,19 +189,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, ready, isAuthenticated, branchId, setBranchId, logout } = useAuth();
+  const { permissionKeys } = usePermissions();
   const { extraCrumbs, lastSegmentLabel } = usePageChrome();
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
   const [branches, setBranches] = useState<TenantBranch[]>([]);
   const [tenantName, setTenantName] = useState<string | null>(null);
   const avatarRef = useRef<HTMLDivElement>(null);
   const branchRef = useRef<HTMLDivElement>(null);
-  const notifRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setCollapsed(readCollapsed()); }, []);
 
@@ -245,7 +246,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     function onClickOutside(e: MouseEvent) {
       if (avatarRef.current && !avatarRef.current.contains(e.target as Node)) setAvatarOpen(false);
       if (branchRef.current && !branchRef.current.contains(e.target as Node)) setBranchOpen(false);
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -257,14 +257,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const ctrl = e.ctrlKey || e.metaKey;
-      if (ctrl && e.shiftKey && e.code === "KeyP") {
+      if (ctrl && e.shiftKey && e.code === "KeyP" && permissionKeys.includes("sales.pos_use")) {
         e.preventDefault();
+        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
         router.push("/pos");
-        return;
-      }
-      if (ctrl && e.code === "KeyK") {
-        e.preventDefault();
-        searchRef.current?.focus();
         return;
       }
       if (ctrl && e.code === "KeyB") {
@@ -275,7 +271,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [toggleCollapsed, router]);
+  }, [toggleCollapsed, router, permissionKeys]);
 
   const handleLogout = useCallback(async () => {
     setAvatarOpen(false);
@@ -284,6 +280,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [logout, router]);
 
   const userRoles = useMemo(() => collectUserRoles(user, branchId), [user, branchId]);
+  const canUsePos = permissionKeys.includes("sales.pos_use");
+  const quickSaleHidden =
+    pathname === "/pos" ||
+    pathname.startsWith("/pos/") ||
+    pathname.startsWith("/settings") ||
+    pathname.startsWith("/users") ||
+    pathname.startsWith("/audit") ||
+    pathname.startsWith("/notifications");
 
   const navGroups = NAV_GROUPS;
 
@@ -400,63 +404,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
           <span className={styles.pageTitle}>{pageTitle}</span>
 
-          <div className={styles.searchBar}>
-            <IconSearch size={16} />
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="Search products, invoices, customers..."
-              readOnly
-            />
-          </div>
+          <GlobalSearch permissionKeys={permissionKeys} />
 
           <div className={styles.topbarRight}>
-            {/* Notifications */}
-            <div className={styles.notifWrap} ref={notifRef}>
-              <button
-                type="button"
-                className={`${styles.iconBtn}${notifOpen ? ` ${styles.iconBtnActive}` : ""}`}
-                aria-label="Notifications"
-                onClick={() => setNotifOpen((v) => !v)}
-              >
-                <IconBell size={20} />
-                <span className={styles.badge}>3</span>
-              </button>
-              {notifOpen && (
-                <div className={styles.notifMenu}>
-                  <div className={styles.notifHeader}>
-                    <span className={styles.notifTitle}>Notifications</span>
-                    <button type="button" className={styles.notifMarkAll}>Mark all read</button>
-                  </div>
-                  <div className={styles.notifBody}>
-                    <div className={styles.notifItem}>
-                      <div className={styles.notifDot} />
-                      <div>
-                        <div className={styles.notifText}>5 products are running low on stock</div>
-                        <div className={styles.notifTime}>2 hours ago</div>
-                      </div>
-                    </div>
-                    <div className={styles.notifItem}>
-                      <div className={styles.notifDot} />
-                      <div>
-                        <div className={styles.notifText}>Purchase order #PO-1042 received</div>
-                        <div className={styles.notifTime}>5 hours ago</div>
-                      </div>
-                    </div>
-                    <div className={styles.notifItem}>
-                      <div className={styles.notifDot} />
-                      <div>
-                        <div className={styles.notifText}>3 batches expiring within 30 days</div>
-                        <div className={styles.notifTime}>1 day ago</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className={styles.notifFooter}>
-                    <button type="button" className={styles.notifViewAll}>View all notifications</button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <NotificationCenter />
 
             {/* Avatar */}
             <div className={styles.avatarWrap} ref={avatarRef}>
@@ -547,10 +498,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className={styles.content}>{children}</main>
       </div>
 
-      {/* FAB — Quick POS (hidden on POS page) */}
-      {pathname !== "/pos" && !isSettings && (
-        <Link href="/pos" className={styles.fab} aria-label="Quick POS (Ctrl+Shift+P)">
+      {/* Permission-aware, context-sensitive Quick Sale launcher. */}
+      {canUsePos && !quickSaleHidden && (
+        <Link href="/pos" className={styles.fab} aria-label="Start a new sale (Ctrl+Shift+P)">
           <IconShoppingCart size={24} />
+          <span>New Sale</span>
+          <kbd>Ctrl ⇧ P</kbd>
         </Link>
       )}
 

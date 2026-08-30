@@ -69,7 +69,7 @@ export default function AlertsRecipientsPage() {
     <div>
       <PageHeader
         title="Recipients & Channels"
-        description="Choose who gets notified and how, for low-stock and expiry alerts."
+        description="Configure tenant-wide delivery channels and email digest recipients."
       />
       {error ? <Alert variant="error">{error}</Alert> : null}
 
@@ -88,9 +88,9 @@ export default function AlertsRecipientsPage() {
           <div className={css.rowItem}>
             <div>
               <div className={css.rowLabel}>In-app notification bell</div>
-              <div className={css.rowHint}>Always on for all staff with dashboard access.</div>
+              <div className={css.rowHint}>Available to staff based on their branch permissions; each user can tune categories from Notifications.</div>
             </div>
-            <ToggleSwitch checked disabled onChange={() => {}} label="In-app notification bell (always on)" />
+            <ToggleSwitch checked disabled onChange={() => {}} label="In-app notification bell" />
           </div>
           <div className={css.rowItem}>
             <div>
@@ -114,7 +114,7 @@ export default function AlertsRecipientsPage() {
             <ToggleSwitch checked={false} disabled onChange={() => {}} label="SMS alerts (coming soon)" />
           </div>
 
-          <p className={css.subLabel}>Notify these roles</p>
+          <p className={css.subLabel}>Email digest recipients</p>
           <div className={css.chipRow}>
             {ROLE_TOGGLES.map((r) => {
               const on = Boolean(draft[r.key]);

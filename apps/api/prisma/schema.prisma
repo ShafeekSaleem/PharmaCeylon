@@ -18,6 +18,23 @@ enum RoleName {
   custom
 }
 
+enum NotificationCategory {
+  inventory
+  expiry
+  purchasing
+  transfers
+  stocktakes
+  sales
+  compliance
+  system
+}
+
+enum NotificationSeverity {
+  info
+  warning
+  critical
+}
+
 enum PoStatus {
   draft
   pending_approval
@@ -266,6 +283,8 @@ model Tenant {
   customers        Customer[]
   roles            Role[]
   settings         TenantSettings?
+  notifications    Notification[]
+  notificationPreferences NotificationPreference[]
 
   @@map("tenant")
 }
@@ -309,6 +328,7 @@ model Branch {
   prescriptions     Prescription[]
   heldSales         HeldSale[]
   monthlyTargets    BranchMonthlyTarget[]
+  notifications     Notification[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -491,9 +511,67 @@ model AppUser {
   auditEvents            AuditEvent[]           @relation("AuditActor")
   prescriptionsCreated   Prescription[]         @relation("PrescriptionCreator")
   heldSales              HeldSale[]             @relation("HeldSaleHolder")
+  notifications          Notification[]
+  notificationPreference NotificationPreference?
 
   @@index([tenantId])
   @@map("app_user")
+}
+
+model Notification {
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @map("tenant_id") @db.Uuid
+  branchId        String?              @map("branch_id") @db.Uuid
+  recipientUserId String               @map("recipient_user_id") @db.Uuid
+  category        NotificationCategory
+  severity        NotificationSeverity @default(info)
+  title           String               @db.VarChar(180)
+  message         String?              @db.VarChar(600)
+  actionLabel     String?              @map("action_label") @db.VarChar(80)
+  actionHref      String?              @map("action_href") @db.VarChar(500)
+  entityType      String?              @map("entity_type") @db.VarChar(80)
+  entityId        String?              @map("entity_id") @db.Uuid
+  dedupeKey       String               @map("dedupe_key") @db.VarChar(240)
+  source          String               @default("domain_event") @db.VarChar(80)
+  metadata        Json?
+  requiresAction  Boolean              @default(false) @map("requires_action")
+  readAt          DateTime?            @map("read_at")
+  archivedAt      DateTime?            @map("archived_at")
+  resolvedAt      DateTime?            @map("resolved_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch    Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  recipient AppUser @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, recipientUserId, dedupeKey])
+  @@index([tenantId, recipientUserId, archivedAt, resolvedAt, createdAt(sort: Desc)])
+  @@index([tenantId, recipientUserId, readAt])
+  @@index([tenantId, branchId, category])
+  @@map("notification")
+}
+
+model NotificationPreference {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  userId               String   @unique @map("user_id") @db.Uuid
+  inventoryEnabled     Boolean  @default(true) @map("inventory_enabled")
+  expiryEnabled        Boolean  @default(true) @map("expiry_enabled")
+  purchasingEnabled    Boolean  @default(true) @map("purchasing_enabled")
+  transfersEnabled     Boolean  @default(true) @map("transfers_enabled")
+  stocktakesEnabled    Boolean  @default(true) @map("stocktakes_enabled")
+  salesEnabled         Boolean  @default(true) @map("sales_enabled")
+  complianceEnabled    Boolean  @default(true) @map("compliance_enabled")
+  systemEnabled        Boolean  @default(true) @map("system_enabled")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("notification_preference")
 }
 
 /// Refresh-token-backed session. One row per issued refresh token.
