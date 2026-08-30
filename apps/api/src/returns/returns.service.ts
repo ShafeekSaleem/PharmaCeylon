@@ -44,10 +44,6 @@ export class ReturnsService {
     private readonly audit: AuditService,
   ) {}
 
-  private isOwnerOrManager(roles: RoleName[]): boolean {
-    return roles.includes(RoleName.owner) || roles.includes(RoleName.manager);
-  }
-
   private async nextReturnNumber(tenantId: string, branchId: string): Promise<string> {
     const year = new Date().getFullYear();
     const yearStart = new Date(Date.UTC(year, 0, 1));
@@ -110,12 +106,11 @@ export class ReturnsService {
   }
 
   private resolveCreateStatus(
-    rolesAtBranch: RoleName[],
+    canApprove: boolean,
     submit: boolean | undefined,
     userId: string,
   ): { status: GoodsReturnStatus; approvedBy: string | null; autoApproved: boolean } {
-    const isMgr = this.isOwnerOrManager(rolesAtBranch);
-    if (isMgr) {
+    if (canApprove) {
       if (submit === true) {
         return {
           status: GoodsReturnStatus.awaiting_logistics,
@@ -277,7 +272,7 @@ export class ReturnsService {
     tenantId: string,
     branchId: string,
     userId: string,
-    rolesAtBranch: RoleName[],
+    canApprove: boolean,
     dto: CreateReturnDto,
   ) {
     this.validateTypeFields(dto.type, dto);
@@ -309,7 +304,7 @@ export class ReturnsService {
         : { purchaseOrderId: null, goodsReceiptId: null };
 
     const amount = this.lineAmount(dto.items);
-    const resolved = this.resolveCreateStatus(rolesAtBranch, dto.submit, userId);
+    const resolved = this.resolveCreateStatus(canApprove, dto.submit, userId);
     const { status, approvedBy } = resolved;
     const returnNumber = await this.nextReturnNumber(tenantId, branchId);
 
@@ -480,15 +475,14 @@ export class ReturnsService {
     branchId: string,
     userId: string,
     id: string,
-    rolesAtBranch: RoleName[],
+    canApprove: boolean,
   ) {
     const existing = await this.getOne(tenantId, branchId, id);
     if (existing.status !== GoodsReturnStatus.draft) {
       throw new BadRequestException("Only draft returns can be submitted");
     }
 
-    const isMgr = this.isOwnerOrManager(rolesAtBranch);
-    const nextStatus = isMgr
+    const nextStatus = canApprove
       ? GoodsReturnStatus.awaiting_logistics
       : GoodsReturnStatus.pending_approval;
 
@@ -501,7 +495,7 @@ export class ReturnsService {
       },
       data: {
         status: nextStatus,
-        approvedBy: isMgr ? userId : null,
+        approvedBy: canApprove ? userId : null,
       },
     });
     if (claimed.count !== 1) {
@@ -512,7 +506,7 @@ export class ReturnsService {
       tenantId,
       branchId,
       actorUserId: userId,
-      eventName: isMgr ? "return.submitted_and_approved" : "return.submitted",
+      eventName: canApprove ? "return.submitted_and_approved" : "return.submitted",
       entityName: "goods_return",
       entityId: id,
       payload: { status: nextStatus },
@@ -526,12 +520,7 @@ export class ReturnsService {
     branchId: string,
     userId: string,
     id: string,
-    rolesAtBranch: RoleName[],
   ) {
-    if (!this.isOwnerOrManager(rolesAtBranch)) {
-      throw new ForbiddenException("Insufficient role to approve return");
-    }
-
     const claimed = await this.prisma.goodsReturn.updateMany({
       where: {
         id,
@@ -565,12 +554,7 @@ export class ReturnsService {
     branchId: string,
     userId: string,
     id: string,
-    rolesAtBranch: RoleName[],
   ) {
-    if (!this.isOwnerOrManager(rolesAtBranch)) {
-      throw new ForbiddenException("Insufficient role to reject return");
-    }
-
     const claimed = await this.prisma.goodsReturn.updateMany({
       where: {
         id,
@@ -798,7 +782,7 @@ export class ReturnsService {
     branchId: string,
     userId: string,
     id: string,
-    rolesAtBranch: RoleName[],
+    canApproveOthers: boolean,
   ) {
     const existing = await this.getOne(tenantId, branchId, id);
     if (
@@ -811,7 +795,7 @@ export class ReturnsService {
     }
 
     const isRequester = existing.requestedBy === userId;
-    if (!isRequester && !this.isOwnerOrManager(rolesAtBranch)) {
+    if (!isRequester && !canApproveOthers) {
       throw new ForbiddenException("Insufficient role to cancel return");
     }
 

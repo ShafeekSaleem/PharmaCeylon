@@ -17,7 +17,7 @@ import {
 import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, ActiveFilterBanner, PageHeader, StatCard, type FilterPill } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
-import { useAuth } from "@/lib/use-auth";
+import { usePermissions } from "@/lib/permissions";
 import { useProductMeta } from "../products/hooks/use-product-meta";
 import { ProductStockBadge } from "../products/components/product-stock-badge";
 import { AdjustmentModal } from "./components/adjustment-modal";
@@ -35,15 +35,14 @@ import css from "./inventory.module.css";
 import type { StockRow, StockView, SummaryPeriod } from "./types";
 import {
   formatMoney,
-  hasInventoryWriteAccess,
   stockStatusLabel,
 } from "./utils";
 
 function StockOverviewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, branchId } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user, branchId);
+  const { permissionKeys } = usePermissions();
+  const canWrite = permissionKeys.includes("inventory.manage");
   const productMeta = useProductMeta();
 
   const productIdFilter = searchParams.get("productId");
@@ -586,3 +585,4 @@ export default function InventoryPage() {
     </Suspense>
   );
 }
+

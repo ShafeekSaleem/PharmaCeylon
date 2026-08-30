@@ -5,11 +5,11 @@ import { Alert } from "@/components/alert";
 import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
 import type { AuthUser } from "@/lib/auth-types";
 import { apiJson } from "@/lib/auth-client";
+import { usePermissions } from "@/lib/permissions";
 import layoutCss from "../../purchasing/purchasing.module.css";
 import type { ReturnListItem } from "../types";
 import {
   canApprove,
-  canApproveReturn,
   canCancel,
   canCancelReturn,
   canComplete,
@@ -44,6 +44,7 @@ export function ReturnDetailModal({
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { permissionKeys } = usePermissions();
 
   useEffect(() => {
     setBusy(false);
@@ -53,21 +54,19 @@ export function ReturnDetailModal({
   if (!returnItem) return null;
 
   const canWrite = hasReturnWriteAccess(user, branchId);
-  const canApproveRole = canApproveReturn(user, branchId);
+  const canApproveRole = permissionKeys.includes("returns.approve");
   const atBranch = !!branchId && returnItem.branchId === branchId;
 
   const showSubmit = canWrite && atBranch && canSubmit(returnItem.status);
-  const showApprove =
-    canWrite && atBranch && canApproveRole && canApprove(returnItem.status);
-  const showReject =
-    canWrite && atBranch && canApproveRole && canReject(returnItem.status);
+  const showApprove = atBranch && canApproveRole && canApprove(returnItem.status);
+  const showReject = atBranch && canApproveRole && canReject(returnItem.status);
   const showMarkLogistics =
     canWrite && atBranch && canMarkLogistics(returnItem.status);
   const showComplete = canWrite && atBranch && canComplete(returnItem.status);
   const showCancel =
     canWrite &&
     canCancel(returnItem.status) &&
-    canCancelReturn(user, returnItem, branchId);
+    canCancelReturn(user, returnItem, branchId, canApproveRole);
 
   const logisticsLabel =
     returnItem.type === "customer" ? "Mark pickup" : "Mark dispatch";
@@ -297,3 +296,4 @@ export function ReturnDetailModal({
     </Modal>
   );
 }
+

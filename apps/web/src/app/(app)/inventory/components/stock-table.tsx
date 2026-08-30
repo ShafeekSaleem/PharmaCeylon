@@ -10,7 +10,6 @@ import {
 } from "@/components/icons";
 import { RoleButton, RoleLink } from "@/components/role-access";
 import { DataTable, type Column } from "@/components/ui";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { ProductStockBadge } from "../../products/components/product-stock-badge";
 import { PAGE_SIZE } from "../constants";
@@ -38,7 +37,7 @@ function RowActions({ row, onAdjust }: { row: StockRow; onAdjust: (row: StockRow
         <IconPackage size={16} />
       </RoleLink>
       <RoleButton
-        roles={INVENTORY_WRITE_ROLES}
+        permissions={["inventory.manage"]}
         className={`${css.actionIcon} ${css.actionIconAdjust}`}
         aria-label={`Adjust stock for ${row.product.name}`}
         data-tooltip="Adjust stock"
@@ -187,3 +186,4 @@ export function StockTable({
     />
   );
 }
+

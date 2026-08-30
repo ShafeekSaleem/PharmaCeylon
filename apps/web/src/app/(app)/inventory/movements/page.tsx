@@ -7,8 +7,7 @@ import { IconPlus } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
 import { RoleButton } from "@/components/role-access";
 import { ActionButton, PageHeader } from "@/components/ui";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
-import { useAuth } from "@/lib/use-auth";
+import { usePermissions } from "@/lib/permissions";
 import { AdjustmentModal } from "../components/adjustment-modal";
 import { MovementsTable } from "../components/movements-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
@@ -16,7 +15,6 @@ import { useInventoryMovements } from "../hooks/use-inventory-movements";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
 import type { MovementCategory } from "../types";
-import { hasInventoryWriteAccess } from "../utils";
 
 const PAGE_SIZE = 15;
 
@@ -33,8 +31,8 @@ function MovementsContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, branchId } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user, branchId);
+  const { permissionKeys } = usePermissions();
+  const canWrite = permissionKeys.includes("inventory.manage");
   const productId = searchParams.get("productId");
   const initialCategory = (searchParams.get("category") as MovementCategory | null) ?? "all";
   const [category, setCategory] = useState<MovementCategory>(
@@ -209,7 +207,7 @@ function MovementsContent() {
               <p>No stock movements match your filters.</p>
               <p>
                 <RoleButton
-                  roles={INVENTORY_WRITE_ROLES}
+                  permissions={["inventory.manage"]}
                   style={{
                     background: "none",
                     border: "none",
@@ -261,3 +259,4 @@ export default function InventoryMovementsPage() {
     </Suspense>
   );
 }
+

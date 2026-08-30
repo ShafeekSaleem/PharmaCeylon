@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { RolePageGuard } from "@/components/role-access";
 import { POS_ROLES } from "@/lib/role-access";
+import { usePermissions } from "@/lib/permissions";
 import { useAuth } from "@/lib/use-auth";
 import { useRoleAccess } from "@/lib/use-role-access";
 import { PosActionBar } from "./components/pos-action-bar";
@@ -94,6 +95,7 @@ function PosWorkspace() {
 
   const { user } = useAuth();
   const { canAccess } = useRoleAccess();
+  const { permissionKeys } = usePermissions();
   const toasts = usePosToasts();
   const { beep, beepEnabled, toggleBeep } = useScanBeep();
 
@@ -749,7 +751,7 @@ function PosWorkspace() {
       {mode === "returns" ? (
         <PosReturnsPanel
           canRefund={canAccess([...POS_ROLES])}
-          canRefundControlled={canAccess(["owner", "manager", "pharmacist"])}
+          canRefundControlled={permissionKeys.includes("sales.approve_controlled")}
           recentSales={recentSales}
           onRefunded={() => void reload()}
           onError={toasts.error}
@@ -989,3 +991,4 @@ export default function PosPage() {
     </RolePageGuard>
   );
 }
+

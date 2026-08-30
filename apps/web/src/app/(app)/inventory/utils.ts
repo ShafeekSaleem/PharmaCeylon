@@ -1,26 +1,4 @@
-import type { AuthUser } from "@/lib/auth-types";
-import { ADJUST_OUT_ROLES, WRITE_ROLES, type StockStatus } from "./types";
-
-export function hasInventoryWriteAccess(
-  user: AuthUser | null,
-  branchId?: string | null,
-): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => WRITE_ROLES.has(br.role));
-}
-
-export function canAdjustOut(user: AuthUser | null, branchId?: string | null): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => ADJUST_OUT_ROLES.has(br.role));
-}
+import type { StockStatus } from "./types";
 
 export function stockStatusLabel(status: StockStatus | null | undefined): string {
   if (status === "out") return "Out of stock";
@@ -79,3 +57,4 @@ export function formatRelativeTime(iso: string | null | undefined): string {
   if (days < 7) return `${days}d ago`;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
+

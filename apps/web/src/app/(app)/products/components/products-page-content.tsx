@@ -26,6 +26,7 @@ import {
 } from "@/components/ui";
 import { getBranchId } from "@/lib/auth-session";
 import { useAuth } from "@/lib/use-auth";
+import { usePermissions } from "@/lib/permissions";
 import {
   COLUMN_META,
   COLUMN_STORAGE_KEY,
@@ -45,7 +46,6 @@ import type { ColumnKey, Product, StatFilter } from "../types";
 import {
   downloadProductsCsv,
   downloadProductsExportCsv,
-  hasDeleteAccess,
   hasWriteAccess,
   loadVisibleColumns,
 } from "../utils";
@@ -75,8 +75,10 @@ export function ProductsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, branchId } = useAuth();
+  const { permissionKeys } = usePermissions();
   const canWrite = hasWriteAccess(user, branchId);
-  const canDelete = hasDeleteAccess(user, branchId);
+  const canDeleteProducts = permissionKeys.includes("products.delete");
+  const canDeleteMeta = permissionKeys.includes("product_meta.delete");
   const hasBranch = !!getBranchId();
 
   const {
@@ -615,7 +617,7 @@ export function ProductsPageContent() {
           sortDir={sortDir}
           visibleColumns={visibleColumns}
           canWrite={canWrite}
-          canDelete={canDelete}
+          canDelete={canDeleteProducts}
           onPageChange={setPage}
           onSort={handleServerSort}
           onRowClick={openProduct}
@@ -627,7 +629,7 @@ export function ProductsPageContent() {
       <ProductMetaManagerModal
         open={metaManagerOpen}
         canWrite={canWrite}
-        canDelete={canDelete}
+        canDelete={canDeleteMeta}
         categories={categories}
         tags={tags}
         onClose={() => setMetaManagerOpen(false)}
@@ -693,3 +695,4 @@ export function ProductsPageContent() {
     </div>
   );
 }
+

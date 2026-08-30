@@ -114,9 +114,6 @@ export type ReceiveLineForm = {
 
 export type PoStatusFilter = "all" | "overdue" | "receivable" | PoStatus;
 
-export const WRITE_ROLES = new Set(["owner", "manager", "inventory_clerk"]);
-export const CANCEL_ROLES = new Set(["owner", "manager"]);
-export const APPROVE_ROLES = new Set(["owner", "manager"]);
 
 export const PAGE_SIZE = 10;
 
@@ -137,3 +134,4 @@ export const PAYMENT_TERMS_OPTIONS = [
   { value: "45", label: "45 days" },
   { value: "60", label: "60 days" },
 ] as const;
+

@@ -13,13 +13,25 @@ import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { PermissionsService } from "../security/permissions.service";
 import { CreateReturnDto } from "./dto/create-return.dto";
 import { UpdateReturnDto } from "./dto/update-return.dto";
 import { ReturnsService } from "./returns.service";
 
 @Controller("returns")
 export class ReturnsController {
-  constructor(private readonly returns: ReturnsService) {}
+  constructor(
+    private readonly returns: ReturnsService,
+    private readonly permissions: PermissionsService,
+  ) {}
+
+  private async canApprove(user: RequestUser, branchId: string): Promise<boolean> {
+    if (user.branchRoles.some((entry) => entry.role === RoleName.owner)) return true;
+    return this.permissions.hasAnyPermission(
+      user.branchRoles.filter((entry) => entry.branchId === branchId),
+      ["returns.approve"],
+    );
+  }
 
   /** Roles at the active branch; owners are treated as having owner at every branch. */
   private rolesAtBranch(user: RequestUser, branchId: string): RoleName[] {
@@ -51,7 +63,7 @@ export class ReturnsController {
 
   @RequirePermission("returns.create")
   @Post()
-  create(
+  async create(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Body() dto: CreateReturnDto,
@@ -60,7 +72,7 @@ export class ReturnsController {
       user.tenantId,
       branchId,
       user.userId,
-      this.rolesAtBranch(user, branchId),
+      await this.canApprove(user, branchId),
       dto,
     );
   }
@@ -78,7 +90,7 @@ export class ReturnsController {
 
   @RequirePermission("returns.process")
   @Post(":id/submit")
-  submit(
+  async submit(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -88,7 +100,7 @@ export class ReturnsController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
+      await this.canApprove(user, branchId),
     );
   }
 
@@ -104,7 +116,6 @@ export class ReturnsController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
     );
   }
 
@@ -120,7 +131,6 @@ export class ReturnsController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
     );
   }
 
@@ -159,7 +169,7 @@ export class ReturnsController {
 
   @RequirePermission("returns.process")
   @Post(":id/cancel")
-  cancel(
+  async cancel(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -169,7 +179,8 @@ export class ReturnsController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
+      await this.canApprove(user, branchId),
     );
   }
 }
+

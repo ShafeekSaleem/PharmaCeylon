@@ -12,7 +12,6 @@ import {
 import { RoleButton, RoleLink } from "@/components/role-access";
 import { DataTable, type Column } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { PAGE_SIZE } from "../constants";
 import css from "../inventory.module.css";
@@ -56,7 +55,7 @@ function RowActions({
         <IconEye size={17} />
       </RoleLink>
       <RoleButton
-        roles={INVENTORY_WRITE_ROLES}
+        permissions={["inventory.manage"]}
         className={`${css.actionIcon} ${css.actionIconAdjust}`}
         aria-label={`Adjust ${row.product.name}, batch ${row.batchNo}`}
         data-tooltip="Adjust this batch"
@@ -315,3 +314,4 @@ export function BatchesTable({
     </>
   );
 }
+

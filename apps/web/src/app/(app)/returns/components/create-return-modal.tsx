@@ -6,6 +6,7 @@ import { IconPlus, IconTrash } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import type { BatchRow } from "@/app/(app)/inventory/types";
 import { apiJson } from "@/lib/auth-client";
+import { usePermissions } from "@/lib/permissions";
 import { useAuth } from "@/lib/use-auth";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
 import { useProductOptions, useSuppliers } from "../../purchasing/hooks/use-suppliers";
@@ -17,7 +18,7 @@ import type {
   GoodsReturnType,
   SaleListItem,
 } from "../types";
-import { canApproveReturn, formatMoney, formatDate } from "../utils";
+import { formatMoney, formatDate } from "../utils";
 import rcss from "../returns.module.css";
 
 type Props = {
@@ -66,8 +67,9 @@ function isCompleteLine(line: CreateReturnLine): boolean {
 }
 
 export function CreateReturnModal({ open, onClose, onCreated }: Props) {
-  const { branchId, user } = useAuth();
-  const canAutoSubmit = canApproveReturn(user, branchId);
+  const { branchId } = useAuth();
+  const { permissionKeys } = usePermissions();
+  const canAutoSubmit = permissionKeys.includes("returns.approve");
   const suppliers = useSuppliers();
   const products = useProductOptions();
 
@@ -789,3 +791,4 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
     </Modal>
   );
 }
+

@@ -15,14 +15,13 @@ import {
 import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, PageHeader, StatCard } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
-import { useAuth } from "@/lib/use-auth";
+import { usePermissions } from "@/lib/permissions";
 import { AdjustmentModal } from "../components/adjustment-modal";
 import { BatchesTable } from "../components/batches-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
 import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import css from "../inventory.module.css";
 import type { BatchRow, ExpiryFilter } from "../types";
-import { canAdjustOut, hasInventoryWriteAccess } from "../utils";
 
 function BatchesContent() {
   const router = useRouter();
@@ -37,9 +36,9 @@ function BatchesContent() {
     const n = Number(nearExpiryParam);
     return Number.isFinite(n) && n > 0 ? n : null;
   })();
-  const { user, branchId } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user, branchId);
-  const canQuarantineExpired = canAdjustOut(user, branchId);
+  const { permissionKeys } = usePermissions();
+  const canWrite = permissionKeys.includes("inventory.manage");
+  const canQuarantineExpired = canWrite;
 
   const [search, setSearch] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -421,3 +420,4 @@ export default function InventoryBatchesPage() {
     </Suspense>
   );
 }
+

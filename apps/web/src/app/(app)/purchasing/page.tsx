@@ -32,6 +32,7 @@ import {
   type FilterPill,
 } from "@/components/ui";
 import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import { usePermissions } from "@/lib/permissions";
 import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
 import inventoryCss from "../inventory/inventory.module.css";
@@ -42,14 +43,11 @@ import { usePurchaseOrders } from "./hooks/use-purchase-orders";
 import css from "./purchasing.module.css";
 import { PAGE_SIZE, type PoStatusFilter, type PurchaseOrderListItem, type SummaryPeriod } from "./types";
 import {
-  canApprovePurchaseOrder,
-  canCancelPurchaseOrder,
   canEditPo,
   canAdjustExpected,
   displayPoStatus,
   formatDate,
   formatMoney,
-  hasPurchasingWriteAccess,
   isDateInSummaryPeriod,
   isPoOverdue,
   parseDateOnlyLocal,
@@ -77,10 +75,11 @@ const STATUS_OPTIONS = [
 function PurchasingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, branchId, setBranchId } = useAuth();
-  const canWrite = hasPurchasingWriteAccess(user, branchId);
-  const canCancel = canCancelPurchaseOrder(user, branchId);
-  const canApprove = canApprovePurchaseOrder(user, branchId);
+  const { branchId, setBranchId } = useAuth();
+  const { permissionKeys } = usePermissions();
+  const canWrite = permissionKeys.includes("purchasing.manage");
+  const canCancel = permissionKeys.includes("purchasing.approve");
+  const canApprove = permissionKeys.includes("purchasing.approve");
   const orders = usePurchaseOrders();
 
   const productId = searchParams.get("productId");
@@ -897,3 +896,4 @@ export default function PurchasingPage() {
     </Suspense>
   );
 }
+

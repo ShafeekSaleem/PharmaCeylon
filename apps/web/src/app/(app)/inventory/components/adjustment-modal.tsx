@@ -4,15 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { RoleAccessDenied } from "@/components/role-access";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { apiJson } from "@/lib/auth-client";
-import { useAuth } from "@/lib/use-auth";
+import { usePermissions } from "@/lib/permissions";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { ProductStockBadge } from "../../products/components/product-stock-badge";
 import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
-import { canAdjustOut, hasInventoryWriteAccess } from "../utils";
 import { InventoryFilterSelect } from "./inventory-filter-select";
 
 type MovementType = "adjustment_in" | "adjustment_out";
@@ -74,9 +72,9 @@ function AdjustmentModalContent({
   initialBatchId: string;
   onSuccess?: (message: string) => void;
 }) {
-  const { user, branchId } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user, branchId);
-  const allowOut = canAdjustOut(user, branchId);
+  const { permissionKeys } = usePermissions();
+  const canWrite = permissionKeys.includes("inventory.manage");
+  const allowOut = canWrite;
 
   const [movementType, setMovementType] = useState<MovementType>(
     allowOut ? "adjustment_out" : "adjustment_in",
@@ -240,7 +238,7 @@ function AdjustmentModalContent({
   if (!canWrite) {
     return (
       <Modal open onClose={onClose} title="New stock adjustment" size="sm">
-        <RoleAccessDenied allowedRoles={INVENTORY_WRITE_ROLES} />
+        <RoleAccessDenied description="You need inventory management permission to post stock adjustments." />
       </Modal>
     );
   }
@@ -620,3 +618,4 @@ function AdjustmentModalContent({
     </>
   );
 }
+

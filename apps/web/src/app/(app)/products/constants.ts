@@ -1,12 +1,9 @@
-import { ADMIN_ROLES } from "@/lib/role-access";
 import type { CatalogSource, ColumnKey, StatFilter } from "./types";
 
 export const PAGE_SIZE = 10;
 export const COLUMN_STORAGE_KEY = "pc-products-visible-columns-v3";
 
 export const WRITE_ROLES = new Set(["owner", "manager", "inventory_clerk"]);
-/** Matches API DELETE guards (products, categories, tags are owner/manager only). */
-export const DELETE_ROLES = new Set<string>(ADMIN_ROLES);
 
 export const CATALOG_SOURCE_OPTIONS: { value: CatalogSource; label: string }[] = [
   { value: "MANUAL", label: "Retail / general item" },
@@ -155,3 +152,4 @@ export const PRODUCT_STAT_PILLS: { id: StatFilter; label: string; iconTone: KpiI
 
 export const PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export const PRODUCT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
