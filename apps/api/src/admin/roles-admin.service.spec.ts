@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { AuditService } from "../audit/audit.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { PermissionsService } from "../security/permissions.service";
 import { RolesAdminService } from "./roles-admin.service";
 
@@ -22,6 +23,7 @@ describe("RolesAdminService", () => {
   };
   let audit: AuditService;
   let permissions: { invalidateRole: jest.Mock };
+  let notifications: { notifyByPermission: jest.Mock };
   let service: RolesAdminService;
 
   beforeEach(() => {
@@ -40,10 +42,12 @@ describe("RolesAdminService", () => {
     };
     audit = { log: jest.fn() } as unknown as AuditService;
     permissions = { invalidateRole: jest.fn() };
+    notifications = { notifyByPermission: jest.fn().mockResolvedValue(undefined) };
     service = new RolesAdminService(
       prisma as never,
       audit,
       permissions as unknown as PermissionsService,
+      notifications as unknown as NotificationsService,
     );
   });
 

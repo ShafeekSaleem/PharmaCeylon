@@ -1,13 +1,18 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
+import { NotificationCategory, NotificationSeverity, RoleName } from "@prisma/client";
 import { UserContextService } from "../auth/user-context.service";
 import { UploadsService } from "../uploads/uploads.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { BranchRole } from "../security/interfaces/authenticated-request.interface";
 import { UpdateTenantProfileDto } from "./dto/update-tenant-profile.dto";
 import { CreateBranchDto } from "./dto/create-branch.dto";
 import { UpdateBranchDto } from "./dto/update-branch.dto";
+
+/** Owner/manager get a "Branch & Tenant" notification for these — gated on `tenant.management`,
+ *  the same admin-only permission every Settings page checks. */
+const TENANT_NOTIFICATION_PERMISSION = "tenant.management";
 
 /** Fields a manager (scoped to a branch they hold the manager role on) may change.
  *  Identity (code/name), timezone, and activation are structural/tenant-wide concerns and
@@ -34,6 +39,7 @@ export class TenantService {
     private readonly audit: AuditService,
     private readonly userContext: UserContextService,
     private readonly uploads: UploadsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async getProfile(tenantId: string) {
@@ -121,6 +127,17 @@ export class TenantService {
       entityId: tenantId,
       payload: { ...dto },
     });
+
+    await this.notifications.notifyByPermission(
+      tenantId,
+      TENANT_NOTIFICATION_PERMISSION,
+      NotificationCategory.system,
+      {
+        title: "Organization profile was updated",
+        actionHref: "/settings/tenant-profile",
+      },
+      actorUserId,
+    );
 
     if (dto.logoUrl !== undefined && existing.logoUrl && existing.logoUrl !== dto.logoUrl) {
       await this.uploads.deleteImage(existing.logoUrl);
@@ -236,6 +253,19 @@ export class TenantService {
         payload: { code: branch.code, name: branch.name },
       });
 
+      await this.notifications.notifyByPermission(
+        tenantId,
+        TENANT_NOTIFICATION_PERMISSION,
+        NotificationCategory.system,
+        {
+          title: `New branch "${branch.name}" was created`,
+          actionHref: "/settings/branches",
+          entityType: "branch",
+          entityId: branch.id,
+        },
+        actorUserId,
+      );
+
       return branch;
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code;
@@ -327,6 +357,23 @@ export class TenantService {
         entityId: branch.id,
         payload: { ...dto },
       });
+
+      await this.notifications.notifyByPermission(
+        tenantId,
+        TENANT_NOTIFICATION_PERMISSION,
+        NotificationCategory.system,
+        {
+          severity: dto.isActive === false ? NotificationSeverity.warning : NotificationSeverity.info,
+          title:
+            dto.isActive === false
+              ? `Branch "${branch.name}" was deactivated`
+              : `Branch "${branch.name}" was updated`,
+          actionHref: "/settings/branches",
+          entityType: "branch",
+          entityId: branch.id,
+        },
+        actorUserId,
+      );
 
       return branch;
     } catch (e: unknown) {

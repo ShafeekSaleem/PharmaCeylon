@@ -5,9 +5,10 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
+import { NotificationCategory, NotificationSeverity, RoleName } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { PermissionsService } from "../security/permissions.service";
 import {
   BUILT_IN_ROLES,
@@ -24,12 +25,17 @@ import { UpdateRolePermissionsDto } from "./dto/update-role-permissions.dto";
 /** Reserved — a custom role's generated key must never collide with a built-in RoleName. */
 const RESERVED_KEYS = new Set<string>(Object.values(RoleName));
 
+/** Owner/manager get an "Access & Approvals" notification for role changes — same permission
+ *  gate as admin-users.service.ts's staff-change notifications. */
+const ACCESS_NOTIFICATION_PERMISSION = "users.view";
+
 @Injectable()
 export class RolesAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly permissions: PermissionsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Full catalog grouped into page/context-sized sections, for the Roles & Permissions editor. */
@@ -111,6 +117,19 @@ export class RolesAdminService {
       entityId: role.id,
       payload: { name: role.name, permissionKeys: dto.permissionKeys },
     });
+
+    await this.notifications.notifyByPermission(
+      tenantId,
+      ACCESS_NOTIFICATION_PERMISSION,
+      NotificationCategory.compliance,
+      {
+        title: `New role "${role.name}" was created`,
+        actionHref: "/users/roles",
+        entityType: "role",
+        entityId: role.id,
+      },
+      actorUserId,
+    );
 
     return {
       id: role.id,
@@ -206,6 +225,23 @@ export class RolesAdminService {
       payload: { added: toAdd, removed: toRemove },
     });
 
+    if (toAdd.length || toRemove.length) {
+      await this.notifications.notifyByPermission(
+        tenantId,
+        ACCESS_NOTIFICATION_PERMISSION,
+        NotificationCategory.compliance,
+        {
+          severity: NotificationSeverity.warning,
+          title: `"${role.name}" permissions were changed`,
+          message: `${toAdd.length} added, ${toRemove.length} removed`,
+          actionHref: "/users/roles",
+          entityType: "role",
+          entityId: roleId,
+        },
+        actorUserId,
+      );
+    }
+
     return { id: roleId, permissionKeys: [...desired] };
   }
 
@@ -234,6 +270,18 @@ export class RolesAdminService {
       entityId: roleId,
       payload: { name: role.name },
     });
+
+    await this.notifications.notifyByPermission(
+      tenantId,
+      ACCESS_NOTIFICATION_PERMISSION,
+      NotificationCategory.compliance,
+      {
+        severity: NotificationSeverity.warning,
+        title: `Role "${role.name}" was deleted`,
+        actionHref: "/users/roles",
+      },
+      actorUserId,
+    );
 
     return { ok: true };
   }

@@ -56,6 +56,14 @@ type NavEntry = {
   label: string;
   icon: React.ReactNode;
   roles?: RoleName[];
+  /**
+   * Preferred over `roles` when present — matches the `permissions` prop the destination
+   * page's own `RolePageGuard` actually gates on (see each domain's layout.tsx). A tenant's
+   * custom role can be granted this permission without being one of the static `roles`, so
+   * checking `roles` alone can show the nav item as restricted even though the page itself
+   * would let the user in. `roles` is kept only as the source for the denied-tooltip copy.
+   */
+  permission?: string;
 };
 
 type NavGroup = { label: string; items: NavEntry[] };
@@ -65,38 +73,38 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Main",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: <IconGrid size={18} /> },
-      { href: "/pos", label: "POS / Checkout", icon: <IconShoppingCart size={18} />, roles: POS_ROLES },
+      { href: "/pos", label: "POS / Checkout", icon: <IconShoppingCart size={18} />, roles: POS_ROLES, permission: "sales.pos_use" },
     ],
   },
   {
     label: "Catalog",
     items: [
-      { href: "/products", label: "Products", icon: <IconPackage size={18} />, roles: CATALOG_ROLES },
-      { href: "/catalog", label: "Search Catalog", icon: <IconSearch size={18} />, roles: CATALOG_ROLES },
+      { href: "/products", label: "Products", icon: <IconPackage size={18} />, roles: CATALOG_ROLES, permission: "products.view" },
+      { href: "/catalog", label: "Search Catalog", icon: <IconSearch size={18} />, roles: CATALOG_ROLES, permission: "catalog.view" },
     ],
   },
   {
     label: "Operations",
     items: [
-      { href: "/inventory", label: "Inventory", icon: <IconBox size={18} />, roles: OPERATIONS_ROLES },
-      { href: "/purchasing", label: "Purchasing", icon: <IconClipboardList size={18} />, roles: PURCHASING_ROLES },
-      { href: "/suppliers", label: "Suppliers", icon: <IconUsers size={18} />, roles: OPERATIONS_ROLES },
-      { href: "/transfers", label: "Transfers", icon: <IconTruck size={18} />, roles: OPERATIONS_ROLES },
-      { href: "/returns", label: "Returns", icon: <IconRefresh size={18} />, roles: RETURNS_ROLES },
-      { href: "/stocktakes", label: "Stocktakes", icon: <IconClipboard size={18} />, roles: STOCKTAKE_ROLES },
+      { href: "/inventory", label: "Inventory", icon: <IconBox size={18} />, roles: OPERATIONS_ROLES, permission: "inventory.view" },
+      { href: "/purchasing", label: "Purchasing", icon: <IconClipboardList size={18} />, roles: PURCHASING_ROLES, permission: "purchasing.view" },
+      { href: "/suppliers", label: "Suppliers", icon: <IconUsers size={18} />, roles: OPERATIONS_ROLES, permission: "suppliers.view" },
+      { href: "/transfers", label: "Transfers", icon: <IconTruck size={18} />, roles: OPERATIONS_ROLES, permission: "transfers.view" },
+      { href: "/returns", label: "Returns", icon: <IconRefresh size={18} />, roles: RETURNS_ROLES, permission: "returns.view" },
+      { href: "/stocktakes", label: "Stocktakes", icon: <IconClipboard size={18} />, roles: STOCKTAKE_ROLES, permission: "stocktakes.use" },
     ],
   },
   {
     label: "Insights",
     items: [
-      { href: "/reports", label: "Reports", icon: <IconBarChart size={18} />, roles: INSIGHTS_ROLES },
-      { href: "/audit", label: "Audit Log", icon: <IconFileText size={18} />, roles: ADMIN_ROLES },
+      { href: "/reports", label: "Reports", icon: <IconBarChart size={18} />, roles: INSIGHTS_ROLES, permission: "reports.view" },
+      { href: "/audit", label: "Audit Log", icon: <IconFileText size={18} />, roles: ADMIN_ROLES, permission: "audit.view" },
     ],
   },
   {
     label: "Admin",
     items: [
-      { href: "/users", label: "Users & Roles", icon: <IconUsers size={18} />, roles: ADMIN_ROLES },
+      { href: "/users", label: "Users & Roles", icon: <IconUsers size={18} />, roles: ADMIN_ROLES, permission: "users.view" },
       // Open to every role — My Profile/Password & Login/Appearance live under here too;
       // the admin-only subtrees self-gate in their own layout.tsx (see settings-subnav.tsx).
       { href: "/settings", label: "Settings", icon: <IconSettings size={18} /> },
@@ -120,7 +128,8 @@ PAGE_TITLES["/settings/branches"] = "Branches";
 PAGE_TITLES["/settings/main"] = "Point of Sale & Receipts";
 PAGE_TITLES["/settings/catalog"] = "Catalog";
 PAGE_TITLES["/settings/operations"] = "Inventory & Operations";
-PAGE_TITLES["/settings/alerts-recipients"] = "Notifications";
+PAGE_TITLES["/settings/alerts-recipients"] = "Recipients & Channels";
+PAGE_TITLES["/settings/notifications"] = "Notifications";
 PAGE_TITLES["/settings/approval-rules"] = "Approval Rules";
 PAGE_TITLES["/settings/insights-reports"] = "Reports";
 PAGE_TITLES["/settings/password-login"] = "Password & Security";
@@ -145,8 +154,9 @@ function readCollapsed(): boolean {
   }
 }
 
-function hasAccess(userRoles: string[], allowedRoles?: RoleName[]): boolean {
-  return hasRoleAccess(userRoles, allowedRoles);
+function navItemAllowed(item: NavEntry, userRoles: string[], permissionKeys: string[]): boolean {
+  if (item.permission) return permissionKeys.includes(item.permission);
+  return hasRoleAccess(userRoles, item.roles);
 }
 
 function resolvePageTitle(pathname: string): string {
@@ -344,7 +354,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className={styles.navGroupLabel}>{group.label}</span>
               {group.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                const allowed = hasAccess(userRoles, item.roles);
+                const allowed = navItemAllowed(item, userRoles, permissionKeys);
                 const deniedTip = roleDeniedMessage(item.roles);
 
                 if (!allowed) {
@@ -503,7 +513,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Link href="/pos" className={styles.fab} aria-label="Start a new sale (Ctrl+Shift+P)">
           <IconShoppingCart size={24} />
           <span>New Sale</span>
-          <kbd>Ctrl ⇧ P</kbd>
         </Link>
       )}
 

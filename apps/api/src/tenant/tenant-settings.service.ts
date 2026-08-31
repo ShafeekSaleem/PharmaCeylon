@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma, TenantSettings } from "@prisma/client";
+import { NotificationCategory, Prisma, TenantSettings } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import {
   UpdateAlertsSettingsDto,
   UpdateApprovalsSettingsDto,
@@ -18,11 +19,32 @@ import {
   UpdateTransfersReturnsSettingsDto,
 } from "./dto/update-tenant-settings.dto";
 
+/** Owner/manager get a "Branch & Tenant" notification for these — gated on `tenant.management`,
+ *  same as every Settings page's own edit check. Human-readable label per `patchDomain` event,
+ *  keyed by the exact `eventName` each `update*` method below already passes for the audit log. */
+const SETTINGS_SECTION_LABELS: Record<string, string> = {
+  "tenant_settings.dashboard_updated": "Dashboard",
+  "tenant_settings.pos_updated": "Point of Sale",
+  "tenant_settings.receipt_updated": "Receipts",
+  "tenant_settings.product_display_updated": "Product display",
+  "tenant_settings.tax_updated": "Tax & VAT",
+  "tenant_settings.inventory_updated": "Inventory",
+  "tenant_settings.purchasing_updated": "Purchasing",
+  "tenant_settings.transfers_returns_updated": "Transfers & returns",
+  "tenant_settings.stocktake_updated": "Stocktakes",
+  "tenant_settings.alerts_updated": "Alerts & notifications",
+  "tenant_settings.approvals_updated": "Approval rules",
+  "tenant_settings.insights_updated": "Insights & reports",
+  "tenant_settings.security_updated": "Password & security",
+};
+const TENANT_NOTIFICATION_PERMISSION = "tenant.management";
+
 @Injectable()
 export class TenantSettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Lazily creates the tenant's settings row on first access — every column has a schema
@@ -58,6 +80,17 @@ export class TenantSettingsService {
       entityId: settings.id,
       payload: data as Prisma.InputJsonValue,
     });
+
+    await this.notifications.notifyByPermission(
+      tenantId,
+      TENANT_NOTIFICATION_PERMISSION,
+      NotificationCategory.system,
+      {
+        title: `${SETTINGS_SECTION_LABELS[eventName] ?? "Tenant"} settings were updated`,
+        actionHref: "/settings",
+      },
+      actorUserId,
+    );
 
     return serializeSettings(settings);
   }

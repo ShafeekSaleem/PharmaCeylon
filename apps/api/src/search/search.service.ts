@@ -20,6 +20,7 @@ export type GlobalSearchResult = {
   meta?: string;
   href: string;
   badge?: string;
+  imageUrl?: string;
 };
 
 type SearchGroup = { key: string; label: string; items: GlobalSearchResult[] };
@@ -108,6 +109,7 @@ export class SearchService {
         name: true,
         strength: true,
         unit: true,
+        imageUrl: true,
       },
       orderBy: { updatedAt: "desc" },
       take: Math.max(limit * 2, limit),
@@ -141,6 +143,7 @@ export class SearchService {
         meta: branchId ? `${qtyMap.get(row.id) ?? 0} on hand` : undefined,
         href: `/products/${row.id}`,
         badge: row.barcode === q ? "Barcode" : undefined,
+        imageUrl: row.imageUrl ?? undefined,
       })),
     };
   }

@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import {
   NotificationCategory,
@@ -18,6 +19,17 @@ import { UpdateNotificationPreferencesDto } from "./dto/update-notification-pref
 
 const OPERATIONAL_SOURCE = "operational_scan";
 const MAX_ACTION_ITEMS = 25;
+
+type AdminNotificationInput = {
+  severity?: NotificationSeverity;
+  title: string;
+  message?: string;
+  actionLabel?: string;
+  actionHref?: string;
+  entityType?: string;
+  entityId?: string;
+  requiresAction?: boolean;
+};
 
 type Preferences = NotificationPreference;
 
@@ -118,6 +130,91 @@ export class NotificationsService {
     });
     this.clearRefreshThrottle(userId);
     return preferences;
+  }
+
+  /**
+   * Event-sourced notification (source stays the schema default, "domain_event" — distinct from
+   * the threshold-based `operational_scan` alerts below) for every tenant user who currently
+   * holds `requiredPermission` on at least one branch — owners always qualify regardless of the
+   * permission, same bypass as everywhere else in this codebase. Used for admin/access events
+   * (staff and role changes, branch and tenant settings changes) that owner/manager should hear
+   * about but that have no "current state" to poll, unlike inventory/expiry/purchasing/etc.
+   * Skips anyone who has turned the category off in their own preferences (a missing preference
+   * row means default-enabled, matching `NotificationPreference`'s column defaults). A no-op if
+   * there are no eligible recipients — callers don't need to check first.
+   */
+  async notifyByPermission(
+    tenantId: string,
+    requiredPermission: string,
+    category: NotificationCategory,
+    input: AdminNotificationInput,
+    excludeUserId?: string,
+  ) {
+    const recipientIds = await this.resolveRecipientsByPermission(
+      tenantId,
+      requiredPermission,
+      excludeUserId,
+    );
+    if (!recipientIds.length) return;
+
+    const preferenceRows = await this.prisma.notificationPreference.findMany({
+      where: { userId: { in: recipientIds } },
+      select: { userId: true, complianceEnabled: true, systemEnabled: true },
+    });
+    const isEnabled = (userId: string) => {
+      const row = preferenceRows.find((preference) => preference.userId === userId);
+      if (!row) return true;
+      if (category === NotificationCategory.compliance) return row.complianceEnabled;
+      if (category === NotificationCategory.system) return row.systemEnabled;
+      return true;
+    };
+    const recipients = recipientIds.filter(isEnabled);
+    if (!recipients.length) return;
+
+    await this.prisma.notification.createMany({
+      data: recipients.map((recipientUserId) => ({
+        tenantId,
+        recipientUserId,
+        branchId: null,
+        category,
+        severity: input.severity ?? NotificationSeverity.info,
+        title: input.title,
+        message: input.message ?? null,
+        actionLabel: input.actionLabel ?? null,
+        actionHref: input.actionHref ?? null,
+        entityType: input.entityType ?? null,
+        entityId: input.entityId ?? null,
+        dedupeKey: randomUUID(),
+        requiresAction: input.requiresAction ?? false,
+      })),
+    });
+  }
+
+  private async resolveRecipientsByPermission(
+    tenantId: string,
+    requiredPermission: string,
+    excludeUserId?: string,
+  ): Promise<string[]> {
+    const rows = await this.prisma.userBranchRole.findMany({
+      where: { tenantId, ...(excludeUserId ? { userId: { not: excludeUserId } } : {}) },
+      select: { userId: true, branchId: true, role: true, roleId: true },
+    });
+    const byUser = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const list = byUser.get(row.userId) ?? [];
+      list.push(row);
+      byUser.set(row.userId, list);
+    }
+    const recipients: string[] = [];
+    for (const [userId, entries] of byUser) {
+      if (entries.some((entry) => entry.role === RoleName.owner)) {
+        recipients.push(userId);
+        continue;
+      }
+      const granted = await this.permissions.resolveGrantedKeys(entries);
+      if (granted.has(requiredPermission)) recipients.push(userId);
+    }
+    return recipients;
   }
 
   async markRead(tenantId: string, userId: string, id: string) {

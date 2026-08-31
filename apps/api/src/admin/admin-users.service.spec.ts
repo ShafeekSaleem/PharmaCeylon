@@ -4,6 +4,7 @@ import * as bcrypt from "bcrypt";
 import { AuditService } from "../audit/audit.service";
 import { AuthService } from "../auth/auth.service";
 import { UserContextService } from "../auth/user-context.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { AdminUsersService } from "./admin-users.service";
 
 jest.mock("bcrypt");
@@ -33,6 +34,7 @@ describe("AdminUsersService", () => {
   let audit: AuditService;
   let userContext: UserContextService;
   let authService: { revokeAllSessions: jest.Mock };
+  let notifications: { notifyByPermission: jest.Mock };
   let service: AdminUsersService;
 
   beforeEach(() => {
@@ -58,11 +60,13 @@ describe("AdminUsersService", () => {
     audit = { log: jest.fn() } as unknown as AuditService;
     userContext = { invalidate: jest.fn() } as unknown as UserContextService;
     authService = { revokeAllSessions: jest.fn().mockResolvedValue(undefined) };
+    notifications = { notifyByPermission: jest.fn().mockResolvedValue(undefined) };
     service = new AdminUsersService(
       prisma as never,
       audit,
       userContext,
       authService as unknown as AuthService,
+      notifications as unknown as NotificationsService,
     );
     mockedBcrypt.hash.mockReset();
   });
@@ -189,6 +193,8 @@ describe("AdminUsersService", () => {
       prisma.userBranchRole.findFirst.mockResolvedValue({
         id: "mapping-1",
         role: RoleName.owner,
+        user: { fullName: "Target Owner" },
+        branch: { name: "Main Branch" },
       });
       prisma.userBranchRole.delete.mockResolvedValue({});
 
@@ -204,6 +210,8 @@ describe("AdminUsersService", () => {
       prisma.userBranchRole.findFirst.mockResolvedValue({
         id: "mapping-2",
         role: RoleName.cashier,
+        user: { fullName: "Target Cashier" },
+        branch: { name: "Main Branch" },
       });
       prisma.userBranchRole.delete.mockResolvedValue({});
 
