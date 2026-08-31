@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = new Set(["/login"]);
+const PUBLIC_PATHS = new Set(["/login", "/register", "/verify-email"]);
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -16,6 +16,13 @@ export function middleware(request: NextRequest) {
 
   if (PUBLIC_PATHS.has(pathname)) {
     return NextResponse.next();
+  }
+
+  if (pathname.startsWith("/onboarding")) {
+    if (request.cookies.has("pc_onboarding")) {
+      return NextResponse.next();
+    }
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   const hasAuthCookie = request.cookies.has("pc_csrf");
