@@ -59,6 +59,12 @@
   --pc-alert-success-text: #166534;
   --pc-alert-success-icon: #16a34a;
 
+  /* Shared semantic status colors */
+  --pc-success: var(--pc-alert-success-text);
+  --pc-warning: var(--pc-alert-warning-text);
+  --pc-danger: var(--pc-alert-error-text);
+  --pc-info: var(--pc-alert-info-text);
+
   /* Focus rings */
   --pc-focus-ring: rgba(13, 148, 136, 0.25);
   --pc-focus-ring-destructive: rgba(220, 38, 38, 0.15);
