@@ -64,7 +64,7 @@ export default function RegisterPage() {
         firstName: fields.firstName,
         lastName: fields.lastName,
         email: fields.email,
-        phone: fields.phone,
+        phone: fields.phone.trim() ? `+94 ${fields.phone.trim()}` : undefined,
         password: fields.password,
       });
       sessionStorage.setItem("pc_pending_owner_email", result.email);
@@ -114,7 +114,7 @@ export default function RegisterPage() {
             <p className={styles.hint}>At least 8 characters with a number and symbol.</p>
             <label className={styles.terms}>
               <input type="checkbox" checked={fields.accepted} onChange={(e) => update("accepted", e.target.checked)} />
-              <span>I agree to the <Link href="/terms">Terms of Service</Link> and <Link href="/privacy">Privacy Policy</Link>.</span>
+              <span>I agree to the Terms of Service and Privacy Policy.</span>
             </label>
             {error ? <Alert variant="error">{error}</Alert> : null}
             <button className={styles.submit} disabled={submitting}>

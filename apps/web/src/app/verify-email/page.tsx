@@ -76,7 +76,7 @@ export default function VerifyEmailPage() {
         )}
         <div className={styles.links}><Link href="/register">Change email address</Link><Link href="/login">Sign out</Link></div>
       </section>
-      <p className={styles.help}>Need help? <a href="mailto:support@pharmacyceylon.example">Contact support</a></p>
+      <p className={styles.help}>Need help? Contact your PharmaCeylon representative.</p>
     </main>
   );
 }
