@@ -146,7 +146,7 @@ export default function NotificationPreferencesPage() {
 
           {rows.length === 0 ? (
             <p className={css.rowHint}>
-              Your current role doesn't have access to any category-based
+              Your current role doesn’t have access to any category-based
               alerts yet.
             </p>
           ) : (
