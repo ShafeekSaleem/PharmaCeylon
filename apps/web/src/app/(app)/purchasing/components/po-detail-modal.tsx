@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
 import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
+import { createIdempotencyKey } from "@/lib/idempotency";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { usePurchaseOrderDetail } from "../hooks/use-purchase-orders";
 import css from "../purchasing.module.css";
@@ -88,6 +89,7 @@ export function PoDetailModal({
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
   const [confirmShortCloseOpen, setConfirmShortCloseOpen] = useState(false);
+  const receiveIdempotency = useRef<{ poId: string; key: string } | null>(null);
 
   useEffect(() => {
     setActionError(null);
@@ -98,6 +100,7 @@ export function PoDetailModal({
     setConfirmCancelOpen(false);
     setConfirmRejectOpen(false);
     setConfirmShortCloseOpen(false);
+    receiveIdempotency.current = null;
   }, [poId]);
 
   useEffect(() => {
@@ -260,6 +263,12 @@ export function PoDetailModal({
 
   async function receive() {
     if (!detail || !receiveValid) return;
+    if (!receiveIdempotency.current || receiveIdempotency.current.poId !== detail.id) {
+      receiveIdempotency.current = {
+        poId: detail.id,
+        key: createIdempotencyKey("receive", detail.id),
+      };
+    }
     setBusy(true);
     setActionError(null);
     try {
@@ -277,7 +286,7 @@ export function PoDetailModal({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Idempotency-Key": `receive-${detail.id}-${Date.now()}`,
+          "Idempotency-Key": receiveIdempotency.current.key,
         },
         body: JSON.stringify({
           purchaseOrderId: detail.id,
@@ -285,6 +294,7 @@ export function PoDetailModal({
           lines,
         }),
       });
+      receiveIdempotency.current = null;
       await completeAndReturnToList();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Receive failed");

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
 import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
 import type { AuthUser } from "@/lib/auth-types";
 import { apiJson } from "@/lib/auth-client";
+import { createIdempotencyKey } from "@/lib/idempotency";
 import layoutCss from "../../purchasing/purchasing.module.css";
 import type { TransferListItem } from "../types";
 import {
@@ -46,6 +47,7 @@ export function TransferDetailModal({
   const [actionError, setActionError] = useState<string | null>(null);
   const [receiveMode, setReceiveMode] = useState(false);
   const [receiveQtys, setReceiveQtys] = useState<Record<string, string>>({});
+  const idempotencyKeys = useRef<Record<string, string>>({});
   const atSource = !!branchId && transfer?.fromBranchId === branchId;
   const canApproveRole = canApproveTransfer(user, branchId);
 
@@ -103,7 +105,17 @@ export function TransferDetailModal({
     canWrite &&
     needsDestinationBranchToReceive(transfer.status, transfer.toBranchId, branchId);
 
-  async function runAction(path: string, body?: unknown, idempotencyKey?: string) {
+  function mutationKey(action: "ship" | "receive") {
+    const slot = `${action}:${transfer!.id}`;
+    idempotencyKeys.current[slot] ??= createIdempotencyKey(action, transfer!.id);
+    return { slot, key: idempotencyKeys.current[slot] };
+  }
+
+  async function runAction(
+    path: string,
+    body?: unknown,
+    idempotencyKey?: string,
+  ): Promise<boolean> {
     setBusy(true);
     setActionError(null);
     try {
@@ -118,17 +130,21 @@ export function TransferDetailModal({
       });
       onChanged();
       onClose();
+      return true;
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Action failed");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
   async function submitReceive(allRemaining: boolean) {
-    const idemKey = `receive-${transfer!.id}-${Date.now()}`;
+    const idem = mutationKey("receive");
     if (allRemaining) {
-      await runAction("receive", {}, idemKey);
+      if (await runAction("receive", {}, idem.key)) {
+        delete idempotencyKeys.current[idem.slot];
+      }
       return;
     }
 
@@ -156,7 +172,16 @@ export function TransferDetailModal({
       }
     }
 
-    await runAction("receive", { lines }, idemKey);
+    if (await runAction("receive", { lines }, idem.key)) {
+      delete idempotencyKeys.current[idem.slot];
+    }
+  }
+
+  async function submitShip() {
+    const idem = mutationKey("ship");
+    if (await runAction("ship", undefined, idem.key)) {
+      delete idempotencyKeys.current[idem.slot];
+    }
   }
 
   return (
@@ -225,9 +250,7 @@ export function TransferDetailModal({
               {showShip && (
                 <ModalButton
                   variant="secondary"
-                  onClick={() =>
-                    void runAction("ship", undefined, `ship-${transfer.id}-${Date.now()}`)
-                  }
+                  onClick={() => void submitShip()}
                   disabled={busy}
                 >
                   Ship / dispatch
