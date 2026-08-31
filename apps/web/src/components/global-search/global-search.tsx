@@ -14,7 +14,6 @@ import {
   IconUsers,
 } from "@/components/icons";
 import { apiJson } from "@/lib/auth-client";
-import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import css from "./global-search.module.css";
 
 type SearchResultType =
@@ -25,7 +24,6 @@ type SearchResultType =
   | "purchase_order"
   | "transfer"
   | "stocktake"
-  | "page"
   | "action";
 
 type SearchResult = {
@@ -36,97 +34,38 @@ type SearchResult = {
   meta?: string;
   href: string;
   badge?: string;
+  imageUrl?: string;
 };
 
 type SearchGroup = { key: string; label: string; items: SearchResult[] };
 type SearchResponse = { query: string; groups: SearchGroup[]; total: number };
+/** `permission` is recorded at selection time (see `permissionFor`) so a stale entry from a
+ *  role/permission that's since changed — a different login, a branch switch, an edited custom
+ *  role — gets filtered back out at render time instead of showing forever. */
 type RecentItem = Pick<
   SearchResult,
   "id" | "type" | "title" | "subtitle" | "href"
->;
+> & { permission?: string };
 
 const RECENT_KEY = "pc_global_search_recent";
 
-const DESTINATIONS: Array<SearchResult & { permission?: string }> = [
-  {
-    id: "dashboard",
-    type: "page",
-    title: "Dashboard",
-    subtitle: "Business overview and priorities",
-    href: "/dashboard",
-  },
-  {
-    id: "products",
-    type: "page",
-    title: "Products",
-    subtitle: "Product catalog and details",
-    href: "/products",
-    permission: "products.view",
-  },
-  {
-    id: "inventory",
-    type: "page",
-    title: "Inventory",
-    subtitle: "Stock levels, batches and movements",
-    href: "/inventory",
-    permission: "inventory.view",
-  },
-  {
-    id: "purchasing",
-    type: "page",
-    title: "Purchasing",
-    subtitle: "Purchase orders and receiving",
-    href: "/purchasing",
-    permission: "purchasing.view",
-  },
-  {
-    id: "suppliers",
-    type: "page",
-    title: "Suppliers",
-    subtitle: "Supplier directory and accounts",
-    href: "/suppliers",
-    permission: "suppliers.view",
-  },
-  {
-    id: "transfers",
-    type: "page",
-    title: "Transfers",
-    subtitle: "Branch stock transfers",
-    href: "/transfers",
-    permission: "transfers.view",
-  },
-  {
-    id: "stocktakes",
-    type: "page",
-    title: "Stocktakes",
-    subtitle: "Counts, reviews and postings",
-    href: "/stocktakes",
-    permission: "stocktakes.use",
-  },
-  {
-    id: "reports",
-    type: "page",
-    title: "Reports",
-    subtitle: "Sales, profitability and operations",
-    href: "/reports",
-    permission: "reports.view",
-  },
-  {
-    id: "users",
-    type: "page",
-    title: "Users & Roles",
-    subtitle: "Staff access and permissions",
-    href: "/users",
-    permission: "users.view",
-  },
-  {
-    id: "settings",
-    type: "page",
-    title: "Settings",
-    subtitle: "Profile and application preferences",
-    href: "/settings",
-  },
-];
+/** The permission each remote search-result type requires — mirrors exactly what
+ *  `search.service.ts`'s `globalSearch` checks per category before it will even run that
+ *  query, so "Recent" never keeps showing something this role can no longer search for.
+ *  Quick actions carry their own per-item `permission` instead (see QUICK_ACTIONS below). */
+const TYPE_PERMISSION: Partial<Record<SearchResultType, string>> = {
+  product: "products.view",
+  sale: "sales.view",
+  customer: "customers.view",
+  supplier: "suppliers.view",
+  purchase_order: "purchasing.view",
+  transfer: "transfers.view",
+  stocktake: "stocktakes.use",
+};
+
+function permissionFor(item: SearchResult): string | undefined {
+  return (item as { permission?: string }).permission ?? TYPE_PERMISSION[item.type];
+}
 
 const QUICK_ACTIONS: Array<SearchResult & { permission: string }> = [
   {
@@ -174,6 +113,8 @@ function readRecent(): RecentItem[] {
   }
 }
 
+/** Every result type gets its own hue so a mixed-group dropdown scans at a glance
+ *  instead of every row reading as the same flat brand-teal icon chip. */
 function iconFor(type: SearchResultType) {
   const props = { size: 17 };
   switch (type) {
@@ -184,7 +125,7 @@ function iconFor(type: SearchResultType) {
     case "customer":
       return <IconUsers {...props} />;
     case "supplier":
-      return <IconUsers {...props} />;
+      return <IconTruck {...props} />;
     case "purchase_order":
       return <IconClipboardList {...props} />;
     case "transfer":
@@ -198,11 +139,22 @@ function iconFor(type: SearchResultType) {
   }
 }
 
+const ICON_TONE: Record<SearchResultType, string> = {
+  product: "icon_product",
+  sale: "icon_sale",
+  customer: "icon_customer",
+  supplier: "icon_supplier",
+  purchase_order: "icon_purchaseOrder",
+  transfer: "icon_transfer",
+  stocktake: "icon_stocktake",
+  action: "icon_action",
+};
+
 export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
   const router = useRouter();
   const pathname = usePathname();
-  const triggerRef = useRef<HTMLInputElement>(null);
-  const dialogInputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const requestId = useRef(0);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -211,7 +163,6 @@ export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  useBodyScrollLock(open);
 
   const allowed = useCallback(
     (permission?: string) => !permission || permissionKeys.includes(permission),
@@ -231,6 +182,7 @@ export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
         if (document.querySelector('[role="dialog"][aria-modal="true"]'))
           return;
         setOpen(true);
+        inputRef.current?.focus();
       }
     }
     document.addEventListener("keydown", onKeyDown);
@@ -239,8 +191,12 @@ export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
 
   useEffect(() => {
     if (!open) return;
-    const frame = requestAnimationFrame(() => dialogInputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
+    function onOutside(event: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node))
+        setOpen(false);
+    }
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
   }, [open]);
 
   useEffect(() => {
@@ -282,20 +238,12 @@ export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
     const actions = QUICK_ACTIONS.filter(
       (item) => allowed(item.permission) && matches(item),
     );
-    const pages = DESTINATIONS.filter(
-      (item) => allowed(item.permission) && matches(item),
-    );
-    if (!needle && recent.length) {
-      groups.push({ key: "recent", label: "Recent", items: recent });
+    const visibleRecent = recent.filter((item) => allowed(item.permission));
+    if (!needle && visibleRecent.length) {
+      groups.push({ key: "recent", label: "Recent", items: visibleRecent });
     }
     if (actions.length)
       groups.push({ key: "actions", label: "Quick actions", items: actions });
-    if (pages.length)
-      groups.push({
-        key: "pages",
-        label: "Pages",
-        items: pages.slice(0, needle ? 8 : 5),
-      });
     return groups;
   }, [allowed, query, recent]);
 
@@ -312,8 +260,16 @@ export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
 
   const selectItem = useCallback(
     (item: SearchResult) => {
+      const recentEntry: RecentItem = {
+        id: item.id,
+        type: item.type,
+        title: item.title,
+        subtitle: item.subtitle,
+        href: item.href,
+        permission: permissionFor(item),
+      };
       const nextRecent: RecentItem[] = [
-        item,
+        recentEntry,
         ...recent.filter((row) => row.href !== item.href),
       ].slice(0, 6);
       setRecent(nextRecent);
@@ -327,18 +283,21 @@ export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
     [recent, router],
   );
 
-  function onDialogKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+  function onInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
+      if (!open) return;
       event.preventDefault();
       setOpen(false);
-      triggerRef.current?.focus();
+      inputRef.current?.blur();
     } else if (event.key === "ArrowDown") {
+      if (!open) return;
       event.preventDefault();
       setActiveIndex((index) => Math.min(flatItems.length - 1, index + 1));
     } else if (event.key === "ArrowUp") {
+      if (!open) return;
       event.preventDefault();
       setActiveIndex((index) => Math.max(0, index - 1));
-    } else if (event.key === "Enter" && flatItems[activeIndex]) {
+    } else if (event.key === "Enter" && open && flatItems[activeIndex]) {
       event.preventDefault();
       selectItem(flatItems[activeIndex]);
     }
@@ -346,132 +305,129 @@ export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
 
   let runningIndex = -1;
   return (
-    <>
-      <div className={css.trigger}>
+    <div className={css.root} data-open={open} ref={rootRef}>
+      <div
+        className={`${css.trigger}${open ? ` ${css.triggerOpen}` : ""}`}
+        onMouseDown={(event) => {
+          if (event.target !== inputRef.current) {
+            event.preventDefault();
+            inputRef.current?.focus();
+          }
+        }}
+      >
         <IconSearch size={16} />
         <input
-          ref={triggerRef}
-          type="search"
-          value=""
+          ref={inputRef}
+          type="text"
+          role="combobox"
+          value={query}
           placeholder="Search products, sales, suppliers…"
-          aria-label="Open global search"
+          aria-label="Search products, sales, suppliers and more"
+          aria-expanded={open}
+          aria-controls="global-search-listbox"
+          aria-autocomplete="list"
+          aria-activedescendant={
+            open && flatItems[activeIndex]
+              ? `global-search-${activeIndex}`
+              : undefined
+          }
           onFocus={() => setOpen(true)}
           onChange={(event) => {
             setQuery(event.target.value);
             setOpen(true);
           }}
+          onKeyDown={onInputKeyDown}
         />
-        <kbd>Ctrl K</kbd>
+        {loading ? (
+          <span className={css.spinner} aria-label="Searching" />
+        ) : (
+          <kbd>Ctrl K</kbd>
+        )}
       </div>
 
       {open ? (
-        <div
-          className={css.backdrop}
-          role="presentation"
-          onMouseDown={() => setOpen(false)}
-        >
-          <section
-            className={css.palette}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Global search"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className={css.inputRow}>
-              <IconSearch size={20} />
-              <input
-                ref={dialogInputRef}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={onDialogKeyDown}
-                placeholder="Search products, invoices, customers, suppliers…"
-                aria-controls="global-search-results"
-                aria-activedescendant={
-                  flatItems[activeIndex]
-                    ? `global-search-${activeIndex}`
-                    : undefined
-                }
-              />
-              {loading ? (
-                <span className={css.spinner} aria-label="Searching" />
-              ) : (
-                <kbd>Esc</kbd>
-              )}
-            </div>
-
-            <div
-              id="global-search-results"
-              className={css.results}
-              role="listbox"
-            >
-              {groups.map((group) => (
-                <div key={group.key} className={css.group}>
-                  <div className={css.groupLabel}>{group.label}</div>
-                  {group.items.map((item) => {
-                    runningIndex += 1;
-                    const index = runningIndex;
-                    return (
-                      <button
-                        id={`global-search-${index}`}
-                        key={`${item.type}:${item.id}`}
-                        type="button"
-                        role="option"
-                        aria-selected={index === activeIndex}
-                        className={`${css.result}${index === activeIndex ? ` ${css.resultActive}` : ""}`}
-                        onMouseEnter={() => setActiveIndex(index)}
-                        onClick={() => selectItem(item)}
-                      >
-                        <span className={css.resultIcon}>
+        <div className={css.panel}>
+          <div id="global-search-listbox" className={css.results} role="listbox">
+            {groups.map((group) => (
+              <div key={group.key} className={css.group}>
+                <div className={css.groupLabel}>{group.label}</div>
+                {group.items.map((item) => {
+                  runningIndex += 1;
+                  const index = runningIndex;
+                  const showThumb = item.type === "product" && item.imageUrl;
+                  return (
+                    <button
+                      id={`global-search-${index}`}
+                      key={`${item.type}:${item.id}`}
+                      type="button"
+                      role="option"
+                      aria-selected={index === activeIndex}
+                      className={`${css.result}${index === activeIndex ? ` ${css.resultActive}` : ""}`}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => selectItem(item)}
+                    >
+                      {showThumb ? (
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          className={css.resultThumb}
+                        />
+                      ) : (
+                        <span
+                          className={`${css.resultIcon} ${css[ICON_TONE[item.type]]}`}
+                        >
                           {iconFor(item.type)}
                         </span>
-                        <span className={css.resultCopy}>
-                          <span className={css.resultTitle}>{item.title}</span>
-                          <span className={css.resultSubtitle}>
-                            {item.subtitle}
-                          </span>
+                      )}
+                      <span className={css.resultCopy}>
+                        <span className={css.resultTitle}>{item.title}</span>
+                        <span className={css.resultSubtitle}>
+                          {item.subtitle}
                         </span>
-                        {item.meta ? (
-                          <span className={css.resultMeta}>{item.meta}</span>
-                        ) : null}
-                        {item.badge ? (
-                          <span className={css.badge}>
-                            {item.badge.replace(/_/g, " ")}
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-              {!loading && !groups.length ? (
-                <div className={css.empty}>
-                  <IconSearch size={24} />
-                  <strong>No results found</strong>
-                  <span>
-                    Try a product name, barcode, invoice number or supplier.
-                  </span>
-                </div>
-              ) : null}
-              {error ? (
-                <div className={css.error}>
-                  Search is temporarily unavailable. Page shortcuts still work.
-                </div>
-              ) : null}
-            </div>
+                      </span>
+                      {item.meta ? (
+                        <span className={css.resultMeta}>{item.meta}</span>
+                      ) : null}
+                      {item.badge ? (
+                        <span className={css.badge}>
+                          {item.badge.replace(/_/g, " ")}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {!loading && !groups.length ? (
+              <div className={css.empty}>
+                <IconSearch size={22} />
+                <strong>No results found</strong>
+                <span>
+                  Try a product name, barcode, invoice number or supplier.
+                </span>
+              </div>
+            ) : null}
+            {error ? (
+              <div className={css.error}>
+                Search is temporarily unavailable. Page shortcuts still work.
+              </div>
+            ) : null}
+          </div>
 
-            <footer className={css.footer}>
-              <span>
-                <kbd>↑</kbd>
-                <kbd>↓</kbd> Navigate
-              </span>
-              <span>
-                <kbd>Enter</kbd> Open
-              </span>
-              <span>Results respect your current branch and permissions</span>
-            </footer>
-          </section>
+          <footer className={css.footer}>
+            <span>
+              <kbd>↑</kbd>
+              <kbd>↓</kbd> Navigate
+            </span>
+            <span>
+              <kbd>Enter</kbd> Open
+            </span>
+            <span>
+              <kbd>Esc</kbd> Close
+            </span>
+          </footer>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

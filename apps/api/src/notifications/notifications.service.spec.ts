@@ -1,5 +1,5 @@
 import { NotFoundException } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
+import { NotificationCategory, RoleName } from "@prisma/client";
 import { NotificationsService } from "./notifications.service";
 
 describe("NotificationsService", () => {
@@ -12,6 +12,7 @@ describe("NotificationsService", () => {
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         upsert: jest.fn(),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       notificationPreference: {
         upsert: jest.fn().mockResolvedValue({
@@ -26,7 +27,9 @@ describe("NotificationsService", () => {
           complianceEnabled: true,
           systemEnabled: true,
         }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
+      userBranchRole: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((operations: unknown[]) => Promise.all(operations)),
     };
     const permissions = {
@@ -96,5 +99,95 @@ describe("NotificationsService", () => {
       service.archive("tenant-1", "user-1", "notice-2"),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.notification.update).not.toHaveBeenCalled();
+  });
+
+  describe("notifyByPermission", () => {
+    it("notifies an owner regardless of the required permission and excludes the actor", async () => {
+      const { prisma, permissions, service } = setup();
+      prisma.userBranchRole.findMany.mockResolvedValue([
+        { userId: "owner-1", branchId: "branch-1", role: RoleName.owner, roleId: null },
+      ]);
+      permissions.resolveGrantedKeys.mockResolvedValue(new Set());
+
+      await service.notifyByPermission(
+        "tenant-1",
+        "users.view",
+        NotificationCategory.compliance,
+        { title: "New staff member" },
+        "actor-1",
+      );
+
+      expect(prisma.userBranchRole.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: "tenant-1", userId: { not: "actor-1" } }),
+        }),
+      );
+      expect(prisma.notification.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            tenantId: "tenant-1",
+            recipientUserId: "owner-1",
+            category: NotificationCategory.compliance,
+            title: "New staff member",
+          }),
+        ],
+      });
+    });
+
+    it("only notifies non-owners who actually hold the required permission", async () => {
+      const { prisma, permissions, service } = setup();
+      prisma.userBranchRole.findMany.mockResolvedValue([
+        { userId: "manager-1", branchId: "branch-1", role: RoleName.manager, roleId: "role-1" },
+        { userId: "cashier-1", branchId: "branch-1", role: RoleName.cashier, roleId: "role-2" },
+      ]);
+      permissions.resolveGrantedKeys.mockImplementation(
+        async (entries: Array<{ role: RoleName }>) =>
+          entries[0]?.role === RoleName.manager ? new Set(["users.view"]) : new Set(),
+      );
+
+      await service.notifyByPermission(
+        "tenant-1",
+        "users.view",
+        NotificationCategory.compliance,
+        { title: "Role changed" },
+      );
+
+      expect(prisma.notification.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ recipientUserId: "manager-1" })],
+      });
+    });
+
+    it("skips a recipient who has turned the category off in their preferences", async () => {
+      const { prisma, service } = setup();
+      prisma.userBranchRole.findMany.mockResolvedValue([
+        { userId: "owner-1", branchId: "branch-1", role: RoleName.owner, roleId: null },
+      ]);
+      prisma.notificationPreference.findMany.mockResolvedValue([
+        { userId: "owner-1", complianceEnabled: false, systemEnabled: true },
+      ]);
+
+      await service.notifyByPermission(
+        "tenant-1",
+        "users.view",
+        NotificationCategory.compliance,
+        { title: "New staff member" },
+      );
+
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    });
+
+    it("is a no-op when no one holds the required permission", async () => {
+      const { prisma, service } = setup();
+      prisma.userBranchRole.findMany.mockResolvedValue([]);
+
+      await service.notifyByPermission(
+        "tenant-1",
+        "tenant.management",
+        NotificationCategory.system,
+        { title: "Branch updated" },
+      );
+
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    });
   });
 });

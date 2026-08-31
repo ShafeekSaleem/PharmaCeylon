@@ -12,6 +12,7 @@ import {
   IconBox,
   IconLock,
   IconSparkles,
+  IconBell,
 } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
@@ -66,7 +67,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Preferences",
-    items: [{ href: "/settings/appearance", label: "Appearance", icon: <IconSparkles size={16} /> }],
+    items: [
+      { href: "/settings/notifications", label: "Notifications", icon: <IconBell size={16} /> },
+      { href: "/settings/appearance", label: "Appearance", icon: <IconSparkles size={16} /> },
+    ],
   },
 ];
 

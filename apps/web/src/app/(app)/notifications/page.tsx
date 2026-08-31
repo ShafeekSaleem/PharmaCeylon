@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/alert";
 import {
@@ -9,87 +10,46 @@ import {
   IconBell,
   IconBox,
   IconCheck,
+  IconChevronDown,
   IconClipboardList,
   IconPackage,
   IconSearch,
   IconSettings,
   IconTruck,
 } from "@/components/icons";
-import { ActionButton, PageHeader, ToggleSwitch } from "@/components/ui";
+import { ActionButton, PageHeader } from "@/components/ui";
+import actionCss from "@/components/ui/page-header.module.css";
+import { usePermissions } from "@/lib/permissions";
 import {
   archiveNotification,
-  fetchNotificationPreferences,
   fetchNotifications,
   markAllNotificationsRead,
   markNotificationRead,
   relativeNotificationTime,
-  saveNotificationPreferences,
   type NotificationCategory,
   type NotificationItem,
-  type NotificationPreferences,
   type NotificationsResponse,
 } from "@/lib/notifications-client";
-import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import css from "./notifications-page.module.css";
 
 type StatusFilter = "all" | "unread" | "action_required";
 
+/** Same set as settings/notifications' PREFERENCE_ROWS — only categories the backend can
+ *  actually generate, each gated behind the permission the API checks before generating it, so
+ *  the filter never offers a category this role could never have a notification in. */
 const CATEGORIES: Array<{
   value: NotificationCategory | "all";
   label: string;
+  permission?: string;
 }> = [
   { value: "all", label: "All categories" },
-  { value: "inventory", label: "Inventory" },
-  { value: "expiry", label: "Expiry" },
-  { value: "purchasing", label: "Purchasing" },
-  { value: "transfers", label: "Transfers" },
-  { value: "stocktakes", label: "Stocktakes" },
-  { value: "sales", label: "Sales" },
-  { value: "compliance", label: "Compliance" },
-  { value: "system", label: "System" },
-];
-
-const PREFERENCE_ROWS: Array<{
-  key: keyof NotificationPreferences;
-  label: string;
-  hint: string;
-}> = [
-  {
-    key: "inventoryEnabled",
-    label: "Inventory",
-    hint: "Low stock and stock-health warnings",
-  },
-  {
-    key: "expiryEnabled",
-    label: "Expiry",
-    hint: "Near-expiry and expired batch warnings",
-  },
-  {
-    key: "purchasingEnabled",
-    label: "Purchasing",
-    hint: "Approvals, overdue orders and receiving",
-  },
-  {
-    key: "transfersEnabled",
-    label: "Transfers",
-    hint: "Approvals and incoming stock",
-  },
-  {
-    key: "stocktakesEnabled",
-    label: "Stocktakes",
-    hint: "Reviews, approvals and posting",
-  },
-  { key: "salesEnabled", label: "Sales", hint: "Sale and counter exceptions" },
-  {
-    key: "complianceEnabled",
-    label: "Compliance",
-    hint: "Pharmacist and controlled medicine actions",
-  },
-  {
-    key: "systemEnabled",
-    label: "System",
-    hint: "Import, synchronization and service failures",
-  },
+  { value: "inventory", label: "Inventory", permission: "inventory.view" },
+  { value: "expiry", label: "Expiry", permission: "inventory.view" },
+  { value: "purchasing", label: "Purchasing", permission: "purchasing.view" },
+  { value: "transfers", label: "Transfers", permission: "transfers.view" },
+  { value: "stocktakes", label: "Stocktakes", permission: "stocktakes.use" },
+  { value: "compliance", label: "Access & Approvals", permission: "users.view" },
+  { value: "system", label: "Branch & Tenant", permission: "tenant.management" },
 ];
 
 function iconFor(item: NotificationItem) {
@@ -103,8 +63,85 @@ function iconFor(item: NotificationItem) {
   return <IconBell {...props} />;
 }
 
+type CategoryOption = { value: NotificationCategory | "all"; label: string };
+
+/** Compact themed replacement for a native `<select>` — a native popup falls back to OS
+ *  chrome that can't be styled to match the app's light/dense/appearance system. */
+function CategoryFilter({
+  value,
+  options,
+  onChange,
+}: {
+  value: NotificationCategory | "all";
+  options: CategoryOption[];
+  onChange: (value: NotificationCategory | "all") => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    function onOutside(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node))
+        setOpen(false);
+    }
+    function onEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className={css.categoryFilter} ref={ref}>
+      <button
+        type="button"
+        className={`${css.categoryTrigger}${open ? ` ${css.categoryTriggerOpen}` : ""}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span>{selected?.label ?? "All categories"}</span>
+        <IconChevronDown size={14} className={css.categoryChevron} />
+      </button>
+      {open ? (
+        <ul className={css.categoryMenu} role="listbox">
+          {options.map((option) => (
+            <li
+              key={option.value}
+              role="option"
+              aria-selected={option.value === value}
+              className={`${css.categoryOption}${option.value === value ? ` ${css.categoryOptionActive}` : ""}`}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              <span>{option.label}</span>
+              {option.value === value ? <IconCheck size={13} /> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export default function NotificationsPage() {
   const router = useRouter();
+  const { permissionKeys } = usePermissions();
+  const availableCategories = useMemo(
+    () =>
+      CATEGORIES.filter(
+        (option) => !option.permission || permissionKeys.includes(option.permission),
+      ),
+    [permissionKeys],
+  );
   const [status, setStatus] = useState<StatusFilter>("all");
   const [category, setCategory] = useState<NotificationCategory | "all">("all");
   const [search, setSearch] = useState("");
@@ -112,11 +149,6 @@ export default function NotificationsPage() {
   const [data, setData] = useState<NotificationsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [preferencesOpen, setPreferencesOpen] = useState(false);
-  const [preferences, setPreferences] =
-    useState<NotificationPreferences | null>(null);
-  const [savingPreferences, setSavingPreferences] = useState(false);
-  useBodyScrollLock(preferencesOpen);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -125,6 +157,14 @@ export default function NotificationsPage() {
     );
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  // A branch switch can change granted permissions — if the selected category filter is no
+  // longer offered, fall back to "all" rather than silently keep filtering by it.
+  useEffect(() => {
+    if (!availableCategories.some((option) => option.value === category)) {
+      setCategory("all");
+    }
+  }, [availableCategories, category]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -148,19 +188,6 @@ export default function NotificationsPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    if (!preferencesOpen || preferences) return;
-    fetchNotificationPreferences()
-      .then(setPreferences)
-      .catch((reason) => {
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : "Failed to load preferences",
-        );
-      });
-  }, [preferences, preferencesOpen]);
 
   const rows = data?.items ?? [];
   const statusCounts = useMemo(
@@ -244,22 +271,6 @@ export default function NotificationsPage() {
     }
   }
 
-  async function savePreferences() {
-    if (!preferences) return;
-    setSavingPreferences(true);
-    try {
-      setPreferences(await saveNotificationPreferences(preferences));
-      setPreferencesOpen(false);
-      await load();
-    } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Could not save preferences",
-      );
-    } finally {
-      setSavingPreferences(false);
-    }
-  }
-
   return (
     <div className={css.page}>
       <PageHeader
@@ -267,12 +278,12 @@ export default function NotificationsPage() {
         description="Operational alerts and actions for your current branch."
         actions={
           <div className={css.headerActions}>
-            <ActionButton
-              variant="secondary"
-              onClick={() => setPreferencesOpen(true)}
+            <Link
+              href="/settings/notifications"
+              className={`${actionCss.actionBtn} ${actionCss.actionSecondary}`}
             >
               <IconSettings size={15} /> Preferences
-            </ActionButton>
+            </Link>
             <ActionButton
               variant="secondary"
               onClick={() => void markAllRead()}
@@ -321,18 +332,7 @@ export default function NotificationsPage() {
               placeholder="Search notifications"
             />
           </label>
-          <select
-            value={category}
-            onChange={(event) =>
-              setCategory(event.target.value as NotificationCategory | "all")
-            }
-          >
-            {CATEGORIES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <CategoryFilter value={category} options={availableCategories} onChange={setCategory} />
         </div>
       </div>
 
@@ -400,7 +400,7 @@ export default function NotificationsPage() {
                     <button
                       type="button"
                       aria-label="Mark as read"
-                      title="Mark as read"
+                      data-tooltip="Mark as read"
                       onClick={() =>
                         void markNotificationRead(item.id).then(load)
                       }
@@ -411,7 +411,7 @@ export default function NotificationsPage() {
                   <button
                     type="button"
                     aria-label="Archive"
-                    title="Archive"
+                    data-tooltip="Archive"
                     onClick={() => void archive(item)}
                   >
                     <IconArchive size={16} />
@@ -421,70 +421,6 @@ export default function NotificationsPage() {
             ))
           : null}
       </section>
-
-      {preferencesOpen ? (
-        <div
-          className={css.modalBackdrop}
-          onMouseDown={() => setPreferencesOpen(false)}
-        >
-          <section
-            className={css.preferencesPanel}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Notification preferences"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <header>
-              <div>
-                <h2>Notification preferences</h2>
-                <p>Choose which operational categories appear in your inbox.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreferencesOpen(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </header>
-            <div className={css.preferenceRows}>
-              {!preferences ? (
-                <div className={css.state}>Loading preferences…</div>
-              ) : (
-                PREFERENCE_ROWS.map((row) => (
-                  <div key={row.key} className={css.preferenceRow}>
-                    <div>
-                      <strong>{row.label}</strong>
-                      <span>{row.hint}</span>
-                    </div>
-                    <ToggleSwitch
-                      checked={preferences[row.key]}
-                      label={`${row.label} notifications`}
-                      onChange={(checked) =>
-                        setPreferences({ ...preferences, [row.key]: checked })
-                      }
-                    />
-                  </div>
-                ))
-              )}
-            </div>
-            <footer>
-              <ActionButton
-                variant="secondary"
-                onClick={() => setPreferencesOpen(false)}
-              >
-                Cancel
-              </ActionButton>
-              <ActionButton
-                onClick={() => void savePreferences()}
-                disabled={!preferences || savingPreferences}
-              >
-                {savingPreferences ? "Saving…" : "Save preferences"}
-              </ActionButton>
-            </footer>
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }

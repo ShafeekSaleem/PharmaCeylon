@@ -88,7 +88,7 @@ export default function AlertsRecipientsPage() {
           <div className={css.rowItem}>
             <div>
               <div className={css.rowLabel}>In-app notification bell</div>
-              <div className={css.rowHint}>Available to staff based on their branch permissions; each user can tune categories from Notifications.</div>
+              <div className={css.rowHint}>Available to staff based on their branch permissions; each user can tune categories from Settings → Notifications.</div>
             </div>
             <ToggleSwitch checked disabled onChange={() => {}} label="In-app notification bell" />
           </div>

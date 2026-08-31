@@ -5,15 +5,21 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
+import { NotificationCategory, NotificationSeverity, RoleName } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { AuthService } from "../auth/auth.service";
 import { UserContextService } from "../auth/user-context.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { AssignBranchRoleDto } from "./dto/assign-branch-role.dto";
 import { CreateTenantUserDto } from "./dto/create-tenant-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
+
+/** Owner/manager get an "Access & Approvals" notification for these — see the
+ *  `notifyByPermission` call sites below. Gated on `users.view`, which every built-in owner and
+ *  manager holds by default and is the same permission the Users & Roles nav item checks. */
+const ACCESS_NOTIFICATION_PERMISSION = "users.view";
 
 @Injectable()
 export class AdminUsersService {
@@ -22,6 +28,7 @@ export class AdminUsersService {
     private readonly audit: AuditService,
     private readonly userContext: UserContextService,
     private readonly authService: AuthService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -90,6 +97,18 @@ export class AdminUsersService {
         entityId: user.id,
         payload: { email: user.email },
       });
+      await this.notifications.notifyByPermission(
+        actorTenantId,
+        ACCESS_NOTIFICATION_PERMISSION,
+        NotificationCategory.compliance,
+        {
+          title: `${user.fullName} was added as a new staff member`,
+          actionHref: "/users",
+          entityType: "app_user",
+          entityId: user.id,
+        },
+        actorUserId,
+      );
       return user;
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code;
@@ -151,6 +170,19 @@ export class AdminUsersService {
       entityId: row.id,
       payload: { targetUserId, branchId: dto.branchId, role: dto.role },
     });
+    await this.notifications.notifyByPermission(
+      tenantId,
+      ACCESS_NOTIFICATION_PERMISSION,
+      NotificationCategory.compliance,
+      {
+        title: `${target.fullName}'s access changed`,
+        message: `${branch.name} · now ${dto.role}`,
+        actionHref: "/users",
+        entityType: "app_user",
+        entityId: targetUserId,
+      },
+      actorUserId,
+    );
     return row;
   }
 
@@ -190,6 +222,10 @@ export class AdminUsersService {
   ) {
     const row = await this.prisma.userBranchRole.findFirst({
       where: { id: mappingId, tenantId, userId: targetUserId },
+      include: {
+        user: { select: { fullName: true } },
+        branch: { select: { name: true } },
+      },
     });
     if (!row) throw new NotFoundException("Role mapping not found");
     if (row.role === RoleName.owner && targetUserId === actorUserId) {
@@ -208,6 +244,20 @@ export class AdminUsersService {
       entityId: mappingId,
       payload: { targetUserId },
     });
+    await this.notifications.notifyByPermission(
+      tenantId,
+      ACCESS_NOTIFICATION_PERMISSION,
+      NotificationCategory.compliance,
+      {
+        severity: NotificationSeverity.warning,
+        title: `${row.user.fullName}'s ${row.role} role was removed`,
+        message: row.branch.name,
+        actionHref: "/users",
+        entityType: "app_user",
+        entityId: targetUserId,
+      },
+      actorUserId,
+    );
     return { ok: true };
   }
 
@@ -288,6 +338,22 @@ export class AdminUsersService {
       payload: { fullName: dto.fullName, isActive: dto.isActive },
     });
 
+    if (dto.isActive === false || dto.isActive === true) {
+      await this.notifications.notifyByPermission(
+        tenantId,
+        ACCESS_NOTIFICATION_PERMISSION,
+        NotificationCategory.compliance,
+        {
+          severity: dto.isActive === false ? NotificationSeverity.warning : NotificationSeverity.info,
+          title: `${updated.fullName} was ${dto.isActive === false ? "deactivated" : "reactivated"}`,
+          actionHref: "/users",
+          entityType: "app_user",
+          entityId: targetUserId,
+        },
+        actorUserId,
+      );
+    }
+
     return updated;
   }
 
@@ -344,6 +410,18 @@ export class AdminUsersService {
       entityId: targetUserId,
       payload: { email: target.email },
     });
+
+    await this.notifications.notifyByPermission(
+      tenantId,
+      ACCESS_NOTIFICATION_PERMISSION,
+      NotificationCategory.compliance,
+      {
+        severity: NotificationSeverity.warning,
+        title: `${target.fullName} (${target.email}) was permanently deleted`,
+        actionHref: "/users",
+      },
+      actorUserId,
+    );
 
     return { ok: true };
   }
