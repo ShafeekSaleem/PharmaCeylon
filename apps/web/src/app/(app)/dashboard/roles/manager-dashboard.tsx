@@ -145,7 +145,7 @@ export function ManagerDashboard({ data, catalog, layout }: Props) {
               currentBranchPerf?.targetAmount != null
                 ? `MTD ${formatMoney(currentBranchPerf.monthSales)} / ${formatMoney(currentBranchPerf.targetAmount)}`
                 : "Assigned by owner",
-            href: "/reports",
+            href: "/reports?category=sales&report=branch-sales",
             linkLabel: "View reports",
           },
           {
@@ -162,7 +162,7 @@ export function ManagerDashboard({ data, catalog, layout }: Props) {
             trend: dispensedTrendLabel
               ? { label: dispensedTrendLabel, direction: dispensedTrendPositive ? "up" : "down" }
               : undefined,
-            href: "/reports",
+            href: "/reports?category=sales&report=sales-summary",
             linkLabel: "View reports",
           },
         ]}

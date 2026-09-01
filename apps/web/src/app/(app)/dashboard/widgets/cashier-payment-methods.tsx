@@ -23,6 +23,19 @@ export function CashierPaymentMethodsWidget({ data }: { data: DashboardData }) {
       title="Payment Methods Today"
       compact
       badge={paymentMixIsPlaceholder ? <span className={css.placeholderBadge}>Sample</span> : undefined}
+      footerHref="/pos"
+      footerLabel="Open POS →"
+      footerMeta={
+        topPaymentMethod ? (
+          <span className={css.footfallFooterMeta}>
+            <span className={css.footfallPeakPill}>
+              <IconCreditCard size={11} strokeWidth={2.5} aria-hidden />
+              {topPaymentMethod.label} leads
+            </span>
+            <span className={css.muted}>{topPaymentMethod.pct.toFixed(0)}% of today&apos;s tenders</span>
+          </span>
+        ) : undefined
+      }
     >
       {paymentMixIsPlaceholder ? (
         <>
@@ -32,23 +45,12 @@ export function CashierPaymentMethodsWidget({ data }: { data: DashboardData }) {
           </p>
         </>
       ) : (
-        <>
-          <SimpleDonutChart
-            slices={paymentMix}
-            centerValue={formatMoney(todaySalesTotal)}
-            centerLabel="Total"
-            formatValue={(n) => formatMoney(n)}
-          />
-          {topPaymentMethod ? (
-            <p className={css.footfallFooterMeta} style={{ marginTop: "0.6rem" }}>
-              <span className={css.footfallPeakPill}>
-                <IconCreditCard size={11} strokeWidth={2.5} aria-hidden />
-                {topPaymentMethod.label} leads
-              </span>
-              <span className={css.muted}>{topPaymentMethod.pct.toFixed(0)}% of today&apos;s tenders</span>
-            </p>
-          ) : null}
-        </>
+        <SimpleDonutChart
+          slices={paymentMix}
+          centerValue={formatMoney(todaySalesTotal)}
+          centerLabel="Total"
+          formatValue={(n) => formatMoney(n)}
+        />
       )}
     </DashboardPanel>
   );

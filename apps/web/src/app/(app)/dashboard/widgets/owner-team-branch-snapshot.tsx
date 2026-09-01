@@ -174,7 +174,7 @@ export function OwnerTeamBranchSnapshotWidget({ data }: { data: DashboardData })
             </div>
 
             <div className={css.teamSnapFooter}>
-              <Link href="/reports" className={css.panelFooterLink}>
+              <Link href="/reports?category=sales&report=branch-sales" className={css.panelFooterLink}>
                 View all branches →
               </Link>
               <div className={css.teamSnapFooterRight}>

@@ -16,7 +16,11 @@ export function ManagerTopProductsTodayWidget({ data }: { data: DashboardData })
   const pageCount = Math.max(1, Math.ceil(topProductsToday.length / PRODUCTS_PAGE_SIZE));
 
   return (
-    <DashboardPanel title="Top Products Today" footerHref="/reports" footerLabel="Open reports →">
+    <DashboardPanel
+      title="Top Products Today"
+      footerHref="/reports?category=sales&report=product-sales"
+      footerLabel="View product sales →"
+    >
       {topProductsToday.length === 0 ? (
         <p className={css.emptyState}>No sales recorded yet today.</p>
       ) : (

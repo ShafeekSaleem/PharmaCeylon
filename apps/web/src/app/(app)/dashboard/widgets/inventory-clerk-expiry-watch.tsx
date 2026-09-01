@@ -26,7 +26,7 @@ export function InventoryClerkExpiryWatchWidget({ data }: { data: DashboardData 
   return (
     <DashboardPanel
       title="Expiry Watch"
-      footerHref="/inventory/batches"
+      footerHref="/inventory/batches?nearExpiryDays=30"
       footerLabel="Open batches →"
       footerMeta={`${nearExpiryCount} near expiry`}
     >

@@ -67,6 +67,8 @@ export function FootfallPanel({ branchId, title = "Footfall" }: Props) {
     <DashboardPanel
       title={title}
       compact
+      footerHref="/reports?category=sales&report=sales-summary"
+      footerLabel="View sales report →"
       headerRight={
         <PeriodToggle
           aria-label="Footfall period"

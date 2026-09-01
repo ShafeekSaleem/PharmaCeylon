@@ -165,7 +165,7 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
                     direction: ownerGrossProfitTrendPositive ? "up" : "down",
                   }
                 : undefined,
-            href: "/reports?tab=margin",
+            href: "/reports?category=profitability&report=gross-profit",
             linkLabel: "View margin",
           },
           {

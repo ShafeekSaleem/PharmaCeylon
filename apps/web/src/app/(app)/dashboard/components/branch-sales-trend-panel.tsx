@@ -134,6 +134,8 @@ export function BranchSalesTrendPanel() {
       }
       icon={<IconBarChart size={15} />}
       compact
+      footerHref="/reports?category=sales&report=branch-sales"
+      footerLabel="View branch sales →"
       headerRight={
         <>
           <BranchMultiSelect

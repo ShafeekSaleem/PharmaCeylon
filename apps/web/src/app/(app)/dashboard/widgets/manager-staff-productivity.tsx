@@ -10,7 +10,11 @@ export function ManagerStaffProductivityWidget({ data }: { data: DashboardData }
   const { staffProductivity, todaySalesTotal } = data;
 
   return (
-    <DashboardPanel title="Staff Productivity">
+    <DashboardPanel
+      title="Staff Productivity"
+      footerHref="/reports?category=sales&report=cashier-performance"
+      footerLabel="View cashier performance →"
+    >
       {staffProductivity.length === 0 ? (
         <p className={css.emptyState}>No counter activity yet today.</p>
       ) : (

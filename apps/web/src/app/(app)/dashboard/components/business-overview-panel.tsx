@@ -159,7 +159,13 @@ export function BusinessOverviewPanel({
   const canCompare = prevRevenue != null && prevPurchases != null;
 
   return (
-    <DashboardPanel title={title} compact className={css.splitPanel}>
+    <DashboardPanel
+      title={title}
+      compact
+      className={css.splitPanel}
+      footerHref="/reports?category=sales&report=sales-summary"
+      footerLabel="View sales report →"
+    >
       <div className={css.overviewGrid}>
         <div className={css.overviewChartsCol}>
           <div className={css.overviewChartsPair}>

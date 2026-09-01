@@ -27,7 +27,14 @@ type SupplierSpendResponse = {
   totalOverduePos: number;
 };
 
-export function TopSuppliersPanel() {
+type Props = {
+  /** Owner (has reports access) routes to the Supplier Performance report; inventory clerk
+   * (no reports access) keeps the default operational suppliers page. */
+  footerHref?: string;
+  footerLabel?: string;
+};
+
+export function TopSuppliersPanel({ footerHref = "/suppliers", footerLabel = "Open suppliers →" }: Props) {
   const [data, setData] = useState<SupplierSpendResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -56,8 +63,8 @@ export function TopSuppliersPanel() {
       subtitle="By outstanding payable"
       icon={<IconTruck size={15} />}
       compact
-      footerHref="/suppliers"
-      footerLabel="Open suppliers →"
+      footerHref={footerHref}
+      footerLabel={footerLabel}
       footerMeta={
         data
           ? `${formatMoney(data.totalOutstanding)} across ${data.totalSuppliers} supplier${data.totalSuppliers === 1 ? "" : "s"}`

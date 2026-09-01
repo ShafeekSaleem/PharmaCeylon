@@ -25,6 +25,8 @@ export function CashierShiftPerformanceWidget({ data }: { data: DashboardData })
     <DashboardPanel
       title="Shift Performance (Today)"
       compact
+      footerHref="/pos"
+      footerLabel="Open POS →"
       footerMeta={peakHour.value > 0 ? `Peak: ${peakHour.label}` : "No sales hours yet"}
     >
       <SimpleLineChart

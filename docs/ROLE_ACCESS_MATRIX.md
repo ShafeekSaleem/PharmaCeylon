@@ -19,6 +19,7 @@ Tenants may also create **custom roles** (see `docs/API_CONTRACT.md` and the Use
 | Page | Route | owner | manager | pharmacist | cashier | inventory_clerk |
 |---|---|---|---|---|---|---|
 | Dashboard | `/dashboard` | yes | yes | yes | yes | yes |
+| AI Insights | `/insights` | yes | yes | yes | yes | yes |
 | POS / Checkout | `/pos` | yes | yes | yes | yes | — |
 | Products | `/products` | yes | yes | — | view | yes |
 | Search Catalog | `/catalog` | yes | yes | yes | yes | yes |
@@ -47,7 +48,7 @@ These are the named groups used in `app-shell.tsx` for nav-level visibility:
 | `OPERATIONS_ROLES` | owner, manager, pharmacist, inventory_clerk | Suppliers, Inventory, Purchasing, Transfers |
 | `INSIGHTS_ROLES` | owner, manager | Reports |
 
-Pages without a `roles` restriction (Dashboard, Search Catalog) are visible to all authenticated users.
+Pages without a `roles` restriction (Dashboard, AI Insights, Search Catalog) are visible to all authenticated users.
 
 ## Enforcement Layers
 
@@ -65,6 +66,7 @@ Access is enforced at three levels:
 - **Search Catalog** is unrestricted because all staff may need to look up drug information (interactions, alternatives, availability).
 - **POS** excludes `inventory_clerk` as they do not process customer sales.
 - **Products** excludes `pharmacist` (they use Search Catalog for lookups). Cashiers get view-only access to verify product details during sales.
-- **Insights** pages are restricted to owner and manager to protect sensitive financial data.
+- **Reports** (the analytics/financial section labeled "Insights" in the nav group) is restricted to owner and manager to protect sensitive financial data.
+- **AI Insights** (`/insights`) is a separate, unrestricted hub aggregating every role's own dashboard recommendations — every role sees their own relevant insights. Owner/manager additionally see insights sourced from the 6 report sections whose backend already computes them (stock movement, transfers, stocktakes, purchase summary, supplier spend, supplier performance); that report-sourced content is gated inline by the `reports.view` permission, not by a route-level restriction, so it simply doesn't fetch/render for the other three roles.
 - **Admin** pages are limited to owner and manager to prevent privilege escalation.
 - Owner/manager can grant any of the above to a custom role via Users & Roles → Roles & Permissions — this matrix describes the built-in defaults, not a hard ceiling.

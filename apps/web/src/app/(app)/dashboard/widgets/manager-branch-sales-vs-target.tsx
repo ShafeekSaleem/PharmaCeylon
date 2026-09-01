@@ -43,6 +43,8 @@ export function ManagerBranchSalesVsTargetWidget({ data }: { data: DashboardData
     <DashboardPanel
       title="Branch Sales vs Target"
       icon={<IconUsers size={15} />}
+      footerHref="/reports?category=sales&report=branch-sales"
+      footerLabel="View branch sales →"
       footerMeta={
         branchPerfYearMonth ? (
           <span className={css.monthPill}>

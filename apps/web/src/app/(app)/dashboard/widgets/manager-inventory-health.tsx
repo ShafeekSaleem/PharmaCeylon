@@ -25,7 +25,13 @@ export function ManagerInventoryHealthWidget({ data }: { data: DashboardData }) 
     lowN >= nearExpiryCount && lowN >= deadN ? "low" : nearExpiryCount >= deadN ? "expiry" : "dead";
   const healthSignals = [
     { key: "low", label: "Low stock", value: lowN, tone: "danger" as const, href: "/inventory?view=low" },
-    { key: "dead", label: "Dead stock", value: deadN, tone: "muted" as const, href: "/reports?tab=dead" },
+    {
+      key: "dead",
+      label: "Dead stock",
+      value: deadN,
+      tone: "muted" as const,
+      href: "/reports?category=inventory&report=stock-health",
+    },
     {
       key: "expiry",
       label: "Near expiry ≤30d",
@@ -109,7 +115,7 @@ export function ManagerInventoryHealthWidget({ data }: { data: DashboardData }) 
 
         <div className={css.healthActions}>
           <div className={css.healthActionsRow}>
-            <Link href="/inventory" className={css.healthReportLink}>
+            <Link href="/reports?category=inventory&report=stock-health" className={css.healthReportLink}>
               View inventory report →
             </Link>
             <div className={css.healthActionBtns}>

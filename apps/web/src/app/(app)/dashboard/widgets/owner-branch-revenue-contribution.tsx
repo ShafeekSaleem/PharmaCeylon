@@ -36,6 +36,8 @@ export function OwnerBranchRevenueContributionWidget({ data }: { data: Dashboard
       subtitle={`Share of ${formatYearMonth(yearMonth)} sales`}
       icon={<IconUsers size={15} />}
       compact
+      footerHref="/reports?category=sales&report=branch-sales"
+      footerLabel="View branch sales →"
     >
       {revenueContribution.length === 0 ? (
         <p className={css.emptyState}>No branches to show.</p>

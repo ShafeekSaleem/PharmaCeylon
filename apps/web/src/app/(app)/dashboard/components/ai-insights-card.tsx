@@ -1,91 +1,83 @@
 "use client";
 
 import type { ReactNode } from "react";
-import Link from "next/link";
-import {
-  IconActivity,
-  IconAlertTriangle,
-  IconChevronRight,
-  IconInfo,
-  IconSparkles,
-} from "@/components/icons";
+import { useRouter } from "next/navigation";
+import { IconActivity, IconAlertTriangle, IconInfo } from "@/components/icons";
+import { ActionsPanel, type ActionPanelItem } from "@/app/(app)/reports/components/actions-panel";
 import type { AiInsight } from "../lib/placeholder-data";
-import { DashboardPanel } from "./dashboard-panel";
-import css from "../dashboard.module.css";
 
 type Props = {
   title?: string;
   insights?: AiInsight[];
   footerHref?: string;
   footerLabel?: string;
-  footerMeta?: string;
-  compact?: boolean;
+  /** Items per page — pass a smaller number for insights that carry `examples` chips (taller
+   * cards), so the widget's height stays fixed instead of growing as content gets richer. */
+  pageSize?: number;
 };
 
-function toneIcon(tone: AiInsight["tone"]): ReactNode {
+/** Dashboard tones map onto the reports "cards" palette — warning/danger keep their exact
+ * semantics, "info" (low-urgency, general) reads better as the neutral `muted` tone, and
+ * "success" as the brand-colored `primary` tone (there's no dedicated green in this palette). */
+const TONE_MAP: Record<NonNullable<AiInsight["tone"]>, ActionPanelItem["tone"]> = {
+  warning: "warning",
+  danger: "danger",
+  info: "muted",
+  success: "primary",
+};
+
+function toneIcon(tone: ActionPanelItem["tone"]): ReactNode {
   switch (tone) {
     case "warning":
-      return <IconAlertTriangle size={13} strokeWidth={1.75} />;
     case "danger":
-      return <IconAlertTriangle size={13} strokeWidth={1.75} />;
-    case "success":
-      return <IconActivity size={13} strokeWidth={1.75} />;
+      return <IconAlertTriangle size={14} strokeWidth={1.75} />;
+    case "primary":
+      return <IconActivity size={14} strokeWidth={1.75} />;
     default:
-      return <IconInfo size={13} strokeWidth={1.75} />;
+      return <IconInfo size={14} strokeWidth={1.75} />;
   }
 }
 
+/** Shared `AiInsight` → `ActionPanelItem` mapping — used here for the dashboard widget preview,
+ * and by the `/insights` hub page so both render insights identically and never drift apart. */
+export function insightToActionPanelItem(insight: AiInsight, onNavigate: (href: string) => void): ActionPanelItem {
+  const tone = TONE_MAP[insight.tone ?? "info"];
+  return {
+    key: insight.id,
+    icon: toneIcon(tone),
+    tone,
+    title: insight.title,
+    description: insight.detail,
+    count: insight.count,
+    countLabel: insight.countLabel,
+    countText: insight.countText,
+    examples: insight.examples,
+    onClick: insight.href ? () => onNavigate(insight.href!) : undefined,
+  };
+}
+
+/** Renders dashboard AI insights through the same `ActionsPanel` "cards" component reports pages
+ * use for every "X Insights" panel, so the row design (icon square, title/description, chevron
+ * badge) is identical everywhere instead of dashboard and reports maintaining look-alike copies. */
 export function AiInsightsCard({
   title = "AI Insights & Recommendations",
   insights = [],
   footerHref,
-  footerLabel = "View all insights →",
-  footerMeta,
-  compact,
+  footerLabel,
+  pageSize,
 }: Props) {
+  const router = useRouter();
+
+  const items: ActionPanelItem[] = insights.map((insight) => insightToActionPanelItem(insight, router.push));
+
   return (
-    <DashboardPanel
+    <ActionsPanel
       title={title}
-      icon={<IconSparkles size={14} />}
-      compact={compact}
-      footerHref={footerHref}
-      footerLabel={footerHref ? footerLabel : undefined}
-      footerMeta={footerMeta}
-    >
-      {insights.length > 0 ? (
-        <ul className={css.aiList}>
-          {insights.map((item) => {
-            const tone = item.tone ?? "info";
-            const row = (
-              <>
-                <span className={`${css.aiIcon} ${css[`aiIcon_${tone}`]}`} aria-hidden>
-                  {toneIcon(tone)}
-                </span>
-                <div className={css.aiItemBody}>
-                  <strong>{item.title}</strong>
-                  <p>{item.detail}</p>
-                </div>
-                <span className={css.aiChevron} aria-hidden>
-                  <IconChevronRight size={14} strokeWidth={1.75} />
-                </span>
-              </>
-            );
-            return (
-              <li key={item.id}>
-                {item.href ? (
-                  <Link href={item.href} className={`${css.aiItem} ${css[`aiTone_${tone}`]}`}>
-                    {row}
-                  </Link>
-                ) : (
-                  <div className={`${css.aiItem} ${css[`aiTone_${tone}`]}`}>{row}</div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className={css.emptyState}>No insights right now.</p>
-      )}
-    </DashboardPanel>
+      items={items}
+      variant="cards"
+      pageSize={pageSize}
+      onViewAll={footerHref ? () => router.push(footerHref) : undefined}
+      viewAllLabel={footerLabel ?? "View all insights"}
+    />
   );
 }

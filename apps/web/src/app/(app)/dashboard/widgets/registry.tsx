@@ -54,7 +54,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["owner"],
     category: "Overview",
     width: "wide",
-    rows: 14,
+    rows: 16,
     component: ({ data }) => (
       <BusinessOverviewPanel fallbackTrend={data.salesTrend7d} analyticsBranchId={data.analyticsBranchId} />
     ),
@@ -74,7 +74,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["owner"],
     category: "Overview",
     width: "wide",
-    rows: 22,
+    rows: 23,
     component: () => <BranchSalesTrendPanel />,
   },
   {
@@ -84,7 +84,12 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     category: "Purchasing",
     width: "narrow",
     rows: 17,
-    component: () => <TopSuppliersPanel />,
+    component: () => (
+      <TopSuppliersPanel
+        footerHref="/reports?category=purchasing&report=supplier-performance"
+        footerLabel="View supplier performance →"
+      />
+    ),
   },
   {
     key: "owner.pending-approvals",
@@ -92,7 +97,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["owner"],
     category: "Operations",
     width: "narrow",
-    rows: 12,
+    rows: 16,
     component: OwnerPendingApprovalsWidget,
   },
   {
@@ -101,7 +106,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["owner"],
     category: "Overview",
     width: "narrow",
-    rows: 12,
+    rows: 14,
     component: OwnerBranchRevenueContributionWidget,
   },
   {
@@ -128,7 +133,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["owner"],
     category: "Overview",
     width: "narrow",
-    rows: 16,
+    rows: 18,
     component: OwnerTeamBranchSnapshotWidget,
   },
 
@@ -139,7 +144,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["manager"],
     category: "Overview",
     width: "wide",
-    rows: 14,
+    rows: 16,
     component: ({ data }) => (
       <BusinessOverviewPanel
         title="Branch Performance Overview"
@@ -163,7 +168,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["manager"],
     category: "Overview",
     width: "narrow",
-    rows: 16,
+    rows: 18,
     component: ManagerBranchSalesVsTargetWidget,
   },
   {
@@ -172,7 +177,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["manager"],
     category: "Operations",
     width: "narrow",
-    rows: 12,
+    rows: 19,
     component: ManagerStaffProductivityWidget,
   },
   {
@@ -181,7 +186,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["manager"],
     category: "Overview",
     width: "narrow",
-    rows: 12,
+    rows: 16,
     component: ({ data }) => <CustomerBreakdownPanel branchId={data.branchId} />,
   },
   {
@@ -199,7 +204,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["manager"],
     category: "Sales",
     width: "narrow",
-    rows: 12,
+    rows: 16,
     component: ManagerTopProductsTodayWidget,
   },
   {
@@ -208,7 +213,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["manager"],
     category: "Overview",
     width: "narrow",
-    rows: 16,
+    rows: 18,
     component: ({ data }) => <FootfallPanel branchId={data.branchId} />,
   },
   {
@@ -217,7 +222,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["manager"],
     category: "Insights",
     width: "narrow",
-    rows: 15,
+    rows: 18,
     component: ManagerAiInsightsWidget,
   },
   {
@@ -273,7 +278,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["pharmacist"],
     category: "Dispensing",
     width: "narrow",
-    rows: 12,
+    rows: 15,
     component: PharmacistFrequentlyDispensedWidget,
   },
   {
@@ -282,7 +287,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["pharmacist"],
     category: "Inventory",
     width: "narrow",
-    rows: 16,
+    rows: 19,
     component: PharmacistBatchExpiryMonitorWidget,
   },
   {
@@ -300,7 +305,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["pharmacist"],
     category: "Insights",
     width: "narrow",
-    rows: 12,
+    rows: 13,
     component: PharmacistAiInsightsWidget,
   },
 
@@ -311,7 +316,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["cashier"],
     category: "Overview",
     width: "wide",
-    rows: 22,
+    rows: 24,
     component: CashierShiftPerformanceWidget,
   },
   {
@@ -320,7 +325,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["cashier"],
     category: "Sales",
     width: "narrow",
-    rows: 12,
+    rows: 16,
     component: CashierPaymentMethodsWidget,
   },
   {
@@ -329,7 +334,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["cashier"],
     category: "Overview",
     width: "narrow",
-    rows: 12,
+    rows: 16,
     component: ({ data }) => <CustomerBreakdownPanel branchId={data.branchId} />,
   },
   {
@@ -338,7 +343,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["cashier"],
     category: "Sales",
     width: "narrow",
-    rows: 12,
+    rows: 21,
     component: CashierHeldBillsWidget,
   },
   {
@@ -347,7 +352,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["cashier"],
     category: "Sales",
     width: "narrow",
-    rows: 12,
+    rows: 15,
     component: CashierFastMovingItemsWidget,
   },
   {
@@ -356,7 +361,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["cashier"],
     category: "Sales",
     width: "narrow",
-    rows: 16,
+    rows: 23,
     component: CashierRecentTransactionsWidget,
   },
   {
@@ -403,7 +408,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["inventory_clerk"],
     category: "Purchasing",
     width: "narrow",
-    rows: 12,
+    rows: 17,
     component: InventoryClerkPendingPosWidget,
   },
   {
@@ -430,7 +435,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["inventory_clerk"],
     category: "Inventory",
     width: "narrow",
-    rows: 12,
+    rows: 16,
     component: InventoryClerkStocktakesWidget,
   },
   {

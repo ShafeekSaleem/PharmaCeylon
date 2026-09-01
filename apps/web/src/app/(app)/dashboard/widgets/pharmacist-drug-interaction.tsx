@@ -1,40 +1,48 @@
 "use client";
 
-import { StatusBadge } from "@/components/ui";
-import { DashboardPanel } from "../components/dashboard-panel";
+import { IconAlertTriangle, IconInfo } from "@/components/icons";
+import { ActionsPanel, type ActionPanelItem } from "@/app/(app)/reports/components/actions-panel";
 import css from "../dashboard.module.css";
+
+const ITEMS: ActionPanelItem[] = [
+  {
+    key: "amox-warfarin",
+    icon: <IconAlertTriangle size={14} strokeWidth={1.75} />,
+    tone: "danger",
+    title: "Amoxicillin + Warfarin",
+    description: "Bleeding risk increased — sample interaction.",
+    countText: "High",
+  },
+  {
+    key: "allergy-flag",
+    icon: <IconAlertTriangle size={14} strokeWidth={1.75} />,
+    tone: "warning",
+    title: "Allergy flag",
+    description: "Patient allergy matching not wired.",
+    countText: "Medium",
+  },
+  {
+    key: "duplicate-therapy",
+    icon: <IconInfo size={14} strokeWidth={1.75} />,
+    tone: "muted",
+    title: "Duplicate therapy",
+    description: "Screening pipeline not connected yet.",
+    countText: "Low",
+  },
+];
 
 export function PharmacistDrugInteractionWidget() {
   return (
-    <DashboardPanel
+    <ActionsPanel
       title="Drug Interaction / CDS"
-      headerRight={<span className={css.placeholderBadge}>Sample</span>}
-      footerLabel="Clinical screening coming soon"
-      footerMeta="Not connected"
-    >
-      <ul className={css.aiList}>
-        <li className={`${css.aiItem} ${css.aiTone_danger}`}>
-          <div>
-            <strong>Amoxicillin + Warfarin</strong>
-            <p>Bleeding risk increased — sample interaction.</p>
-          </div>
-          <StatusBadge status="pending" label="High" variant="danger" />
-        </li>
-        <li className={`${css.aiItem} ${css.aiTone_warning}`}>
-          <div>
-            <strong>Allergy flag</strong>
-            <p>Patient allergy matching not wired.</p>
-          </div>
-          <StatusBadge status="pending" label="Medium" variant="warning" />
-        </li>
-        <li className={`${css.aiItem} ${css.aiTone_info}`}>
-          <div>
-            <strong>Duplicate therapy</strong>
-            <p>Screening pipeline not connected yet.</p>
-          </div>
-          <StatusBadge status="pending" label="Low" variant="success" />
-        </li>
-      </ul>
-    </DashboardPanel>
+      items={ITEMS}
+      variant="cards"
+      headerExtra={
+        <>
+          <span className={css.placeholderBadge}>Sample</span>
+          <span className={css.muted}>Not connected</span>
+        </>
+      }
+    />
   );
 }

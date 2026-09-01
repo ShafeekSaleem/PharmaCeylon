@@ -37,7 +37,7 @@ export function PharmacistBatchExpiryMonitorWidget({ data }: { data: DashboardDa
   return (
     <DashboardPanel
       title="Batch & Expiry Monitor"
-      footerHref="/inventory/batches"
+      footerHref="/inventory/batches?nearExpiryDays=30"
       footerLabel="View all batches →"
       footerMeta={`${nearExpiryCount} near expiry`}
     >

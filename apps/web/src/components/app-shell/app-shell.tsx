@@ -34,6 +34,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconClipboard,
+  IconSparkles,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
 import {
@@ -73,6 +74,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Main",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: <IconGrid size={18} /> },
+      { href: "/insights", label: "AI Insights", icon: <IconSparkles size={18} /> },
       { href: "/pos", label: "POS / Checkout", icon: <IconShoppingCart size={18} />, roles: POS_ROLES, permission: "sales.pos_use" },
     ],
   },
