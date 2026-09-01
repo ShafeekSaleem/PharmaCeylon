@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Alert } from "@/components/alert";
 import {
   IconBox,
@@ -40,12 +41,21 @@ import css from "./users.module.css";
 const PAGE_SIZE = 10;
 
 export default function UsersPage() {
+  return (
+    <Suspense fallback={<div className={layoutCss.loading}>Loading staff…</div>}>
+      <UsersContent />
+    </Suspense>
+  );
+}
+
+function UsersContent() {
   const { user } = useAuth();
   const { permissionKeys } = usePermissions();
   const isOwner = Boolean(user?.roles.includes("owner"));
   const canCreateUsers = permissionKeys.includes("users.create");
   const canManageUsers = permissionKeys.includes("users.manage");
   const { users, loading, error, reload } = useAdminUsers();
+  const searchParams = useSearchParams();
 
   const [branches, setBranches] = useState<TenantBranch[]>([]);
   useEffect(() => {
@@ -55,7 +65,9 @@ export default function UsersPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
-  const [branchFilter, setBranchFilter] = useState<BranchFilter>("all");
+  const [branchFilter, setBranchFilter] = useState<BranchFilter>(
+    () => searchParams.get("branchId") ?? "all",
+  );
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [ownersManagersOnly, setOwnersManagersOnly] = useState(false);
   const [multiBranchOnly, setMultiBranchOnly] = useState(false);

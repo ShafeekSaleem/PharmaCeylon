@@ -285,6 +285,7 @@ model Tenant {
   settings         TenantSettings?
   notifications    Notification[]
   notificationPreferences NotificationPreference[]
+  dashboardLayouts        DashboardLayout[]
 
   @@map("tenant")
 }
@@ -513,6 +514,7 @@ model AppUser {
   heldSales              HeldSale[]             @relation("HeldSaleHolder")
   notifications          Notification[]
   notificationPreference NotificationPreference?
+  dashboardLayout        DashboardLayout?
 
   @@index([tenantId])
   @@map("app_user")
@@ -572,6 +574,24 @@ model NotificationPreference {
 
   @@index([tenantId])
   @@map("notification_preference")
+}
+
+/// One persisted dashboard-canvas layout per user (widget positions/sizes).
+/// A missing row just means the user hasn't customized yet — the frontend
+/// falls back to the role's default layout in that case.
+model DashboardLayout {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  widgets   Json     @map("widgets")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("dashboard_layout")
 }
 
 /// Refresh-token-backed session. One row per issued refresh token.

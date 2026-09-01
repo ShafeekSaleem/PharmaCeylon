@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { IconActivity, IconPackage, IconTruck } from "@/components/icons";
+import { withBranch } from "@/lib/api-branch";
 import { apiJson } from "@/lib/auth-client";
 import { DashboardPanel } from "./dashboard-panel";
 import { MetricCell } from "./metric-cell";
@@ -30,12 +31,6 @@ type TrendResponse = {
   issuedTotal: number;
   netTotal: number;
 };
-
-function withBranch(path: string, branchId: string | null | undefined): string {
-  if (!branchId) return path;
-  const qs = `branchId=${encodeURIComponent(branchId)}`;
-  return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
-}
 
 type Props = { branchId?: string | null };
 

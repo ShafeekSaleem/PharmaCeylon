@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { IconCreditCard } from "@/components/icons";
+import { withBranch } from "@/lib/api-branch";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { DashboardPanel } from "./dashboard-panel";
@@ -22,12 +23,6 @@ type Props = {
   /** When set, payment mix filters to this branch; omit for tenant-wide. */
   analyticsBranchId?: string | null;
 };
-
-function withBranch(path: string, branchId: string | null | undefined): string {
-  if (!branchId) return path;
-  const qs = `branchId=${encodeURIComponent(branchId)}`;
-  return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
-}
 
 export function CashFlowPanel({ analyticsBranchId = null }: Props) {
   const [mixPeriod, setMixPeriod] = useState<MixPeriod>("this_month");

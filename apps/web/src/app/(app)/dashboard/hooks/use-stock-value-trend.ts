@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { withBranch } from "@/lib/api-branch";
 import { apiJson } from "@/lib/auth-client";
 import type { ChartPoint } from "../components/simple-charts";
 
@@ -8,12 +9,6 @@ type TrendResponse = {
   points: Array<{ label: string; receivedValue: number; issuedValue: number }>;
   netValueTotal: number;
 };
-
-function withBranch(path: string, branchId: string | null | undefined): string {
-  if (!branchId) return path;
-  const qs = `branchId=${encodeURIComponent(branchId)}`;
-  return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
-}
 
 export type StockValueTrend = {
   /** Cumulative net stock-value flow this week (Mon → today), for the hero sparkline. */

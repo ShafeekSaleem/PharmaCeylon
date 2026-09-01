@@ -1,12 +1,23 @@
 "use client";
 
-import { IconRefresh } from "@/components/icons";
+import { IconCheck, IconEdit, IconPlus, IconRefresh, IconRotateCcw, IconX } from "@/components/icons";
 import { PageHeader } from "@/components/ui";
 import { formatRelativeTime } from "@/app/(app)/inventory/utils";
 import type { DashboardRole } from "../lib/dashboard-role";
 import { DASHBOARD_GREETINGS, formatRoleLabel } from "../lib/dashboard-role";
 import type { OwnerAnalyticsScope } from "../hooks/use-dashboard-data";
 import css from "../dashboard.module.css";
+
+type CustomizeProps = {
+  isEditing: boolean;
+  onToggleEdit: () => void;
+  onOpenAddWidget: () => void;
+  onSave: () => void;
+  onDiscard: () => void;
+  onResetToDefault: () => void;
+  isDirty: boolean;
+  saving: boolean;
+};
 
 type Props = {
   role: DashboardRole;
@@ -18,6 +29,7 @@ type Props = {
   loading?: boolean;
   lastUpdatedAt?: string | null;
   onRefresh?: () => void;
+  customize?: CustomizeProps;
 };
 
 export function DashboardHeader({
@@ -29,6 +41,7 @@ export function DashboardHeader({
   loading,
   lastUpdatedAt,
   onRefresh,
+  customize,
 }: Props) {
   const greeting = DASHBOARD_GREETINGS[role];
   const showOwnerScope = role === "owner" && ownerScope && onOwnerScopeChange;
@@ -114,6 +127,38 @@ export function DashboardHeader({
                 ▾
               </span>
             </span>
+          ) : null}
+          {customize ? (
+            customize.isEditing ? (
+              <div className={css.customizeBar}>
+                <button type="button" className={css.customizeBtn} onClick={customize.onOpenAddWidget}>
+                  <IconPlus size={13} strokeWidth={1.75} aria-hidden />
+                  Add widget
+                </button>
+                <button type="button" className={css.customizeBtn} onClick={customize.onResetToDefault}>
+                  <IconRotateCcw size={13} strokeWidth={1.75} aria-hidden />
+                  Reset
+                </button>
+                <button type="button" className={css.customizeBtn} onClick={customize.onDiscard}>
+                  <IconX size={13} strokeWidth={2} aria-hidden />
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={`${css.customizeBtn} ${css.customizeBtnPrimary}`}
+                  onClick={customize.onSave}
+                  disabled={!customize.isDirty || customize.saving}
+                >
+                  <IconCheck size={13} strokeWidth={2} aria-hidden />
+                  {customize.saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            ) : (
+              <button type="button" className={css.customizeBtn} onClick={customize.onToggleEdit}>
+                <IconEdit size={13} strokeWidth={1.75} aria-hidden />
+                Customize
+              </button>
+            )
           ) : null}
         </div>
       }
