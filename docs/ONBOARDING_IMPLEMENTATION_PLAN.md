@@ -1,6 +1,6 @@
 # First-user entry and onboarding implementation plan
 
-Branch: `codex/onboarding-entry-flow`  
+Branch: `codex/onboarding-entry-flow`
 Base: `develop` at `a7056d1e56681654282518ef3ec7c2928714ce29`
 
 ## Scope
@@ -28,7 +28,7 @@ This avoids fabricating empty tenants and avoids a broad identity migration. Cro
 workspace membership remains a future platform change; pharmacy chains continue to use
 branches inside one tenant.
 
-## Phase 1 — Entry and verified owner registration
+## Phase 1 — Entry and verified owner registration (implemented)
 
 - Refresh the existing sign-in screen and add a clear owner-registration entry.
 - Add `/register` and `/verify-email` routes using existing design tokens.
@@ -43,7 +43,7 @@ branches inside one tenant.
 Exit criteria: a new owner can register, verify, return to the browser, and hold a secure
 pre-tenant onboarding session without creating a tenant or `AppUser`.
 
-## Phase 2 — Resumable workspace draft
+## Phase 2 — Resumable workspace draft (implemented)
 
 - Add authenticated onboarding-session guard/decorator separate from normal tenant JWT auth.
 - Add status and draft endpoints for the four wizard steps.
@@ -54,6 +54,10 @@ pre-tenant onboarding session without creating a tenant or `AppUser`.
   - `/onboarding/preferences`
   - `/onboarding/review`
 - Reuse the same validation and field semantics as Tenant Profile, Branches, and Settings.
+
+Implementation note: the four routes share one wizard component and persist a validated JSON
+draft on `OwnerRegistration`. The server derives the resume path from `currentStep`; the
+onboarding cookie is verified by a dedicated guard before every draft read or write.
 
 Exit criteria: verified owners can resume safely on another browser session and cannot access
 normal tenant APIs.
