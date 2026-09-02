@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -23,6 +24,11 @@ export class SaveOnboardingDraftDto {
   @IsOptional() @IsEmail() @MaxLength(160) businessEmail?: string;
   @IsOptional() @IsString() @MaxLength(6) businessPhoneCountryCode?: string;
   @IsOptional() @IsString() @MaxLength(32) businessPhone?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^\/uploads\/onboarding-logos\/[0-9a-f-]+\.webp$/i)
+  businessLogoUrl?: string | null;
 
   @IsOptional() @IsString() @MaxLength(120) branchName?: string;
   @IsOptional() @IsString() @MaxLength(24) branchCode?: string;

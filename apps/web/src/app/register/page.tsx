@@ -124,16 +124,6 @@ export default function RegisterPage() {
 
       <section className={styles.card}>
         <div className={styles.formPanel}>
-          <div className={styles.stage}>
-            <span>1</span>
-            <b>Account</b>
-            <i />
-            <span>2</span>
-            <b>Verify</b>
-            <i />
-            <span>3</span>
-            <b>Workspace</b>
-          </div>
           <p className={styles.eyebrow}>STEP 1 OF 3 · OWNER ACCOUNT</p>
           <h1>Start with your owner account</h1>
           <p className={styles.lead}>
@@ -184,6 +174,7 @@ export default function RegisterPage() {
                   onChange={(value) => update("phoneCountryCode", value)}
                   options={PHONE_CODE_OPTIONS}
                   className={styles.phoneCode}
+                  wideMenu
                 />
                 <input
                   aria-label="Phone number"
@@ -242,7 +233,7 @@ export default function RegisterPage() {
 
         <aside className={styles.journeyPanel}>
           <p className={styles.panelEyebrow}>YOUR SETUP JOURNEY</p>
-          <h2>Know exactly where you are.</h2>
+          <h2>Begin with your owner account.</h2>
           <p className={styles.panelLead}>
             A guided path from account creation to a pharmacy ready for setup.
           </p>

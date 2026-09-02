@@ -40,10 +40,10 @@
 }
 .card {
   width: min(1180px, calc(100% - 2rem));
-  min-height: min(700px, calc(100vh - 96px));
+  height: clamp(620px, calc(100dvh - 96px), 680px);
   margin: 1.5rem auto 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.9fr);
   background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
   border-radius: 18px;
@@ -51,37 +51,9 @@
   overflow: hidden;
 }
 .formPanel {
-  padding: 1.7rem 2.25rem 1.5rem;
-}
-.stage {
-  display: grid;
-  grid-template-columns: 28px auto 1fr 28px auto 1fr 28px auto;
-  align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 1.25rem;
-  color: var(--pc-muted-fg);
-  font-size: 0.74rem;
-}
-.stage span {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--pc-border);
-  border-radius: 50%;
-  font-weight: 750;
-}
-.stage span:first-child {
-  background: var(--pc-primary);
-  border-color: var(--pc-primary);
-  color: #fff;
-}
-.stage b:first-of-type {
-  color: var(--pc-primary);
-}
-.stage i {
-  height: 1px;
-  background: var(--pc-border);
+  min-width: 0;
+  padding: 1.35rem 2.25rem 1.25rem;
+  overflow-y: auto;
 }
 .eyebrow,
 .panelEyebrow {
@@ -103,10 +75,9 @@
 }
 .form {
   display: grid;
-  gap: 0.72rem;
+  gap: 0.65rem;
 }
-.form label,
-.fieldLabel {
+.form label {
   display: grid;
   gap: 0.35rem;
   color: var(--pc-foreground);
@@ -140,8 +111,17 @@
   gap: 0.9rem;
 }
 .optional {
+  display: inline;
   color: var(--pc-muted-fg);
   font-weight: 400;
+}
+.fieldLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  color: var(--pc-foreground);
+  font-size: 0.82rem;
+  font-weight: 650;
 }
 .phoneRow {
   display: grid;
@@ -368,6 +348,7 @@
     padding: 0 1rem;
   }
   .card {
+    height: auto;
     margin-top: 1.2rem;
     grid-template-columns: 1fr;
   }
@@ -398,9 +379,6 @@
   .formPanel {
     padding: 2rem 1.5rem;
   }
-  .stage {
-    display: none;
-  }
 }
 @media (max-width: 600px) {
   .header span {
@@ -413,11 +391,9 @@
     width: 34px;
     height: 34px;
   }
-  .journeyPanel {
-    display: none;
-  }
   .card {
     width: calc(100% - 1rem);
+    height: auto;
   }
   .formPanel {
     padding: 1.5rem 1rem;

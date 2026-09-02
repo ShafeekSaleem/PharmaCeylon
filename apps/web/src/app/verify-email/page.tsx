@@ -123,18 +123,6 @@ export default function VerifyEmailPage() {
 
       <section className={styles.card} aria-live="polite">
         <div className={styles.verifyPanel}>
-          <div className={styles.stage}>
-            <span className={styles.done}>
-              <IconCheck size={14} />
-            </span>
-            <b>Account</b>
-            <i />
-            <span className={styles.active}>2</span>
-            <b>Verify</b>
-            <i />
-            <span>3</span>
-            <b>Workspace</b>
-          </div>
           <div className={styles.icon}>
             {state === "verified" ? (
               <IconCheckCircle size={38} />
