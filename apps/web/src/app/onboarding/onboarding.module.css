@@ -301,6 +301,7 @@
 .phoneControl input {
   min-width: 0;
   width: 100%;
+  grid-column: auto;
   height: 43px;
   padding: 0.65rem 0.7rem;
   border: 1px solid var(--pc-border);
@@ -321,45 +322,36 @@
   font-weight: 650;
 }
 .logoRow {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.8rem;
+  padding: 0.72rem;
   display: flex;
   align-items: center;
-  gap: 0.9rem;
-}
-.logoRow > span {
-  width: 50px;
-  height: 50px;
-  display: grid;
-  place-items: center;
+  gap: 0.8rem;
+  border: 1px solid var(--pc-border);
   border-radius: 10px;
-  background: var(--pc-gradient-main);
-  color: #fff;
-  font-size: 1.1rem;
-  font-weight: 750;
+  background: color-mix(in srgb, var(--pc-muted-bg) 52%, var(--pc-card-bg));
 }
-.logoRow > div {
+.logoCopy {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.12rem;
 }
-.logoRow b {
+.logoCopy b {
   font-size: 0.8rem;
 }
-.logoRow b small {
+.logoCopy b small,
+.logoCopy > small {
   color: var(--pc-muted-fg);
   font-weight: 400;
 }
-.logoRow button {
-  width: max-content;
-  padding: 0.38rem 0.65rem;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  border: 1px solid var(--pc-border);
-  border-radius: 7px;
-  background: var(--pc-background);
-  color: var(--pc-muted-fg);
-  font: inherit;
+.logoCopy span {
+  color: var(--pc-foreground);
   font-size: 0.72rem;
+}
+.logoCopy > small {
+  font-size: 0.66rem;
+}
+.form .field input {
+  font-weight: 400;
 }
 .info {
   padding: 0.62rem 0.72rem;
@@ -585,10 +577,12 @@
   animation: pulse 1s infinite alternate;
 }
 .contextCard {
-  min-height: calc(100dvh - 96px);
+  min-height: 0;
   padding: 1.3rem 1.2rem;
   display: flex;
   flex-direction: column;
+  position: sticky;
+  top: 1rem;
 }
 .contextLabel {
   margin: 0 0 1rem;
@@ -822,37 +816,6 @@
 .nextSteps + .info {
   margin-top: 1rem;
 }
-.ownerConfirmation {
-  margin-top: auto;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--pc-border);
-  display: grid;
-  grid-template-columns: 36px 1fr;
-  gap: 0.65rem;
-  align-items: center;
-}
-.ownerConfirmation > span {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-  font-size: 0.7rem;
-  font-weight: 750;
-}
-.ownerConfirmation > div {
-  display: grid;
-  gap: 0.15rem;
-}
-.ownerConfirmation b {
-  font-size: 0.72rem;
-}
-.ownerConfirmation small {
-  color: var(--pc-muted-fg);
-  font-size: 0.65rem;
-}
 .reviewStatus {
   margin-top: 0.8rem;
   padding: 0.72rem 0.8rem;
@@ -964,14 +927,22 @@
   display: grid;
   justify-content: start;
   gap: 0.12rem;
-  padding: 0;
+  min-width: 0;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--pc-border) 72%, transparent);
+  border-radius: 7px;
+  background: var(--pc-muted-bg);
 }
 .reviewContent dt {
   font-size: 0.65rem;
 }
 .reviewContent dd {
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
   text-align: left;
   font-size: 0.72rem;
+  font-weight: 400;
 }
 .loading {
   min-height: 100vh;

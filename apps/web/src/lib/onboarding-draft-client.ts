@@ -11,6 +11,7 @@ export type OnboardingDraft = {
   businessEmail?: string;
   businessPhoneCountryCode?: string;
   businessPhone?: string;
+  businessLogoUrl?: string | null;
   branchName?: string;
   branchCode?: string;
   addressLine1?: string;
@@ -49,3 +50,14 @@ async function request(init?: RequestInit): Promise<OnboardingDraftResponse> {
 export const fetchOnboardingDraft = () => request();
 export const saveOnboardingDraft = (draft: OnboardingDraft) =>
   request({ method: "PUT", body: JSON.stringify(draft) });
+
+export async function removeOnboardingLogo(): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/onboarding/logo`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseApiError(text, "Unable to remove business logo"));
+  }
+}
