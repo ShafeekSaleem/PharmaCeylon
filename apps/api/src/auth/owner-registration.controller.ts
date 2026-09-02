@@ -57,7 +57,7 @@ export class OwnerRegistrationController {
     @Body() dto: VerifyOwnerRegistrationDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.registrations.verify(dto.token);
+    const result = await this.registrations.verify(dto.email, dto.code);
     setOnboardingCookie(
       res,
       readCookieEnv(this.config),
