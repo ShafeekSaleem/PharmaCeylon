@@ -32,7 +32,9 @@ async function jsonRequest<T>(path: string, init: RequestInit): Promise<T> {
       },
     });
   } catch {
-    throw new Error("Cannot reach PharmaCeylon. Check your connection and try again.");
+    throw new Error(
+      "Cannot reach PharmaCeylon. Check your connection and try again.",
+    );
   }
 
   const text = await response.text();
@@ -66,10 +68,16 @@ export async function resendOwnerVerification(email: string) {
   );
 }
 
-export async function verifyOwnerEmail(token: string): Promise<VerifiedOwnerSession> {
+export async function verifyOwnerEmail(
+  email: string,
+  code: string,
+): Promise<VerifiedOwnerSession> {
   return jsonRequest<VerifiedOwnerSession>("/auth/owner-registration/verify", {
     method: "POST",
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({
+      email: email.trim().toLowerCase(),
+      code: code.trim(),
+    }),
   });
 }
 

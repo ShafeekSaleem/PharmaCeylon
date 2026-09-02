@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { OwnerRegistrationStatus } from "@prisma/client";
 import * as bcrypt from "bcrypt";
+import { createHash } from "node:crypto";
 import { OwnerRegistrationService } from "./owner-registration.service";
 import { VerificationEmailService } from "./verification-email.service";
 
@@ -66,14 +67,16 @@ describe("OwnerRegistrationService", () => {
     service = new OwnerRegistrationService(prisma, jwt, config, email);
   });
 
-  it("stores only hashes and sends the raw verification token", async () => {
+  it("stores only an email-scoped hash and sends a 6-digit verification code", async () => {
     prisma.appUser.findUnique.mockResolvedValue(null);
     prisma.ownerRegistration.findUnique.mockResolvedValue(null);
     mockedBcrypt.hash.mockResolvedValue("password-hash" as never);
-    prisma.ownerRegistration.create.mockImplementation(async ({ data }: any) => ({
-      email: data.email,
-      firstName: data.firstName,
-    }));
+    prisma.ownerRegistration.create.mockImplementation(
+      async ({ data }: any) => ({
+        email: data.email,
+        firstName: data.firstName,
+      }),
+    );
 
     const result = await service.create({
       firstName: " Shafeek ",
@@ -84,7 +87,7 @@ describe("OwnerRegistrationService", () => {
     });
 
     const createData = prisma.ownerRegistration.create.mock.calls[0][0].data;
-    const deliveredToken = email.sendOwnerVerification.mock.calls[0][0].token;
+    const deliveredCode = email.sendOwnerVerification.mock.calls[0][0].code;
 
     expect(result).toEqual({
       status: "verification_required",
@@ -92,8 +95,11 @@ describe("OwnerRegistrationService", () => {
     });
     expect(createData.passwordHash).toBe("password-hash");
     expect(createData.verificationTokenHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(createData.verificationTokenHash).not.toBe(deliveredToken);
-    expect(deliveredToken).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(createData.verificationTokenHash).not.toBe(deliveredCode);
+    expect(deliveredCode).toMatch(/^\d{6}$/);
+    expect(createData.verificationTokenHash).toBe(
+      verificationHash("owner@example.com", deliveredCode),
+    );
   });
 
   it("returns the same response for an existing account without sending email", async () => {
@@ -119,7 +125,7 @@ describe("OwnerRegistrationService", () => {
     const pending = {
       ...verifiedRegistration,
       status: OwnerRegistrationStatus.pending_email,
-      verificationTokenHash: "stored-hash",
+      verificationTokenHash: verificationHash("owner@example.com", "123456"),
       verificationExpiresAt: new Date(Date.now() + 60_000),
       verifiedAt: null,
       onboardingSessionVersion: 0,
@@ -128,7 +134,7 @@ describe("OwnerRegistrationService", () => {
     prisma.ownerRegistration.update.mockResolvedValue(verifiedRegistration);
     jwt.signAsync.mockResolvedValue("signed-onboarding-token");
 
-    const result = await service.verify("raw-verification-token");
+    const result = await service.verify("Owner@Example.com", "123456");
 
     expect(prisma.ownerRegistration.update).toHaveBeenCalledWith({
       where: { id: pending.id },
@@ -146,29 +152,34 @@ describe("OwnerRegistrationService", () => {
         type: "onboarding",
         version: 1,
       }),
-      expect.objectContaining({ secret: "onboarding-secret", expiresIn: 86400 }),
+      expect.objectContaining({
+        secret: "onboarding-secret",
+        expiresIn: 86400,
+      }),
     );
     expect(result.onboardingToken).toBe("signed-onboarding-token");
     expect(result.session.nextPath).toBe("/onboarding/pharmacy");
   });
 
-  it("expires an old verification link without issuing a session", async () => {
+  it("expires an old verification code without issuing a session", async () => {
     prisma.ownerRegistration.findUnique.mockResolvedValue({
       ...verifiedRegistration,
       status: OwnerRegistrationStatus.pending_email,
-      verificationTokenHash: "stored-hash",
+      verificationTokenHash: verificationHash("owner@example.com", "123456"),
       verificationExpiresAt: new Date(Date.now() - 1),
       verifiedAt: null,
     });
     prisma.ownerRegistration.update.mockResolvedValue({});
 
-    await expect(service.verify("expired-token-value-with-enough-length")).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.verify("owner@example.com", "123456"),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(jwt.signAsync).not.toHaveBeenCalled();
     expect(prisma.ownerRegistration.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: OwnerRegistrationStatus.expired }),
+        data: expect.objectContaining({
+          status: OwnerRegistrationStatus.expired,
+        }),
       }),
     );
   });
@@ -182,6 +193,30 @@ describe("OwnerRegistrationService", () => {
     });
     prisma.ownerRegistration.findUnique.mockResolvedValue(verifiedRegistration);
 
-    await expect(service.status("old-token")).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.status("old-token")).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it("rejects an incorrect verification code without creating a session", async () => {
+    prisma.ownerRegistration.findUnique.mockResolvedValue({
+      ...verifiedRegistration,
+      status: OwnerRegistrationStatus.pending_email,
+      verificationTokenHash: verificationHash("owner@example.com", "123456"),
+      verificationExpiresAt: new Date(Date.now() + 60_000),
+      verifiedAt: null,
+    });
+
+    await expect(
+      service.verify("owner@example.com", "654321"),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.ownerRegistration.update).not.toHaveBeenCalled();
+    expect(jwt.signAsync).not.toHaveBeenCalled();
   });
 });
+
+function verificationHash(email: string, code: string): string {
+  return createHash("sha256")
+    .update(`${email.toLowerCase()}:${code}`, "utf8")
+    .digest("hex");
+}
