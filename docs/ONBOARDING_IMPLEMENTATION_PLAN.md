@@ -34,13 +34,14 @@ branches inside one tenant.
 - Add `/register` and `/verify-email` routes using existing design tokens.
 - Add a pre-tenant `OwnerRegistration` model and migration.
 - Add rate-limited register, resend-verification, verify, status, and cancel endpoints.
-- Hash passwords immediately; never store raw passwords or raw verification tokens.
+- Send a six-digit email code so verification finishes in the browser where signup began.
+- Hash passwords immediately; never store raw passwords or raw verification codes.
 - Issue a short-lived, httpOnly onboarding cookie only after email verification.
 - Keep public-route middleware explicit and narrow.
 - Add API tests for duplicate email handling, token expiry, resend invalidation, and
   production-safe response shapes.
 
-Exit criteria: a new owner can register, verify, return to the browser, and hold a secure
+Exit criteria: a new owner can register, verify in the same browser, and hold a secure
 pre-tenant onboarding session without creating a tenant or `AppUser`.
 
 ## Phase 2 — Resumable workspace draft (implemented)
@@ -54,6 +55,8 @@ pre-tenant onboarding session without creating a tenant or `AppUser`.
   - `/onboarding/preferences`
   - `/onboarding/review`
 - Reuse the same validation and field semantics as Tenant Profile, Branches, and Settings.
+- Show persistent journey progress, live save state, contextual branch/receipt previews, and
+  proper selectors for country, currency, time zone, phone code, province, and district.
 
 Implementation note: the four routes share one wizard component and persist a validated JSON
 draft on `OwnerRegistration`. The server derives the resume path from `currentStep`; the
