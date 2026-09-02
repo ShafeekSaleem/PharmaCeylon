@@ -1,4 +1,8 @@
-export type ChoiceOption = { value: string; label: string };
+export type ChoiceOption = {
+  value: string;
+  label: string;
+  shortLabel?: string;
+};
 
 export type CountryChoice = ChoiceOption & {
   currency: string;
@@ -95,7 +99,8 @@ export const PHONE_CODE_OPTIONS: ChoiceOption[] = COUNTRY_OPTIONS.reduce<
   if (!options.some((option) => option.value === country.phoneCode)) {
     options.push({
       value: country.phoneCode,
-      label: `${country.phoneCode} · ${country.label}`,
+      label: `${country.label} (${country.phoneCode})`,
+      shortLabel: `${country.value}  ${country.phoneCode}`,
     });
   }
   return options;

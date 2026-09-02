@@ -232,10 +232,6 @@ export function OnboardingWizard({ step }: { step: Step }) {
           <b>Workspace setup</b>
         </div>
         <div className={styles.ownerSummary}>
-          <Link href="#setup-help" className={styles.helpLink}>
-            ?<span>Help</span>
-          </Link>
-          <i />
           <span className={styles.avatar}>{initials}</span>
           <div>
             <b>
@@ -343,7 +339,7 @@ export function OnboardingWizard({ step }: { step: Step }) {
                 onClick={() => void continueSetup()}
                 disabled={saveState === "saving"}
               >
-                {step === "review" ? "Save setup draft" : "Continue"}
+                {step === "review" ? "Confirm and save" : "Continue"}
                 {step !== "review" ? (
                   <IconChevronRight size={17} />
                 ) : (
@@ -730,8 +726,18 @@ function Review({
     <>
       <h1>Review your workspace setup</h1>
       <p className={styles.lead}>
-        Check the essentials. They remain editable later in Settings.
+        Everything needed for your first workspace is grouped below.
       </p>
+      <div className={styles.reviewStatus}>
+        <span>
+          <IconCheckCircle size={20} />
+        </span>
+        <div>
+          <b>Your setup details are complete</b>
+          <small>Review each section, then confirm your saved setup.</small>
+        </div>
+        <strong>4 sections ready</strong>
+      </div>
       <div className={styles.reviewList}>
         <ReviewSection
           icon={<IconHome size={23} />}
@@ -803,8 +809,8 @@ function Review({
         />
       </div>
       <Info>
-        This phase saves a validated draft. Atomic pharmacy workspace creation
-        is implemented in Phase 3.
+        Your confirmed setup stays safely saved and can still be updated before
+        the workspace is created.
       </Info>
     </>
   );
@@ -821,7 +827,7 @@ function ContextPanel({
 }) {
   if (step === "pharmacy")
     return (
-      <aside id="setup-help" className={styles.contextCard}>
+      <aside className={styles.contextCard}>
         <p className={styles.contextLabel}>ONE BUSINESS. ROOM TO GROW.</p>
         <div className={styles.businessDiagram}>
           <span>
@@ -861,7 +867,7 @@ function ContextPanel({
     );
   if (step === "branch")
     return (
-      <aside id="setup-help" className={styles.contextCard}>
+      <aside className={styles.contextCard}>
         <p className={styles.contextLabel}>YOUR FIRST LOCATION</p>
         <div className={styles.branchPreview}>
           <IconHome size={70} />
@@ -892,7 +898,7 @@ function ContextPanel({
     );
   if (step === "preferences")
     return (
-      <aside id="setup-help" className={styles.contextCard}>
+      <aside className={styles.contextCard}>
         <p className={styles.contextLabel}>RECEIPT PREVIEW</p>
         <div className={styles.receipt}>
           <IconReceipt size={24} />
@@ -915,15 +921,15 @@ function ContextPanel({
       </aside>
     );
   return (
-    <aside id="setup-help" className={styles.contextCard}>
+    <aside className={styles.contextCard}>
       <p className={styles.contextLabel}>WHAT HAPPENS NEXT?</p>
       <div className={styles.nextSteps}>
         <div>
           <span>1</span>
           <IconShield size={25} />
           <p>
-            <b>Save the verified draft</b>
-            <small>Your setup remains secure and resumable.</small>
+            <b>Confirm your setup</b>
+            <small>Your reviewed details remain secure and resumable.</small>
           </p>
         </div>
         <div>
@@ -931,7 +937,9 @@ function ContextPanel({
           <IconHome size={25} />
           <p>
             <b>Create the workspace</b>
-            <small>Phase 3 provisions your pharmacy and owner access.</small>
+            <small>
+              Your pharmacy, branch and owner access are created together.
+            </small>
           </p>
         </div>
         <div>
@@ -1010,28 +1018,27 @@ function PhoneField({
   onNumberChange: (value: string) => void;
 }) {
   return (
-    <label className={styles.field}>
-      {label}
+    <div className={styles.field}>
+      <span className={styles.fieldName}>{label}</span>
       <span className={styles.phoneControl}>
-        <select
-          aria-label={`${label} country code`}
+        <SelectField
+          label={`${label} country code`}
+          ariaLabel={`${label} country code`}
+          hideLabel
           value={code}
-          onChange={(event) => onCodeChange(event.target.value)}
-        >
-          {PHONE_CODE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onChange={onCodeChange}
+          options={PHONE_CODE_OPTIONS}
+          className={styles.phoneCode}
+        />
         <input
+          aria-label={label}
           inputMode="tel"
           value={number ?? ""}
           onChange={(event) => onNumberChange(event.target.value)}
           placeholder="Phone number"
         />
       </span>
-    </label>
+    </div>
   );
 }
 

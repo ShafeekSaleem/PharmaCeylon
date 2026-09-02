@@ -11,6 +11,7 @@ import {
   IconFirstAid,
   IconShield,
 } from "@/components/icons";
+import { SelectField } from "@/components/ui/select-field";
 import { PHONE_CODE_OPTIONS } from "@/lib/onboarding-options";
 import { createOwnerRegistration } from "@/lib/owner-registration-client";
 import styles from "./register.module.css";
@@ -170,23 +171,22 @@ export default function RegisterPage() {
                 required
               />
             </label>
-            <label>
-              Phone number <span className={styles.optional}>(optional)</span>
+            <div className={styles.phoneField}>
+              <span className={styles.fieldLabel}>
+                Phone number <span className={styles.optional}>(optional)</span>
+              </span>
               <div className={styles.phoneRow}>
-                <select
-                  aria-label="Phone country code"
+                <SelectField
+                  label="Phone country code"
+                  ariaLabel="Phone country code"
+                  hideLabel
                   value={fields.phoneCountryCode}
-                  onChange={(event) =>
-                    update("phoneCountryCode", event.target.value)
-                  }
-                >
-                  {PHONE_CODE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => update("phoneCountryCode", value)}
+                  options={PHONE_CODE_OPTIONS}
+                  className={styles.phoneCode}
+                />
                 <input
+                  aria-label="Phone number"
                   inputMode="tel"
                   autoComplete="tel-national"
                   value={fields.phone}
@@ -194,7 +194,7 @@ export default function RegisterPage() {
                   placeholder="Phone number"
                 />
               </div>
-            </label>
+            </div>
             <div className={styles.twoColumns}>
               <PasswordField
                 label="Password"
