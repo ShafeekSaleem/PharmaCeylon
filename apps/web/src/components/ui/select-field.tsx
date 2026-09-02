@@ -4,7 +4,11 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { IconCheck, IconChevronDown } from "@/components/icons";
 import styles from "./select-field.module.css";
 
-export type SelectFieldOption = { value: string; label: string };
+export type SelectFieldOption = {
+  value: string;
+  label: string;
+  shortLabel?: string;
+};
 
 export type SelectFieldProps = {
   label: string;
@@ -18,6 +22,8 @@ export type SelectFieldProps = {
   fullWidth?: boolean;
   className?: string;
   id?: string;
+  hideLabel?: boolean;
+  ariaLabel?: string;
 };
 
 /**
@@ -37,6 +43,8 @@ export function SelectField({
   fullWidth = true,
   className,
   id,
+  hideLabel = false,
+  ariaLabel,
 }: SelectFieldProps) {
   const autoId = useId();
   const fieldId = id ?? autoId;
@@ -52,7 +60,8 @@ export function SelectField({
   useEffect(() => {
     if (!open) return;
     function onClickOutside(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      if (rootRef.current && !rootRef.current.contains(e.target as Node))
+        setOpen(false);
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -64,7 +73,9 @@ export function SelectField({
 
   useEffect(() => {
     if (!open || activeIndex < 0) return;
-    listRef.current?.children[activeIndex]?.scrollIntoView({ block: "nearest" });
+    listRef.current?.children[activeIndex]?.scrollIntoView({
+      block: "nearest",
+    });
   }, [open, activeIndex]);
 
   function commit(index: number) {
@@ -100,16 +111,27 @@ export function SelectField({
     }
   }
 
-  const wrapCls = [styles.field, fullWidth ? styles.fullWidth : "", className ?? ""]
+  const wrapCls = [
+    styles.field,
+    fullWidth ? styles.fullWidth : "",
+    className ?? "",
+  ]
     .filter(Boolean)
     .join(" ");
-  const controlCls = [styles.control, hasError ? styles.error : "", open ? styles.controlOpen : ""]
+  const controlCls = [
+    styles.control,
+    hasError ? styles.error : "",
+    open ? styles.controlOpen : "",
+  ]
     .filter(Boolean)
     .join(" ");
 
   return (
     <div className={wrapCls} ref={rootRef}>
-      <label htmlFor={fieldId} className={styles.label}>
+      <label
+        htmlFor={fieldId}
+        className={hideLabel ? styles.srOnly : styles.label}
+      >
         {label}
         {required && <span className={styles.required}>*</span>}
       </label>
@@ -119,16 +141,24 @@ export function SelectField({
           id={fieldId}
           className={controlCls}
           disabled={disabled}
+          aria-label={ariaLabel ?? label}
           aria-haspopup="listbox"
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
           onKeyDown={handleKeyDown}
         >
-          <span className={styles.controlValue}>{selected?.label ?? ""}</span>
+          <span className={styles.controlValue}>
+            {selected?.shortLabel ?? selected?.label ?? ""}
+          </span>
           <IconChevronDown size={14} className={styles.chevron} />
         </button>
         {open && !disabled ? (
-          <ul className={styles.menu} role="listbox" aria-labelledby={fieldId} ref={listRef}>
+          <ul
+            className={styles.menu}
+            role="listbox"
+            aria-labelledby={fieldId}
+            ref={listRef}
+          >
             {options.map((opt, i) => (
               <li
                 key={opt.value}

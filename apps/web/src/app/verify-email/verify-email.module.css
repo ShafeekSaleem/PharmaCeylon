@@ -5,11 +5,11 @@
     var(--pc-page-bg),
     color-mix(in srgb, var(--pc-primary-soft) 38%, var(--pc-page-bg))
   );
-  padding-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
   color: var(--pc-foreground);
 }
 .header {
-  height: 72px;
+  height: 64px;
   background: var(--pc-background);
   border-bottom: 1px solid var(--pc-border);
   display: flex;
@@ -39,7 +39,7 @@
 .card {
   width: min(1040px, calc(100% - 2rem));
   min-height: 600px;
-  margin: 2.4rem auto 0;
+  margin: 1.5rem auto 0;
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.85fr);
   background: var(--pc-card-bg);
@@ -134,6 +134,7 @@
   background: var(--pc-input-bg);
   color: var(--pc-foreground);
   font: inherit;
+  font-weight: 400;
   outline: none;
 }
 .form input:focus {
@@ -144,7 +145,7 @@
   height: 58px;
   text-align: center;
   font-size: 1.5rem;
-  font-weight: 720;
+  font-weight: 400;
   letter-spacing: 0.55em;
   padding-left: 1.35rem;
   font-variant-numeric: tabular-nums;
@@ -231,15 +232,34 @@
   font-size: 0.7rem;
 }
 .contextPanel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   padding: 2.8rem 2.3rem;
-  background: linear-gradient(
-    160deg,
-    var(--pc-sidebar-bg),
-    color-mix(in srgb, var(--pc-sidebar-bg) 82%, #063f46)
-  );
-  color: var(--pc-brand-text);
+  background:
+    radial-gradient(
+      circle at 105% -5%,
+      rgba(255, 255, 255, 0.18),
+      transparent 34%
+    ),
+    linear-gradient(155deg, #0f766e 0%, #087f83 48%, #0e7490 100%);
+  color: #fff;
   display: flex;
   flex-direction: column;
+}
+.contextPanel::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: -90px;
+  bottom: -90px;
+  width: 250px;
+  height: 250px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 42px rgba(255, 255, 255, 0.035),
+    0 0 0 84px rgba(255, 255, 255, 0.025);
 }
 .contextPanel .panelEyebrow {
   color: rgba(255, 255, 255, 0.72);
@@ -248,6 +268,7 @@
   margin: 0 0 2.2rem;
   font-size: 1.65rem;
   letter-spacing: -0.025em;
+  color: #fff;
 }
 .contextPanel ol {
   margin: 0;
@@ -296,9 +317,10 @@
 }
 .contextPanel li b {
   font-size: 0.9rem;
+  color: #fff;
 }
 .contextPanel li small {
-  color: var(--pc-brand-text-muted);
+  color: rgba(255, 255, 255, 0.78);
   line-height: 1.45;
 }
 .helpNote {
@@ -319,7 +341,7 @@
   font-size: 0.82rem;
 }
 .helpNote span {
-  color: var(--pc-brand-text-muted);
+  color: rgba(255, 255, 255, 0.78);
   font-size: 0.76rem;
   line-height: 1.4;
 }
