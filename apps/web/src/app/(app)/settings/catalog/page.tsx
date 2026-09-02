@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
 import { PageHeader, ActionButton, FormField, SelectField, ToggleSwitch } from "@/components/ui";
-import { IconPackage, IconDollarSign, IconChevronRight } from "@/components/icons";
+import { IconPackage, IconDollarSign, IconChevronRight, IconTag } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import { apiJson } from "@/lib/auth-client";
 import { invalidateProfitabilityTargetCache } from "@/app/(app)/reports/lib/use-profitability-target";
+import { RolePageGuard } from "@/components/role-access";
+import { ADMIN_ROLES } from "@/lib/role-access";
 import css from "../settings.module.css";
 import {
   fetchTenantSettings,
@@ -42,41 +44,48 @@ export default function CatalogSettingsPage() {
   }, []);
 
   return (
-    <div>
-      <PageHeader
-        title="Catalog"
-        description="Commercial categories, product display, profitability target, and tax configuration."
-      />
-      {error ? <Alert variant="error">{error}</Alert> : null}
+    <RolePageGuard roles={ADMIN_ROLES} permissions={["tenant.management"]}>
+      <div>
+        <PageHeader
+          title="Catalog"
+          description="Categories &amp; tags, product display, profitability target, and tax configuration."
+        />
+        {error ? <Alert variant="error">{error}</Alert> : null}
 
-      <div className={css.panel}>
-        <div className={css.card}>
-          <div className={css.cardHead}>
-            <div>
-              <h2 className={css.cardTitle}>
-                <IconPackage size={16} /> Commercial Categories
-              </h2>
-              <p className={css.cardDesc}>
-                Merchandise categories used by the Products page, POS, and reports.
-              </p>
+        <div className={css.panel}>
+          <div className={css.card}>
+            <div className={css.cardHead}>
+              <div>
+                <h2 className={css.cardTitle}>
+                  <IconPackage size={16} /> Categories &amp; Tags
+                </h2>
+                <p className={css.cardDesc}>
+                  Merchandise categories and product tags used by the Products page, POS, and reports.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <Link href="/settings/catalog/categories" className={css.chip}>
+                  Manage Categories <IconChevronRight size={13} />
+                </Link>
+                <Link href="/settings/catalog/tags" className={css.chip}>
+                  <IconTag size={13} /> Manage Tags <IconChevronRight size={13} />
+                </Link>
+              </div>
             </div>
-            <Link href="/settings/catalog/categories" className={css.chip}>
-              Manage Categories <IconChevronRight size={13} />
-            </Link>
           </div>
-        </div>
 
-        {loading || !settings ? (
-          <p className={css.rowHint}>Loading…</p>
-        ) : (
-          <>
-            <ProductDisplayCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
-            <ProfitabilityTargetCard canEdit={canEdit} />
-            <TaxConfigurationCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
-          </>
-        )}
+          {loading || !settings ? (
+            <p className={css.rowHint}>Loading…</p>
+          ) : (
+            <>
+              <ProductDisplayCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
+              <ProfitabilityTargetCard canEdit={canEdit} />
+              <TaxConfigurationCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </RolePageGuard>
   );
 }
 

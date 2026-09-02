@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { SettingsSubnav } from "./components/settings-subnav";
 import { SettingsScope } from "./components/settings-scope";
@@ -14,19 +14,18 @@ import css from "./settings.module.css";
  */
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const panelRef = useRef<HTMLDivElement>(null);
 
-  // .panel is a persisted DOM node (this layout never remounts across sub-page navigation)
-  // that scrolls internally — reset its scroll position on every sub-page change so a page
-  // you'd scrolled down doesn't leave the next one's content starting mid-scroll.
+  // The page scrolls as one document (see settings.module.css) — this layout never remounts
+  // across sub-page navigation, so reset the document's scroll on every sub-page change or a
+  // page you'd scrolled down would leave the next one's content starting mid-scroll.
   useEffect(() => {
-    panelRef.current?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
   }, [pathname]);
 
   return (
     <div className={css.page}>
       <SettingsSubnav />
-      <div className={css.panel} ref={panelRef}>
+      <div className={css.panel}>
         <SettingsScope />
         {children}
       </div>

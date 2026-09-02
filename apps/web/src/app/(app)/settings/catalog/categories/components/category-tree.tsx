@@ -162,12 +162,14 @@ export function CategoryTree({
                   <IconRefresh size={14} />
                 </button>
               )}
-              {canDelete && !node.isSystem && (
+              {canDelete && (
                 <button
                   type="button"
                   className={`${css.iconBtn} ${css.iconBtnDanger}`}
                   aria-label={`Delete ${node.name}`}
-                  data-tooltip="Delete"
+                  data-tooltip={
+                    node.isSystem ? "System category — disable instead of delete" : "Delete"
+                  }
                   onClick={() => onDelete(node)}
                 >
                   <IconTrash size={14} />

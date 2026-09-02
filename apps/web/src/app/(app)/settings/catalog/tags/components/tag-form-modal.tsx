@@ -4,35 +4,27 @@ import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
 import { Modal, ModalFooter, ModalButton, FormField } from "@/components/ui";
 
-export type CategoryModalState =
-  | { mode: "create"; parent: { id: string; name: string } | null }
-  | { mode: "rename"; node: { id: string; name: string } };
+export type TagModalState = { mode: "create" } | { mode: "rename"; tag: { id: string; name: string } };
 
 type Props = {
-  state: CategoryModalState | null;
+  state: TagModalState | null;
   saving: boolean;
   error: string | null;
   onClose: () => void;
   onSubmit: (name: string) => void;
 };
 
-export function CategoryFormModal({ state, saving, error, onClose, onSubmit }: Props) {
+export function TagFormModal({ state, saving, error, onClose, onSubmit }: Props) {
   const [name, setName] = useState("");
 
   useEffect(() => {
     if (!state) return;
-    setName(state.mode === "rename" ? state.node.name : "");
+    setName(state.mode === "rename" ? state.tag.name : "");
   }, [state]);
 
   if (!state) return null;
 
-  const title =
-    state.mode === "rename"
-      ? `Rename ${state.node.name}`
-      : state.parent
-        ? `New subcategory under ${state.parent.name}`
-        : "New category";
-
+  const title = state.mode === "rename" ? `Rename ${state.tag.name}` : "New tag";
   const trimmed = name.trim();
 
   function handleSubmit() {
@@ -46,7 +38,7 @@ export function CategoryFormModal({ state, saving, error, onClose, onSubmit }: P
       title={title}
       description={
         state.mode === "create"
-          ? "Categories organize products across the Products page, POS, and reports."
+          ? "Tags label products for quick filtering across the Products page, POS, and reports."
           : undefined
       }
       size="sm"
@@ -64,7 +56,7 @@ export function CategoryFormModal({ state, saving, error, onClose, onSubmit }: P
     >
       {error ? <Alert variant="error">{error}</Alert> : null}
       <FormField
-        label="Category name"
+        label="Tag name"
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {

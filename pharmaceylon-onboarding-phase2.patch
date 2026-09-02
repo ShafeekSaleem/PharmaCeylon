@@ -1,0 +1,491 @@
+diff --git a/apps/api/src/auth/auth.module.ts b/apps/api/src/auth/auth.module.ts
+index 0d0c5f267da425cb713e7b21e634638fd6a9be96..4b41099ee13defe7ebfa48155bb0f1ffe5306e43 100644
+--- a/apps/api/src/auth/auth.module.ts
++++ b/apps/api/src/auth/auth.module.ts
+@@ -3,7 +3,10 @@ import { JwtModule } from "@nestjs/jwt";
+ import { UploadsModule } from "../uploads/uploads.module";
+ import { AuthController } from "./auth.controller";
+ import { OwnerRegistrationController } from "./owner-registration.controller";
++import { OnboardingDraftController } from "./onboarding-draft.controller";
+ import { AuthService } from "./auth.service";
++import { OnboardingDraftService } from "./onboarding-draft.service";
++import { OnboardingSessionGuard } from "./onboarding-session.guard";
+ import { OwnerRegistrationService } from "./owner-registration.service";
+ import { SessionStore } from "./session.store";
+ import { VerificationEmailService } from "./verification-email.service";
+@@ -16,10 +19,12 @@ import { UserContextService } from "./user-context.service";
+     }),
+     UploadsModule,
+   ],
+-  controllers: [AuthController, OwnerRegistrationController],
++  controllers: [AuthController, OwnerRegistrationController, OnboardingDraftController],
+   providers: [
+     AuthService,
+     OwnerRegistrationService,
++    OnboardingDraftService,
++    OnboardingSessionGuard,
+     SessionStore,
+     UserContextService,
+     VerificationEmailService,
+diff --git a/apps/api/src/auth/current-owner-registration.decorator.ts b/apps/api/src/auth/current-owner-registration.decorator.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9466b221ec03c210b91d39c55f953f5020baaa62
+--- /dev/null
++++ b/apps/api/src/auth/current-owner-registration.decorator.ts
+@@ -0,0 +1,7 @@
++import { createParamDecorator, ExecutionContext } from "@nestjs/common";
++import { OnboardingRequest } from "./onboarding-session.guard";
++
++export const CurrentOwnerRegistration = createParamDecorator(
++  (_data: unknown, context: ExecutionContext) =>
++    context.switchToHttp().getRequest<OnboardingRequest>().ownerRegistration,
++);
+diff --git a/apps/api/src/auth/dto/save-onboarding-draft.dto.ts b/apps/api/src/auth/dto/save-onboarding-draft.dto.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a9c2b9385f48212d7622a3c6bfa429cdaa3778ed
+--- /dev/null
++++ b/apps/api/src/auth/dto/save-onboarding-draft.dto.ts
+@@ -0,0 +1,26 @@
++import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
++
++export class SaveOnboardingDraftDto {
++  @IsInt() @Min(1) @Max(4) currentStep!: number;
++
++  @IsOptional() @IsString() @MaxLength(120) businessName?: string;
++  @IsOptional() @IsString() @MaxLength(160) legalName?: string;
++  @IsOptional() @IsString() @MaxLength(2) country?: string;
++  @IsOptional() @IsString() @MaxLength(3) currency?: string;
++  @IsOptional() @IsString() @MaxLength(64) timezone?: string;
++  @IsOptional() @IsEmail() @MaxLength(160) businessEmail?: string;
++  @IsOptional() @IsString() @MaxLength(32) businessPhone?: string;
++
++  @IsOptional() @IsString() @MaxLength(120) branchName?: string;
++  @IsOptional() @IsString() @MaxLength(24) branchCode?: string;
++  @IsOptional() @IsString() @MaxLength(180) addressLine1?: string;
++  @IsOptional() @IsString() @MaxLength(80) city?: string;
++  @IsOptional() @IsString() @MaxLength(80) district?: string;
++  @IsOptional() @IsString() @MaxLength(32) branchPhone?: string;
++  @IsOptional() @IsBoolean() useBusinessPhone?: boolean;
++
++  @IsOptional() @IsIn(["fresh", "migrating"]) migrationMode?: "fresh" | "migrating";
++  @IsOptional() @IsString() @MaxLength(120) receiptDisplayName?: string;
++  @IsOptional() @IsArray() @ArrayMaxSize(8) @IsIn(["cash", "card", "mobile_wallet", "credit"], { each: true }) paymentMethods?: string[];
++  @IsOptional() @IsString() @MaxLength(24) dateFormat?: string;
++}
+diff --git a/apps/api/src/auth/onboarding-draft.controller.ts b/apps/api/src/auth/onboarding-draft.controller.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d05caafb99062b6186028434c2f9b3ba3096739f
+--- /dev/null
++++ b/apps/api/src/auth/onboarding-draft.controller.ts
+@@ -0,0 +1,27 @@
++import { Body, Controller, Get, Put, UseGuards } from "@nestjs/common";
++import { Public } from "../security/decorators/public.decorator";
++import { CurrentOwnerRegistration } from "./current-owner-registration.decorator";
++import { SaveOnboardingDraftDto } from "./dto/save-onboarding-draft.dto";
++import { OnboardingDraftService } from "./onboarding-draft.service";
++import { OnboardingSessionGuard } from "./onboarding-session.guard";
++import { VerifiedOwnerSession } from "./owner-registration.service";
++
++@Public()
++@UseGuards(OnboardingSessionGuard)
++@Controller("onboarding")
++export class OnboardingDraftController {
++  constructor(private readonly drafts: OnboardingDraftService) {}
++
++  @Get()
++  get(@CurrentOwnerRegistration() owner: VerifiedOwnerSession) {
++    return this.drafts.get(owner.registrationId);
++  }
++
++  @Put()
++  save(
++    @CurrentOwnerRegistration() owner: VerifiedOwnerSession,
++    @Body() dto: SaveOnboardingDraftDto,
++  ) {
++    return this.drafts.save(owner.registrationId, dto);
++  }
++}
+diff --git a/apps/api/src/auth/onboarding-draft.service.spec.ts b/apps/api/src/auth/onboarding-draft.service.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c8e7f04b374f7f61432afa30bfde53d51aa4cb2e
+--- /dev/null
++++ b/apps/api/src/auth/onboarding-draft.service.spec.ts
+@@ -0,0 +1,18 @@
++import { OnboardingDraftService } from "./onboarding-draft.service";
++
++describe("OnboardingDraftService", () => {
++  it("prefills Sri Lankan defaults for a verified owner", async () => {
++    const prisma = { ownerRegistration: { findUnique: jest.fn().mockResolvedValue({ onboardingDraft: null, email: "owner@example.com", phone: null }), update: jest.fn() } };
++    const result = await new OnboardingDraftService(prisma as never).get("registration-id");
++    expect(result.draft).toEqual(expect.objectContaining({ currentStep: 1, country: "LK", currency: "LKR", timezone: "Asia/Colombo", businessEmail: "owner@example.com" }));
++    expect(result.nextPath).toBe("/onboarding/pharmacy");
++  });
++
++  it("merges and persists a resumable draft", async () => {
++    const prisma = { ownerRegistration: { findUnique: jest.fn().mockResolvedValue({ onboardingDraft: { businessName: "Serendib Pharmacy", currentStep: 1 }, email: "owner@example.com", phone: null }), update: jest.fn().mockResolvedValue({}) } };
++    const service = new OnboardingDraftService(prisma as never);
++    const result = await service.save("registration-id", { currentStep: 2, branchName: "Matale Main" });
++    expect(prisma.ownerRegistration.update).toHaveBeenCalledWith({ where: { id: "registration-id" }, data: { onboardingDraft: expect.objectContaining({ businessName: "Serendib Pharmacy", branchName: "Matale Main", currentStep: 2 }) } });
++    expect(result.nextPath).toBe("/onboarding/branch");
++  });
++});
+diff --git a/apps/api/src/auth/onboarding-draft.service.ts b/apps/api/src/auth/onboarding-draft.service.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a45f210f180788937e4a6e8348776aca608714d
+--- /dev/null
++++ b/apps/api/src/auth/onboarding-draft.service.ts
+@@ -0,0 +1,57 @@
++import { Injectable, NotFoundException } from "@nestjs/common";
++import { Prisma } from "@prisma/client";
++import { PrismaService } from "../prisma/prisma.service";
++import { SaveOnboardingDraftDto } from "./dto/save-onboarding-draft.dto";
++
++export type OnboardingDraft = Omit<SaveOnboardingDraftDto, "currentStep"> & { currentStep: number };
++
++@Injectable()
++export class OnboardingDraftService {
++  constructor(private readonly prisma: PrismaService) {}
++
++  async get(registrationId: string) {
++    const registration = await this.prisma.ownerRegistration.findUnique({
++      where: { id: registrationId },
++      select: { onboardingDraft: true, email: true, phone: true },
++    });
++    if (!registration) throw new NotFoundException("Owner registration not found");
++    const saved = asDraft(registration.onboardingDraft);
++    const draft: OnboardingDraft = {
++      country: "LK",
++      currency: "LKR",
++      timezone: "Asia/Colombo",
++      businessEmail: registration.email,
++      businessPhone: registration.phone ?? undefined,
++      migrationMode: "fresh",
++      paymentMethods: ["cash", "card"],
++      dateFormat: "DD/MM/YYYY",
++      ...saved,
++      currentStep: saved.currentStep ?? 1,
++    };
++    return { draft, nextPath: pathForStep(draft.currentStep) };
++  }
++
++  async save(registrationId: string, input: SaveOnboardingDraftDto) {
++    const current = await this.get(registrationId);
++    const draft = compact({ ...current.draft, ...input, currentStep: input.currentStep });
++    await this.prisma.ownerRegistration.update({
++      where: { id: registrationId },
++      data: { onboardingDraft: draft as Prisma.InputJsonValue },
++    });
++    return { draft, nextPath: pathForStep(draft.currentStep) };
++  }
++}
++
++function asDraft(value: Prisma.JsonValue | null): Partial<OnboardingDraft> {
++  return value && typeof value === "object" && !Array.isArray(value)
++    ? (value as Partial<OnboardingDraft>)
++    : {};
++}
++
++function compact<T extends Record<string, unknown>>(value: T): T {
++  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
++}
++
++function pathForStep(step: number): string {
++  return ["/onboarding/pharmacy", "/onboarding/branch", "/onboarding/preferences", "/onboarding/review"][Math.min(4, Math.max(1, step)) - 1];
++}
+diff --git a/apps/api/src/auth/onboarding-session.guard.ts b/apps/api/src/auth/onboarding-session.guard.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..72af9b89d4573945b823037eb0ec4027a6ca040b
+--- /dev/null
++++ b/apps/api/src/auth/onboarding-session.guard.ts
+@@ -0,0 +1,22 @@
++import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
++import type { Request } from "express";
++import { ONBOARDING_COOKIE } from "./cookies";
++import { OwnerRegistrationService, VerifiedOwnerSession } from "./owner-registration.service";
++
++export type OnboardingRequest = Request & {
++  cookies?: Record<string, string>;
++  ownerRegistration?: VerifiedOwnerSession;
++};
++
++@Injectable()
++export class OnboardingSessionGuard implements CanActivate {
++  constructor(private readonly registrations: OwnerRegistrationService) {}
++
++  async canActivate(context: ExecutionContext): Promise<boolean> {
++    const request = context.switchToHttp().getRequest<OnboardingRequest>();
++    const token = request.cookies?.[ONBOARDING_COOKIE];
++    if (!token) throw new UnauthorizedException("Missing onboarding session");
++    request.ownerRegistration = await this.registrations.status(token);
++    return true;
++  }
++}
+diff --git a/apps/api/tenant-data-entrypoints.json b/apps/api/tenant-data-entrypoints.json
+index 844fc6c191894a63466c1c9ed01c62c58bae31cf..f3ced6d9b30deee44fc8711aefc90136900caf6f 100644
+--- a/apps/api/tenant-data-entrypoints.json
++++ b/apps/api/tenant-data-entrypoints.json
+@@ -6,6 +6,16 @@
+       "mode": "pre-authentication",
+       "reason": "Login and refresh establish user and tenant context from globally unique credentials or session tokens."
+     },
++    {
++      "path": "src/auth/owner-registration.controller.ts",
++      "mode": "pre-tenant-registration",
++      "reason": "Creates and verifies a staged owner registration without reading or writing tenant-owned domain rows."
++    },
++    {
++      "path": "src/auth/onboarding-draft.controller.ts",
++      "mode": "verified-onboarding-session",
++      "reason": "Reads and updates only the verified owner's pre-tenant registration draft."
++    },
+     {
+       "path": "src/health/health.controller.ts",
+       "mode": "database-readiness",
+@@ -18,6 +28,16 @@
+       "mode": "verified-global-identity",
+       "reason": "Login resolves a globally unique email; refresh resolves a hashed session token before tenant context exists."
+     },
++    {
++      "path": "src/auth/owner-registration.service.ts",
++      "mode": "pre-tenant-registration",
++      "reason": "Uses globally unique registration email and hashed verification tokens before a tenant exists."
++    },
++    {
++      "path": "src/auth/onboarding-draft.service.ts",
++      "mode": "verified-onboarding-session",
++      "reason": "Scopes draft access to the OwnerRegistration id verified by the onboarding cookie guard."
++    },
+     {
+       "path": "src/auth/user-context.service.ts",
+       "mode": "verified-jwt-subject",
+diff --git a/apps/web/src/app/onboarding/branch/page.tsx b/apps/web/src/app/onboarding/branch/page.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..5e56a695d758be2f84f05eca6a9f5f67d82092d2
+--- /dev/null
++++ b/apps/web/src/app/onboarding/branch/page.tsx
+@@ -0,0 +1,2 @@
++import { OnboardingWizard } from "../wizard";
++export default function BranchStep() { return <OnboardingWizard step="branch" />; }
+diff --git a/apps/web/src/app/onboarding/onboarding.module.css b/apps/web/src/app/onboarding/onboarding.module.css
+new file mode 100644
+index 0000000000000000000000000000000000000000..0f0a2389dfd5d52523c272f7e6df8b538637f75f
+--- /dev/null
++++ b/apps/web/src/app/onboarding/onboarding.module.css
+@@ -0,0 +1 @@
++.page{min-height:100vh;background:var(--pc-page-bg);color:var(--pc-foreground)}.header{height:68px;background:var(--pc-background);border-bottom:1px solid var(--pc-border);display:flex;align-items:center;justify-content:space-between;padding:0 2rem;color:var(--pc-muted-fg);font-size:.86rem}.logo{color:var(--pc-primary);font-size:1.22rem;font-weight:760;text-decoration:none}.shell{max-width:1180px;margin:2.5rem auto;display:grid;grid-template-columns:300px 1fr;gap:1.5rem;padding:0 1.25rem}.sidebar,.card{background:var(--pc-card-bg);border:1px solid var(--pc-border);border-radius:var(--pc-radius-md);box-shadow:var(--pc-shadow-card)}.sidebar{padding:2rem 1.6rem;align-self:start}.eyebrow,.stepLabel{font-size:.74rem;letter-spacing:.09em;font-weight:750;color:var(--pc-primary)}.sidebar h1{font-size:1.35rem;margin:.55rem 0}.sidebar>p:not(.eyebrow),.lead{color:var(--pc-muted-fg);line-height:1.55}.sidebar ol{list-style:none;margin:1.8rem 0 0;padding:0;display:grid;gap:1.05rem}.sidebar li{display:flex;gap:.75rem;color:var(--pc-muted-fg)}.sidebar li>span{width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--pc-border);border-radius:50%;font-size:.78rem;font-weight:700;flex:none}.sidebar li div{display:grid;gap:.15rem}.sidebar li b{font-size:.88rem;color:var(--pc-foreground)}.sidebar li small{font-size:.75rem}.sidebar li.active>span,.sidebar li.done>span{background:var(--pc-primary);border-color:var(--pc-primary);color:#fff}.card{padding:2.4rem;min-height:590px;display:flex;flex-direction:column}.card h2{margin:.55rem 0 .3rem;font-size:1.65rem}.form{display:grid;gap:1.1rem;margin-top:1.4rem}.form label{display:grid;gap:.4rem;font-size:.84rem;font-weight:650}.form input{min-width:0;padding:.72rem .78rem;border:1px solid var(--pc-border);border-radius:var(--pc-radius-sm);background:var(--pc-input-bg);color:var(--pc-foreground);font:inherit;outline:none}.form input:focus{border-color:var(--pc-primary);box-shadow:0 0 0 3px var(--pc-focus-ring)}.grid2,.grid3{display:grid;gap:1rem}.grid2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid3{grid-template-columns:repeat(3,minmax(0,1fr))}.check{display:flex!important;grid-template-columns:auto 1fr;align-items:center;font-weight:500!important;text-transform:capitalize}.check input{width:17px;height:17px;accent-color:var(--pc-primary)}.choiceRow{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.choice{display:grid;gap:.35rem;text-align:left;padding:1rem;border:1px solid var(--pc-border);border-radius:var(--pc-radius-sm);background:var(--pc-background);color:var(--pc-foreground);cursor:pointer}.choice span{color:var(--pc-muted-fg);font-size:.8rem;line-height:1.4}.choice.selected{border-color:var(--pc-primary);background:var(--pc-primary-soft)}.form fieldset{border:1px solid var(--pc-border);border-radius:var(--pc-radius-sm);padding:1rem}.form legend{font-size:.84rem;font-weight:650;padding:0 .35rem}.paymentRow{display:flex;gap:1.2rem;flex-wrap:wrap}.summary{display:grid;gap:1rem;margin-top:1.4rem}.summary>div{border:1px solid var(--pc-border);border-radius:var(--pc-radius-sm);padding:1rem}.summary h3{margin:0 0 .55rem;font-size:.95rem}.summary p{margin:.2rem 0;color:var(--pc-muted-fg);font-size:.86rem}.actions{margin-top:auto;padding-top:1.5rem;border-top:1px solid var(--pc-border);display:flex;justify-content:space-between;align-items:center}.primary,.back{padding:.72rem 1.2rem;border-radius:var(--pc-radius-sm);font:inherit;font-weight:680;text-decoration:none}.primary{border:0;background:var(--pc-primary);color:#fff;cursor:pointer}.primary:disabled{opacity:.65}.back{border:1px solid var(--pc-border);color:var(--pc-foreground);background:var(--pc-background)}.loading{min-height:100vh;display:grid;place-items:center;background:var(--pc-page-bg);color:var(--pc-muted-fg)}@media(max-width:820px){.header span{display:none}.shell{grid-template-columns:1fr;margin:1.25rem auto}.sidebar{padding:1.25rem}.sidebar>h1,.sidebar>p{display:none}.sidebar ol{margin:0;grid-template-columns:repeat(4,1fr);gap:.35rem}.sidebar li{display:grid;text-align:center;justify-items:center}.sidebar li small{display:none}.card{padding:1.5rem;min-height:560px}.grid2,.grid3,.choiceRow{grid-template-columns:1fr}}
+diff --git a/apps/web/src/app/onboarding/page.tsx b/apps/web/src/app/onboarding/page.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..303962fdac44a58ada5e8ac4973ecee463ec3f2c
+--- /dev/null
++++ b/apps/web/src/app/onboarding/page.tsx
+@@ -0,0 +1,5 @@
++import { redirect } from "next/navigation";
++
++export default function OnboardingPage() {
++  redirect("/onboarding/pharmacy");
++}
+diff --git a/apps/web/src/app/onboarding/pharmacy/page.tsx b/apps/web/src/app/onboarding/pharmacy/page.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..4bc9f42a82a3f476f2223cc4fdd60360af99ab92
+--- /dev/null
++++ b/apps/web/src/app/onboarding/pharmacy/page.tsx
+@@ -0,0 +1,2 @@
++import { OnboardingWizard } from "../wizard";
++export default function PharmacyStep() { return <OnboardingWizard step="pharmacy" />; }
+diff --git a/apps/web/src/app/onboarding/preferences/page.tsx b/apps/web/src/app/onboarding/preferences/page.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..da5c070cf2c2ad6b03f7030ce9e5c1f31c49bff1
+--- /dev/null
++++ b/apps/web/src/app/onboarding/preferences/page.tsx
+@@ -0,0 +1,2 @@
++import { OnboardingWizard } from "../wizard";
++export default function PreferencesStep() { return <OnboardingWizard step="preferences" />; }
+diff --git a/apps/web/src/app/onboarding/review/page.tsx b/apps/web/src/app/onboarding/review/page.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..36230675c2742e096e68dfc21a4f2ff4f20b37ec
+--- /dev/null
++++ b/apps/web/src/app/onboarding/review/page.tsx
+@@ -0,0 +1,2 @@
++import { OnboardingWizard } from "../wizard";
++export default function ReviewStep() { return <OnboardingWizard step="review" />; }
+diff --git a/apps/web/src/app/onboarding/wizard.tsx b/apps/web/src/app/onboarding/wizard.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..ac62b73694bd885f56489466c5a28e868fc7de1e
+--- /dev/null
++++ b/apps/web/src/app/onboarding/wizard.tsx
+@@ -0,0 +1,88 @@
++"use client";
++
++import Link from "next/link";
++import { useRouter } from "next/navigation";
++import { useEffect, useState } from "react";
++import { Alert } from "@/components/alert";
++import { fetchOnboardingDraft, OnboardingDraft, saveOnboardingDraft } from "@/lib/onboarding-draft-client";
++import styles from "./onboarding.module.css";
++
++type Step = "pharmacy" | "branch" | "preferences" | "review";
++const steps: Array<{ key: Step; label: string; path: string }> = [
++  { key: "pharmacy", label: "Your pharmacy", path: "/onboarding/pharmacy" },
++  { key: "branch", label: "First branch", path: "/onboarding/branch" },
++  { key: "preferences", label: "Preferences", path: "/onboarding/preferences" },
++  { key: "review", label: "Review", path: "/onboarding/review" },
++];
++
++export function OnboardingWizard({ step }: { step: Step }) {
++  const router = useRouter();
++  const index = steps.findIndex((item) => item.key === step);
++  const [draft, setDraft] = useState<OnboardingDraft>({ currentStep: 1 });
++  const [loading, setLoading] = useState(true);
++  const [saving, setSaving] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  const [saved, setSaved] = useState(false);
++
++  useEffect(() => {
++    void fetchOnboardingDraft().then((result) => setDraft(result.draft)).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load setup")).finally(() => setLoading(false));
++  }, []);
++
++  function update<K extends keyof OnboardingDraft>(key: K, value: OnboardingDraft[K]) {
++    setDraft((current) => ({ ...current, [key]: value }));
++  }
++
++  async function continueSetup() {
++    setError(null);
++    if (step === "pharmacy" && !draft.businessName?.trim()) return setError("Enter your pharmacy business name.");
++    if (step === "branch" && (!draft.branchName?.trim() || !draft.addressLine1?.trim())) return setError("Enter the branch name and operating address.");
++    setSaving(true);
++    try {
++      const nextStep = Math.min(4, index + 2);
++      const result = await saveOnboardingDraft({ ...draft, currentStep: nextStep });
++      setDraft(result.draft);
++      if (step === "review") setSaved(true);
++      else router.push(steps[index + 1].path);
++    } catch (cause) {
++      setError(cause instanceof Error ? cause.message : "Unable to save setup");
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  if (loading) return <main className={styles.loading}>Loading your setup…</main>;
++
++  return (
++    <main className={styles.page}>
++      <header className={styles.header}><Link href="/login" className={styles.logo}>PharmaCeylon</Link><span>Workspace setup is saved automatically when you continue.</span></header>
++      <div className={styles.shell}>
++        <aside className={styles.sidebar}>
++          <p className={styles.eyebrow}>PHARMACY SETUP</p>
++          <h1>Let’s set up your pharmacy</h1>
++          <p>Start with the essentials. You can refine these details later in Settings.</p>
++          <ol>{steps.map((item, itemIndex) => <li key={item.key} className={item.key === step ? styles.active : itemIndex < index ? styles.done : ""}><span>{itemIndex < index ? "✓" : itemIndex + 1}</span><div><b>{item.label}</b><small>{itemIndex < index ? "Saved" : item.key === step ? "In progress" : "Not started"}</small></div></li>)}</ol>
++        </aside>
++        <section className={styles.card}>
++          <div className={styles.stepLabel}>STEP {index + 1} OF 4</div>
++          {step === "pharmacy" ? <PharmacyForm draft={draft} update={update} /> : null}
++          {step === "branch" ? <BranchForm draft={draft} update={update} /> : null}
++          {step === "preferences" ? <PreferencesForm draft={draft} update={update} /> : null}
++          {step === "review" ? <Review draft={draft} saved={saved} /> : null}
++          {error ? <Alert variant="error">{error}</Alert> : null}
++          <div className={styles.actions}>
++            {index > 0 ? <Link className={styles.back} href={steps[index - 1].path}>Back</Link> : <span />}
++            <button className={styles.primary} onClick={continueSetup} disabled={saving}>{saving ? "Saving…" : step === "review" ? "Save setup draft" : "Continue"}</button>
++          </div>
++        </section>
++      </div>
++    </main>
++  );
++}
++
++type Update = <K extends keyof OnboardingDraft>(key: K, value: OnboardingDraft[K]) => void;
++function PharmacyForm({ draft, update }: { draft: OnboardingDraft; update: Update }) { return <><h2>Tell us about your pharmacy</h2><p className={styles.lead}>These details identify the business that owns your branches.</p><div className={styles.form}><Field label="Business name" value={draft.businessName} onChange={(v) => update("businessName", v)} required /><Field label="Legal name (optional)" value={draft.legalName} onChange={(v) => update("legalName", v)} /><div className={styles.grid3}><Field label="Country" value={draft.country} onChange={(v) => update("country", v)} /><Field label="Currency" value={draft.currency} onChange={(v) => update("currency", v)} /><Field label="Time zone" value={draft.timezone} onChange={(v) => update("timezone", v)} /></div><div className={styles.grid2}><Field label="Business email" type="email" value={draft.businessEmail} onChange={(v) => update("businessEmail", v)} /><Field label="Business phone" value={draft.businessPhone} onChange={(v) => update("businessPhone", v)} /></div></div></>; }
++function BranchForm({ draft, update }: { draft: OnboardingDraft; update: Update }) { return <><h2>Create your first branch</h2><p className={styles.lead}>Start with one operating location. You can add more later.</p><div className={styles.form}><div className={styles.grid2}><Field label="Branch name" value={draft.branchName} onChange={(v) => update("branchName", v)} required /><Field label="Branch code" value={draft.branchCode} onChange={(v) => update("branchCode", v.toUpperCase())} placeholder="MAIN" /></div><Field label="Operating address" value={draft.addressLine1} onChange={(v) => update("addressLine1", v)} required /><div className={styles.grid2}><Field label="City" value={draft.city} onChange={(v) => update("city", v)} /><Field label="District" value={draft.district} onChange={(v) => update("district", v)} /></div><label className={styles.check}><input type="checkbox" checked={draft.useBusinessPhone ?? true} onChange={(e) => update("useBusinessPhone", e.target.checked)} />Use the business phone for this branch</label>{draft.useBusinessPhone === false ? <Field label="Branch phone" value={draft.branchPhone} onChange={(v) => update("branchPhone", v)} /> : null}</div></>; }
++function PreferencesForm({ draft, update }: { draft: OnboardingDraft; update: Update }) { const payments=draft.paymentMethods ?? ["cash", "card"]; return <><h2>Set your starting preferences</h2><p className={styles.lead}>Choose a sensible starting point. Detailed policies remain in Settings.</p><div className={styles.form}><div className={styles.choiceRow}>{(["fresh", "migrating"] as const).map((mode) => <button type="button" key={mode} className={`${styles.choice} ${draft.migrationMode === mode ? styles.selected : ""}`} onClick={() => update("migrationMode", mode)}><b>{mode === "fresh" ? "Starting fresh" : "Moving from another system"}</b><span>{mode === "fresh" ? "Build your catalog and stock from scratch." : "We’ll prioritize opening inventory import."}</span></button>)}</div><Field label="Receipt display name" value={draft.receiptDisplayName ?? draft.businessName} onChange={(v) => update("receiptDisplayName", v)} /><fieldset><legend>Initial payment methods</legend><div className={styles.paymentRow}>{["cash", "card", "mobile_wallet", "credit"].map((method) => <label key={method} className={styles.check}><input type="checkbox" checked={payments.includes(method)} onChange={(e) => update("paymentMethods", e.target.checked ? [...payments, method] : payments.filter((item) => item !== method))} />{method.replace("_", " ")}</label>)}</div></fieldset></div></>; }
++function Review({ draft, saved }: { draft: OnboardingDraft; saved: boolean }) { return <><h2>Review your setup</h2><p className={styles.lead}>Your answers remain editable and resumable. Workspace creation is handled in Phase 3.</p>{saved ? <Alert variant="success">Your setup draft is saved. You can safely return on another browser session.</Alert> : null}<div className={styles.summary}><Summary title="Pharmacy" rows={[draft.businessName, `${draft.country ?? "LK"} · ${draft.currency ?? "LKR"} · ${draft.timezone ?? "Asia/Colombo"}`, draft.businessEmail]} /><Summary title="First branch" rows={[draft.branchName, draft.addressLine1, [draft.city, draft.district].filter(Boolean).join(", ")]} /><Summary title="Preferences" rows={[draft.migrationMode === "migrating" ? "Moving from another system" : "Starting fresh", `Payments: ${(draft.paymentMethods ?? []).join(", ")}`]} /></div></>; }
++function Field({ label, value, onChange, type="text", required=false, placeholder }: { label: string; value?: string; onChange: (value: string) => void; type?: string; required?: boolean; placeholder?: string }) { return <label>{label}{required ? " *" : ""}<input type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} required={required} placeholder={placeholder} /></label>; }
++function Summary({ title, rows }: { title: string; rows: Array<string | undefined> }) { return <div><h3>{title}</h3>{rows.filter(Boolean).map((row) => <p key={row}>{row}</p>)}</div>; }
+diff --git a/apps/web/src/lib/onboarding-draft-client.ts b/apps/web/src/lib/onboarding-draft-client.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..baa46db2c37acea4d04692c06f5e39492ae975c6
+--- /dev/null
++++ b/apps/web/src/lib/onboarding-draft-client.ts
+@@ -0,0 +1,40 @@
++import { getApiBaseUrl } from "./api-base";
++import { parseApiError } from "./api-error";
++
++export type OnboardingDraft = {
++  currentStep: number;
++  businessName?: string;
++  legalName?: string;
++  country?: string;
++  currency?: string;
++  timezone?: string;
++  businessEmail?: string;
++  businessPhone?: string;
++  branchName?: string;
++  branchCode?: string;
++  addressLine1?: string;
++  city?: string;
++  district?: string;
++  branchPhone?: string;
++  useBusinessPhone?: boolean;
++  migrationMode?: "fresh" | "migrating";
++  receiptDisplayName?: string;
++  paymentMethods?: string[];
++  dateFormat?: string;
++};
++
++export type OnboardingDraftResponse = { draft: OnboardingDraft; nextPath: string };
++
++async function request(init?: RequestInit): Promise<OnboardingDraftResponse> {
++  const response = await fetch(`${getApiBaseUrl()}/onboarding`, {
++    ...init,
++    credentials: "include",
++    headers: { "Content-Type": "application/json", ...init?.headers },
++  });
++  const text = await response.text();
++  if (!response.ok) throw new Error(parseApiError(text, "Unable to save onboarding"));
++  return JSON.parse(text) as OnboardingDraftResponse;
++}
++
++export const fetchOnboardingDraft = () => request();
++export const saveOnboardingDraft = (draft: OnboardingDraft) => request({ method: "PUT", body: JSON.stringify(draft) });
+diff --git a/docs/ONBOARDING_IMPLEMENTATION_PLAN.md b/docs/ONBOARDING_IMPLEMENTATION_PLAN.md
+index 599f373716ac21db0c84844e93e6625a1431f415..16146b5ddfe4961b8c40dcac4bc612caf99e6037 100644
+--- a/docs/ONBOARDING_IMPLEMENTATION_PLAN.md
++++ b/docs/ONBOARDING_IMPLEMENTATION_PLAN.md
+@@ -1,6 +1,6 @@
+ # First-user entry and onboarding implementation plan
+ 
+-Branch: `codex/onboarding-entry-flow`  
++Branch: `codex/onboarding-entry-flow`
+ Base: `develop` at `a7056d1e56681654282518ef3ec7c2928714ce29`
+ 
+ ## Scope
+@@ -28,7 +28,7 @@ This avoids fabricating empty tenants and avoids a broad identity migration. Cro
+ workspace membership remains a future platform change; pharmacy chains continue to use
+ branches inside one tenant.
+ 
+-## Phase 1 — Entry and verified owner registration
++## Phase 1 — Entry and verified owner registration (implemented)
+ 
+ - Refresh the existing sign-in screen and add a clear owner-registration entry.
+ - Add `/register` and `/verify-email` routes using existing design tokens.
+@@ -43,7 +43,7 @@ branches inside one tenant.
+ Exit criteria: a new owner can register, verify, return to the browser, and hold a secure
+ pre-tenant onboarding session without creating a tenant or `AppUser`.
+ 
+-## Phase 2 — Resumable workspace draft
++## Phase 2 — Resumable workspace draft (implemented)
+ 
+ - Add authenticated onboarding-session guard/decorator separate from normal tenant JWT auth.
+ - Add status and draft endpoints for the four wizard steps.
+@@ -55,6 +55,10 @@ pre-tenant onboarding session without creating a tenant or `AppUser`.
+   - `/onboarding/review`
+ - Reuse the same validation and field semantics as Tenant Profile, Branches, and Settings.
+ 
++Implementation note: the four routes share one wizard component and persist a validated JSON
++draft on `OwnerRegistration`. The server derives the resume path from `currentStep`; the
++onboarding cookie is verified by a dedicated guard before every draft read or write.
++
+ Exit criteria: verified owners can resume safely on another browser session and cannot access
+ normal tenant APIs.
+ 

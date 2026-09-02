@@ -34,7 +34,6 @@ import { ProductDetailSidebar } from "./product-detail-sidebar";
 import { ProductDetailSkeleton } from "./product-detail-skeleton";
 import { ProductDetailStockTab } from "./product-detail-stock-tab";
 import { ProductFormModal } from "./product-form-modal";
-import { ProductMetaManagerModal } from "./product-meta-manager-modal";
 
 const TAB_DEFS: {
   id: ProductDetailTab;
@@ -62,12 +61,10 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const { permissionKeys } = usePermissions();
   const canWrite = hasWriteAccess(user, branchId);
   const canDeleteProduct = hasPermission(permissionKeys, ["products.delete"]);
-  const canDeleteMeta = hasPermission(permissionKeys, ["product_meta.delete"]);
   const { setLastSegmentLabel, setExtraCrumbs } = usePageChrome();
   const { tab, setTab, returnTo } = useProductDetailUrl(productId);
   const { categories, tags, refresh: refreshMeta } = useProductMeta();
   const metaMutations = useProductMetaMutations(refreshMeta);
-  const [metaManagerOpen, setMetaManagerOpen] = useState(false);
 
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,16 +213,6 @@ export function ProductDetailPage({ productId }: { productId: string }) {
         </div>
       </div>
 
-      <ProductMetaManagerModal
-        open={metaManagerOpen}
-        canWrite={canWrite}
-        canDelete={canDeleteMeta}
-        categories={categories}
-        tags={tags}
-        onClose={() => setMetaManagerOpen(false)}
-        onRefresh={refreshMeta}
-      />
-
       <ProductFormModal
         open={mutations.modalOpen}
         canWrite={canWrite}
@@ -241,7 +228,9 @@ export function ProductDetailPage({ productId }: { productId: string }) {
         onFieldChange={mutations.updateField}
         onCreateCategory={canWrite ? metaMutations.createCategory : undefined}
         onCreateTag={canWrite ? metaMutations.createTag : undefined}
-        onManageMeta={() => setMetaManagerOpen(true)}
+        onManageMeta={() =>
+          window.open("/settings/catalog/categories", "_blank", "noopener,noreferrer")
+        }
         onAliasesChanged={
           mutations.editingProduct
             ? () => {

@@ -1,16 +1,13 @@
-/* The whole two-column area is pinned right under the (already-sticky) top bar and given a
-   viewport-bounded height, so the nav rail never depends on window/page scroll position —
-   only the right-hand panel scrolls, internally. This keeps the nav genuinely fixed instead
-   of relying on position:sticky tracking a scroll offset that can vary by which page you
-   navigated from. */
+/* The app shell's own content area scrolls the whole document (it isn't height-clamped), so
+   giving this row a viewport-relative height on top of that produced two independent
+   scrollbars — the outer document and this row's own overflow. Instead only the nav rail is
+   pinned (position:sticky), and the page scrolls normally as one document. */
 .page {
   display: flex;
+  align-items: flex-start;
   gap: 1.25rem;
   max-width: 1680px;
   margin: 0 auto;
-  position: sticky;
-  top: 56px;
-  height: calc(100vh - 56px - 1.5rem);
 }
 
 .scopeBar {
@@ -48,6 +45,9 @@
 .subnav {
   width: 240px;
   flex-shrink: 0;
+  position: sticky;
+  top: 56px;
+  max-height: calc(100vh - 56px - 1.5rem);
   overflow-y: auto;
   background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
@@ -114,7 +114,6 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  overflow-y: auto;
   padding-bottom: 1.5rem;
 }
 
@@ -163,15 +162,13 @@
   }
   .page {
     flex-direction: column;
-    position: static;
-    height: auto;
   }
   .subnav {
     width: 100%;
+    position: static;
     max-height: 260px;
   }
   .panel {
-    overflow-y: visible;
     padding-bottom: 0;
   }
 

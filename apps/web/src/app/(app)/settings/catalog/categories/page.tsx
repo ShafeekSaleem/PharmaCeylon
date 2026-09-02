@@ -21,6 +21,7 @@ import { CategoryFormModal, type CategoryModalState } from "./components/categor
 import { CategoryTree } from "./components/category-tree";
 import { MoveProductsModal } from "./components/move-products-modal";
 import { OnboardingPanel } from "./components/onboarding-panel";
+import { CatalogMetaTabs } from "../components/catalog-meta-tabs";
 import css from "./categories.module.css";
 import type { CommercialCategoryNode, OnboardingGroupStatus } from "./types";
 
@@ -203,11 +204,13 @@ export default function CatalogCategoriesPage() {
                 setCategoryModal({ mode: "create", parent: null });
               }}
             >
-              New Department
+              New Category
             </ActionButton>
           ) : undefined
         }
       />
+
+      <CatalogMetaTabs active="categories" />
 
       {error ? <Alert variant="error">{error}</Alert> : null}
 

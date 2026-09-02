@@ -58,7 +58,6 @@ import { useProductsUrlState } from "../hooks/use-products-url-state";
 import { ConfirmDialog } from "./confirm-dialog";
 import { NmraImportModal } from "./nmra-import-modal";
 import { ProductFormModal } from "./product-form-modal";
-import { ProductMetaManagerModal } from "./product-meta-manager-modal";
 import { ProductTable } from "./product-table";
 
 /** Same tone-pill mapping as the Catalog page's quick filter chips — keeps the "quick
@@ -78,7 +77,6 @@ export function ProductsPageContent() {
   const { permissionKeys } = usePermissions();
   const canWrite = hasWriteAccess(user, branchId);
   const canDeleteProduct = hasPermission(permissionKeys, ["products.delete"]);
-  const canDeleteMeta = hasPermission(permissionKeys, ["product_meta.delete"]);
   const hasBranch = !!getBranchId();
 
   const {
@@ -102,7 +100,6 @@ export function ProductsPageContent() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingAll, setExportingAll] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [metaManagerOpen, setMetaManagerOpen] = useState(false);
   const [nmraImportOpen, setNmraImportOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -380,8 +377,11 @@ export function ProductsPageContent() {
         actions={
           canWrite ? (
             <>
-              <ActionButton variant="secondary" onClick={() => setMetaManagerOpen(true)}>
-                Categories &amp; tags
+              <ActionButton
+                variant="secondary"
+                onClick={() => router.push("/settings/catalog/categories")}
+              >
+                Manage categories &amp; tags
               </ActionButton>
               <ActionButton icon={<IconPlus size={16} />} onClick={mutations.openCreate}>
                 Add Product
@@ -631,16 +631,6 @@ export function ProductsPageContent() {
         />
       </div>
 
-      <ProductMetaManagerModal
-        open={metaManagerOpen}
-        canWrite={canWrite}
-        canDelete={canDeleteMeta}
-        categories={categories}
-        tags={tags}
-        onClose={() => setMetaManagerOpen(false)}
-        onRefresh={refreshMeta}
-      />
-
       <NmraImportModal
         open={nmraImportOpen}
         onClose={() => setNmraImportOpen(false)}
@@ -665,7 +655,9 @@ export function ProductsPageContent() {
         onFieldChange={mutations.updateField}
         onCreateCategory={canWrite ? metaMutations.createCategory : undefined}
         onCreateTag={canWrite ? metaMutations.createTag : undefined}
-        onManageMeta={() => setMetaManagerOpen(true)}
+        onManageMeta={() =>
+          window.open("/settings/catalog/categories", "_blank", "noopener,noreferrer")
+        }
         onAliasesChanged={
           mutations.editingProduct
             ? () => void mutations.refreshEditingProduct()
