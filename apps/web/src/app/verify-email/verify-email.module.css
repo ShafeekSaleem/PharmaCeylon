@@ -37,11 +37,11 @@
   color: #fff;
 }
 .card {
-  width: min(1040px, calc(100% - 2rem));
-  min-height: 600px;
+  width: min(1180px, calc(100% - 2rem));
+  height: clamp(620px, calc(100dvh - 96px), 680px);
   margin: 1.5rem auto 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(310px, 0.85fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.9fr);
   background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
   border-radius: 18px;
@@ -49,48 +49,20 @@
   overflow: hidden;
 }
 .verifyPanel {
-  padding: 2.6rem 3.2rem;
+  min-width: 0;
+  padding: 2rem 3.2rem;
   display: flex;
   flex-direction: column;
-}
-.stage {
-  display: grid;
-  grid-template-columns: 28px auto 1fr 28px auto 1fr 28px auto;
-  align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 2.7rem;
-  color: var(--pc-muted-fg);
-  font-size: 0.74rem;
-}
-.stage > span {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--pc-border);
-  border-radius: 50%;
-  font-weight: 750;
-}
-.stage .done,
-.stage .active {
-  background: var(--pc-primary);
-  border-color: var(--pc-primary);
-  color: #fff;
-}
-.stage b:nth-of-type(2) {
-  color: var(--pc-primary);
-}
-.stage i {
-  height: 1px;
-  background: var(--pc-border);
+  justify-content: center;
+  overflow-y: auto;
 }
 .icon {
-  width: 78px;
-  height: 78px;
-  margin-bottom: 1.3rem;
+  width: 68px;
+  height: 68px;
+  margin-bottom: 1rem;
   display: grid;
   place-items: center;
-  border-radius: 22px;
+  border-radius: 19px;
   background: var(--pc-primary-soft);
   color: var(--pc-primary);
 }
@@ -350,6 +322,7 @@
     padding: 0 1rem;
   }
   .card {
+    height: auto;
     grid-template-columns: 1fr;
     margin-top: 1.2rem;
   }
@@ -378,9 +351,6 @@
   .verifyPanel {
     padding: 2rem 1.5rem;
   }
-  .stage {
-    display: none;
-  }
 }
 @media (max-width: 560px) {
   .header a:last-child {
@@ -395,10 +365,8 @@
   }
   .card {
     width: calc(100% - 1rem);
+    height: auto;
     min-height: 0;
-  }
-  .contextPanel {
-    display: none;
   }
   .verifyPanel {
     padding: 1.5rem 1rem;

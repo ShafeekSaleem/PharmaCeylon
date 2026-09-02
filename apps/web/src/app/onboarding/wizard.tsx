@@ -1015,6 +1015,7 @@ function PhoneField({
           onChange={onCodeChange}
           options={PHONE_CODE_OPTIONS}
           className={styles.phoneCode}
+          wideMenu
         />
         <input
           aria-label={label}

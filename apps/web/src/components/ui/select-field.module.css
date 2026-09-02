@@ -117,6 +117,17 @@
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
 }
 
+.menuWide {
+  right: auto;
+  width: max-content;
+  min-width: 260px;
+  max-width: min(320px, calc(100vw - 2rem));
+}
+
+.menuWide .option > span {
+  white-space: nowrap;
+}
+
 .option {
   display: flex;
   align-items: center;

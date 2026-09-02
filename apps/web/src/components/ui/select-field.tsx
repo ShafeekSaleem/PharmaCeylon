@@ -24,6 +24,7 @@ export type SelectFieldProps = {
   id?: string;
   hideLabel?: boolean;
   ariaLabel?: string;
+  wideMenu?: boolean;
 };
 
 /**
@@ -45,6 +46,7 @@ export function SelectField({
   id,
   hideLabel = false,
   ariaLabel,
+  wideMenu = false,
 }: SelectFieldProps) {
   const autoId = useId();
   const fieldId = id ?? autoId;
@@ -154,7 +156,7 @@ export function SelectField({
         </button>
         {open && !disabled ? (
           <ul
-            className={styles.menu}
+            className={`${styles.menu}${wideMenu ? ` ${styles.menuWide}` : ""}`}
             role="listbox"
             aria-labelledby={fieldId}
             ref={listRef}
