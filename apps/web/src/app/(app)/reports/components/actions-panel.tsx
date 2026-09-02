@@ -13,14 +13,18 @@ export type ActionPanelItem = {
   tone: "primary" | "warning" | "danger" | "purple" | "muted";
   title: string;
   description: string;
-  count: number;
-  countLabel: string;
+  /** `count`/`countLabel` are optional — omit both for an insight with no natural number to
+   *  show; the badge then renders as a plain chevron affordance instead of `{count} {countLabel}`. */
+  count?: number;
+  countLabel?: string;
   /** Overrides the `{count} {countLabel}` chip with a literal pre-formatted string (e.g. a money
-   *  value like "LKR 212,450") — `count`/`countLabel` are still required for callers that don't
-   *  need this, so every existing usage renders unchanged. */
+   *  value like "LKR 212,450"). */
   countText?: string;
   /** Up to a few concrete examples shown as chips under the row — only used in `variant="cards"`. */
   examples?: ActionExample[];
+  /** Small inline disclosure next to the title — e.g. a "Sample" tag for placeholder content
+   *  that isn't computed from real data yet, matching the app's existing "Sample" badge pattern. */
+  badge?: ReactNode;
   onClick?: () => void;
   /** When set (with `onClick`), replaces the numeric count on the right of a `variant="rows"` item
    * with a colored text CTA button instead — e.g. "View target gaps" — for alert-style action lists. */
@@ -39,9 +43,24 @@ type Props = {
    * doesn't grow the card past its siblings. Defaults to 4 — set a higher number to opt out in
    * practice for panels that are always short. */
   pageSize?: number;
+  /** Customizes the "View all insights" footer button text — e.g. "Open purchasing →" when it
+   * navigates somewhere more specific than a generic insights list. */
+  viewAllLabel?: string;
+  /** Extra header-right content shown alongside (or instead of) the "View all" button — e.g. a
+   *  "Sample" badge plus a "Not connected" note for a not-yet-wired preview panel. */
+  headerExtra?: ReactNode;
 };
 
-export function ActionsPanel({ title, items, onViewAll, primaryAction, variant = "rows", pageSize = 4 }: Props) {
+export function ActionsPanel({
+  title,
+  items,
+  onViewAll,
+  primaryAction,
+  variant = "rows",
+  pageSize = 4,
+  viewAllLabel = "View all insights",
+  headerExtra,
+}: Props) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const clampedPage = Math.min(page, totalPages);
@@ -58,9 +77,10 @@ export function ActionsPanel({ title, items, onViewAll, primaryAction, variant =
         <div>
           <h3>{title}</h3>
         </div>
+        {headerExtra}
         {onViewAll ? (
           <button type="button" className={css.cardLink} onClick={onViewAll}>
-            View all insights <IconChevronRight size={13} />
+            {viewAllLabel} <IconChevronRight size={13} />
           </button>
         ) : null}
       </div>
@@ -75,11 +95,12 @@ export function ActionsPanel({ title, items, onViewAll, primaryAction, variant =
                 <span className={`${css.actionIconSq} ${css[item.tone]}`}>{item.icon}</span>
                 <span className={css.actionBody}>
                   <span className={css.actionTitle}>{item.title}</span>
+                  {item.badge}
                   <br />
                   <span className={css.actionDesc}>{item.description}</span>
                 </span>
                 <span className={`${css.insightCountPill} ${css[item.tone]}`}>
-                  {item.countText ?? `${item.count} ${item.countLabel}`}
+                  {item.countText ?? (item.count != null && item.countLabel ? `${item.count} ${item.countLabel}` : null)}
                   <IconChevronRight size={12} />
                 </span>
               </button>
@@ -114,6 +135,7 @@ export function ActionsPanel({ title, items, onViewAll, primaryAction, variant =
               <span className={`${css.actionIconSq} ${css[item.tone]}`}>{item.icon}</span>
               <span className={css.actionBody}>
                 <span className={css.actionTitle}>{item.title}</span>
+                  {item.badge}
                 <br />
                 <span className={css.actionDesc}>{item.description}</span>
               </span>
@@ -124,11 +146,13 @@ export function ActionsPanel({ title, items, onViewAll, primaryAction, variant =
                 </span>
               ) : item.countText ? (
                 <span className={css.actionCount}>{item.countText}</span>
-              ) : (
+              ) : item.count != null ? (
                 <span className={css.actionCount}>
                   {item.count}
                   <small>{item.countLabel}</small>
                 </span>
+              ) : (
+                <IconChevronRight size={13} />
               )}
             </button>
           ))}

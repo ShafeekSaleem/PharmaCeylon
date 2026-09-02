@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { IconCreditCard } from "@/components/icons";
+import { withBranch } from "@/lib/api-branch";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { DashboardPanel } from "./dashboard-panel";
@@ -22,12 +23,6 @@ type Props = {
   /** When set, payment mix filters to this branch; omit for tenant-wide. */
   analyticsBranchId?: string | null;
 };
-
-function withBranch(path: string, branchId: string | null | undefined): string {
-  if (!branchId) return path;
-  const qs = `branchId=${encodeURIComponent(branchId)}`;
-  return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
-}
 
 export function CashFlowPanel({ analyticsBranchId = null }: Props) {
   const [mixPeriod, setMixPeriod] = useState<MixPeriod>("this_month");
@@ -99,8 +94,19 @@ export function CashFlowPanel({ analyticsBranchId = null }: Props) {
       title="Cash Flow & Payments"
       compact
       className={css.splitPanel}
-      footerHref="/reports"
+      footerHref="/reports?category=sales&report=payment-methods"
       footerLabel="View details →"
+      footerMeta={
+        leader ? (
+          <span className={css.footfallFooterMeta}>
+            <span className={css.footfallPeakPill}>
+              <IconCreditCard size={11} strokeWidth={2.5} aria-hidden />
+              {leader.label} leads
+            </span>
+            <span className={css.muted}>{leader.pct.toFixed(0)}% of {periodLabel.toLowerCase()}&apos;s tenders</span>
+          </span>
+        ) : undefined
+      }
     >
       <div className={css.cashFlowBody}>
         <div className={css.subHeadingRow}>
@@ -117,23 +123,12 @@ export function CashFlowPanel({ analyticsBranchId = null }: Props) {
         ) : slices.length === 0 ? (
           <p className={css.emptyState}>No tender data for this period.</p>
         ) : (
-          <>
-            <SimpleDonutChart
-              slices={slices}
-              centerValue={centerValue}
-              centerLabel={periodLabel}
-              legendBeside
-            />
-            {leader ? (
-              <p className={css.footfallFooterMeta}>
-                <span className={css.footfallPeakPill}>
-                  <IconCreditCard size={11} strokeWidth={2.5} aria-hidden />
-                  {leader.label} leads
-                </span>
-                <span className={css.muted}>{leader.pct.toFixed(0)}% of {periodLabel.toLowerCase()}&apos;s tenders</span>
-              </p>
-            ) : null}
-          </>
+          <SimpleDonutChart
+            slices={slices}
+            centerValue={centerValue}
+            centerLabel={periodLabel}
+            legendBeside
+          />
         )}
       </div>
     </DashboardPanel>

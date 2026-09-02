@@ -14,6 +14,7 @@ import {
 import { apiJson } from "@/lib/auth-client";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import { useProductDetailUrl } from "../hooks/use-product-detail-url";
 import { useProductMeta } from "../hooks/use-product-meta";
 import { useProductMetaMutations } from "../hooks/use-product-meta-mutations";
@@ -21,7 +22,7 @@ import { useProductMutations } from "../hooks/use-product-mutations";
 import detailCss from "../product-detail.module.css";
 import listCss from "../products.module.css";
 import type { ProductDetail, ProductDetailTab } from "../types";
-import { hasDeleteAccess, hasWriteAccess } from "../utils";
+import { hasWriteAccess } from "../utils";
 import { productOperationalLinks } from "../utils/product-routes";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ProductBranchNotice } from "./product-branch-notice";
@@ -58,8 +59,10 @@ function tabCount(detail: ProductDetail | null, key?: string): number | undefine
 export function ProductDetailPage({ productId }: { productId: string }) {
   const router = useRouter();
   const { user, branchId } = useAuth();
+  const { permissionKeys } = usePermissions();
   const canWrite = hasWriteAccess(user, branchId);
-  const canDelete = hasDeleteAccess(user, branchId);
+  const canDeleteProduct = hasPermission(permissionKeys, ["products.delete"]);
+  const canDeleteMeta = hasPermission(permissionKeys, ["product_meta.delete"]);
   const { setLastSegmentLabel, setExtraCrumbs } = usePageChrome();
   const { tab, setTab, returnTo } = useProductDetailUrl(productId);
   const { categories, tags, refresh: refreshMeta } = useProductMeta();
@@ -142,7 +145,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
               product={product}
               detail={detail}
               canWrite={canWrite}
-              canDelete={canDelete}
+              canDelete={canDeleteProduct}
               onEdit={() => mutations.openEdit(product)}
               onDelete={() => mutations.openDelete(product)}
               onImageChanged={() => void reloadDetail()}
@@ -216,7 +219,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
       <ProductMetaManagerModal
         open={metaManagerOpen}
         canWrite={canWrite}
-        canDelete={canDelete}
+        canDelete={canDeleteMeta}
         categories={categories}
         tags={tags}
         onClose={() => setMetaManagerOpen(false)}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { withBranch } from "@/lib/api-branch";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import {
@@ -40,12 +41,6 @@ const MONTH_OPTIONS = [
   { value: "this_month", label: "This month" },
   { value: "last_month", label: "Last month" },
 ] as const;
-
-function withBranch(path: string, branchId: string | null | undefined): string {
-  if (!branchId) return path;
-  const qs = `branchId=${encodeURIComponent(branchId)}`;
-  return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
-}
 
 export function BusinessOverviewPanel({
   title = "Business Overview",
@@ -164,7 +159,13 @@ export function BusinessOverviewPanel({
   const canCompare = prevRevenue != null && prevPurchases != null;
 
   return (
-    <DashboardPanel title={title} compact className={css.splitPanel}>
+    <DashboardPanel
+      title={title}
+      compact
+      className={css.splitPanel}
+      footerHref="/reports?category=sales&report=sales-summary"
+      footerLabel="View sales report →"
+    >
       <div className={css.overviewGrid}>
         <div className={css.overviewChartsCol}>
           <div className={css.overviewChartsPair}>

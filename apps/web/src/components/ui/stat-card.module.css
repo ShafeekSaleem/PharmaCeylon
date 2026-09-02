@@ -1,7 +1,7 @@
 .card {
   background: var(--pc-card-bg);
   border: 1px solid color-mix(in srgb, var(--pc-border) 90%, transparent);
-  border-radius: 10px;
+  border-radius: var(--pc-radius-sm);
   padding: 0.7rem 0.75rem 0.65rem;
   display: flex;
   flex-direction: column;
@@ -86,8 +86,8 @@
 }
 
 .icon_success {
-  background: color-mix(in srgb, var(--pc-alert-success-text, #16a34a) 12%, transparent);
-  color: var(--pc-alert-success-text, #16a34a);
+  background: color-mix(in srgb, var(--pc-alert-success-text) 12%, transparent);
+  color: var(--pc-alert-success-text);
 }
 
 .icon_warning {
@@ -257,7 +257,7 @@
   font-weight: 500;
   line-height: 1.25;
   padding: 0.45rem 0.55rem;
-  border-radius: 6px;
+  border-radius: var(--pc-radius-sm);
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;

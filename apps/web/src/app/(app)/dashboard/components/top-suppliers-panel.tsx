@@ -7,7 +7,11 @@ import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { StatusBadge } from "@/components/ui";
 import { DashboardPanel } from "./dashboard-panel";
+import { PaginationControls } from "./pagination-controls";
+import { paginate } from "../lib/paginate";
 import css from "../dashboard.module.css";
+
+const SUPPLIERS_PAGE_SIZE = 3;
 
 type SupplierSpendResponse = {
   suppliers: Array<{
@@ -23,14 +27,22 @@ type SupplierSpendResponse = {
   totalOverduePos: number;
 };
 
-export function TopSuppliersPanel() {
+type Props = {
+  /** Owner (has reports access) routes to the Supplier Performance report; inventory clerk
+   * (no reports access) keeps the default operational suppliers page. */
+  footerHref?: string;
+  footerLabel?: string;
+};
+
+export function TopSuppliersPanel({ footerHref = "/suppliers", footerLabel = "Open suppliers →" }: Props) {
   const [data, setData] = useState<SupplierSpendResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void apiJson<SupplierSpendResponse>("/analytics/supplier-spend-summary?limit=6")
+    void apiJson<SupplierSpendResponse>("/analytics/supplier-spend-summary?limit=18")
       .then((res) => {
         if (!cancelled) setData(res);
       })
@@ -51,8 +63,8 @@ export function TopSuppliersPanel() {
       subtitle="By outstanding payable"
       icon={<IconTruck size={15} />}
       compact
-      footerHref="/suppliers"
-      footerLabel="Open suppliers →"
+      footerHref={footerHref}
+      footerLabel={footerLabel}
       footerMeta={
         data
           ? `${formatMoney(data.totalOutstanding)} across ${data.totalSuppliers} supplier${data.totalSuppliers === 1 ? "" : "s"}`
@@ -64,31 +76,42 @@ export function TopSuppliersPanel() {
       ) : !data || data.suppliers.length === 0 ? (
         <p className={css.emptyState}>No open supplier balances.</p>
       ) : (
-        <ul className={css.pipelineList}>
-          {data.suppliers.map((s) => (
-            <li key={s.supplierId}>
-              <Link href={`/suppliers?supplier=${encodeURIComponent(s.supplierId)}`}>
-                <span className={`${css.pipelineIcon} ${css.pipelineIcon_po}`} aria-hidden>
-                  <IconTruck size={14} strokeWidth={1.75} />
-                </span>
-                <span className={css.pipelineRowBody}>
-                  <strong>{s.name}</strong>
-                  <span className={css.muted}>
-                    {s.code} · {s.invoiceCount} open invoice{s.invoiceCount === 1 ? "" : "s"}
+        <>
+          <ul className={css.pipelineList}>
+            {paginate(data.suppliers, page, SUPPLIERS_PAGE_SIZE).map((s) => (
+              <li key={s.supplierId}>
+                <Link href={`/suppliers?supplier=${encodeURIComponent(s.supplierId)}`}>
+                  <span className={`${css.pipelineIcon} ${css.pipelineIcon_po}`} aria-hidden>
+                    <IconTruck size={14} strokeWidth={1.75} />
                   </span>
-                  {s.overduePoCount > 0 ? (
-                    <StatusBadge
-                      status="overdue"
-                      label={`${s.overduePoCount} overdue PO${s.overduePoCount === 1 ? "" : "s"}`}
-                      variant="danger"
-                    />
-                  ) : null}
-                </span>
-                <span className={css.teamNum}>{formatMoney(s.outstanding)}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+                  <span className={css.pipelineRowBody}>
+                    <strong>{s.name}</strong>
+                    <span className={css.muted}>
+                      {s.code} · {s.invoiceCount} open invoice{s.invoiceCount === 1 ? "" : "s"}
+                    </span>
+                    {s.overduePoCount > 0 ? (
+                      <StatusBadge
+                        status="overdue"
+                        label={`${s.overduePoCount} overdue PO${s.overduePoCount === 1 ? "" : "s"}`}
+                        variant="danger"
+                      />
+                    ) : null}
+                  </span>
+                  <span className={css.teamNum}>{formatMoney(s.outstanding)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <PaginationControls
+            page={page}
+            pageCount={Math.max(1, Math.ceil(data.suppliers.length / SUPPLIERS_PAGE_SIZE))}
+            onPrev={() => setPage((p) => Math.max(0, p - 1))}
+            onNext={() =>
+              setPage((p) => Math.min(Math.ceil(data.suppliers.length / SUPPLIERS_PAGE_SIZE) - 1, p + 1))
+            }
+            rangeLabel={`${page * SUPPLIERS_PAGE_SIZE + 1}–${Math.min(data.suppliers.length, (page + 1) * SUPPLIERS_PAGE_SIZE)} of ${data.suppliers.length}`}
+          />
+        </>
       )}
     </DashboardPanel>
   );

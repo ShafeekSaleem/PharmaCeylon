@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/auth-client";
 import { parseApiError } from "@/lib/api-error";
-import { COLUMN_META, COLUMN_STORAGE_KEY, DEFAULT_VISIBLE, DELETE_ROLES, WRITE_ROLES } from "./constants";
+import { COLUMN_META, COLUMN_STORAGE_KEY, DEFAULT_VISIBLE, WRITE_ROLES } from "./constants";
 import type { ColumnKey, Product, ProductForm } from "./types";
 
 /**
@@ -21,24 +21,6 @@ export function hasWriteAccess(
     ? user.branchRoles.filter((br) => br.branchId === branchId)
     : user.branchRoles;
   return scoped.some((br) => WRITE_ROLES.has(br.role));
-}
-
-/**
- * Products/categories/tags DELETE endpoints are owner/manager only on the API
- * (inventory_clerk can create/edit but not delete). Use this — not
- * `hasWriteAccess` — to gate delete actions so the UI doesn't offer a control
- * that the API will reject with 403.
- */
-export function hasDeleteAccess(
-  user: { branchRoles: { branchId: string; role: string }[] } | null,
-  branchId?: string | null,
-): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => DELETE_ROLES.has(br.role));
 }
 
 export function formToBody(form: ProductForm, isEdit: boolean) {

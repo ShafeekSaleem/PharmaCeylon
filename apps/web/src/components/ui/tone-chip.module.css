@@ -1,0 +1,33 @@
+/** Shared soft-tint tone palette for status/category chips — the single source of truth for
+ *  the "teal/emerald/amber/sky/rose" chip colors that catalog and products pages both need
+ *  (previously two byte-for-byte identical copies of this block, one per page). */
+
+.tealTone {
+  background: color-mix(in srgb, var(--pc-primary) 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
+  color: color-mix(in srgb, var(--pc-primary) 85%, #0f172a);
+}
+
+.emeraldTone {
+  background: color-mix(in srgb, #059669 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #059669 30%, var(--pc-border));
+  color: #047857;
+}
+
+.amberTone {
+  background: color-mix(in srgb, #d97706 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #d97706 32%, var(--pc-border));
+  color: #b45309;
+}
+
+.skyTone {
+  background: color-mix(in srgb, #0284c7 13%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #0284c7 28%, var(--pc-border));
+  color: #0369a1;
+}
+
+.roseTone {
+  background: color-mix(in srgb, #e11d48 11%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, #e11d48 26%, var(--pc-border));
+  color: #be123c;
+}

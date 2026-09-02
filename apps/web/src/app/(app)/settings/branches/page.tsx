@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/use-auth";
 import css from "../settings.module.css";
 import { fetchAllBranches } from "./api";
 import { BranchFormModal } from "./components/branch-form-modal";
+import { BranchTargetsSection } from "./components/branch-targets-section";
 import type { Branch } from "./types";
 
 export default function BranchesPage() {
@@ -152,6 +153,12 @@ export default function BranchesPage() {
           <IconMapPin size={12} /> Only the owner can add new branches. Managers can edit branches
           they&apos;re assigned to as manager.
         </p>
+      ) : null}
+
+      {isOwner ? (
+        <div style={{ marginTop: "1.5rem" }}>
+          <BranchTargetsSection />
+        </div>
       ) : null}
 
       <BranchFormModal

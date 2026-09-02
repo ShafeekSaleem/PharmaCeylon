@@ -69,6 +69,9 @@ export function useProductsList(
   const [summaryFacets, setSummaryFacets] = useState<SummaryFacets | null>(null);
   const [filterFacets, setFilterFacets] = useState<FilterFacets | null>(null);
   const [totalAll, setTotalAll] = useState<number | null>(null);
+  /** Secondary data (stat tiles, filter facets) — decorative, so a failure here doesn't block
+   *  the main product list, but it shouldn't be silently invisible either. */
+  const [secondaryError, setSecondaryError] = useState<string | null>(null);
 
   const fetchProducts = useCallback(() => {
     let cancelled = false;
@@ -101,18 +104,27 @@ export function useProductsList(
 
   const refreshStats = useCallback(() => {
     apiJson<SummaryFacets>("/catalog/facets?status=all")
-      .then(setSummaryFacets)
-      .catch(() => {});
+      .then((d) => {
+        setSummaryFacets(d);
+        setSecondaryError(null);
+      })
+      .catch(() => setSecondaryError("Couldn't load the summary stat tiles."));
     apiJson<ProductList>("/products?take=0&status=all")
-      .then((d) => setTotalAll(d.total))
-      .catch(() => {});
+      .then((d) => {
+        setTotalAll(d.total);
+        setSecondaryError(null);
+      })
+      .catch(() => setSecondaryError("Couldn't load the summary stat tiles."));
   }, []);
 
   const fetchFilterFacets = useCallback(() => {
     const params = buildFacetsParams(appliedFilters, debouncedQ);
     apiJson<FilterFacets>(`/catalog/facets?${params}`)
-      .then(setFilterFacets)
-      .catch(() => {});
+      .then((d) => {
+        setFilterFacets(d);
+        setSecondaryError(null);
+      })
+      .catch(() => setSecondaryError("Couldn't load filter options — some facets may be missing."));
   }, [appliedFilters, debouncedQ]);
 
   useEffect(() => {
@@ -166,6 +178,7 @@ export function useProductsList(
     total,
     loading,
     listError,
+    secondaryError,
     summaryFacets,
     filterFacets,
     totalAll,

@@ -1,16 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { useRoleAccess } from "@/lib/use-role-access";
+import { AddWidgetDrawer } from "./components/add-widget-drawer";
 import { DashboardHeader } from "./components/dashboard-header";
 import { useDashboardData } from "./hooks/use-dashboard-data";
+import { useDashboardLayout } from "./hooks/use-dashboard-layout";
 import { resolvePrimaryDashboardRole } from "./lib/dashboard-role";
 import { CashierDashboard } from "./roles/cashier-dashboard";
 import { InventoryClerkDashboard } from "./roles/inventory-clerk-dashboard";
 import { ManagerDashboard } from "./roles/manager-dashboard";
 import { OwnerDashboard } from "./roles/owner-dashboard";
 import { PharmacistDashboard } from "./roles/pharmacist-dashboard";
+import { catalogForRole } from "./widgets/registry";
 import css from "./dashboard.module.css";
 
 export default function DashboardPage() {
@@ -19,6 +22,11 @@ export default function DashboardPage() {
   const viewRole = useMemo(() => resolvePrimaryDashboardRole(userRoles), [userRoles]);
   const isOwner = viewRole === "owner";
   const ownerThisBranch = isOwner && data.ownerScope === "this_branch";
+
+  const catalog = useMemo(() => catalogForRole(viewRole), [viewRole]);
+  const layout = useDashboardLayout(viewRole, catalog);
+  const [addWidgetOpen, setAddWidgetOpen] = useState(false);
+  const activeKeys = useMemo(() => new Set(layout.layout.map((w) => w.key)), [layout.layout]);
 
   return (
     <div className={css.page}>
@@ -37,6 +45,16 @@ export default function DashboardPage() {
               : "Overview metrics cover every branch. Shell branch still applies to operational pages (POS, inventory)."
             : "Active branch — switch in the app header"
         }
+        customize={{
+          isEditing: layout.isEditing,
+          onToggleEdit: () => layout.setIsEditing(true),
+          onOpenAddWidget: () => setAddWidgetOpen(true),
+          onSave: () => void layout.save(),
+          onDiscard: layout.discard,
+          onResetToDefault: () => void layout.resetToDefault(),
+          isDirty: layout.isDirty,
+          saving: layout.saving,
+        }}
       />
 
       {!data.branchId ? (
@@ -45,17 +63,41 @@ export default function DashboardPage() {
 
       {data.error ? <Alert variant="error">{data.error}</Alert> : null}
 
+      {data.failedSections.size > 0 ? (
+        <Alert variant="warning">
+          Couldn&apos;t load: {Array.from(data.failedSections).join(", ")}. The figures below may be
+          incomplete —{" "}
+          <button type="button" className={css.inlineLinkBtn} onClick={() => void data.reload()}>
+            try refreshing
+          </button>
+          .
+        </Alert>
+      ) : null}
+
       {data.loading && data.branchId ? (
         <p className={css.muted} role="status" aria-live="polite">
           Loading dashboard metrics…
         </p>
       ) : null}
 
-      {viewRole === "owner" ? <OwnerDashboard data={data} /> : null}
-      {viewRole === "manager" ? <ManagerDashboard data={data} /> : null}
-      {viewRole === "pharmacist" ? <PharmacistDashboard data={data} /> : null}
-      {viewRole === "cashier" ? <CashierDashboard data={data} /> : null}
-      {viewRole === "inventory_clerk" ? <InventoryClerkDashboard data={data} /> : null}
+      {viewRole === "owner" ? <OwnerDashboard data={data} catalog={catalog} layout={layout} /> : null}
+      {viewRole === "manager" ? <ManagerDashboard data={data} catalog={catalog} layout={layout} /> : null}
+      {viewRole === "pharmacist" ? <PharmacistDashboard data={data} catalog={catalog} layout={layout} /> : null}
+      {viewRole === "cashier" ? <CashierDashboard data={data} catalog={catalog} layout={layout} /> : null}
+      {viewRole === "inventory_clerk" ? (
+        <InventoryClerkDashboard data={data} catalog={catalog} layout={layout} />
+      ) : null}
+
+      <AddWidgetDrawer
+        open={addWidgetOpen}
+        onClose={() => setAddWidgetOpen(false)}
+        catalog={catalog}
+        activeKeys={activeKeys}
+        onAdd={(key) => {
+          layout.addWidget(key);
+          setAddWidgetOpen(false);
+        }}
+      />
     </div>
   );
 }

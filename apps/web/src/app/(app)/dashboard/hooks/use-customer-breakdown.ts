@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { withBranch } from "@/lib/api-branch";
 import { apiJson } from "@/lib/auth-client";
 
 export type CustomerBreakdown = {
@@ -10,12 +11,6 @@ export type CustomerBreakdown = {
   newCustomers: number;
   repeatCustomers: number;
 };
-
-function withBranch(path: string, branchId: string | null | undefined): string {
-  if (!branchId) return path;
-  const qs = `branchId=${encodeURIComponent(branchId)}`;
-  return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
-}
 
 /** Today's counter footfall split by identity (walk-in/registered) and, within
  * registered, by behavior (new/repeat) — see /analytics/customer-breakdown. */

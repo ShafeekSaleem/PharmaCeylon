@@ -84,6 +84,9 @@ export default function MyProfilePage() {
       {error ? <Alert variant="error">{error}</Alert> : null}
       {saved ? <Alert variant="success">Profile saved.</Alert> : null}
 
+      {loading || !profile ? (
+        <p className={css.rowHint}>Loading…</p>
+      ) : (
       <div className={css.card}>
         <div className={css.avatarRow}>
           <ImageUpload
@@ -160,6 +163,7 @@ export default function MyProfilePage() {
           </ActionButton>
         </div>
       </div>
+      )}
     </div>
   );
 }

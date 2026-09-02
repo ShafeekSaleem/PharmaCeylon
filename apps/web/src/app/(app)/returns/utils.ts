@@ -1,4 +1,5 @@
 import type { AuthUser } from "@/lib/auth-types";
+import { hasPermission } from "@/lib/permissions";
 import {
   formatDate,
   formatDateTime,
@@ -10,7 +11,6 @@ import {
   todayIsoDate,
 } from "../purchasing/utils";
 import {
-  APPROVE_ROLES,
   WRITE_ROLES,
   type GoodsReturnStatus,
   type GoodsReturnStatusFilter,
@@ -42,16 +42,8 @@ export function hasReturnWriteAccess(
   return scoped.some((br) => WRITE_ROLES.has(br.role));
 }
 
-export function canApproveReturn(
-  user: AuthUser | null,
-  branchId?: string | null,
-): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => APPROVE_ROLES.has(br.role));
+export function canApproveReturn(permissionKeys: string[]): boolean {
+  return hasPermission(permissionKeys, ["returns.approve"]);
 }
 
 export function formatReturnNo(row: Pick<ReturnListItem, "returnNumber" | "id">): string {
@@ -137,13 +129,14 @@ export function canCancel(status: GoodsReturnStatus): boolean {
 export function canCancelReturn(
   user: AuthUser | null,
   row: Pick<ReturnListItem, "requestedBy" | "status" | "branchId">,
-  branchId?: string | null,
+  branchId: string | null | undefined,
+  permissionKeys: string[],
 ): boolean {
   if (!user) return false;
   if (!canCancel(row.status)) return false;
   if (branchId && row.branchId !== branchId) return false;
   if (user.id === row.requestedBy) return true;
-  return canApproveReturn(user, branchId ?? row.branchId);
+  return canApproveReturn(permissionKeys);
 }
 
 export function amountNumber(value: string | number | null | undefined): number {

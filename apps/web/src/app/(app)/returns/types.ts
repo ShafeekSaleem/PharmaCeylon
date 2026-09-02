@@ -126,4 +126,3 @@ export const WRITE_ROLES = new Set([
   "pharmacist",
   "inventory_clerk",
 ]);
-export const APPROVE_ROLES = new Set(["owner", "manager"]);

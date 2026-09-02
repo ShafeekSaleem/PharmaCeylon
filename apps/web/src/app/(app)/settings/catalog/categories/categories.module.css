@@ -127,7 +127,7 @@
 }
 
 .row:hover {
-  background: var(--pc-hover-bg, rgba(127, 127, 127, 0.06));
+  background: var(--pc-hover-overlay);
 }
 
 .rowDept {
@@ -136,7 +136,7 @@
 }
 
 .rowDept:hover {
-  background: color-mix(in srgb, var(--pc-muted-bg) 70%, var(--pc-hover-bg, rgba(127, 127, 127, 0.06)));
+  background: color-mix(in srgb, var(--pc-muted-bg) 70%, var(--pc-hover-overlay));
 }
 
 .rowDept .rowNameText {
@@ -238,7 +238,7 @@
 }
 
 .iconBtn:hover {
-  background: var(--pc-hover-bg, rgba(127, 127, 127, 0.1));
+  background: var(--pc-hover-overlay);
   color: var(--pc-foreground);
 }
 

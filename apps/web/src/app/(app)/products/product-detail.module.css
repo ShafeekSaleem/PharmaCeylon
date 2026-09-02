@@ -288,18 +288,18 @@
 }
 
 .stockKpiIcon_success {
-  background: color-mix(in srgb, var(--pc-alert-success-text, #16a34a) 12%, transparent);
-  color: var(--pc-alert-success-text, #16a34a);
+  background: color-mix(in srgb, var(--pc-alert-success-text) 12%, transparent);
+  color: var(--pc-alert-success-text);
 }
 
 .stockKpiIcon_warning {
-  background: color-mix(in srgb, var(--pc-warning, #d97706) 12%, transparent);
-  color: var(--pc-warning, #d97706);
+  background: color-mix(in srgb, var(--pc-warning) 12%, transparent);
+  color: var(--pc-warning);
 }
 
 .stockKpiIcon_danger {
-  background: color-mix(in srgb, var(--pc-destructive, #dc2626) 12%, transparent);
-  color: var(--pc-destructive, #dc2626);
+  background: color-mix(in srgb, var(--pc-destructive) 12%, transparent);
+  color: var(--pc-destructive);
 }
 
 .stockKpiIcon_info {
@@ -384,11 +384,11 @@
 }
 
 .expirySub.expiry_warn {
-  color: var(--pc-warning, #d97706);
+  color: var(--pc-warning);
 }
 
 .expirySub.expiry_danger {
-  color: var(--pc-destructive, #dc2626);
+  color: var(--pc-destructive);
 }
 
 .expirySub.expiry_ok {
@@ -396,12 +396,12 @@
 }
 
 .qtyPositive {
-  color: var(--pc-alert-success-text, #16a34a);
+  color: var(--pc-alert-success-text);
   font-variant-numeric: tabular-nums;
 }
 
 .qtyNegative {
-  color: var(--pc-destructive, #dc2626);
+  color: var(--pc-destructive);
   font-variant-numeric: tabular-nums;
 }
 
@@ -598,18 +598,18 @@
 }
 
 .historyActivityIcon_success {
-  background: color-mix(in srgb, var(--pc-success, #16a34a) 12%, transparent);
-  color: var(--pc-success, #16a34a);
+  background: color-mix(in srgb, var(--pc-success) 12%, transparent);
+  color: var(--pc-success);
 }
 
 .historyActivityIcon_warning {
-  background: color-mix(in srgb, var(--pc-warning, #d97706) 12%, transparent);
-  color: var(--pc-warning, #d97706);
+  background: color-mix(in srgb, var(--pc-warning) 12%, transparent);
+  color: var(--pc-warning);
 }
 
 .historyActivityIcon_danger {
-  background: color-mix(in srgb, var(--pc-destructive, #dc2626) 12%, transparent);
-  color: var(--pc-destructive, #dc2626);
+  background: color-mix(in srgb, var(--pc-destructive) 12%, transparent);
+  color: var(--pc-destructive);
 }
 
 .historyActivityIcon_info {
@@ -2319,7 +2319,7 @@
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  background: rgba(15, 23, 42, 0.55);
+  background: var(--pc-overlay-scrim);
   backdrop-filter: blur(2px);
 }
 

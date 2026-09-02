@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { IconActivity } from "@/components/icons";
+import { withBranch } from "@/lib/api-branch";
 import { apiJson } from "@/lib/auth-client";
 import { DashboardPanel } from "./dashboard-panel";
 import { PeriodToggle } from "./period-toggle";
@@ -25,12 +26,6 @@ const PERIOD_OPTIONS = [
   { value: "today", label: "Today" },
   { value: "week", label: "This week" },
 ] as const;
-
-function withBranch(path: string, branchId: string | null | undefined): string {
-  if (!branchId) return path;
-  const qs = `branchId=${encodeURIComponent(branchId)}`;
-  return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
-}
 
 type Props = {
   branchId?: string | null;
@@ -72,6 +67,8 @@ export function FootfallPanel({ branchId, title = "Footfall" }: Props) {
     <DashboardPanel
       title={title}
       compact
+      footerHref="/reports?category=sales&report=sales-summary"
+      footerLabel="View sales report →"
       headerRight={
         <PeriodToggle
           aria-label="Footfall period"

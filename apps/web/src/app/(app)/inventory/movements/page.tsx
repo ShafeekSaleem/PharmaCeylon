@@ -210,6 +210,7 @@ function MovementsContent() {
               <p>
                 <RoleButton
                   roles={INVENTORY_WRITE_ROLES}
+                  permissions={["inventory.manage"]}
                   style={{
                     background: "none",
                     border: "none",

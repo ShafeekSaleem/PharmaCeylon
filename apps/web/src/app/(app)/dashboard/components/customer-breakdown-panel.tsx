@@ -73,7 +73,13 @@ export function CustomerBreakdownPanel({ branchId, title = "Today's Customer Bre
   const { data, loading } = useCustomerBreakdown(branchId);
 
   return (
-    <DashboardPanel title={title} compact icon={<IconUsers size={15} />}>
+    <DashboardPanel
+      title={title}
+      compact
+      icon={<IconUsers size={15} />}
+      footerHref="/pos"
+      footerLabel="Open POS →"
+    >
       {loading && !data ? (
         <p className={css.emptyState}>Loading customer breakdown…</p>
       ) : !data || data.total === 0 ? (

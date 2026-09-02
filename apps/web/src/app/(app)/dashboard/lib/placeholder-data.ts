@@ -2,79 +2,116 @@
 
 import { PAYMENT_MIX_COLORS } from "./payment-mix-colors";
 
+export type AiInsightExample = { label: string; badge?: string; tone?: "positive" | "negative" | "neutral" };
+
+/** Powers the `/insights` hub's category filter capsules. The first four intentionally reuse
+ *  the exact `CategoryKey` union from `reports/lib/nav-config.tsx` so report-sourced insights
+ *  need no translation; `operations`/`clinical` cover dashboard-only content with no report match. */
+export type AiInsightCategory = "sales" | "profitability" | "inventory" | "purchasing" | "operations" | "clinical";
+
 export type AiInsight = {
   id: string;
   title: string;
   detail: string;
   tone?: "info" | "warning" | "danger" | "success";
+  category: AiInsightCategory;
   href?: string;
   actionLabel?: string;
+  /** Numeric callout shown as a colored pill on the right — e.g. count=37, countLabel="SKUs". */
+  count?: number;
+  countLabel?: string;
+  /** Overrides the `{count} {countLabel}` pill with a literal pre-formatted string — e.g. a
+   *  report-sourced insight's already-formatted `countLabel` from the backend. */
+  countText?: string;
+  /** Up to a few concrete examples (product names, PO numbers, ...) shown as chips under the row. */
+  examples?: AiInsightExample[];
+  /** True for static example/filler content that isn't computed from the tenant's real data —
+   *  rendered with a "Sample" disclosure so it's never mistaken for a genuine live alert. */
+  sample?: boolean;
 };
 
 export const OWNER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "o1",
+    sample: true,
     title: "Reorder recommendation",
     detail: "SKUs projected to stock out based on recent sales velocity.",
     tone: "warning",
+    category: "inventory",
     href: "/purchasing",
   },
   {
     id: "o2",
+    sample: true,
     title: "Unusual sales pattern",
     detail: "Daypart / category spikes flagged against your recent baseline.",
     tone: "info",
+    category: "sales",
   },
   {
     id: "o3",
+    sample: true,
     title: "Margin warning",
     detail: "High-volume lines showing margin compression this period.",
     tone: "danger",
-    href: "/reports",
+    category: "profitability",
+    href: "/reports?category=profitability&report=margin-by-product",
   },
   {
     id: "o4",
+    sample: true,
     title: "Branch opportunity",
     detail: "Attach-rate gap between branches worth a closer look.",
     tone: "info",
+    category: "sales",
   },
   {
     id: "o5",
+    sample: true,
     title: "Cash flow note",
     detail: "Ageing receivables trending up — review credit tenders past due.",
     tone: "warning",
+    category: "operations",
   },
 ];
 
 export const MANAGER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "m1",
+    sample: true,
     title: "Staffing suggestion",
     detail: "Evening peak staffing looks light against typical footfall.",
     tone: "info",
+    category: "operations",
   },
   {
     id: "m2",
+    sample: true,
     title: "Replenishment insight",
     detail: "Low-stock SKUs may need PO attention before weekend demand.",
     tone: "success",
+    category: "inventory",
     href: "/purchasing",
     actionLabel: "Open purchasing",
   },
   {
     id: "m3",
+    sample: true,
     title: "Variance alert",
     detail: "Staff productivity trailing branch target pace this week.",
     tone: "warning",
-    href: "/reports",
+    category: "sales",
+    href: "/reports?category=sales&report=cashier-performance",
     actionLabel: "View reports",
   },
   {
     id: "m4",
+    sample: true,
     title: "Branch comparison",
     detail: "Peer branch benchmarking against your assigned target portfolio.",
     tone: "info",
-    href: "/reports",
+    category: "sales",
+    href: "/reports?category=sales&report=branch-sales",
     actionLabel: "View reports",
   },
 ];
@@ -82,22 +119,28 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
 export const PHARMACIST_AI_INSIGHTS: AiInsight[] = [
   {
     id: "p1",
+    sample: true,
     title: "Therapeutic alternative reminder",
     detail: "Check for lower-cost equivalents before dispensing high-cost lines.",
     tone: "info",
+    category: "clinical",
   },
   {
     id: "p2",
+    sample: true,
     title: "FEFO rotation tip",
     detail: "Prioritize picking near-expiry batches — see Batch & Expiry Monitor.",
     tone: "warning",
-    href: "/inventory/batches",
+    category: "inventory",
+    href: "/inventory/batches?nearExpiryDays=30",
   },
   {
     id: "p3",
+    sample: true,
     title: "Duplicate therapy reminder",
     detail: "Review a patient's active prescriptions for overlapping therapeutic classes before dispensing.",
     tone: "info",
+    category: "clinical",
   },
 ];
 
@@ -111,25 +154,31 @@ export const PLACEHOLDER_COUNSELING = [
 export const CASHIER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "c1",
+    sample: true,
     title: "Stock up fast mover",
     detail: "A few counter SKUs are running low — check before your next restock round.",
     tone: "warning",
+    category: "inventory",
     href: "/inventory?view=low",
     actionLabel: "View low stock",
   },
   {
     id: "c2",
+    sample: true,
     title: "Verify prescription-required items",
     detail: "Held carts waiting on pharmacist verification before checkout.",
     tone: "info",
+    category: "operations",
     href: "/pos",
     actionLabel: "Open POS",
   },
   {
     id: "c3",
+    sample: true,
     title: "Customer lookup adds value",
     detail: "Link walk-ins to a loyalty profile to enable refill reminders.",
     tone: "info",
+    category: "operations",
   },
 ];
 
@@ -143,25 +192,31 @@ export const PLACEHOLDER_CASHIER_QUEUE = [
 export const INVENTORY_AI_INSIGHTS: AiInsight[] = [
   {
     id: "i1",
+    sample: true,
     title: "FEFO rotation",
     detail: "Prioritize picking near-expiry batches on fast movers.",
     tone: "warning",
-    href: "/inventory/batches",
+    category: "inventory",
+    href: "/inventory/batches?nearExpiryDays=30",
     actionLabel: "Batches",
   },
   {
     id: "i2",
+    sample: true,
     title: "Dead stock candidate",
     detail: "Slow movers worth a return-to-supplier or promo push.",
     tone: "info",
-    href: "/inventory?view=low",
+    category: "inventory",
+    href: "/inventory",
     actionLabel: "Stock watch",
   },
   {
     id: "i3",
+    sample: true,
     title: "PO consolidation",
     detail: "Multiple open POs to the same supplier could be consolidated.",
     tone: "info",
+    category: "purchasing",
     href: "/purchasing",
     actionLabel: "Purchasing",
   },

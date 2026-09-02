@@ -276,6 +276,19 @@ export function useDashboardData() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  /** Higher-value sections whose fetch failed this reload — these panels fall back to an empty
+   *  value on error (so one bad endpoint doesn't blank the whole dashboard), but that fallback
+   *  is visually identical to "genuinely nothing here" unless something surfaces the failure.
+   *  Reset at the start of every `reload()`. */
+  const [failedSections, setFailedSections] = useState<Set<string>>(new Set());
+  const markSectionFailed = useCallback((label: string) => {
+    setFailedSections((prev) => {
+      if (prev.has(label)) return prev;
+      const next = new Set(prev);
+      next.add(label);
+      return next;
+    });
+  }, []);
 
   const canViewAnalyticsWide = canAccess(["owner", "manager"]);
   const isOwner = userRoles.includes("owner");
@@ -333,11 +346,13 @@ export function useDashboardData() {
       setDeadStockCount(null);
       setLoading(false);
       setError(null);
+      setFailedSections(new Set());
       return;
     }
 
     setLoading(true);
     setError(null);
+    setFailedSections(new Set());
 
     try {
       const tasks: Promise<void>[] = [
@@ -539,16 +554,23 @@ export function useDashboardData() {
             .catch(() => {
               setBranchPerformance([]);
               setBranchPerfYearMonth(null);
+              markSectionFailed("Branch Performance");
             }),
           apiJson<FinancialSnapshot>(scoped("/analytics/financial-snapshot"))
             .then(setFinancial)
-            .catch(() => setFinancial(null)),
+            .catch(() => {
+              setFinancial(null);
+              markSectionFailed("Financial Snapshot");
+            }),
           apiJson<SalesPulse>(scoped("/analytics/sales-pulse"))
             .then(setSalesPulse)
             .catch(() => setSalesPulse(null)),
           apiJson<OpsSnapshot>(scoped("/analytics/ops-snapshot"))
             .then(setOpsSnapshot)
-            .catch(() => setOpsSnapshot(null)),
+            .catch(() => {
+              setOpsSnapshot(null);
+              markSectionFailed("Ops Snapshot");
+            }),
           apiJson<InventoryImprovement>(
             scoped("/analytics/inventory-improvement?days=7"),
           )
@@ -595,6 +617,7 @@ export function useDashboardData() {
     canViewReturns,
     canViewStocktakes,
     isOwner,
+    markSectionFailed,
     ownerScope,
   ]);
 
@@ -958,6 +981,8 @@ export function useDashboardData() {
       openPoListFull: openPos,
       pendingApprovalList: pendingApproval.slice(0, 6),
       pendingApprovalListFull: pendingApproval,
+      /** Overdue POs, unsliced-ish (top 6) — used for AI-insight example chips. */
+      overduePosListFull: overduePos.slice(0, 6),
       reorderCount: reorder?.items.length ?? 0,
       topReorder: reorder?.items.slice(0, 5) ?? [],
       /** Unsliced — for panels that paginate instead of truncating. */
@@ -1082,6 +1107,7 @@ export function useDashboardData() {
     branchId,
     loading,
     error,
+    failedSections,
     lastUpdatedAt,
     reload,
     inventory,

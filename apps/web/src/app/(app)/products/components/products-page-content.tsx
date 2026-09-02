@@ -26,6 +26,7 @@ import {
 } from "@/components/ui";
 import { getBranchId } from "@/lib/auth-session";
 import { useAuth } from "@/lib/use-auth";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import {
   COLUMN_META,
   COLUMN_STORAGE_KEY,
@@ -45,7 +46,6 @@ import type { ColumnKey, Product, StatFilter } from "../types";
 import {
   downloadProductsCsv,
   downloadProductsExportCsv,
-  hasDeleteAccess,
   hasWriteAccess,
   loadVisibleColumns,
 } from "../utils";
@@ -75,8 +75,10 @@ export function ProductsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, branchId } = useAuth();
+  const { permissionKeys } = usePermissions();
   const canWrite = hasWriteAccess(user, branchId);
-  const canDelete = hasDeleteAccess(user, branchId);
+  const canDeleteProduct = hasPermission(permissionKeys, ["products.delete"]);
+  const canDeleteMeta = hasPermission(permissionKeys, ["product_meta.delete"]);
   const hasBranch = !!getBranchId();
 
   const {
@@ -592,6 +594,11 @@ export function ProductsPageContent() {
             {list.listError}
           </Alert>
         )}
+        {list.secondaryError && (
+          <Alert variant="warning" className={css.listAlert}>
+            {list.secondaryError}
+          </Alert>
+        )}
         {exportError && (
           <Alert variant="error" className={css.listAlert}>
             {exportError}
@@ -615,7 +622,7 @@ export function ProductsPageContent() {
           sortDir={sortDir}
           visibleColumns={visibleColumns}
           canWrite={canWrite}
-          canDelete={canDelete}
+          canDelete={canDeleteProduct}
           onPageChange={setPage}
           onSort={handleServerSort}
           onRowClick={openProduct}
@@ -627,7 +634,7 @@ export function ProductsPageContent() {
       <ProductMetaManagerModal
         open={metaManagerOpen}
         canWrite={canWrite}
-        canDelete={canDelete}
+        canDelete={canDeleteMeta}
         categories={categories}
         tags={tags}
         onClose={() => setMetaManagerOpen(false)}

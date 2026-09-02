@@ -122,6 +122,7 @@ PAGE_TITLES["/inventory/batches"] = "Batch stock";
 PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
 PAGE_TITLES["/inventory/movements"] = "Stock movements";
 PAGE_TITLES["/notifications"] = "Notifications";
+PAGE_TITLES["/insights"] = "AI Insights";
 PAGE_TITLES["/settings/my-profile"] = "My Profile";
 PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
 PAGE_TITLES["/settings/branches"] = "Branches";

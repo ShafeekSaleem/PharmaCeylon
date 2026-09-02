@@ -8,6 +8,7 @@ import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { CatalogModule } from "./catalog/catalog.module";
 import { CustomersModule } from "./customers/customers.module";
+import { DashboardModule } from "./dashboard/dashboard.module";
 import { HealthController } from "./health/health.controller";
 import { InventoryModule } from "./inventory/inventory.module";
 import { NotificationsModule } from "./notifications/notifications.module";
@@ -52,6 +53,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     InventoryModule,
     NotificationsModule,
     CustomersModule,
+    DashboardModule,
     SalesModule,
     SearchModule,
     TransfersModule,

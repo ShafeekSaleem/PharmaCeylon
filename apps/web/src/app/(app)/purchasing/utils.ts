@@ -1,7 +1,5 @@
 import type { AuthUser } from "@/lib/auth-types";
 import {
-  APPROVE_ROLES,
-  CANCEL_ROLES,
   WRITE_ROLES,
   type CreatePoLine,
   type PoStatus,
@@ -80,30 +78,6 @@ export function hasPurchasingWriteAccess(
     ? user.branchRoles.filter((br) => br.branchId === branchId)
     : user.branchRoles;
   return scoped.some((br) => WRITE_ROLES.has(br.role));
-}
-
-export function canCancelPurchaseOrder(
-  user: AuthUser | null,
-  branchId?: string | null,
-): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => CANCEL_ROLES.has(br.role));
-}
-
-export function canApprovePurchaseOrder(
-  user: AuthUser | null,
-  branchId?: string | null,
-): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => APPROVE_ROLES.has(br.role));
 }
 
 export function formatPoStatus(status: PoStatus | string): string {
