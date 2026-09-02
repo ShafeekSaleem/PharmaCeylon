@@ -196,6 +196,7 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
         layout={layout.layout}
         data={data}
         isEditing={layout.isEditing}
+        loading={layout.loading}
         onLayoutChange={layout.updateLayout}
         onRemoveWidget={layout.removeWidget}
       />

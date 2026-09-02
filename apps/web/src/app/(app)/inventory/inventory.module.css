@@ -848,22 +848,22 @@
 }
 
 .movementSummaryIn {
-  color: var(--pc-success, #15803d);
+  color: var(--pc-success);
   font-weight: 600;
 }
 
 .movementSummaryOut {
-  color: var(--pc-danger, #b91c1c);
+  color: var(--pc-danger);
   font-weight: 600;
 }
 
 .movementSummaryNetPositive {
-  color: var(--pc-success, #15803d);
+  color: var(--pc-success);
   font-weight: 600;
 }
 
 .movementSummaryNetNegative {
-  color: var(--pc-danger, #b91c1c);
+  color: var(--pc-danger);
   font-weight: 600;
 }
 

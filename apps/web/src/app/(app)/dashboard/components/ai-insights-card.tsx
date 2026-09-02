@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { IconActivity, IconAlertTriangle, IconInfo } from "@/components/icons";
 import { ActionsPanel, type ActionPanelItem } from "@/app/(app)/reports/components/actions-panel";
+import reportsCss from "@/app/(app)/reports/reports.module.css";
 import type { AiInsight } from "../lib/placeholder-data";
 
 type Props = {
@@ -52,6 +53,7 @@ export function insightToActionPanelItem(insight: AiInsight, onNavigate: (href: 
     countLabel: insight.countLabel,
     countText: insight.countText,
     examples: insight.examples,
+    badge: insight.sample ? <span className={reportsCss.sampleTag}>Sample</span> : undefined,
     onClick: insight.href ? () => onNavigate(insight.href!) : undefined,
   };
 }

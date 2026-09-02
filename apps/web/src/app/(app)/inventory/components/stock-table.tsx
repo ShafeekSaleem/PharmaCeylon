@@ -39,6 +39,7 @@ function RowActions({ row, onAdjust }: { row: StockRow; onAdjust: (row: StockRow
       </RoleLink>
       <RoleButton
         roles={INVENTORY_WRITE_ROLES}
+        permissions={["inventory.manage"]}
         className={`${css.actionIcon} ${css.actionIconAdjust}`}
         aria-label={`Adjust stock for ${row.product.name}`}
         data-tooltip="Adjust stock"
@@ -77,7 +78,8 @@ export function StockTable({
           <div className={css.productCell}>
             <img
               src={row.product.imageUrl || PRODUCT_PLACEHOLDER_SRC}
-              alt=""
+              alt={row.product.imageUrl ? row.product.name : ""}
+              aria-hidden={!row.product.imageUrl}
               className={css.thumb}
             />
             <div>

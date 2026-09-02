@@ -5,6 +5,7 @@ import { Alert } from "@/components/alert";
 import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
 import type { AuthUser } from "@/lib/auth-types";
 import { apiJson } from "@/lib/auth-client";
+import { usePermissions } from "@/lib/permissions";
 import layoutCss from "../../purchasing/purchasing.module.css";
 import type { ReturnListItem } from "../types";
 import {
@@ -44,6 +45,7 @@ export function ReturnDetailModal({
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { permissionKeys } = usePermissions();
 
   useEffect(() => {
     setBusy(false);
@@ -53,7 +55,7 @@ export function ReturnDetailModal({
   if (!returnItem) return null;
 
   const canWrite = hasReturnWriteAccess(user, branchId);
-  const canApproveRole = canApproveReturn(user, branchId);
+  const canApproveRole = canApproveReturn(permissionKeys);
   const atBranch = !!branchId && returnItem.branchId === branchId;
 
   const showSubmit = canWrite && atBranch && canSubmit(returnItem.status);
@@ -67,7 +69,7 @@ export function ReturnDetailModal({
   const showCancel =
     canWrite &&
     canCancel(returnItem.status) &&
-    canCancelReturn(user, returnItem, branchId);
+    canCancelReturn(user, returnItem, branchId, permissionKeys);
 
   const logisticsLabel =
     returnItem.type === "customer" ? "Mark pickup" : "Mark dispatch";

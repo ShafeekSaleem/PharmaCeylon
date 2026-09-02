@@ -3,10 +3,18 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { roleDeniedMessage, type RoleName } from "@/lib/role-access";
 import { useRoleAccess } from "@/lib/use-role-access";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import styles from "./role-link.module.css";
 
 type Props = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
   roles?: RoleName[];
+  /**
+   * Preferred over `roles` — checked against the caller's live, configurable
+   * permission set, so a custom role granted this permission gets in even
+   * though it's not one of the static `roles`. `roles` is still used for the
+   * denied-message copy when both are given. See `RolePageGuard`.
+   */
+  permissions?: string[];
   deniedMessage?: string;
   children: ReactNode;
 };
@@ -14,6 +22,7 @@ type Props = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
 /** Button counterpart to `RoleLink`: disables + explains instead of navigating when the role check fails. */
 export function RoleButton({
   roles,
+  permissions,
   deniedMessage,
   className,
   children,
@@ -21,7 +30,11 @@ export function RoleButton({
   ...rest
 }: Props) {
   const { canAccess } = useRoleAccess();
-  const allowed = canAccess(roles);
+  const { permissionKeys, loading, hasLoadedOnce } = usePermissions();
+  // Avoid a denied flash before the first permission fetch resolves (see RolePageGuard).
+  const allowed = permissions
+    ? (loading && !hasLoadedOnce) || hasPermission(permissionKeys, permissions)
+    : canAccess(roles);
   const deniedTip = deniedMessage ?? roleDeniedMessage(roles);
 
   if (!allowed) {

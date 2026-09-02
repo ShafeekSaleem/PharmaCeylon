@@ -19,6 +19,12 @@ type Props = {
   layout: WidgetInstance[];
   data: DashboardData;
   isEditing: boolean;
+  /** The user's saved arrangement hasn't loaded yet — until it has, `layout`
+   * only holds the role's default arrangement, which may not match what
+   * this user actually saved. Render inert skeleton cards instead of real
+   * widgets so there's one clean paint once the real layout is known,
+   * instead of a default-then-custom flash. */
+  loading?: boolean;
   onLayoutChange: (next: WidgetInstance[]) => void;
   onRemoveWidget: (key: string) => void;
 };
@@ -29,7 +35,7 @@ type Props = {
  * always fixed (derived from the registry, never stored/resizable) — only
  * position is user-controlled. Mobile (`sm` breakpoint) always renders
  * read-only, stacked, regardless of `isEditing`. */
-export function DashboardCanvas({ catalog, layout, data, isEditing, onLayoutChange, onRemoveWidget }: Props) {
+export function DashboardCanvas({ catalog, layout, data, isEditing, loading, onLayoutChange, onRemoveWidget }: Props) {
   const [breakpoint, setBreakpoint] = useState<string>(() =>
     typeof window !== "undefined" && window.innerWidth < BREAKPOINTS.md ? MOBILE_BREAKPOINT : "lg",
   );
@@ -53,6 +59,31 @@ export function DashboardCanvas({ catalog, layout, data, isEditing, onLayoutChan
   function handleLayoutChange(next: Layout[]) {
     if (!isEditing) return;
     onLayoutChange(next.map((item) => ({ key: item.i, x: item.x, y: item.y })));
+  }
+
+  if (loading) {
+    return (
+      <ResponsiveGridLayout
+        className={css.canvas}
+        layouts={{ lg: rglLayout }}
+        breakpoints={BREAKPOINTS}
+        cols={COLS}
+        rowHeight={12}
+        margin={[14, 14]}
+        containerPadding={[0, 0]}
+        compactType="vertical"
+        isDraggable={false}
+        isResizable={false}
+        useCSSTransforms
+        onBreakpointChange={(next) => setBreakpoint(next)}
+      >
+        {visibleLayout.map((item) => (
+          <div key={item.key} data-widget-key={item.key}>
+            <div className={css.widgetSkeleton} aria-hidden />
+          </div>
+        ))}
+      </ResponsiveGridLayout>
+    );
   }
 
   return (

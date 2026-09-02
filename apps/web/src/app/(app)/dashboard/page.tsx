@@ -63,6 +63,17 @@ export default function DashboardPage() {
 
       {data.error ? <Alert variant="error">{data.error}</Alert> : null}
 
+      {data.failedSections.size > 0 ? (
+        <Alert variant="warning">
+          Couldn&apos;t load: {Array.from(data.failedSections).join(", ")}. The figures below may be
+          incomplete —{" "}
+          <button type="button" className={css.inlineLinkBtn} onClick={() => void data.reload()}>
+            try refreshing
+          </button>
+          .
+        </Alert>
+      ) : null}
+
       {data.loading && data.branchId ? (
         <p className={css.muted} role="status" aria-live="polite">
           Loading dashboard metrics…

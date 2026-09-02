@@ -81,33 +81,23 @@
 }
 
 .statusPillTeal {
-  background: color-mix(in srgb, var(--pc-primary) 14%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
-  color: color-mix(in srgb, var(--pc-primary) 85%, #0f172a);
+  composes: tealTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .statusPillEmerald {
-  background: color-mix(in srgb, #059669 14%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #059669 30%, var(--pc-border));
-  color: #047857;
+  composes: emeraldTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .statusPillSky {
-  background: color-mix(in srgb, #0284c7 13%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #0284c7 28%, var(--pc-border));
-  color: #0369a1;
+  composes: skyTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .statusPillAmber {
-  background: color-mix(in srgb, #d97706 14%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #d97706 32%, var(--pc-border));
-  color: #b45309;
+  composes: amberTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .statusPillRose {
-  background: color-mix(in srgb, #e11d48 11%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #e11d48 26%, var(--pc-border));
-  color: #be123c;
+  composes: roseTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .toolbarActions {
@@ -411,8 +401,8 @@
   align-items: center;
   padding: 0.05rem 0.35rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--pc-warning, #c48a1a) 16%, transparent);
-  color: var(--pc-warning, #9a6b10);
+  background: color-mix(in srgb, var(--pc-warning) 16%, transparent);
+  color: var(--pc-warning);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -480,8 +470,8 @@
   gap: 0.2rem;
   font-size: 0.65rem;
   font-weight: 600;
-  color: var(--pc-warning, #d97706);
-  background: color-mix(in srgb, var(--pc-warning, #d97706) 12%, transparent);
+  color: var(--pc-warning);
+  background: color-mix(in srgb, var(--pc-warning) 12%, transparent);
   padding: 0.1rem 0.35rem;
   border-radius: var(--pc-radius-sm, 4px);
   white-space: nowrap;
@@ -1059,7 +1049,7 @@
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  background: rgba(15, 23, 42, 0.55);
+  background: var(--pc-overlay-scrim);
   backdrop-filter: blur(2px);
 }
 

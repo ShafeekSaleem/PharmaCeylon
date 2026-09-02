@@ -91,6 +91,7 @@ export function PosActionBar({
         className={css.iconBtn}
         onClick={onToggleBeep}
         aria-pressed={beepEnabled}
+        aria-label={beepEnabled ? "Scan beep on" : "Scan beep off"}
         data-tooltip={beepEnabled ? "Scan beep on" : "Scan beep off"}
       >
         <IconBell size={15} />
@@ -99,6 +100,7 @@ export function PosActionBar({
         type="button"
         className={css.iconBtn}
         onClick={onShortcuts}
+        aria-label="Keyboard shortcuts"
         data-tooltip="Keyboard shortcuts (?)"
       >
         <IconKeyboard size={15} />

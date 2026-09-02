@@ -208,40 +208,30 @@
 }
 
 .chipTeal {
-  background: color-mix(in srgb, var(--pc-primary) 14%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
-  color: color-mix(in srgb, var(--pc-primary) 85%, #0f172a);
+  composes: tealTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .chipEmerald {
-  background: color-mix(in srgb, #059669 14%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #059669 30%, var(--pc-border));
-  color: #047857;
+  composes: emeraldTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .chipAmber {
-  background: color-mix(in srgb, #d97706 14%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #d97706 32%, var(--pc-border));
-  color: #b45309;
+  composes: amberTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .chipSky {
-  background: color-mix(in srgb, #0284c7 13%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #0284c7 28%, var(--pc-border));
-  color: #0369a1;
+  composes: skyTone from "../../../components/ui/tone-chip.module.css";
 }
 
 /* Soft semantic tints aligned with brand palette (teal/sky/amber/rose/slate — no violet) */
 .chipRose {
-  background: color-mix(in srgb, #e11d48 11%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #e11d48 26%, var(--pc-border));
-  color: #be123c;
+  composes: roseTone from "../../../components/ui/tone-chip.module.css";
 }
 
 .chipSlate {
-  background: color-mix(in srgb, #64748b 12%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #64748b 28%, var(--pc-border));
-  color: #475569;
+  background: color-mix(in srgb, var(--pc-muted-fg) 12%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-muted-fg) 28%, var(--pc-border));
+  color: var(--pc-muted-fg);
 }
 
 .chipActive.chipTeal,
@@ -353,21 +343,21 @@
 }
 
 .summaryOk {
-  color: #047857;
-  border-color: color-mix(in srgb, #059669 30%, var(--pc-border));
-  background: color-mix(in srgb, #059669 10%, var(--pc-card-bg));
+  color: var(--pc-alert-success-text);
+  border-color: color-mix(in srgb, var(--pc-alert-success-icon) 30%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 10%, var(--pc-card-bg));
 }
 
 .summaryLow {
-  color: #b45309;
-  border-color: color-mix(in srgb, #d97706 30%, var(--pc-border));
-  background: color-mix(in srgb, #d97706 10%, var(--pc-card-bg));
+  color: var(--pc-alert-warning-text);
+  border-color: color-mix(in srgb, var(--pc-alert-warning-icon) 30%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 10%, var(--pc-card-bg));
 }
 
 .summaryOut {
-  color: #b91c1c;
-  border-color: color-mix(in srgb, #b91c1c 30%, var(--pc-border));
-  background: color-mix(in srgb, #b91c1c 10%, var(--pc-card-bg));
+  color: var(--pc-alert-error-text);
+  border-color: color-mix(in srgb, var(--pc-alert-error-icon) 30%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-error-icon) 10%, var(--pc-card-bg));
 }
 
 .loadMoreWrap {
@@ -533,8 +523,8 @@
 }
 
 .iconClock {
-  background: color-mix(in srgb, #0284c7 14%, transparent);
-  color: #0369a1;
+  background: color-mix(in srgb, var(--pc-info) 14%, transparent);
+  color: var(--pc-info);
 }
 
 .iconGrid {
@@ -543,8 +533,8 @@
 }
 
 .iconEye {
-  background: color-mix(in srgb, #d97706 12%, transparent);
-  color: #b45309;
+  background: color-mix(in srgb, var(--pc-warning) 12%, transparent);
+  color: var(--pc-warning);
 }
 
 .discoveryList {
@@ -725,21 +715,21 @@
 }
 
 .matchExact {
-  background: color-mix(in srgb, var(--pc-success, #15803d) 14%, transparent);
-  color: var(--pc-success, #15803d);
-  border-color: color-mix(in srgb, var(--pc-success, #15803d) 25%, transparent);
+  background: color-mix(in srgb, var(--pc-success) 14%, transparent);
+  color: var(--pc-success);
+  border-color: color-mix(in srgb, var(--pc-success) 25%, transparent);
 }
 
 .matchGeneric {
-  background: color-mix(in srgb, #0284c7 14%, transparent);
-  color: #0369a1;
-  border-color: color-mix(in srgb, #0284c7 25%, transparent);
+  background: color-mix(in srgb, var(--pc-info) 14%, transparent);
+  color: var(--pc-info);
+  border-color: color-mix(in srgb, var(--pc-info) 25%, transparent);
 }
 
 .matchAlias {
-  background: color-mix(in srgb, #c2410c 12%, transparent);
-  color: #c2410c;
-  border-color: color-mix(in srgb, #c2410c 25%, transparent);
+  background: color-mix(in srgb, var(--pc-warning) 12%, transparent);
+  color: var(--pc-warning);
+  border-color: color-mix(in srgb, var(--pc-warning) 25%, transparent);
 }
 
 .matchPartial {
@@ -760,18 +750,18 @@
 }
 
 .stockOk {
-  background: color-mix(in srgb, var(--pc-success, #15803d) 12%, transparent);
-  color: var(--pc-success, #15803d);
+  background: color-mix(in srgb, var(--pc-success) 12%, transparent);
+  color: var(--pc-success);
 }
 
 .stockLow {
-  background: color-mix(in srgb, #c2410c 12%, transparent);
-  color: #c2410c;
+  background: color-mix(in srgb, var(--pc-warning) 12%, transparent);
+  color: var(--pc-warning);
 }
 
 .stockOut {
-  background: color-mix(in srgb, var(--pc-danger, #b91c1c) 12%, transparent);
-  color: var(--pc-danger, #b91c1c);
+  background: color-mix(in srgb, var(--pc-danger) 12%, transparent);
+  color: var(--pc-danger);
 }
 
 .actionsCell {
@@ -1019,15 +1009,15 @@
 }
 
 .flagActive {
-  color: var(--pc-success, #15803d);
-  border-color: color-mix(in srgb, var(--pc-success, #15803d) 30%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-success, #15803d) 10%, transparent);
+  color: var(--pc-success);
+  border-color: color-mix(in srgb, var(--pc-success) 30%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-success) 10%, transparent);
 }
 
 .flagControlled {
-  color: #c2410c;
-  border-color: color-mix(in srgb, #c2410c 30%, var(--pc-border));
-  background: color-mix(in srgb, #c2410c 10%, transparent);
+  color: var(--pc-warning);
+  border-color: color-mix(in srgb, var(--pc-warning) 30%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-warning) 10%, transparent);
 }
 
 .statsGrid {
@@ -1215,7 +1205,7 @@
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: color-mix(in srgb, #000 35%, transparent);
+  background: var(--pc-overlay-scrim);
   display: flex;
   align-items: flex-end;
   justify-content: center;

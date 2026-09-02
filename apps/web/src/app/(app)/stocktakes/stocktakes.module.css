@@ -110,8 +110,8 @@
 }
 
 .noteInputRequired {
-  border-color: color-mix(in srgb, var(--pc-danger, #b91c1c) 55%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-danger, #b91c1c) 6%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-danger) 55%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-danger) 6%, var(--pc-card-bg));
 }
 
 .noteReadonly {
@@ -120,13 +120,13 @@
 }
 
 .variancePos {
-  color: var(--pc-success, #15803d);
+  color: var(--pc-success);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .varianceNeg {
-  color: var(--pc-danger, #b91c1c);
+  color: var(--pc-danger);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -206,13 +206,13 @@
 }
 
 .tagQuarantine {
-  color: var(--pc-danger, #b91c1c);
-  background: color-mix(in srgb, var(--pc-danger, #b91c1c) 12%, transparent);
+  color: var(--pc-danger);
+  background: color-mix(in srgb, var(--pc-danger) 12%, transparent);
 }
 
 .tagNearExpiry {
-  color: var(--pc-warning, #a16207);
-  background: color-mix(in srgb, var(--pc-warning, #a16207) 12%, transparent);
+  color: var(--pc-warning);
+  background: color-mix(in srgb, var(--pc-warning) 12%, transparent);
 }
 
 .linesTableWrap {
@@ -287,8 +287,8 @@
   align-items: center;
   padding: 0.12rem 0.45rem;
   border-radius: var(--pc-radius-sm);
-  background: color-mix(in srgb, var(--pc-info, #0369a1) 14%, transparent);
-  color: var(--pc-info, #0369a1);
+  background: color-mix(in srgb, var(--pc-info) 14%, transparent);
+  color: var(--pc-info);
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -299,8 +299,8 @@
   margin: 0 0 0.85rem;
   padding: 0.55rem 0.75rem;
   border-radius: var(--pc-radius-sm);
-  border: 1px solid color-mix(in srgb, var(--pc-info, #0369a1) 35%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-info, #0369a1) 10%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-info) 35%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-info) 10%, var(--pc-card-bg));
   color: var(--pc-foreground);
   font-size: 0.82rem;
   line-height: 1.4;
@@ -410,8 +410,8 @@
 }
 
 .removeBtn:hover:not(:disabled) {
-  color: var(--pc-danger, #b91c1c);
-  border-color: color-mix(in srgb, var(--pc-danger, #b91c1c) 40%, var(--pc-border));
+  color: var(--pc-danger);
+  border-color: color-mix(in srgb, var(--pc-danger) 40%, var(--pc-border));
 }
 
 .removeBtn:disabled {
@@ -650,7 +650,7 @@
 }
 
 .progressFillDone {
-  background: var(--pc-success, #15803d);
+  background: var(--pc-success);
 }
 
 .workspaceShell {
@@ -770,7 +770,7 @@
 }
 
 .varianceRow {
-  background: color-mix(in srgb, var(--pc-warning, #a16207) 5%, transparent);
+  background: color-mix(in srgb, var(--pc-warning) 5%, transparent);
 }
 
 .menuWrap {
@@ -837,12 +837,12 @@
 }
 
 .menuItemDanger {
-  color: var(--pc-danger, #b91c1c);
+  color: var(--pc-danger);
 }
 
 .menuItemDanger:hover {
-  background: color-mix(in srgb, var(--pc-danger, #b91c1c) 10%, transparent);
-  color: var(--pc-danger, #b91c1c);
+  background: color-mix(in srgb, var(--pc-danger) 10%, transparent);
+  color: var(--pc-danger);
 }
 
 .activityList {
@@ -1131,11 +1131,11 @@
 
 .stepperCancelled {
   padding: 0.65rem 0.85rem;
-  border: 1px solid color-mix(in srgb, var(--pc-danger, #b91c1c) 35%, var(--pc-border));
+  border: 1px solid color-mix(in srgb, var(--pc-danger) 35%, var(--pc-border));
   border-radius: var(--pc-radius-sm);
-  background: color-mix(in srgb, var(--pc-danger, #b91c1c) 8%, var(--pc-card-bg));
+  background: color-mix(in srgb, var(--pc-danger) 8%, var(--pc-card-bg));
   font-size: 0.85rem;
-  color: var(--pc-danger, #b91c1c);
+  color: var(--pc-danger);
   font-weight: 600;
 }
 
@@ -1161,7 +1161,7 @@
 }
 
 .stepConnectorDone {
-  background: var(--pc-success, #15803d);
+  background: var(--pc-success);
 }
 
 .stepItem:first-child .stepDotRow .stepConnector:first-child,
@@ -1185,8 +1185,8 @@
 }
 
 .stepDotDone {
-  border-color: var(--pc-success, #15803d);
-  background: var(--pc-success, #15803d);
+  border-color: var(--pc-success);
+  background: var(--pc-success);
   color: #fff;
 }
 
@@ -1240,8 +1240,8 @@
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 650;
-  background: color-mix(in srgb, var(--pc-warning, #a16207) 14%, transparent);
-  color: var(--pc-warning, #a16207);
+  background: color-mix(in srgb, var(--pc-warning) 14%, transparent);
+  color: var(--pc-warning);
   white-space: nowrap;
 }
 
@@ -1423,13 +1423,13 @@
 .expirySoon {
   font-size: 0.72rem;
   font-weight: 650;
-  color: var(--pc-warning, #a16207);
+  color: var(--pc-warning);
 }
 
 .expiryPast {
   font-size: 0.72rem;
   font-weight: 650;
-  color: var(--pc-danger, #b91c1c);
+  color: var(--pc-danger);
 }
 
 .expiryOk {
@@ -1452,19 +1452,19 @@
 
 .statusPillOk,
 .conditionPillOk {
-  background: color-mix(in srgb, var(--pc-success, #15803d) 14%, transparent);
-  color: var(--pc-success, #15803d);
+  background: color-mix(in srgb, var(--pc-success) 14%, transparent);
+  color: var(--pc-success);
 }
 
 .statusPillWarn,
 .conditionPillWarn {
-  background: color-mix(in srgb, var(--pc-warning, #a16207) 16%, transparent);
-  color: var(--pc-warning, #a16207);
+  background: color-mix(in srgb, var(--pc-warning) 16%, transparent);
+  color: var(--pc-warning);
 }
 
 .statusPillInfo {
-  background: color-mix(in srgb, var(--pc-info, #2563eb) 14%, transparent);
-  color: var(--pc-info, #2563eb);
+  background: color-mix(in srgb, var(--pc-info) 14%, transparent);
+  color: var(--pc-info);
 }
 
 .statusPillMuted,
@@ -1474,18 +1474,18 @@
 }
 
 .timelineDotOk {
-  background: var(--pc-success, #15803d) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-success, #15803d) 18%, transparent);
+  background: var(--pc-success) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-success) 18%, transparent);
 }
 
 .timelineDotWarn {
-  background: var(--pc-warning, #a16207) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-warning, #a16207) 18%, transparent);
+  background: var(--pc-warning) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-warning) 18%, transparent);
 }
 
 .timelineDotInfo {
-  background: var(--pc-info, #2563eb) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-info, #2563eb) 18%, transparent);
+  background: var(--pc-info) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-info) 18%, transparent);
 }
 
 .timelineDotMuted {
@@ -1542,9 +1542,9 @@
 .reviewHint {
   margin: 0;
   padding: 0.55rem 0.7rem;
-  border: 1px solid color-mix(in srgb, var(--pc-info, #2563eb) 25%, var(--pc-border));
+  border: 1px solid color-mix(in srgb, var(--pc-info) 25%, var(--pc-border));
   border-radius: var(--pc-radius-sm);
-  background: color-mix(in srgb, var(--pc-info, #2563eb) 8%, var(--pc-card-bg));
+  background: color-mix(in srgb, var(--pc-info) 8%, var(--pc-card-bg));
   color: var(--pc-foreground);
   font-size: 0.8rem;
   line-height: 1.45;
@@ -1598,11 +1598,11 @@
 }
 
 .checkDotOk {
-  background: var(--pc-success, #15803d);
+  background: var(--pc-success);
 }
 
 .checkDotWarn {
-  background: var(--pc-warning, #a16207);
+  background: var(--pc-warning);
 }
 
 .checkDotMuted {
@@ -1644,23 +1644,23 @@
 }
 
 .metricTileIconInfo {
-  background: color-mix(in srgb, var(--pc-info, #2563eb) 14%, transparent);
-  color: var(--pc-info, #2563eb);
+  background: color-mix(in srgb, var(--pc-info) 14%, transparent);
+  color: var(--pc-info);
 }
 
 .metricTileIconSuccess {
-  background: color-mix(in srgb, var(--pc-success, #15803d) 14%, transparent);
-  color: var(--pc-success, #15803d);
+  background: color-mix(in srgb, var(--pc-success) 14%, transparent);
+  color: var(--pc-success);
 }
 
 .metricTileIconWarning {
-  background: color-mix(in srgb, var(--pc-warning, #a16207) 16%, transparent);
-  color: var(--pc-warning, #a16207);
+  background: color-mix(in srgb, var(--pc-warning) 16%, transparent);
+  color: var(--pc-warning);
 }
 
 .metricTileIconAccent {
-  background: color-mix(in srgb, var(--pc-accent-navy, #1e40af) 14%, transparent);
-  color: var(--pc-accent-navy, #1e40af);
+  background: color-mix(in srgb, var(--pc-accent-navy) 14%, transparent);
+  color: var(--pc-accent-navy);
 }
 
 .metricTileBody {
@@ -1745,28 +1745,28 @@
 }
 
 .actionUpdate {
-  background: color-mix(in srgb, var(--pc-info, #2563eb) 14%, transparent);
-  color: var(--pc-info, #2563eb);
+  background: color-mix(in srgb, var(--pc-info) 14%, transparent);
+  color: var(--pc-info);
 }
 
 .actionCount {
-  background: color-mix(in srgb, var(--pc-success, #15803d) 14%, transparent);
-  color: var(--pc-success, #15803d);
+  background: color-mix(in srgb, var(--pc-success) 14%, transparent);
+  color: var(--pc-success);
 }
 
 .actionAdd {
-  background: color-mix(in srgb, var(--pc-success, #15803d) 12%, transparent);
-  color: var(--pc-success, #15803d);
+  background: color-mix(in srgb, var(--pc-success) 12%, transparent);
+  color: var(--pc-success);
 }
 
 .actionNote {
-  background: color-mix(in srgb, var(--pc-accent-navy, #1e40af) 14%, transparent);
-  color: var(--pc-accent-navy, #1e40af);
+  background: color-mix(in srgb, var(--pc-accent-navy) 14%, transparent);
+  color: var(--pc-accent-navy);
 }
 
 .actionRecount {
-  background: color-mix(in srgb, var(--pc-warning, #a16207) 16%, transparent);
-  color: var(--pc-warning, #a16207);
+  background: color-mix(in srgb, var(--pc-warning) 16%, transparent);
+  color: var(--pc-warning);
 }
 
 .actionPost {
@@ -1775,8 +1775,8 @@
 }
 
 .actionCancel {
-  background: color-mix(in srgb, var(--pc-danger, #b91c1c) 12%, transparent);
-  color: var(--pc-danger, #b91c1c);
+  background: color-mix(in srgb, var(--pc-danger) 12%, transparent);
+  color: var(--pc-danger);
 }
 
 .actionSystem {
@@ -1846,7 +1846,7 @@
 .coverageSelected {
   font-size: 0.7rem;
   font-weight: 700;
-  color: var(--pc-success, #15803d);
+  color: var(--pc-success);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }

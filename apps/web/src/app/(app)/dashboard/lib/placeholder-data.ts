@@ -25,11 +25,15 @@ export type AiInsight = {
   countText?: string;
   /** Up to a few concrete examples (product names, PO numbers, ...) shown as chips under the row. */
   examples?: AiInsightExample[];
+  /** True for static example/filler content that isn't computed from the tenant's real data —
+   *  rendered with a "Sample" disclosure so it's never mistaken for a genuine live alert. */
+  sample?: boolean;
 };
 
 export const OWNER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "o1",
+    sample: true,
     title: "Reorder recommendation",
     detail: "SKUs projected to stock out based on recent sales velocity.",
     tone: "warning",
@@ -38,6 +42,7 @@ export const OWNER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "o2",
+    sample: true,
     title: "Unusual sales pattern",
     detail: "Daypart / category spikes flagged against your recent baseline.",
     tone: "info",
@@ -45,6 +50,7 @@ export const OWNER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "o3",
+    sample: true,
     title: "Margin warning",
     detail: "High-volume lines showing margin compression this period.",
     tone: "danger",
@@ -53,6 +59,7 @@ export const OWNER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "o4",
+    sample: true,
     title: "Branch opportunity",
     detail: "Attach-rate gap between branches worth a closer look.",
     tone: "info",
@@ -60,6 +67,7 @@ export const OWNER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "o5",
+    sample: true,
     title: "Cash flow note",
     detail: "Ageing receivables trending up — review credit tenders past due.",
     tone: "warning",
@@ -70,6 +78,7 @@ export const OWNER_AI_INSIGHTS: AiInsight[] = [
 export const MANAGER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "m1",
+    sample: true,
     title: "Staffing suggestion",
     detail: "Evening peak staffing looks light against typical footfall.",
     tone: "info",
@@ -77,6 +86,7 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "m2",
+    sample: true,
     title: "Replenishment insight",
     detail: "Low-stock SKUs may need PO attention before weekend demand.",
     tone: "success",
@@ -86,6 +96,7 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "m3",
+    sample: true,
     title: "Variance alert",
     detail: "Staff productivity trailing branch target pace this week.",
     tone: "warning",
@@ -95,6 +106,7 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "m4",
+    sample: true,
     title: "Branch comparison",
     detail: "Peer branch benchmarking against your assigned target portfolio.",
     tone: "info",
@@ -107,6 +119,7 @@ export const MANAGER_AI_INSIGHTS: AiInsight[] = [
 export const PHARMACIST_AI_INSIGHTS: AiInsight[] = [
   {
     id: "p1",
+    sample: true,
     title: "Therapeutic alternative reminder",
     detail: "Check for lower-cost equivalents before dispensing high-cost lines.",
     tone: "info",
@@ -114,6 +127,7 @@ export const PHARMACIST_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "p2",
+    sample: true,
     title: "FEFO rotation tip",
     detail: "Prioritize picking near-expiry batches — see Batch & Expiry Monitor.",
     tone: "warning",
@@ -122,6 +136,7 @@ export const PHARMACIST_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "p3",
+    sample: true,
     title: "Duplicate therapy reminder",
     detail: "Review a patient's active prescriptions for overlapping therapeutic classes before dispensing.",
     tone: "info",
@@ -139,6 +154,7 @@ export const PLACEHOLDER_COUNSELING = [
 export const CASHIER_AI_INSIGHTS: AiInsight[] = [
   {
     id: "c1",
+    sample: true,
     title: "Stock up fast mover",
     detail: "A few counter SKUs are running low — check before your next restock round.",
     tone: "warning",
@@ -148,6 +164,7 @@ export const CASHIER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "c2",
+    sample: true,
     title: "Verify prescription-required items",
     detail: "Held carts waiting on pharmacist verification before checkout.",
     tone: "info",
@@ -157,6 +174,7 @@ export const CASHIER_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "c3",
+    sample: true,
     title: "Customer lookup adds value",
     detail: "Link walk-ins to a loyalty profile to enable refill reminders.",
     tone: "info",
@@ -174,6 +192,7 @@ export const PLACEHOLDER_CASHIER_QUEUE = [
 export const INVENTORY_AI_INSIGHTS: AiInsight[] = [
   {
     id: "i1",
+    sample: true,
     title: "FEFO rotation",
     detail: "Prioritize picking near-expiry batches on fast movers.",
     tone: "warning",
@@ -183,6 +202,7 @@ export const INVENTORY_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "i2",
+    sample: true,
     title: "Dead stock candidate",
     detail: "Slow movers worth a return-to-supplier or promo push.",
     tone: "info",
@@ -192,6 +212,7 @@ export const INVENTORY_AI_INSIGHTS: AiInsight[] = [
   },
   {
     id: "i3",
+    sample: true,
     title: "PO consolidation",
     detail: "Multiple open POs to the same supplier could be consolidated.",
     tone: "info",

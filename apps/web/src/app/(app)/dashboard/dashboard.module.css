@@ -3,14 +3,14 @@
   --health-urgent: color-mix(
     in srgb,
     var(--pc-destructive) 42%,
-    var(--pc-alert-warning-icon, #ea580c) 58%
+    var(--pc-alert-warning-icon) 58%
   );
   --health-urgent-soft: color-mix(in srgb, var(--health-urgent) 12%, transparent);
   --health-urgent-border: color-mix(in srgb, var(--health-urgent) 28%, var(--pc-border));
   --health-urgent-text: color-mix(
     in srgb,
-    var(--pc-alert-error-text, #991b1b) 40%,
-    var(--pc-alert-warning-text, #9a3412) 60%
+    var(--pc-alert-error-text) 40%,
+    var(--pc-alert-warning-text) 60%
   );
 
   display: flex;
@@ -656,13 +656,13 @@
 }
 
 .overviewMetricIcon_purchases {
-  color: var(--pc-alert-info-icon, #2563eb);
-  background: color-mix(in srgb, var(--pc-alert-info-icon, #2563eb) 14%, transparent);
+  color: var(--pc-alert-info-icon);
+  background: color-mix(in srgb, var(--pc-alert-info-icon) 14%, transparent);
 }
 
 .overviewMetricIcon_profit {
-  color: var(--pc-alert-success-icon, #16a34a);
-  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, transparent);
+  color: var(--pc-alert-success-icon);
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 14%, transparent);
 }
 
 .overviewMetricIcon_bills {
@@ -676,8 +676,8 @@
 }
 
 .overviewMetricIcon_peak {
-  color: var(--pc-alert-warning-icon, #d97706);
-  background: color-mix(in srgb, var(--pc-alert-warning-icon, #d97706) 14%, transparent);
+  color: var(--pc-alert-warning-icon);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 14%, transparent);
 }
 
 .overviewMetricCopy {
@@ -715,7 +715,7 @@
 }
 
 .overviewMetricTrend_up {
-  color: var(--pc-alert-success-text, #166534);
+  color: var(--pc-alert-success-text);
 }
 
 .overviewMetricTrend_down {
@@ -1068,13 +1068,13 @@ a.alertItem:hover {
 }
 
 .quickBarIcon_success {
-  color: var(--pc-alert-success-icon, #16a34a);
-  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, transparent);
+  color: var(--pc-alert-success-icon);
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 14%, transparent);
 }
 
 .quickBarIcon_warning {
-  color: var(--pc-alert-warning-icon, #d97706);
-  background: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 14%, transparent);
+  color: var(--pc-alert-warning-icon);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 14%, transparent);
 }
 
 .quickBarIcon_danger {
@@ -1086,8 +1086,8 @@ a.alertItem:hover {
 }
 
 .quickBarIcon_info {
-  color: var(--pc-alert-info-icon, #0284c7);
-  background: color-mix(in srgb, var(--pc-alert-info-icon, #0284c7) 14%, transparent);
+  color: var(--pc-alert-info-icon);
+  background: color-mix(in srgb, var(--pc-alert-info-icon) 14%, transparent);
 }
 
 .quickBarItem_primary:hover {
@@ -1096,13 +1096,13 @@ a.alertItem:hover {
 }
 
 .quickBarItem_success:hover {
-  border-color: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 40%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 6%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-alert-success-icon) 40%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 6%, var(--pc-card-bg));
 }
 
 .quickBarItem_warning:hover {
-  border-color: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 40%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 6%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-alert-warning-icon) 40%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 6%, var(--pc-card-bg));
 }
 
 .quickBarItem_danger:hover {
@@ -1115,8 +1115,8 @@ a.alertItem:hover {
 }
 
 .quickBarItem_info:hover {
-  border-color: color-mix(in srgb, var(--pc-alert-info-icon, #0284c7) 40%, var(--pc-border));
-  background: color-mix(in srgb, var(--pc-alert-info-icon, #0284c7) 6%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-alert-info-icon) 40%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-alert-info-icon) 6%, var(--pc-card-bg));
 }
 
 .quickBarItem:hover .quickBarIcon {
@@ -1620,15 +1620,15 @@ a.alertItem:hover {
 }
 
 .chartTooltipValue_success {
-  color: var(--pc-alert-success-text, #166534);
+  color: var(--pc-alert-success-text);
 }
 
 .chartTooltipValue_warning {
-  color: var(--pc-alert-warning-text, #92400e);
+  color: var(--pc-alert-warning-text);
 }
 
 .chartTooltipValue_danger {
-  color: var(--pc-alert-error-text, #991b1b);
+  color: var(--pc-alert-error-text);
 }
 
 .chartTooltipMulti {
@@ -2994,11 +2994,11 @@ a.alertItem:hover {
 }
 
 .healthTrend_success {
-  color: var(--pc-alert-success-text, #0f766e);
+  color: var(--pc-alert-success-text);
 }
 
 .healthTrend_warning {
-  color: var(--pc-alert-warning-text, #b45309);
+  color: var(--pc-alert-warning-text);
 }
 
 .healthTrend_danger {
@@ -3031,7 +3031,7 @@ a.alertItem:hover {
 }
 
 .healthSignalIcon_warning {
-  color: var(--pc-alert-warning-icon, #d97706);
+  color: var(--pc-alert-warning-icon);
   background: var(--pc-alert-warning-bg, color-mix(in srgb, #f59e0b 14%, transparent));
 }
 
@@ -3085,7 +3085,7 @@ a.alertItem:hover {
 }
 
 .healthSignalFill_warning {
-  background: var(--pc-alert-warning-icon, #d97706);
+  background: var(--pc-alert-warning-icon);
 }
 
 .healthSignalFill_success {
@@ -3109,7 +3109,7 @@ a.alertItem:hover {
 }
 
 .healthSignalValue_warning {
-  color: var(--pc-alert-warning-text, #d97706);
+  color: var(--pc-alert-warning-text);
 }
 
 .healthSignalValue_success {
@@ -3169,13 +3169,13 @@ a.alertItem:hover {
 }
 
 .healthActionBtn_warning {
-  color: var(--pc-alert-warning-text, #92400e);
-  border-color: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 40%, transparent);
+  color: var(--pc-alert-warning-text);
+  border-color: color-mix(in srgb, var(--pc-alert-warning-icon) 40%, transparent);
   background: var(--pc-alert-warning-bg, color-mix(in srgb, #f59e0b 12%, var(--pc-card-bg)));
 }
 
 .healthActionBtn_warning:hover {
-  background: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 18%, var(--pc-card-bg));
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 18%, var(--pc-card-bg));
 }
 
 .healthReportLink {
@@ -3265,7 +3265,7 @@ a.alertItem:hover {
 }
 
 .teamStatValue_success {
-  color: var(--pc-alert-success-text, #166534);
+  color: var(--pc-alert-success-text);
 }
 
 .teamStatValue_danger {
@@ -3419,21 +3419,21 @@ a.alertItem:hover {
 }
 
 .teamStatus_on_track {
-  color: var(--pc-alert-success-text, #166534);
+  color: var(--pc-alert-success-text);
 }
 
 .teamStatus_on_track .teamStatusIcon {
-  color: var(--pc-alert-success-icon, #16a34a);
-  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, transparent);
+  color: var(--pc-alert-success-icon);
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 14%, transparent);
 }
 
 .teamStatus_at_risk {
-  color: var(--pc-alert-warning-text, #92400e);
+  color: var(--pc-alert-warning-text);
 }
 
 .teamStatus_at_risk .teamStatusIcon {
-  color: var(--pc-alert-warning-icon, #d97706);
-  background: color-mix(in srgb, var(--pc-alert-warning-icon, #f59e0b) 16%, transparent);
+  color: var(--pc-alert-warning-icon);
+  background: color-mix(in srgb, var(--pc-alert-warning-icon) 16%, transparent);
 }
 
 .teamStatus_below {
@@ -3537,8 +3537,8 @@ a.alertItem:hover {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--pc-alert-success-icon, #16a34a);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 20%, transparent);
+  background: var(--pc-alert-success-icon);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-alert-success-icon) 20%, transparent);
   flex-shrink: 0;
 }
 
@@ -4069,8 +4069,8 @@ a.alertItem:hover {
 }
 
 .trendChipUp {
-  color: var(--pc-alert-success-text, #166534);
-  background: var(--pc-alert-success-bg, #f0fdf4);
+  color: var(--pc-alert-success-text);
+  background: var(--pc-alert-success-bg);
 }
 
 .trendChipDown {
@@ -4145,13 +4145,13 @@ a.alertItem:hover {
 }
 
 .tickerDot_warning {
-  background: var(--pc-alert-warning-icon, #d97706);
-  box-shadow: 0 0 0 3px var(--pc-alert-warning-bg, #fffbeb);
+  background: var(--pc-alert-warning-icon);
+  box-shadow: 0 0 0 3px var(--pc-alert-warning-bg);
 }
 
 .tickerDot_info {
-  background: var(--pc-alert-info-icon, #2563eb);
-  box-shadow: 0 0 0 3px var(--pc-alert-info-bg, #eff6ff);
+  background: var(--pc-alert-info-icon);
+  box-shadow: 0 0 0 3px var(--pc-alert-info-bg);
 }
 
 .tickerCount {
@@ -4169,9 +4169,9 @@ a.alertItem:hover {
   gap: 0.45rem;
   padding: 0.5rem 0.85rem;
   border-radius: 999px;
-  background: var(--pc-alert-success-bg, #f0fdf4);
-  color: var(--pc-alert-success-text, #166534);
-  border: 1px solid var(--pc-alert-success-border, #bbf7d0);
+  background: var(--pc-alert-success-bg);
+  color: var(--pc-alert-success-text);
+  border: 1px solid var(--pc-alert-success-border);
   font-size: 0.82rem;
   font-weight: 600;
   width: fit-content;
@@ -4219,11 +4219,11 @@ a.alertItem:hover {
 }
 
 .healthRing_success {
-  --health-ring-color: var(--pc-alert-success-icon, #16a34a);
+  --health-ring-color: var(--pc-alert-success-icon);
 }
 
 .healthRing_warning {
-  --health-ring-color: var(--pc-alert-warning-icon, #d97706);
+  --health-ring-color: var(--pc-alert-warning-icon);
 }
 
 .healthRing_danger {
@@ -4296,20 +4296,20 @@ a.alertItem:hover {
   gap: 0.55rem;
   padding: 0.55rem 0.7rem;
   border-radius: var(--pc-radius-sm);
-  background: var(--pc-alert-success-bg, #f0fdf4);
-  border: 1px solid var(--pc-alert-success-border, #bbf7d0);
+  background: var(--pc-alert-success-bg);
+  border: 1px solid var(--pc-alert-success-border);
   text-decoration: none;
   color: inherit;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .healthPositiveCallout:hover {
-  background: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 14%, var(--pc-alert-success-bg, #f0fdf4));
-  border-color: color-mix(in srgb, var(--pc-alert-success-icon, #16a34a) 45%, var(--pc-alert-success-border, #bbf7d0));
+  background: color-mix(in srgb, var(--pc-alert-success-icon) 14%, var(--pc-alert-success-bg));
+  border-color: color-mix(in srgb, var(--pc-alert-success-icon) 45%, var(--pc-alert-success-border));
 }
 
 .healthPositiveCallout svg {
-  color: var(--pc-alert-success-icon, #16a34a);
+  color: var(--pc-alert-success-icon);
   flex-shrink: 0;
 }
 
@@ -4321,7 +4321,7 @@ a.alertItem:hover {
 
 .healthPositiveChevron {
   flex-shrink: 0;
-  color: var(--pc-alert-success-icon, #16a34a);
+  color: var(--pc-alert-success-icon);
   opacity: 0.8;
 }
 
@@ -4385,6 +4385,18 @@ a.alertItem:hover {
   border-radius: 18px;
 }
 
+.widgetSkeleton {
+  height: 100%;
+  border-radius: var(--pc-radius-md);
+  background: color-mix(in srgb, var(--pc-muted-fg) 12%, var(--pc-card-bg));
+  animation: skeletonPulse 1.3s ease-in-out infinite;
+}
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 .widgetFrame {
   height: 100%;
   display: flex;
@@ -4440,8 +4452,8 @@ a.alertItem:hover {
 }
 
 .widgetRemoveBtn:hover {
-  color: var(--pc-alert-error-icon, #dc2626);
-  background: color-mix(in srgb, var(--pc-alert-error-icon, #dc2626) 12%, transparent);
+  color: var(--pc-alert-error-icon);
+  background: color-mix(in srgb, var(--pc-alert-error-icon) 12%, transparent);
 }
 
 .widgetFrameBody {
@@ -4460,7 +4472,7 @@ a.alertItem:hover {
   margin: 0;
   padding: 1rem;
   font-size: 0.8rem;
-  color: var(--pc-alert-error-icon, #dc2626);
+  color: var(--pc-alert-error-icon);
 }
 
 .addWidgetGroups {
@@ -4562,4 +4574,15 @@ a.alertItem:hover {
   font-size: 0.72rem;
   color: var(--pc-muted-fg);
   font-style: italic;
+}
+
+.inlineLinkBtn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }

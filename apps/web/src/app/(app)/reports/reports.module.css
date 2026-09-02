@@ -1814,6 +1814,24 @@ button.treemapTile:hover {
   color: var(--pc-foreground);
 }
 
+/** Same "Sample" disclosure pill used elsewhere in the app (e.g. the cashier payment-mix
+ *  placeholder badge) — for insight rows that render static/example content, not a live
+ *  computation, so it's never mistaken for a real alert. */
+.sampleTag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc-primary) 14%, transparent);
+  color: var(--pc-primary);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+
 .actionDesc {
   font-size: 0.73rem;
   color: var(--pc-muted-fg);

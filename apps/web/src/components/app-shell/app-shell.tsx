@@ -34,7 +34,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconClipboard,
-  IconSparkles,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
 import {
@@ -74,7 +73,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Main",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: <IconGrid size={18} /> },
-      { href: "/insights", label: "AI Insights", icon: <IconSparkles size={18} /> },
       { href: "/pos", label: "POS / Checkout", icon: <IconShoppingCart size={18} />, roles: POS_ROLES, permission: "sales.pos_use" },
     ],
   },
@@ -124,6 +122,7 @@ PAGE_TITLES["/inventory/batches"] = "Batch stock";
 PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
 PAGE_TITLES["/inventory/movements"] = "Stock movements";
 PAGE_TITLES["/notifications"] = "Notifications";
+PAGE_TITLES["/insights"] = "AI Insights";
 PAGE_TITLES["/settings/my-profile"] = "My Profile";
 PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
 PAGE_TITLES["/settings/branches"] = "Branches";

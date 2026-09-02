@@ -22,6 +22,9 @@ export type ActionPanelItem = {
   countText?: string;
   /** Up to a few concrete examples shown as chips under the row — only used in `variant="cards"`. */
   examples?: ActionExample[];
+  /** Small inline disclosure next to the title — e.g. a "Sample" tag for placeholder content
+   *  that isn't computed from real data yet, matching the app's existing "Sample" badge pattern. */
+  badge?: ReactNode;
   onClick?: () => void;
   /** When set (with `onClick`), replaces the numeric count on the right of a `variant="rows"` item
    * with a colored text CTA button instead — e.g. "View target gaps" — for alert-style action lists. */
@@ -92,6 +95,7 @@ export function ActionsPanel({
                 <span className={`${css.actionIconSq} ${css[item.tone]}`}>{item.icon}</span>
                 <span className={css.actionBody}>
                   <span className={css.actionTitle}>{item.title}</span>
+                  {item.badge}
                   <br />
                   <span className={css.actionDesc}>{item.description}</span>
                 </span>
@@ -131,6 +135,7 @@ export function ActionsPanel({
               <span className={`${css.actionIconSq} ${css[item.tone]}`}>{item.icon}</span>
               <span className={css.actionBody}>
                 <span className={css.actionTitle}>{item.title}</span>
+                  {item.badge}
                 <br />
                 <span className={css.actionDesc}>{item.description}</span>
               </span>

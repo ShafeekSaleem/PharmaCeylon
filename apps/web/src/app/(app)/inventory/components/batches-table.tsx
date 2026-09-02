@@ -57,6 +57,7 @@ function RowActions({
       </RoleLink>
       <RoleButton
         roles={INVENTORY_WRITE_ROLES}
+        permissions={["inventory.manage"]}
         className={`${css.actionIcon} ${css.actionIconAdjust}`}
         aria-label={`Adjust ${row.product.name}, batch ${row.batchNo}`}
         data-tooltip="Adjust this batch"
@@ -158,7 +159,8 @@ export function BatchesTable({
           <div className={`${css.productCell} ${css.batchProductCell}`}>
             <img
               src={row.product.imageUrl || PRODUCT_PLACEHOLDER_SRC}
-              alt=""
+              alt={row.product.imageUrl ? row.product.name : ""}
+              aria-hidden={!row.product.imageUrl}
               className={css.thumb}
             />
             <div>

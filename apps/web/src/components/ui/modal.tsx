@@ -34,6 +34,7 @@ export function Modal({
   elevated = false,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const allowDismiss = canDismiss;
 
   // Prefer capture for elevated (nested) modals so Esc closes the top overlay first.
@@ -59,6 +60,45 @@ export function Modal({
         first?.focus();
       });
     }
+  }, [open]);
+
+  // Capture the previously-focused element before opening, restore it on close so
+  // keyboard/screen-reader users don't lose their place in the page behind the dialog.
+  useEffect(() => {
+    if (open) {
+      previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    } else if (previouslyFocusedRef.current) {
+      previouslyFocusedRef.current.focus();
+      previouslyFocusedRef.current = null;
+    }
+  }, [open]);
+
+  // Focus trap: while open, Tab/Shift+Tab cycles between the dialog's first and last
+  // focusable descendants instead of letting focus escape into the page behind it.
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      const active = document.activeElement;
+      const withinDialog = active instanceof Node && dialogRef.current?.contains(active);
+      if (e.shiftKey) {
+        if (active === first || !withinDialog) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !withinDialog) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
   const handleBackdrop = useCallback(() => {

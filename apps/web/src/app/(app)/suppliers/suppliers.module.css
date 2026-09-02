@@ -112,7 +112,7 @@
 }
 
 .dueOverdue {
-  color: var(--pc-destructive, #dc2626);
+  color: var(--pc-destructive);
   font-weight: 600;
 }
 

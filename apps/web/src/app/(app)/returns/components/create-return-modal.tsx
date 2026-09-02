@@ -7,6 +7,7 @@ import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import type { BatchRow } from "@/app/(app)/inventory/types";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
+import { usePermissions } from "@/lib/permissions";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
 import { useProductOptions, useSuppliers } from "../../purchasing/hooks/use-suppliers";
 import type { PurchaseOrderDetail, PurchaseOrderListItem } from "../../purchasing/types";
@@ -66,8 +67,9 @@ function isCompleteLine(line: CreateReturnLine): boolean {
 }
 
 export function CreateReturnModal({ open, onClose, onCreated }: Props) {
-  const { branchId, user } = useAuth();
-  const canAutoSubmit = canApproveReturn(user, branchId);
+  const { branchId } = useAuth();
+  const { permissionKeys } = usePermissions();
+  const canAutoSubmit = canApproveReturn(permissionKeys);
   const suppliers = useSuppliers();
   const products = useProductOptions();
 

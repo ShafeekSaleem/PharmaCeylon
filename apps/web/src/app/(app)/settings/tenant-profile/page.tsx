@@ -93,6 +93,9 @@ export default function TenantProfilePage() {
       {error ? <Alert variant="error">{error}</Alert> : null}
       {saved ? <Alert variant="success">Tenant profile saved.</Alert> : null}
 
+      {loading || !profile ? (
+        <p className={css.rowHint}>Loading…</p>
+      ) : (
       <div className={css.card}>
         <div className={css.profileIdentity}>
           <ImageUpload
@@ -200,6 +203,7 @@ export default function TenantProfilePage() {
           </p>
         )}
       </div>
+      )}
     </div>
   );
 }
