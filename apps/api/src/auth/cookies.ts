@@ -4,6 +4,7 @@ import type { ConfigService } from "@nestjs/config";
 export const ACCESS_COOKIE = "pc_access";
 export const REFRESH_COOKIE = "pc_refresh";
 export const CSRF_COOKIE = "pc_csrf";
+export const ONBOARDING_COOKIE = "pc_onboarding";
 
 /**
  * Cookie scope rules:
@@ -16,6 +17,7 @@ export const CSRF_COOKIE = "pc_csrf";
 export const ACCESS_COOKIE_PATH = "/api/v1";
 export const REFRESH_COOKIE_PATH = "/api/v1/auth";
 export const CSRF_COOKIE_PATH = "/";
+export const ONBOARDING_COOKIE_PATH = "/";
 
 export type SameSiteMode = "lax" | "strict" | "none";
 
@@ -88,6 +90,29 @@ export function setCsrfCookie(
     domain: env.domain,
     path: CSRF_COOKIE_PATH,
     maxAge: ttlSeconds * 1000,
+  });
+}
+
+export function setOnboardingCookie(
+  res: Response,
+  env: CookieEnv,
+  token: string,
+  ttlSeconds: number,
+) {
+  res.cookie(
+    ONBOARDING_COOKIE,
+    token,
+    baseOptions(env, ONBOARDING_COOKIE_PATH, ttlSeconds * 1000),
+  );
+}
+
+export function clearOnboardingCookie(res: Response, env: CookieEnv) {
+  res.clearCookie(ONBOARDING_COOKIE, {
+    secure: env.secure,
+    sameSite: env.sameSite,
+    domain: env.domain,
+    httpOnly: true,
+    path: ONBOARDING_COOKIE_PATH,
   });
 }
 

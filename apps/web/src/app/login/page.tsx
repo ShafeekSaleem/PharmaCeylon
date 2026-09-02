@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/lib/use-auth";
@@ -129,7 +130,8 @@ function LoginForm() {
       <div className={styles.cardCenter}>
         <div className={styles.card}>
           <div className={styles.formColumn}>
-            <h1 className={styles.title}>Login</h1>
+            <h1 className={styles.title}>Welcome back</h1>
+            <p className={styles.subtitle}>Sign in to continue to your pharmacy workspace.</p>
             <form
               className={`${styles.form}${loading ? ` ${styles.formLoading}` : ""}`}
               onSubmit={onSubmit}
@@ -199,10 +201,10 @@ function LoginForm() {
                 {loading ? (
                   <>
                     <span className={styles.spinner} />
-                    Logging in…
+                    Signing in…
                   </>
                 ) : (
-                  "Login"
+                  "Sign in"
                 )}
               </button>
               <div className={styles.forgotWrap}>
@@ -216,6 +218,14 @@ function LoginForm() {
                   Forgot password?
                 </button>
               </div>
+              <div className={styles.accountDivider}><span>or</span></div>
+              <div className={styles.newAccount}>
+                <span>New to PharmaCeylon?</span>
+                <Link className={styles.registerLink} href="/register">
+                  Create your pharmacy workspace
+                </Link>
+                <small>Have an invitation? Use the email address that received it.</small>
+              </div>
             </form>
           </div>
           <div className={styles.brandColumn}>
@@ -223,7 +233,12 @@ function LoginForm() {
               <TempBrandMark />
             </div>
             <h2 className={styles.brandName}>PharmaCeylon</h2>
-            <p className={styles.tagline}>Intelligent inventory management with AI-powered insights.</p>
+            <p className={styles.tagline}>Everything your pharmacy needs, in one connected workspace.</p>
+            <ul className={styles.brandFeatures}>
+              <li>Sales and checkout</li>
+              <li>Inventory and purchasing</li>
+              <li>Reports across every branch</li>
+            </ul>
           </div>
         </div>
       </div>
