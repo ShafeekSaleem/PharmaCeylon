@@ -17,7 +17,9 @@
   gap: 6px;
   cursor: pointer;
   background: var(--pc-card-bg);
-  transition: border-color 0.2s, background-color 0.2s;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s;
 }
 
 .dropZone:hover {
@@ -102,9 +104,9 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 1.5px solid var(--pc-card-bg);
-  background: color-mix(in srgb, var(--pc-destructive) 14%, var(--pc-card-bg));
-  color: var(--pc-destructive);
+  border: none;
+  background: var(--pc-destructive);
+  color: #fff;
   font-size: 14px;
   line-height: 1;
   display: flex;
@@ -112,13 +114,11 @@
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
-  transition: background-color 0.15s, color 0.15s;
+  transition: opacity 0.15s;
 }
 
 .removeBtn:hover {
-  background: var(--pc-destructive);
-  color: #fff;
+  opacity: 0.85;
 }
 
 .spinner {
@@ -162,6 +162,34 @@
 
 .avatar .error {
   max-width: 180px;
+}
+
+.compact .dropZone,
+.compact .previewContainer,
+.compact .preview,
+.compact .previewButton {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+}
+
+.compact .dropZone {
+  gap: 2px;
+  border-width: 1px;
+  background: var(--pc-input-bg);
+}
+
+.compact .icon {
+  width: 21px;
+  height: 21px;
+}
+
+.compact .hint {
+  font-size: 9px;
+}
+
+.compact .error {
+  max-width: 200px;
 }
 
 .hidden {

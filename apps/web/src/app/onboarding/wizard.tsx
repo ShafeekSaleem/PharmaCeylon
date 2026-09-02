@@ -23,6 +23,7 @@ import {
   IconUpload,
   IconUser,
 } from "@/components/icons";
+import { ImageUpload } from "@/components/ui/image-upload";
 import { SelectField } from "@/components/ui/select-field";
 import {
   COUNTRY_OPTIONS,
@@ -38,6 +39,7 @@ import {
 import {
   fetchOnboardingDraft,
   OnboardingDraft,
+  removeOnboardingLogo,
   saveOnboardingDraft,
 } from "@/lib/onboarding-draft-client";
 import {
@@ -348,7 +350,7 @@ export function OnboardingWizard({ step }: { step: Step }) {
               </button>
             </div>
           </div>
-          <ContextPanel step={step} draft={draft} owner={owner} />
+          <ContextPanel step={step} draft={draft} />
         </section>
       </div>
     </main>
@@ -384,15 +386,19 @@ function PharmacyForm({
       </p>
       <div className={styles.divider} />
       <div className={styles.logoRow}>
-        <span>{initialsFor(draft.businessName)}</span>
-        <div>
+        <ImageUpload
+          value={draft.businessLogoUrl}
+          endpoint="/onboarding/logo"
+          size="compact"
+          onChange={(url) => update("businessLogoUrl", url)}
+          onRemove={removeOnboardingLogo}
+        />
+        <div className={styles.logoCopy}>
           <b>
             Business logo <small>(optional)</small>
           </b>
-          <button type="button" disabled>
-            <IconUpload size={16} />
-            Add after workspace creation
-          </button>
+          <span>Used on receipts, invoices and your workspace.</span>
+          <small>JPEG, PNG or WebP · maximum 2 MB</small>
         </div>
       </div>
       <div className={styles.form}>
@@ -816,15 +822,7 @@ function Review({
   );
 }
 
-function ContextPanel({
-  step,
-  draft,
-  owner,
-}: {
-  step: Step;
-  draft: OnboardingDraft;
-  owner: VerifiedOwnerSession | null;
-}) {
+function ContextPanel({ step, draft }: { step: Step; draft: OnboardingDraft }) {
   if (step === "pharmacy")
     return (
       <aside className={styles.contextCard}>
@@ -955,18 +953,6 @@ function ContextPanel({
         Workspace setup is the beginning. Real sales stay unavailable until
         required operational setup is complete.
       </Info>
-      <div className={styles.ownerConfirmation}>
-        <span>
-          {`${owner?.firstName?.[0] ?? ""}${owner?.lastName?.[0] ?? ""}` ||
-            "OW"}
-        </span>
-        <div>
-          <b>
-            {owner ? `${owner.firstName} ${owner.lastName}` : "Pharmacy owner"}
-          </b>
-          <small>Verified workspace owner</small>
-        </div>
-      </div>
     </aside>
   );
 }
@@ -1116,16 +1102,6 @@ function ReviewSection({
         </dl>
       </div>
     </section>
-  );
-}
-
-function initialsFor(name?: string): string {
-  const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
-  return (
-    parts
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "PC"
   );
 }
 

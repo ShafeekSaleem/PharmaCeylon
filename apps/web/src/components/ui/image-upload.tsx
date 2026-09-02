@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type DragEvent,
+  type ChangeEvent,
+} from "react";
 import { apiFetch } from "@/lib/auth-client";
 import styles from "./image-upload.module.css";
 
@@ -14,6 +20,7 @@ export type ImageUploadProps = {
   endpoint?: string;
   onRemove?: () => Promise<void> | void;
   shape?: "square" | "avatar";
+  size?: "default" | "compact";
   disabled?: boolean;
   className?: string;
 };
@@ -28,6 +35,7 @@ export function ImageUpload({
   endpoint,
   onRemove,
   shape = "square",
+  size = "default",
   disabled = false,
   className,
 }: ImageUploadProps) {
@@ -61,10 +69,13 @@ export function ImageUpload({
         const formData = new FormData();
         formData.append("file", file);
 
-        const res = await apiFetch(endpoint ?? `/uploads/image?context=${folder}`, {
-          method: "POST",
-          body: formData,
-        });
+        const res = await apiFetch(
+          endpoint ?? `/uploads/image?context=${folder}`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
 
         if (!res.ok) {
           const body = await res.json().catch(() => null);
@@ -119,13 +130,21 @@ export function ImageUpload({
       await onRemove?.();
       onChange(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not remove the image.");
+      setError(
+        err instanceof Error ? err.message : "Could not remove the image.",
+      );
     } finally {
       setUploading(false);
     }
   };
 
-  const wrapperClass = [styles.wrapper, shape === "avatar" ? styles.avatar : "", disabled ? styles.disabled : "", className]
+  const wrapperClass = [
+    styles.wrapper,
+    shape === "avatar" ? styles.avatar : "",
+    size === "compact" ? styles.compact : "",
+    disabled ? styles.disabled : "",
+    className,
+  ]
     .filter(Boolean)
     .join(" ");
 
@@ -133,9 +152,16 @@ export function ImageUpload({
     return (
       <div className={wrapperClass}>
         <div className={styles.previewContainer}>
-          <button type="button" className={styles.previewButton} onClick={handleClick} aria-label="Replace image">
+          <button
+            type="button"
+            className={styles.previewButton}
+            onClick={handleClick}
+            aria-label="Replace image"
+          >
             <img src={value} alt="" className={styles.preview} />
-            <span className={styles.changeOverlay}>{uploading ? "Uploading…" : "Change"}</span>
+            <span className={styles.changeOverlay}>
+              {uploading ? "Uploading…" : "Change"}
+            </span>
           </button>
           {!disabled && (
             <button
