@@ -266,6 +266,16 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     dependencies: ["products.view"],
   },
   {
+    key: "products.import",
+    module: "products",
+    label: "Import products",
+    description:
+      "Upload a product list from another system, with optional opening stock.",
+    defaultRoles: [owner, manager, inventory_clerk],
+    riskLevel: "elevated",
+    dependencies: ["products.manage"],
+  },
+  {
     key: "products.delete",
     module: "products",
     label: "Delete products",

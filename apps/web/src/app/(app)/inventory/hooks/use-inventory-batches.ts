@@ -10,6 +10,12 @@ export function useInventoryBatches(opts: {
   nearExpiryDays?: number | null;
   /** When true, only expired batches. */
   expired?: boolean | null;
+  /**
+   * When true, only batches imported without a real expiry date. They carry a far-future
+   * placeholder, so they never appear under the near-expiry or expired filters — this is the
+   * only way to find them after a migration import.
+   */
+  needsExpiryReview?: boolean | null;
   includeZero?: boolean;
   controlled?: "controlled" | "regular" | null;
   q?: string;
@@ -35,6 +41,7 @@ export function useInventoryBatches(opts: {
         params.set("nearExpiryDays", String(opts.nearExpiryDays));
       }
       if (opts.expired === true) params.set("expired", "true");
+      if (opts.needsExpiryReview === true) params.set("needsExpiryReview", "true");
       if (opts.includeZero === false) params.set("includeZero", "false");
       if (opts.controlled) params.set("controlled", opts.controlled);
       const qs = params.toString();
@@ -62,6 +69,7 @@ export function useInventoryBatches(opts: {
     opts.productId,
     opts.nearExpiryDays,
     opts.expired,
+    opts.needsExpiryReview,
     opts.includeZero,
     opts.controlled,
     opts.q,

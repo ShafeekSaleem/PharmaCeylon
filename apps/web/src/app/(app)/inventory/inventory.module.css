@@ -1501,3 +1501,15 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Imported batch with no expiry date — neutral, because the placeholder date it carries is
+   not a fact about the stock and shouldn't be coloured like one. */
+.expiryBadgeUnset {
+  background: var(--pc-muted-bg);
+  border-color: var(--pc-border);
+  color: var(--pc-muted-fg);
+}
+
+.expiryBadgeUnset svg {
+  color: var(--pc-muted-fg);
+}

@@ -92,6 +92,7 @@ export function ProductsPageContent() {
   const { permissionKeys } = usePermissions();
   const canWrite = hasWriteAccess(user, branchId);
   const canDeleteProduct = hasPermission(permissionKeys, ["products.delete"]);
+  const canImportProducts = hasPermission(permissionKeys, ["products.import"]);
   const hasBranch = !!getBranchId();
 
   const {
@@ -118,10 +119,12 @@ export function ProductsPageContent() {
   const [exportingAll, setExportingAll] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [nmraImportOpen, setNmraImportOpen] = useState(false);
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [rangeNoticeDismissed, setRangeNoticeDismissed] = useState(true);
   const columnsRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+  const importRef = useRef<HTMLDivElement>(null);
 
   const { categories, tags, refresh: refreshMeta } = useProductMeta();
   const metaMutations = useProductMetaMutations(refreshMeta);
@@ -183,7 +186,7 @@ export function ProductsPageContent() {
   }, [scope, page, debouncedSearch, appliedFilters, sortBy, sortDir]);
 
   useEffect(() => {
-    if (!columnsOpen && !exportOpen) return;
+    if (!columnsOpen && !exportOpen && !importMenuOpen) return;
     function onDocClick(e: MouseEvent) {
       const target = e.target as Node;
       if (columnsOpen && columnsRef.current && !columnsRef.current.contains(target)) {
@@ -192,11 +195,15 @@ export function ProductsPageContent() {
       if (exportOpen && exportRef.current && !exportRef.current.contains(target)) {
         setExportOpen(false);
       }
+      if (importMenuOpen && importRef.current && !importRef.current.contains(target)) {
+        setImportMenuOpen(false);
+      }
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         setColumnsOpen(false);
         setExportOpen(false);
+        setImportMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", onDocClick);
@@ -205,7 +212,7 @@ export function ProductsPageContent() {
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onKey);
     };
-  }, [columnsOpen, exportOpen]);
+  }, [columnsOpen, exportOpen, importMenuOpen]);
 
   const dismissRangeNotice = () => {
     setRangeNoticeDismissed(true);
@@ -661,15 +668,57 @@ export function ProductsPageContent() {
 
           <div className={css.toolbarActions}>
             {canWrite && (
-              <button
-                type="button"
-                className={css.columnsBtn}
-                onClick={() => setNmraImportOpen(true)}
-                data-tooltip="Import NMRA registration Excel or barcode CSV"
-              >
-                <IconUpload size={15} />
-                Import
-              </button>
+              <div className={css.columnsWrap} ref={importRef}>
+                <button
+                  type="button"
+                  className={css.columnsBtn}
+                  onClick={() => {
+                    setColumnsOpen(false);
+                    setExportOpen(false);
+                    setImportMenuOpen((o) => !o);
+                  }}
+                  aria-expanded={importMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <IconUpload size={15} />
+                  Import
+                </button>
+                {importMenuOpen && (
+                  <div className={css.columnsPopover} role="menu">
+                    <div className={css.columnsPopoverTitle}>Import products</div>
+                    {canImportProducts && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={css.exportMenuItem}
+                        onClick={() => {
+                          setImportMenuOpen(false);
+                          router.push("/products/import");
+                        }}
+                      >
+                        <span className={css.exportMenuItemLabel}>My product list</span>
+                        <span className={css.exportMenuItemHint}>
+                          A spreadsheet from another system — products and opening stock
+                        </span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={css.exportMenuItem}
+                      onClick={() => {
+                        setImportMenuOpen(false);
+                        setNmraImportOpen(true);
+                      }}
+                    >
+                      <span className={css.exportMenuItemLabel}>NMRA register</span>
+                      <span className={css.exportMenuItemHint}>
+                        The official registration list, or a barcode CSV
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             <div className={css.columnsWrap} ref={exportRef}>
               <button

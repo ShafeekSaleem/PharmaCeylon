@@ -5,6 +5,7 @@ export const IDEMPOTENCY_SCOPE = {
   transferShip: "transfer_ship",
   transferReceive: "transfer_receive",
   returnComplete: "return_complete",
+  productImport: "product_import",
 } as const;
 
 export type IdempotencyScope = (typeof IDEMPOTENCY_SCOPE)[keyof typeof IDEMPOTENCY_SCOPE];

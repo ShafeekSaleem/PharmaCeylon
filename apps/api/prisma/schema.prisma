@@ -111,6 +111,10 @@ enum StockMovementType {
   transfer_reserve_release
   adjustment_in
   adjustment_out
+  /// Day-one balance brought in from a previous system, not a later correction. Kept distinct
+  /// from adjustment_in because stock valuation, shrinkage analysis and the first stocktake all
+  /// need to tell the two apart, and once recorded as an adjustment that difference is gone.
+  opening_stock
   sale_void_in
   sale_refund_in
   quarantine_hold
@@ -240,6 +244,58 @@ enum CatalogSource {
   BARCODE
 }
 
+enum ProductImportStatus {
+  running
+  completed
+  failed
+  undone
+}
+
+/// One run of the "bring your own product list" importer.
+///
+/// The in-memory job map carries live progress; this row is the durable record, so an import
+/// can still be audited and undone after a restart. Products and stock created by the run are
+/// stamped with its id (`Product.importId`, and `StockLedger.referenceId` with
+/// `referenceType = "product_import"`), which is what makes undo possible.
+model ProductImport {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  /// Where opening stock was posted. Null when the file carried products only.
+  branchId String? @map("branch_id") @db.Uuid
+  /// Who ran it — an import can create thousands of rows, so this is never anonymous.
+  createdBy String @map("created_by") @db.Uuid
+
+  filename String
+  status   ProductImportStatus @default(running)
+
+  /// The column mapping the user confirmed on screen, kept so a failed run can be explained.
+  mapping Json @default("{}")
+
+  productsCreated Int @default(0) @map("products_created")
+  productsUpdated Int @default(0) @map("products_updated")
+  productsRanged  Int @default(0) @map("products_ranged")
+  batchesCreated  Int @default(0) @map("batches_created")
+  unitsPosted     Int @default(0) @map("units_posted")
+  rowsFailed      Int @default(0) @map("rows_failed")
+  /// Batches accepted without a real expiry date, awaiting review.
+  expiryReviewCount Int @default(0) @map("expiry_review_count")
+
+  /// Rows that could not be imported, in the shape the downloadable error CSV needs.
+  errorReport Json? @map("error_report")
+  error       String?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
+  undoneAt    DateTime? @map("undone_at")
+
+  tenant Tenant   @relation(fields: [tenantId], references: [id])
+  branch Branch?  @relation(fields: [branchId], references: [id])
+  actor  AppUser  @relation("ProductImportActor", fields: [createdBy], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@map("product_import")
+}
+
 /// Whether a product is part of what this pharmacy actually sells.
 ///
 /// REFERENCE — a lookup-only record (the NMRA registry). Findable in Search Catalog so a
@@ -310,6 +366,7 @@ model Tenant {
   notifications    Notification[]
   notificationPreferences NotificationPreference[]
   dashboardLayouts        DashboardLayout[]
+  productImports          ProductImport[]
 
   @@map("tenant")
 }
@@ -361,6 +418,7 @@ model Branch {
   heldSales         HeldSale[]
   monthlyTargets    BranchMonthlyTarget[]
   notifications     Notification[]
+  productImports    ProductImport[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -537,6 +595,7 @@ model AppUser {
   stocktakesCompleted    Stocktake[]            @relation("StocktakeCompleter")
   stocktakeCountEntries  StocktakeCountEntry[]
   stocktakePostings      StocktakePosting[]
+  productImports         ProductImport[]        @relation("ProductImportActor")
   stocktakeLineReviews   StocktakeLine[]        @relation("StocktakeLineReviewer")
   stocktakeLineApprovals StocktakeLine[]        @relation("StocktakeLineApprover")
   stocktakePostingLines  StocktakePostingLine[]
@@ -843,6 +902,10 @@ model Product {
   /// Catalog record origin. NMRA-specific fields are only expected when source = NMRA —
   /// MANUAL/SUPPLIER/CSV_IMPORT/BARCODE retail products may leave them null.
   source               CatalogSource @default(MANUAL)
+  /// The ProductImport run that created this row, so a mistaken 2,000-row import can be undone
+  /// while nothing has been sold against it. Plain column rather than a relation, matching
+  /// StockLedger.referenceId — it is a provenance stamp, not a dependency.
+  importId             String?   @map("import_id") @db.Uuid
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -866,6 +929,7 @@ model Product {
   @@index([tenantId, barcode])
   @@index([tenantId, brandName])
   @@index([tenantId, genericName])
+  @@index([tenantId, importId])
   @@index([tenantId, name])
   @@index([tenantId, rangeStatus])
   @@index([tenantId, registrationNo])
@@ -1032,6 +1096,12 @@ model Batch {
   /// supplied this batch"; `GoodsReceiptItem → GoodsReceipt → PurchaseOrder → Supplier` is a
   /// fallback for batches created before this column existed, not a replacement for it.
   supplierId       String?   @map("supplier_id") @db.Uuid
+  /// True when this batch was imported without a real expiry date and carries a far-future
+  /// placeholder instead. Old systems frequently don't export expiry, and rejecting those rows
+  /// would make a migration import unusable — so the batch is accepted, kept out of expiry
+  /// alerts (it would otherwise report a date nobody entered), and listed for review. The
+  /// placeholder sorts last under FEFO, so a flagged batch is never picked ahead of a real one.
+  needsExpiryReview Boolean  @default(false) @map("needs_expiry_review")
   receivedAt       DateTime  @default(now()) @map("received_at")
   createdAt        DateTime  @default(now()) @map("created_at")
 
@@ -1049,6 +1119,7 @@ model Batch {
 
   @@unique([tenantId, branchId, productId, batchNo])
   @@index([tenantId, branchId, productId])
+  @@index([tenantId, branchId, needsExpiryReview])
   @@index([tenantId, branchId, isQuarantined])
   @@index([tenantId, supplierId])
   @@map("batch")

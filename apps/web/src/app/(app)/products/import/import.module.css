@@ -1,0 +1,529 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.backLink {
+  align-self: flex-start;
+  font-size: 0.82rem;
+  color: var(--pc-muted-fg);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.dim {
+  color: var(--pc-muted-fg);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.inlineLink {
+  color: var(--pc-primary);
+  font-weight: 600;
+}
+
+/* ── Step rail ─────────────────────────────────────────────────────────── */
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  color: var(--pc-muted-fg);
+}
+
+.stepNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.stepActive {
+  color: var(--pc-foreground);
+  font-weight: 600;
+}
+
+.stepActive .stepNum {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+}
+
+.stepDone .stepNum {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-card-bg);
+  min-width: 0;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+}
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--pc-border);
+}
+
+.footLeft {
+  margin-right: auto;
+}
+
+.groupTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+}
+
+.optional,
+.required {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.optional {
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+}
+
+.required {
+  margin-left: 0.4rem;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+/* ── Dropzone ──────────────────────────────────────────────────────────── */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 2.25rem 1rem;
+  border: 2px dashed var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-input-bg);
+  color: var(--pc-muted-fg);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.dropzone strong {
+  font-size: 0.95rem;
+  color: var(--pc-foreground);
+}
+
+.dropzone:hover,
+.dropzoneActive {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.dropzone:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
+}
+
+.uploadAside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* ── Mapping table ─────────────────────────────────────────────────────── */
+
+.mapTable,
+.issueTable,
+.historyTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.mapTable th,
+.mapTable td,
+.issueTable th,
+.issueTable td,
+.historyTable th,
+.historyTable td {
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.mapTable thead th,
+.issueTable thead th,
+.historyTable thead th {
+  font-size: 0.7rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-muted-fg);
+  vertical-align: bottom;
+}
+
+.mapField {
+  width: 34%;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.mapHint {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--pc-muted-fg);
+}
+
+.mapSelect {
+  width: 100%;
+  max-width: 320px;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-input-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.82rem;
+}
+
+.mapSelect:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -1px;
+}
+
+.mapSample {
+  color: var(--pc-muted-fg);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.76rem;
+  word-break: break-word;
+}
+
+/* ── Stats ─────────────────────────────────────────────────────────────── */
+
+.statRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 118px;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-muted-bg);
+}
+
+.statGood {
+  border-color: color-mix(in srgb, var(--pc-success) 30%, var(--pc-border));
+  background: var(--pc-alert-success-bg);
+}
+
+.statWarn {
+  border-color: var(--pc-alert-warning-border);
+  background: var(--pc-alert-warning-bg);
+}
+
+.statValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+}
+
+.statLabel {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Chips & samples ───────────────────────────────────────────────────── */
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.chip,
+.miniChip,
+.flagChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.chip {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+}
+
+.chip strong {
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.miniChip {
+  padding: 0.05rem 0.4rem;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.flagChip {
+  padding: 0.05rem 0.4rem;
+  background: color-mix(in srgb, var(--pc-warning) 14%, transparent);
+  color: var(--pc-warning);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.flagRow {
+  display: inline-flex;
+  gap: 0.3rem;
+  margin-left: 0.4rem;
+}
+
+.sampleList {
+  margin: 0;
+  padding-left: 1rem;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: var(--pc-foreground);
+}
+
+.arrow {
+  color: var(--pc-muted-fg);
+}
+
+/* ── Compliance confirmation ───────────────────────────────────────────── */
+
+.complianceBox {
+  border: 1px solid var(--pc-alert-warning-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-alert-warning-bg);
+  overflow: hidden;
+}
+
+.complianceHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  color: var(--pc-alert-warning-text);
+}
+
+.complianceHead > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.complianceHead strong {
+  font-size: 0.88rem;
+}
+
+.complianceIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--pc-alert-warning-icon);
+}
+
+.complianceList {
+  margin: 0;
+  padding: 0 0.9rem 0.75rem;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.complianceItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.complianceItem input {
+  margin-top: 0.2rem;
+  accent-color: var(--pc-primary);
+  cursor: pointer;
+}
+
+/* ── Progress ──────────────────────────────────────────────────────────── */
+
+.progressTrack {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
+}
+
+.progressBar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--pc-primary);
+  transition: width 0.25s ease;
+}
+
+/* ── History ───────────────────────────────────────────────────────────── */
+
+.historyAction {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.failedTag {
+  color: var(--pc-danger);
+  font-weight: 600;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.primaryBtn,
+.secondaryBtn,
+.undoBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--pc-radius-sm);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.primaryBtn {
+  border: 1px solid var(--pc-primary);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+}
+
+.primaryBtn:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+  border-color: var(--pc-primary-hover);
+}
+
+.secondaryBtn,
+.undoBtn {
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-weight: 500;
+}
+
+.secondaryBtn:hover:not(:disabled),
+.undoBtn:hover:not(:disabled) {
+  background: var(--pc-muted-bg);
+}
+
+.undoBtn {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.primaryBtn:disabled,
+.secondaryBtn:disabled,
+.undoBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.primaryBtn:focus-visible,
+.secondaryBtn:focus-visible,
+.undoBtn:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 1px;
+}
+
+@media (max-width: 720px) {
+  .mapField {
+    width: auto;
+  }
+
+  .mapSample {
+    display: none;
+  }
+
+  .cardFoot {
+    flex-wrap: wrap;
+  }
+}

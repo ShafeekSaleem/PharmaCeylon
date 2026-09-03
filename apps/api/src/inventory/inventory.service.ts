@@ -47,6 +47,12 @@ export type BatchListQuery = {
   quarantined?: boolean;
   /** When true, only expired batches; when false, only non-expired. */
   expired?: boolean;
+  /**
+   * When true, only batches imported without a real expiry date. They carry a far-future
+   * placeholder, so they never surface in the expiry filters above — this is how a pharmacy
+   * finds them after a migration import and puts the real dates in.
+   */
+  needsExpiryReview?: boolean;
   controlled?: "all" | "controlled" | "regular";
 };
 
@@ -185,6 +191,7 @@ export class InventoryService {
         branchId,
         ...(query.productId ? { productId: query.productId } : {}),
         ...expiryWhere,
+        ...(query.needsExpiryReview ? { needsExpiryReview: true } : {}),
         ...(query.quarantined != null ? { isQuarantined: query.quarantined } : {}),
         ...(query.controlled === "controlled"
           ? { product: { isControlled: true } }
@@ -203,6 +210,7 @@ export class InventoryService {
         isQuarantined: true,
         quarantinedAt: true,
         quarantineReason: true,
+        needsExpiryReview: true,
         supplier: { select: { id: true, name: true } },
         product: {
           select: {
@@ -271,6 +279,7 @@ export class InventoryService {
         isQuarantined: b.isQuarantined,
         quarantinedAt: b.quarantinedAt?.toISOString() ?? null,
         quarantineReason: b.quarantineReason,
+        needsExpiryReview: b.needsExpiryReview,
         supplier: b.supplier ? { id: b.supplier.id, name: b.supplier.name } : null,
         product: {
           id: b.product.id,

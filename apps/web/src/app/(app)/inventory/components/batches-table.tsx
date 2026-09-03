@@ -196,26 +196,37 @@ export function BatchesTable({
         header: "Expiry",
         width: "190px",
         getValue: (row) => row.expiryDate,
-        render: (row) => (
-          <span
-            className={`${css.expiryBadge} ${
-              row.expired
-                ? css.expiryBadgeExpired
-                : row.nearExpiry
-                  ? css.expiryBadgeNear
-                  : css.expiryBadgeOk
-            }`}
-          >
-            {row.expired || row.nearExpiry ? (
-              <IconAlertTriangle size={11} />
-            ) : (
+        render: (row) =>
+          // An imported batch with no expiry carries a far-future placeholder. Printing it as
+          // "Dec 31, 2099 - 26782d left" states a date nobody entered as if it were a fact.
+          row.needsExpiryReview ? (
+            <span
+              className={`${css.expiryBadge} ${css.expiryBadgeUnset}`}
+              data-tooltip="Imported without an expiry date — edit the batch to set the real one"
+            >
               <IconCalendar size={11} />
-            )}
-            <span>
-              {formatExpiry(row.expiryDate)} - {daysLabel(row.daysToExpiry)}
+              <span>No expiry date</span>
             </span>
-          </span>
-        ),
+          ) : (
+            <span
+              className={`${css.expiryBadge} ${
+                row.expired
+                  ? css.expiryBadgeExpired
+                  : row.nearExpiry
+                    ? css.expiryBadgeNear
+                    : css.expiryBadgeOk
+              }`}
+            >
+              {row.expired || row.nearExpiry ? (
+                <IconAlertTriangle size={11} />
+              ) : (
+                <IconCalendar size={11} />
+              )}
+              <span>
+                {formatExpiry(row.expiryDate)} - {daysLabel(row.daysToExpiry)}
+              </span>
+            </span>
+          ),
       },
       {
         key: "qty",

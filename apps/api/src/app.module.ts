@@ -12,6 +12,7 @@ import { DashboardModule } from "./dashboard/dashboard.module";
 import { HealthController } from "./health/health.controller";
 import { InventoryModule } from "./inventory/inventory.module";
 import { NotificationsModule } from "./notifications/notifications.module";
+import { ProductImportModule } from "./product-import/product-import.module";
 import { ProductsModule } from "./products/products.module";
 import { PricingModule } from "./pricing/pricing.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -48,6 +49,7 @@ import { SetupModule } from "./setup/setup.module";
     AuthModule,
     TenantModule,
     ProductsModule,
+    ProductImportModule,
     SuppliersModule,
     AdminModule,
     PurchasingModule,

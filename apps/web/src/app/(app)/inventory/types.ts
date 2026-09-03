@@ -52,6 +52,8 @@ export type BatchRow = {
   isQuarantined: boolean;
   quarantinedAt: string | null;
   quarantineReason: string | null;
+  /** Imported without a real expiry date — carries a placeholder until someone confirms it. */
+  needsExpiryReview: boolean;
   supplier: { id: string; name: string } | null;
   product: {
     id: string;

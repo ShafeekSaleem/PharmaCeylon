@@ -36,6 +36,7 @@ export class InventoryController {
     @Query("includeZero") includeZero?: string,
     @Query("quarantined") quarantined?: string,
     @Query("expired") expired?: string,
+    @Query("needsExpiryReview") needsExpiryReview?: string,
     @Query("controlled") controlled?: string,
   ) {
     return this.inventory.listBatches(user.tenantId, branchId, {
@@ -45,6 +46,7 @@ export class InventoryController {
       quarantined:
         quarantined === "true" ? true : quarantined === "false" ? false : undefined,
       expired: expired === "true" ? true : expired === "false" ? false : undefined,
+      needsExpiryReview: needsExpiryReview === "true" ? true : undefined,
       controlled:
         controlled === "controlled" ? "controlled" : controlled === "regular" ? "regular" : undefined,
     });

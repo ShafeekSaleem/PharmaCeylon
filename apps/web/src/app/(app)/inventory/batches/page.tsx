@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
@@ -123,11 +124,14 @@ function BatchesContent() {
   }, [expiryFilter]);
 
   const expiredParam = searchParams.get("expired") === "1";
+  // Deep-linked from the product importer's "review them now".
+  const needsExpiryReview = searchParams.get("needsExpiryReview") === "true";
 
   const batches = useInventoryBatches({
     productId,
     nearExpiryDays: expiryFilter === "near" ? (nearExpiryDays ?? 30) : null,
     expired: expiryFilter === "expired" || expiredParam ? true : null,
+    needsExpiryReview: needsExpiryReview ? true : null,
     includeZero,
     controlled,
     q: debouncedQ,
@@ -143,6 +147,9 @@ function BatchesContent() {
 
   const rows = useMemo(() => {
     let list = scopedRows;
+    // The placeholder date makes these look "healthy" to every expiry bucket, so the
+    // client-side filters below would quietly drop them from their own view.
+    if (needsExpiryReview) return list;
     if (expiryFilter === "near") {
       list = list.filter((b) => b.nearExpiry && !b.expired);
     } else if (expiryFilter === "expired") {
@@ -151,7 +158,7 @@ function BatchesContent() {
       list = list.filter((b) => !b.expired && !b.nearExpiry);
     }
     return list;
-  }, [scopedRows, expiryFilter]);
+  }, [scopedRows, expiryFilter, needsExpiryReview]);
 
   const summary = useMemo(
     () => ({
@@ -276,6 +283,15 @@ function BatchesContent() {
         }
       />
 
+      {needsExpiryReview && (
+        <Alert variant="info">
+          Showing <strong>{rows.length}</strong> batch{rows.length === 1 ? "" : "es"} imported
+          without an expiry date. They carry a far-future placeholder, so they stay out of
+          expiry alerts and are picked last when selling — edit each one to enter the real
+          date.{" "}
+          <Link href="/inventory/batches">Show all batches</Link>
+        </Alert>
+      )}
       {adjustmentSuccess && <Alert variant="success">{adjustmentSuccess}</Alert>}
 
       {!batches.hasBranch && (
