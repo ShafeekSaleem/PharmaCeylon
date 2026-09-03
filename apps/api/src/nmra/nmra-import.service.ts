@@ -338,6 +338,9 @@ export class NmraImportService {
           taxCategory: "Standard rate",
           reorderLevel: 0,
           source: "NMRA",
+          // The registry is a lookup library, not the shop's product list. Set on create
+          // only — a re-import must never demote a product the pharmacy has since ranged.
+          rangeStatus: "REFERENCE",
           ...mutable,
           barcode,
         });

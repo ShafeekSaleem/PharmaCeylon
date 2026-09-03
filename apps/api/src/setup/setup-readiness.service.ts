@@ -72,7 +72,11 @@ export class SetupReadinessService {
     if (!branch) throw new NotFoundException("Branch not found");
 
     const [productCount, stockGroups, team] = await Promise.all([
-      this.prisma.product.count({ where: { tenantId, isActive: true } }),
+      // Only the pharmacy's own range counts. Importing the NMRA registry used to tick this
+      // step off before the shop had decided what it actually sells.
+      this.prisma.product.count({
+        where: { tenantId, isActive: true, rangeStatus: "RANGED" },
+      }),
       this.prisma.stockLedger.groupBy({
         by: ["batchId"],
         where: { tenantId, branchId, batchId: { not: null } },
@@ -114,7 +118,7 @@ export class SetupReadinessService {
         key: "products",
         title: "Set up your products",
         description:
-          "Choose from the catalog or import your existing products.",
+          "Add the products you sell — from the catalog or your own list.",
         complete: productsComplete,
         available: true,
         href: "/products",

@@ -96,7 +96,8 @@ export type DemoOpsUsers = {
 };
 
 export type DemoOpsResult = {
-  activeProducts: number;
+  rangedProducts: number;
+  referenceProducts: number;
   inactiveProducts: number;
   barcodesAdded: number;
   branchBatches: number;
@@ -177,11 +178,16 @@ export async function seedDemoOps(
     if (id) sellableProductIds.add(id);
   }
 
-  console.log("\n── Demo ops: activate sellable / deactivate catalog ──");
-  // Deactivate everything first, then activate sellable in chunks (avoids huge NOT IN).
+  console.log("\n── Demo ops: range sellable / keep the rest as reference ──");
+  // This used to switch `isActive` off across the whole catalog and back on for the sellable
+  // subset — a hand-rolled stand-in for "do we sell this", written into the one boolean that
+  // was available at the time. That meaning now has its own field, so the seed says it
+  // directly: everything imported from the NMRA register is REFERENCE, and only the products
+  // the demo pharmacy actually trades are RANGED. `isActive` is left alone here; it answers
+  // "is this record enabled", which is a separate question handled below.
   await prisma.product.updateMany({
     where: { tenantId },
-    data: { isActive: false },
+    data: { rangeStatus: "REFERENCE", rangedAt: null },
   });
 
   const sellableIdList = [...sellableProductIds];
@@ -189,18 +195,48 @@ export async function seedDemoOps(
     const chunk = sellableIdList.slice(i, i + BATCH);
     await prisma.product.updateMany({
       where: { tenantId, id: { in: chunk } },
-      data: { isActive: true },
+      data: { rangeStatus: "RANGED", rangedAt: new Date() },
     });
   }
 
-  const activeProducts = await prisma.product.count({ where: { tenantId, isActive: true } });
+  // A handful of discontinued lines, so the demo shows the two flags are independent: these
+  // are products the pharmacy ranged and then stopped selling, which is not the same thing
+  // as a registry record it never carried.
+  const discontinued = await prisma.product.findMany({
+    where: { tenantId, rangeStatus: "RANGED" },
+    select: { id: true },
+    orderBy: { sku: "asc" },
+    take: 12,
+    skip: 40,
+  });
+  if (discontinued.length > 0) {
+    await prisma.product.updateMany({
+      where: { tenantId, id: { in: discontinued.map((p) => p.id) } },
+      data: { isActive: false },
+    });
+  }
+
+  const rangedProducts = await prisma.product.count({
+    where: { tenantId, rangeStatus: "RANGED" },
+  });
+  const referenceProducts = await prisma.product.count({
+    where: { tenantId, rangeStatus: "REFERENCE" },
+  });
   const inactiveProducts = await prisma.product.count({ where: { tenantId, isActive: false } });
-  console.log(`  Active: ${activeProducts}, inactive: ${inactiveProducts}`);
+  console.log(
+    `  Ranged: ${rangedProducts}, reference: ${referenceProducts}, inactive: ${inactiveProducts}`,
+  );
 
   // Synthetic barcodes for sellable products missing one
   console.log("── Demo ops: synthetic barcodes ──");
   const needBarcode = await prisma.product.findMany({
-    where: { tenantId, isActive: true, OR: [{ barcode: null }, { barcode: "" }] },
+    // Only the products the demo pharmacy sells need a scannable barcode — the reference
+    // catalog keeps whatever the register carried.
+    where: {
+      tenantId,
+      rangeStatus: "RANGED",
+      OR: [{ barcode: null }, { barcode: "" }],
+    },
     select: { id: true, sku: true },
     orderBy: { sku: "asc" },
   });
@@ -1236,7 +1272,8 @@ export async function seedDemoOps(
 
   console.log("── Demo ops complete ──");
   return {
-    activeProducts,
+    rangedProducts,
+    referenceProducts,
     inactiveProducts,
     barcodesAdded,
     branchBatches,

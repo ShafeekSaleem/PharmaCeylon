@@ -1,7 +1,8 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
-import { IconEye, IconBox } from "@/components/icons";
+import { IconEye, IconBox, IconPlus } from "@/components/icons";
 import css from "../catalog.module.css";
 import type { CatalogSearchItem, MatchType } from "../types";
 import { formatLkr, matchTypeLabel, stockStatusLabel } from "../utils";
@@ -11,6 +12,10 @@ type Props = {
   selectedId: string | null;
   onSelect: (id: string) => void;
   highlightIndex: number;
+  /** Promote a reference record into the pharmacy's own products. Omitted without write access. */
+  onAddToProducts?: (item: CatalogSearchItem) => void;
+  /** Id currently being added, so its button can show progress. */
+  addingId?: string | null;
 };
 
 function MatchBadge({ type }: { type: MatchType }) {
@@ -26,6 +31,11 @@ function MatchBadge({ type }: { type: MatchType }) {
 }
 
 function StockPill({ item }: { item: CatalogSearchItem }) {
+  // A reference record was never carried, so "out of stock" is the wrong word for it — and
+  // a red badge on every registry row reads as a shelf full of problems.
+  if (item.rangeStatus === "REFERENCE") {
+    return <span className={css.productSub}>Not stocked</span>;
+  }
   if (item.qtyOnHand == null || item.stockStatus == null) {
     return <span className={css.productSub}>—</span>;
   }
@@ -42,7 +52,18 @@ function StockPill({ item }: { item: CatalogSearchItem }) {
   );
 }
 
-export function ResultsTable({ items, selectedId, onSelect, highlightIndex }: Props) {
+export function ResultsTable({
+  items,
+  selectedId,
+  onSelect,
+  highlightIndex,
+  onAddToProducts,
+  addingId,
+}: Props) {
+  // Results are already sorted with the shop's own products first, so the reference tier
+  // starts at exactly one boundary — label it once instead of badging every single row.
+  const firstReferenceIndex = items.findIndex((i) => i.rangeStatus === "REFERENCE");
+
   return (
     <div className={css.tableWrap}>
       <table className={css.table}>
@@ -62,12 +83,25 @@ export function ResultsTable({ items, selectedId, onSelect, highlightIndex }: Pr
           {items.map((item, index) => {
             const selected = item.id === selectedId;
             const highlighted = index === highlightIndex;
+            const isReference = item.rangeStatus === "REFERENCE";
             return (
+              <Fragment key={item.id}>
+              {index === firstReferenceIndex && (
+                <tr className={css.referenceDividerRow}>
+                  <td colSpan={8}>
+                    <span className={css.referenceDividerLabel}>
+                      Reference catalog
+                    </span>
+                    <span className={css.referenceDividerHint}>
+                      On the NMRA register — not yet part of your products
+                    </span>
+                  </td>
+                </tr>
+              )}
               <tr
-                key={item.id}
                 className={`${css.row}${selected ? ` ${css.rowSelected}` : ""}${
                   highlighted ? ` ${css.rowHighlight}` : ""
-                }`}
+                }${isReference ? ` ${css.rowReference}` : ""}`}
                 onClick={() => onSelect(item.id)}
                 role="button"
                 tabIndex={0}
@@ -126,6 +160,19 @@ export function ResultsTable({ items, selectedId, onSelect, highlightIndex }: Pr
                 <td className={css.mono}>{formatLkr(item.sellPrice)}</td>
                 <td>
                   <div className={css.actionsCell} onClick={(e) => e.stopPropagation()}>
+                    {isReference && onAddToProducts ? (
+                      <button
+                        type="button"
+                        className={css.addToProductsBtn}
+                        disabled={addingId === item.id}
+                        onClick={() => onAddToProducts(item)}
+                        aria-label="Add to my products"
+                        data-tooltip="Add to my products"
+                      >
+                        <IconPlus size={14} />
+                        {addingId === item.id ? "Adding…" : "Add"}
+                      </button>
+                    ) : null}
                     <Link
                       href={`/products/${item.id}`}
                       className={css.iconBtn}
@@ -145,6 +192,7 @@ export function ResultsTable({ items, selectedId, onSelect, highlightIndex }: Pr
                   </div>
                 </td>
               </tr>
+              </Fragment>
             );
           })}
         </tbody>

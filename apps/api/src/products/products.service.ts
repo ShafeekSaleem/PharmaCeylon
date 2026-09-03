@@ -8,6 +8,10 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { assertOneScopedMutation } from "../common/scoped-mutation.util";
+import {
+  BulkProductsDto,
+  type BulkProductAction,
+} from "./dto/bulk-products.dto";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { ProductMetaService } from "./product-meta.service";
@@ -33,6 +37,12 @@ const SORTABLE_FIELDS = new Set([
 
 /** Hard cap so a full-catalog export stays bounded (covers large NMRA loads). */
 const EXPORT_MAX_ROWS = 25_000;
+
+/**
+ * Ceiling on a "select all matching" bulk action. Generous enough to un-range a whole NMRA
+ * load in one go, bounded so a single request can't rewrite an unbounded slice of the catalog.
+ */
+const BULK_PRODUCT_MATCH_LIMIT = 25_000;
 const EXPORT_BATCH_SIZE = 500;
 
 const CSV_HEADER = [
@@ -54,6 +64,7 @@ const CSV_HEADER = [
   "Country of origin",
   "Local agent",
   "Commercial Category",
+  "In my range",
   "Status",
   "Requires prescription",
   "Controlled",
@@ -72,6 +83,7 @@ type ProductListQuery = {
   isControlled?: string;
   requiresPrescription?: boolean;
   status?: string;
+  rangeStatus?: string;
   lowStock?: boolean;
   categoryId?: string;
   commercialCategoryId?: string;
@@ -83,6 +95,33 @@ type ProductListQuery = {
 function escapeCsv(value: string | number | boolean | null | undefined): string {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+/**
+ * The `data` each bulk action writes, plus a `scope` clause narrowing it to rows the action
+ * can actually change. The scope keeps `updated` an honest count of what moved, and stops
+ * `range` from re-stamping `rangedAt` on products that were already in the range.
+ */
+function bulkActionUpdate(action: BulkProductAction): {
+  data: Prisma.ProductUpdateManyMutationInput;
+  scope: Prisma.ProductWhereInput;
+} {
+  switch (action) {
+    case "range":
+      return {
+        data: { rangeStatus: "RANGED", rangedAt: new Date() },
+        scope: { rangeStatus: "REFERENCE" },
+      };
+    case "unrange":
+      return {
+        data: { rangeStatus: "REFERENCE", rangedAt: null },
+        scope: { rangeStatus: "RANGED" },
+      };
+    case "activate":
+      return { data: { isActive: true }, scope: { isActive: false } };
+    case "deactivate":
+      return { data: { isActive: false }, scope: { isActive: true } };
+  }
 }
 
 function stockStatusLabel(status: StockStatus | null | undefined): string {
@@ -279,6 +318,7 @@ export class ProductsService {
             p.countryOfOrigin,
             p.localAgent,
             commercialCategory,
+            p.rangeStatus === "RANGED" ? "Yes" : "No",
             p.isActive ? "Active" : "Inactive",
             p.requiresPrescription || p.isControlled ? "Yes" : "No",
             p.isControlled ? "Yes" : "No",
@@ -596,6 +636,78 @@ export class ProductsService {
       } as Prisma.InputJsonValue,
     });
     return after;
+  }
+
+  /**
+   * Range / un-range / activate / deactivate many products at once — the escape hatch for a
+   * catalog that was imported too broadly, where fixing it product-by-product isn't realistic.
+   *
+   * Takes either an explicit id list (page selection) or the current list filters
+   * ("select all N matching"), never both. Ranging stamps `rangedAt` only on rows that were
+   * REFERENCE, so re-ranging an already-ranged product doesn't rewrite when it joined the
+   * range. Un-ranging deliberately leaves `isActive` alone: the two flags answer different
+   * questions, and collapsing them again is the bug this whole change exists to fix.
+   */
+  async bulkUpdate(tenantId: string, userId: string, dto: BulkProductsDto) {
+    const hasIds = Boolean(dto.productIds?.length);
+    const hasFilter = dto.filter !== undefined;
+    if (hasIds === hasFilter) {
+      throw new BadRequestException(
+        "Provide either productIds or filter — exactly one of the two.",
+      );
+    }
+
+    let ids: string[];
+    if (hasIds) {
+      ids = [...new Set(dto.productIds!)];
+    } else {
+      const { where, isEmpty } = await buildProductWhere(
+        this.prisma,
+        tenantId,
+        undefined,
+        dto.filter!,
+      );
+      if (isEmpty) {
+        return { matched: 0, updated: 0, action: dto.action };
+      }
+      const matched = await this.prisma.product.count({ where });
+      if (matched > BULK_PRODUCT_MATCH_LIMIT) {
+        throw new BadRequestException(
+          `This action would affect ${matched.toLocaleString()} products, above the limit of ${BULK_PRODUCT_MATCH_LIMIT.toLocaleString()}. Narrow your filters and try again.`,
+        );
+      }
+      const rows = await this.prisma.product.findMany({ where, select: { id: true } });
+      ids = rows.map((r) => r.id);
+    }
+
+    if (ids.length === 0) {
+      return { matched: 0, updated: 0, action: dto.action };
+    }
+
+    const { data, scope } = bulkActionUpdate(dto.action);
+    const result = await this.prisma.product.updateMany({
+      where: { tenantId, id: { in: ids }, ...scope },
+      data,
+    });
+
+    if (result.count > 0) {
+      await this.audit.log({
+        tenantId,
+        actorUserId: userId,
+        eventName: `products.bulk_${dto.action}`,
+        entityName: "product",
+        // Catalog-wide event with no single subject — same convention as the NMRA import.
+        entityId: tenantId,
+        payload: {
+          action: dto.action,
+          matched: ids.length,
+          updated: result.count,
+          selection: hasIds ? "ids" : "filter",
+        },
+      });
+    }
+
+    return { matched: ids.length, updated: result.count, action: dto.action };
   }
 
   async remove(tenantId: string, userId: string, id: string) {

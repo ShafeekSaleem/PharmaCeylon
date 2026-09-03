@@ -1226,3 +1226,64 @@
     display: none;
   }
 }
+
+/* ── Reference-catalog tier ────────────────────────────────────────────────
+   Results are sorted with the pharmacy's own products first, so the registry results form
+   one contiguous block. One divider says what they are; the rows carry a light tint rather
+   than a badge each. */
+
+.referenceDividerRow td {
+  padding: 0.55rem 0.75rem 0.35rem;
+  background: var(--pc-muted-bg);
+  border-top: 1px solid var(--pc-border);
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.referenceDividerLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.referenceDividerHint {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+}
+
+.rowReference td {
+  background: color-mix(in srgb, var(--pc-muted-bg) 45%, var(--pc-card-bg));
+}
+
+.addToProductsBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--pc-primary);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.addToProductsBtn:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+  border-color: var(--pc-primary-hover);
+}
+
+.addToProductsBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.addToProductsBtn:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 1px;
+}

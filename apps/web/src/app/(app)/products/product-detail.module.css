@@ -2423,3 +2423,76 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Reference-catalog record banner ───────────────────────────────────────
+   A product that exists for lookup only. Same shape as .branchNotice, in the neutral/info
+   tone rather than the warning tone — nothing is wrong, it just isn't ranged yet. */
+
+.referenceNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--pc-radius-sm);
+  border: 1px solid var(--pc-alert-info-border);
+  background: var(--pc-alert-info-bg);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--pc-alert-info-text);
+}
+
+.referenceNoticeIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--pc-alert-info-icon);
+}
+
+.referenceNoticeBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.referenceNoticeBody strong {
+  font-weight: 600;
+}
+
+.referenceNoticeError {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--pc-alert-error-text);
+}
+
+.referenceNoticeBtn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.38rem 0.75rem;
+  border: 1px solid var(--pc-primary);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.referenceNoticeBtn:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+  border-color: var(--pc-primary-hover);
+}
+
+.referenceNoticeBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.referenceNoticeBtn:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 1px;
+}

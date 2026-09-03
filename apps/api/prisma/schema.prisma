@@ -240,6 +240,21 @@ enum CatalogSource {
   BARCODE
 }
 
+/// Whether a product is part of what this pharmacy actually sells.
+///
+/// REFERENCE — a lookup-only record (the NMRA registry). Findable in Search Catalog so a
+/// pharmacist can look up any registered medicine in Sri Lanka, but kept out of the shop's
+/// own product list and out of transaction pickers.
+/// RANGED — the pharmacy stocks/sells this. Set explicitly ("Add to my products") or
+/// automatically the first time stock arrives against the product.
+///
+/// Deliberately separate from `isActive`: range status answers "do we sell this", `isActive`
+/// answers "is this record enabled" (a RANGED + inactive product is a discontinued line).
+enum ProductRangeStatus {
+  REFERENCE
+  RANGED
+}
+
 /// Client-supplied idempotency keys (e.g. `Idempotency-Key` header) to avoid duplicate money mutations.
 model IdempotencyRecord {
   id             String   @id @default(uuid()) @db.Uuid
@@ -814,7 +829,17 @@ model Product {
   /// Needs a linked prescription to sell (antibiotics etc.). Controlled always implies this.
   requiresPrescription Boolean   @default(false) @map("requires_prescription")
   reorderLevel         Int       @default(0) @map("reorder_level")
+  /// Pharmacist-owned "is this record enabled". Imports must never write this — an NMRA
+  /// refresh that flips it would silently undo a pharmacy's own deactivations.
   isActive             Boolean   @default(true) @map("is_active")
+  /// Does this pharmacy sell it? Defaults to RANGED so manually created products are part of
+  /// the range immediately; the NMRA importer explicitly writes REFERENCE on create.
+  rangeStatus          ProductRangeStatus @default(RANGED) @map("range_status")
+  /// When the product entered the pharmacy's own range. Null while REFERENCE.
+  rangedAt             DateTime? @map("ranged_at")
+  /// Is the NMRA registration current? Import-owned, only meaningful when source = NMRA.
+  /// This is the meaning the importer used to write onto `isActive`.
+  nmraRegistrationValid Boolean? @map("nmra_registration_valid")
   /// Catalog record origin. NMRA-specific fields are only expected when source = NMRA —
   /// MANUAL/SUPPLIER/CSV_IMPORT/BARCODE retail products may leave them null.
   source               CatalogSource @default(MANUAL)
@@ -842,6 +867,7 @@ model Product {
   @@index([tenantId, brandName])
   @@index([tenantId, genericName])
   @@index([tenantId, name])
+  @@index([tenantId, rangeStatus])
   @@index([tenantId, registrationNo])
   @@index([tenantId, schedule])
   @@index([tenantId, source])

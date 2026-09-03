@@ -20,6 +20,8 @@ export type CatalogSearchItem = {
   schedule: string | null;
   isControlled: boolean;
   isActive: boolean;
+  /** RANGED = the pharmacy sells it; REFERENCE = an NMRA registry record it doesn't stock. */
+  rangeStatus: "RANGED" | "REFERENCE";
   reorderLevel: number;
   qtyOnHand: number | null;
   stockStatus: StockStatus | null;
@@ -38,6 +40,9 @@ export type CatalogSearchResponse = {
   exactCount: number;
   aliasCount: number;
   genericCount: number;
+  /** How many hits are the shop's own products vs. reference-catalog records. */
+  rangedCount?: number;
+  referenceCount?: number;
   truncated?: boolean;
   hasMore?: boolean;
 };

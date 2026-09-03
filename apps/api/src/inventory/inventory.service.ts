@@ -8,6 +8,7 @@ import { Prisma, RoleName, StockMovementType } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { ensureProductsRanged } from "../products/product-range.util";
 import { expandCommercialCategoryIds } from "../products/product-query.util";
 import { reorderGap, resolveStockStatus } from "../products/stock-qty.util";
 import { assertSaleReturnableLines } from "../sales/sale-returnable";
@@ -30,6 +31,11 @@ export type StockListQuery = {
   dosageForms?: string[];
   /** Only products with ledger history at this branch (excludes never-stocked catalog). */
   ledgerOnly?: boolean;
+  /**
+   * "RANGED" (default) keeps the imported NMRA registry out of the stock picker; "all" is the
+   * explicit escape hatch for stocking a reference product for the first time.
+   */
+  rangeStatus?: "RANGED" | "all";
 };
 
 export type BatchListQuery = {
@@ -478,6 +484,10 @@ export class InventoryService {
     const productWhere: Prisma.ProductWhereInput = {
       tenantId,
       isActive: true,
+      // Default to the shop's own range so a 15,000-row registry import doesn't flood the
+      // picker. Callers opt into the full catalog explicitly; receiving stock against a
+      // reference product promotes it (see ensureProductsRanged).
+      ...(query.rangeStatus === "all" ? {} : { rangeStatus: "RANGED" as const }),
     };
 
     if (query.productId) {
@@ -858,6 +868,12 @@ export class InventoryService {
           createdBy: userId,
         },
       });
+
+      // Stock can't exist against a product the shop hasn't ranged: an adjustment in is the
+      // pharmacy saying it holds this line, so promote it out of the reference catalog.
+      if (dto.movementType === "adjustment_in") {
+        await ensureProductsRanged(tx, tenantId, [dto.productId]);
+      }
 
       return { batchId: batchId! };
     });

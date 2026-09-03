@@ -26,6 +26,18 @@ export type TenantProductAlias = ProductAlias & {
 
 export type StockStatus = "out" | "low" | "ok";
 
+/**
+ * Does this pharmacy sell the product?
+ *
+ * REFERENCE — an imported registry record, searchable in Search Catalog but kept out of the
+ * shop's own product list and out of transaction pickers.
+ * RANGED — part of what the pharmacy stocks and sells.
+ *
+ * Separate from `isActive`, which is the pharmacist-owned "is this record enabled" flag:
+ * a RANGED product that is inactive is a discontinued line.
+ */
+export type ProductRangeStatus = "REFERENCE" | "RANGED";
+
 /** Catalog record origin. NMRA-specific fields only apply when source = NMRA. */
 export type CatalogSource = "NMRA" | "MANUAL" | "SUPPLIER" | "CSV_IMPORT" | "BARCODE";
 
@@ -59,6 +71,11 @@ export type Product = {
   requiresPrescription: boolean;
   reorderLevel: number;
   isActive: boolean;
+  rangeStatus: ProductRangeStatus;
+  /** When the product joined the pharmacy's range. Null while REFERENCE. */
+  rangedAt: string | null;
+  /** NMRA registration currency — import-owned, only set for source = NMRA. */
+  nmraRegistrationValid?: boolean | null;
   createdAt: string;
   updatedAt: string;
   categories?: ProductCategory[];
@@ -181,6 +198,8 @@ export type SummaryFacets = {
   tags?: FacetEntry[];
   controlled: { value: boolean; count: number }[];
   status?: FacetEntry[];
+  /** Drives the "My products" / "Reference catalog" tab counts. */
+  rangeStatus?: FacetEntry[];
   requiresPrescription?: { value: boolean; count: number }[];
   branchStockSummary: {
     inStockProductCount: number;
@@ -243,3 +262,14 @@ export type StatFilter =
   | "controlled"
   | "lowStock"
   | "rx";
+
+/** Products page tab: the shop's own range, or the imported reference catalog. */
+export type ProductScope = "mine" | "reference";
+
+export type BulkProductAction = "range" | "unrange" | "activate" | "deactivate";
+
+export type BulkProductResult = {
+  matched: number;
+  updated: number;
+  action: BulkProductAction;
+};

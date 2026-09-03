@@ -2848,3 +2848,236 @@
 .metaManagerAliasLink:hover {
   text-decoration: underline;
 }
+
+/* ── "My products" / "Reference catalog" tabs ───────────────────────────────
+   The registry is a lookup library, not the shop's product list — these two tabs are what
+   keep a 15,000-row NMRA import out of the page a pharmacist works in every day. */
+
+.scopeTabs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.scopeTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.85rem;
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.scopeTab:hover {
+  color: var(--pc-foreground);
+}
+
+.scopeTab:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
+  border-radius: var(--pc-radius-sm);
+}
+
+.scopeTabActive {
+  color: var(--pc-primary);
+  border-bottom-color: var(--pc-primary);
+  font-weight: 600;
+}
+
+.scopeTabCount {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-muted-fg);
+}
+
+.scopeTabActive .scopeTabCount {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+/* ── One-time explainer for the reference-catalog split ─────────────────── */
+
+.rangeNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--pc-alert-info-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-alert-info-bg);
+  color: var(--pc-alert-info-text);
+}
+
+.rangeNoticeIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--pc-alert-info-icon);
+}
+
+.rangeNoticeBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.rangeNoticeTitle {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.rangeNoticeText {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.rangeNoticeClose {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.rangeNoticeClose:hover {
+  background: var(--pc-hover-overlay);
+  opacity: 1;
+}
+
+.rangeNoticeClose:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+/* ── Bulk action bar (appears once rows are selected) ───────────────────── */
+
+.bulkBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-primary-soft);
+}
+
+.bulkCount {
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--pc-primary) 85%, var(--pc-foreground));
+}
+
+.bulkActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.bulkBtn,
+.bulkBtnPrimary,
+.bulkBtnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--pc-radius-sm);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bulkBtn {
+  border: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+}
+
+.bulkBtn:hover:not(:disabled) {
+  background: var(--pc-muted-bg);
+}
+
+.bulkBtnPrimary {
+  border: 1px solid var(--pc-primary);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+  font-weight: 600;
+}
+
+.bulkBtnPrimary:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+  border-color: var(--pc-primary-hover);
+}
+
+.bulkBtnGhost {
+  border: 1px solid transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--pc-primary) 85%, var(--pc-foreground));
+}
+
+.bulkBtnGhost:hover:not(:disabled) {
+  background: var(--pc-hover-overlay);
+}
+
+.bulkBtn:disabled,
+.bulkBtnPrimary:disabled,
+.bulkBtnGhost:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.bulkBtn:focus-visible,
+.bulkBtnPrimary:focus-visible,
+.bulkBtnGhost:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 1px;
+}
+
+/* Status-column chip for a reference row: it has no active/inactive answer to give. */
+.referenceTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm, 4px);
+  background: var(--pc-muted-bg);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+/* Stock cell on the Reference catalog tab — states the fact without the alarm colour. */
+.notStockedCell {
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}

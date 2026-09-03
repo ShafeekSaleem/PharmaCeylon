@@ -2365,9 +2365,10 @@ async function main() {
   });
 
   // ── Retail demo catalog (non-Medicines departments) ──────────────────────
-  // Must run AFTER seedDemoOps: seedDemoOps deactivates every product not in its curated
-  // Medicines "sellable" set before re-activating that set, so running this earlier would leave
-  // every RTL- product deactivated. Layered on top here, it's untouched by that sweep and adds
+  // Must run AFTER seedDemoOps: seedDemoOps moves every product outside its curated Medicines
+  // "sellable" set into the reference catalog before ranging that set, so running this earlier
+  // would leave every RTL- product un-ranged. Layered on top here, it's untouched by that sweep
+  // (new products default to RANGED) and adds
   // Vitamins & Supplements / Baby Care / Personal Care / Beauty / Medical Devices / First Aid /
   // Nutrition / Food & Beverage / Household — so Reports → Profitability and Inventory show a
   // real, department-weighted revenue mix instead of Medicines-only data.

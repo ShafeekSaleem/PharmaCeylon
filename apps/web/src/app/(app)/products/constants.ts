@@ -150,5 +150,14 @@ export const PRODUCT_STAT_PILLS: { id: StatFilter; label: string; iconTone: KpiI
     iconTone: k.iconTone,
   }));
 
+/**
+ * Pills for the Reference catalog tab. Active/inactive is the pharmacist's enabled flag and
+ * low stock needs stock, so neither applies to a lookup-only registry record — but Rx does,
+ * and it has to be here explicitly because it is not in the default visible set.
+ */
+export const REFERENCE_STAT_PILLS: typeof PRODUCT_STAT_PILLS = PRODUCT_KPI_POOL.filter((k) =>
+  ["all", "controlled", "rx"].includes(k.id),
+).map((k) => ({ id: k.id, label: k.label, iconTone: k.iconTone }));
+
 export const PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export const PRODUCT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;

@@ -17,6 +17,7 @@ import {
   AuthenticatedRequest,
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
+import { BulkProductsDto } from "./dto/bulk-products.dto";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { ProductsService } from "./products.service";
@@ -39,6 +40,7 @@ export class ProductsController {
     @Query("isControlled") isControlled?: string,
     @Query("requiresPrescription") requiresPrescription?: string,
     @Query("status") status?: string,
+    @Query("rangeStatus") rangeStatus?: string,
     @Query("lowStock") lowStock?: string,
     @Query("categoryId") categoryId?: string,
     @Query("commercialCategoryId") commercialCategoryId?: string,
@@ -56,6 +58,7 @@ export class ProductsController {
       isControlled,
       requiresPrescription: requiresPrescription === "true",
       status: status || "all",
+      rangeStatus: rangeStatus || "all",
       lowStock: lowStock === "true",
       categoryId,
       commercialCategoryId,
@@ -78,6 +81,7 @@ export class ProductsController {
     @Query("isControlled") isControlled?: string,
     @Query("requiresPrescription") requiresPrescription?: string,
     @Query("status") status?: string,
+    @Query("rangeStatus") rangeStatus?: string,
     @Query("lowStock") lowStock?: string,
     @Query("categoryId") categoryId?: string,
     @Query("commercialCategoryId") commercialCategoryId?: string,
@@ -93,6 +97,7 @@ export class ProductsController {
       isControlled,
       requiresPrescription: requiresPrescription === "true",
       status: status || "all",
+      rangeStatus: rangeStatus || "all",
       lowStock: lowStock === "true",
       categoryId,
       commercialCategoryId,
@@ -104,6 +109,16 @@ export class ProductsController {
       type: "text/csv; charset=utf-8",
       disposition: 'attachment; filename="products-export.csv"',
     });
+  }
+
+  /**
+   * Range/un-range or activate/deactivate many products in one call. Declared before the
+   * `:id` routes so the path segment is never parsed as a product id.
+   */
+  @RequirePermission("products.manage")
+  @Post("bulk")
+  bulk(@CurrentUser() user: RequestUser, @Body() dto: BulkProductsDto) {
+    return this.products.bulkUpdate(user.tenantId, user.userId, dto);
   }
 
   @RequirePermission("products.view")

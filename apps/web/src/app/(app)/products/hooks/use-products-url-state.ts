@@ -7,6 +7,7 @@ import {
   EMPTY_PRODUCT_FILTERS,
   type ProductFilters,
 } from "../products-filter-panel";
+import type { ProductScope } from "../types";
 
 function parseList(value: string | null): string[] {
   if (!value?.trim()) return [];
@@ -65,6 +66,10 @@ export function useProductsUrlState() {
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
   const sortBy = searchParams.get("sortBy") ?? "";
   const sortDir = (searchParams.get("sortDir") === "desc" ? "desc" : "asc") as SortDir;
+  // Default tab is the pharmacy's own range — the reference catalog is opt-in, so an NMRA
+  // import no longer decides what the Products page opens on.
+  const scope: ProductScope =
+    searchParams.get("scope") === "reference" ? "reference" : "mine";
   const appliedFilters = useMemo(() => parseFilters(searchParams), [searchParams]);
 
   const replaceParams = useCallback(
@@ -114,6 +119,17 @@ export function useProductsUrlState() {
     [replaceParams],
   );
 
+  const setScope = useCallback(
+    (value: ProductScope) => {
+      replaceParams((p) => {
+        if (value === "reference") p.set("scope", "reference");
+        else p.delete("scope");
+        p.delete("page");
+      });
+    },
+    [replaceParams],
+  );
+
   const setFilters = useCallback(
     (filters: ProductFilters) => {
       replaceParams((p) => {
@@ -136,10 +152,12 @@ export function useProductsUrlState() {
     page,
     sortBy,
     sortDir,
+    scope,
     appliedFilters,
     setQ,
     setPage,
     setSort,
+    setScope,
     setFilters,
     clearFilters,
     listQueryString: searchParams.toString(),

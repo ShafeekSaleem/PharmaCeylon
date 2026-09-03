@@ -6,14 +6,18 @@ import { Alert } from "@/components/alert";
 import {
   IconActivity,
   IconAlertTriangle,
+  IconArchive,
   IconCheck,
   IconDownload,
+  IconInfo,
   IconPackage,
   IconPause,
   IconPlus,
   IconSearch,
   IconSettings,
+  IconStethoscope,
   IconUpload,
+  IconX,
 } from "@/components/icons";
 import {
   ActionButton,
@@ -32,6 +36,7 @@ import {
   COLUMN_STORAGE_KEY,
   DEFAULT_VISIBLE,
   PRODUCT_STAT_PILLS,
+  REFERENCE_STAT_PILLS,
   type KpiIconTone,
 } from "../constants";
 import {
@@ -42,7 +47,13 @@ import {
   STATUS_LABELS,
 } from "../products-filter-panel";
 import css from "../products.module.css";
-import type { ColumnKey, Product, StatFilter } from "../types";
+import type {
+  BulkProductAction,
+  ColumnKey,
+  Product,
+  ProductScope,
+  StatFilter,
+} from "../types";
 import {
   downloadProductsCsv,
   downloadProductsExportCsv,
@@ -53,6 +64,7 @@ import { productDetailPath } from "../utils/product-routes";
 import { useProductMeta } from "../hooks/use-product-meta";
 import { useProductMetaMutations } from "../hooks/use-product-meta-mutations";
 import { useProductMutations } from "../hooks/use-product-mutations";
+import { useProductBulkActions } from "../hooks/use-product-bulk-actions";
 import { buildProductFilterParams, useProductsList } from "../hooks/use-products-list";
 import { useProductsUrlState } from "../hooks/use-products-url-state";
 import { ConfirmDialog } from "./confirm-dialog";
@@ -70,6 +82,9 @@ const STAT_PILL_TONE_CLASS: Record<KpiIconTone, string> = {
   danger: css.statusPillRose,
 };
 
+/** One-time explainer after the range-status migration, dismissed per browser. */
+const RANGE_NOTICE_KEY = "pc-products-range-notice-dismissed-v1";
+
 export function ProductsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -84,10 +99,12 @@ export function ProductsPageContent() {
     page,
     sortBy,
     sortDir,
+    scope,
     appliedFilters,
     setQ,
     setPage,
     setSort,
+    setScope,
     setFilters,
     clearFilters,
     listQueryString,
@@ -101,15 +118,28 @@ export function ProductsPageContent() {
   const [exportingAll, setExportingAll] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [nmraImportOpen, setNmraImportOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [rangeNoticeDismissed, setRangeNoticeDismissed] = useState(true);
   const columnsRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const { categories, tags, refresh: refreshMeta } = useProductMeta();
   const metaMutations = useProductMetaMutations(refreshMeta);
-  const list = useProductsList(page, debouncedSearch, appliedFilters, sortBy, sortDir);
+  const list = useProductsList(
+    page,
+    debouncedSearch,
+    appliedFilters,
+    sortBy,
+    sortDir,
+    scope,
+  );
   const mutations = useProductMutations(() => {
     list.reload();
     refreshMeta();
+  });
+  const bulk = useProductBulkActions(() => {
+    setSelectedIds(new Set());
+    list.reload();
   });
 
   /* Legacy ?view=uuid → /products/[id] */
@@ -138,7 +168,19 @@ export function ProductsPageContent() {
 
   useEffect(() => {
     setVisibleColumns(loadVisibleColumns());
+    try {
+      setRangeNoticeDismissed(localStorage.getItem(RANGE_NOTICE_KEY) === "1");
+    } catch {
+      // Private mode / blocked storage — showing the notice again is harmless.
+      setRangeNoticeDismissed(false);
+    }
   }, []);
+
+  /* A selection is only meaningful for the rows it was made against, so changing tab,
+     page, search or filters clears it rather than acting on invisible products. */
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [scope, page, debouncedSearch, appliedFilters, sortBy, sortDir]);
 
   useEffect(() => {
     if (!columnsOpen && !exportOpen) return;
@@ -165,6 +207,38 @@ export function ProductsPageContent() {
     };
   }, [columnsOpen, exportOpen]);
 
+  const dismissRangeNotice = () => {
+    setRangeNoticeDismissed(true);
+    try {
+      localStorage.setItem(RANGE_NOTICE_KEY, "1");
+    } catch {
+      // Nothing to persist to — the notice simply returns next visit.
+    }
+  };
+
+  const runBulk = (action: BulkProductAction) => {
+    void bulk.run(action, { kind: "ids", productIds: [...selectedIds] });
+  };
+
+  const runBulkOnAllMatching = (action: BulkProductAction) => {
+    void bulk.run(action, {
+      kind: "filter",
+      params: buildProductFilterParams(
+        debouncedSearch,
+        appliedFilters,
+        undefined,
+        undefined,
+        scope,
+      ),
+    });
+  };
+
+  const changeScope = (next: ProductScope) => {
+    if (next === scope) return;
+    setSelectedIds(new Set());
+    setScope(next);
+  };
+
   const handleExportPage = () => {
     setExportError(null);
     downloadProductsCsv(list.products);
@@ -182,6 +256,7 @@ export function ProductsPageContent() {
         appliedFilters,
         sortBy,
         sortDir,
+        scope,
       );
       await downloadProductsExportCsv(params.toString());
     } catch (err) {
@@ -373,7 +448,11 @@ export function ProductsPageContent() {
       <PageHeader
         subtitleOnly
         floatingActions
-        description="Manage your pharmacy product catalog."
+        description={
+          scope === "reference"
+            ? "Look up any medicine on the NMRA register and add it to your products."
+            : "The products your pharmacy sells."
+        }
         actions={
           canWrite ? (
             <>
@@ -392,38 +471,111 @@ export function ProductsPageContent() {
       />
 
       <div className={css.mainCol}>
+        {scope === "mine" && !rangeNoticeDismissed && (list.referenceCount ?? 0) > 0 && (
+          <div className={css.rangeNotice} role="status">
+            <span className={css.rangeNoticeIcon}>
+              <IconInfo size={16} />
+            </span>
+            <div className={css.rangeNoticeBody}>
+              <strong className={css.rangeNoticeTitle}>
+                Your products and the NMRA register are now separate
+              </strong>
+              <p className={css.rangeNoticeText}>
+                This page shows the{" "}
+                {(list.rangedCount ?? 0).toLocaleString()} product
+                {list.rangedCount === 1 ? "" : "s"} you actually sell. The{" "}
+                {(list.referenceCount ?? 0).toLocaleString()} imported registry record
+                {list.referenceCount === 1 ? " is" : "s are"} on the{" "}
+                <strong>Reference catalog</strong> tab — still fully searchable, and you can
+                tick any of them and choose <strong>Add to my products</strong>.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={css.rangeNoticeClose}
+              onClick={dismissRangeNotice}
+              aria-label="Dismiss this message"
+              data-tooltip="Dismiss"
+            >
+              <IconX size={14} />
+            </button>
+          </div>
+        )}
+
+        <div className={css.scopeTabs} role="tablist" aria-label="Product catalog view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === "mine"}
+            className={`${css.scopeTab}${scope === "mine" ? ` ${css.scopeTabActive}` : ""}`}
+            onClick={() => changeScope("mine")}
+          >
+            <IconPackage size={15} />
+            My products
+            {list.rangedCount != null && (
+              <span className={css.scopeTabCount}>
+                {list.rangedCount.toLocaleString()}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === "reference"}
+            className={`${css.scopeTab}${
+              scope === "reference" ? ` ${css.scopeTabActive}` : ""
+            }`}
+            onClick={() => changeScope("reference")}
+            data-tooltip="Medicines imported from the NMRA register that you don't stock yet"
+          >
+            <IconArchive size={15} />
+            Reference catalog
+            {list.referenceCount != null && (
+              <span className={css.scopeTabCount}>
+                {list.referenceCount.toLocaleString()}
+              </span>
+            )}
+          </button>
+        </div>
+
         <div className={css.statsSection}>
-          <StatGrid columns={5} dense>
+          {/* The reference tab drops the tiles that can't apply to a lookup-only record —
+              active/inactive is the pharmacist's flag, and low stock needs stock. */}
+          <StatGrid columns={scope === "reference" ? 3 : 5} dense>
             <StatCard
               size="sm"
-              title="Total Products"
+              title={scope === "reference" ? "Reference Products" : "Total Products"}
               value={list.totalAll ?? "…"}
-              subtitle="In catalog"
+              subtitle={scope === "reference" ? "On the NMRA register" : "In your range"}
               icon={<IconPackage size={14} />}
               iconTone="primary"
               active={activePill === "all"}
               onClick={() => toggleStatFilter("all")}
             />
-            <StatCard
-              size="sm"
-              title="Active Products"
-              value={list.summaryFacets ? list.activeCount : "…"}
-              subtitle="Sellable SKUs"
-              icon={<IconCheck size={14} />}
-              iconTone="success"
-              active={activePill === "active"}
-              onClick={() => toggleStatFilter("active")}
-            />
-            <StatCard
-              size="sm"
-              title="Inactive Products"
-              value={list.summaryFacets ? list.inactiveCount : "…"}
-              subtitle="Hidden from sell"
-              icon={<IconPause size={14} />}
-              iconTone="info"
-              active={activePill === "inactive"}
-              onClick={() => toggleStatFilter("inactive")}
-            />
+            {scope === "mine" && (
+              <StatCard
+                size="sm"
+                title="Active Products"
+                value={list.summaryFacets ? list.activeCount : "…"}
+                subtitle="Sellable SKUs"
+                icon={<IconCheck size={14} />}
+                iconTone="success"
+                active={activePill === "active"}
+                onClick={() => toggleStatFilter("active")}
+              />
+            )}
+            {scope === "mine" && (
+              <StatCard
+                size="sm"
+                title="Inactive Products"
+                value={list.summaryFacets ? list.inactiveCount : "…"}
+                subtitle="Hidden from sell"
+                icon={<IconPause size={14} />}
+                iconTone="info"
+                active={activePill === "inactive"}
+                onClick={() => toggleStatFilter("inactive")}
+              />
+            )}
             <StatCard
               size="sm"
               title="Controlled Substances"
@@ -434,16 +586,29 @@ export function ProductsPageContent() {
               active={activePill === "controlled"}
               onClick={() => toggleStatFilter("controlled")}
             />
-            <StatCard
-              size="sm"
-              title="Low Stock"
-              value={list.lowStock ?? "—"}
-              subtitle={hasBranch ? "Below reorder level" : "Select a branch"}
-              icon={<IconActivity size={14} />}
-              iconTone="danger"
-              active={activePill === "lowStock"}
-              onClick={() => hasBranch && toggleStatFilter("lowStock")}
-            />
+            {scope === "reference" ? (
+              <StatCard
+                size="sm"
+                title="Prescription Required"
+                value={list.summaryFacets ? list.rxCount : "…"}
+                subtitle="Needs a prescription"
+                icon={<IconStethoscope size={14} />}
+                iconTone="info"
+                active={activePill === "rx"}
+                onClick={() => toggleStatFilter("rx")}
+              />
+            ) : (
+              <StatCard
+                size="sm"
+                title="Low Stock"
+                value={list.lowStock ?? "—"}
+                subtitle={hasBranch ? "Below reorder level" : "Select a branch"}
+                icon={<IconActivity size={14} />}
+                iconTone="danger"
+                active={activePill === "lowStock"}
+                onClick={() => hasBranch && toggleStatFilter("lowStock")}
+              />
+            )}
           </StatGrid>
         </div>
 
@@ -469,7 +634,10 @@ export function ProductsPageContent() {
               />
             </div>
             <div className={css.statusPills} role="tablist" aria-label="Quick status filters">
-              {PRODUCT_STAT_PILLS.map((pill) => {
+              {(scope === "reference"
+                ? REFERENCE_STAT_PILLS
+                : PRODUCT_STAT_PILLS
+              ).map((pill) => {
                 const disabled = pill.id === "lowStock" && !hasBranch;
                 const active = activePill === pill.id;
                 return (
@@ -605,6 +773,103 @@ export function ProductsPageContent() {
           </Alert>
         )}
 
+        {bulk.error && (
+          <Alert
+            variant="error"
+            className={css.listAlert}
+            onClose={bulk.dismissError}
+          >
+            {bulk.error}
+          </Alert>
+        )}
+        {bulk.notice && (
+          <Alert
+            variant="success"
+            className={css.listAlert}
+            onClose={bulk.dismissNotice}
+          >
+            {bulk.notice}
+          </Alert>
+        )}
+
+        {canWrite && selectedIds.size > 0 && (
+          <div className={css.bulkBar} role="region" aria-label="Bulk actions">
+            <span className={css.bulkCount}>
+              {selectedIds.size.toLocaleString()} selected
+            </span>
+            <div className={css.bulkActions}>
+              {scope === "reference" ? (
+                <button
+                  type="button"
+                  className={css.bulkBtnPrimary}
+                  disabled={bulk.running !== null}
+                  onClick={() => runBulk("range")}
+                  data-tooltip="Move these into the products you sell"
+                >
+                  <IconPlus size={14} />
+                  {bulk.running === "range" ? "Adding…" : "Add to my products"}
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={css.bulkBtn}
+                    disabled={bulk.running !== null}
+                    onClick={() => runBulk("activate")}
+                  >
+                    <IconCheck size={14} />
+                    {bulk.running === "activate" ? "Activating…" : "Activate"}
+                  </button>
+                  <button
+                    type="button"
+                    className={css.bulkBtn}
+                    disabled={bulk.running !== null}
+                    onClick={() => runBulk("deactivate")}
+                  >
+                    <IconPause size={14} />
+                    {bulk.running === "deactivate" ? "Deactivating…" : "Deactivate"}
+                  </button>
+                  <button
+                    type="button"
+                    className={css.bulkBtn}
+                    disabled={bulk.running !== null}
+                    onClick={() => runBulk("unrange")}
+                    data-tooltip="Keep the record, but stop listing it as something you sell"
+                  >
+                    <IconArchive size={14} />
+                    {bulk.running === "unrange" ? "Moving…" : "Move to reference"}
+                  </button>
+                </>
+              )}
+              {list.total > list.products.length && (
+                <button
+                  type="button"
+                  className={css.bulkBtnGhost}
+                  disabled={bulk.running !== null}
+                  onClick={() =>
+                    runBulkOnAllMatching(scope === "reference" ? "range" : "unrange")
+                  }
+                  data-tooltip={
+                    scope === "reference"
+                      ? "Add every product matching the current filters"
+                      : "Move every product matching the current filters to the reference catalog"
+                  }
+                >
+                  {scope === "reference" ? "Add" : "Move"} all{" "}
+                  {list.total.toLocaleString()} matching
+                </button>
+              )}
+              <button
+                type="button"
+                className={css.bulkBtnGhost}
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+
         <ActiveFilterBanner
           active={filtersActive}
           summary={`Filtered products · ${list.total} product${list.total === 1 ? "" : "s"}`}
@@ -623,6 +888,9 @@ export function ProductsPageContent() {
           visibleColumns={visibleColumns}
           canWrite={canWrite}
           canDelete={canDeleteProduct}
+          scope={scope}
+          selectedIds={canWrite ? selectedIds : undefined}
+          onSelectionChange={canWrite ? setSelectedIds : undefined}
           onPageChange={setPage}
           onSort={handleServerSort}
           onRowClick={openProduct}

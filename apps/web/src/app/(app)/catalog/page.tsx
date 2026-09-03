@@ -13,6 +13,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Alert } from "@/components/alert";
 import { IconDownload } from "@/components/icons";
 import { PageHeader } from "@/components/ui";
+import { apiJson } from "@/lib/auth-client";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import { CatalogDiscoveryEmpty } from "./components/catalog-discovery-empty";
 import { FacetFilters } from "./components/facet-filters";
 import { ProductDetailPanel } from "./components/product-detail-panel";
@@ -56,6 +58,12 @@ function CatalogContent() {
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const [recentViews, setRecentViews] = useState<RecentView[]>([]);
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addNotice, setAddNotice] = useState<string | null>(null);
+
+  const { permissionKeys } = usePermissions();
+  const canManageProducts = hasPermission(permissionKeys, ["products.manage"]);
 
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
@@ -79,6 +87,35 @@ function CatalogContent() {
     matchTab,
     debounceMs: 280,
   });
+
+  /**
+   * Promote a reference-catalog record into the pharmacy's own products. Uses the same bulk
+   * endpoint as the Products page so the promotion is audited identically, then re-runs the
+   * search so the row moves up out of the reference tier straight away.
+   */
+  const addToProducts = useCallback(
+    async (item: { id: string; name: string }) => {
+      setAddingId(item.id);
+      setAddError(null);
+      setAddNotice(null);
+      try {
+        await apiJson("/products/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "range", productIds: [item.id] }),
+        });
+        setAddNotice(`${item.name} added to your products.`);
+        reload();
+      } catch (err) {
+        setAddError(
+          err instanceof Error ? err.message : "Couldn't add that product",
+        );
+      } finally {
+        setAddingId(null);
+      }
+    },
+    [reload],
+  );
 
   useEffect(() => {
     if (!data) return;
@@ -389,6 +426,17 @@ function CatalogContent() {
 
       {error ? <Alert variant="error">{error}</Alert> : null}
 
+      {addError ? (
+        <Alert variant="error" onClose={() => setAddError(null)}>
+          {addError}
+        </Alert>
+      ) : null}
+      {addNotice ? (
+        <Alert variant="success" onClose={() => setAddNotice(null)}>
+          {addNotice}
+        </Alert>
+      ) : null}
+
       <div className={css.shell}>
         <div className={css.mainCol}>
           <div className={css.hero}>
@@ -541,6 +589,12 @@ function CatalogContent() {
                         const row = items.find((i) => i.id === id);
                         selectProduct(id, row?.name);
                       }}
+                      onAddToProducts={
+                        canManageProducts
+                          ? (item) => void addToProducts(item)
+                          : undefined
+                      }
+                      addingId={addingId}
                     />
                   </div>
                   {hasMore ? (

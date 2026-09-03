@@ -48,7 +48,12 @@ export function useProductOptions() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiJson<{ items: ProductOption[] }>("/products?take=200&status=active");
+      const data = await apiJson<{ items: ProductOption[] }>(
+        // RANGED only: a purchase-order line picker is a transaction surface, so the
+        // imported NMRA registry stays out of it. Receiving stock against a reference
+        // product promotes it, which is the intended way in.
+        "/products?take=200&status=active&rangeStatus=RANGED",
+      );
       setRows(data.items.filter((p) => p.isActive !== false));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load products");

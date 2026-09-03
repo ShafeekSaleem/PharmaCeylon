@@ -265,3 +265,39 @@
   font-size: 0.78rem;
   color: var(--pc-muted-fg);
 }
+
+/* --- Optional row selection (opt-in via `selectedKeys`/`onSelectionChange`) --- */
+
+.selectCell {
+  width: 38px;
+  padding-right: 0 !important;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.selectBox {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--pc-primary);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.selectBox:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.selectBox:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
+}
+
+.selectedRow td {
+  background: var(--pc-primary-soft);
+}
+
+.table tbody tr.selectedRow:hover td {
+  background: color-mix(in srgb, var(--pc-primary) 16%, var(--pc-card-bg));
+}

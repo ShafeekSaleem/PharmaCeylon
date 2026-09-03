@@ -31,6 +31,7 @@ export class CatalogController {
     @Query("outOfStock") outOfStock?: string,
     @Query("exact") exact?: string,
     @Query("matchType") matchType?: string,
+    @Query("rangeStatus") rangeStatus?: string,
   ) {
     const skipN = skip != null && skip !== "" ? Number(skip) : 0;
     const takeN = take != null && take !== "" ? Number(take) : 40;
@@ -58,6 +59,10 @@ export class CatalogController {
         outOfStock: outOfStock === "true",
         exact: exact === "true",
         status: "active",
+        // Default "all": reference-catalog rows stay findable here (that is the point of
+        // importing the registry) but rank below the pharmacy's own products. Transaction
+        // pickers pass rangeStatus=RANGED to keep the registry out of the way.
+        rangeStatus: rangeStatus || "all",
         matchType: match,
       },
       Number.isFinite(skipN) ? skipN : 0,
@@ -77,6 +82,7 @@ export class CatalogController {
     @Query("isControlled") isControlled?: string,
     @Query("requiresPrescription") requiresPrescription?: string,
     @Query("status") status?: string,
+    @Query("rangeStatus") rangeStatus?: string,
     @Query("lowStock") lowStock?: string,
     @Query("categoryId") categoryId?: string,
     @Query("commercialCategoryId") commercialCategoryId?: string,
@@ -90,6 +96,7 @@ export class CatalogController {
       isControlled,
       requiresPrescription: requiresPrescription === "true",
       status: status || "active",
+      rangeStatus: rangeStatus || "all",
       lowStock: lowStock === "true",
       categoryId,
       commercialCategoryId,

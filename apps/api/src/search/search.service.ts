@@ -93,6 +93,10 @@ export class SearchService {
       where: {
         tenantId,
         isActive: true,
+        // The global bar returns a handful of quick-nav hits, so it stays on the shop's own
+        // products. Searching the whole NMRA register is what the Catalog page is for, and
+        // letting 12,000 reference rows compete for five slots would make this useless.
+        rangeStatus: "RANGED",
         OR: this.textFilter(q, [
           "sku",
           "barcode",

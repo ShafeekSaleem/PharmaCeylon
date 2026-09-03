@@ -10,6 +10,7 @@ import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { ensureProductsRanged } from "../products/product-range.util";
 import { createInvoiceFromGoodsReceipt } from "../suppliers/suppliers.service";
 import { CreatePurchaseOrderDto } from "./dto/create-purchase-order.dto";
 import { ReceiveGoodsDto } from "./dto/receive-goods.dto";
@@ -483,6 +484,14 @@ export class PurchasingService {
             },
           });
         }
+
+        // Receiving goods is the pharmacy committing to a line — promote anything still
+        // sitting in the reference catalog so stock never lands on an un-ranged product.
+        await ensureProductsRanged(
+          tx,
+          tenantId,
+          dto.lines.map((line) => line.productId),
+        );
 
         const termsDays =
           locked.paymentTermsDays ??

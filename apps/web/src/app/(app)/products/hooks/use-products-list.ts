@@ -9,7 +9,12 @@ import {
   type FilterFacets,
   type ProductFilters,
 } from "../products-filter-panel";
-import type { Product, ProductList, SummaryFacets } from "../types";
+import type { Product, ProductList, ProductScope, SummaryFacets } from "../types";
+
+/** Products page tab -> the API's `rangeStatus` filter value. */
+export function scopeToRangeStatus(scope: ProductScope): "RANGED" | "REFERENCE" {
+  return scope === "reference" ? "REFERENCE" : "RANGED";
+}
 
 /** Shared filter/search/sort query params (list, facets, and full CSV export). */
 export function buildProductFilterParams(
@@ -17,9 +22,11 @@ export function buildProductFilterParams(
   filters: ProductFilters,
   sortBy?: string,
   sortDir?: string,
+  scope: ProductScope = "mine",
 ) {
   const filterParams = productFiltersToQueryParams(filters);
   const params = new URLSearchParams({ status: filterParams.status });
+  params.set("rangeStatus", scopeToRangeStatus(scope));
   if (sortBy) {
     params.set("sortBy", sortBy);
     params.set("sortDir", sortDir || "asc");
@@ -42,16 +49,17 @@ function buildListParams(
   filters: ProductFilters,
   sortBy: string,
   sortDir: string,
+  scope: ProductScope,
 ) {
   const skip = (page - 1) * PAGE_SIZE;
-  const params = buildProductFilterParams(q, filters, sortBy, sortDir);
+  const params = buildProductFilterParams(q, filters, sortBy, sortDir, scope);
   params.set("skip", String(skip));
   params.set("take", String(PAGE_SIZE));
   return params;
 }
 
-function buildFacetsParams(filters: ProductFilters, q: string) {
-  return buildProductFilterParams(q, filters);
+function buildFacetsParams(filters: ProductFilters, q: string, scope: ProductScope) {
+  return buildProductFilterParams(q, filters, undefined, undefined, scope);
 }
 
 export function useProductsList(
@@ -60,6 +68,7 @@ export function useProductsList(
   appliedFilters: ProductFilters,
   sortBy: string,
   sortDir: string,
+  scope: ProductScope = "mine",
 ) {
   const { branchId } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
@@ -69,6 +78,8 @@ export function useProductsList(
   const [summaryFacets, setSummaryFacets] = useState<SummaryFacets | null>(null);
   const [filterFacets, setFilterFacets] = useState<FilterFacets | null>(null);
   const [totalAll, setTotalAll] = useState<number | null>(null);
+  /** Unscoped facets, used only for the "My products"/"Reference catalog" tab counts. */
+  const [scopeFacets, setScopeFacets] = useState<SummaryFacets | null>(null);
   /** Secondary data (stat tiles, filter facets) — decorative, so a failure here doesn't block
    *  the main product list, but it shouldn't be silently invisible either. */
   const [secondaryError, setSecondaryError] = useState<string | null>(null);
@@ -77,7 +88,14 @@ export function useProductsList(
     let cancelled = false;
     setLoading(true);
     setListError(null);
-    const params = buildListParams(page, debouncedQ, appliedFilters, sortBy, sortDir);
+    const params = buildListParams(
+      page,
+      debouncedQ,
+      appliedFilters,
+      sortBy,
+      sortDir,
+      scope,
+    );
     apiJson<ProductList>(`/products?${params}`)
       .then((data) => {
         if (!cancelled) {
@@ -98,34 +116,43 @@ export function useProductsList(
     return () => {
       cancelled = true;
     };
-  }, [page, debouncedQ, appliedFilters, sortBy, sortDir]);
+  }, [page, debouncedQ, appliedFilters, sortBy, sortDir, scope]);
 
   useEffect(() => fetchProducts(), [fetchProducts, branchId]);
 
   const refreshStats = useCallback(() => {
-    apiJson<SummaryFacets>("/catalog/facets?status=all")
+    // Stat tiles describe the tab you are looking at, so they follow the scope. The tab
+    // counts themselves come from `rangeStatus`, which is deliberately NOT scoped — both
+    // numbers have to be visible from either tab.
+    const rangeStatus = scopeToRangeStatus(scope);
+    apiJson<SummaryFacets>(`/catalog/facets?status=all&rangeStatus=${rangeStatus}`)
       .then((d) => {
         setSummaryFacets(d);
         setSecondaryError(null);
       })
       .catch(() => setSecondaryError("Couldn't load the summary stat tiles."));
-    apiJson<ProductList>("/products?take=0&status=all")
+    apiJson<ProductList>(`/products?take=0&status=all&rangeStatus=${rangeStatus}`)
       .then((d) => {
         setTotalAll(d.total);
         setSecondaryError(null);
       })
       .catch(() => setSecondaryError("Couldn't load the summary stat tiles."));
-  }, []);
+    apiJson<SummaryFacets>("/catalog/facets?status=all&rangeStatus=all")
+      .then((d) => setScopeFacets(d))
+      .catch(() => {
+        /* Tab counts are a nicety — the tabs still work without them. */
+      });
+  }, [scope]);
 
   const fetchFilterFacets = useCallback(() => {
-    const params = buildFacetsParams(appliedFilters, debouncedQ);
+    const params = buildFacetsParams(appliedFilters, debouncedQ, scope);
     apiJson<FilterFacets>(`/catalog/facets?${params}`)
       .then((d) => {
         setFilterFacets(d);
         setSecondaryError(null);
       })
       .catch(() => setSecondaryError("Couldn't load filter options — some facets may be missing."));
-  }, [appliedFilters, debouncedQ]);
+  }, [appliedFilters, debouncedQ, scope]);
 
   useEffect(() => {
     refreshStats();
@@ -162,6 +189,15 @@ export function useProductsList(
 
   const lowStock = summaryFacets?.branchStockSummary?.lowStockProductCount;
 
+  const rangedCount = useMemo(
+    () => scopeFacets?.rangeStatus?.find((r) => r.value === "RANGED")?.count ?? null,
+    [scopeFacets],
+  );
+  const referenceCount = useMemo(
+    () => scopeFacets?.rangeStatus?.find((r) => r.value === "REFERENCE")?.count ?? null,
+    [scopeFacets],
+  );
+
   const reload = useCallback(() => {
     fetchProducts();
     refreshStats();
@@ -187,6 +223,8 @@ export function useProductsList(
     activeCount,
     inactiveCount,
     lowStock,
+    rangedCount,
+    referenceCount,
     reload,
     patchProductInList,
   };

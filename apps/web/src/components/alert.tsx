@@ -46,9 +46,20 @@ interface AlertProps {
   variant?: Variant;
   children: ReactNode;
   className?: string;
+  /** When provided, renders a dismiss button. For transient results the user has read
+   *  (e.g. "24 products added"), not for errors that need to stay put. */
+  onClose?: () => void;
+  /** Accessible label for the dismiss button. */
+  closeLabel?: string;
 }
 
-export function Alert({ variant = "error", children, className }: AlertProps) {
+export function Alert({
+  variant = "error",
+  children,
+  className,
+  onClose,
+  closeLabel = "Dismiss",
+}: AlertProps) {
   return (
     <div
       className={`${styles.alert} ${styles[variant]}${className ? ` ${className}` : ""}`}
@@ -56,6 +67,18 @@ export function Alert({ variant = "error", children, className }: AlertProps) {
     >
       <span className={styles.icon}>{icons[variant]}</span>
       <div className={styles.body}>{children}</div>
+      {onClose && (
+        <button
+          type="button"
+          className={styles.close}
+          onClick={onClose}
+          aria-label={closeLabel}
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden width="14" height="14">
+            <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

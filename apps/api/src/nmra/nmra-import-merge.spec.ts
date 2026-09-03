@@ -52,6 +52,16 @@ describe("NMRA import merge policy", () => {
     expect(fields.barcode).toBeUndefined();
   });
 
+  it("never writes the pharmacy's own isActive or rangeStatus", () => {
+    // Regression guard: isActive used to be in the mutable set, so every registry refresh
+    // silently re-activated products a pharmacy had deactivated. Registration currency now
+    // lives in its own field and the shop's choices are left alone.
+    const fields = buildNmraMutableFields(row({ isActive: false }), null);
+    expect(fields).not.toHaveProperty("isActive");
+    expect(fields).not.toHaveProperty("rangeStatus");
+    expect(fields.nmraRegistrationValid).toBe(false);
+  });
+
   it("sets barcode from file when not conflicting", () => {
     const fields = buildNmraMutableFields(
       row({ name: "X", barcode: "999" }),

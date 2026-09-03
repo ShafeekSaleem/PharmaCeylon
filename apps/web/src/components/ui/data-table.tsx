@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import styles from "./data-table.module.css";
 
 export type SortDir = "asc" | "desc";
@@ -38,6 +38,15 @@ export type DataTableProps<T> = {
   className?: string;
   stickyHeader?: boolean;
   noHorizontalScroll?: boolean;
+  /**
+   * Row selection. Opt-in: pass `selectedKeys` + `onSelectionChange` to get a leading
+   * checkbox column whose header toggles every row on the current page. Selection is
+   * controlled by the caller so it can survive paging (or deliberately not).
+   */
+  selectedKeys?: ReadonlySet<string>;
+  onSelectionChange?: (keys: Set<string>) => void;
+  /** Rows that cannot be selected (e.g. the caller has no write access to them). */
+  isRowSelectable?: (row: T) => boolean;
 };
 
 function defaultCompare(a: unknown, b: unknown, dir: SortDir): number {
@@ -73,6 +82,9 @@ export function DataTable<T>({
   className,
   stickyHeader = false,
   noHorizontalScroll = false,
+  selectedKeys,
+  onSelectionChange,
+  isRowSelectable,
 }: DataTableProps<T>) {
   const [internalSortKey, setInternalSortKey] = useState<string | undefined>();
   const [internalSortDir, setInternalSortDir] = useState<SortDir>("asc");
@@ -119,6 +131,9 @@ export function DataTable<T>({
     [isServerPaged, onPageChange],
   );
 
+  const selectable = selectedKeys !== undefined && onSelectionChange !== undefined;
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+
   const sortedData = useMemo(() => {
     if (isServerSorted || !sortKey) return data;
     const col = columns.find((c) => c.key === sortKey);
@@ -132,6 +147,43 @@ export function DataTable<T>({
     const start = (page - 1) * pageSize;
     return sortedData.slice(start, start + pageSize);
   }, [sortedData, page, pageSize, isServerPaged]);
+
+  const selectableRows = useMemo(
+    () => (selectable ? pagedData.filter((row) => isRowSelectable?.(row) ?? true) : []),
+    [selectable, pagedData, isRowSelectable],
+  );
+  const selectedOnPage = selectable
+    ? selectableRows.filter((row) => selectedKeys.has(rowKey(row))).length
+    : 0;
+  const allOnPageSelected =
+    selectableRows.length > 0 && selectedOnPage === selectableRows.length;
+
+  const toggleRow = useCallback(
+    (key: string) => {
+      if (!selectedKeys || !onSelectionChange) return;
+      const next = new Set(selectedKeys);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      onSelectionChange(next);
+    },
+    [selectedKeys, onSelectionChange],
+  );
+
+  const togglePage = useCallback(() => {
+    if (!selectedKeys || !onSelectionChange) return;
+    const next = new Set(selectedKeys);
+    for (const row of selectableRows) {
+      const key = rowKey(row);
+      if (allOnPageSelected) next.delete(key);
+      else next.add(key);
+    }
+    onSelectionChange(next);
+  }, [selectedKeys, onSelectionChange, selectableRows, allOnPageSelected, rowKey]);
+
+  if (headerCheckboxRef.current) {
+    // A partly-selected page reads as neither on nor off.
+    headerCheckboxRef.current.indeterminate = selectedOnPage > 0 && !allOnPageSelected;
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const showPagination = total > pageSize;
@@ -150,6 +202,7 @@ export function DataTable<T>({
         <table className={tableCls}>
           <thead>
             <tr>
+              {selectable && <th className={styles.selectCell} />}
               {columns.map((col) => (
                 <th key={col.key} style={{ width: col.width, textAlign: col.align }}>
                   {col.header}
@@ -160,6 +213,11 @@ export function DataTable<T>({
           <tbody>
             {Array.from({ length: pageSize > 5 ? 5 : pageSize }).map((_, i) => (
               <tr key={i}>
+                {selectable && (
+                  <td className={styles.selectCell}>
+                    <div className={styles.skeleton} />
+                  </td>
+                )}
                 {columns.map((col) => (
                   <td key={col.key}>
                     <div className={styles.skeleton} />
@@ -193,6 +251,23 @@ export function DataTable<T>({
         <table className={tableCls}>
           <thead>
             <tr>
+              {selectable && (
+                <th className={styles.selectCell}>
+                  <input
+                    ref={headerCheckboxRef}
+                    type="checkbox"
+                    className={styles.selectBox}
+                    checked={allOnPageSelected}
+                    disabled={selectableRows.length === 0}
+                    onChange={togglePage}
+                    aria-label={
+                      allOnPageSelected
+                        ? "Clear selection on this page"
+                        : "Select all rows on this page"
+                    }
+                  />
+                </th>
+              )}
               {columns.map((col) => {
                 const active = sortKey === col.key;
                 return (
@@ -219,7 +294,16 @@ export function DataTable<T>({
             {pagedData.map((row, i) => (
               <tr
                 key={rowKey(row)}
-                className={rowClassName?.(row, i)}
+                className={
+                  [
+                    rowClassName?.(row, i),
+                    selectable && selectedKeys.has(rowKey(row))
+                      ? styles.selectedRow
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ") || undefined
+                }
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 role={onRowClick ? "button" : undefined}
                 tabIndex={onRowClick ? 0 : undefined}
@@ -235,6 +319,22 @@ export function DataTable<T>({
                     : undefined
                 }
               >
+                {selectable && (
+                  <td
+                    className={styles.selectCell}
+                    // Ticking a row must never also open it.
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      className={styles.selectBox}
+                      checked={selectedKeys.has(rowKey(row))}
+                      disabled={!(isRowSelectable?.(row) ?? true)}
+                      onChange={() => toggleRow(rowKey(row))}
+                      aria-label={"Select row " + String(i + 1)}
+                    />
+                  </td>
+                )}
                 {columns.map((col) => (
                   <td key={col.key} style={{ textAlign: col.align }}>
                     {col.render

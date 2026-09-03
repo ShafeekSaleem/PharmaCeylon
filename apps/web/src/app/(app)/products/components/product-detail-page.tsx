@@ -33,6 +33,7 @@ import { ProductDetailPricingTab } from "./product-detail-pricing-tab";
 import { ProductDetailSidebar } from "./product-detail-sidebar";
 import { ProductDetailSkeleton } from "./product-detail-skeleton";
 import { ProductDetailStockTab } from "./product-detail-stock-tab";
+import { ProductReferenceNotice } from "./product-reference-notice";
 import { ProductFormModal } from "./product-form-modal";
 
 const TAB_DEFS: {
@@ -134,6 +135,14 @@ export function ProductDetailPage({ productId }: { productId: string }) {
         ← Back to products
       </Link>
       <ProductBranchNotice />
+      {product.rangeStatus === "REFERENCE" && (
+        <ProductReferenceNotice
+          productId={product.id}
+          productName={product.name}
+          canWrite={canWrite}
+          onRanged={() => void reloadDetail()}
+        />
+      )}
 
       <div className={detailCss.shell}>
         <div className={detailCss.pageLayout}>

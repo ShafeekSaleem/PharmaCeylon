@@ -122,6 +122,8 @@ export class CatalogService {
         exactCount: 0,
         aliasCount: 0,
         genericCount: 0,
+        rangedCount: 0,
+        referenceCount: 0,
         truncated: false,
         hasMore: false,
       };
@@ -134,6 +136,10 @@ export class CatalogService {
       schedule: query.schedule,
       isControlled: query.isControlled,
       status: "active",
+      // Reference (registry) products stay searchable here by default — looking up any
+      // medicine registered in Sri Lanka is the point of importing the NMRA catalog. They
+      // are pushed below the shop's own products in the ranking, not hidden.
+      rangeStatus: query.rangeStatus,
       lowStock: query.lowStock,
       categoryId: query.categoryId,
       commercialCategoryId: query.commercialCategoryId,
@@ -155,6 +161,8 @@ export class CatalogService {
         exactCount: 0,
         aliasCount: 0,
         genericCount: 0,
+        rangedCount: 0,
+        referenceCount: 0,
         truncated: false,
         hasMore: false,
       };
@@ -193,6 +201,7 @@ export class CatalogService {
         genericName: true,
         registrationNo: true,
         reorderLevel: true,
+        rangeStatus: true,
         aliases: {
           where: { tenantId },
           select: { aliasText: true },
@@ -200,7 +209,12 @@ export class CatalogService {
         },
       },
       take: RANK_CANDIDATE_CAP,
-      orderBy: [{ name: "asc" }],
+      // rangeStatus first, and only then name: the candidate pool is capped, and the pool now
+      // includes the whole imported registry. Ordering by name alone would let reference rows
+      // crowd the shop's own products out of the cap and disappear them from search results.
+      // (Postgres orders an enum by declaration order, REFERENCE before RANGED, so "desc"
+      // puts the shop's own products first.)
+      orderBy: [{ rangeStatus: "desc" }, { name: "asc" }],
     });
     const truncated = candidates.length >= RANK_CANDIDATE_CAP;
 
@@ -219,6 +233,7 @@ export class CatalogService {
       match: MatchInfo;
       qtyOnHand: number | null;
       reorderLevel: number;
+      isRanged: boolean;
     };
 
     const ranked: Ranked[] = [];
@@ -237,10 +252,15 @@ export class CatalogService {
         match,
         qtyOnHand: qty,
         reorderLevel: p.reorderLevel,
+        isRanged: p.rangeStatus === "RANGED",
       });
     }
 
+    // The shop's own products always come before reference-catalog results, whatever the
+    // text match quality — a pharmacist searching "panadol" wants the line they stock first,
+    // with the registry underneath as the "we could order this" tier.
     ranked.sort((a, b) => {
+      if (a.isRanged !== b.isRanged) return a.isRanged ? -1 : 1;
       if (a.match.rank !== b.match.rank) return a.match.rank - b.match.rank;
       return a.id.localeCompare(b.id);
     });
@@ -267,6 +287,9 @@ export class CatalogService {
       aliasCount = ranked.filter((r) => r.match.matchType === "alias").length;
       genericCount = ranked.filter((r) => r.match.matchType === "generic").length;
     }
+
+    const rangedCount = ranked.filter((r) => r.isRanged).length;
+    const referenceCount = ranked.length - rangedCount;
 
     const total = ranked.length;
     const pageRows = ranked.slice(pageSkip, pageSkip + pageSize);
@@ -322,6 +345,7 @@ export class CatalogService {
             schedule: p.schedule,
             isControlled: p.isControlled,
             isActive: p.isActive,
+            rangeStatus: p.rangeStatus,
             reorderLevel: p.reorderLevel,
             qtyOnHand: qty,
             stockStatus: qty == null ? null : stockStatus(qty, p.reorderLevel),
@@ -345,6 +369,8 @@ export class CatalogService {
       exactCount,
       aliasCount,
       genericCount,
+      rangedCount,
+      referenceCount,
       truncated,
       hasMore: pageSkip + pageSize < total,
     };
@@ -404,6 +430,13 @@ export class CatalogService {
       query,
       "requiresPrescription",
     );
+    const { where: rangeWhere } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      branchId,
+      query,
+      "rangeStatus",
+    );
 
     const [
       brands,
@@ -412,6 +445,7 @@ export class CatalogService {
       statusGroups,
       controlledGroups,
       rxGroups,
+      rangeGroups,
     ] = await this.prisma.$transaction([
       this.prisma.product.groupBy({
         by: ["brandName"],
@@ -449,6 +483,12 @@ export class CatalogService {
         orderBy: { requiresPrescription: "asc" },
         _count: true,
       }),
+      this.prisma.product.groupBy({
+        by: ["rangeStatus"],
+        where: rangeWhere,
+        orderBy: { rangeStatus: "asc" },
+        _count: true,
+      }),
     ]);
 
     const statusCount = (active: boolean) =>
@@ -459,6 +499,9 @@ export class CatalogService {
 
     const rxCount = (required: boolean) =>
       rxGroups.find((r) => r.requiresPrescription === required)?._count ?? 0;
+
+    const rangeCount = (value: "RANGED" | "REFERENCE") =>
+      rangeGroups.find((r) => r.rangeStatus === value)?._count ?? 0;
 
     let inStock = 0;
     let lowStock = 0;
@@ -495,7 +538,12 @@ export class CatalogService {
         }
       }
 
-      const totalMatching = await this.prisma.product.count({ where: summaryWhere });
+      // Only the shop's own range can be "out of stock". Reference records were never
+      // carried, so counting them here would report a whole imported registry as a shelf
+      // of out-of-stock items.
+      const totalMatching = await this.prisma.product.count({
+        where: { AND: [summaryWhere, { rangeStatus: "RANGED" }] },
+      });
       outOfStock = Math.max(0, totalMatching - inStock);
     }
 
@@ -613,6 +661,11 @@ export class CatalogService {
       status: [
         { value: "active", count: statusCount(true) },
         { value: "inactive", count: statusCount(false) },
+      ],
+      // Drives the Products page's "My products" / "Reference catalog" tab counts.
+      rangeStatus: [
+        { value: "RANGED", count: rangeCount("RANGED") },
+        { value: "REFERENCE", count: rangeCount("REFERENCE") },
       ],
       controlled: [
         { value: true, count: controlledCount(true) },

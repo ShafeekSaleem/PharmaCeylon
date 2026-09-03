@@ -99,3 +99,127 @@ describe("ProductsService — category dimension scoping", () => {
     });
   });
 });
+
+/**
+ * Range status is the field that lets "we sell this" be said out loud, separately from
+ * `isActive` ("this record is enabled"). Bulk actions are the escape hatch for a catalog that
+ * was imported too broadly, so they must move exactly the rows they claim to and must never
+ * collapse the two flags back into one.
+ */
+describe("ProductsService — bulk range/status actions", () => {
+  const tenantId = "tenant-1";
+  const userId = "user-1";
+
+  function makeService() {
+    const prisma = {
+      product: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+      productCategory: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const audit = { log: jest.fn() } as unknown as AuditService;
+    const meta = {
+      syncProductCategories: jest.fn(),
+      syncProductTags: jest.fn(),
+    } as unknown as ProductMetaService;
+    const service = new ProductsService(prisma as never, audit, meta);
+    return { service, prisma, audit };
+  }
+
+  it("ranging only touches REFERENCE rows, so an already-ranged product keeps its original rangedAt", async () => {
+    const { service, prisma } = makeService();
+
+    await service.bulkUpdate(tenantId, userId, {
+      action: "range",
+      productIds: ["p1", "p2"],
+    });
+
+    const call = prisma.product.updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({
+      tenantId,
+      id: { in: ["p1", "p2"] },
+      rangeStatus: "REFERENCE",
+    });
+    expect(call.data.rangeStatus).toBe("RANGED");
+    expect(call.data.rangedAt).toBeInstanceOf(Date);
+  });
+
+  it("un-ranging leaves isActive alone — the two flags answer different questions", async () => {
+    const { service, prisma } = makeService();
+
+    await service.bulkUpdate(tenantId, userId, {
+      action: "unrange",
+      productIds: ["p1"],
+    });
+
+    const call = prisma.product.updateMany.mock.calls[0][0];
+    expect(call.data).toEqual({ rangeStatus: "REFERENCE", rangedAt: null });
+    expect(call.data).not.toHaveProperty("isActive");
+  });
+
+  it("activate/deactivate leave rangeStatus alone", async () => {
+    const { service, prisma } = makeService();
+
+    await service.bulkUpdate(tenantId, userId, {
+      action: "deactivate",
+      productIds: ["p1"],
+    });
+
+    const call = prisma.product.updateMany.mock.calls[0][0];
+    expect(call.data).toEqual({ isActive: false });
+    expect(call.data).not.toHaveProperty("rangeStatus");
+  });
+
+  it("rejects a request that sends both an id list and a filter", async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.bulkUpdate(tenantId, userId, {
+        action: "range",
+        productIds: ["p1"],
+        filter: { rangeStatus: "REFERENCE" },
+      }),
+    ).rejects.toThrow(/either productIds or filter/i);
+  });
+
+  it("resolves the filter form server-side and scopes the update by tenant", async () => {
+    const { service, prisma } = makeService();
+    prisma.product.count.mockResolvedValue(2);
+    prisma.product.findMany.mockResolvedValue([{ id: "p1" }, { id: "p2" }]);
+
+    const result = await service.bulkUpdate(tenantId, userId, {
+      action: "range",
+      filter: { rangeStatus: "REFERENCE", commercialCategoryId: undefined },
+    });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ select: { id: true } }),
+    );
+    expect(prisma.product.updateMany.mock.calls[0][0].where.tenantId).toBe(tenantId);
+    expect(result).toEqual({ matched: 2, updated: 2, action: "range" });
+  });
+
+  it("refuses a filter selection above the bulk ceiling instead of rewriting the catalog", async () => {
+    const { service, prisma } = makeService();
+    prisma.product.count.mockResolvedValue(25_001);
+
+    await expect(
+      service.bulkUpdate(tenantId, userId, { action: "unrange", filter: {} }),
+    ).rejects.toThrow(/above the limit/i);
+    expect(prisma.product.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not write an audit event when nothing actually changed", async () => {
+    const { service, prisma, audit } = makeService();
+    prisma.product.updateMany.mockResolvedValue({ count: 0 });
+
+    await service.bulkUpdate(tenantId, userId, {
+      action: "range",
+      productIds: ["p1"],
+    });
+
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+});

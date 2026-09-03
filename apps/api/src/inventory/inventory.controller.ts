@@ -113,6 +113,7 @@ export class InventoryController {
     @Query("tagIds") tagIds?: string,
     @Query("dosageForms") dosageForms?: string,
     @Query("ledgerOnly") ledgerOnly?: string,
+    @Query("rangeStatus") rangeStatus?: string,
   ) {
     const split = (value?: string) =>
       value
@@ -132,6 +133,7 @@ export class InventoryController {
       tagIds: split(tagIds),
       dosageForms: split(dosageForms),
       ledgerOnly: ledgerOnly === "1" || ledgerOnly === "true",
+      rangeStatus: rangeStatus === "all" ? "all" : "RANGED",
     });
   }
 

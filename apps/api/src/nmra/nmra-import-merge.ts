@@ -10,10 +10,16 @@ import {
  *
  * UPDATE from file: NMRA catalog scalars only (name, brand, generic, manufacturer,
  * dosage/strength/pack, schedule, regType, dossier, origin, agent, controlled/Rx flags,
- * isActive, registrationDate). Optionally barcode when present and not conflicting.
+ * nmraRegistrationValid, registrationDate). Optionally barcode when present and not conflicting.
  *
  * PRESERVE on existing products: sku, manually added tags, aliases, category maps,
  * and any non-NMRA fields (taxCategory, reorderLevel, image, storage, etc.).
+ *
+ * NEVER WRITTEN BY THE IMPORTER: `isActive` and `rangeStatus`. Both are the pharmacy's to
+ * set — an import that wrote them would undo the shop's own deactivations and re-flood its
+ * product list on every registry refresh. Registration currency, which is what the importer
+ * actually knows, goes to `nmraRegistrationValid` instead. `rangeStatus` is set to REFERENCE
+ * once, on create only, by the import service.
  *
  * MERGE relations: add missing NMRA-derived schedule/form tags and category maps;
  * never delete user-only tags/aliases/categories. Aliases from the file are added
@@ -38,7 +44,8 @@ export type NmraMutableFields = {
   localAgent: string | null;
   isControlled: boolean;
   requiresPrescription: boolean;
-  isActive: boolean;
+  /** Registration currency from the file — NOT the pharmacy's own active/inactive choice. */
+  nmraRegistrationValid: boolean;
   barcode?: string | null;
 };
 
@@ -73,7 +80,7 @@ export function buildNmraMutableFields(
     localAgent: row.localAgent,
     isControlled: row.isControlled,
     requiresPrescription: row.requiresPrescription,
-    isActive: row.isActive,
+    nmraRegistrationValid: row.isActive,
   };
 
   // Barcode: set from file only when present and not conflicting; never wipe an existing one.

@@ -10,6 +10,12 @@ export type ProductFilterQuery = {
   /** When true, only products that require a prescription (or are controlled). */
   requiresPrescription?: boolean;
   status?: string;
+  /**
+   * "RANGED" (the shop's own products), "REFERENCE" (imported registry rows kept for
+   * lookup), or "all". Distinct from `status`, which is the pharmacist-owned enabled flag —
+   * a product can be RANGED and inactive (a discontinued line).
+   */
+  rangeStatus?: string;
   lowStock?: boolean;
   /** Form group / Registration type category ids (regulatory dimensions, OR-matched together). */
   categoryId?: string;
@@ -62,6 +68,7 @@ export type FacetExclude =
   | "brandName"
   | "schedule"
   | "status"
+  | "rangeStatus"
   | "isControlled"
   | "requiresPrescription";
 
@@ -131,6 +138,16 @@ function resolveStatusFilter(
   return {};
 }
 
+function resolveRangeStatusFilter(
+  rangeStatusValues: string[],
+): Prisma.ProductWhereInput {
+  if (rangeStatusValues.length !== 1) return {};
+  const value = rangeStatusValues[0].toUpperCase();
+  if (value === "RANGED") return { rangeStatus: "RANGED" };
+  if (value === "REFERENCE") return { rangeStatus: "REFERENCE" };
+  return {};
+}
+
 function resolveControlledFilter(
   controlledValues: string[],
   isControlledParam?: string,
@@ -165,6 +182,7 @@ export async function buildProductWhere(
   const brandNames = parseCsv(query.brandName);
   const schedules = parseCsv(query.schedule);
   const statusValues = parseCsv(query.status);
+  const rangeStatusValues = parseCsv(query.rangeStatus);
   const controlledValues = parseCsv(query.isControlled);
   const categoryIds = parseCsv(query.categoryId);
   const tagIds = parseCsv(query.tagId);
@@ -192,6 +210,9 @@ export async function buildProductWhere(
     tenantId,
     ...(exclude !== "status"
       ? resolveStatusFilter(statusValues, query.status)
+      : {}),
+    ...(exclude !== "rangeStatus"
+      ? resolveRangeStatusFilter(rangeStatusValues)
       : {}),
     ...(exclude !== "dosageForm"
       ? dosageForms.length === 1

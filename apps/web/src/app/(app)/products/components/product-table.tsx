@@ -5,7 +5,7 @@ import { IconAlertTriangle, IconPackage } from "@/components/icons";
 import { DataTable, StatusBadge, type Column, type SortDir } from "@/components/ui";
 import { PAGE_SIZE } from "../constants";
 import css from "../products.module.css";
-import type { ColumnKey, Product } from "../types";
+import type { ColumnKey, Product, ProductScope } from "../types";
 import { ProductActions } from "./product-actions";
 import { ProductStockBadge } from "./product-stock-badge";
 import { ProductThumb } from "./product-thumb";
@@ -20,6 +20,10 @@ type ProductTableProps = {
   visibleColumns: Set<ColumnKey>;
   canWrite: boolean;
   canDelete?: boolean;
+  /** Which tab the table is showing — changes the empty state and the Status column. */
+  scope: ProductScope;
+  selectedIds?: ReadonlySet<string>;
+  onSelectionChange?: (ids: Set<string>) => void;
   onPageChange: (page: number) => void;
   onSort: (key: string, dir: SortDir | null) => void;
   onRowClick: (row: Product) => void;
@@ -37,6 +41,9 @@ export function ProductTable({
   visibleColumns,
   canWrite,
   canDelete = true,
+  scope,
+  selectedIds,
+  onSelectionChange,
   onPageChange,
   onSort,
   onRowClick,
@@ -171,14 +178,19 @@ export function ProductTable({
         header: "Stock",
         align: "left",
         width: "150px",
-        render: (row) => (
-          <ProductStockBadge
-            qtyOnHand={row.qtyOnHand}
-            stockStatus={row.stockStatus}
-            reorderGap={row.reorderGap}
-            reorderLevel={row.reorderLevel}
-          />
-        ),
+        // A reference record isn't "out of stock" — the pharmacy never carried it. A red
+        // 0-units badge on every row would read as a shelf full of problems.
+        render: (row) =>
+          scope === "reference" ? (
+            <span className={css.notStockedCell}>Not stocked</span>
+          ) : (
+            <ProductStockBadge
+              qtyOnHand={row.qtyOnHand}
+              stockStatus={row.stockStatus}
+              reorderGap={row.reorderGap}
+              reorderLevel={row.reorderLevel}
+            />
+          ),
       },
       {
         key: "reorderLevel",
@@ -192,10 +204,16 @@ export function ProductTable({
       {
         key: "status",
         header: "Status",
-        width: "120px",
+        width: "132px",
         render: (row) => (
           <div className={css.statusCell}>
-            <StatusBadge status={row.isActive ? "active" : "inactive"} dot />
+            {/* On the reference tab every row is REFERENCE, so an "active/inactive" badge
+                would be answering a question nobody asked — say what the row actually is. */}
+            {scope === "reference" ? (
+              <span className={css.referenceTag}>Reference</span>
+            ) : (
+              <StatusBadge status={row.isActive ? "active" : "inactive"} dot />
+            )}
             {row.isControlled ? (
               <span className={css.controlledTag}>
                 <IconAlertTriangle size={11} />
@@ -216,7 +234,7 @@ export function ProductTable({
           ) : null,
       },
     ],
-    [canDelete, canWrite, onDelete, onEdit, visibleColumns],
+    [canDelete, canWrite, onDelete, onEdit, scope, visibleColumns],
   );
 
   const columns = useMemo(
@@ -238,9 +256,17 @@ export function ProductTable({
       sortDir={sortDir}
       onSort={onSort}
       onRowClick={onRowClick}
+      selectedKeys={selectedIds}
+      onSelectionChange={onSelectionChange}
       compact
-      emptyTitle="No products found"
-      emptyDescription="Try adjusting your search or filters"
+      emptyTitle={
+        scope === "reference" ? "No reference products found" : "No products yet"
+      }
+      emptyDescription={
+        scope === "reference"
+          ? "Import the NMRA registry to search every medicine registered in Sri Lanka."
+          : "Add a product, or open the Reference catalog tab to pull one in from the registry."
+      }
       emptyIcon={<IconPackage size={42} />}
     />
   );
