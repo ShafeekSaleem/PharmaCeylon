@@ -268,18 +268,57 @@ export function parseExpiry(text: string): Date | null {
     return endOfMonth(expandYear(Number(my[2])), month);
   }
 
-  const monthName =
-    /^([a-z]{3,9})[\s/.\-]*(\d{2,4})$/i.exec(value) ??
+  // "MAR-27" / "March 2027" — a month label, so the end of that month.
+  const monthYear = /^([a-z]{3,9})[\s/.\-]*(\d{2,4})$/i.exec(value);
+  if (monthYear) {
+    const month = monthNumber(monthYear[1]);
+    if (month) return endOfMonth(expandYear(Number(monthYear[2])), month);
+    return null;
+  }
+
+  // "12 Mar 2027" — an exact date.
+  const dayMonthYear =
     /^(\d{1,2})[\s/.\-]*([a-z]{3,9})[\s/.\-]*(\d{2,4})$/i.exec(value);
-  if (monthName) {
-    const parsed = Date.parse(value);
-    if (!Number.isNaN(parsed)) {
-      const d = new Date(parsed);
-      return utcDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  if (dayMonthYear) {
+    const month = monthNumber(dayMonthYear[2]);
+    if (month) {
+      return utcDate(expandYear(Number(dayMonthYear[3])), month, Number(dayMonthYear[1]));
     }
+    return null;
   }
 
   return null;
+}
+
+const MONTH_NAMES = [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+];
+
+/**
+ * Month names are matched explicitly rather than handed to `Date.parse`.
+ *
+ * `Date.parse` is lenient in ways that quietly corrupt an import: it reads "MAR-27" as the 27th
+ * of March 2001 — dating live stock a quarter-century into the past, on one of the commonest
+ * batch-expiry labels there is — and it turns "sometime 2027" into a real date rather than
+ * refusing it. Anything this function doesn't recognise returns null, and the row is reported.
+ */
+function monthNumber(name: string): number | null {
+  const key = name.toLowerCase();
+  const index = MONTH_NAMES.findIndex(
+    (m) => m === key || (key.length >= 3 && m.startsWith(key)),
+  );
+  return index === -1 ? null : index + 1;
 }
 
 function expandYear(year: number): number {

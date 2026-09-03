@@ -109,6 +109,26 @@ describe("product import — expiry parsing", () => {
     expect(iso(parseExpiry("12/25/2027"))).toBe("2027-12-25");
   });
 
+  it("reads a month-name label as the end of that month", () => {
+    // "MAR-27" is one of the commonest batch-expiry labels there is. Handing it to Date.parse
+    // read it as the 27th of March 2001 — dating live stock 25 years into the past.
+    expect(iso(parseExpiry("MAR-27"))).toBe("2027-03-31");
+    expect(iso(parseExpiry("March 2027"))).toBe("2027-03-31");
+    expect(iso(parseExpiry("Sep-2026"))).toBe("2026-09-30");
+  });
+
+  it("reads a day/month-name/year date without swapping day and month", () => {
+    // Date.parse read this as the 11th, because it applied US month-first ordering.
+    expect(iso(parseExpiry("12 Mar 2027"))).toBe("2027-03-12");
+    expect(iso(parseExpiry("30-Apr-2027"))).toBe("2027-04-30");
+  });
+
+  it("refuses text that merely contains a year", () => {
+    // Date.parse turned this into a real date by ignoring the word it didn't understand.
+    expect(parseExpiry("sometime 2027")).toBeNull();
+    expect(parseExpiry("banana 2027")).toBeNull();
+  });
+
   it("returns null for something it cannot read, so the row is reported not guessed", () => {
     expect(parseExpiry("soon")).toBeNull();
     expect(parseExpiry("13/13/2027")).toBeNull();
