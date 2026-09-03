@@ -34,9 +34,11 @@ export const SHORTCUTS: { keys: string; action: string; group: string }[] = [
   { keys: "Alt + C", action: "Customer lookup", group: "Sale" },
   { keys: "Alt + R", action: "Link prescription", group: "Sale" },
   { keys: "Alt + X", action: "Clear the cart", group: "Sale" },
+  { keys: "Alt + F", action: "Toggle focus mode (hide sidebar/topbar)", group: "General" },
   { keys: "Esc", action: "Close overlay / return focus to search", group: "General" },
   { keys: "?", action: "Show this shortcut sheet", group: "General" },
   { keys: "Ctrl + Shift + P", action: "Jump to POS from anywhere", group: "General" },
+  { keys: "Ctrl + Shift + F", action: "Toggle fullscreen (any page)", group: "General" },
 ];
 
 export const QUICK_ADD_TABS = [

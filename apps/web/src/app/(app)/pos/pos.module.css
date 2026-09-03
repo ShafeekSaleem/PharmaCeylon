@@ -421,6 +421,18 @@
   cursor: not-allowed;
 }
 
+.iconBtnActive {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.iconBtnActive:hover:not(:disabled) {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
 .iconBtnDanger:hover:not(:disabled) {
   border-color: var(--pc-alert-error-border);
   background: var(--pc-alert-error-bg);

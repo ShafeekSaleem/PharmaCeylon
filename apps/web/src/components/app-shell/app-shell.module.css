@@ -219,6 +219,10 @@
   margin-left: 60px;
 }
 
+.mainChromeHidden {
+  margin-left: 0;
+}
+
 /* ── Top bar ── */
 
 .topbar {

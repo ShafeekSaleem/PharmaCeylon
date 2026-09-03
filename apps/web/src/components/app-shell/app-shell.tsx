@@ -7,6 +7,7 @@ import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { usePermissions } from "@/lib/permissions";
 import { fetchSetupReadiness } from "@/lib/setup-readiness-client";
+import { useFullscreen } from "@/lib/use-fullscreen";
 import {
   BRANCHES_CHANGED_EVENT,
   fetchTenantBranches,
@@ -36,6 +37,8 @@ import {
   IconChevronRight,
   IconClipboard,
   IconTarget,
+  IconMaximize,
+  IconMinimize,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
 import {
@@ -203,7 +206,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, ready, isAuthenticated, branchId, setBranchId, logout } = useAuth();
   const { permissionKeys } = usePermissions();
-  const { extraCrumbs, lastSegmentLabel } = usePageChrome();
+  const { extraCrumbs, lastSegmentLabel, chromeHidden } = usePageChrome();
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -299,10 +303,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         toggleCollapsed();
         return;
       }
+      if (ctrl && e.shiftKey && e.code === "KeyF") {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [toggleCollapsed, router, permissionKeys]);
+  }, [toggleCollapsed, router, permissionKeys, toggleFullscreen]);
 
   const handleLogout = useCallback(async () => {
     setAvatarOpen(false);
@@ -362,11 +371,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className={styles.shell}>
       <AppearanceEffect />
       {/* Mobile backdrop */}
-      {mobileOpen && (
+      {mobileOpen && !chromeHidden && (
         <div className={styles.backdrop} onClick={() => setMobileOpen(false)} />
       )}
 
       {/* Sidebar */}
+      {!chromeHidden && (
       <aside className={sidebarCls}>
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarLogo}>
@@ -427,10 +437,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <div className={styles.sidebarFooter}>Version 1.0.0</div>
       </aside>
+      )}
 
       {/* Main */}
-      <div className={`${styles.main}${collapsed ? ` ${styles.mainCollapsed}` : ""}`}>
+      <div className={`${styles.main}${collapsed ? ` ${styles.mainCollapsed}` : ""}${chromeHidden ? ` ${styles.mainChromeHidden}` : ""}`}>
         {/* Top bar */}
+        {!chromeHidden && (
         <header className={styles.topbar}>
           <button
             type="button"
@@ -448,6 +460,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <GlobalSearch permissionKeys={permissionKeys} />
 
           <div className={styles.topbarRight}>
+            <button
+              type="button"
+              className={`${styles.iconBtn}${isFullscreen ? ` ${styles.iconBtnActive}` : ""}`}
+              onClick={toggleFullscreen}
+              aria-pressed={isFullscreen}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              data-tooltip={isFullscreen ? "Exit fullscreen (Ctrl+Shift+F)" : "Enter fullscreen (Ctrl+Shift+F)"}
+            >
+              {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
+            </button>
             <NotificationCenter />
 
             {/* Avatar */}
@@ -484,8 +506,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+        )}
 
         {/* Sub-header */}
+        {!chromeHidden && (
         <div className={styles.subheader}>
           <span className={styles.branchBadge}>
             {isSettings ? (settingsScopedToTenant ? (tenantName ?? "Tenant") : branchName) : branchName}
@@ -534,13 +558,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>}
         </div>
+        )}
 
         {/* Page content */}
         <main className={styles.content}>{children}</main>
       </div>
 
       {/* Permission-aware, context-sensitive Quick Sale launcher. */}
-      {canUsePos && !quickSaleHidden && (
+      {canUsePos && !quickSaleHidden && !chromeHidden && (
         <Link href="/pos" className={styles.fab} aria-label="Start a new sale (Ctrl+Shift+P)">
           <IconShoppingCart size={24} />
           <span>New Sale</span>

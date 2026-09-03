@@ -10,6 +10,9 @@ type PageChromeContextValue = {
   /** Replaces the last pathname segment label (e.g. UUID → product name). */
   lastSegmentLabel: string | null;
   setLastSegmentLabel: (label: string | null) => void;
+  /** When true, AppShell hides its sidebar/topbar/subheader so the page fills the viewport (POS focus mode). */
+  chromeHidden: boolean;
+  setChromeHidden: (hidden: boolean) => void;
 };
 
 const PageChromeContext = createContext<PageChromeContextValue | null>(null);
@@ -17,6 +20,7 @@ const PageChromeContext = createContext<PageChromeContextValue | null>(null);
 export function PageChromeProvider({ children }: { children: React.ReactNode }) {
   const [extraCrumbs, setExtraCrumbsState] = useState<BreadcrumbCrumb[]>([]);
   const [lastSegmentLabel, setLastSegmentLabelState] = useState<string | null>(null);
+  const [chromeHidden, setChromeHiddenState] = useState(false);
 
   const setExtraCrumbs = useCallback((crumbs: BreadcrumbCrumb[]) => {
     setExtraCrumbsState(crumbs);
@@ -26,14 +30,20 @@ export function PageChromeProvider({ children }: { children: React.ReactNode }) 
     setLastSegmentLabelState(label);
   }, []);
 
+  const setChromeHidden = useCallback((hidden: boolean) => {
+    setChromeHiddenState(hidden);
+  }, []);
+
   const value = useMemo(
     () => ({
       extraCrumbs,
       setExtraCrumbs,
       lastSegmentLabel,
       setLastSegmentLabel,
+      chromeHidden,
+      setChromeHidden,
     }),
-    [extraCrumbs, lastSegmentLabel, setExtraCrumbs, setLastSegmentLabel],
+    [extraCrumbs, lastSegmentLabel, setExtraCrumbs, setLastSegmentLabel, chromeHidden, setChromeHidden],
   );
 
   return (
@@ -49,6 +59,8 @@ export function usePageChrome() {
       setExtraCrumbs: (_: BreadcrumbCrumb[]) => {},
       lastSegmentLabel: null as string | null,
       setLastSegmentLabel: (_: string | null) => {},
+      chromeHidden: false,
+      setChromeHidden: (_: boolean) => {},
     };
   }
   return ctx;

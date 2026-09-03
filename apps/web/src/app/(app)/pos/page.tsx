@@ -8,6 +8,7 @@ import { POS_ROLES } from "@/lib/role-access";
 import { useAuth } from "@/lib/use-auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
 import { useRoleAccess } from "@/lib/use-role-access";
+import { usePageChrome } from "@/lib/page-chrome-context";
 import { PosActionBar } from "./components/pos-action-bar";
 import { PosAlertsPanel } from "./components/pos-alerts-panel";
 import { PosBatchModal } from "./components/pos-batch-modal";
@@ -57,6 +58,16 @@ import css from "./pos.module.css";
 
 const RX_ROLES = ["owner", "manager", "pharmacist"] as const;
 
+const FOCUS_MODE_KEY = "pc_pos_focus_mode";
+
+function readFocusMode(): boolean {
+  try {
+    return localStorage.getItem(FOCUS_MODE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 const EMPTY_SPLIT: Record<PaymentMethod, string> = {
   cash: "",
   card: "",
@@ -96,6 +107,7 @@ function PosWorkspace() {
   const { user } = useAuth();
   const { canAccess } = useRoleAccess();
   const { permissionKeys } = usePermissions();
+  const { setChromeHidden } = usePageChrome();
   const toasts = usePosToasts();
   const { beep, beepEnabled, toggleBeep } = useScanBeep();
 
@@ -143,6 +155,7 @@ function PosWorkspace() {
   const [rxOpen, setRxOpen] = useState(false);
   const [holdsOpen, setHoldsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [batchLine, setBatchLine] = useState<ResolvedCartLine | null>(null);
   const [lookupMode, setLookupMode] = useState<LookupMode | null>(null);
   const [receipt, setReceipt] = useState<SaleReceipt | null>(null);
@@ -201,6 +214,26 @@ function PosWorkspace() {
       .then((profile) => { if (!cancelled) setOrganization(profile); })
       .catch(() => {});
     return () => { cancelled = true; };
+  }, []);
+
+  // Restore the cashier's last focus-mode preference for this browser, then keep
+  // AppShell's chrome in sync with it — and always restore the chrome on the way
+  // out, so leaving /pos never leaves another page without its sidebar/topbar.
+  useEffect(() => {
+    setFocusMode(readFocusMode());
+    return () => setChromeHidden(false);
+  }, [setChromeHidden]);
+
+  useEffect(() => {
+    setChromeHidden(focusMode);
+  }, [focusMode, setChromeHidden]);
+
+  const toggleFocusMode = useCallback(() => {
+    setFocusMode((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(FOCUS_MODE_KEY, next ? "1" : "0"); } catch {}
+      return next;
+    });
   }, []);
 
   /* ── Cart operations ─────────────────────────────────────── */
@@ -694,6 +727,7 @@ function PosWorkspace() {
         if (saleMode) clearCart();
       },
       toggleShortcuts: () => setShortcutsOpen((prev) => !prev),
+      toggleFocusMode,
       escape: () => {
         if (saleMode) searchRef.current?.focus();
       },
@@ -733,6 +767,7 @@ function PosWorkspace() {
           busy={posting}
           holdsEnabled={posPrefs.posHeldSalesEnabled}
           beepEnabled={beepEnabled}
+          focusMode={focusMode}
           saleActionsDisabled={mode === "returns"}
           onNewSale={startNewSale}
           onHold={() => void holdSale()}
@@ -743,6 +778,7 @@ function PosWorkspace() {
           onClear={clearCart}
           onShortcuts={() => setShortcutsOpen(true)}
           onToggleBeep={toggleBeep}
+          onToggleFocusMode={toggleFocusMode}
         />
       </div>
 

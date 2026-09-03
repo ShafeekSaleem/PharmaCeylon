@@ -14,6 +14,7 @@ export type PosShortcutHandlers = {
   linkPrescription: () => void;
   clearCart: () => void;
   toggleShortcuts: () => void;
+  toggleFocusMode: () => void;
   escape: () => void;
 };
 
@@ -102,6 +103,11 @@ export function usePosShortcuts(handlers: PosShortcutHandlers, enabled = true) {
         if (code === "KeyX") {
           event.preventDefault();
           h.clearCart();
+          return;
+        }
+        if (code === "KeyF") {
+          event.preventDefault();
+          h.toggleFocusMode();
           return;
         }
       }

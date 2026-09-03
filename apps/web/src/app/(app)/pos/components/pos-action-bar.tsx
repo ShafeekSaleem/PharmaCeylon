@@ -2,6 +2,7 @@
 
 import {
   IconBell,
+  IconFocus,
   IconKeyboard,
   IconPause,
   IconPlus,
@@ -15,6 +16,7 @@ type Props = {
   holdCount: number;
   busy: boolean;
   beepEnabled: boolean;
+  focusMode: boolean;
   holdsEnabled?: boolean;
   /** When true (Returns mode), park/clear/new sale actions that touch the cart are disabled. */
   saleActionsDisabled?: boolean;
@@ -24,6 +26,7 @@ type Props = {
   onClear: () => void;
   onShortcuts: () => void;
   onToggleBeep: () => void;
+  onToggleFocusMode: () => void;
 };
 
 export function PosActionBar({
@@ -31,6 +34,7 @@ export function PosActionBar({
   holdCount,
   busy,
   beepEnabled,
+  focusMode,
   holdsEnabled = true,
   saleActionsDisabled = false,
   onNewSale,
@@ -39,6 +43,7 @@ export function PosActionBar({
   onClear,
   onShortcuts,
   onToggleBeep,
+  onToggleFocusMode,
 }: Props) {
   return (
     <div className={css.actionGroup}>
@@ -104,6 +109,16 @@ export function PosActionBar({
         data-tooltip="Keyboard shortcuts (?)"
       >
         <IconKeyboard size={15} />
+      </button>
+      <button
+        type="button"
+        className={`${css.iconBtn}${focusMode ? ` ${css.iconBtnActive}` : ""}`}
+        onClick={onToggleFocusMode}
+        aria-pressed={focusMode}
+        aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"}
+        data-tooltip={focusMode ? "Exit focus mode (Alt+F)" : "Focus mode: hide sidebar & topbar (Alt+F)"}
+      >
+        <IconFocus size={15} />
       </button>
     </div>
   );
