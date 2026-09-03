@@ -116,7 +116,7 @@ export function PosActionBar({
         onClick={onToggleFocusMode}
         aria-pressed={focusMode}
         aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"}
-        data-tooltip={focusMode ? "Exit focus mode (Alt+F)" : "Focus mode: hide sidebar & topbar (Alt+F)"}
+        data-tooltip={focusMode ? "Exit focus mode (Alt+F)" : "Enter focus mode (Alt+F)"}
       >
         <IconFocus size={15} />
       </button>
