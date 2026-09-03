@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [develop, main, master]
+    branches: [develop, main]
   pull_request:
+    branches: [develop, main]
 
 permissions:
   contents: read
@@ -84,6 +85,7 @@ jobs:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:3000/api/v1
 
   docker-stack:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -150,11 +152,11 @@ jobs:
           if-no-files-found: ignore
 
       - name: Export the exact tested and scanned images
-        if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'ShafeekSaleem/PharmaCeylon'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ShafeekSaleem/PharmaCeylon'
         run: node scripts/docker/release-images.mjs export
 
       - name: Hand off tested images to the restricted publisher
-        if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'ShafeekSaleem/PharmaCeylon'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ShafeekSaleem/PharmaCeylon'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tested-images-${{ github.sha }}
@@ -177,11 +179,11 @@ jobs:
 
   publish-images:
     needs: [build-and-test, docker-stack]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'ShafeekSaleem/PharmaCeylon'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ShafeekSaleem/PharmaCeylon'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
-      group: ghcr-develop-publication
+      group: ghcr-main-publication
       cancel-in-progress: false
     permissions:
       contents: read
@@ -195,7 +197,7 @@ jobs:
         with:
           node-version: "22"
           package-manager-cache: false
-      - name: Require this commit to come from a merged PR to develop
+      - name: Require this commit to come from a merged PR to main
         run: node scripts/docker/check-publish-source.mjs
         env:
           GH_TOKEN: ${{ github.token }}

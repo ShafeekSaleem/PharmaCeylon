@@ -24,19 +24,21 @@ PostgreSQL remains the upstream PostgreSQL 17 image, not an application image.
 
 ## Publication gates
 
-PRs run application tests, builds, container lifecycle tests, vulnerability
-scanning, and a disposable localhost registry push/pull test. They do not receive
-GHCR write permissions and do not publish to GHCR.
+Pushes and PRs targeting `develop` or `main` run application tests and builds.
+They do not run the Docker stack or receive GHCR write permissions before the
+change reaches `main`.
 
-After a commit reaches `develop` in `ShafeekSaleem/PharmaCeylon`, both CI jobs
-must pass. A separate publishing job loads the exact tested image archive,
+After a commit reaches `main` in `ShafeekSaleem/PharmaCeylon`, the application
+build/test job and Docker stack job must pass. The Docker job runs the container
+lifecycle tests, vulnerability scans, and disposable localhost registry
+push/pull test. A separate publishing job loads the exact tested image archive,
 checks image IDs and revision labels, then authenticates using GitHub's temporary
 `GITHUB_TOKEN` with `packages: write`. It does not rebuild the images.
 The publisher also verifies through GitHub's API that this exact commit is the
-merge commit of a PR into `develop`; direct pushes cannot publish. This includes
+merge commit of a PR into `main`; direct pushes cannot publish. This includes
 normal merge and squash-merge commits. Use branch protection to require reviews
 and prevent direct pushes too; branch protection is not changed by this PR.
-`main`/`master` CI and PR runs do not publish.
+`develop` pushes and all PR runs do not build, scan, or publish Docker images.
 
 Each pushed image is pulled back and its identity checked. A separate job with
 only package-read permission starts the digest-pinned release bundle on a
@@ -46,7 +48,7 @@ artifact. A failed partial publication emits no verified release bundle; do not
 deploy images merely because a tag exists.
 
 No staging/production server is contacted and no merge happens automatically.
-The first real GHCR publication happens after merging Phase 6, not on its PR.
+GHCR publication happens only after a PR is merged into `main`, not on its PR.
 
 ## Security scanning
 
@@ -68,8 +70,8 @@ provenance attestations. Images are scanned at build time, not continuously.
 
 ## First publication after merge
 
-1. Merge the Phase 6 PR after its checks pass.
-2. Open **Actions → CI** for the resulting `develop` commit.
+1. Merge the release PR into `main` after its build-and-test check passes.
+2. Open **Actions → CI** for the resulting `main` commit.
 3. Confirm `build-and-test`, `docker-stack`, `publish-images`, and
    `verify-published-images` all succeed.
 4. Check the three packages under your GitHub account's **Packages** page.

@@ -82,3 +82,11 @@ test("publish entry point refuses PR events before touching Docker or GHCR", () 
   const result = spawnSync(process.execPath, [script, "publish"], { encoding: "utf8", env: { ...process.env, GITHUB_EVENT_NAME: "pull_request" } });
   assert.equal(result.status, 1);
 });
+test("publish entry point refuses develop pushes before touching Docker or GHCR", () => {
+  const script = fileURLToPath(new URL("./release-images.mjs", import.meta.url));
+  const result = spawnSync(process.execPath, [script, "publish"], {
+    encoding: "utf8",
+    env: { ...process.env, GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/develop" },
+  });
+  assert.equal(result.status, 1);
+});

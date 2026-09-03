@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 try {
   assert.equal(process.env.GITHUB_EVENT_NAME, "push");
-  assert.equal(process.env.GITHUB_REF, "refs/heads/develop");
+  assert.equal(process.env.GITHUB_REF, "refs/heads/main");
   assert.equal(process.env.GITHUB_REPOSITORY, "ShafeekSaleem/PharmaCeylon");
   const sha = process.env.GITHUB_SHA;
   assert.match(sha ?? "", /^[a-f0-9]{40}$/);
@@ -14,6 +14,6 @@ try {
   });
   assert.equal(response.status, 200, "Could not verify merged PR provenance");
   const prs = await response.json();
-  assert.ok(prs.some((pr) => pr.merged_at && pr.merge_commit_sha === sha && pr.base?.ref === "develop" && pr.base?.repo?.full_name === "ShafeekSaleem/PharmaCeylon"), "Publication requires a merged PR whose merge commit is this develop commit");
+  assert.ok(prs.some((pr) => pr.merged_at && pr.merge_commit_sha === sha && pr.base?.ref === "main" && pr.base?.repo?.full_name === "ShafeekSaleem/PharmaCeylon"), "Publication requires a merged PR whose merge commit is this main commit");
   console.log("Verified merged PR provenance for publication.");
 } catch (error) { console.error(error.message); process.exitCode = 1; }

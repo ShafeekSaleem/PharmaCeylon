@@ -104,11 +104,13 @@ upload volumes. No npm helper resets or seeds data automatically. See
 
 ## Versioned Docker images (Phase 6)
 
-CI tests and scans PR images without publishing them. Successful merged PRs to
-`develop` publish matching API, migration, and web images to GHCR, then verify
-the pulled digests in a source-free bundle. The verified `release-bundle` Actions
-artifact includes Compose configuration, a digest-pinned release lock and helper
-commands; application source and `npm install` are not required to run it.
+CI builds and tests changes targeting `develop` or `main`. Docker stack testing,
+image scanning, and publication run only after a successful push to `main`.
+Successful merged PRs to `main` publish matching API, migration, and web images
+to GHCR, then verify the pulled digests in a source-free bundle. The verified
+`release-bundle` Actions artifact includes Compose configuration, a digest-pinned
+release lock and helper commands; application source and `npm install` are not
+required to run it.
 
 Keep using `npm run docker:up` for source builds. To run a published version,
 follow [docs/DOCKER_IMAGES.md](docs/DOCKER_IMAGES.md) for registry login, image
