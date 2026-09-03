@@ -27,6 +27,8 @@ export type OnboardingDraft = {
   branchPhone?: string;
   useBusinessPhone?: boolean;
   migrationMode?: "fresh" | "migrating";
+  /** Labels from ONBOARDING_DEPARTMENT_GROUPS — the departments enabled at provisioning. */
+  sellsDepartments?: string[];
   receiptDisplayName?: string;
   paymentMethods?: string[];
   dateFormat?: string;

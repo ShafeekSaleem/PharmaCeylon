@@ -250,11 +250,10 @@ export default function GetStartedPage() {
               </span>
               <h2>{nextTask?.title ?? "Setup complete"}</h2>
               <p>
+                {/* The task list itself is now mode-aware server-side, so this no longer
+                    patches over a generic description with a special case. */}
                 {nextTask
-                  ? data.branch.setupMode === "migrating" &&
-                    nextTask.key === "products"
-                    ? "Moving from another system? Start by bringing in your product list."
-                    : nextTask.description
+                  ? nextTask.description
                   : "Your first branch is ready to serve customers."}
               </p>
               {nextTask &&

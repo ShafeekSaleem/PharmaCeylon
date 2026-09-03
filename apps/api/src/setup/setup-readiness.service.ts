@@ -71,11 +71,16 @@ export class SetupReadinessService {
     });
     if (!branch) throw new NotFoundException("Branch not found");
 
-    const [productCount, stockGroups, team] = await Promise.all([
+    const [productCount, referenceCount, stockGroups, team] = await Promise.all([
       // Only the pharmacy's own range counts. Importing the NMRA registry used to tick this
       // step off before the shop had decided what it actually sells.
       this.prisma.product.count({
         where: { tenantId, isActive: true, rangeStatus: "RANGED" },
+      }),
+      // Whether there is a reference catalog to search yet. A brand-new pharmacy has none, so
+      // "search the catalog and add what you stock" would send it to an empty page.
+      this.prisma.product.count({
+        where: { tenantId, rangeStatus: "REFERENCE" },
       }),
       this.prisma.stockLedger.groupBy({
         by: ["batchId"],
@@ -105,6 +110,13 @@ export class SetupReadinessService {
     const salesSettingsComplete = branch.salesSettingsReviewedAt !== null;
     const checkoutComplete = branch.checkoutPreparedAt !== null;
 
+    // The wizard asked how the pharmacy is getting started and then nothing acted on the
+    // answer. These two steps are where it actually pays off: a shop moving from another
+    // system should be pointed at the importer, not at an empty product form, and one opening
+    // fresh should be pointed at the catalog it can build a range from.
+    const migrating = branch.setupMode === "migrating";
+    const hasReferenceCatalog = referenceCount > 0;
+
     const tasks: SetupReadiness["tasks"] = [
       {
         key: "business_branch",
@@ -114,23 +126,55 @@ export class SetupReadinessService {
         available: true,
         href: "/settings/tenant-profile",
       },
-      {
-        key: "products",
-        title: "Set up your products",
-        description:
-          "Add the products you sell — from the catalog or your own list.",
-        complete: productsComplete,
-        available: true,
-        href: "/products",
-      },
-      {
-        key: "opening_inventory",
-        title: "Add opening inventory",
-        description: "Add batches, expiry dates, quantities and costs.",
-        complete: stockComplete,
-        available: productsComplete,
-        href: "/inventory/adjustments",
-      },
+      migrating
+        ? {
+            key: "products",
+            title: "Import your product list",
+            description:
+              "Upload the export from your old system — products and opening stock in one file.",
+            complete: productsComplete,
+            available: true,
+            href: "/products/import",
+          }
+        : hasReferenceCatalog
+          ? {
+              key: "products",
+              title: "Build your product range",
+              description:
+                "Search the catalog for what you stock and add it to your products.",
+              complete: productsComplete,
+              available: true,
+              href: "/products?scope=reference",
+            }
+          : {
+              // Nothing to search yet. Load the register first, or the step above is a
+              // link to an empty page.
+              key: "products",
+              title: "Load the medicines catalog",
+              description:
+                "Import the NMRA register once — then search it and pick what you stock.",
+              complete: productsComplete,
+              available: true,
+              href: "/products?import=nmra",
+            },
+      migrating
+        ? {
+            key: "opening_inventory",
+            title: "Check your opening stock",
+            description:
+              "Your import can carry stock on the same rows — add anything it didn't cover.",
+            complete: stockComplete,
+            available: productsComplete,
+            href: "/inventory/batches",
+          }
+        : {
+            key: "opening_inventory",
+            title: "Add opening inventory",
+            description: "Add batches, expiry dates, quantities and costs.",
+            complete: stockComplete,
+            available: productsComplete,
+            href: "/inventory/adjustments",
+          },
       {
         key: "sales_settings",
         title: "Review sales settings",

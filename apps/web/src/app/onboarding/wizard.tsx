@@ -49,6 +49,22 @@ import {
 } from "@/lib/owner-registration-client";
 import styles from "./onboarding.module.css";
 
+/**
+ * Mirrors ONBOARDING_DEPARTMENT_GROUPS in the API's commercial-category-template. The API
+ * validates `sellsDepartments` against the same labels, so the two lists have to stay in step.
+ */
+const SELLS_DEPARTMENTS = [
+  "Medicines",
+  "Vitamins & Supplements",
+  "Baby & Mother Care",
+  "Personal Care",
+  "Beauty & Skin Care",
+  "Medical Devices & First Aid",
+  "Nutrition & Wellness",
+  "Food & Beverages",
+  "Household & Convenience",
+];
+
 type Step = "pharmacy" | "branch" | "preferences" | "review";
 type SaveState = "saved" | "saving" | "unsaved" | "error";
 type Update = <K extends keyof OnboardingDraft>(
@@ -636,6 +652,9 @@ function PreferencesForm({
   update: Update;
 }) {
   const payments = draft.paymentMethods ?? ["cash", "card"];
+  // Medicines is always on — it is the one department every pharmacy has — so it shows
+  // ticked and locked rather than as a choice someone could get wrong.
+  const sells = draft.sellsDepartments ?? [];
   return (
     <>
       <h1>Make it work your way</h1>
@@ -674,10 +693,46 @@ function PreferencesForm({
         </fieldset>
         {draft.migrationMode === "migrating" ? (
           <Info>
-            We&apos;ll prioritize importing your existing product and
-            opening-stock data.
+            Your first setup step will be the product importer — bring your list
+            and opening stock across in one file.
           </Info>
         ) : null}
+
+        <fieldset className={styles.paymentFieldset}>
+          <legend>What does your pharmacy sell?</legend>
+          <div className={styles.sellsRow}>
+            {SELLS_DEPARTMENTS.map((label) => {
+              const locked = label === "Medicines";
+              const checked = locked || sells.includes(label);
+              return (
+                <label
+                  key={label}
+                  className={`${styles.payment}${locked ? ` ${styles.sellsLocked}` : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={locked}
+                    onChange={(event) =>
+                      update(
+                        "sellsDepartments",
+                        event.target.checked
+                          ? [...sells, label]
+                          : sells.filter((item) => item !== label),
+                      )
+                    }
+                  />
+                  <span>{label}</span>
+                </label>
+              );
+            })}
+          </div>
+          <small>
+            Turns on the matching product departments so you can file products
+            under them from day one. You can change this later in Settings →
+            Catalog → Categories.
+          </small>
+        </fieldset>
         <div className={styles.sectionTitle}>Receipt details</div>
         <div className={styles.grid2}>
           <Field

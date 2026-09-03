@@ -12,6 +12,10 @@ import {
   MaxLength,
   Min,
 } from "class-validator";
+import { ONBOARDING_DEPARTMENT_GROUPS } from "../../catalog/commercial-category-template";
+
+/** Valid values for `sellsDepartments` — the labels the wizard shows. */
+const ONBOARDING_DEPARTMENT_LABELS = ONBOARDING_DEPARTMENT_GROUPS.map((g) => g.label);
 
 export class SaveOnboardingDraftDto {
   @IsInt() @Min(1) @Max(4) currentStep!: number;
@@ -46,6 +50,17 @@ export class SaveOnboardingDraftDto {
   @IsOptional() @IsIn(["fresh", "migrating"]) migrationMode?:
     | "fresh"
     | "migrating";
+  /**
+   * "What does your pharmacy sell" — labels from ONBOARDING_DEPARTMENT_GROUPS. Applied at
+   * provisioning so a shop selling shampoo and baby food has those departments switched on
+   * from the first minute, instead of having to find Settings → Catalog → Categories before
+   * it can file anything under them.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(16)
+  @IsIn(ONBOARDING_DEPARTMENT_LABELS, { each: true })
+  sellsDepartments?: string[];
   @IsOptional() @IsString() @MaxLength(120) receiptDisplayName?: string;
   @IsOptional()
   @IsArray()

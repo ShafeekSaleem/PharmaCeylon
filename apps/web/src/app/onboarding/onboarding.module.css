@@ -1152,3 +1152,15 @@
     grid-template-columns: 108px 1fr;
   }
 }
+
+/* "What does your pharmacy sell" — nine options, so they wrap into columns rather than
+   running down the page as a single list the way the four payment methods do. */
+.sellsRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.5rem 1rem;
+}
+.sellsLocked {
+  color: var(--pc-muted-fg);
+  cursor: default;
+}

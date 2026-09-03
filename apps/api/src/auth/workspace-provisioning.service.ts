@@ -39,6 +39,13 @@ export class WorkspaceProvisioningService {
     if (owner.status === "completed") {
       const existing = await this.findCompleted(owner);
       await this.taxonomy.ensureCommercialTemplate(existing.tenantId);
+      // Resume path: the department selection is applied here too, so a completion that
+      // failed after the transaction still ends up with the right departments enabled.
+      const { draft: savedDraft } = await this.drafts.get(owner.registrationId);
+      await this.taxonomy.applyOnboardingSelection(
+        existing.tenantId,
+        savedDraft.sellsDepartments ?? [],
+      );
       return { ...existing, alreadyCompleted: true };
     }
 
@@ -63,6 +70,13 @@ export class WorkspaceProvisioningService {
     // Idempotent tenant template setup. If this fails, retrying the completion
     // endpoint resumes from the completed registration and safely retries it.
     await this.taxonomy.ensureCommercialTemplate(result.tenantId);
+    // Turn on the departments the pharmacy said it sells. Only Medicines is enabled by
+    // default, so without this a shop stocking shampoo and nappies has to go and find
+    // Settings → Catalog → Categories before it can file a single product.
+    await this.taxonomy.applyOnboardingSelection(
+      result.tenantId,
+      draft.sellsDepartments ?? [],
+    );
     return result;
   }
 

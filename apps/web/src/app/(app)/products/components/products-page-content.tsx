@@ -145,6 +145,17 @@ export function ProductsPageContent() {
     list.reload();
   });
 
+  /* ?import=nmra opens the registry import — the Get started journey links straight here
+     when a fresh pharmacy has no reference catalog to search yet. */
+  useEffect(() => {
+    if (searchParams.get("import") !== "nmra") return;
+    setNmraImportOpen(true);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("import");
+    const qs = params.toString();
+    router.replace(qs ? `/products?${qs}` : "/products", { scroll: false });
+  }, [searchParams, router]);
+
   /* Legacy ?view=uuid → /products/[id] */
   useEffect(() => {
     const legacyView = searchParams.get("view");

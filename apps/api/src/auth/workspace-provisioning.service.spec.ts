@@ -36,6 +36,7 @@ describe("WorkspaceProvisioningService", () => {
     district: "Matale",
     branchTimezone: "Asia/Colombo",
     migrationMode: "migrating" as const,
+    sellsDepartments: ["Personal Care", "Baby & Mother Care"],
     receiptDisplayName: "Royal Pharmacy",
     paymentMethods: ["cash", "card"],
   };
@@ -83,7 +84,10 @@ describe("WorkspaceProvisioningService", () => {
       $transaction: jest.fn((callback) => callback(tx)),
     };
     const drafts = { get: jest.fn().mockResolvedValue({ draft }) };
-    const taxonomy = { ensureCommercialTemplate: jest.fn().mockResolvedValue(undefined) };
+    const taxonomy = {
+      ensureCommercialTemplate: jest.fn().mockResolvedValue(undefined),
+      applyOnboardingSelection: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new WorkspaceProvisioningService(
       prisma as never,
       drafts as never,
@@ -111,6 +115,12 @@ describe("WorkspaceProvisioningService", () => {
       }),
     );
     expect(taxonomy.ensureCommercialTemplate).toHaveBeenCalledWith(tenantId);
+    // The wizard's "what does your pharmacy sell" answer has to reach provisioning, or the
+    // toggles are just a form that does nothing.
+    expect(taxonomy.applyOnboardingSelection).toHaveBeenCalledWith(
+      tenantId,
+      draft.sellsDepartments ?? [],
+    );
   });
 
   it("resumes an already-completed registration without creating duplicates", async () => {
@@ -123,10 +133,18 @@ describe("WorkspaceProvisioningService", () => {
       },
       $transaction: jest.fn(),
     };
-    const taxonomy = { ensureCommercialTemplate: jest.fn().mockResolvedValue(undefined) };
+    const taxonomy = {
+      ensureCommercialTemplate: jest.fn().mockResolvedValue(undefined),
+      applyOnboardingSelection: jest.fn().mockResolvedValue(undefined),
+    };
+    const drafts = {
+      get: jest.fn().mockResolvedValue({
+        draft: { sellsDepartments: ["Personal Care"] },
+      }),
+    };
     const service = new WorkspaceProvisioningService(
       prisma as never,
-      { get: jest.fn() } as never,
+      drafts as never,
       taxonomy as never,
     );
 
@@ -141,5 +159,10 @@ describe("WorkspaceProvisioningService", () => {
     expect(result.alreadyCompleted).toBe(true);
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(taxonomy.ensureCommercialTemplate).toHaveBeenCalledWith(tenantId);
+    // Resuming re-applies the department selection, so a completion that died after the
+    // transaction still lands with the right departments switched on.
+    expect(taxonomy.applyOnboardingSelection).toHaveBeenCalledWith(tenantId, [
+      "Personal Care",
+    ]);
   });
 });
