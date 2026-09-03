@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { usePermissions } from "@/lib/permissions";
+import { fetchSetupReadiness } from "@/lib/setup-readiness-client";
 import {
   BRANCHES_CHANGED_EVENT,
   fetchTenantBranches,
@@ -34,6 +35,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconClipboard,
+  IconTarget,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
 import {
@@ -73,6 +75,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Main",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: <IconGrid size={18} /> },
+      { href: "/get-started", label: "Get started", icon: <IconTarget size={18} />, roles: ["owner"] },
       { href: "/pos", label: "POS / Checkout", icon: <IconShoppingCart size={18} />, roles: POS_ROLES, permission: "sales.pos_use" },
     ],
   },
@@ -122,7 +125,6 @@ PAGE_TITLES["/inventory/batches"] = "Batch stock";
 PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
 PAGE_TITLES["/inventory/movements"] = "Stock movements";
 PAGE_TITLES["/notifications"] = "Notifications";
-PAGE_TITLES["/insights"] = "AI Insights";
 PAGE_TITLES["/settings/my-profile"] = "My Profile";
 PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
 PAGE_TITLES["/settings/branches"] = "Branches";
@@ -209,6 +211,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [branchOpen, setBranchOpen] = useState(false);
   const [branches, setBranches] = useState<TenantBranch[]>([]);
   const [tenantName, setTenantName] = useState<string | null>(null);
+  const [showSetupJourney, setShowSetupJourney] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
   const branchRef = useRef<HTMLDivElement>(null);
 
@@ -246,6 +249,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [ready, isAuthenticated]);
+
+  useEffect(() => {
+    const isOwner = user?.branchRoles.some((entry) => entry.role === "owner") ?? false;
+    if (!ready || !isAuthenticated || !branchId || !isOwner) {
+      setShowSetupJourney(false);
+      return;
+    }
+    let cancelled = false;
+    fetchSetupReadiness()
+      .then((result) => {
+        if (!cancelled) setShowSetupJourney(result.journeyEnabled);
+      })
+      .catch(() => {
+        if (!cancelled) setShowSetupJourney(false);
+      });
+    return () => { cancelled = true; };
+  }, [ready, isAuthenticated, branchId, user]);
 
   useEffect(() => {
     const refresh = () => { loadBranches(); };
@@ -298,9 +318,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/users") ||
     pathname.startsWith("/audit") ||
+    pathname.startsWith("/get-started") ||
     pathname.startsWith("/notifications");
 
-  const navGroups = NAV_GROUPS;
+  const navGroups = useMemo(
+    () =>
+      NAV_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (item) => item.href !== "/get-started" || showSetupJourney,
+        ),
+      })),
+    [showSetupJourney],
+  );
 
   if (!ready || !isAuthenticated) {
     return (

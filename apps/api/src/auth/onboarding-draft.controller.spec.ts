@@ -12,6 +12,7 @@ describe("OnboardingDraftController", () => {
 
   function setup(existingLogo?: string | null) {
     const drafts = {
+      assertOpen: jest.fn(),
       get: jest.fn().mockResolvedValue({
         draft: {
           currentStep: 1,
@@ -35,6 +36,9 @@ describe("OnboardingDraftController", () => {
       controller: new OnboardingDraftController(
         drafts as never,
         uploads as never,
+        {} as never,
+        {} as never,
+        {} as never,
       ),
       drafts,
       uploads,

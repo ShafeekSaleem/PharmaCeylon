@@ -1,5 +1,7 @@
 import { getApiBaseUrl } from "./api-base";
 import { parseApiError } from "./api-error";
+import type { AuthUser } from "./auth-types";
+import { persistUser, setBranchId } from "./auth-session";
 
 export type OnboardingDraft = {
   currentStep: number;
@@ -50,6 +52,31 @@ async function request(init?: RequestInit): Promise<OnboardingDraftResponse> {
 export const fetchOnboardingDraft = () => request();
 export const saveOnboardingDraft = (draft: OnboardingDraft) =>
   request({ method: "PUT", body: JSON.stringify(draft) });
+
+export type CompleteOnboardingResponse = {
+  user: AuthUser;
+  tenantId: string;
+  branchId: string;
+  tenantName: string;
+  branchName: string;
+  alreadyCompleted: boolean;
+  nextPath: "/get-started";
+};
+
+export async function completeOnboarding(): Promise<CompleteOnboardingResponse> {
+  const response = await fetch(`${getApiBaseUrl()}/onboarding/complete`, {
+    method: "POST",
+    credentials: "include",
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(parseApiError(text, "Unable to create your workspace"));
+  }
+  const result = JSON.parse(text) as CompleteOnboardingResponse;
+  persistUser(result.user);
+  setBranchId(result.branchId);
+  return result;
+}
 
 export async function removeOnboardingLogo(): Promise<void> {
   const response = await fetch(`${getApiBaseUrl()}/onboarding/logo`, {

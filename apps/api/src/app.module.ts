@@ -31,6 +31,7 @@ import { TenantModule } from "./tenant/tenant.module";
 import { StocktakesModule } from "./stocktakes/stocktakes.module";
 import { TransfersModule } from "./transfers/transfers.module";
 import { UploadsModule } from "./uploads/uploads.module";
+import { SetupModule } from "./setup/setup.module";
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     CatalogModule,
     AnalyticsModule,
     UploadsModule,
+    SetupModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1,0 +1,517 @@
+.page {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  color: var(--pc-foreground);
+}
+
+.loading {
+  display: grid;
+  min-height: 50vh;
+  place-items: center;
+  color: var(--pc-muted-fg);
+}
+
+.notApplicable {
+  min-height: 52vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.notApplicable > span {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+}
+
+.notApplicable h1 { margin: 16px 0 5px; font-size: 24px; }
+.notApplicable p { margin: 0 0 18px; color: var(--pc-muted-fg); }
+
+.workspaceBanner {
+  min-height: 48px;
+  padding: 9px 14px;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 32%, var(--pc-border));
+  border-radius: 11px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pc-primary) 11%, white),
+    color-mix(in srgb, var(--pc-secondary-cyan) 5%, white)
+  );
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workspaceBanner > span {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: white;
+  background: var(--pc-primary);
+  flex: 0 0 auto;
+}
+
+.workspaceBanner p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.workspaceBanner i {
+  color: var(--pc-muted-fg);
+  font-style: normal;
+  padding: 0 3px;
+}
+
+.workspaceBanner a {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.hero {
+  padding: 22px 2px 20px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.eyebrow {
+  margin: 0 0 4px !important;
+  color: var(--pc-primary) !important;
+  font-size: 11px !important;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+}
+
+.hero h1 {
+  margin: 0;
+  max-width: 850px;
+  font-size: clamp(25px, 2.2vw, 34px);
+  line-height: 1.18;
+  letter-spacing: -0.035em;
+}
+
+.hero p {
+  margin: 7px 0 0;
+  color: var(--pc-muted-fg);
+  font-size: 14px;
+}
+
+.secondaryButton,
+.primarySmall {
+  border: 1px solid var(--pc-border);
+  border-radius: 8px;
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.secondaryButton {
+  padding: 9px 14px;
+}
+
+.secondaryButton:hover {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
+  color: var(--pc-primary-hover);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.78fr) minmax(310px, 0.92fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.checklistCard,
+.nextCard,
+.optionalCard {
+  border: 1px solid var(--pc-border);
+  border-radius: 12px;
+  background: var(--pc-card-bg);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+  overflow: hidden;
+}
+
+.progressHeader {
+  padding: 18px 22px 9px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.progressHeader > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+}
+
+.progressHeader h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.progressHeader span,
+.progressHeader > strong {
+  color: var(--pc-muted-fg);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.progressHeader > strong {
+  color: var(--pc-primary-hover);
+}
+
+.progressTrack {
+  height: 7px;
+  margin: 0 22px 11px;
+  border-radius: 99px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
+}
+
+.progressTrack i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--pc-gradient-main);
+  transition: width 0.25s ease;
+}
+
+.tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0 14px;
+}
+
+.tasks li {
+  min-height: 77px;
+  padding: 11px 8px;
+  border-top: 1px solid var(--pc-border);
+  display: grid;
+  grid-template-columns: 34px 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+
+.tasks li::before {
+  content: "";
+  position: absolute;
+  left: 24px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--pc-border) 80%, transparent);
+}
+
+.tasks li:first-child::before {
+  top: 50%;
+}
+.tasks li:last-child::before {
+  bottom: 50%;
+}
+
+.tasks .taskNext {
+  margin: 0 -14px;
+  padding-inline: 22px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pc-primary) 8%, white),
+    transparent 80%
+  );
+}
+
+.taskNumber {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--pc-muted-fg) 25%, transparent);
+  border-radius: 50%;
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  z-index: 1;
+}
+
+.taskComplete .taskNumber,
+.taskNext .taskNumber {
+  border-color: var(--pc-primary);
+  color: white;
+  background: var(--pc-primary);
+}
+
+.taskIcon,
+.optionalIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 10%, white);
+}
+
+.taskCopy strong {
+  display: block;
+  font-size: 14px;
+}
+
+.taskCopy p {
+  margin: 2px 0 0;
+  color: var(--pc-muted-fg);
+  font-size: 12.5px;
+}
+
+.taskActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.primarySmall {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 11px;
+}
+
+.taskNext .primarySmall {
+  border-color: transparent;
+  color: white;
+  background: var(--pc-gradient-main);
+}
+
+.primarySmall:disabled {
+  opacity: 0.58;
+  cursor: wait;
+}
+
+.textLink {
+  padding: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.completeBadge,
+.pendingBadge {
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.completeBadge {
+  color: var(--pc-alert-success-text);
+  background: var(--pc-alert-success-bg);
+  border: 1px solid var(--pc-alert-success-border);
+}
+
+.pendingBadge {
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+}
+
+.blockedFooter,
+.readyFooter {
+  padding: 15px 22px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border-top: 1px solid var(--pc-border);
+}
+
+.blockedFooter {
+  color: var(--pc-warning);
+  background: color-mix(in srgb, var(--pc-alert-warning-bg) 55%, white);
+}
+
+.readyFooter {
+  color: var(--pc-success);
+  background: color-mix(in srgb, var(--pc-alert-success-bg) 70%, white);
+}
+
+.blockedFooter div,
+.readyFooter div {
+  display: grid;
+}
+.blockedFooter strong,
+.readyFooter strong {
+  font-size: 13px;
+}
+.blockedFooter span,
+.readyFooter span {
+  color: var(--pc-muted-fg);
+  font-size: 12px;
+}
+
+.sideColumn {
+  display: grid;
+  gap: 14px;
+}
+
+.cardHeading {
+  padding: 16px 18px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cardHeading p {
+  margin: 0;
+  color: var(--pc-muted-fg);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+}
+
+.cardHeading span {
+  padding: 3px 8px;
+  border-radius: 99px;
+  color: var(--pc-muted-fg);
+  background: var(--pc-muted-bg);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.nextVisual {
+  padding: 20px 24px 18px;
+  text-align: center;
+}
+
+.nextVisual > span {
+  width: 70px;
+  height: 70px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 12%, white);
+}
+
+.nextVisual h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.nextVisual p {
+  min-height: 40px;
+  margin: 6px auto 14px;
+  max-width: 290px;
+  color: var(--pc-muted-fg);
+  font-size: 12.5px;
+}
+
+.nextCard > small {
+  display: block;
+  padding: 10px 18px;
+  border-top: 1px solid var(--pc-border);
+  color: var(--pc-muted-fg);
+  text-align: center;
+  font-size: 11px;
+}
+
+.optionalCard {
+  padding-bottom: 5px;
+}
+
+.optionalCard > a {
+  min-height: 66px;
+  margin: 5px 14px 0;
+  padding: 9px 3px;
+  border-bottom: 1px solid var(--pc-border);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.optionalCard > a:last-child {
+  border-bottom: 0;
+}
+.optionalCard > a p {
+  margin: 0;
+  display: grid;
+}
+.optionalCard > a strong {
+  font-size: 13px;
+}
+.optionalCard > a small {
+  color: var(--pc-muted-fg);
+  font-size: 11.5px;
+}
+.optionalCard > a em {
+  color: var(--pc-primary);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 650;
+}
+
+@media (max-width: 1050px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .sideColumn {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .hero .secondaryButton {
+    display: none;
+  }
+  .layout,
+  .sideColumn {
+    grid-template-columns: 1fr;
+  }
+  .workspaceBanner a {
+    font-size: 0;
+  }
+  .tasks li {
+    grid-template-columns: 30px 38px minmax(0, 1fr);
+  }
+  .taskActions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+  .progressHeader > div {
+    display: block;
+  }
+  .progressHeader span {
+    display: block;
+    margin-top: 3px;
+  }
+}

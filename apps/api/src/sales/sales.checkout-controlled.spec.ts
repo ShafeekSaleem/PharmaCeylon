@@ -63,6 +63,7 @@ describe("SalesService controlled checkout authority", () => {
       audit,
       tax,
       pharmacistApproval as unknown as PharmacistApprovalService,
+      { assertCanSell: jest.fn().mockResolvedValue(undefined) } as never,
     );
   });
 

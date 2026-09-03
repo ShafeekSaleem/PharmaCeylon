@@ -24,7 +24,10 @@ export type VerifiedOwnerSession = {
   firstName: string;
   lastName: string;
   phone: string | null;
-  nextPath: "/onboarding/pharmacy";
+  status: "verified" | "completed";
+  completedTenantId: string | null;
+  completedUserId: string | null;
+  nextPath: "/onboarding/pharmacy" | "/get-started";
 };
 
 @Injectable()
@@ -226,7 +229,8 @@ export class OwnerRegistrationService {
     if (
       !registration ||
       registration.email !== payload.email ||
-      registration.status !== OwnerRegistrationStatus.verified ||
+      (registration.status !== OwnerRegistrationStatus.verified &&
+        registration.status !== OwnerRegistrationStatus.completed) ||
       registration.onboardingSessionVersion !== payload.version
     ) {
       throw new UnauthorizedException("Onboarding session is no longer valid");
@@ -240,14 +244,21 @@ export class OwnerRegistrationService {
     firstName: string;
     lastName: string;
     phone: string | null;
+    status: OwnerRegistrationStatus;
+    completedTenantId?: string | null;
+    completedUserId?: string | null;
   }): VerifiedOwnerSession {
+    const completed = registration.status === OwnerRegistrationStatus.completed;
     return {
       registrationId: registration.id,
       email: registration.email,
       firstName: registration.firstName,
       lastName: registration.lastName,
       phone: registration.phone,
-      nextPath: "/onboarding/pharmacy",
+      status: completed ? "completed" : "verified",
+      completedTenantId: registration.completedTenantId ?? null,
+      completedUserId: registration.completedUserId ?? null,
+      nextPath: completed ? "/get-started" : "/onboarding/pharmacy",
     };
   }
 }

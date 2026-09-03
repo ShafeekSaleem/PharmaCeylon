@@ -16,6 +16,7 @@ import { CheckoutDto } from "./dto/checkout.dto";
 import { RefundSaleDto } from "./dto/refund-sale.dto";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { softRxMatchWarnings } from "./rx-match.util";
+import { SetupReadinessService } from "../setup/setup-readiness.service";
 import {
   getSaleReturnableByLine,
   refundUnitPrice,
@@ -103,6 +104,7 @@ export class SalesService {
     private readonly audit: AuditService,
     private readonly tax: TaxService,
     private readonly pharmacistApproval: PharmacistApprovalService,
+    private readonly setupReadiness: SetupReadinessService,
   ) {}
 
   private branchEffectiveRoles(branchRoles: BranchRoleEntry[], branchId: string): RoleName[] {
@@ -219,6 +221,7 @@ export class SalesService {
     dto: CheckoutDto,
     idempotencyKeyRaw: string | undefined,
   ) {
+    await this.setupReadiness.assertCanSell(tenantId, branchId);
     const idempotencyKey = normalizeIdempotencyKey(idempotencyKeyRaw);
     if (idempotencyKey) {
       const existing = await this.prisma.idempotencyRecord.findUnique({

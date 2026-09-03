@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
+import { CatalogModule } from "../catalog/catalog.module";
 import { UploadsModule } from "../uploads/uploads.module";
 import { AuthController } from "./auth.controller";
 import { OwnerRegistrationController } from "./owner-registration.controller";
@@ -11,6 +12,7 @@ import { OwnerRegistrationService } from "./owner-registration.service";
 import { SessionStore } from "./session.store";
 import { VerificationEmailService } from "./verification-email.service";
 import { UserContextService } from "./user-context.service";
+import { WorkspaceProvisioningService } from "./workspace-provisioning.service";
 
 @Module({
   imports: [
@@ -18,6 +20,7 @@ import { UserContextService } from "./user-context.service";
       global: true,
     }),
     UploadsModule,
+    CatalogModule,
   ],
   controllers: [AuthController, OwnerRegistrationController, OnboardingDraftController],
   providers: [
@@ -28,6 +31,7 @@ import { UserContextService } from "./user-context.service";
     SessionStore,
     UserContextService,
     VerificationEmailService,
+    WorkspaceProvisioningService,
   ],
   exports: [AuthService, OwnerRegistrationService, SessionStore, UserContextService, JwtModule],
 })

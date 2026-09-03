@@ -37,6 +37,7 @@ import {
   optionLabel,
 } from "@/lib/onboarding-options";
 import {
+  completeOnboarding,
   fetchOnboardingDraft,
   OnboardingDraft,
   removeOnboardingLogo,
@@ -96,6 +97,7 @@ export function OnboardingWizard({ step }: { step: Step }) {
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const persisted = useRef("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -184,10 +186,14 @@ export function OnboardingWizard({ step }: { step: Step }) {
     try {
       if (step === "review") {
         await saveAndNavigate(undefined, 4);
+        setCreating(true);
+        const result = await completeOnboarding();
+        router.replace(result.nextPath);
         return;
       }
       await saveAndNavigate(steps[index + 1].path, index + 2);
     } catch (cause) {
+      setCreating(false);
       setSaveState("error");
       setError(
         cause instanceof Error ? cause.message : "Unable to save your setup",
@@ -339,13 +345,17 @@ export function OnboardingWizard({ step }: { step: Step }) {
                 className={styles.primary}
                 type="button"
                 onClick={() => void continueSetup()}
-                disabled={saveState === "saving"}
+                disabled={saveState === "saving" || creating}
               >
-                {step === "review" ? "Confirm and save" : "Continue"}
+                {step === "review"
+                  ? creating
+                    ? "Creating your workspace…"
+                    : "Create pharmacy workspace"
+                  : "Continue"}
                 {step !== "review" ? (
                   <IconChevronRight size={17} />
                 ) : (
-                  <IconSave size={16} />
+                  <IconHome size={16} />
                 )}
               </button>
             </div>
