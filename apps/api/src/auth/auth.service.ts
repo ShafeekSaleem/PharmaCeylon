@@ -143,6 +143,31 @@ export class AuthService {
     });
   }
 
+
+  /** Starts the owner's first authenticated session after workspace provisioning. */
+  async issueProvisionedSession(
+    userId: string,
+    meta: RequestMeta = {},
+  ): Promise<LoginResult> {
+    const user = await this.prisma.appUser.findUnique({
+      where: { id: userId },
+      include: {
+        tenant: { select: { code: true, isActive: true } },
+        userBranchRoles: { select: { branchId: true, role: true } },
+      },
+    });
+    if (!user || !user.isActive || !user.tenant?.isActive) {
+      throw new UnauthorizedException("Unable to start workspace session");
+    }
+    return this.issueAndPersist({
+      user,
+      tenantCode: user.tenant.code,
+      branchRoles: user.userBranchRoles,
+      previousSession: null,
+      meta,
+    });
+  }
+
   /**
    * Stateless step 1: verify JWT signature/type + sessionId/familyId match.
    * Stateful step 2: look up the session row.

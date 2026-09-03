@@ -108,7 +108,13 @@ describe("SalesService.refundSale", () => {
       verifyApproverPin: jest.fn(),
       hasApproverRole: jest.fn().mockReturnValue(false),
     };
-    service = new SalesService(prisma as never, audit, tax, pharmacistApproval as never);
+    service = new SalesService(
+      prisma as never,
+      audit,
+      tax,
+      pharmacistApproval as never,
+      { assertCanSell: jest.fn().mockResolvedValue(undefined) } as never,
+    );
   });
 
   const cashierRoles = [{ branchId, role: RoleName.cashier }];

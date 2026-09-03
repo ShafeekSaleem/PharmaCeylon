@@ -318,6 +318,13 @@ model Branch {
   pharmacistSlmcNo       String?   @map("pharmacist_slmc_no")
   openingHours           String?   @map("opening_hours")
   isActive     Boolean  @default(true) @map("is_active")
+  /// First-run readiness is enabled only for branches created by the guided
+  /// owner onboarding flow. Existing branches keep normal POS behaviour.
+  setupRequired           Boolean   @default(false) @map("setup_required")
+  setupMode               String    @default("fresh") @map("setup_mode")
+  salesSettingsReviewedAt DateTime? @map("sales_settings_reviewed_at")
+  checkoutPreparedAt      DateTime? @map("checkout_prepared_at")
+  setupCompletedAt        DateTime? @map("setup_completed_at")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

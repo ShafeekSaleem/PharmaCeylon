@@ -1,7 +1,12 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SaveOnboardingDraftDto } from "./dto/save-onboarding-draft.dto";
+import type { VerifiedOwnerSession } from "./owner-registration.service";
 
 export type OnboardingDraft = Omit<SaveOnboardingDraftDto, "currentStep"> & {
   currentStep: number;
@@ -10,6 +15,12 @@ export type OnboardingDraft = Omit<SaveOnboardingDraftDto, "currentStep"> & {
 @Injectable()
 export class OnboardingDraftService {
   constructor(private readonly prisma: PrismaService) {}
+
+  assertOpen(owner: VerifiedOwnerSession): void {
+    if (owner.status === "completed") {
+      throw new ConflictException("This workspace has already been created");
+    }
+  }
 
   async get(registrationId: string) {
     const registration = await this.prisma.ownerRegistration.findUnique({

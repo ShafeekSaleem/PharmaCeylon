@@ -34,6 +34,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconClipboard,
+  IconTarget,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
 import {
@@ -73,6 +74,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Main",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: <IconGrid size={18} /> },
+      { href: "/get-started", label: "Get started", icon: <IconTarget size={18} />, roles: ["owner"] },
       { href: "/pos", label: "POS / Checkout", icon: <IconShoppingCart size={18} />, roles: POS_ROLES, permission: "sales.pos_use" },
     ],
   },
@@ -122,7 +124,6 @@ PAGE_TITLES["/inventory/batches"] = "Batch stock";
 PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
 PAGE_TITLES["/inventory/movements"] = "Stock movements";
 PAGE_TITLES["/notifications"] = "Notifications";
-PAGE_TITLES["/insights"] = "AI Insights";
 PAGE_TITLES["/settings/my-profile"] = "My Profile";
 PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
 PAGE_TITLES["/settings/branches"] = "Branches";
@@ -298,6 +299,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/users") ||
     pathname.startsWith("/audit") ||
+    pathname.startsWith("/get-started") ||
     pathname.startsWith("/notifications");
 
   const navGroups = NAV_GROUPS;

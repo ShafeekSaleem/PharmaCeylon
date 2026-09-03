@@ -17,7 +17,10 @@ export type VerifiedOwnerSession = {
   firstName: string;
   lastName: string;
   phone: string | null;
-  nextPath: "/onboarding/pharmacy";
+  status: "verified" | "completed";
+  completedTenantId: string | null;
+  completedUserId: string | null;
+  nextPath: "/onboarding/pharmacy" | "/get-started";
 };
 
 async function jsonRequest<T>(path: string, init: RequestInit): Promise<T> {

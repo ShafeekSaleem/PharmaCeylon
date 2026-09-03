@@ -80,6 +80,7 @@ export function rolesForPath(pathname: string): RoleName[] | undefined {
   const path = pathname.split("?")[0] ?? pathname;
 
   const rules: { prefix: string; roles: RoleName[] | undefined }[] = [
+    { prefix: "/get-started", roles: ["owner"] },
     { prefix: "/inventory/adjustments", roles: INVENTORY_WRITE_ROLES },
     { prefix: "/inventory", roles: OPERATIONS_ROLES },
     { prefix: "/purchasing", roles: PURCHASING_ROLES },
@@ -114,3 +115,4 @@ export function rolesForHref(href: string): RoleName[] | undefined {
   const path = href.split("?")[0] ?? href;
   return rolesForPath(path);
 }
+
