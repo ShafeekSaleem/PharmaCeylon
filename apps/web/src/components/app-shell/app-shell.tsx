@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { usePermissions } from "@/lib/permissions";
+import { fetchSetupReadiness } from "@/lib/setup-readiness-client";
 import {
   BRANCHES_CHANGED_EVENT,
   fetchTenantBranches,
@@ -210,6 +211,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [branchOpen, setBranchOpen] = useState(false);
   const [branches, setBranches] = useState<TenantBranch[]>([]);
   const [tenantName, setTenantName] = useState<string | null>(null);
+  const [showSetupJourney, setShowSetupJourney] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
   const branchRef = useRef<HTMLDivElement>(null);
 
@@ -247,6 +249,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [ready, isAuthenticated]);
+
+  useEffect(() => {
+    const isOwner = user?.branchRoles.some((entry) => entry.role === "owner") ?? false;
+    if (!ready || !isAuthenticated || !branchId || !isOwner) {
+      setShowSetupJourney(false);
+      return;
+    }
+    let cancelled = false;
+    fetchSetupReadiness()
+      .then((result) => {
+        if (!cancelled) setShowSetupJourney(result.journeyEnabled);
+      })
+      .catch(() => {
+        if (!cancelled) setShowSetupJourney(false);
+      });
+    return () => { cancelled = true; };
+  }, [ready, isAuthenticated, branchId, user]);
 
   useEffect(() => {
     const refresh = () => { loadBranches(); };
@@ -302,7 +321,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/get-started") ||
     pathname.startsWith("/notifications");
 
-  const navGroups = NAV_GROUPS;
+  const navGroups = useMemo(
+    () =>
+      NAV_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (item) => item.href !== "/get-started" || showSetupJourney,
+        ),
+      })),
+    [showSetupJourney],
+  );
 
   if (!ready || !isAuthenticated) {
     return (

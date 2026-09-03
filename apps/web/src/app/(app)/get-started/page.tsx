@@ -90,6 +90,16 @@ export default function GetStartedPage() {
   if (!data && !error)
     return <div className={css.loading}>Loading your setup journey…</div>;
   if (!data) return <Alert variant="error">{error}</Alert>;
+  if (!data.journeyEnabled) {
+    return (
+      <div className={css.notApplicable}>
+        <span><IconCheckCircle size={28} /></span>
+        <h1>This workspace is already established</h1>
+        <p>The guided first-branch setup is only used for newly created pharmacy workspaces.</p>
+        <Link href="/dashboard" className={css.secondaryButton}>Go to dashboard</Link>
+      </div>
+    );
+  }
 
   return (
     <div className={css.page}>
