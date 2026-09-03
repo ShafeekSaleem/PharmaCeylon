@@ -31,6 +31,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 | Goods receipt    | `receive_goods`    | `POST /api/v1/purchasing/purchase-orders/receive` |
 | Transfer ship    | `transfer_ship`    | `POST /api/v1/transfers/:id/ship`                 |
 | Transfer receive | `transfer_receive` | `POST /api/v1/transfers/:id/receive`              |
+| Product import   | `product_import`   | `POST /api/v1/products/import/confirm`            |
 
 **Semantics**
 

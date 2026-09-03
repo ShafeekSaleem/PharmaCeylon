@@ -68,13 +68,31 @@ Full page/role matrix and the reasoning behind the built-in defaults: `docs/ROLE
 
 The browser always calls the **same origin as Next** (`NEXT_PUBLIC_API_BASE_URL`, default `http://localhost:3000/api/v1`) so auth cookies work without cross-origin cookie handling. Next rewrites `/api/v1/*` and `/uploads/*` to `API_PROXY_TARGET` (default `http://127.0.0.1:3001`, i.e. the Nest process) — see `apps/web/next.config.ts`. Nest itself always listens on :3001. After login the web app sends `x-branch-id` on requests once a branch is selected; that header is what `TenantBranchGuard`/`RolesGuard` scope against.
 
+### Range status: what the pharmacy actually sells
+
+`Product.isActive` used to answer three unrelated questions at once, so the NMRA importer's
+"this registration is valid" overwrote the pharmacy's own "we stopped selling this", and a
+15,000-row registry import landed in the product list. Three fields now, each with one owner:
+
+- **`rangeStatus`** (`REFERENCE` | `RANGED`) — does this pharmacy sell it? Imports write
+  `REFERENCE`; the shop promotes to `RANGED` explicitly, or automatically the first time stock
+  arrives (`products/product-range.util.ts` — call `ensureProductsRanged` from any new path
+  that creates stock).
+- **`isActive`** — is this record enabled? **Pharmacist-owned; importers must never write it.**
+  A `RANGED` product that is inactive is a discontinued line.
+- **`nmraRegistrationValid`** — is the NMRA registration current? Import-owned, `source = NMRA`
+  only.
+
+Read-side default: the Products page, transaction pickers and the global search bar show
+`RANGED` only; Search Catalog shows reference records too but ranks them below the shop's own.
+
 ### Idempotency (money/stock mutations)
 
 Money- and stock-mutating endpoints (POS checkout, goods receipt, transfer ship/receive) accept an optional `Idempotency-Key` header, scoped per `tenantId + userId + operation`. First request performs the mutation and records key → resource id; retries with the same key replay the same result; reusing a key for a *different* logical operation is a 400. See `apps/api/src/common/idempotency.util.ts` and `docs/API_CONTRACT.md` for the exact scope table. Any new endpoint that mutates money or stock should follow this pattern, not invent a new one.
 
 ### Domain modules (`apps/api/src/*`)
 
-Business logic is organized as one Nest module per domain: `sales` (POS/checkout/held-sales/pharmacist-approval/refunds), `products`, `catalog`, `inventory`, `pricing` (VAT), `purchasing`, `returns`, `transfers`, `stocktakes`, `suppliers`, `customers` (+ prescriptions), `nmra` (Sri Lanka National Medicines Regulatory Authority catalog import/normalize), plus platform modules `auth`, `security` (guards/decorators), `tenant`, `admin`, `audit`, `analytics`, `reports`, `uploads`. Controlled products (`Product.isControlled`) require pharmacist/manager/owner at checkout — see `sales/pharmacist-approval.service.ts` and `sales.checkout-controlled.spec.ts`.
+Business logic is organized as one Nest module per domain: `sales` (POS/checkout/held-sales/pharmacist-approval/refunds), `products`, `product-import` (a pharmacy's own product list + opening stock, uploaded and column-mapped), `catalog`, `inventory`, `pricing` (VAT), `purchasing`, `returns`, `transfers`, `stocktakes`, `suppliers`, `customers` (+ prescriptions), `nmra` (Sri Lanka National Medicines Regulatory Authority catalog import/normalize), plus platform modules `auth`, `security` (guards/decorators), `tenant`, `admin`, `audit`, `analytics`, `reports`, `uploads`. Controlled products (`Product.isControlled`) require pharmacist/manager/owner at checkout — see `sales/pharmacist-approval.service.ts` and `sales.checkout-controlled.spec.ts`.
 
 Pricing/VAT is Sri Lanka–oriented but configurable via `PRICING_VAT_RATE_PERCENT`; a checkout line either sends its own `taxAmount` or the server computes VAT exclusive on `(unitPrice × qty − discountAmount)`.
 
