@@ -98,7 +98,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else if (process.argv[2] === "verify") verifyImages(directory, revision);
     else if (process.argv[2] === "publish") {
       assert.equal(process.env.GITHUB_EVENT_NAME, "push");
-      assert.equal(process.env.GITHUB_REF, "refs/heads/develop");
+      assert.equal(process.env.GITHUB_REF, "refs/heads/main");
       assert.equal(process.env.GITHUB_REPOSITORY, "ShafeekSaleem/PharmaCeylon");
       publishImages(directory, { revision, registry: "ghcr.io/shafeeksaleem", run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT });
     } else throw new Error("Expected export, verify, or publish");
