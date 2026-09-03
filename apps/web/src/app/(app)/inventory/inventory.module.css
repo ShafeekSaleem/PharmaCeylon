@@ -1513,3 +1513,21 @@
 .expiryBadgeUnset svg {
   color: var(--pc-muted-fg);
 }
+
+/* Stock picker escape hatch — reach a reference-catalog product that isn't ranged yet. */
+.referenceToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.referenceToggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--pc-primary);
+  cursor: pointer;
+}

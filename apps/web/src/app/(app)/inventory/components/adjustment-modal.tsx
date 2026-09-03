@@ -92,6 +92,12 @@ function AdjustmentModalContent({
   const [error, setError] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
   const [debouncedProductSearch, setDebouncedProductSearch] = useState("");
+  /**
+   * The picker shows the pharmacy's own range by default so an imported registry doesn't
+   * drown it. This is the escape hatch for stocking a reference product for the first time —
+   * posting stock against one promotes it into the range automatically.
+   */
+  const [includeReference, setIncludeReference] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedProductSearch(productSearch), 250);
@@ -102,6 +108,7 @@ function AdjustmentModalContent({
     q: debouncedProductSearch,
     page: 1,
     pageSize: 50,
+    includeReference,
   });
   const selectedStock = useInventoryStock({
     productId: productId || null,
@@ -348,6 +355,19 @@ function AdjustmentModalContent({
                   }}
                   disabled={stock.loading && selectedStock.loading}
                 />
+                <label className={css.referenceToggle}>
+                  <input
+                    type="checkbox"
+                    checked={includeReference}
+                    onChange={(e) => setIncludeReference(e.target.checked)}
+                  />
+                  <span>
+                    Also search the reference catalog
+                    {debouncedProductSearch && !includeReference && stock.rows.length === 0
+                      ? " — nothing in your products matches this search"
+                      : ""}
+                  </span>
+                </label>
               </div>
 
               {isOpeningStock ? (

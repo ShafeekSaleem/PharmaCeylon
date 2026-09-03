@@ -23,6 +23,8 @@ export type InventoryStockQuery = {
   batchFilter?: "all" | "expiring" | "with_batches" | "no_batches";
   catalogFilters?: InventoryCatalogFilters;
   ledgerOnly?: boolean;
+  /** Include reference-catalog products the pharmacy has not ranged yet. */
+  includeReference?: boolean;
 };
 
 export function useInventoryStock(query: InventoryStockQuery = {}) {
@@ -37,6 +39,7 @@ export function useInventoryStock(query: InventoryStockQuery = {}) {
     batchFilter = "all",
     catalogFilters,
     ledgerOnly = false,
+  includeReference = false,
   } = query;
 
   const [rows, setRows] = useState<StockRow[]>([]);
@@ -73,6 +76,11 @@ export function useInventoryStock(query: InventoryStockQuery = {}) {
       if (tagKey) params.set("tagIds", tagKey);
       if (dosageKey) params.set("dosageForms", dosageKey);
       if (ledgerOnly) params.set("ledgerOnly", "1");
+      // Escape hatch: the stock picker shows the pharmacy's own range by default, so a
+      // 15,000-row registry import doesn't drown it. Callers opt into the full catalog to
+      // stock a reference product for the first time — receiving stock against one promotes
+      // it into the range automatically.
+      if (includeReference) params.set("rangeStatus", "all");
 
       const data = await apiJson<StockListResponse>(
         `/inventory/stock-by-product?${params}`,
@@ -100,6 +108,7 @@ export function useInventoryStock(query: InventoryStockQuery = {}) {
     tagKey,
     dosageKey,
     ledgerOnly,
+    includeReference,
   ]);
 
   useEffect(() => {
