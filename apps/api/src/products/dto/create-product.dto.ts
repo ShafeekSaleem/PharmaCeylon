@@ -26,6 +26,11 @@ export class CreateProductDto extends ProductRelationsDto {
    */
   @IsOptional()
   @IsIn(CATALOG_SOURCES)
+  /**
+   * @deprecated Provenance, not an attribute — the server sets it from the code path that
+   * created the record (MANUAL here, NMRA / CSV_IMPORT in the importers). Still accepted so an
+   * older client doesn't break, but the value is ignored.
+   */
   source?: CatalogSource;
 
   @IsOptional()

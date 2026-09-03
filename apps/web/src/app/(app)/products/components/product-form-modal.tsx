@@ -8,9 +8,16 @@ import {
   ModalButton,
   ModalFooter,
 } from "@/components/ui";
-import { CATALOG_SOURCE_OPTIONS } from "../constants";
+import { useMemo } from "react";
+import { IconPill, IconShoppingBag } from "@/components/icons";
 import css from "../products.module.css";
 import type { Product, ProductCategory, ProductForm, ProductTag } from "../types";
+import {
+  deriveProductKind,
+  medicinesDepartment,
+  retailDepartments,
+  type ProductKind,
+} from "../utils/product-kind";
 import { FieldHint } from "./field-hint";
 import { ProductAliasesEditor } from "./product-aliases-editor";
 import { RelationMultiSelect } from "./relation-multi-select";
@@ -52,6 +59,46 @@ export function ProductFormModal({
   onManageMeta,
   onAliasesChanged,
 }: ProductFormModalProps) {
+  const kind: ProductKind = useMemo(
+    () => deriveProductKind(form, categories),
+    [form, categories],
+  );
+  const isMedicine = kind === "medicine";
+  const departments = useMemo(() => retailDepartments(categories), [categories]);
+  const medicinesDept = useMemo(() => medicinesDepartment(categories), [categories]);
+
+  /**
+   * Switching kind re-files the product, because the primary category *is* the answer to
+   * "medicine or not". The compliance flags are cleared on the way to retail: leaving
+   * `isControlled` set on a hidden field would keep blocking the sale of a shampoo with
+   * nothing on screen to explain why.
+   */
+  function setKind(next: ProductKind) {
+    if (next === kind) return;
+    const rest = form.categoryIds.slice(1);
+    if (next === "medicine") {
+      onFieldChange(
+        "categoryIds",
+        medicinesDept ? [medicinesDept.id, ...rest.filter((id) => id !== medicinesDept.id)] : rest,
+      );
+      return;
+    }
+    onFieldChange("isControlled", false);
+    onFieldChange("requiresPrescription", false);
+    const firstDepartment = departments[0];
+    onFieldChange(
+      "categoryIds",
+      firstDepartment
+        ? [firstDepartment.id, ...rest.filter((id) => id !== firstDepartment.id)]
+        : rest,
+    );
+  }
+
+  function setDepartment(categoryId: string) {
+    const rest = form.categoryIds.slice(1).filter((id) => id !== categoryId);
+    onFieldChange("categoryIds", categoryId ? [categoryId, ...rest] : rest);
+  }
+
   return (
     <Modal
       open={open}
@@ -77,6 +124,37 @@ export function ProductFormModal({
         </Alert>
       )}
 
+      <div className={css.kindSwitch} role="group" aria-label="What are you adding?">
+        <span className={css.kindSwitchLabel}>What are you adding?</span>
+        <div className={css.kindOptions}>
+          <button
+            type="button"
+            className={`${css.kindOption}${isMedicine ? ` ${css.kindOptionActive}` : ""}`}
+            aria-pressed={isMedicine}
+            disabled={saving}
+            onClick={() => setKind("medicine")}
+          >
+            <IconPill size={16} />
+            Medicine
+          </button>
+          <button
+            type="button"
+            className={`${css.kindOption}${!isMedicine ? ` ${css.kindOptionActive}` : ""}`}
+            aria-pressed={!isMedicine}
+            disabled={saving || departments.length === 0}
+            onClick={() => setKind("retail")}
+            data-tooltip={
+              departments.length === 0
+                ? "Turn on a non-medicine department in Settings → Catalog → Categories first"
+                : undefined
+            }
+          >
+            <IconShoppingBag size={16} />
+            Retail item
+          </button>
+        </div>
+      </div>
+
       <h3 className={css.sectionTitle}>Basic Info</h3>
       <div className={css.basicGrid}>
         <div className={css.imageCol}>
@@ -88,19 +166,22 @@ export function ProductFormModal({
           />
         </div>
         <div className={css.fieldsCol}>
-          <FormField
-            label="Product type"
-            as="select"
-            value={form.source}
-            onChange={(e) => onFieldChange("source", e.target.value as ProductForm["source"])}
-            disabled={saving}
-          >
-            {CATALOG_SOURCE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </FormField>
+          {!isMedicine && (
+            <FormField
+              label="Department"
+              as="select"
+              value={form.categoryIds[0] ?? ""}
+              onChange={(e) => setDepartment(e.target.value)}
+              disabled={saving}
+            >
+              <option value="">Choose a department…</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </FormField>
+          )}
           <FormField
             label="SKU"
             required
@@ -126,76 +207,98 @@ export function ProductFormModal({
             disabled={saving}
             placeholder="Product name"
           />
-          <FormField
-            label="Generic name"
-            value={form.genericName}
-            onChange={(e) => onFieldChange("genericName", (e.target as HTMLInputElement).value)}
-            error={fieldErrors.genericName}
-            disabled={saving}
-            placeholder="e.g. Paracetamol"
-          />
+          {isMedicine ? (
+            <FormField
+              label="Generic name"
+              value={form.genericName}
+              onChange={(e) => onFieldChange("genericName", (e.target as HTMLInputElement).value)}
+              error={fieldErrors.genericName}
+              disabled={saving}
+              placeholder="e.g. Paracetamol"
+            />
+          ) : (
+            <FormField
+              label="Brand"
+              value={form.brandName}
+              onChange={(e) => onFieldChange("brandName", (e.target as HTMLInputElement).value)}
+              disabled={saving}
+              placeholder="e.g. Sunsilk"
+            />
+          )}
         </div>
       </div>
 
       <h3 className={css.sectionTitle}>Classification</h3>
       <div className={css.twoCol}>
-        <FormField
-          label="Brand"
-          value={form.brandName}
-          onChange={(e) => onFieldChange("brandName", (e.target as HTMLInputElement).value)}
-          disabled={saving}
-          placeholder="e.g. Panadol"
-        />
+        {isMedicine && (
+          <FormField
+            label="Brand"
+            value={form.brandName}
+            onChange={(e) => onFieldChange("brandName", (e.target as HTMLInputElement).value)}
+            disabled={saving}
+            placeholder="e.g. Panadol"
+          />
+        )}
         <FormField
           label="Manufacturer"
           value={form.manufacturer}
           onChange={(e) => onFieldChange("manufacturer", (e.target as HTMLInputElement).value)}
           disabled={saving}
-          placeholder="e.g. GlaxoSmithKline"
+          placeholder={isMedicine ? "e.g. GlaxoSmithKline" : "e.g. Unilever"}
         />
-        <FormField
-          label="Dosage form"
-          value={form.dosageForm}
-          onChange={(e) => onFieldChange("dosageForm", (e.target as HTMLInputElement).value)}
-          error={fieldErrors.dosageForm}
-          disabled={saving}
-          placeholder="e.g. Tablet, Capsule"
-        />
-        <FormField
-          label="Strength"
-          value={form.strength}
-          onChange={(e) => onFieldChange("strength", (e.target as HTMLInputElement).value)}
-          error={fieldErrors.strength}
-          disabled={saving}
-          placeholder="e.g. 500mg"
-        />
+        {/* Dosage form and strength are questions about a medicine. Adding a shampoo should
+            not ask them — that was the whole complaint about this form. */}
+        {isMedicine && (
+          <FormField
+            label="Dosage form"
+            value={form.dosageForm}
+            onChange={(e) => onFieldChange("dosageForm", (e.target as HTMLInputElement).value)}
+            error={fieldErrors.dosageForm}
+            disabled={saving}
+            placeholder="e.g. Tablet, Capsule"
+          />
+        )}
+        {isMedicine && (
+          <FormField
+            label="Strength"
+            value={form.strength}
+            onChange={(e) => onFieldChange("strength", (e.target as HTMLInputElement).value)}
+            error={fieldErrors.strength}
+            disabled={saving}
+            placeholder="e.g. 500mg"
+          />
+        )}
         <FormField
           label="Unit"
           value={form.unit}
           onChange={(e) => onFieldChange("unit", (e.target as HTMLInputElement).value)}
           error={fieldErrors.unit}
           disabled={saving}
-          placeholder="e.g. strip, bottle"
+          placeholder={isMedicine ? "e.g. strip, bottle" : "e.g. bottle, pack"}
         />
-      </div>
-
-      <h3 className={css.sectionTitle}>Specifications &amp; compliance</h3>
-      <div className={css.twoCol}>
         <FormField
           label="Pack size"
           value={form.packSize}
           onChange={(e) => onFieldChange("packSize", (e.target as HTMLInputElement).value)}
           error={fieldErrors.packSize}
           disabled={saving}
-          placeholder="e.g. 30 tablets"
+          placeholder={isMedicine ? "e.g. 30 tablets" : "e.g. 180 ml"}
         />
-        <FormField
-          label="Pack type"
-          value={form.packType}
-          onChange={(e) => onFieldChange("packType", (e.target as HTMLInputElement).value)}
-          disabled={saving}
-          placeholder="e.g. Alu-Alu blister"
-        />
+      </div>
+
+      <h3 className={css.sectionTitle}>
+        {isMedicine ? "Specifications & compliance" : "Specifications"}
+      </h3>
+      <div className={css.twoCol}>
+        {isMedicine && (
+          <FormField
+            label="Pack type"
+            value={form.packType}
+            onChange={(e) => onFieldChange("packType", (e.target as HTMLInputElement).value)}
+            disabled={saving}
+            placeholder="e.g. Alu-Alu blister"
+          />
+        )}
         <FormField
           label="Shelf life"
           value={form.shelfLife}
@@ -223,7 +326,9 @@ export function ProductFormModal({
         />
       </div>
 
-      {form.source === "NMRA" && (
+      {/* Gated on kind rather than on `source`: a pharmacist adding a medicine by hand should
+          still be able to record its registration, and `source` is no longer user-set. */}
+      {isMedicine && (
         <>
       <h3 className={css.sectionTitle}>NMRA registration</h3>
       <div className={css.twoCol}>
@@ -348,6 +453,7 @@ export function ProductFormModal({
           </div>
         </div>
 
+        {isMedicine && (
         <div className={css.formBox}>
           <div className={css.formBoxLabelRow}>
             <span className={css.formBoxLabel}>Requires prescription</span>
@@ -369,7 +475,9 @@ export function ProductFormModal({
             </span>
           </label>
         </div>
+        )}
 
+        {isMedicine && (
         <div className={css.formBox}>
           <div className={css.formBoxLabelRow}>
             <span className={css.formBoxLabel}>Controlled substance</span>
@@ -393,6 +501,7 @@ export function ProductFormModal({
             <span className={css.toggleText}>{form.isControlled ? "Yes" : "No"}</span>
           </label>
         </div>
+        )}
 
         {editingProduct && (
           <div className={css.formBox}>

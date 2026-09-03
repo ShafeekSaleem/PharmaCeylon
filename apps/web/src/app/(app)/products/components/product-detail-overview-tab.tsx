@@ -6,6 +6,7 @@ import type { Product } from "../types";
 import { formatDate, formatDateTime } from "../utils/format";
 import { FieldHint } from "./field-hint";
 import { ProductAliasesEditor } from "./product-aliases-editor";
+import { CATALOG_SOURCE_LABELS } from "../constants";
 
 function Field({
   label,
@@ -69,6 +70,13 @@ export function ProductDetailOverviewTab({
           <Field label="Barcode" value={product.barcode} />
           <Field label="Brand" value={product.brandName} />
           <Field label="Manufacturer" value={product.manufacturer} />
+          {/* Provenance, read-only: how this record reached the catalog. It used to be an
+              editable dropdown, which asked users to pick between things describing the
+              record's history and things describing the product. */}
+          <Field
+            label="Added via"
+            value={CATALOG_SOURCE_LABELS[product.source] ?? product.source}
+          />
         </div>
       </section>
 
@@ -103,7 +111,7 @@ export function ProductDetailOverviewTab({
         </div>
       </section>
 
-      {product.source === "NMRA" && (
+      {(product.registrationNo || product.schedule) && (
         <section className={detailCss.section}>
           <h2 className={detailCss.sectionTitle}>
             <span className={detailCss.sectionNumber}>3</span>

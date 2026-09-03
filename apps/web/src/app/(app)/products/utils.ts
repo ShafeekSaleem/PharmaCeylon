@@ -25,7 +25,6 @@ export function hasWriteAccess(
 
 export function formToBody(form: ProductForm, isEdit: boolean) {
   const body: Record<string, unknown> = {
-    source: form.source,
     name: form.name.trim(),
     barcode: form.barcode.trim() || null,
     genericName: form.genericName.trim() || null,
@@ -64,7 +63,6 @@ export function formToBody(form: ProductForm, isEdit: boolean) {
 export function productToForm(product: Product): ProductForm {
   return {
     sku: product.sku,
-    source: product.source,
     barcode: product.barcode ?? "",
     name: product.name,
     genericName: product.genericName ?? "",

@@ -3081,3 +3081,68 @@
   font-size: 0.78rem;
   color: var(--pc-muted-fg);
 }
+
+/* ── "What are you adding?" — medicine vs retail ────────────────────────────
+   Not a stored field: it reflects the primary commercial category and switches which half of
+   the form is relevant. Adding a shampoo shouldn't ask for a dosage form. */
+
+.kindSwitch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.9rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-muted-bg);
+}
+
+.kindSwitchLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.kindOptions {
+  display: inline-flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.kindOption {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.kindOption:hover:not(:disabled) {
+  color: var(--pc-foreground);
+}
+
+.kindOptionActive {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-weight: 650;
+}
+
+.kindOption:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kindOption:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 1px;
+}

@@ -5,17 +5,24 @@ export const COLUMN_STORAGE_KEY = "pc-products-visible-columns-v3";
 
 export const WRITE_ROLES = new Set(["owner", "manager", "inventory_clerk"]);
 
-export const CATALOG_SOURCE_OPTIONS: { value: CatalogSource; label: string }[] = [
-  { value: "MANUAL", label: "Retail / general item" },
-  { value: "NMRA", label: "NMRA-registered medicine" },
-  { value: "SUPPLIER", label: "Supplier-supplied" },
-  { value: "CSV_IMPORT", label: "CSV import" },
-  { value: "BARCODE", label: "Barcode lookup" },
-];
+/**
+ * How a product record came into the catalog — provenance, shown read-only.
+ *
+ * This used to be an editable "Product type" dropdown, which asked the user to choose between
+ * things that describe the record's history ("CSV import", "Barcode lookup") and things that
+ * describe the product ("Retail / general item"). What a product *is* now comes from its
+ * commercial category; this only says where the row came from.
+ */
+export const CATALOG_SOURCE_LABELS: Record<CatalogSource, string> = {
+  MANUAL: "Added by hand",
+  NMRA: "NMRA register import",
+  SUPPLIER: "Supplier catalog",
+  CSV_IMPORT: "Product list import",
+  BARCODE: "Barcode lookup",
+};
 
 export const INITIAL_FORM = {
   sku: "",
-  source: "MANUAL" as CatalogSource,
   barcode: "",
   name: "",
   genericName: "",

@@ -4,6 +4,10 @@ export type ProductCategory = {
   id: string;
   name: string;
   parentCategoryId: string | null;
+  /** Stable SaaS-level key for seeded categories, e.g. "MEDICINES". Null for tenant-created ones. */
+  canonicalKey?: string | null;
+  /** Departments a tenant hasn't opted into stay inactive rather than being deleted. */
+  isActive?: boolean;
   productCount?: number;
 };
 
@@ -210,7 +214,6 @@ export type SummaryFacets = {
 
 export type ProductForm = {
   sku: string;
-  source: CatalogSource;
   barcode: string;
   name: string;
   genericName: string;

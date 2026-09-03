@@ -482,7 +482,9 @@ export class ProductsService {
         data: {
           tenantId,
           sku: dto.sku.trim(),
-          source: dto.source ?? "MANUAL",
+          // Provenance is the server's to state: this endpoint is a person typing a product
+          // in. The importers set NMRA / CSV_IMPORT on their own paths.
+          source: "MANUAL",
           barcode: dto.barcode?.trim() || null,
           name: dto.name.trim(),
           brandName: dto.brandName?.trim() || null,
@@ -538,7 +540,9 @@ export class ProductsService {
     const mutation = await this.prisma.product.updateMany({
       where: { id, tenantId },
       data: {
-        ...(dto.source !== undefined ? { source: dto.source } : {}),
+        // `source` is deliberately absent: an edit can change what a product is, never how it
+        // arrived. It used to be a dropdown offering "CSV import" and "Barcode lookup" as
+        // things to pick, which described the record's history rather than the product.
         ...(dto.barcode !== undefined ? { barcode: dto.barcode?.trim() || null } : {}),
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.brandName !== undefined ? { brandName: dto.brandName?.trim() || null } : {}),

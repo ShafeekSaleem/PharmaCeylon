@@ -17,6 +17,10 @@ const CATALOG_SOURCES: CatalogSource[] = ["NMRA", "MANUAL", "SUPPLIER", "CSV_IMP
 export class UpdateProductDto extends ProductRelationsDto {
   @IsOptional()
   @IsIn(CATALOG_SOURCES)
+  /**
+   * @deprecated Provenance, not an attribute. Accepted and ignored — how a record came into
+   * the catalog is not something an edit can change.
+   */
   source?: CatalogSource;
 
   @IsOptional()
