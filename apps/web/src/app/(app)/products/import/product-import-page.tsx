@@ -23,6 +23,7 @@ import {
   PRODUCT_FIELDS,
   STOCK_FIELDS,
   type ImportField,
+  type ImportRowIssue,
   type ImportStep,
   type MatchConfidence,
 } from "./types";
@@ -92,6 +93,71 @@ function Stat({
   );
 }
 
+const ISSUES_PER_PAGE = 10;
+
+/**
+ * Rejected rows, paged. A 2,000-row file can reject hundreds, and rendering them all turned
+ * the review step into a page nobody could scroll past to reach the Import button.
+ */
+function IssueTable({ issues }: { issues: ImportRowIssue[] }) {
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(issues.length / ISSUES_PER_PAGE));
+  const safePage = Math.min(page, pageCount);
+  const start = (safePage - 1) * ISSUES_PER_PAGE;
+  const shown = issues.slice(start, start + ISSUES_PER_PAGE);
+
+  return (
+    <>
+      <div className={css.scrollX}>
+        <table className={css.issueTable}>
+          <thead>
+            <tr>
+              <th>Row</th>
+              <th>Product</th>
+              <th>Problem</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((issue) => (
+              <tr key={`${issue.rowNumber}-${issue.message}`}>
+                <td className={css.dim}>{issue.rowNumber}</td>
+                <td>{issue.name || <span className={css.dim}>—</span>}</td>
+                <td>{issue.message}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {pageCount > 1 && (
+        <div className={css.pager}>
+          <span className={css.dim}>
+            {start + 1}–{Math.min(start + ISSUES_PER_PAGE, issues.length)} of{" "}
+            {issues.length.toLocaleString()}
+          </span>
+          <div className={css.pagerBtns}>
+            <button
+              type="button"
+              className={css.pagerBtn}
+              disabled={safePage <= 1}
+              onClick={() => setPage(safePage - 1)}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className={css.pagerBtn}
+              disabled={safePage >= pageCount}
+              onClick={() => setPage(safePage + 1)}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function ProductImportPage() {
   const io = useProductImport();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -156,28 +222,46 @@ export function ProductImportPage() {
 
   return (
     <div className={css.page}>
-      <Link href="/products" className={css.backLink}>
-        ← Back to products
-      </Link>
-
       <PageHeader
         subtitleOnly
         description="Bring your product list across from another system — with opening stock on the same rows."
       />
 
-      <ol className={css.steps}>
-        {STEPS.map((s, i) => (
-          <li
-            key={s.id}
-            className={`${css.step}${i === current ? ` ${css.stepActive}` : ""}${
-              i < current ? ` ${css.stepDone}` : ""
-            }`}
-          >
-            <span className={css.stepNum}>{i < current ? <IconCheck size={13} /> : i + 1}</span>
-            {s.label}
-          </li>
-        ))}
-      </ol>
+      <div className={css.stepper} role="list" aria-label="Import progress">
+        {STEPS.map((s, i) => {
+          const done = i < current;
+          const active = i === current;
+          return (
+            <div
+              key={s.id}
+              className={css.stepItem}
+              role="listitem"
+              aria-current={active ? "step" : undefined}
+            >
+              <div className={css.stepDotRow}>
+                <span
+                  className={`${css.stepConnector}${i <= current ? ` ${css.stepConnectorDone}` : ""}`}
+                />
+                <span
+                  className={`${css.stepDot}${done ? ` ${css.stepDotDone}` : ""}${
+                    active ? ` ${css.stepDotActive}` : ""
+                  }`}
+                >
+                  {done ? <IconCheck size={13} /> : i + 1}
+                </span>
+                <span
+                  className={`${css.stepConnector}${i < current ? ` ${css.stepConnectorDone}` : ""}`}
+                />
+              </div>
+              <span
+                className={`${css.stepLabel}${!done && !active ? ` ${css.stepLabelPending}` : ""}`}
+              >
+                {s.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
 
       {io.error && (
         <Alert variant="error" onClose={io.dismissError}>
@@ -443,30 +527,7 @@ export function ProductImportPage() {
                 Rows that won&apos;t be imported
                 <span className={css.optional}>{io.preview.issues.length}</span>
               </h3>
-              <table className={css.issueTable}>
-                <thead>
-                  <tr>
-                    <th>Row</th>
-                    <th>Product</th>
-                    <th>Problem</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {io.preview.issues.slice(0, 25).map((issue) => (
-                    <tr key={`${issue.rowNumber}-${issue.message}`}>
-                      <td className={css.dim}>{issue.rowNumber}</td>
-                      <td>{issue.name || <span className={css.dim}>—</span>}</td>
-                      <td>{issue.message}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {io.preview.issues.length > 25 && (
-                <p className={css.dim}>
-                  …and {io.preview.issues.length - 25} more. You can download the full list
-                  after importing.
-                </p>
-              )}
+              <IssueTable issues={io.preview.issues} />
             </>
           )}
 

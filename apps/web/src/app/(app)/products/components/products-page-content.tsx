@@ -68,7 +68,7 @@ import { useProductBulkActions } from "../hooks/use-product-bulk-actions";
 import { buildProductFilterParams, useProductsList } from "../hooks/use-products-list";
 import { useProductsUrlState } from "../hooks/use-products-url-state";
 import { ConfirmDialog } from "./confirm-dialog";
-import { NmraImportModal } from "./nmra-import-modal";
+import { NmraImportModal, type ImportMode } from "./nmra-import-modal";
 import { ProductFormModal } from "./product-form-modal";
 import { ProductTable } from "./product-table";
 
@@ -118,7 +118,7 @@ export function ProductsPageContent() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingAll, setExportingAll] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [nmraImportOpen, setNmraImportOpen] = useState(false);
+  const [importModal, setImportModal] = useState<ImportMode | null>(null);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [rangeNoticeDismissed, setRangeNoticeDismissed] = useState(true);
@@ -149,7 +149,7 @@ export function ProductsPageContent() {
      when a fresh pharmacy has no reference catalog to search yet. */
   useEffect(() => {
     if (searchParams.get("import") !== "nmra") return;
-    setNmraImportOpen(true);
+    setImportModal("nmra");
     const params = new URLSearchParams(searchParams.toString());
     params.delete("import");
     const qs = params.toString();
@@ -709,7 +709,7 @@ export function ProductsPageContent() {
                       >
                         <span className={css.exportMenuItemLabel}>My product list</span>
                         <span className={css.exportMenuItemHint}>
-                          A spreadsheet from another system — products and opening stock
+                          A spreadsheet from your old system, with stock
                         </span>
                       </button>
                     )}
@@ -719,12 +719,26 @@ export function ProductsPageContent() {
                       className={css.exportMenuItem}
                       onClick={() => {
                         setImportMenuOpen(false);
-                        setNmraImportOpen(true);
+                        setImportModal("nmra");
                       }}
                     >
                       <span className={css.exportMenuItemLabel}>NMRA register</span>
                       <span className={css.exportMenuItemHint}>
-                        The official registration list, or a barcode CSV
+                        The official Sri Lankan medicines list
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={css.exportMenuItem}
+                      onClick={() => {
+                        setImportMenuOpen(false);
+                        setImportModal("barcodes");
+                      }}
+                    >
+                      <span className={css.exportMenuItemLabel}>Barcodes</span>
+                      <span className={css.exportMenuItemHint}>
+                        Add scannable barcodes to products you already have
                       </span>
                     </button>
                   </div>
@@ -852,19 +866,37 @@ export function ProductsPageContent() {
           </Alert>
         )}
 
+        {/* Same shell as the filter banner above: both say "a subset of this page is in
+            play, here is how to drop it". They used to look like two unrelated systems. */}
         {canWrite && selectedIds.size > 0 && (
-          <div className={css.bulkBar} role="region" aria-label="Bulk actions">
-            <span className={css.bulkCount}>
-              {selectedIds.size.toLocaleString()} selected
-            </span>
-            <div className={css.bulkActions}>
+          <div className={css.selectionBar} role="region" aria-label="Selected products">
+            <div className={css.selectionMain}>
+              <span className={css.selectionSummary}>
+                {selectedIds.size.toLocaleString()} product
+                {selectedIds.size === 1 ? "" : "s"} selected
+              </span>
+              {list.total > list.products.length && (
+                <button
+                  type="button"
+                  className={css.selectionLink}
+                  disabled={bulk.running !== null}
+                  onClick={() =>
+                    runBulkOnAllMatching(scope === "reference" ? "range" : "unrange")
+                  }
+                >
+                  {scope === "reference" ? "Add" : "Move"} all{" "}
+                  {list.total.toLocaleString()} matching instead
+                </button>
+              )}
+            </div>
+
+            <div className={css.selectionActions}>
               {scope === "reference" ? (
                 <button
                   type="button"
-                  className={css.bulkBtnPrimary}
+                  className={css.selectionBtnPrimary}
                   disabled={bulk.running !== null}
                   onClick={() => runBulk("range")}
-                  data-tooltip="Move these into the products you sell"
                 >
                   <IconPlus size={14} />
                   {bulk.running === "range" ? "Adding…" : "Add to my products"}
@@ -873,7 +905,7 @@ export function ProductsPageContent() {
                 <>
                   <button
                     type="button"
-                    className={css.bulkBtn}
+                    className={css.selectionBtn}
                     disabled={bulk.running !== null}
                     onClick={() => runBulk("activate")}
                   >
@@ -882,7 +914,7 @@ export function ProductsPageContent() {
                   </button>
                   <button
                     type="button"
-                    className={css.bulkBtn}
+                    className={css.selectionBtn}
                     disabled={bulk.running !== null}
                     onClick={() => runBulk("deactivate")}
                   >
@@ -891,7 +923,7 @@ export function ProductsPageContent() {
                   </button>
                   <button
                     type="button"
-                    className={css.bulkBtn}
+                    className={css.selectionBtn}
                     disabled={bulk.running !== null}
                     onClick={() => runBulk("unrange")}
                     data-tooltip="Keep the record, but stop listing it as something you sell"
@@ -901,30 +933,12 @@ export function ProductsPageContent() {
                   </button>
                 </>
               )}
-              {list.total > list.products.length && (
-                <button
-                  type="button"
-                  className={css.bulkBtnGhost}
-                  disabled={bulk.running !== null}
-                  onClick={() =>
-                    runBulkOnAllMatching(scope === "reference" ? "range" : "unrange")
-                  }
-                  data-tooltip={
-                    scope === "reference"
-                      ? "Add every product matching the current filters"
-                      : "Move every product matching the current filters to the reference catalog"
-                  }
-                >
-                  {scope === "reference" ? "Add" : "Move"} all{" "}
-                  {list.total.toLocaleString()} matching
-                </button>
-              )}
               <button
                 type="button"
-                className={css.bulkBtnGhost}
+                className={css.selectionClear}
                 onClick={() => setSelectedIds(new Set())}
               >
-                Clear
+                Clear selection
               </button>
             </div>
           </div>
@@ -960,8 +974,9 @@ export function ProductsPageContent() {
       </div>
 
       <NmraImportModal
-        open={nmraImportOpen}
-        onClose={() => setNmraImportOpen(false)}
+        open={importModal !== null}
+        mode={importModal ?? "nmra"}
+        onClose={() => setImportModal(null)}
         onImported={() => {
           list.reload();
           refreshMeta();

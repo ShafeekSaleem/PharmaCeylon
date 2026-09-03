@@ -12,6 +12,7 @@
 }
 
 .statsSection {
+  margin-top: -0.2rem;
   margin-bottom: 0;
 }
 
@@ -2853,10 +2854,14 @@
    The registry is a lookup library, not the shop's product list — these two tabs are what
    keep a 15,000-row NMRA import out of the page a pharmacist works in every day. */
 
+/* Sits between the page subtitle and the stat tiles, so its vertical footprint decides
+   whether this page's tiles line up with pages that have no tab row. Kept tight and pulled
+   up against the subtitle for that reason. */
 .scopeTabs {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  margin-top: -0.5rem;
   border-bottom: 1px solid var(--pc-border);
 }
 
@@ -2864,7 +2869,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.55rem 0.85rem;
+  padding: 0.42rem 0.85rem;
   margin-bottom: -1px;
   border: none;
   border-bottom: 2px solid transparent;
@@ -2972,37 +2977,69 @@
   outline-offset: 1px;
 }
 
-/* ── Bulk action bar (appears once rows are selected) ───────────────────── */
+/* ── Selection bar ─────────────────────────────────────────────────────────
+   Deliberately the same shell as ActiveFilterBanner — padding, radius, border, the
+   left-content / right-clear split. Both bars answer "a subset of this page is in play, and
+   here is how to drop it"; they used to look like two unrelated systems. The tint is a step
+   stronger because a selection is something you just did, not a state you arrived in. */
 
-.bulkBar {
+.selectionBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.6rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
+  gap: 0.75rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 30%, var(--pc-border));
   border-radius: var(--pc-radius-sm);
-  background: var(--pc-primary-soft);
+  background: color-mix(in srgb, var(--pc-primary) 12%, var(--pc-card-bg));
+  font-size: 0.8rem;
+  color: var(--pc-foreground);
 }
 
-.bulkCount {
-  font-size: 0.82rem;
+.selectionMain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  min-width: 0;
+}
+
+.selectionSummary {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--pc-primary) 85%, var(--pc-foreground));
 }
 
-.bulkActions {
+.selectionLink {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.selectionLink:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.selectionLink:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.selectionActions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
 }
 
-.bulkBtn,
-.bulkBtnPrimary,
-.bulkBtnGhost {
+.selectionBtn,
+.selectionBtnPrimary {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -3015,48 +3052,56 @@
   white-space: nowrap;
 }
 
-.bulkBtn {
+.selectionBtn {
   border: 1px solid var(--pc-border);
   background: var(--pc-card-bg);
   color: var(--pc-foreground);
 }
 
-.bulkBtn:hover:not(:disabled) {
+.selectionBtn:hover:not(:disabled) {
   background: var(--pc-muted-bg);
 }
 
-.bulkBtnPrimary {
+.selectionBtnPrimary {
   border: 1px solid var(--pc-primary);
   background: var(--pc-primary);
   color: var(--pc-btn-primary-text);
   font-weight: 600;
 }
 
-.bulkBtnPrimary:hover:not(:disabled) {
+.selectionBtnPrimary:hover:not(:disabled) {
   background: var(--pc-primary-hover);
   border-color: var(--pc-primary-hover);
 }
 
-.bulkBtnGhost {
-  border: 1px solid transparent;
+/* Matches ActiveFilterBanner's "Clear filter" exactly — same weight, same colour, same
+   text-link treatment, so "Clear selection" reads as its sibling. */
+.selectionClear {
+  border: none;
   background: transparent;
-  color: color-mix(in srgb, var(--pc-primary) 85%, var(--pc-foreground));
+  padding: 0 0 0 0.3rem;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.bulkBtnGhost:hover:not(:disabled) {
-  background: var(--pc-hover-overlay);
+.selectionClear:hover {
+  text-decoration: underline;
 }
 
-.bulkBtn:disabled,
-.bulkBtnPrimary:disabled,
-.bulkBtnGhost:disabled {
+.selectionBtn:disabled,
+.selectionBtnPrimary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-.bulkBtn:focus-visible,
-.bulkBtnPrimary:focus-visible,
-.bulkBtnGhost:focus-visible {
+.selectionBtn:focus-visible,
+.selectionBtnPrimary:focus-visible,
+.selectionClear:focus-visible,
+.selectionLink:focus-visible {
   outline: 2px solid var(--pc-primary);
   outline-offset: 1px;
 }
@@ -3145,4 +3190,106 @@
 .kindOption:focus-visible {
   outline: 2px solid var(--pc-primary);
   outline-offset: 1px;
+}
+
+/* ── Import modal: one line of guidance, and a readable completion panel ────
+   The NMRA summary used to be a run-on sentence of six figures separated by dots. */
+
+.nmraModeHint {
+  margin: 0 0 0.9rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--pc-muted-fg);
+}
+
+.nmraDone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.nmraDoneHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.nmraDoneHead > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.nmraDoneHead strong {
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+}
+
+.nmraDoneHead span {
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+.nmraDoneIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.nmraDoneGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 0.5rem;
+}
+
+.nmraDoneTile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-muted-bg);
+}
+
+.nmraDoneTileGood {
+  border-color: color-mix(in srgb, var(--pc-primary) 30%, var(--pc-border));
+  background: var(--pc-primary-soft);
+}
+
+.nmraDoneTileWarn {
+  border-color: var(--pc-alert-warning-border);
+  background: var(--pc-alert-warning-bg);
+}
+
+.nmraDoneValue {
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: var(--pc-foreground);
+}
+
+.nmraDoneTileGood .nmraDoneValue {
+  color: var(--pc-primary);
+}
+
+.nmraDoneLabel {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.nmraDoneFoot {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--pc-muted-fg);
 }

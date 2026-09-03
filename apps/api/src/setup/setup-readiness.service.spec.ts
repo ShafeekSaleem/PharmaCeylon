@@ -16,6 +16,7 @@ describe("SetupReadinessService", () => {
       setupMode: "migrating",
       setupCompletedAt: null,
       salesSettingsReviewedAt: null,
+      openingStockConfirmedAt: null,
       checkoutPreparedAt: null,
       tenant: {
         id: tenantId,
@@ -39,6 +40,19 @@ describe("SetupReadinessService", () => {
       userBranchRole: {
         findMany: jest.fn().mockResolvedValue([{ userId: "owner-1" }, { userId: "staff-1" }]),
       },
+      tenantSettings: {
+        findUnique: jest.fn().mockResolvedValue({
+          posDefaultPaymentMethod: "cash",
+          posAutoPrintReceipt: true,
+          receiptHeaderText: "Royal Pharmacy",
+          receiptPaperSize: "80mm",
+        }),
+      },
+      batch: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ id: "batch-1", needsExpiryReview: false }]),
+      },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     return {
@@ -51,6 +65,7 @@ describe("SetupReadinessService", () => {
   it("derives product and opening-stock completion from operational records", async () => {
     const { service } = setup({
       salesSettingsReviewedAt: new Date(),
+      openingStockConfirmedAt: new Date(),
       checkoutPreparedAt: new Date(),
     });
 
@@ -116,6 +131,7 @@ describe("SetupReadinessService — setupMode routes the journey", () => {
           setupMode,
           setupCompletedAt: null,
           salesSettingsReviewedAt: null,
+          openingStockConfirmedAt: null,
           checkoutPreparedAt: null,
           tenant: {
             id: tenantId,
@@ -132,6 +148,15 @@ describe("SetupReadinessService — setupMode routes the journey", () => {
       product: { count: jest.fn().mockResolvedValue(referenceCount) },
       stockLedger: { groupBy: jest.fn().mockResolvedValue([]) },
       userBranchRole: { findMany: jest.fn().mockResolvedValue([{ userId: "owner-1" }]) },
+      tenantSettings: {
+        findUnique: jest.fn().mockResolvedValue({
+          posDefaultPaymentMethod: "cash",
+          posAutoPrintReceipt: true,
+          receiptHeaderText: "Royal Pharmacy",
+          receiptPaperSize: "80mm",
+        }),
+      },
+      batch: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     return {
@@ -188,5 +213,91 @@ describe("SetupReadinessService — setupMode routes the journey", () => {
     expect(prisma.product.count).toHaveBeenCalledWith({
       where: { tenantId, isActive: true, rangeStatus: "RANGED" },
     });
+  });
+});
+
+/**
+ * Posting stock and agreeing it is right are different events. An import puts thousands of
+ * units on the books in one go — which is exactly the moment a figure most needs checking
+ * against the shelf, not the moment to tick the step off automatically.
+ */
+describe("SetupReadinessService — opening stock is confirmed, not inferred", () => {
+  const tenantId = "00000000-0000-4000-8000-000000000001";
+  const branchId = "00000000-0000-4000-8000-000000000002";
+
+  function serviceFor(openingStockConfirmedAt: Date | null) {
+    const prisma = {
+      branch: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: branchId,
+          code: "MAIN-01",
+          name: "Matale Main",
+          addressLine1: "1 Main Street",
+          timezone: "Asia/Colombo",
+          setupRequired: true,
+          setupMode: "migrating",
+          setupCompletedAt: null,
+          salesSettingsReviewedAt: null,
+          openingStockConfirmedAt,
+          checkoutPreparedAt: null,
+          tenant: {
+            id: tenantId,
+            displayName: "Royal Pharmacy",
+            legalName: "Royal Pharmacy",
+            currency: "LKR",
+            timezone: "Asia/Colombo",
+            logoUrl: null,
+          },
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      product: { count: jest.fn().mockResolvedValue(4) },
+      stockLedger: {
+        groupBy: jest
+          .fn()
+          .mockResolvedValue([{ batchId: "batch-1", _sum: { qtyDelta: 1412 } }]),
+      },
+      userBranchRole: { findMany: jest.fn().mockResolvedValue([{ userId: "owner-1" }]) },
+      tenantSettings: {
+        findUnique: jest.fn().mockResolvedValue({
+          posDefaultPaymentMethod: "cash",
+          posAutoPrintReceipt: true,
+          receiptHeaderText: "Royal Pharmacy",
+          receiptPaperSize: "80mm",
+        }),
+      },
+      batch: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: "b1", needsExpiryReview: false },
+          { id: "b2", needsExpiryReview: true },
+        ]),
+      },
+    };
+    const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    return new SetupReadinessService(prisma as never, audit as never);
+  }
+
+  it("stays incomplete while stock is posted but unconfirmed", async () => {
+    const result = await serviceFor(null).get(tenantId, branchId);
+    const task = result.tasks.find((t) => t.key === "opening_inventory")!;
+
+    expect(task.complete).toBe(false);
+    expect(task.title).toMatch(/confirm/i);
+  });
+
+  it("shows the figures being confirmed, and flags batches with no expiry date", async () => {
+    const result = await serviceFor(null).get(tenantId, branchId);
+    const task = result.tasks.find((t) => t.key === "opening_inventory")!;
+
+    expect(task.facts).toEqual([
+      { label: "Batches on the shelf", value: "2", ok: true },
+      { label: "Units counted", value: "1,412", ok: true },
+      { label: "Missing an expiry date", value: "1", ok: false },
+    ]);
+  });
+
+  it("completes once someone has confirmed it", async () => {
+    const result = await serviceFor(new Date()).get(tenantId, branchId);
+    expect(result.tasks.find((t) => t.key === "opening_inventory")!.complete).toBe(true);
   });
 });

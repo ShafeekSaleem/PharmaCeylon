@@ -681,8 +681,11 @@ export class InventoryService {
         where: { tenantId, branchId },
         _sum: { qtyDelta: true },
       }),
+      // Only the pharmacy's own range. Counting reference records here reported an imported
+      // NMRA registry as thousands of SKUs, nearly all of them "out of stock" — the shop was
+      // never carrying them, so they were never out of anything.
       this.prisma.product.findMany({
-        where: { tenantId, isActive: true },
+        where: { tenantId, isActive: true, rangeStatus: "RANGED" },
         select: { id: true, reorderLevel: true },
       }),
       this.listBatches(tenantId, branchId, { includeZero: false }),

@@ -22,6 +22,8 @@ export type SetupReadiness = {
     complete: boolean;
     available: boolean;
     href: string;
+    /** The values behind a confirm-style step, so the decision is made against something. */
+    facts?: Array<{ label: string; value: string; ok?: boolean }>;
   }>;
   optional: { teamInvited: boolean; logoAdded: boolean };
   nextTask: ReadinessTaskKey | null;
@@ -30,7 +32,7 @@ export type SetupReadiness = {
 export const fetchSetupReadiness = () =>
   apiJson<SetupReadiness>("/setup/readiness");
 
-export const confirmSetupTask = (task: "sales_settings" | "checkout") =>
+export const confirmSetupTask = (task: "sales_settings" | "opening_inventory" | "checkout") =>
   apiJson<SetupReadiness>("/setup/readiness/confirm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

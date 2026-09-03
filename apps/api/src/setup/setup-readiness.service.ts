@@ -13,6 +13,12 @@ export type ReadinessTaskKey =
   | "sales_settings"
   | "checkout";
 
+/** Steps whose completion is an explicit decision by the owner, not something derived. */
+export type ConfirmableTaskKey =
+  | "opening_inventory"
+  | "sales_settings"
+  | "checkout";
+
 export type SetupReadiness = {
   journeyEnabled: boolean;
   readyForSales: boolean;
@@ -28,12 +34,26 @@ export type SetupReadiness = {
     complete: boolean;
     available: boolean;
     href: string;
+    /**
+     * What the owner is actually being asked to agree to. The three confirm-style steps used
+     * to be a button with nothing behind it — you clicked "Confirm" without ever being shown
+     * the settings you were confirming. These are the real current values, so the decision is
+     * made against something.
+     */
+    facts?: Array<{ label: string; value: string; ok?: boolean }>;
   }>;
   optional: {
     teamInvited: boolean;
     logoAdded: boolean;
   };
   nextTask: ReadinessTaskKey | null;
+};
+
+const PAYMENT_LABELS: Record<string, string> = {
+  cash: "Cash",
+  card: "Card",
+  mobile_wallet: "Mobile wallet",
+  credit: "Customer credit",
 };
 
 @Injectable()
@@ -56,6 +76,7 @@ export class SetupReadinessService {
         setupMode: true,
         setupCompletedAt: true,
         salesSettingsReviewedAt: true,
+        openingStockConfirmedAt: true,
         checkoutPreparedAt: true,
         tenant: {
           select: {
@@ -67,11 +88,13 @@ export class SetupReadinessService {
             logoUrl: true,
           },
         },
+        _count: { select: { userBranchRoles: true } },
       },
     });
     if (!branch) throw new NotFoundException("Branch not found");
 
-    const [productCount, referenceCount, stockGroups, team] = await Promise.all([
+    const [productCount, referenceCount, stockGroups, team, settings, batchStats] =
+      await Promise.all([
       // Only the pharmacy's own range counts. Importing the NMRA registry used to tick this
       // step off before the shop had decided what it actually sells.
       this.prisma.product.count({
@@ -92,6 +115,19 @@ export class SetupReadinessService {
         distinct: ["userId"],
         select: { userId: true },
       }),
+      this.prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: {
+          posDefaultPaymentMethod: true,
+          posAutoPrintReceipt: true,
+          receiptHeaderText: true,
+          receiptPaperSize: true,
+        },
+      }),
+      this.prisma.batch.findMany({
+        where: { tenantId, branchId },
+        select: { id: true, needsExpiryReview: true },
+      }),
     ]);
 
     const businessComplete = Boolean(
@@ -109,6 +145,19 @@ export class SetupReadinessService {
     );
     const salesSettingsComplete = branch.salesSettingsReviewedAt !== null;
     const checkoutComplete = branch.checkoutPreparedAt !== null;
+
+    // Two different things: stock exists, and someone has agreed it is right. Only the
+    // second completes the step — an import posts thousands of units in one go, and that is
+    // exactly when a figure most needs checking against the shelf.
+    const stockPosted = stockComplete;
+    const openingStockComplete =
+      stockPosted && branch.openingStockConfirmedAt !== null;
+
+    const unitsPosted = stockGroups.reduce(
+      (sum, row) => sum + Math.max(0, row._sum.qtyDelta ?? 0),
+      0,
+    );
+    const batchesNeedingExpiry = batchStats.filter((b) => b.needsExpiryReview).length;
 
     // The wizard asked how the pharmacy is getting started and then nothing acted on the
     // answer. These two steps are where it actually pays off: a shop moving from another
@@ -157,39 +206,92 @@ export class SetupReadinessService {
               available: true,
               href: "/products?import=nmra",
             },
-      migrating
-        ? {
-            key: "opening_inventory",
-            title: "Check your opening stock",
-            description:
-              "Your import can carry stock on the same rows — add anything it didn't cover.",
-            complete: stockComplete,
-            available: productsComplete,
-            href: "/inventory/batches",
-          }
-        : {
-            key: "opening_inventory",
-            title: "Add opening inventory",
-            description: "Add batches, expiry dates, quantities and costs.",
-            complete: stockComplete,
-            available: productsComplete,
-            href: "/inventory/adjustments",
-          },
+      {
+        key: "opening_inventory",
+        title: stockPosted
+          ? "Confirm your opening stock"
+          : migrating
+            ? "Bring in your opening stock"
+            : "Add opening inventory",
+        description: stockPosted
+          ? "Check these figures against the shelves, then confirm them."
+          : migrating
+            ? "Your import can carry stock on the same rows — or add it here."
+            : "Add batches, expiry dates, quantities and costs.",
+        complete: openingStockComplete,
+        available: productsComplete,
+        href: migrating ? "/inventory/batches" : "/inventory/adjustments",
+        facts: stockPosted
+          ? [
+              {
+                label: "Batches on the shelf",
+                value: batchStats.length.toLocaleString(),
+                ok: true,
+              },
+              { label: "Units counted", value: unitsPosted.toLocaleString(), ok: true },
+              {
+                label: "Missing an expiry date",
+                value: batchesNeedingExpiry.toLocaleString(),
+                ok: batchesNeedingExpiry === 0,
+              },
+            ]
+          : undefined,
+      },
       {
         key: "sales_settings",
         title: "Review sales settings",
-        description: "Confirm pricing, tax treatment, payments and receipts.",
+        description: "These apply to every sale. Change anything that isn't right.",
         complete: salesSettingsComplete,
         available: true,
         href: "/settings/main?from=get-started",
+        facts: [
+          { label: "Currency", value: branch.tenant.currency, ok: true },
+          {
+            label: "Default payment",
+            value: PAYMENT_LABELS[settings?.posDefaultPaymentMethod ?? "cash"] ?? "Cash",
+            ok: true,
+          },
+          {
+            label: "Receipt header",
+            value: settings?.receiptHeaderText?.trim() || branch.tenant.displayName,
+            ok: Boolean(settings?.receiptHeaderText?.trim() || branch.tenant.displayName),
+          },
+          {
+            label: "Receipt paper",
+            value: settings?.receiptPaperSize ?? "80mm",
+            ok: true,
+          },
+        ],
       },
       {
         key: "checkout",
         title: "Prepare your checkout",
-        description: "Confirm your register and checkout configuration.",
+        description: "The last things the till needs before a real sale.",
         complete: checkoutComplete,
         available: salesSettingsComplete,
         href: "/pos?setup=checkout",
+        facts: [
+          {
+            label: "Products ready to sell",
+            value: productCount.toLocaleString(),
+            ok: productsComplete,
+          },
+          {
+            label: "Stock on the shelf",
+            value: unitsPosted > 0 ? `${unitsPosted.toLocaleString()} units` : "None yet",
+            ok: unitsPosted > 0,
+          },
+          {
+            label: "Staff who can sell here",
+            value: team.length.toLocaleString(),
+            ok: team.length > 0,
+          },
+          {
+            label: "Receipt printing",
+            value: settings?.posAutoPrintReceipt ? "Automatic" : "Manual",
+            ok: true,
+          },
+        ],
       },
     ];
 
@@ -233,7 +335,7 @@ export class SetupReadinessService {
     tenantId: string,
     branchId: string,
     userId: string,
-    task: "sales_settings" | "checkout",
+    task: ConfirmableTaskKey,
   ): Promise<SetupReadiness> {
     const current = await this.get(tenantId, branchId);
     if (!current.journeyEnabled) {
@@ -250,13 +352,25 @@ export class SetupReadinessService {
       );
     }
 
+    if (task === "opening_inventory") {
+      const current = await this.get(tenantId, branchId);
+      const posted = current.tasks.find((t) => t.key === "opening_inventory")?.facts;
+      if (!posted) {
+        throw new ConflictException(
+          "Add opening stock before confirming it — there is nothing to check yet.",
+        );
+      }
+    }
+
     const changedAt = new Date();
     await this.prisma.branch.updateMany({
       where: { id: branchId, tenantId },
       data:
         task === "sales_settings"
           ? { salesSettingsReviewedAt: changedAt }
-          : { checkoutPreparedAt: changedAt },
+          : task === "opening_inventory"
+            ? { openingStockConfirmedAt: changedAt }
+            : { checkoutPreparedAt: changedAt },
     });
     await this.audit.log({
       tenantId,

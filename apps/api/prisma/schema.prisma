@@ -395,6 +395,10 @@ model Branch {
   setupRequired           Boolean   @default(false) @map("setup_required")
   setupMode               String    @default("fresh") @map("setup_mode")
   salesSettingsReviewedAt DateTime? @map("sales_settings_reviewed_at")
+  /// When someone confirmed the opening stock figures match the shelves. Posting stock is a
+  /// fact; agreeing it is correct is a decision, and only the second one means the branch is
+  /// ready to sell from it — an import of 1,400 units shouldn't tick this off by itself.
+  openingStockConfirmedAt DateTime? @map("opening_stock_confirmed_at")
   checkoutPreparedAt      DateTime? @map("checkout_prepared_at")
   setupCompletedAt        DateTime? @map("setup_completed_at")
   createdAt    DateTime @default(now()) @map("created_at")

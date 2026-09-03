@@ -110,7 +110,8 @@ export class AnalyticsService {
    */
   async reorderRecommendations(tenantId: string, branchId: string) {
     const products = await this.prisma.product.findMany({
-      where: { tenantId, isActive: true },
+      // RANGED only: an imported reference catalog is not stock this branch is missing.
+      where: { tenantId, isActive: true, rangeStatus: "RANGED" },
       select: {
         id: true,
         sku: true,
@@ -663,7 +664,8 @@ export class AnalyticsService {
     const [products, stockRows, nearBatches, openPos, valueLedger] =
       await Promise.all([
         this.prisma.product.findMany({
-          where: { tenantId, isActive: true },
+          // RANGED only — see above.
+          where: { tenantId, isActive: true, rangeStatus: "RANGED" },
           select: { id: true, reorderLevel: true, isControlled: true },
         }),
         this.prisma.stockLedger.groupBy({
@@ -847,7 +849,8 @@ export class AnalyticsService {
     const branchWhere = scopedBranchId ? { branchId: scopedBranchId } : {};
 
     const products = await this.prisma.product.findMany({
-      where: { tenantId, isActive: true },
+      // RANGED only — see above.
+      where: { tenantId, isActive: true, rangeStatus: "RANGED" },
       select: { id: true, reorderLevel: true },
     });
     const productMap = new Map(products.map((p) => [p.id, p]));

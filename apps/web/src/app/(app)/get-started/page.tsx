@@ -66,7 +66,9 @@ export default function GetStartedPage() {
     [data, nextTask],
   );
 
-  async function confirm(task: "sales_settings" | "checkout") {
+  async function confirm(
+    task: "sales_settings" | "opening_inventory" | "checkout",
+  ) {
     setConfirming(task);
     setError(null);
     try {
@@ -156,8 +158,13 @@ export default function GetStartedPage() {
 
           <ol className={css.tasks}>
             {data.tasks.map((task, index) => {
+              // Steps completed by an explicit decision rather than by something happening.
+              // Opening stock joined them: an import posts the units, a person confirms the
+              // figures match the shelves.
               const explicit =
-                task.key === "sales_settings" || task.key === "checkout";
+                task.key === "sales_settings" ||
+                task.key === "checkout" ||
+                (task.key === "opening_inventory" && Boolean(task.facts));
               return (
                 <li
                   key={task.key}
@@ -170,6 +177,21 @@ export default function GetStartedPage() {
                   <div className={css.taskCopy}>
                     <strong>{task.title}</strong>
                     <p>{task.description}</p>
+                    {/* The values behind the decision. Without these, "Confirm" was a button
+                        that asked you to agree to something you were never shown. */}
+                    {!task.complete && task.facts && task.facts.length > 0 && (
+                      <ul className={css.taskFacts}>
+                        {task.facts.map((fact) => (
+                          <li
+                            key={fact.label}
+                            className={fact.ok === false ? css.taskFactWarn : undefined}
+                          >
+                            <span>{fact.label}</span>
+                            <strong>{fact.value}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <div className={css.taskActions}>
                     {task.complete ? (
@@ -182,18 +204,31 @@ export default function GetStartedPage() {
                       <>
                         <Link href={task.href} className={css.textLink}>
                           {task.key === "checkout"
-                            ? "Open POS"
-                            : "Review settings"}
+                            ? "Open the till"
+                            : task.key === "opening_inventory"
+                              ? "View batches"
+                              : "Change settings"}
                         </Link>
                         <button
                           type="button"
                           className={css.primarySmall}
                           disabled={confirming === task.key}
                           onClick={() =>
-                            void confirm(task.key as "sales_settings" | "checkout")
+                            void confirm(
+                              task.key as
+                                | "sales_settings"
+                                | "opening_inventory"
+                                | "checkout",
+                            )
                           }
                         >
-                          {confirming === task.key ? "Saving…" : "Confirm"}
+                          {confirming === task.key
+                            ? "Saving…"
+                            : task.key === "opening_inventory"
+                              ? "These are correct"
+                              : task.key === "checkout"
+                                ? "Ready to sell"
+                                : "Looks right"}
                         </button>
                       </>
                     ) : (

@@ -521,3 +521,62 @@
     margin-top: 3px;
   }
 }
+
+/* ── The values behind a "confirm" step ────────────────────────────────────
+   These steps used to be a button with nothing behind it: you were asked to agree that
+   settings were right without ever being shown them. */
+
+.taskFacts {
+  display: flex;
+  flex-wrap: wrap;
+  /* Without this the items stretch to the row's height and a pill radius turns them into
+     ovals. They size to their own content. */
+  align-items: center;
+  gap: 0.3rem 0.4rem;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* These sit inside `.tasks li`, whose rules apply to every descendant list item: a 77px
+   min-height, a four-column grid and a ::before timeline connector. All of it has to be
+   undone here or each chip renders as a tall empty box with the connector drawn through it. */
+.taskFacts li {
+  min-height: 0;
+  position: static;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--pc-border);
+  border-top: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.taskFacts li::before {
+  content: none;
+}
+
+.taskFacts li strong {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+}
+
+/* Something here needs a look before it is confirmed — a batch with no expiry date, no
+   staff who can sell at this branch. Semantic, not decorative. */
+.taskFactWarn,
+.taskFacts li.taskFactWarn {
+  border-color: var(--pc-alert-warning-border);
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+}
+
+.taskFactWarn strong {
+  color: var(--pc-alert-warning-text);
+}

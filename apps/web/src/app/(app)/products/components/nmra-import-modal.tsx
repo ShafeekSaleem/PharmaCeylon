@@ -2,7 +2,7 @@
 
 import { useRef, useState, type DragEvent } from "react";
 import { Alert } from "@/components/alert";
-import { IconUpload, IconX } from "@/components/icons";
+import { IconCheck, IconUpload, IconX } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiFetch } from "@/lib/auth-client";
 import css from "../products.module.css";
@@ -51,11 +51,13 @@ type BarcodeResult = {
   errors: Array<{ line: number; message: string }>;
 };
 
-type Tab = "nmra" | "barcodes";
+/** Which import this modal is running. Chosen from the Products page's Import menu. */
+export type ImportMode = "nmra" | "barcodes";
 type BusyAction = "preview" | "confirm" | "barcode" | null;
 
 type Props = {
   open: boolean;
+  mode: ImportMode;
   onClose: () => void;
   onImported: () => void;
 };
@@ -98,6 +100,29 @@ function StatTile({ label, value }: { label: string; value: number | string }) {
   );
 }
 
+/** Completion-panel figure. Tone is semantic, not decorative: good for what landed,
+ *  warn for what needs a second look, plain for everything else. */
+function ResultTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "good" | "warn";
+}) {
+  return (
+    <div
+      className={`${css.nmraDoneTile}${tone === "good" ? ` ${css.nmraDoneTileGood}` : ""}${
+        tone === "warn" ? ` ${css.nmraDoneTileWarn}` : ""
+      }`}
+    >
+      <span className={css.nmraDoneValue}>{value.toLocaleString()}</span>
+      <span className={css.nmraDoneLabel}>{label}</span>
+    </div>
+  );
+}
+
 async function readErrorMessage(res: Response, text: string): Promise<string> {
   let message = `Request failed (${res.status})`;
   try {
@@ -110,8 +135,22 @@ async function readErrorMessage(res: Response, text: string): Promise<string> {
   return message;
 }
 
-export function NmraImportModal({ open, onClose, onImported }: Props) {
-  const [tab, setTab] = useState<Tab>("nmra");
+const MODE_COPY: Record<ImportMode, { title: string; hint: string; drop: string; accept: string }> = {
+  nmra: {
+    title: "Import the NMRA register",
+    hint: "Matched by registration number. Your SKUs, tags, aliases and categories are kept.",
+    drop: "NMRA Excel / CSV",
+    accept: ".xls,.xlsx,.csv,application/vnd.ms-excel",
+  },
+  barcodes: {
+    title: "Import barcodes",
+    hint: "One row per product: a registration number, product id or SKU, plus its barcode.",
+    drop: "Barcode CSV",
+    accept: ".csv,text/csv",
+  },
+};
+
+export function NmraImportModal({ open, mode, onClose, onImported }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
@@ -141,12 +180,6 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
     if (busy) return;
     reset();
     onClose();
-  };
-
-  const switchTab = (next: Tab) => {
-    if (busy || successState) return;
-    setTab(next);
-    reset();
   };
 
   const acceptFile = (next: File | null) => {
@@ -272,9 +305,7 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
     }
   };
 
-  const accept =
-    tab === "nmra" ? ".xls,.xlsx,.csv,application/vnd.ms-excel" : ".csv,text/csv";
-  const dropLabel = tab === "nmra" ? "NMRA Excel / CSV" : "Barcode CSV";
+  const copy = MODE_COPY[mode];
 
   const progressPct =
     progress && progress.total > 0
@@ -285,14 +316,14 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
     <Modal
       open={open}
       onClose={handleClose}
-      title="Import from NMRA"
+      title={copy.title}
       size="md"
       footer={
         <ModalFooter className={css.nmraImportFooter}>
           <ModalButton variant="secondary" onClick={handleClose} disabled={busy}>
             {successState ? "Close" : "Cancel"}
           </ModalButton>
-          {tab === "nmra" && !result && !confirmRunning && (
+          {mode === "nmra" && !result && !confirmRunning && (
             <>
               <ModalButton
                 variant="secondary"
@@ -309,7 +340,7 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
               </ModalButton>
             </>
           )}
-          {tab === "barcodes" && !barcodeResult && (
+          {mode === "barcodes" && !barcodeResult && (
             <ModalButton onClick={() => void runBarcodeImport()} disabled={busy || !file}>
               {busyAction === "barcode" ? "Importing…" : "Import barcodes"}
             </ModalButton>
@@ -317,46 +348,7 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
         </ModalFooter>
       }
     >
-      <div className={css.metaManagerTabs} role="tablist">
-        <button
-          type="button"
-          role="tab"
-          className={`${css.metaManagerTab} ${tab === "nmra" ? css.metaManagerTabActive : ""}`}
-          onClick={() => switchTab("nmra")}
-          disabled={busy || successState}
-        >
-          NMRA registration
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`${css.metaManagerTab} ${tab === "barcodes" ? css.metaManagerTabActive : ""}`}
-          onClick={() => switchTab("barcodes")}
-          disabled={busy || successState}
-        >
-          Barcode CSV
-        </button>
-      </div>
-
-      <div className={css.nmraImportHintStack}>
-        <p
-          className={css.metaManagerHint}
-          data-active={tab === "nmra" ? "true" : "false"}
-          aria-hidden={tab !== "nmra"}
-        >
-          Upload NMRA Valid Registration (Excel). Matched by reg. no. Manual tags,
-          aliases, SKU, and categories are kept; NMRA fields and tags are merged in.
-        </p>
-        <p
-          className={css.metaManagerHint}
-          data-active={tab === "barcodes" ? "true" : "false"}
-          aria-hidden={tab !== "barcodes"}
-        >
-          CSV columns: <code>registrationNo</code> (or <code>productId</code> /{" "}
-          <code>sku</code>) and <code>barcode</code>. Existing barcodes are updated;
-          barcode aliases are added.
-        </p>
-      </div>
+      <p className={css.nmraModeHint}>{copy.hint}</p>
 
       {error && (
         <Alert variant="error" className={css.modalAlert}>
@@ -366,13 +358,13 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
 
       {!result && !confirmRunning && (
         <div className={css.nmraFileField}>
-          <span id="nmra-file-label">{dropLabel}</span>
+          <span id="nmra-file-label">{copy.drop}</span>
           <input
             ref={inputRef}
             id="nmra-file-input"
             type="file"
             className={css.nmraFileInput}
-            accept={accept}
+            accept={copy.accept}
             disabled={busy}
             aria-labelledby="nmra-file-label"
             onChange={(e) => acceptFile(e.target.files?.[0] ?? null)}
@@ -448,7 +440,7 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
                   </button>
                 </p>
                 <p className={css.nmraDropzoneHint}>
-                  {tab === "nmra" ? ".xls, .xlsx, or .csv" : ".csv"}
+                  {mode === "nmra" ? ".xls, .xlsx, or .csv" : ".csv"}
                 </p>
               </div>
             )}
@@ -528,20 +520,35 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
       )}
 
       {result && (
-        <div className={css.nmraComplete}>
-          <Alert variant="success" className={css.modalAlert}>
-            Import completed successfully
-          </Alert>
-          <p className={css.nmraCompleteStats}>
-            Parsed {result.parsed.toLocaleString()} · Created{" "}
-            {result.created.toLocaleString()} · Updated {result.updated.toLocaleString()} ·
-            Skipped {result.skipped.toLocaleString()}
-            {result.errors.length > 0
-              ? ` · Errors ${result.errors.length.toLocaleString()}`
-              : ""}
-            {result.categoryMapsAdded > 0 || result.tagsTouched > 0
-              ? ` · Category maps +${result.categoryMapsAdded.toLocaleString()} · Tags +${result.tagsTouched.toLocaleString()}`
-              : ""}
+        <div className={css.nmraDone}>
+          <div className={css.nmraDoneHead}>
+            <span className={css.nmraDoneIcon}>
+              <IconCheck size={16} />
+            </span>
+            <div>
+              <strong>Import complete</strong>
+              <span>
+                {result.parsed.toLocaleString()} rows read from the register
+              </span>
+            </div>
+          </div>
+          <div className={css.nmraDoneGrid}>
+            <ResultTile label="Added" value={result.created} tone="good" />
+            <ResultTile label="Updated" value={result.updated} />
+            <ResultTile label="Unchanged" value={result.skipped} />
+            {result.errors.length > 0 && (
+              <ResultTile label="Errors" value={result.errors.length} tone="warn" />
+            )}
+          </div>
+          {(result.categoryMapsAdded > 0 || result.tagsTouched > 0) && (
+            <p className={css.nmraDoneFoot}>
+              Also filed {result.categoryMapsAdded.toLocaleString()} category links and{" "}
+              {result.tagsTouched.toLocaleString()} tags.
+            </p>
+          )}
+          <p className={css.nmraDoneFoot}>
+            These are reference records — find them on the Reference catalog tab and add what
+            you stock to your products.
           </p>
           {result.errors[0] && (
             <Alert variant="warning" className={css.modalAlert}>
@@ -554,12 +561,22 @@ export function NmraImportModal({ open, onClose, onImported }: Props) {
       )}
 
       {barcodeResult && (
-        <div className={css.nmraPreview}>
-          <h4 className={css.nmraPreviewTitle}>Barcode import complete</h4>
-          <div className={css.nmraStatGrid}>
-            <StatTile label="Updated" value={barcodeResult.updated} />
-            <StatTile label="Skipped" value={barcodeResult.skipped} />
-            <StatTile label="Errors" value={barcodeResult.errors.length} />
+        <div className={css.nmraDone}>
+          <div className={css.nmraDoneHead}>
+            <span className={css.nmraDoneIcon}>
+              <IconCheck size={16} />
+            </span>
+            <div>
+              <strong>Barcodes imported</strong>
+              <span>Products can now be found by scanning.</span>
+            </div>
+          </div>
+          <div className={css.nmraDoneGrid}>
+            <ResultTile label="Updated" value={barcodeResult.updated} tone="good" />
+            <ResultTile label="Unchanged" value={barcodeResult.skipped} />
+            {barcodeResult.errors.length > 0 && (
+              <ResultTile label="Errors" value={barcodeResult.errors.length} tone="warn" />
+            )}
           </div>
         </div>
       )}

@@ -3005,7 +3005,8 @@ export class ReportsService {
     // even when that filter happens to match zero ledger rows in both periods.
     const ledgerProductIds = [...new Set([...currentLedgerRaw, ...previousLedgerRaw].map((r) => r.productId))];
     const activeProducts = await this.prisma.product.findMany({
-      where: { tenantId, isActive: true },
+      // RANGED only: a reference record the pharmacy never carried is not a stock-out.
+      where: { tenantId, isActive: true, rangeStatus: "RANGED" },
       select: { id: true, sku: true, name: true, reorderLevel: true },
     });
     if (activeProducts.length === 0 && ledgerProductIds.length === 0) return empty;

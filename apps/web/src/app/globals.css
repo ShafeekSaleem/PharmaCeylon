@@ -50,10 +50,13 @@
   --pc-alert-warning-border: #fde68a;
   --pc-alert-warning-text: #92400e;
   --pc-alert-warning-icon: #d97706;
-  --pc-alert-info-bg: #eff6ff;
-  --pc-alert-info-border: #bfdbfe;
-  --pc-alert-info-text: #1e40af;
-  --pc-alert-info-icon: #2563eb;
+  /* Info sits in the brand family (cyan, already a token above) rather than a generic
+     blue that belongs to no part of this palette. Distinct enough from the teal primary
+     that an informational note never reads as a call to action. */
+  --pc-alert-info-bg: #ecfeff;
+  --pc-alert-info-border: #a5f3fc;
+  --pc-alert-info-text: #155e75;
+  --pc-alert-info-icon: var(--pc-secondary-cyan);
   --pc-alert-success-bg: #f0fdf4;
   --pc-alert-success-border: #bbf7d0;
   --pc-alert-success-text: #166534;
