@@ -373,7 +373,7 @@ export function ProductDetailPanel({
             </div>
           ) : null}
 
-          <div className={css.panelActions}>
+          <div className={css.panelActions} data-fab-avoid>
             <Link
               href={`/products/${view.id}`}
               className={`${css.actionBtn} ${css.actionBtnPrimary}`}

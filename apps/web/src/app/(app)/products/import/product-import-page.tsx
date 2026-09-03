@@ -305,7 +305,7 @@ export function ProductImportPage() {
             </Alert>
           )}
 
-          <footer className={css.cardFoot}>
+          <footer className={css.cardFoot} data-fab-avoid>
             <button type="button" className={css.secondaryBtn} onClick={io.reset}>
               Choose a different file
             </button>
@@ -470,7 +470,7 @@ export function ProductImportPage() {
             </>
           )}
 
-          <footer className={css.cardFoot}>
+          <footer className={css.cardFoot} data-fab-avoid>
             <button
               type="button"
               className={css.secondaryBtn}
@@ -552,7 +552,7 @@ export function ProductImportPage() {
             </Alert>
           )}
 
-          <footer className={css.cardFoot}>
+          <footer className={css.cardFoot} data-fab-avoid>
             <div className={css.footLeft}>
               {io.result.rowsFailed > 0 && (
                 <button

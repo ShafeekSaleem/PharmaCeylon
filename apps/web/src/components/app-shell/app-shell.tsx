@@ -55,6 +55,7 @@ import {
   roleDeniedMessage,
   type RoleName,
 } from "@/lib/role-access";
+import { useFabClearance } from "./use-fab-clearance";
 
 type NavEntry = {
   href: string;
@@ -330,6 +331,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/get-started") ||
     pathname.startsWith("/notifications");
 
+  const showQuickSale = canUsePos && !quickSaleHidden && !chromeHidden;
+  // Whole pages opt out above by route; this gets the button out of the way of a single
+  // action row, which is what a route list can never keep up with.
+  const fabObstructed = useFabClearance(showQuickSale);
+
   const navGroups = useMemo(
     () =>
       NAV_GROUPS.map((group) => ({
@@ -560,13 +566,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         )}
 
-        {/* Page content */}
-        <main className={styles.content}>{children}</main>
+        {/* Page content. The FAB is fixed over this, so reserve its footprint at the
+            bottom — otherwise a fully scrolled page ends underneath it. */}
+        <main
+          className={`${styles.content}${showQuickSale ? ` ${styles.contentWithFab}` : ""}`}
+        >
+          {children}
+        </main>
       </div>
 
-      {/* Permission-aware, context-sensitive Quick Sale launcher. */}
-      {canUsePos && !quickSaleHidden && !chromeHidden && (
-        <Link href="/pos" className={styles.fab} aria-label="Start a new sale (Ctrl+Shift+P)">
+      {/* Permission-aware, context-sensitive Quick Sale launcher.
+
+          Stays mounted while obstructed rather than unmounting: the overlap is detected from
+          this element's own rect, so removing it would clear the overlap and bring it
+          straight back. Hidden means invisible, inert and out of the tab order. */}
+      {showQuickSale && (
+        <Link
+          href="/pos"
+          data-fab
+          className={`${styles.fab}${fabObstructed ? ` ${styles.fabTucked}` : ""}`}
+          aria-label="Start a new sale (Ctrl+Shift+P)"
+          aria-hidden={fabObstructed || undefined}
+          tabIndex={fabObstructed ? -1 : undefined}
+        >
           <IconShoppingCart size={24} />
           <span>New Sale</span>
         </Link>

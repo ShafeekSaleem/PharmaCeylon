@@ -732,6 +732,12 @@
   overflow-x: hidden;
 }
 
+/* The New Sale button is fixed over this column. Reserve its footprint so a page scrolled all
+   the way down still ends above it — without this, whatever a page puts last is unreachable. */
+.contentWithFab {
+  padding-bottom: 5.5rem;
+}
+
 /* ── FAB ── */
 
 .fab {
@@ -752,7 +758,8 @@
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(13, 148, 136, 0.35);
-  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s, opacity 0.18s ease,
+    visibility 0.18s;
   text-decoration: none;
   font-size: 0.78rem;
   font-weight: 700;
@@ -770,6 +777,17 @@
 .fab:focus-visible {
   outline: 3px solid var(--pc-focus-ring);
   outline-offset: 3px;
+}
+
+/* Tucked away because a page action row is underneath. Still in the DOM — the overlap is
+   measured from this element's own rect — but invisible, un-clickable and unfocusable.
+   Deliberately fades in place rather than sliding: a transform moves the very rect the
+   overlap is measured from, so a slide can clear the overlap that caused it, bring the button
+   back, and oscillate. `visibility: hidden` keeps the box exactly where it was. */
+.fabTucked {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 /* ── Loading state ── */
