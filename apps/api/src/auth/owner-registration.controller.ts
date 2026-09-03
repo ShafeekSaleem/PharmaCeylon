@@ -16,6 +16,7 @@ import type { Request, Response } from "express";
 import { Public } from "../security/decorators/public.decorator";
 import {
   ONBOARDING_COOKIE,
+  clearOnboardingCookie,
   readCookieEnv,
   setOnboardingCookie,
 } from "./cookies";
@@ -39,7 +40,14 @@ export class OwnerRegistrationController {
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post()
-  create(@Body() dto: CreateOwnerRegistrationDto) {
+  create(
+    @Body() dto: CreateOwnerRegistrationDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Starting a new registration always starts a clean browser session — otherwise a
+    // leftover onboarding cookie from an earlier, already-verified registration in this
+    // same browser would make /status resolve to that old session instead of this one.
+    clearOnboardingCookie(res, readCookieEnv(this.config));
     return this.registrations.create(dto);
   }
 

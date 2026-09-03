@@ -12,6 +12,7 @@ import {
   IconShield,
 } from "@/components/icons";
 import { SelectField } from "@/components/ui/select-field";
+import { SetupJourneyPanel } from "@/components/setup-journey-panel/setup-journey-panel";
 import { PHONE_CODE_OPTIONS } from "@/lib/onboarding-options";
 import { createOwnerRegistration } from "@/lib/owner-registration-client";
 import styles from "./register.module.css";
@@ -37,18 +38,6 @@ const initialFields: Fields = {
   confirmPassword: "",
   accepted: false,
 };
-
-const journey = [
-  [
-    "Create your owner account",
-    "Tell us who will own and manage the workspace.",
-  ],
-  ["Verify your email", "Enter the secure code we send to your inbox."],
-  [
-    "Set up your pharmacy",
-    "Add the business, first branch and starting preferences.",
-  ],
-];
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -125,6 +114,7 @@ export default function RegisterPage() {
       <section className={styles.card}>
         <div className={styles.formPanel}>
           <p className={styles.eyebrow}>STEP 1 OF 3 · OWNER ACCOUNT</p>
+          <div className={styles.formScroll}>
           <h1>Start with your owner account</h1>
           <p className={styles.lead}>
             Create your secure identity first. Your pharmacy details come next.
@@ -209,7 +199,7 @@ export default function RegisterPage() {
                 One symbol
               </Rule>
             </div>
-            <label className={styles.terms}>
+            <label className={`${styles.terms} ${styles.termsSpaced}`}>
               <input
                 type="checkbox"
                 checked={fields.accepted}
@@ -229,33 +219,10 @@ export default function RegisterPage() {
               pharmacy data until workspace creation.
             </p>
           </form>
+          </div>
         </div>
 
-        <aside className={styles.journeyPanel}>
-          <p className={styles.panelEyebrow}>YOUR SETUP JOURNEY</p>
-          <h2>Begin with your owner account.</h2>
-          <p className={styles.panelLead}>
-            A guided path from account creation to a pharmacy ready for setup.
-          </p>
-          <ol>
-            {journey.map(([title, description], index) => (
-              <li
-                key={title}
-                className={index === 0 ? styles.activeJourney : ""}
-              >
-                <span>{index + 1}</span>
-                <div>
-                  <b>{title}</b>
-                  <small>{description}</small>
-                </div>
-              </li>
-            ))}
-          </ol>
-          <div className={styles.timeNote}>
-            <b>About 4 minutes</b>
-            <span>Your progress is saved as you go.</span>
-          </div>
-        </aside>
+        <SetupJourneyPanel currentStep={1} />
       </section>
     </main>
   );

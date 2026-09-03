@@ -545,6 +545,10 @@
   color: #fff;
   box-shadow: 0 6px 16px color-mix(in srgb, var(--pc-primary) 20%, transparent);
 }
+.primary:hover:not(:disabled) {
+  filter: brightness(0.97);
+  transform: translateY(-1px);
+}
 .primary:disabled {
   opacity: 0.62;
   cursor: wait;

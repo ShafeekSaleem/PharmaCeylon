@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import {
-  IconCheck,
   IconCheckCircle,
   IconFirstAid,
   IconMail,
   IconShield,
 } from "@/components/icons";
+import { SetupJourneyPanel } from "@/components/setup-journey-panel/setup-journey-panel";
 import {
   fetchOwnerRegistrationStatus,
   resendOwnerVerification,
@@ -207,56 +207,7 @@ export default function VerifyEmailPage() {
           )}
         </div>
 
-        <aside className={styles.contextPanel}>
-          <p className={styles.panelEyebrow}>YOUR SETUP JOURNEY</p>
-          <h2>
-            {state === "verified"
-              ? "Account ready. Pharmacy next."
-              : "Secure your new account."}
-          </h2>
-          <ol>
-            <li className={styles.complete}>
-              <span>
-                <IconCheck size={15} />
-              </span>
-              <div>
-                <b>Owner account</b>
-                <small>Your account details are saved.</small>
-              </div>
-            </li>
-            <li
-              className={
-                state === "verified" ? styles.complete : styles.current
-              }
-            >
-              <span>{state === "verified" ? <IconCheck size={15} /> : 2}</span>
-              <div>
-                <b>Email verification</b>
-                <small>
-                  {state === "verified"
-                    ? "Your email is confirmed."
-                    : "You are here now."}
-                </small>
-              </div>
-            </li>
-            <li>
-              <span>3</span>
-              <div>
-                <b>Workspace setup</b>
-                <small>Pharmacy, branch and preferences.</small>
-              </div>
-            </li>
-          </ol>
-          <div className={styles.helpNote}>
-            <IconShield size={20} />
-            <div>
-              <b>Why verify?</b>
-              <span>
-                It protects ownership of your future pharmacy workspace.
-              </span>
-            </div>
-          </div>
-        </aside>
+        <SetupJourneyPanel currentStep={state === "verified" ? 3 : 2} />
       </section>
     </main>
   );

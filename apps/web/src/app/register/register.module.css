@@ -53,10 +53,17 @@
 .formPanel {
   min-width: 0;
   padding: 1.35rem 2.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The step label stays put; only the content below it scrolls. */
+.formScroll {
+  min-height: 0;
   overflow-y: auto;
 }
-.eyebrow,
-.panelEyebrow {
+.eyebrow {
+  flex-shrink: 0;
   margin: 0 0 0.55rem;
   color: var(--pc-primary);
   font-size: 0.74rem;
@@ -74,6 +81,9 @@
   line-height: 1.5;
 }
 .form {
+  /* Matches verify-email.module.css's .form max-width so a centered .submit lands at the
+     same x-position as verify-email's centered .primary. */
+  max-width: 560px;
   display: grid;
   gap: 0.65rem;
 }
@@ -195,6 +205,9 @@
   font-weight: 400 !important;
   line-height: 1.45;
 }
+.termsSpaced {
+  margin-top: 0.5rem;
+}
 .terms input {
   width: 17px;
   height: 17px;
@@ -205,6 +218,10 @@
   font-weight: 600;
 }
 .submit {
+  width: 300px;
+  max-width: 100%;
+  justify-self: center;
+  margin-inline: auto;
   height: 46px;
   border: 0;
   border-radius: var(--pc-radius-sm);
@@ -233,116 +250,6 @@
   color: var(--pc-muted-fg);
   font-size: 0.74rem;
 }
-.journeyPanel {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  padding: 2.25rem 2.25rem;
-  background:
-    radial-gradient(
-      circle at 105% -5%,
-      rgba(255, 255, 255, 0.18),
-      transparent 34%
-    ),
-    linear-gradient(155deg, #0f766e 0%, #087f83 48%, #0e7490 100%);
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-}
-.journeyPanel::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  right: -90px;
-  bottom: -90px;
-  width: 260px;
-  height: 260px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 42px rgba(255, 255, 255, 0.035),
-    0 0 0 84px rgba(255, 255, 255, 0.025);
-}
-.journeyPanel .panelEyebrow {
-  color: rgba(255, 255, 255, 0.74);
-}
-.journeyPanel h2 {
-  margin: 0;
-  font-size: 1.8rem;
-  letter-spacing: -0.03em;
-  color: #fff;
-}
-.panelLead {
-  margin: 0.6rem 0 2.2rem;
-  color: rgba(255, 255, 255, 0.82);
-  line-height: 1.55;
-  font-size: 0.9rem;
-}
-.journeyPanel ol {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 0;
-}
-.journeyPanel li {
-  position: relative;
-  display: grid;
-  grid-template-columns: 38px 1fr;
-  gap: 0.9rem;
-  padding: 0 0 1.8rem;
-}
-.journeyPanel li:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  left: 18px;
-  top: 38px;
-  width: 1px;
-  height: calc(100% - 30px);
-  background: rgba(255, 255, 255, 0.28);
-}
-.journeyPanel li > span {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  border-radius: 50%;
-  font-weight: 750;
-}
-.journeyPanel li.activeJourney > span {
-  background: #fff;
-  color: var(--pc-primary);
-  border-color: #fff;
-}
-.journeyPanel li div {
-  display: grid;
-  gap: 0.35rem;
-}
-.journeyPanel li b {
-  font-size: 0.91rem;
-  color: #fff;
-}
-.journeyPanel li small {
-  color: rgba(255, 255, 255, 0.78);
-  line-height: 1.45;
-}
-.timeNote {
-  margin: auto 0 0;
-  padding: 1rem 1.1rem;
-  display: grid;
-  gap: 0.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.07);
-}
-.timeNote b {
-  font-size: 0.84rem;
-}
-.timeNote span {
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 0.78rem;
-}
 @media (max-width: 900px) {
   .header {
     padding: 0 1rem;
@@ -351,30 +258,6 @@
     height: auto;
     margin-top: 1.2rem;
     grid-template-columns: 1fr;
-  }
-  .journeyPanel {
-    order: -1;
-    padding: 1.4rem 1.6rem;
-  }
-  .journeyPanel h2,
-  .panelLead,
-  .timeNote {
-    display: none;
-  }
-  .journeyPanel ol {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.8rem;
-  }
-  .journeyPanel li {
-    display: flex;
-    align-items: center;
-    padding: 0;
-  }
-  .journeyPanel li:not(:last-child)::after {
-    display: none;
-  }
-  .journeyPanel li small {
-    display: none;
   }
   .formPanel {
     padding: 2rem 1.5rem;

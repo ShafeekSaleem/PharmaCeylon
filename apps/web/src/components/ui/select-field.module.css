@@ -100,12 +100,9 @@
   transform: rotate(180deg);
 }
 
+/* Positioned inline (top/left/width) from the portaling component — see select-field.tsx. */
 .menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
+  z-index: 1000;
   margin: 0;
   padding: 0.38rem;
   list-style: none;
@@ -118,7 +115,6 @@
 }
 
 .menuWide {
-  right: auto;
   width: max-content;
   min-width: 260px;
   max-width: min(320px, calc(100vw - 2rem));
@@ -137,6 +133,7 @@
   padding: 0.45rem 0.6rem;
   border-radius: 6px;
   font-size: 0.85rem;
+  font-weight: 400;
   color: var(--pc-foreground);
   cursor: pointer;
 }
