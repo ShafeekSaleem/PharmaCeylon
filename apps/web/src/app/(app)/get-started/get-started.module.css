@@ -1,7 +1,5 @@
 .page {
   width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
   color: var(--pc-foreground);
 }
 
@@ -244,6 +242,13 @@
   );
 }
 
+.tasks .taskNext::before {
+  /* The row's -14px margin shifts its own box left, so the line's `left`
+     (relative to that box) needs the same +14px to stay under the circle,
+     which is kept visually in place by the offsetting padding-inline above. */
+  left: 38px;
+}
+
 .taskNumber {
   width: 28px;
   height: 28px;
@@ -283,6 +288,7 @@
 
 .taskCopy p {
   margin: 2px 0 0;
+  max-width: 620px;
   color: var(--pc-muted-fg);
   font-size: 12.5px;
 }
