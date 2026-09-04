@@ -127,6 +127,18 @@ export type ImportResult = {
   categorizedByClassifier: number;
   /** Left in Unclassified Medicines for someone to place. */
   leftUnclassified: number;
+  /**
+   * Catalog-review work this import created, so the completion screen can say what is left to
+   * do rather than only what happened. Each count deep-links into the Work Queue filtered to
+   * this import.
+   */
+  catalogTasks: {
+    total: number;
+    needsCategory: number;
+    nmraMatch: number;
+    complianceReview: number;
+    ambiguous: number;
+  };
 };
 
 export type ImportSummary = {

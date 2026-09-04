@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Logger,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma, StockMovementType } from "@prisma/client";
@@ -35,13 +36,10 @@ import {
   suggestMapping,
   unmappedHeaders,
 } from "./product-import-parse";
-import {
-  createImportJob,
-  getImportJob,
-  patchImportJob,
-  toImportJobProgress,
-  type ImportJobProgress,
-} from "./product-import-jobs";
+import { patchImportJob, type ImportJobProgress } from "./product-import-jobs";
+import { ImportJobRunner, type ImportJobContext } from "./import-job-runner";
+import { CatalogTaskService } from "../catalog-tasks/catalog-task.service";
+import { OPEN_STATUSES } from "../catalog-tasks/catalog-task.types";
 import {
   STOCK_FIELDS,
   type ImportAnalysis,
@@ -110,10 +108,14 @@ type Plan = {
 
 @Injectable()
 export class ProductImportService {
+  private readonly logger = new Logger(ProductImportService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly categoryTaxonomy: CategoryTaxonomyService,
+    private readonly runner: ImportJobRunner,
+    private readonly catalogTasks: CatalogTaskService,
   ) {}
 
   // ── Step 1: read the file, propose a mapping ────────────────────────────
@@ -289,31 +291,30 @@ export class ProductImportService {
       });
     }
 
+    // Same id for both by construction, which is what lets a progress poll fall back to the
+    // durable import row when the in-memory job is gone (restart, or another API instance).
     const jobId = importRecord.id;
-    createImportJob(jobId, tenantId, importRecord.id);
-    void this.runImport(
-      jobId,
-      tenantId,
-      userId,
-      hasStock ? branchId! : null,
-      importRecord.id,
-      resolved,
-      new Set(confirmedRows),
-      categoryChoices,
+    this.runner.start(jobId, tenantId, importRecord.id, (ctx) =>
+      this.runImport(
+        ctx,
+        tenantId,
+        userId,
+        hasStock ? branchId! : null,
+        importRecord.id,
+        resolved,
+        new Set(confirmedRows),
+        categoryChoices,
+      ),
     );
     return { jobId, importId: importRecord.id };
   }
 
-  getJobProgress(tenantId: string, jobId: string): ImportJobProgress {
-    const job = getImportJob(jobId);
-    if (!job || job.tenantId !== tenantId) {
-      throw new NotFoundException("Import job not found.");
-    }
-    return toImportJobProgress(job);
+  getJobProgress(tenantId: string, jobId: string): Promise<ImportJobProgress> {
+    return this.runner.getProgress(tenantId, jobId);
   }
 
   private async runImport(
-    jobId: string,
+    ctx: ImportJobContext,
     tenantId: string,
     userId: string,
     branchId: string | null,
@@ -322,15 +323,15 @@ export class ProductImportService {
     confirmedRows: Set<number>,
     categoryChoices: ImportCategoryChoices,
   ): Promise<void> {
-    patchImportJob(jobId, { status: "running", phase: "matching" });
-    try {
+    ctx.progress({ phase: "matching" });
+    {
       const index = await this.buildIndex(tenantId);
       const plan = this.planRows(resolved.rows, index, confirmedRows);
       const issues = [...resolved.issues, ...plan.issues];
 
       const toRun = plan.planned.filter((p) => !p.held);
       const total = toRun.length + (branchId ? toRun.length : 0);
-      patchImportJob(jobId, { phase: "products", total, processed: 0 });
+      ctx.progress({ phase: "products", total, processed: 0 });
 
       const written = await this.writeProducts(
         tenantId,
@@ -338,7 +339,7 @@ export class ProductImportService {
         toRun,
         issues,
         (processed, created, updated) =>
-          patchImportJob(jobId, {
+          ctx.progress({
             phase: "products",
             processed,
             total,
@@ -348,7 +349,7 @@ export class ProductImportService {
           }),
       );
 
-      patchImportJob(jobId, { phase: "categories" });
+      ctx.progress({ phase: "categories" });
       const categorized = await this.applyCategories(
         tenantId,
         toRun,
@@ -360,7 +361,7 @@ export class ProductImportService {
       let unitsPosted = 0;
       let expiryReviewCount = 0;
       if (branchId) {
-        patchImportJob(jobId, { phase: "stock" });
+        ctx.progress({ phase: "stock" });
         const stock = await this.postOpeningStock(
           tenantId,
           branchId,
@@ -370,7 +371,7 @@ export class ProductImportService {
           written.productIdByRow,
           issues,
           (processed) =>
-            patchImportJob(jobId, {
+            ctx.progress({
               phase: "stock",
               processed: written.processed + processed,
               total,
@@ -392,6 +393,14 @@ export class ProductImportService {
       }));
       const allIssues = [...issues, ...heldIssues].slice(0, MAX_ISSUES_KEPT);
 
+      // Every product this run created or touched goes through catalog-task generation, stamped
+      // with the import id. That stamp is what makes "Review catalog tasks" on the completion
+      // screen a real, filtered link back to exactly this upload's leftovers — the traceability
+      // that used to be missing, where a 2,000-row import silently added 400 uncategorised
+      // products and nothing said so.
+      ctx.progress({ phase: "review-tasks" });
+      const taskCounts = await this.generateCatalogTasks(tenantId, importId);
+
       const result: ImportResult = {
         importId,
         parsed: resolved.rows.length,
@@ -406,6 +415,7 @@ export class ProductImportService {
         categorizedFromFile: categorized.fromFile,
         categorizedByClassifier: categorized.byClassifier,
         leftUnclassified: categorized.unclassified,
+        catalogTasks: taskCounts,
       };
 
       await this.prisma.productImport.updateMany({
@@ -445,7 +455,7 @@ export class ProductImportService {
         },
       });
 
-      patchImportJob(jobId, {
+      patchImportJob(ctx.jobId, {
         status: "completed",
         phase: "done",
         processed: total,
@@ -456,16 +466,41 @@ export class ProductImportService {
         errorCount: result.rowsFailed,
         result,
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Import failed";
-      await this.prisma.productImport
-        .updateMany({
-          where: { id: importId, tenantId },
-          data: { status: "failed", error: message, completedAt: new Date() },
-        })
-        .catch(() => undefined);
-      patchImportJob(jobId, { status: "failed", phase: "failed", error: message });
     }
+  }
+
+  /**
+   * Generate the catalog work this import left behind, and count it by kind.
+   *
+   * Failure here must not fail the import: the products and stock are already written and
+   * committed, and losing the *worklist* is recoverable (the Work Queue refreshes on open),
+   * whereas reporting a successful import as failed is not.
+   */
+  private async generateCatalogTasks(
+    tenantId: string,
+    importId: string,
+  ): Promise<ImportResult["catalogTasks"]> {
+    const empty = { total: 0, needsCategory: 0, nmraMatch: 0, complianceReview: 0, ambiguous: 0 };
+    try {
+      await this.catalogTasks.refresh(tenantId, { importId });
+    } catch (err) {
+      this.logger.error(
+        `Catalog task generation failed for import ${importId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return empty;
+    }
+
+    const open = { tenantId, importId, status: { in: OPEN_STATUSES } };
+    const [total, needsCategory, nmraMatch, complianceReview, ambiguous] = await Promise.all([
+      this.prisma.catalogTask.count({ where: open }),
+      this.prisma.catalogTask.count({ where: { ...open, type: "MISSING_CATEGORY" } }),
+      this.prisma.catalogTask.count({ where: { ...open, type: "NMRA_MATCH" } }),
+      this.prisma.catalogTask.count({ where: { ...open, complianceImpact: true } }),
+      this.prisma.catalogTask.count({ where: { ...open, type: "NMRA_AMBIGUOUS" } }),
+    ]);
+    return { total, needsCategory, nmraMatch, complianceReview, ambiguous };
   }
 
   // ── Undo ────────────────────────────────────────────────────────────────

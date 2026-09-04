@@ -5,11 +5,12 @@ import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-cate
 import {
   CatalogIndex,
   rankedCandidateNeedsComplianceConfirmation,
-  type MatchCandidate,
+  type ImportRowKeys,
   type RankedCandidate,
 } from "../product-import/product-import-match";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { ReferenceCandidateFinder } from "./reference-candidates";
 import {
   buildNmraLinkPlan,
   type NmraLinkAlias,
@@ -172,16 +173,20 @@ export type NmraLinkPreview = {
  */
 @Injectable()
 export class ProductNmraLinkService {
+  private readonly finder: ReferenceCandidateFinder;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly taxonomy: CategoryTaxonomyService,
     private readonly audit: AuditService,
-  ) {}
+  ) {
+    this.finder = new ReferenceCandidateFinder(prisma);
+  }
 
   /** Ranked candidates for linking one product, strongest evidence first. */
   async candidates(tenantId: string, productId: string, take = 20): Promise<NmraLinkCandidate[]> {
     const shop = await this.loadLinkable(tenantId, productId);
-    const index = await this.buildReferenceIndex(tenantId, productId);
+    const index = await this.buildReferenceIndex(tenantId, productId, [searchKeysOf(shop)]);
     const ranked = index.rankedCandidates(searchKeysOf(shop), take);
     return ranked.map((r) => this.toLinkCandidate(r));
   }
@@ -217,7 +222,7 @@ export class ProductNmraLinkService {
       this.prisma.product.count({ where }),
     ]);
 
-    const index = await this.buildReferenceIndex(tenantId, null);
+    const index = await this.buildReferenceIndex(tenantId, null, rows.map(searchKeysOf));
     const items = rows.map((row) => ({
       product: { id: row.id, name: row.name, brandName: row.brandName },
       candidates: index.rankedCandidates(searchKeysOf(row), 5).map((r) => this.toLinkCandidate(r)),
@@ -250,7 +255,11 @@ export class ProductNmraLinkService {
     // pair in this same batch still looks available here — `link()` re-checks fresh before
     // writing, so a same-batch double-claim still can't happen, it just surfaces as `failed`
     // (a real conflict) rather than `held` (a soft skip) for that rare case.
-    const index = await this.buildReferenceIndex(tenantId, null);
+    const shopRows = await this.prisma.product.findMany({
+      where: { tenantId, id: { in: pairs.map((p) => p.productId) } },
+      select: LINKABLE_SELECT,
+    });
+    const index = await this.buildReferenceIndex(tenantId, null, shopRows.map(searchKeysOf));
 
     for (const pair of pairs) {
       try {
@@ -272,6 +281,17 @@ export class ProductNmraLinkService {
           held.push({
             productId: pair.productId,
             reason: "Would change a compliance flag on evidence weaker than an exact identifier — needs individual confirmation.",
+          });
+          continue;
+        }
+        // Only the unattended path checks this. A person choosing one entry from a list has
+        // already resolved the ambiguity by hand — it is the batch that must not guess.
+        try {
+          await this.assertIdentifiersUnambiguous(tenantId, shop);
+        } catch (err) {
+          held.push({
+            productId: pair.productId,
+            reason: err instanceof Error ? err.message : "Identifier is ambiguous.",
           });
           continue;
         }
@@ -644,37 +664,46 @@ export class ProductNmraLinkService {
   }
 
   /**
-   * The tenant's unclaimed NMRA reference rows, indexed once. `excludeProductId` matters only
-   * when linking a product that is itself (unusually) a REFERENCE row being reconsidered —
-   * ordinary shop products never appear in this set regardless.
+   * An index over the reference rows worth comparing `rows` against.
+   *
+   * This used to be `findMany({ ..., take: 5000 })` — the whole reference catalog, truncated.
+   * On the 15,000-row NMRA register that silently made two thirds of it unmatchable, and which
+   * two thirds depended on Postgres' row order. `ReferenceCandidateFinder` asks the database
+   * narrow, indexed questions driven by the products being matched instead, so every register
+   * row is reachable and the data pulled scales with the page, not the catalog.
    */
   private async buildReferenceIndex(
     tenantId: string,
     excludeProductId: string | null,
+    rows: ImportRowKeys[],
   ): Promise<CatalogIndex> {
-    const rows = await this.prisma.product.findMany({
-      where: {
-        tenantId,
-        rangeStatus: "REFERENCE",
-        source: "NMRA",
-        claimedBy: null,
-        ...(excludeProductId ? { id: { not: excludeProductId } } : {}),
-      },
-      select: {
-        id: true,
-        name: true,
-        barcode: true,
-        registrationNo: true,
-        genericName: true,
-        strength: true,
-        dosageForm: true,
-        brandName: true,
-        isControlled: true,
-        requiresPrescription: true,
-      },
-      take: 5000,
-    });
-    return new CatalogIndex(rows as MatchCandidate[]);
+    const set = await this.finder.forMany(tenantId, rows, { excludeProductId });
+    return new CatalogIndex(set.candidates);
+  }
+
+  /**
+   * Refuses to guess when an identifier is ambiguous.
+   *
+   * A duplicate barcode or registration number in the register means the identifier does not
+   * identify anything, and picking the first row Postgres returned would set compliance flags
+   * from an arbitrary product. Callers surface this as a review task instead.
+   */
+  private async assertIdentifiersUnambiguous(tenantId: string, shop: LinkableRow): Promise<void> {
+    const probes: Array<["barcode" | "registrationNo", string | null]> = [
+      ["barcode", shop.barcode],
+      ["registrationNo", shop.registrationNo],
+    ];
+    for (const [field, value] of probes) {
+      if (!value?.trim()) continue;
+      const ambiguity = await this.finder.resolveIdentifier(tenantId, field, value);
+      if (!ambiguity) continue;
+      const label = field === "barcode" ? "barcode" : "registration number";
+      throw new ConflictException(
+        `The ${label} "${ambiguity.value}" matches ${ambiguity.candidates.length} register entries ` +
+          `(${ambiguity.candidates.map((c) => c.name).slice(0, 3).join(", ")}…). ` +
+          "Pick the right one explicitly — it can't be resolved automatically.",
+      );
+    }
   }
 
   private toLinkCandidate(ranked: RankedCandidate): NmraLinkCandidate {

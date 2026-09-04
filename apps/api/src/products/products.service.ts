@@ -24,6 +24,7 @@ import {
   type StockStatus,
 } from "./stock-qty.util";
 import { buildProductDetailExtras } from "./product-detail.util";
+import { decideRangeExit, decideReferencePromotion } from "./range-transition.util";
 
 const SORTABLE_FIELDS = new Set([
   "name",
@@ -877,6 +878,12 @@ export class ProductsService {
           "remove",
         );
         break;
+      case "unrange":
+        // Not a plain column write any more — see `decideRangeExit`. A locally created product
+        // must never be filed into the NMRA reference catalog, and nothing with stock on hand
+        // may leave the list at all.
+        updated = (await this.applyRangeExit(tenantId, ids)).changed;
+        break;
       default: {
         const { data, scope } = bulkActionUpdate(dto.action);
         const result = await this.prisma.product.updateMany({
@@ -907,6 +914,295 @@ export class ProductsService {
     }
 
     return { matched: ids.length, updated, action: dto.action };
+  }
+
+  /**
+   * Take a selection out of the range, routing each product to whatever is actually safe for
+   * it: back to the register, deactivated, or refused with a reason.
+   *
+   * Returns per-product outcomes as well as a count, so the UI can say "12 moved, 3
+   * deactivated instead, 2 blocked because they still have stock" rather than a bare number
+   * that hides two thirds of what happened.
+   */
+  async applyRangeExit(
+    tenantId: string,
+    productIds: string[],
+  ): Promise<{
+    changed: number;
+    unranged: string[];
+    deactivated: string[];
+    blocked: Array<{ productId: string; reason: string }>;
+    notes: string[];
+  }> {
+    if (productIds.length === 0) {
+      return { changed: 0, unranged: [], deactivated: [], blocked: [], notes: [] };
+    }
+
+    const [rows, stockByProduct] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { tenantId, id: { in: productIds } },
+        select: {
+          id: true,
+          name: true,
+          source: true,
+          rangeStatus: true,
+          nmraReferenceId: true,
+          _count: { select: { saleItems: true, purchaseItems: true, receiptItems: true } },
+        },
+      }),
+      // Across every branch, not the caller's: a product with units in another shop is still
+      // holding stock, and hiding it there would be someone else's missing inventory.
+      this.prisma.stockLedger
+        .groupBy({
+          by: ["productId"],
+          where: { tenantId, productId: { in: productIds } },
+          _sum: { qtyDelta: true },
+        })
+        .then((rowsAgg) => new Map(rowsAgg.map((g) => [g.productId, g._sum.qtyDelta ?? 0]))),
+    ]);
+
+    const unranged: string[] = [];
+    const deactivated: string[] = [];
+    const blocked: Array<{ productId: string; reason: string }> = [];
+    const notes: string[] = [];
+
+    for (const row of rows) {
+      const decision = decideRangeExit({
+        productId: row.id,
+        name: row.name,
+        source: row.source,
+        rangeStatus: row.rangeStatus,
+        nmraReferenceId: row.nmraReferenceId,
+        stockOnHand: stockByProduct.get(row.id) ?? 0,
+        saleCount: row._count.saleItems,
+        purchasingCount: row._count.purchaseItems + row._count.receiptItems,
+      });
+
+      if (decision.action === "blocked") {
+        blocked.push({ productId: row.id, reason: decision.reason });
+        continue;
+      }
+      if (decision.action === "unrange") unranged.push(row.id);
+      else {
+        deactivated.push(row.id);
+        notes.push(decision.reason);
+      }
+    }
+
+    if (unranged.length > 0) {
+      await this.prisma.product.updateMany({
+        where: { tenantId, id: { in: unranged } },
+        data: { rangeStatus: "REFERENCE", rangedAt: null },
+      });
+    }
+    if (deactivated.length > 0) {
+      await this.prisma.product.updateMany({
+        where: { tenantId, id: { in: deactivated } },
+        data: { isActive: false },
+      });
+    }
+
+    return {
+      changed: unranged.length + deactivated.length,
+      unranged,
+      deactivated,
+      blocked,
+      // De-duplicated: fifty locally created products produce one explanation, not fifty.
+      notes: [...new Set(notes)].slice(0, 5),
+    };
+  }
+
+  /**
+   * What "Add to my products" would do to a set of NMRA reference rows, before it does it.
+   *
+   * The Reference Catalog is a 15,000-row register and the Add button is one click, so the
+   * dangerous case is not the refusal but the silent success: promoting a register row the shop
+   * already sells under its own name creates a second product for one real medicine, and from
+   * then on the stock count, the reorder level and the sales history are split between them
+   * with nothing to say so. Duplicates are looked up on the two identifiers that actually
+   * identify — barcode and registration number — and reported as warnings for confirmation
+   * rather than being blocked outright, since a genuine second pack size is a real case too.
+   */
+  async previewReferenceAdd(
+    tenantId: string,
+    referenceProductIds: string[],
+  ): Promise<{
+    items: Array<{
+      referenceProductId: string;
+      name: string;
+      allowed: boolean;
+      needsReview: boolean;
+      reason: string | null;
+      warnings: string[];
+    }>;
+    addable: number;
+    needsReview: number;
+    blocked: number;
+  }> {
+    const ids = [...new Set(referenceProductIds)].slice(0, BULK_PRODUCT_MATCH_LIMIT);
+    if (ids.length === 0) return { items: [], addable: 0, needsReview: 0, blocked: 0 };
+
+    const rows = await this.prisma.product.findMany({
+      where: { tenantId, id: { in: ids } },
+      select: {
+        id: true,
+        name: true,
+        source: true,
+        rangeStatus: true,
+        barcode: true,
+        registrationNo: true,
+        isControlled: true,
+        requiresPrescription: true,
+        claimedBy: { select: { id: true } },
+      },
+    });
+
+    const barcodes = rows.map((r) => r.barcode).filter((v): v is string => Boolean(v?.trim()));
+    const registrations = rows
+      .map((r) => r.registrationNo)
+      .filter((v): v is string => Boolean(v?.trim()));
+
+    // One query for the whole selection rather than two per row.
+    const existing =
+      barcodes.length || registrations.length
+        ? await this.prisma.product.findMany({
+            where: {
+              tenantId,
+              rangeStatus: "RANGED",
+              OR: [
+                ...(barcodes.length ? [{ barcode: { in: barcodes } }] : []),
+                ...(registrations.length ? [{ registrationNo: { in: registrations } }] : []),
+              ],
+            },
+            select: {
+              id: true,
+              name: true,
+              barcode: true,
+              registrationNo: true,
+              isControlled: true,
+              requiresPrescription: true,
+            },
+          })
+        : [];
+
+    const byBarcode = new Map<string, (typeof existing)[number][]>();
+    const byRegistration = new Map<string, (typeof existing)[number][]>();
+    for (const row of existing) {
+      if (row.barcode) byBarcode.set(row.barcode, [...(byBarcode.get(row.barcode) ?? []), row]);
+      if (row.registrationNo) {
+        byRegistration.set(row.registrationNo, [
+          ...(byRegistration.get(row.registrationNo) ?? []),
+          row,
+        ]);
+      }
+    }
+
+    const items = rows.map((row) => {
+      const dupRows = [
+        ...(row.barcode ? (byBarcode.get(row.barcode) ?? []) : []).map((d) => ({
+          d,
+          matchedOn: "barcode" as const,
+        })),
+        ...(row.registrationNo ? (byRegistration.get(row.registrationNo) ?? []) : []).map((d) => ({
+          d,
+          matchedOn: "registrationNo" as const,
+        })),
+      ];
+      const seen = new Set<string>();
+      const duplicates = dupRows.filter(({ d }) => {
+        if (seen.has(d.id)) return false;
+        seen.add(d.id);
+        return true;
+      });
+
+      const decision = decideReferencePromotion({
+        referenceProductId: row.id,
+        name: row.name,
+        rangeStatus: row.rangeStatus,
+        source: row.source,
+        claimedByProductId: row.claimedBy?.id ?? null,
+        duplicateCandidates: duplicates.map(({ d, matchedOn }) => ({
+          id: d.id,
+          name: d.name,
+          matchedOn,
+        })),
+        complianceChange: duplicates.some(
+          ({ d }) =>
+            d.isControlled !== row.isControlled ||
+            d.requiresPrescription !== row.requiresPrescription,
+        ),
+      });
+
+      return { referenceProductId: row.id, name: row.name, ...decision };
+    });
+
+    return {
+      items,
+      addable: items.filter((i) => i.allowed).length,
+      needsReview: items.filter((i) => i.allowed && i.needsReview).length,
+      blocked: items.filter((i) => !i.allowed).length,
+    };
+  }
+
+  /**
+   * Promote NMRA reference rows into the pharmacy's range.
+   *
+   * `acknowledgeWarnings` is the operator saying "yes, I saw the duplicate warning" — without
+   * it, anything the preview flagged is held back rather than added, so the review is not
+   * something the UI can forget to show.
+   */
+  async addReferenceProducts(
+    tenantId: string,
+    userId: string,
+    referenceProductIds: string[],
+    opts: { acknowledgeWarnings?: boolean } = {},
+  ): Promise<{
+    added: string[];
+    held: Array<{ referenceProductId: string; name: string; reason: string }>;
+  }> {
+    const preview = await this.previewReferenceAdd(tenantId, referenceProductIds);
+
+    const toAdd: string[] = [];
+    const held: Array<{ referenceProductId: string; name: string; reason: string }> = [];
+    for (const item of preview.items) {
+      if (!item.allowed) {
+        held.push({
+          referenceProductId: item.referenceProductId,
+          name: item.name,
+          reason: item.reason ?? "Cannot be added.",
+        });
+        continue;
+      }
+      if (item.needsReview && !opts.acknowledgeWarnings) {
+        held.push({
+          referenceProductId: item.referenceProductId,
+          name: item.name,
+          reason: item.warnings.join(" "),
+        });
+        continue;
+      }
+      toAdd.push(item.referenceProductId);
+    }
+
+    if (toAdd.length > 0) {
+      await this.prisma.product.updateMany({
+        // `rangeStatus: REFERENCE` in the filter is the last line of defence against a race:
+        // two operators adding the same row concurrently, where the second must be a no-op
+        // rather than a second `rangedAt` stamp.
+        where: { tenantId, id: { in: toAdd }, rangeStatus: "REFERENCE" },
+        data: { rangeStatus: "RANGED", rangedAt: new Date() },
+      });
+      await this.audit.log({
+        tenantId,
+        actorUserId: userId,
+        eventName: "products.reference_added",
+        entityName: "product",
+        entityId: tenantId,
+        payload: { count: toAdd.length, productIds: toAdd.slice(0, 100), held: held.length },
+      });
+    }
+
+    return { added: toAdd, held };
   }
 
   /** The tenant's Unclassified Medicines id — the floor every product falls back to. */
