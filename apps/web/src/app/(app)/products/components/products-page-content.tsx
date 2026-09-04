@@ -72,6 +72,7 @@ import {
   type BulkTarget,
 } from "../hooks/use-product-bulk-actions";
 import { BulkOrganiseModal, type BulkOrganiseMode } from "./bulk-organise-modal";
+import { CatalogTabs } from "./catalog-tabs";
 import { buildProductFilterParams, useProductsList } from "../hooks/use-products-list";
 import { useProductsUrlState } from "../hooks/use-products-url-state";
 import { ConfirmDialog } from "./confirm-dialog";
@@ -496,17 +497,9 @@ export function ProductsPageContent() {
         }
         actions={
           canWrite ? (
-            <>
-              <ActionButton
-                variant="secondary"
-                onClick={() => router.push("/settings/catalog/categories")}
-              >
-                Manage categories &amp; tags
-              </ActionButton>
-              <ActionButton icon={<IconPlus size={16} />} onClick={mutations.openCreate}>
-                Add Product
-              </ActionButton>
-            </>
+            <ActionButton icon={<IconPlus size={16} />} onClick={mutations.openCreate}>
+              Add Product
+            </ActionButton>
           ) : undefined
         }
       />
@@ -543,41 +536,12 @@ export function ProductsPageContent() {
           </div>
         )}
 
-        <div className={css.scopeTabs} role="tablist" aria-label="Product catalog view">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={scope === "mine"}
-            className={`${css.scopeTab}${scope === "mine" ? ` ${css.scopeTabActive}` : ""}`}
-            onClick={() => changeScope("mine")}
-          >
-            <IconPackage size={15} />
-            My products
-            {list.rangedCount != null && (
-              <span className={css.scopeTabCount}>
-                {list.rangedCount.toLocaleString()}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={scope === "reference"}
-            className={`${css.scopeTab}${
-              scope === "reference" ? ` ${css.scopeTabActive}` : ""
-            }`}
-            onClick={() => changeScope("reference")}
-            data-tooltip="Medicines imported from the NMRA register that you don't stock yet"
-          >
-            <IconArchive size={15} />
-            Reference catalog
-            {list.referenceCount != null && (
-              <span className={css.scopeTabCount}>
-                {list.referenceCount.toLocaleString()}
-              </span>
-            )}
-          </button>
-        </div>
+        <CatalogTabs
+          active={scope === "reference" ? "reference" : "mine"}
+          onScopeChange={changeScope}
+          rangedCount={list.rangedCount}
+          referenceCount={list.referenceCount}
+        />
 
         <div className={css.statsSection}>
           {/* The reference tab drops the tiles that can't apply to a lookup-only record —
@@ -1040,7 +1004,7 @@ export function ProductsPageContent() {
         onCreateCategory={canWrite ? metaMutations.createCategory : undefined}
         onCreateTag={canWrite ? metaMutations.createTag : undefined}
         onManageMeta={() =>
-          window.open("/settings/catalog/categories", "_blank", "noopener,noreferrer")
+          window.open("/products/categories", "_blank", "noopener,noreferrer")
         }
         onAliasesChanged={
           mutations.editingProduct

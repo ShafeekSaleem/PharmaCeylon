@@ -616,14 +616,24 @@ export class NmraImportService {
   ): Promise<number> {
     const tagIdByName = new Map<string, string>();
     for (const t of NMRA_TAG_DEFS) {
-      const existing = await this.prisma.productTag.findFirst({
-        where: { tenantId, name: t.name },
-      });
+      // Match on canonicalKey first: a tag created before the key existed is found by name and
+      // adopted, so an existing tenant's tags are locked rather than duplicated.
+      const existing =
+        (await this.prisma.productTag.findFirst({
+          where: { tenantId, canonicalKey: t.canonicalKey },
+        })) ??
+        (await this.prisma.productTag.findFirst({ where: { tenantId, name: t.name } }));
       if (existing) {
+        if (!existing.isSystem || existing.canonicalKey !== t.canonicalKey) {
+          await this.prisma.productTag.updateMany({
+            where: { id: existing.id, tenantId },
+            data: { isSystem: true, canonicalKey: t.canonicalKey },
+          });
+        }
         tagIdByName.set(t.name, existing.id);
       } else {
         const created = await this.prisma.productTag.create({
-          data: { tenantId, name: t.name },
+          data: { tenantId, name: t.name, canonicalKey: t.canonicalKey, isSystem: true },
         });
         tagIdByName.set(t.name, created.id);
       }

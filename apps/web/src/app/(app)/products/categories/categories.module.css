@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  /* Clearance for the floating New Sale button over the last row's controls. */
+  padding-bottom: 3.5rem;
 }
 
 .hint {
@@ -194,9 +196,15 @@
 }
 
 .count {
-  font-size: 0.74rem;
-  color: var(--pc-muted-fg);
+  font-size: 0.76rem;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.countMuted {
+  color: var(--pc-muted-fg);
+  font-weight: 400;
 }
 
 .chip {
@@ -260,4 +268,103 @@
 .dialogHint {
   font-size: 0.78rem;
   color: var(--pc-muted-fg);
+}
+
+/* ── Row overflow menu ─────────────────────────────────────────────────── */
+
+.menuWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 0.25rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  box-shadow: var(--pc-shadow-md, 0 8px 24px -10px rgba(0, 0, 0, 0.25));
+}
+
+.menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.42rem 0.6rem;
+  border: none;
+  border-radius: var(--pc-radius-sm);
+  background: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  color: var(--pc-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu button:hover {
+  background: var(--pc-hover-overlay);
+}
+
+.menu button:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
+}
+
+.menuItemDanger {
+  color: var(--pc-alert-error-text);
+}
+
+.menuItemDanger:hover {
+  background: var(--pc-alert-error-bg);
+}
+
+.menuItemHint {
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+  line-height: 1.35;
+}
+
+/* ── Tag groups ────────────────────────────────────────────────────────── */
+
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0.1rem;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+}
+
+.groupNote {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+}
+
+.lockedChip {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  white-space: nowrap;
+}
+
+/* Keeps the counts in one column when a row has no actions (locked tags). */
+.rowActionsSpacer {
+  flex: 0 0 auto;
+  width: 3.7rem;
 }

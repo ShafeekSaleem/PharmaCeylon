@@ -238,7 +238,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
         onCreateCategory={canWrite ? metaMutations.createCategory : undefined}
         onCreateTag={canWrite ? metaMutations.createTag : undefined}
         onManageMeta={() =>
-          window.open("/settings/catalog/categories", "_blank", "noopener,noreferrer")
+          window.open("/products/categories", "_blank", "noopener,noreferrer")
         }
         onAliasesChanged={
           mutations.editingProduct

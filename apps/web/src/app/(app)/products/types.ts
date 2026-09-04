@@ -14,7 +14,14 @@ export type ProductCategory = {
 export type ProductTag = {
   id: string;
   name: string;
+  /** Applied by the NMRA import and re-applied on every refresh — not renameable or deletable. */
+  isSystem?: boolean;
+  canonicalKey?: string | null;
   productCount?: number;
+  /** Products the pharmacy sells carrying this tag — the headline number. */
+  rangedCount?: number;
+  /** Reference-catalog rows carrying it. Context beside the ranged count. */
+  referenceCount?: number;
 };
 
 export type ProductAlias = {
