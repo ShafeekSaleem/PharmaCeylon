@@ -55,8 +55,15 @@ describe("SetupReadinessService", () => {
       },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    // Catalog coverage sits in the optional block and never gates readiness — stubbed so
+    // these tests stay about the journey's required tasks.
+    const organize = {
+      coverage: jest
+        .fn()
+        .mockResolvedValue({ ranged: 0, categorized: 0, unplaced: 0, percent: 100 }),
+    };
     return {
-      service: new SetupReadinessService(prisma as never, audit as never),
+      service: new SetupReadinessService(prisma as never, audit as never, organize as never),
       prisma,
       audit,
     };
@@ -159,8 +166,15 @@ describe("SetupReadinessService — setupMode routes the journey", () => {
       batch: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    // Catalog coverage sits in the optional block and never gates readiness — stubbed so
+    // these tests stay about the journey's required tasks.
+    const organize = {
+      coverage: jest
+        .fn()
+        .mockResolvedValue({ ranged: 0, categorized: 0, unplaced: 0, percent: 100 }),
+    };
     return {
-      service: new SetupReadinessService(prisma as never, audit as never),
+      service: new SetupReadinessService(prisma as never, audit as never, organize as never),
       prisma,
     };
   }
@@ -274,7 +288,14 @@ describe("SetupReadinessService — opening stock is confirmed, not inferred", (
       },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
-    return new SetupReadinessService(prisma as never, audit as never);
+    // Catalog coverage sits in the optional block and never gates readiness — stubbed so
+    // these tests stay about the journey's required tasks.
+    const organize = {
+      coverage: jest
+        .fn()
+        .mockResolvedValue({ ranged: 0, categorized: 0, unplaced: 0, percent: 100 }),
+    };
+    return new SetupReadinessService(prisma as never, audit as never, organize as never);
   }
 
   it("stays incomplete while stock is posted but unconfirmed", async () => {

@@ -25,7 +25,18 @@ export type SetupReadiness = {
     /** The values behind a confirm-style step, so the decision is made against something. */
     facts?: Array<{ label: string; value: string; ok?: boolean }>;
   }>;
-  optional: { teamInvited: boolean; logoAdded: boolean };
+  optional: {
+    teamInvited: boolean;
+    logoAdded: boolean;
+    /** Catalog organisation is shown, never gated on — see the API's SetupReadiness. */
+    catalogOrganized: boolean;
+    catalogCoverage: {
+      ranged: number;
+      categorized: number;
+      unplaced: number;
+      percent: number;
+    };
+  };
   nextTask: ReadinessTaskKey | null;
 };
 

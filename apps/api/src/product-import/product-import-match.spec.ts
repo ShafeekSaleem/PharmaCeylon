@@ -1,7 +1,9 @@
 import {
   CatalogIndex,
+  innHead,
   needsComplianceConfirmation,
   normalizeName,
+  rankedCandidateNeedsComplianceConfirmation,
   type MatchCandidate,
 } from "./product-import-match";
 
@@ -14,6 +16,7 @@ function candidate(partial: Partial<MatchCandidate> = {}): MatchCandidate {
     genericName: "PARACETAMOL",
     strength: "500MG",
     dosageForm: "TABLET",
+    brandName: null,
     isControlled: false,
     requiresPrescription: false,
     ...partial,
@@ -156,6 +159,151 @@ describe("product import — compliance confirmation", () => {
   it("lets an ordinary fuzzy match through — only compliance flags need confirming", () => {
     expect(
       needsComplianceConfirmation({ candidate: candidate(), confidence: "fuzzy" }),
+    ).toBe(false);
+  });
+});
+
+// Fixtures sampled from the real Sri Lankan NMRA register (see F5 in the plan) — the register's
+// genericName is a full monograph title, not an INN.
+describe("innHead — extracting the substance name from a monograph title", () => {
+  it("strips the dosage form and pharmacopoeia standard, real register samples", () => {
+    expect(innHead("SITAGLIPTIN TABLETS BP 100MG")).toBe("sitagliptin");
+    expect(innHead("PARACETAMOL TABLETS BP 500MG")).toBe("paracetamol");
+    expect(innHead("ALPRAZOLAM TABLETS USP 0.25MG")).toBe("alprazolam");
+    expect(innHead("DOMPERIDONE TABLETS BP 10MG")).toBe("domperidone");
+    expect(innHead("CLOTRIMAZOLE CREAM USP 1% W/W")).toBe("clotrimazole");
+  });
+
+  it("keeps a combination product's full name — that IS the substance name", () => {
+    expect(innHead("PARACETAMOL AND CAFFEINE TABLETS BP")).toBe("paracetamol and caffeine");
+  });
+
+  it("meets a shop's plain generic name once the monograph tail is stripped", () => {
+    expect(innHead("PARACETAMOL TABLETS BP 500MG")).toBe(innHead("Paracetamol"));
+  });
+
+  it("returns empty for a blank or missing generic name", () => {
+    expect(innHead(null)).toBe("");
+    expect(innHead("")).toBe("");
+  });
+
+  // Known-bad case, pinned rather than hidden: a salt suffix (sulphate, hydrochloride, …) is
+  // not a dosage form or pharmacopoeia word, so the naive rule leaves it in the head. That
+  // means "Salbutamol Sulphate Tablets BP" still won't meet a shop's plain "Salbutamol" — a
+  // real gap. Stripping salts safely (without also eating real generic names that end the
+  // same way) is follow-up work, not attempted by this tier.
+  it("does not strip a salt suffix — known gap, not a silent success", () => {
+    expect(innHead("SALBUTAMOL SULPHATE TABLETS BP 4MG")).toBe("salbutamol sulphate");
+    expect(innHead("SALBUTAMOL SULPHATE TABLETS BP 4MG")).not.toBe(innHead("Salbutamol"));
+  });
+});
+
+describe("CatalogIndex.rankedCandidates", () => {
+  it("surfaces every registered brand of the same INN, ranked, not a unique pick", () => {
+    // The F5 acceptance scenario: a shop's "Panadol 500mg Tablet" (genericName filled in as
+    // plain "Paracetamol") against a register carrying several differently-branded
+    // paracetamol 500mg tablets, none of which share the shop's exact or normalized name.
+    const index = new CatalogIndex([
+      candidate({ id: "panadol-reg", name: "PARACETAMOL TABLETS BP 500MG", brandName: "Panadol" }),
+      candidate({ id: "calpol-reg", name: "PARACETAMOL TABLETS BP 500MG", brandName: "Calpol" }),
+      candidate({ id: "unrelated", genericName: "IBUPROFEN", name: "IBUPROFEN TABLETS BP 400MG" }),
+    ]);
+
+    const ranked = index.rankedCandidates({
+      name: "Panadol 500mg Tablet",
+      barcode: null,
+      registrationNo: null,
+      genericName: "Paracetamol",
+      strength: "500mg",
+      dosageForm: "Tablet",
+    });
+
+    const ids = ranked.map((r) => r.candidate.id);
+    expect(ids).toContain("panadol-reg");
+    expect(ids).toContain("calpol-reg");
+    expect(ids).not.toContain("unrelated");
+    // Both paracetamol candidates arrive via the clinical-key tier (generic+strength+form all
+    // match) before the INN-head tier ever needs to fire for this row.
+    expect(ranked.every((r) => r.evidence === "fuzzy")).toBe(true);
+  });
+
+  it("reaches a match the unique-hit cascade can't, via the INN-head tier alone", () => {
+    // Strength differs (500mg shop vs 650mg register), so neither the exact/normalized name
+    // nor the clinical-key tier fires — only INN-head, matching on the substance alone.
+    const index = new CatalogIndex([
+      candidate({ id: "reg-650", name: "PARACETAMOL TABLETS BP 650MG", strength: "650MG" }),
+    ]);
+
+    expect(
+      index.match({
+        name: "Panadol 500mg Tablet",
+        barcode: null,
+        registrationNo: null,
+        genericName: "Paracetamol",
+        strength: "500mg",
+        dosageForm: "Tablet",
+      }),
+    ).toBeNull();
+
+    const ranked = index.rankedCandidates({
+      name: "Panadol 500mg Tablet",
+      barcode: null,
+      registrationNo: null,
+      genericName: "Paracetamol",
+      strength: "500mg",
+      dosageForm: "Tablet",
+    });
+    expect(ranked).toEqual([{ candidate: expect.objectContaining({ id: "reg-650" }), evidence: "inn_head" }]);
+  });
+
+  it("keeps a candidate's strongest evidence when more than one tier would find it", () => {
+    const index = new CatalogIndex([candidate({ id: "only" })]);
+    const ranked = index.rankedCandidates({
+      name: candidate().name,
+      barcode: null,
+      registrationNo: null,
+      genericName: "PARACETAMOL",
+      strength: "500MG",
+      dosageForm: "TABLET",
+    });
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0].evidence).toBe("name");
+  });
+
+  it("caps the result at `take`", () => {
+    const index = new CatalogIndex(
+      Array.from({ length: 30 }, (_, i) => candidate({ id: `p${i}` })),
+    );
+    expect(index.rankedCandidates(candidate(), 5)).toHaveLength(5);
+  });
+});
+
+describe("rankedCandidateNeedsComplianceConfirmation", () => {
+  it("trusts exact evidence even for a controlled, prescription product", () => {
+    for (const evidence of ["barcode", "registration", "name"] as const) {
+      expect(
+        rankedCandidateNeedsComplianceConfirmation({
+          candidate: candidate({ isControlled: true, requiresPrescription: true }),
+          evidence,
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it("holds weaker evidence — normalized, fuzzy, or INN-head — when it would change a compliance flag", () => {
+    for (const evidence of ["normalized", "fuzzy", "inn_head"] as const) {
+      expect(
+        rankedCandidateNeedsComplianceConfirmation({
+          candidate: candidate({ isControlled: true }),
+          evidence,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("lets weak evidence through when nothing compliance-related would change", () => {
+    expect(
+      rankedCandidateNeedsComplianceConfirmation({ candidate: candidate(), evidence: "inn_head" }),
     ).toBe(false);
   });
 });

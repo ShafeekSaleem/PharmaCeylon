@@ -975,6 +975,7 @@ export class ProductImportService {
         genericName: true,
         strength: true,
         dosageForm: true,
+        brandName: true,
         isControlled: true,
         requiresPrescription: true,
       },

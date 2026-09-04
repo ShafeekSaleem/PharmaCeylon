@@ -208,6 +208,11 @@ export async function buildProductWhere(
 
   const where: Prisma.ProductWhereInput = {
     tenantId,
+    // A reference row absorbed into a shop's own product via an NMRA link is no longer a
+    // separate thing to find — it stays in the database (a later register refresh still has
+    // somewhere to land), but every listing that shares this filter hides it. Harmless on a
+    // RANGED product: nothing ever points a `nmraReferenceId` at one.
+    claimedBy: null,
     ...(exclude !== "status"
       ? resolveStatusFilter(statusValues, query.status)
       : {}),

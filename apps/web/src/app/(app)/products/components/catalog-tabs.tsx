@@ -1,10 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { IconArchive, IconGrid, IconPackage, IconTag } from "@/components/icons";
+import {
+  IconArchive,
+  IconClipboardList,
+  IconGrid,
+  IconPackage,
+  IconRefresh,
+  IconTag,
+} from "@/components/icons";
 import css from "../products.module.css";
 
-export type CatalogTab = "mine" | "reference" | "categories" | "tags";
+export type CatalogTab =
+  | "mine"
+  | "reference"
+  | "categories"
+  | "tags"
+  | "organize"
+  | "nmra-matches";
 
 type Props = {
   active: CatalogTab;
@@ -19,8 +32,9 @@ type Props = {
 };
 
 /**
- * The catalog's four views in one row: the two product scopes, plus the category and tag
- * screens that used to live three clicks deep in Settings.
+ * The catalog's six views in one row: the two product scopes, the category and tag screens
+ * that used to live three clicks deep in Settings, the organize worklist, and the register
+ * match worklist.
  *
  * They belong together because they are all the same subject — what this pharmacy sells and
  * how it is organised — and putting the management screens here gets them out of the Settings
@@ -70,6 +84,26 @@ export function CatalogTabs({
       >
         <IconTag size={15} />
         Tags
+      </Link>
+      <Link
+        role="tab"
+        aria-selected={active === "organize"}
+        href="/products/organize"
+        className={`${css.scopeTab}${active === "organize" ? ` ${css.scopeTabActive}` : ""}`}
+        data-tooltip="Products you sell that aren't filed under a category yet"
+      >
+        <IconClipboardList size={15} />
+        Organize
+      </Link>
+      <Link
+        role="tab"
+        aria-selected={active === "nmra-matches"}
+        href="/products/nmra-matches"
+        className={`${css.scopeTab}${active === "nmra-matches" ? ` ${css.scopeTabActive}` : ""}`}
+        data-tooltip="Products that could pick up a registration number from the NMRA register"
+      >
+        <IconRefresh size={15} />
+        Register matches
       </Link>
     </div>
   );

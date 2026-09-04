@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { AuditService } from "../audit/audit.service";
+import { ProductOrganizeService } from "../products/product-organize.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 export type ReadinessTaskKey =
@@ -45,6 +46,13 @@ export type SetupReadiness = {
   optional: {
     teamInvited: boolean;
     logoAdded: boolean;
+    /**
+     * Catalog organisation is optional, not a gate: a shop can sell perfectly well with
+     * everything in Unclassified, so blocking "ready for sales" on merchandising taxonomy
+     * would be wrong. It sits here so the coverage figure is at least visible.
+     */
+    catalogOrganized: boolean;
+    catalogCoverage: { ranged: number; categorized: number; unplaced: number; percent: number };
   };
   nextTask: ReadinessTaskKey | null;
 };
@@ -61,6 +69,7 @@ export class SetupReadinessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly organize: ProductOrganizeService,
   ) {}
 
   async get(tenantId: string, branchId: string): Promise<SetupReadiness> {
@@ -295,6 +304,9 @@ export class SetupReadinessService {
       },
     ];
 
+    // Optional, so it is computed after the gating tasks and never affects readyForSales.
+    const catalogCoverage = await this.organize.coverage(tenantId);
+
     const completedCount = tasks.filter((task) => task.complete).length;
     const readyForSales = completedCount === tasks.length;
     if (readyForSales && !branch.setupCompletedAt) {
@@ -325,6 +337,8 @@ export class SetupReadinessService {
       optional: {
         teamInvited: team.length > 1,
         logoAdded: Boolean(branch.tenant.logoUrl),
+        catalogOrganized: catalogCoverage.unplaced === 0,
+        catalogCoverage,
       },
       nextTask:
         tasks.find((task) => !task.complete && task.available)?.key ?? null,

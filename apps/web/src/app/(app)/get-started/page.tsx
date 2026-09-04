@@ -9,6 +9,7 @@ import {
   IconCheck,
   IconCheckCircle,
   IconChevronRight,
+  IconGrid,
   IconHome,
   IconPackage,
   IconSettings,
@@ -328,6 +329,27 @@ export default function GetStartedPage() {
               <em>{data.optional.logoAdded ? "Done" : "Upload"}</em>
               <IconChevronRight size={15} />
             </Link>
+            {data.optional.catalogCoverage.ranged > 0 ? (
+              <Link href="/products/organize">
+                <span className={css.optionalIcon}>
+                  <IconGrid size={21} />
+                </span>
+                <p>
+                  <strong>Organize your catalog</strong>
+                  <small>
+                    {data.optional.catalogOrganized
+                      ? "Everything you sell is filed under a category."
+                      : `${data.optional.catalogCoverage.unplaced.toLocaleString()} of ${data.optional.catalogCoverage.ranged.toLocaleString()} products still need a category.`}
+                  </small>
+                </p>
+                <em>
+                  {data.optional.catalogOrganized
+                    ? "Done"
+                    : `${data.optional.catalogCoverage.percent}%`}
+                </em>
+                <IconChevronRight size={15} />
+              </Link>
+            ) : null}
           </section>
         </aside>
       </div>

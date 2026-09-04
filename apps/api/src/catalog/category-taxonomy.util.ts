@@ -379,7 +379,9 @@ export class CategoryTaxonomyOps {
       },
       select: {
         productId: true,
-        product: { select: { genericName: true, name: true, dosageForm: true } },
+        product: {
+          select: { genericName: true, name: true, dosageForm: true, brandName: true },
+        },
       },
     });
 
@@ -392,7 +394,12 @@ export class CategoryTaxonomyOps {
     >();
     let stillUnclassified = 0;
     for (const row of candidates) {
-      const result = classifyMedicine(row.product.genericName, row.product.name, row.product.dosageForm);
+      const result = classifyMedicine(
+        row.product.genericName,
+        row.product.name,
+        row.product.dosageForm,
+        row.product.brandName,
+      );
       if (!result) {
         stillUnclassified += 1;
         continue;

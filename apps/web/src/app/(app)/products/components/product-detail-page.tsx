@@ -218,6 +218,8 @@ export function ProductDetailPage({ productId }: { productId: string }) {
             detail={detail}
             product={product}
             productId={productId}
+            canWrite={canWrite}
+            onProductChanged={() => void reloadDetail()}
           />
         </div>
       </div>

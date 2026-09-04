@@ -87,6 +87,8 @@ export type Product = {
   rangedAt: string | null;
   /** NMRA registration currency — import-owned, only set for source = NMRA. */
   nmraRegistrationValid?: boolean | null;
+  /** The NMRA reference-catalog product this one has been linked to, if any. */
+  nmraReferenceId?: string | null;
   createdAt: string;
   updatedAt: string;
   categories?: ProductCategory[];
