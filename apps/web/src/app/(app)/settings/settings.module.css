@@ -46,7 +46,14 @@
   width: 240px;
   flex-shrink: 0;
   position: sticky;
-  top: 56px;
+  /* The app shell's top bar (56px) sits outside the scrolling <main> this lives in, so <main>'s
+     own content already starts below it — a sticky `top` here only needs to clear the *next*
+     thing scrolling past, which is nothing. `top: 56px` double-counted the header height,
+     forcing the rail to rest 56px below its "Organization-wide"/"Personal" scope-pill sibling
+     instead of starting flush with it; `top: 0` still keeps it pinned under the header once
+     scrolled (<main>'s own top already accounts for that), it just stops adding a second gap
+     at rest. */
+  top: 0;
   max-height: calc(100vh - 56px - 1.5rem);
   overflow-y: auto;
   background: var(--pc-card-bg);

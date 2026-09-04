@@ -232,6 +232,10 @@ enum CategoryAssignmentSource {
   MANUAL
   AUTO_CLASSIFIED
   SYSTEM_DEFAULT
+  /// Adopted wholesale from a reference row's own regulatory/commercial categories when a
+  /// shop product was linked to it — distinct from NMRA_IMPORT, which is the register file
+  /// itself, not a deliberate per-product link action.
+  NMRA_LINK
 }
 
 /// Where a Product's catalog record originated. NMRA-specific fields (schedule, regType,
@@ -910,6 +914,11 @@ model Product {
   /// while nothing has been sold against it. Plain column rather than a relation, matching
   /// StockLedger.referenceId — it is a provenance stamp, not a dependency.
   importId             String?   @map("import_id") @db.Uuid
+  /// The REFERENCE (registry) product this one has been linked to, absorbing its registration
+  /// number, schedule and compliance flags. Unique per tenant — a register row can be claimed
+  /// by at most one shop product. Self-relation rather than a lookup on `ProductNmraLink` so
+  /// Search Catalog can hide a claimed reference row with a plain `claimedBy: null` filter.
+  nmraReferenceId      String?   @unique @map("nmra_reference_id") @db.Uuid
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -927,6 +936,11 @@ model Product {
   categoryMaps           ProductCategoryMap[]
   similarities           ProductSimilarity[]     @relation("ProductSimilarityProduct")
   similarTo              ProductSimilarity[]     @relation("ProductSimilaritySimilar")
+  /// The reference row this product claims, if any.
+  nmraReference          Product?                @relation("ProductNmraReference", fields: [nmraReferenceId], references: [id], onDelete: SetNull)
+  /// The shop product that has claimed this row, if this row is a claimed reference product.
+  claimedBy              Product?                @relation("ProductNmraReference")
+  nmraLink               ProductNmraLink?
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -940,6 +954,30 @@ model Product {
   @@index([tenantId, schedule])
   @@index([tenantId, source])
   @@map("product")
+}
+
+/// Records a link between a shop's own product and an NMRA reference row it absorbed fields
+/// from — the adopted field values and what they replaced, so unlinking is exact rather than a
+/// best guess. One row per linked product (the reference row's id lives on `Product.nmraReferenceId`,
+/// this table is the undo record, not the second copy of the pointer).
+model ProductNmraLink {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  productId          String   @unique @map("product_id") @db.Uuid
+  referenceProductId String   @map("reference_product_id") @db.Uuid
+  /// Field keys actually changed by the link (for the audit trail and undo UI — not needed to
+  /// perform the restore itself, `previousValues` already carries every value verbatim).
+  adoptedFields      Json     @map("adopted_fields")
+  /// Every value the link overwrote, plus the aliases/category maps/tags it added — enough to
+  /// put the product back exactly as it was, compliance flags included.
+  previousValues     Json     @map("previous_values")
+  linkedByUserId     String?  @map("linked_by_user_id") @db.Uuid
+  linkedAt           DateTime @default(now()) @map("linked_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, referenceProductId])
+  @@map("product_nmra_link")
 }
 
 model ProductCategory {
@@ -983,11 +1021,20 @@ model ProductTag {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
   name      String
+  /// True for the tags the NMRA importer derives and re-applies on every refresh. They can't
+  /// be renamed or deleted: one click used to drop thousands of assignments the importer owns
+  /// and would only partly rebuild.
+  isSystem  Boolean  @default(false) @map("is_system")
+  /// Stable identity for a system tag, so a display-name change never orphans it. Null for
+  /// tenant-created tags.
+  canonicalKey String? @map("canonical_key")
   createdAt DateTime @default(now()) @map("created_at")
 
   tagMaps ProductTagMap[]
 
   @@unique([tenantId, name])
+  @@unique([tenantId, canonicalKey])
+  @@index([tenantId, isSystem])
   @@map("product_tag")
 }
 

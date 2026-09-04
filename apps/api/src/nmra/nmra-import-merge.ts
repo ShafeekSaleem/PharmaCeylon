@@ -96,26 +96,54 @@ export function buildNmraMutableFields(
   return base;
 }
 
+/**
+ * The tags the importer derives and re-applies on every refresh. `canonicalKey` is their stable
+ * identity — they are created with `isSystem: true` so the Tags screen can't rename or delete
+ * them out from under the next import.
+ */
 export const NMRA_TAG_DEFS: Array<{
   name: string;
+  canonicalKey: string;
   pred: (p: NmraProductRow) => boolean;
 }> = [
-  { name: "NMRA registered", pred: () => true },
+  { name: "NMRA registered", canonicalKey: "NMRA_REGISTERED", pred: () => true },
   {
     name: "Unbranded",
+    canonicalKey: "NMRA_UNBRANDED",
     pred: (p) => p.isUnbranded || p.brandName === UNBRANDED_BRAND_LABEL,
   },
   {
     name: "SPC / state supply",
+    canonicalKey: "NMRA_SPC_SUPPLY",
     pred: (p) => looksLikeSpcAgent(p.localAgent, p.manufacturer),
   },
-  { name: "Grocery / Schedule I", pred: (p) => p.schedule === "I" },
-  { name: "Pharmacy OTC / Schedule II A", pred: (p) => p.schedule === "II A" },
-  { name: "Prescription / Schedule II B", pred: (p) => p.schedule === "II B" },
-  { name: "Controlled Rx / Schedule II C", pred: (p) => p.schedule === "II C" },
-  { name: "Narcotic / Schedule III (Osusala)", pred: (p) => p.schedule === "III" },
-  { name: "Prescription required", pred: (p) => p.requiresPrescription },
-  { name: "Controlled medicine", pred: (p) => p.isControlled },
+  { name: "Grocery / Schedule I", canonicalKey: "NMRA_SCHEDULE_I", pred: (p) => p.schedule === "I" },
+  {
+    name: "Pharmacy OTC / Schedule II A",
+    canonicalKey: "NMRA_SCHEDULE_IIA",
+    pred: (p) => p.schedule === "II A",
+  },
+  {
+    name: "Prescription / Schedule II B",
+    canonicalKey: "NMRA_SCHEDULE_IIB",
+    pred: (p) => p.schedule === "II B",
+  },
+  {
+    name: "Controlled Rx / Schedule II C",
+    canonicalKey: "NMRA_SCHEDULE_IIC",
+    pred: (p) => p.schedule === "II C",
+  },
+  {
+    name: "Narcotic / Schedule III (Osusala)",
+    canonicalKey: "NMRA_SCHEDULE_III",
+    pred: (p) => p.schedule === "III",
+  },
+  {
+    name: "Prescription required",
+    canonicalKey: "NMRA_PRESCRIPTION_REQUIRED",
+    pred: (p) => p.requiresPrescription,
+  },
+  { name: "Controlled medicine", canonicalKey: "NMRA_CONTROLLED", pred: (p) => p.isControlled },
 ];
 
 /** Tag names that should be linked for this NMRA row (merge-add only). */

@@ -5,12 +5,10 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
-  IconEdit,
-  IconPlus,
-  IconRefresh,
-  IconTrash,
+  IconMoreVertical,
 } from "@/components/icons";
 import { ToggleSwitch } from "@/components/ui";
+import { CategoryRowMenu } from "./category-row-menu";
 import type { CommercialCategoryNode } from "../types";
 import css from "../categories.module.css";
 
@@ -97,7 +95,14 @@ export function CategoryTree({
 
           <div className={css.rowMeta}>
             <span className={css.count}>
-              {node.productCount} product{node.productCount === 1 ? "" : "s"}
+              {node.rangedCount.toLocaleString()} product
+              {node.rangedCount === 1 ? "" : "s"}
+              {node.referenceCount > 0 && (
+                <span className={css.countMuted}>
+                  {" · "}
+                  {node.referenceCount.toLocaleString()} reference
+                </span>
+              )}
             </span>
             {canWrite && (
               <ToggleSwitch
@@ -111,12 +116,14 @@ export function CategoryTree({
 
           {canWrite && (
             <div className={css.rowActions}>
+              {/* Reorder stays as a pair of arrows — it is positional, and burying it in a
+                  menu makes moving one category up three places a twelve-click job. */}
               <div className={css.reorderGroup}>
                 <button
                   type="button"
                   className={css.iconBtn}
                   disabled={idx <= 0 || isBusy}
-                  aria-label="Move up"
+                  aria-label={`Move ${node.name} up`}
                   data-tooltip="Move up"
                   onClick={() => onMove(node, "up", siblings)}
                 >
@@ -126,55 +133,37 @@ export function CategoryTree({
                   type="button"
                   className={css.iconBtn}
                   disabled={idx === -1 || idx >= siblings.length - 1 || isBusy}
-                  aria-label="Move down"
+                  aria-label={`Move ${node.name} down`}
                   data-tooltip="Move down"
                   onClick={() => onMove(node, "down", siblings)}
                 >
                   <IconChevronDown size={13} />
                 </button>
               </div>
-              <button
-                type="button"
-                className={css.iconBtn}
-                aria-label={`Add subcategory under ${node.name}`}
-                data-tooltip="Add subcategory"
-                onClick={() => onRequestAddChild(node)}
-              >
-                <IconPlus size={14} />
-              </button>
-              <button
-                type="button"
-                className={css.iconBtn}
-                aria-label={`Rename ${node.name}`}
-                data-tooltip="Rename"
-                onClick={() => onRequestRename(node)}
-              >
-                <IconEdit size={14} />
-              </button>
-              {node.productCount > 0 && (
-                <button
-                  type="button"
-                  className={css.iconBtn}
-                  aria-label={`Move products out of ${node.name}`}
-                  data-tooltip="Move products"
-                  onClick={() => onMoveProducts(node)}
-                >
-                  <IconRefresh size={14} />
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  type="button"
-                  className={`${css.iconBtn} ${css.iconBtnDanger}`}
-                  aria-label={`Delete ${node.name}`}
-                  data-tooltip={
-                    node.isSystem ? "System category — disable instead of delete" : "Delete"
-                  }
-                  onClick={() => onDelete(node)}
-                >
-                  <IconTrash size={14} />
-                </button>
-              )}
+              {/* Everything else was an unlabeled icon, including two destructive ones. */}
+              <CategoryRowMenu
+                label={node.name}
+                icon={<IconMoreVertical size={15} />}
+                actions={[
+                  { label: "Rename", onClick: () => onRequestRename(node) },
+                  { label: "Add subcategory", onClick: () => onRequestAddChild(node) },
+                  ...(node.productCount > 0
+                    ? [{ label: "Move products out…", onClick: () => onMoveProducts(node) }]
+                    : []),
+                  ...(canDelete
+                    ? [
+                        {
+                          label: "Delete",
+                          danger: true,
+                          onClick: () => onDelete(node),
+                          hint: node.isSystem
+                            ? "Standard categories can be disabled, not deleted"
+                            : undefined,
+                        },
+                      ]
+                    : []),
+                ]}
+              />
             </div>
           )}
         </div>

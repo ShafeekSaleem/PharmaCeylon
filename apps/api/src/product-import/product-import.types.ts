@@ -1,3 +1,12 @@
+import type { ImportCategoryPlan } from "./product-import-category";
+
+export type {
+  CategoryDecision,
+  ImportCategoryChoices,
+  ImportCategoryPlan,
+  ImportCategoryPlanEntry,
+} from "./product-import-category";
+
 /**
  * Every field a customer's product export can be mapped onto.
  *
@@ -86,6 +95,8 @@ export type ImportPreview = {
   /** Batches that would be accepted without a real expiry date. */
   missingExpiry: number;
   matchCounts: Record<MatchConfidence, number>;
+  /** Where each distinct value of the Category column will land, and what needs a decision. */
+  categoryPlan: ImportCategoryPlan;
   issues: ImportRowIssue[];
   pendingCompliance: PendingComplianceMatch[];
   sampleCreates: Array<{ rowNumber: number; name: string; barcode: string | null }>;
@@ -110,6 +121,12 @@ export type ImportResult = {
   rowsFailed: number;
   expiryReviewCount: number;
   issues: ImportRowIssue[];
+  /** Filed under a category the file named. */
+  categorizedFromFile: number;
+  /** Filed by the deterministic keyword classifier, because the file said nothing usable. */
+  categorizedByClassifier: number;
+  /** Left in Unclassified Medicines for someone to place. */
+  leftUnclassified: number;
 };
 
 export type ImportSummary = {

@@ -27,6 +27,7 @@ import {
   historyEventCategory,
 } from "../utils/format";
 import type { ProductNavLink } from "../utils/product-routes";
+import { ProductNmraLinkCard } from "./product-nmra-link-card";
 import { ProductStockBadge } from "./product-stock-badge";
 
 const WORKFLOW_ICONS: Record<string, ReactNode> = {
@@ -47,6 +48,8 @@ type Props = {
   detail: ProductDetail;
   product: Product;
   productId: string;
+  canWrite: boolean;
+  onProductChanged: () => void;
 };
 
 function pricingHistoryItems(history: AuditHistoryItem[]) {
@@ -61,6 +64,8 @@ export function ProductDetailSidebar({
   detail,
   product,
   productId,
+  canWrite,
+  onProductChanged,
 }: Props) {
   const { canAccess } = useRoleAccess();
   const summary = detail.branchSummary;
@@ -180,6 +185,10 @@ export function ProductDetailSidebar({
           })}
         </nav>
       </div>
+
+      {activeTab === "overview" && (
+        <ProductNmraLinkCard product={product} canWrite={canWrite} onChanged={onProductChanged} />
+      )}
 
       {activeTab === "pricing" && (
         <>

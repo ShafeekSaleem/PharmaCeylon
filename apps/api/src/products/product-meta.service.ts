@@ -24,6 +24,11 @@ export type CommercialCategoryTreeNode = {
   isSystem: boolean;
   isActive: boolean;
   sortOrder: number;
+  /** Products the pharmacy actually sells that are filed here — the number that matters. */
+  rangedCount: number;
+  /** Reference-catalog rows filed here. Context, never the headline. */
+  referenceCount: number;
+  /** Both together — the "is anything filed here at all" guard for disable/delete. */
   productCount: number;
   children: CommercialCategoryTreeNode[];
 };
@@ -87,20 +92,32 @@ export class ProductMetaService {
     }));
   }
 
-  /** Full COMMERCIAL Department → Category tree (all rows, active or not) for Settings management. */
+  /**
+   * Full COMMERCIAL Department → Category tree (all rows, active or not).
+   *
+   * Counts are split by range status. "Medicines — 6,577 products" was nine-tenths registry
+   * rows for a pharmacy that ranges 801; the ranged count is what a merchandising decision
+   * rests on, and the reference count is context beside it.
+   */
   async listCommercialTree(tenantId: string) {
-    const [rows, counts] = await Promise.all([
+    const [rows, rangedCounts, referenceCounts] = await Promise.all([
       this.prisma.productCategory.findMany({
         where: { tenantId, dimension: "COMMERCIAL" },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       }),
       this.prisma.productCategoryMap.groupBy({
         by: ["categoryId"],
-        where: { tenantId, dimension: "COMMERCIAL" },
+        where: { tenantId, dimension: "COMMERCIAL", product: { rangeStatus: "RANGED" } },
+        _count: true,
+      }),
+      this.prisma.productCategoryMap.groupBy({
+        by: ["categoryId"],
+        where: { tenantId, dimension: "COMMERCIAL", product: { rangeStatus: "REFERENCE" } },
         _count: true,
       }),
     ]);
-    const countByCategory = new Map(counts.map((c) => [c.categoryId, c._count]));
+    const rangedByCategory = new Map(rangedCounts.map((c) => [c.categoryId, c._count]));
+    const referenceByCategory = new Map(referenceCounts.map((c) => [c.categoryId, c._count]));
     const byParent = new Map<string | null, typeof rows>();
     for (const r of rows) {
       const key = r.parentCategoryId;
@@ -114,8 +131,12 @@ export class ProductMetaService {
     const build = (parentId: string | null): CommercialCategoryTreeNode[] =>
       (byParent.get(parentId) ?? []).map((r) => {
         const children = build(r.id);
-        const ownCount = countByCategory.get(r.id) ?? 0;
-        const childrenTotal = children.reduce((sum, c) => sum + c.productCount, 0);
+        const ownRanged = rangedByCategory.get(r.id) ?? 0;
+        const ownReference = referenceByCategory.get(r.id) ?? 0;
+        const childRanged = children.reduce((sum, c) => sum + c.rangedCount, 0);
+        const childReference = children.reduce((sum, c) => sum + c.referenceCount, 0);
+        const rangedCount = ownRanged + childRanged;
+        const referenceCount = ownReference + childReference;
         return {
           id: r.id,
           name: r.name,
@@ -124,7 +145,11 @@ export class ProductMetaService {
           isSystem: r.isSystem,
           isActive: r.isActive,
           sortOrder: r.sortOrder,
-          productCount: ownCount + childrenTotal,
+          rangedCount,
+          referenceCount,
+          // Kept for callers that only care about "is anything filed here at all" — the
+          // delete guard and the disable warning both read it.
+          productCount: rangedCount + referenceCount,
           children,
         };
       });
@@ -257,16 +282,40 @@ export class ProductMetaService {
     return { ok: true };
   }
 
+  /**
+   * Tags with the counts split by range status. The screen used to report "NMRA registered —
+   * 6,577 products" to a pharmacy that ranges 801: nine in ten of every number described a
+   * registry row, not the shelf. `rangedCount` is the number worth reading; `referenceCount`
+   * is context.
+   */
   async listTags(tenantId: string) {
-    const rows = await this.prisma.productTag.findMany({
-      where: { tenantId },
-      orderBy: { name: "asc" },
-      include: { _count: { select: { tagMaps: true } } },
-    });
+    const [rows, ranged, reference] = await Promise.all([
+      this.prisma.productTag.findMany({
+        where: { tenantId },
+        orderBy: [{ isSystem: "asc" }, { name: "asc" }],
+        include: { _count: { select: { tagMaps: true } } },
+      }),
+      this.prisma.productTagMap.groupBy({
+        by: ["tagId"],
+        where: { tenantId, product: { rangeStatus: "RANGED" } },
+        _count: true,
+      }),
+      this.prisma.productTagMap.groupBy({
+        by: ["tagId"],
+        where: { tenantId, product: { rangeStatus: "REFERENCE" } },
+        _count: true,
+      }),
+    ]);
+    const rangedByTag = new Map(ranged.map((r) => [r.tagId, r._count]));
+    const referenceByTag = new Map(reference.map((r) => [r.tagId, r._count]));
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
+      isSystem: r.isSystem,
+      canonicalKey: r.canonicalKey,
       productCount: r._count.tagMaps,
+      rangedCount: rangedByTag.get(r.id) ?? 0,
+      referenceCount: referenceByTag.get(r.id) ?? 0,
     }));
   }
 
@@ -284,7 +333,12 @@ export class ProductMetaService {
   }
 
   async updateTag(tenantId: string, id: string, dto: { name?: string }) {
-    await this.ensureTag(tenantId, id);
+    const existing = await this.ensureTag(tenantId, id);
+    if (existing.isSystem) {
+      throw new ConflictException(
+        "This tag is applied by the NMRA import and can't be renamed — the next import would put the old name back.",
+      );
+    }
     try {
       return await this.prisma.productTag.update({
         where: { id, tenantId },
@@ -299,7 +353,12 @@ export class ProductMetaService {
   }
 
   async deleteTag(tenantId: string, id: string) {
-    await this.ensureTag(tenantId, id);
+    const existing = await this.ensureTag(tenantId, id);
+    if (existing.isSystem) {
+      throw new ConflictException(
+        "This tag is applied by the NMRA import and can't be deleted — deleting it would drop every assignment the import owns.",
+      );
+    }
     await this.prisma.productTag.delete({ where: { id, tenantId } });
     return { ok: true };
   }

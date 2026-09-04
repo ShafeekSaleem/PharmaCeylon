@@ -1,5 +1,5 @@
 import { apiJson } from "@/lib/auth-client";
-import type { ProductTag } from "../../../products/types";
+import type { ProductTag } from "../types";
 
 export function fetchTags(): Promise<ProductTag[]> {
   return apiJson<ProductTag[]>("/products/tags");

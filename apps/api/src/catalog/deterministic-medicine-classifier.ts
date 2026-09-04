@@ -133,6 +133,113 @@ export const MEDICINE_CLASSIFICATION_RULES: MedicineClassificationRule[] = [
   },
 ];
 
+/**
+ * Retail rules, matched against the product name and brand rather than a generic name.
+ *
+ * A pharmacy's own product list is not all medicines - shampoo, nappies and toothbrushes come
+ * across in the same file, and none of them have a generic name for the rules above to read.
+ * These fire only after every medicine rule has missed, and carry a lower confidence, so a
+ * medicated shampoo is still classified as dermatology first.
+ */
+const RETAIL_CLASSIFICATION_RULES: MedicineClassificationRule[] = [
+  {
+    canonicalKey: "PERSONAL_CARE_ORAL_CARE",
+    keywords: ["TOOTHPASTE", "TOOTHBRUSH", "MOUTHWASH", "DENTAL FLOSS", "TOOTH POWDER"],
+  },
+  {
+    canonicalKey: "PERSONAL_CARE_HAIR_CARE",
+    keywords: ["SHAMPOO", "CONDITIONER", "HAIR OIL", "HAIR DYE", "HAIR CREAM"],
+  },
+  {
+    canonicalKey: "PERSONAL_CARE_BATH_BODY",
+    keywords: ["BODY WASH", "SHOWER GEL", "BATH SOAP", "HAND WASH", "BODY LOTION", "TALC"],
+  },
+  {
+    canonicalKey: "PERSONAL_CARE_FEMININE_CARE",
+    keywords: ["SANITARY NAPKIN", "SANITARY PAD", "PANTY LINER", "TAMPON"],
+  },
+  { canonicalKey: "PERSONAL_CARE_DEODORANTS", keywords: ["DEODORANT", "ANTIPERSPIRANT", "ROLL ON"] },
+  { canonicalKey: "BABY_CARE_DIAPERS", keywords: ["DIAPER", "NAPPY", "NAPPIES", "PANT STYLE"] },
+  {
+    canonicalKey: "BABY_CARE_BABY_FORMULA",
+    keywords: ["INFANT FORMULA", "BABY MILK", "MILK POWDER", "FOLLOW ON FORMULA"],
+  },
+  { canonicalKey: "BABY_CARE_FEEDING", keywords: ["FEEDING BOTTLE", "TEAT", "SOOTHER", "PACIFIER"] },
+  {
+    canonicalKey: "BABY_CARE_BABY_SKIN_CARE",
+    keywords: ["BABY OIL", "BABY LOTION", "BABY CREAM", "BABY POWDER", "BABY WIPES"],
+  },
+  {
+    canonicalKey: "VITAMINS_SUPPLEMENTS_MULTIVITAMINS",
+    keywords: ["MULTIVITAMIN", "MULTI VITAMIN"],
+  },
+  {
+    canonicalKey: "VITAMINS_SUPPLEMENTS_VITAMINS",
+    keywords: ["VITAMIN C", "VITAMIN D", "VITAMIN E", "VITAMIN B", "ASCORBIC ACID", "FOLIC ACID"],
+  },
+  {
+    canonicalKey: "VITAMINS_SUPPLEMENTS_MINERALS",
+    keywords: ["CALCIUM", "IRON SUPPLEMENT", "ZINC SUPPLEMENT", "MAGNESIUM SUPPLEMENT"],
+  },
+  {
+    canonicalKey: "BEAUTY_SKIN_CARE_SUN_CARE",
+    keywords: ["SUNSCREEN", "SUNBLOCK", "SPF 30", "SPF 50", "AFTER SUN"],
+  },
+  {
+    canonicalKey: "BEAUTY_SKIN_CARE_FACE_CARE",
+    keywords: ["FACE WASH", "FACE CREAM", "FACIAL", "MOISTURISER", "MOISTURIZER", "SERUM"],
+  },
+  {
+    canonicalKey: "MEDICAL_DEVICES_BP_MONITORS",
+    keywords: ["BLOOD PRESSURE MONITOR", "BP MONITOR", "SPHYGMOMANOMETER"],
+  },
+  {
+    canonicalKey: "MEDICAL_DEVICES_GLUCOSE_MONITORING",
+    keywords: ["GLUCOMETER", "GLUCOSE METER", "TEST STRIP", "LANCET"],
+  },
+  { canonicalKey: "MEDICAL_DEVICES_THERMOMETERS", keywords: ["THERMOMETER"] },
+  { canonicalKey: "MEDICAL_DEVICES_NEBULIZERS", keywords: ["NEBULIZER", "NEBULISER"] },
+  {
+    canonicalKey: "MEDICAL_DEVICES_MOBILITY_AIDS",
+    keywords: ["WHEELCHAIR", "WALKING STICK", "CRUTCH", "WALKER"],
+  },
+  {
+    canonicalKey: "FIRST_AID_DRESSINGS",
+    keywords: ["GAUZE", "DRESSING", "COTTON WOOL", "ADHESIVE PLASTER", "BAND AID"],
+  },
+  { canonicalKey: "FIRST_AID_BANDAGES", keywords: ["BANDAGE", "CREPE"] },
+  {
+    canonicalKey: "FIRST_AID_ANTISEPTICS",
+    keywords: ["ANTISEPTIC", "DETTOL", "SAVLON", "SURGICAL SPIRIT", "HYDROGEN PEROXIDE"],
+  },
+  {
+    canonicalKey: "FIRST_AID_SUPPORTS_BRACES",
+    keywords: ["KNEE SUPPORT", "ANKLE SUPPORT", "WRIST SUPPORT", "BACK SUPPORT", "BRACE"],
+  },
+  {
+    canonicalKey: "NUTRITION_WELLNESS_HYDRATION",
+    keywords: ["ORAL REHYDRATION", "ELECTROLYTE", "JEEVANI"],
+  },
+  {
+    canonicalKey: "NUTRITION_WELLNESS_PROTEIN_NUTRITION",
+    keywords: ["PROTEIN POWDER", "WHEY", "NUTRITIONAL SUPPLEMENT", "ENSURE", "PEDIASURE"],
+  },
+  { canonicalKey: "FOOD_BEVERAGE_WATER", keywords: ["MINERAL WATER", "DRINKING WATER"] },
+  {
+    canonicalKey: "FOOD_BEVERAGE_ENERGY_DRINK",
+    keywords: ["ENERGY DRINK", "RED BULL", "GATORADE"],
+  },
+  { canonicalKey: "FOOD_BEVERAGE_CONFECTIONERY", keywords: ["CHOCOLATE", "TOFFEE", "CANDY"] },
+  {
+    canonicalKey: "HOUSEHOLD_CONVENIENCE_SANITIZERS",
+    keywords: ["HAND SANITIZER", "HAND SANITISER", "SANITIZING"],
+  },
+  {
+    canonicalKey: "HOUSEHOLD_CONVENIENCE_TISSUES",
+    keywords: ["TISSUE", "FACIAL TISSUE", "WET WIPE", "TOILET ROLL"],
+  },
+];
+
 /** Dosage-form hints applied after (and only if) no genericName/name keyword matched. */
 const DOSAGE_FORM_RULES: Array<{ canonicalKey: string; patterns: RegExp[] }> = [
   { canonicalKey: "MEDICINES_EYE_EAR", patterns: [/EYE/, /OPHTHALMIC/, /\bOTIC\b/, /\bEAR\b/] },
@@ -145,13 +252,18 @@ function matchesKeyword(haystack: string, keyword: string): boolean {
 }
 
 /**
- * Best-effort commercial category for an NMRA medicine, or null if nothing matched (caller
- * should leave the product in Unclassified Medicines rather than guessing).
+ * Best-effort commercial category for a product, or null if nothing matched (caller should
+ * leave it in Unclassified Medicines rather than guessing).
+ *
+ * Tried in order of how much the signal is worth: generic name, then display name, then the
+ * retail rules, then the dosage form. Confidence falls with each tier, so a caller can decide
+ * what to apply quietly and what to put in front of a person.
  */
 export function classifyMedicine(
   genericName: string | null,
   name: string | null,
   dosageForm: string | null,
+  brandName?: string | null,
 ): { canonicalKey: string; confidence: number } | null {
   const generic = (genericName ?? "").toUpperCase();
   const productName = (name ?? "").toUpperCase();
@@ -168,6 +280,16 @@ export function classifyMedicine(
     for (const keyword of rule.keywords) {
       if (matchesKeyword(productName, keyword)) {
         return { canonicalKey: rule.canonicalKey, confidence: 0.6 };
+      }
+    }
+  }
+
+  // Retail goods: matched on the display name and brand, which is all a shampoo has.
+  const retailHaystack = `${productName} ${(brandName ?? "").toUpperCase()}`;
+  for (const rule of RETAIL_CLASSIFICATION_RULES) {
+    for (const keyword of rule.keywords) {
+      if (matchesKeyword(retailHaystack, keyword)) {
+        return { canonicalKey: rule.canonicalKey, confidence: 0.7 };
       }
     }
   }

@@ -22,7 +22,12 @@ import {
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
 import { ProductImportService } from "./product-import.service";
-import { IMPORT_FIELDS, type ImportField, type ImportMapping } from "./product-import.types";
+import {
+  IMPORT_FIELDS,
+  type ImportCategoryChoices,
+  type ImportField,
+  type ImportMapping,
+} from "./product-import.types";
 
 const UPLOAD_LIMITS = { limits: { fileSize: 20 * 1024 * 1024 } };
 
@@ -62,7 +67,7 @@ export class ProductImportController {
       "Expiry date",
     ].join(",");
     const example = [
-      "Panadol 500mg Tablet,4892345001234,Panadol,Paracetamol,GSK,Tablet,500mg,Tablet,10 x 10 tabs,,,20,240,3.10,4.50,B24118,2027-04-30",
+      "Panadol 500mg Tablet,4892345001234,Panadol,Paracetamol,GSK,Tablet,500mg,Tablet,10 x 10 tabs,,Pain & Fever,20,240,3.10,4.50,B24118,2027-04-30",
       "Sunsilk Shampoo 180ml,4800888123456,Sunsilk,,Unilever,,,Bottle,180 ml,,Personal Care,5,18,410.00,545.00,,",
     ].join("\n");
     const csv = `${header}\n${example}\n`;
@@ -113,6 +118,7 @@ export class ProductImportController {
     @UploadedFile() file: Express.Multer.File,
     @Body("mapping") mappingRaw?: string,
     @Body("confirmedRows") confirmedRowsRaw?: string,
+    @Body("categoryChoices") categoryChoicesRaw?: string,
     @Headers("idempotency-key") idempotencyKey?: string,
   ) {
     return this.imports.startImport(
@@ -122,6 +128,7 @@ export class ProductImportController {
       file,
       parseMapping(mappingRaw),
       parseConfirmedRows(confirmedRowsRaw),
+      parseCategoryChoices(categoryChoicesRaw),
       idempotencyKey,
     );
   }
@@ -181,6 +188,43 @@ function parseMapping(raw: string | undefined): ImportMapping {
     mapping[key as ImportField] = value;
   }
   return mapping;
+}
+
+/**
+ * The Review step's category decisions, keyed by the incoming Category value. Rides along as
+ * JSON in the multipart body for the same reason the mapping does. Anything malformed is
+ * dropped rather than rejected — a bad key only costs that value its override, and the plan's
+ * own resolution still applies.
+ */
+function parseCategoryChoices(raw: string | undefined): ImportCategoryChoices {
+  if (!raw?.trim()) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new BadRequestException("Category choices are not valid JSON.");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new BadRequestException("Category choices must be an object.");
+  }
+
+  const out: ImportCategoryChoices = {};
+  for (const [incoming, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!incoming.trim() || typeof value !== "object" || value === null) continue;
+    const decision = value as Record<string, unknown>;
+    if (decision.action === "use" && typeof decision.categoryId === "string") {
+      out[incoming] = { action: "use", categoryId: decision.categoryId };
+    } else if (decision.action === "create") {
+      const parent = decision.parentCategoryId;
+      out[incoming] = {
+        action: "create",
+        parentCategoryId: typeof parent === "string" && parent ? parent : null,
+      };
+    } else if (decision.action === "skip") {
+      out[incoming] = { action: "skip" };
+    }
+  }
+  return out;
 }
 
 function parseConfirmedRows(raw: string | undefined): number[] {

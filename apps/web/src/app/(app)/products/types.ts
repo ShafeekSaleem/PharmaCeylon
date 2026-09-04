@@ -14,7 +14,14 @@ export type ProductCategory = {
 export type ProductTag = {
   id: string;
   name: string;
+  /** Applied by the NMRA import and re-applied on every refresh — not renameable or deletable. */
+  isSystem?: boolean;
+  canonicalKey?: string | null;
   productCount?: number;
+  /** Products the pharmacy sells carrying this tag — the headline number. */
+  rangedCount?: number;
+  /** Reference-catalog rows carrying it. Context beside the ranged count. */
+  referenceCount?: number;
 };
 
 export type ProductAlias = {
@@ -80,6 +87,8 @@ export type Product = {
   rangedAt: string | null;
   /** NMRA registration currency — import-owned, only set for source = NMRA. */
   nmraRegistrationValid?: boolean | null;
+  /** The NMRA reference-catalog product this one has been linked to, if any. */
+  nmraReferenceId?: string | null;
   createdAt: string;
   updatedAt: string;
   categories?: ProductCategory[];
@@ -269,10 +278,30 @@ export type StatFilter =
 /** Products page tab: the shop's own range, or the imported reference catalog. */
 export type ProductScope = "mine" | "reference";
 
-export type BulkProductAction = "range" | "unrange" | "activate" | "deactivate";
+export type BulkProductAction =
+  | "range"
+  | "unrange"
+  | "activate"
+  | "deactivate"
+  | "set_category"
+  | "clear_category"
+  | "add_tags"
+  | "remove_tags";
 
 export type BulkProductResult = {
   matched: number;
   updated: number;
   action: BulkProductAction;
+};
+
+/** Mirrors `BulkProductPreview` in apps/api/src/products/products.service.ts. */
+export type BulkProductPreview = {
+  action: BulkProductAction;
+  matched: number;
+  willChange: number;
+  alreadyOnTarget: number;
+  replacingExisting: number;
+  replacingManual: number;
+  categoryName: string | null;
+  tagNames: string[];
 };

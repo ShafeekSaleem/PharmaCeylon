@@ -7,6 +7,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-category-template";
 import { assertOneScopedMutation } from "../common/scoped-mutation.util";
 import {
   BulkProductsDto,
@@ -43,7 +44,28 @@ const EXPORT_MAX_ROWS = 25_000;
  * load in one go, bounded so a single request can't rewrite an unbounded slice of the catalog.
  */
 const BULK_PRODUCT_MATCH_LIMIT = 25_000;
+
+/** Row batch for bulk category/tag relation writes — keeps one statement bounded. */
+const BULK_RELATION_BATCH = 400;
+
 const EXPORT_BATCH_SIZE = 500;
+
+/** What a bulk action would do, for the confirmation dialog to state before it happens. */
+export type BulkProductPreview = {
+  action: BulkProductAction;
+  /** Products the selection resolves to. */
+  matched: number;
+  /** Products this action would actually change. */
+  willChange: number;
+  /** Products already in the requested state — nothing to do for these. */
+  alreadyOnTarget: number;
+  /** Products whose existing primary category would be replaced. */
+  replacingExisting: number;
+  /** Of those, the ones a person filed by hand rather than the classifier. */
+  replacingManual: number;
+  categoryName: string | null;
+  tagNames: string[];
+};
 
 const CSV_HEADER = [
   "SKU",
@@ -98,11 +120,21 @@ function escapeCsv(value: string | number | boolean | null | undefined): string 
 }
 
 /**
+ * The actions that write a column on `product` itself. The category/tag actions are relation
+ * writes and take their own paths — keeping them out of this union is what makes the switch
+ * below exhaustive.
+ */
+type BulkColumnAction = Exclude<
+  BulkProductAction,
+  "set_category" | "clear_category" | "add_tags" | "remove_tags"
+>;
+
+/**
  * The `data` each bulk action writes, plus a `scope` clause narrowing it to rows the action
  * can actually change. The scope keeps `updated` an honest count of what moved, and stops
  * `range` from re-stamping `rangedAt` on products that were already in the range.
  */
-function bulkActionUpdate(action: BulkProductAction): {
+function bulkActionUpdate(action: BulkColumnAction): {
   data: Prisma.ProductUpdateManyMutationInput;
   scope: Prisma.ProductWhereInput;
 } {
@@ -652,7 +684,13 @@ export class ProductsService {
    * range. Un-ranging deliberately leaves `isActive` alone: the two flags answer different
    * questions, and collapsing them again is the bug this whole change exists to fix.
    */
-  async bulkUpdate(tenantId: string, userId: string, dto: BulkProductsDto) {
+  /**
+   * Resolve a bulk request's selection to product ids — either the explicit list, or everything
+   * matching the list filters, bounded so one request can't rewrite an unbounded slice of the
+   * catalog. Shared by the preview and the apply, so the number the confirmation dialog shows
+   * and the number the action touches are computed the same way.
+   */
+  private async resolveBulkIds(tenantId: string, dto: BulkProductsDto): Promise<string[]> {
     const hasIds = Boolean(dto.productIds?.length);
     const hasFilter = dto.filter !== undefined;
     if (hasIds === hasFilter) {
@@ -660,41 +698,196 @@ export class ProductsService {
         "Provide either productIds or filter — exactly one of the two.",
       );
     }
+    if (hasIds) return [...new Set(dto.productIds!)];
 
-    let ids: string[];
-    if (hasIds) {
-      ids = [...new Set(dto.productIds!)];
-    } else {
-      const { where, isEmpty } = await buildProductWhere(
-        this.prisma,
-        tenantId,
-        undefined,
-        dto.filter!,
+    const { where, isEmpty } = await buildProductWhere(
+      this.prisma,
+      tenantId,
+      undefined,
+      dto.filter!,
+    );
+    if (isEmpty) return [];
+
+    const matched = await this.prisma.product.count({ where });
+    if (matched > BULK_PRODUCT_MATCH_LIMIT) {
+      throw new BadRequestException(
+        `This action would affect ${matched.toLocaleString()} products, above the limit of ${BULK_PRODUCT_MATCH_LIMIT.toLocaleString()}. Narrow your filters and try again.`,
       );
-      if (isEmpty) {
-        return { matched: 0, updated: 0, action: dto.action };
+    }
+    const rows = await this.prisma.product.findMany({ where, select: { id: true } });
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Validate the category or tags a relation action targets, and resolve their names for the
+   * confirmation dialog and the audit payload. Ids arrive from the client, so each is checked
+   * against this tenant before anything is written.
+   */
+  private async resolveBulkTargets(tenantId: string, dto: BulkProductsDto) {
+    if (dto.action === "set_category") {
+      if (!dto.categoryId) {
+        throw new BadRequestException("Choose a category to file these products under.");
       }
-      const matched = await this.prisma.product.count({ where });
-      if (matched > BULK_PRODUCT_MATCH_LIMIT) {
-        throw new BadRequestException(
-          `This action would affect ${matched.toLocaleString()} products, above the limit of ${BULK_PRODUCT_MATCH_LIMIT.toLocaleString()}. Narrow your filters and try again.`,
-        );
+      const category = await this.prisma.productCategory.findFirst({
+        where: { id: dto.categoryId, tenantId, dimension: "COMMERCIAL" },
+        select: { id: true, name: true },
+      });
+      if (!category) {
+        throw new NotFoundException("Category not found, or is not a merchandising category.");
       }
-      const rows = await this.prisma.product.findMany({ where, select: { id: true } });
-      ids = rows.map((r) => r.id);
+      return { category, tags: [] as Array<{ id: string; name: string }> };
     }
 
+    if (dto.action === "add_tags" || dto.action === "remove_tags") {
+      const wanted = [...new Set(dto.tagIds ?? [])];
+      if (wanted.length === 0) {
+        throw new BadRequestException("Choose at least one tag.");
+      }
+      const tags = await this.prisma.productTag.findMany({
+        where: { tenantId, id: { in: wanted } },
+        select: { id: true, name: true },
+      });
+      if (tags.length !== wanted.length) {
+        throw new NotFoundException("One or more tags not found.");
+      }
+      return { category: null, tags };
+    }
+
+    return { category: null, tags: [] as Array<{ id: string; name: string }> };
+  }
+
+  /**
+   * What a bulk action would do, before it does it.
+   *
+   * The counts that matter are the ones about damage: how many products already carry a
+   * category this would replace, and how many of those were filed by a person rather than by
+   * the classifier. "Set the category on 217 products" is not a decision anyone can make;
+   * "43 of them already have one, 12 chosen by hand" is.
+   */
+  async bulkPreview(tenantId: string, dto: BulkProductsDto): Promise<BulkProductPreview> {
+    const ids = await this.resolveBulkIds(tenantId, dto);
+    const targets = await this.resolveBulkTargets(tenantId, dto);
+
+    const base: BulkProductPreview = {
+      action: dto.action,
+      matched: ids.length,
+      willChange: 0,
+      alreadyOnTarget: 0,
+      replacingExisting: 0,
+      replacingManual: 0,
+      categoryName: targets.category?.name ?? null,
+      tagNames: targets.tags.map((t) => t.name),
+    };
+    if (ids.length === 0) return base;
+
+    switch (dto.action) {
+      case "range":
+      case "unrange":
+      case "activate":
+      case "deactivate": {
+        const { scope } = bulkActionUpdate(dto.action);
+        base.willChange = await this.prisma.product.count({
+          where: { tenantId, id: { in: ids }, ...scope },
+        });
+        return base;
+      }
+
+      case "set_category":
+      case "clear_category": {
+        const targetId =
+          dto.action === "set_category"
+            ? targets.category!.id
+            : await this.unclassifiedCategoryId(tenantId);
+        const existing = await this.prisma.productCategoryMap.findMany({
+          where: { tenantId, productId: { in: ids }, dimension: "COMMERCIAL", isPrimary: true },
+          select: { categoryId: true, assignmentSource: true },
+        });
+        base.alreadyOnTarget = existing.filter((e) => e.categoryId === targetId).length;
+        const replacing = existing.filter((e) => e.categoryId !== targetId);
+        base.replacingExisting = replacing.length;
+        base.replacingManual = replacing.filter(
+          (e) => e.assignmentSource === "MANUAL",
+        ).length;
+        base.willChange = ids.length - base.alreadyOnTarget;
+        return base;
+      }
+
+      case "add_tags":
+      case "remove_tags": {
+        const tagIds = targets.tags.map((t) => t.id);
+        // Aggregated in the database — a 25,000-product selection across 25 tags would be
+        // hundreds of thousands of rows to count in memory.
+        const groups = await this.prisma.productTagMap.groupBy({
+          by: ["productId"],
+          where: { tenantId, productId: { in: ids }, tagId: { in: tagIds } },
+          _count: { tagId: true },
+        });
+        if (dto.action === "add_tags") {
+          const fullyTagged = groups.filter((g) => g._count.tagId >= tagIds.length).length;
+          base.alreadyOnTarget = fullyTagged;
+          base.willChange = ids.length - fullyTagged;
+        } else {
+          base.willChange = groups.length;
+        }
+        return base;
+      }
+    }
+  }
+
+  async bulkUpdate(tenantId: string, userId: string, dto: BulkProductsDto) {
+    const ids = await this.resolveBulkIds(tenantId, dto);
+    const targets = await this.resolveBulkTargets(tenantId, dto);
     if (ids.length === 0) {
       return { matched: 0, updated: 0, action: dto.action };
     }
 
-    const { data, scope } = bulkActionUpdate(dto.action);
-    const result = await this.prisma.product.updateMany({
-      where: { tenantId, id: { in: ids }, ...scope },
-      data,
-    });
+    let updated: number;
+    switch (dto.action) {
+      case "set_category":
+        updated = await this.applyBulkCategory(
+          tenantId,
+          ids,
+          targets.category!.id,
+          "MANUAL",
+        );
+        break;
+      case "clear_category":
+        // Back to the Unclassified floor rather than to nothing: every product keeps a primary
+        // commercial category, and SYSTEM_DEFAULT makes it eligible for the classifier again.
+        updated = await this.applyBulkCategory(
+          tenantId,
+          ids,
+          await this.unclassifiedCategoryId(tenantId),
+          "SYSTEM_DEFAULT",
+        );
+        break;
+      case "add_tags":
+        updated = await this.applyBulkTags(
+          tenantId,
+          ids,
+          targets.tags.map((t) => t.id),
+          "add",
+        );
+        break;
+      case "remove_tags":
+        updated = await this.applyBulkTags(
+          tenantId,
+          ids,
+          targets.tags.map((t) => t.id),
+          "remove",
+        );
+        break;
+      default: {
+        const { data, scope } = bulkActionUpdate(dto.action);
+        const result = await this.prisma.product.updateMany({
+          where: { tenantId, id: { in: ids }, ...scope },
+          data,
+        });
+        updated = result.count;
+      }
+    }
 
-    if (result.count > 0) {
+    if (updated > 0) {
       await this.audit.log({
         tenantId,
         actorUserId: userId,
@@ -705,13 +898,112 @@ export class ProductsService {
         payload: {
           action: dto.action,
           matched: ids.length,
-          updated: result.count,
-          selection: hasIds ? "ids" : "filter",
+          updated,
+          selection: dto.productIds?.length ? "ids" : "filter",
+          ...(targets.category ? { categoryName: targets.category.name } : {}),
+          ...(targets.tags.length ? { tagNames: targets.tags.map((t) => t.name) } : {}),
         },
       });
     }
 
-    return { matched: ids.length, updated: result.count, action: dto.action };
+    return { matched: ids.length, updated, action: dto.action };
+  }
+
+  /** The tenant's Unclassified Medicines id — the floor every product falls back to. */
+  private async unclassifiedCategoryId(tenantId: string): Promise<string> {
+    const row = await this.prisma.productCategory.findFirst({
+      where: {
+        tenantId,
+        dimension: "COMMERCIAL",
+        canonicalKey: UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
+      },
+      select: { id: true },
+    });
+    if (!row) {
+      throw new ConflictException(
+        "This workspace has no Unclassified Medicines category yet — open Products → Categories once to seed the standard tree.",
+      );
+    }
+    return row.id;
+  }
+
+  /**
+   * Re-file a selection's primary commercial category in batches.
+   *
+   * The delete has to clear two things, not one: the old primary map, and any *secondary* map
+   * already pointing at the new target — otherwise the insert collides with the
+   * (tenant, product, category) unique index and the whole batch fails.
+   */
+  private async applyBulkCategory(
+    tenantId: string,
+    ids: string[],
+    categoryId: string,
+    assignmentSource: "MANUAL" | "SYSTEM_DEFAULT",
+  ): Promise<number> {
+    let created = 0;
+    for (let i = 0; i < ids.length; i += BULK_RELATION_BATCH) {
+      const group = ids.slice(i, i + BULK_RELATION_BATCH);
+      const [, insert] = await this.prisma.$transaction([
+        this.prisma.productCategoryMap.deleteMany({
+          where: {
+            tenantId,
+            productId: { in: group },
+            dimension: "COMMERCIAL",
+            OR: [{ isPrimary: true }, { categoryId }],
+          },
+        }),
+        this.prisma.productCategoryMap.createMany({
+          data: group.map((productId) => ({
+            tenantId,
+            productId,
+            categoryId,
+            dimension: "COMMERCIAL" as const,
+            isPrimary: true,
+            assignmentSource,
+          })),
+          skipDuplicates: true,
+        }),
+      ]);
+      created += insert.count;
+    }
+    return created;
+  }
+
+  private async applyBulkTags(
+    tenantId: string,
+    ids: string[],
+    tagIds: string[],
+    mode: "add" | "remove",
+  ): Promise<number> {
+    if (mode === "remove") {
+      let removed = 0;
+      for (let i = 0; i < ids.length; i += BULK_RELATION_BATCH) {
+        const res = await this.prisma.productTagMap.deleteMany({
+          where: {
+            tenantId,
+            productId: { in: ids.slice(i, i + BULK_RELATION_BATCH) },
+            tagId: { in: tagIds },
+          },
+        });
+        removed += res.count;
+      }
+      return removed;
+    }
+
+    // One row per product per tag, so the product batch shrinks as the tag count grows.
+    const perBatch = Math.max(1, Math.floor(BULK_RELATION_BATCH / tagIds.length));
+    let added = 0;
+    for (let i = 0; i < ids.length; i += perBatch) {
+      const group = ids.slice(i, i + perBatch);
+      const res = await this.prisma.productTagMap.createMany({
+        data: group.flatMap((productId) =>
+          tagIds.map((tagId) => ({ tenantId, productId, tagId })),
+        ),
+        skipDuplicates: true,
+      });
+      added += res.count;
+    }
+    return added;
   }
 
   async remove(tenantId: string, userId: string, id: string) {

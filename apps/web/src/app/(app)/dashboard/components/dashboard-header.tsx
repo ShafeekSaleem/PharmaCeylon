@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { IconCheck, IconEdit, IconPlus, IconRefresh, IconRotateCcw, IconX } from "@/components/icons";
 import { PageHeader } from "@/components/ui";
 import { formatRelativeTime } from "@/app/(app)/inventory/utils";
@@ -45,6 +46,16 @@ export function DashboardHeader({
 }: Props) {
   const greeting = DASHBOARD_GREETINGS[role];
   const showOwnerScope = role === "owner" && ownerScope && onOwnerScopeChange;
+
+  // `formatRelativeTime` reads Date.now() at render time, so without something to force a
+  // re-render the "Updated Xm ago" text just freezes at whatever it said on the last actual
+  // data refresh — a dashboard left open for ten minutes would still read "Just now".
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!lastUpdatedAt) return;
+    const id = setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, [lastUpdatedAt]);
 
   return (
     <PageHeader

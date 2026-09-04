@@ -1,0 +1,141 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-bottom: 5rem;
+}
+
+.pageNote {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Groups ────────────────────────────────────────────────────────────── */
+
+.card {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+  overflow: hidden;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--pc-border);
+  background: var(--pc-muted-bg);
+}
+
+.groupTitleWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
+}
+
+.groupCount {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--pc-border-subtle, var(--pc-border));
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.rowName {
+  font-size: 0.86rem;
+  font-weight: 550;
+  color: var(--pc-foreground);
+}
+
+.rowMeta {
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowCandidate {
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Empty / done ──────────────────────────────────────────────────────── */
+
+.empty,
+.done {
+  margin: 0;
+  padding: 1.1rem 0.9rem;
+  font-size: 0.86rem;
+  color: var(--pc-muted-fg);
+}
+
+.done {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0;
+  color: var(--pc-foreground);
+  font-weight: 600;
+}
+
+.done svg {
+  color: var(--pc-primary);
+}
+
+.link {
+  color: var(--pc-primary);
+  font-weight: 600;
+}
+
+/* ── Evidence chip ─────────────────────────────────────────────────────── */
+
+.evidenceChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.evidenceChipStrong {
+  background: color-mix(in srgb, var(--pc-success) 12%, transparent);
+  color: var(--pc-success);
+}

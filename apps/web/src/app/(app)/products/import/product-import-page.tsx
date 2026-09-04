@@ -6,12 +6,13 @@ import { Alert } from "@/components/alert";
 import {
   IconAlertTriangle,
   IconCheck,
+  IconClipboardList,
   IconDownload,
   IconPackage,
   IconRotateCcw,
   IconUpload,
 } from "@/components/icons";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, SelectField, type SelectFieldOption } from "@/components/ui";
 import { apiFetch } from "@/lib/auth-client";
 import { getBranchId } from "@/lib/auth-session";
 import { usePageChrome } from "@/lib/page-chrome-context";
@@ -27,6 +28,8 @@ import {
   type ImportStep,
   type MatchConfidence,
 } from "./types";
+import { ImportCategoryBlock } from "./components/import-category-block";
+import { useProductMeta } from "../hooks/use-product-meta";
 import { useProductImport } from "./use-product-import";
 
 const STEPS: Array<{ id: ImportStep; label: string }> = [
@@ -160,6 +163,8 @@ function IssueTable({ issues }: { issues: ImportRowIssue[] }) {
 
 export function ProductImportPage() {
   const io = useProductImport();
+  // The commercial tree drives the Review step's category dropdowns.
+  const { categories } = useProductMeta();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const hasBranch = Boolean(getBranchId());
@@ -186,6 +191,10 @@ export function ProductImportPage() {
   };
 
   const columnOptions = io.analysis?.headers ?? [];
+  const columnSelectOptions: SelectFieldOption[] = [
+    { value: "", label: "— not in my file —" },
+    ...columnOptions.map((h) => ({ value: h, label: h })),
+  ];
 
   function mappingRow(field: ImportField) {
     const selected = io.mapping[field] ?? "";
@@ -201,19 +210,15 @@ export function ProductImportPage() {
           )}
         </th>
         <td>
-          <select
+          <SelectField
+            hideLabel
+            label={`Column for ${FIELD_LABELS[field]}`}
             className={css.mapSelect}
+            fullWidth={false}
             value={selected}
-            onChange={(e) => io.setField(field, e.target.value)}
-            aria-label={`Column for ${FIELD_LABELS[field]}`}
-          >
-            <option value="">— not in my file —</option>
-            {columnOptions.map((h) => (
-              <option key={h} value={h}>
-                {h}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => io.setField(field, value)}
+            options={columnSelectOptions}
+          />
         </td>
         <td className={css.mapSample}>{sample || <span className={css.dim}>—</span>}</td>
       </tr>
@@ -454,6 +459,15 @@ export function ProductImportPage() {
             </>
           )}
 
+          {io.preview.create > 0 && (
+            <ImportCategoryBlock
+              plan={io.preview.categoryPlan}
+              categories={categories}
+              choices={io.categoryChoices}
+              onChange={io.setCategoryChoice}
+            />
+          )}
+
           {io.preview.missingExpiry > 0 && (
             <Alert variant="info">
               <strong>{io.preview.missingExpiry}</strong> batch
@@ -601,6 +615,25 @@ export function ProductImportPage() {
             )}
           </div>
 
+          {io.result.productsCreated > 0 && (
+            <p className={css.dim}>
+              Filed under a category:{" "}
+              <strong>{io.result.categorizedFromFile.toLocaleString()}</strong> from your file,{" "}
+              <strong>{io.result.categorizedByClassifier.toLocaleString()}</strong> sorted
+              automatically
+              {io.result.leftUnclassified > 0 ? (
+                <>
+                  , <strong>{io.result.leftUnclassified.toLocaleString()}</strong> left in
+                  Unclassified —{" "}
+                  <Link href="/products/organize" className={css.inlineLink}>
+                    place them now
+                  </Link>
+                </>
+              ) : null}
+              .
+            </p>
+          )}
+
           {io.result.expiryReviewCount > 0 && (
             <Alert variant="info">
               <strong>{io.result.expiryReviewCount}</strong> batch
@@ -634,10 +667,24 @@ export function ProductImportPage() {
             <button type="button" className={css.secondaryBtn} onClick={io.reset}>
               Import another file
             </button>
-            <Link href="/products" className={css.primaryBtn}>
-              <IconPackage size={15} />
-              View my products
-            </Link>
+            {io.result.leftUnclassified > 0 && (
+              <Link href="/products" className={css.secondaryBtn}>
+                <IconPackage size={15} />
+                View my products
+              </Link>
+            )}
+            {io.result.leftUnclassified > 0 ? (
+              <Link href="/products/organize" className={css.primaryBtn}>
+                <IconClipboardList size={15} />
+                Organize {io.result.leftUnclassified.toLocaleString()} product
+                {io.result.leftUnclassified === 1 ? "" : "s"}
+              </Link>
+            ) : (
+              <Link href="/products" className={css.primaryBtn}>
+                <IconPackage size={15} />
+                View my products
+              </Link>
+            )}
           </footer>
         </section>
       )}

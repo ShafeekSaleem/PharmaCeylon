@@ -2,7 +2,11 @@
 
 import { useCallback, useState } from "react";
 import { apiJson } from "@/lib/auth-client";
-import type { BulkProductAction, BulkProductResult } from "../types";
+import type {
+  BulkProductAction,
+  BulkProductPreview,
+  BulkProductResult,
+} from "../types";
 
 export type BulkTarget =
   | { kind: "ids"; productIds: string[] }
@@ -15,7 +19,23 @@ const ACTION_PAST_TENSE: Record<BulkProductAction, string> = {
   unrange: "moved to the reference catalog",
   activate: "activated",
   deactivate: "deactivated",
+  set_category: "filed under a new category",
+  clear_category: "moved back to Unclassified",
+  add_tags: "tagged",
+  remove_tags: "untagged",
 };
+
+/** The category or tags an action targets, alongside its selection. */
+export type BulkExtras = { categoryId?: string; tagIds?: string[] };
+
+function buildBody(
+  action: BulkProductAction,
+  target: BulkTarget,
+): Record<string, unknown> {
+  return target.kind === "ids"
+    ? { action, productIds: target.productIds }
+    : { action, filter: filterFromParams(target.params) };
+}
 
 function filterFromParams(params: URLSearchParams): Record<string, unknown> {
   const filter: Record<string, unknown> = {};
@@ -41,15 +61,12 @@ export function useProductBulkActions(onDone: () => void) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const run = useCallback(
-    async (action: BulkProductAction, target: BulkTarget) => {
+    async (action: BulkProductAction, target: BulkTarget, extras: BulkExtras = {}) => {
       setRunning(action);
       setError(null);
       setNotice(null);
       try {
-        const body =
-          target.kind === "ids"
-            ? { action, productIds: target.productIds }
-            : { action, filter: filterFromParams(target.params) };
+        const body = { ...buildBody(action, target), ...extras };
         const result = await apiJson<BulkProductResult>("/products/bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -73,8 +90,33 @@ export function useProductBulkActions(onDone: () => void) {
     [onDone],
   );
 
+  /**
+   * What the action would do, without doing it. Feeds the confirmation dialog, so the counts
+   * shown and the counts applied come from the same server-side selection resolution rather
+   * than the client guessing from what happens to be on the current page.
+   */
+  const preview = useCallback(
+    async (
+      action: BulkProductAction,
+      target: BulkTarget,
+      extras: BulkExtras = {},
+    ): Promise<BulkProductPreview | null> => {
+      try {
+        return await apiJson<BulkProductPreview>("/products/bulk/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...buildBody(action, target), ...extras }),
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't check that action");
+        return null;
+      }
+    },
+    [],
+  );
+
   const dismissNotice = useCallback(() => setNotice(null), []);
   const dismissError = useCallback(() => setError(null), []);
 
-  return { run, running, error, notice, dismissNotice, dismissError };
+  return { run, preview, running, error, notice, dismissNotice, dismissError };
 }

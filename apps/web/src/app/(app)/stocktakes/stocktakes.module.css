@@ -445,6 +445,7 @@
 
 .scopeOption input {
   margin-top: 0.2rem;
+  accent-color: var(--pc-primary);
 }
 
 .scopeOptionActive {
@@ -1900,6 +1901,27 @@
 }
 
 .inlineLink:hover {
+  text-decoration: underline;
+}
+
+/* The create-stocktake modal's disclosure for scheduling/movement-handling/notes — collapsed
+   by default so the common "count now, by me" case is a short form. */
+.advancedToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.85rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--pc-primary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.advancedToggle:hover {
   text-decoration: underline;
 }
 
