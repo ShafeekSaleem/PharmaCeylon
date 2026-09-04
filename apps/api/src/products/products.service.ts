@@ -24,6 +24,7 @@ import {
   type StockStatus,
 } from "./stock-qty.util";
 import { buildProductDetailExtras } from "./product-detail.util";
+import { scoreMatch } from "../catalog/catalog-match.util";
 import { decideRangeExit, decideReferencePromotion } from "./range-transition.util";
 
 const SORTABLE_FIELDS = new Set([
@@ -111,6 +112,7 @@ type ProductListQuery = {
   categoryId?: string;
   commercialCategoryId?: string;
   tagId?: string;
+  importId?: string;
   sortBy?: string;
   sortDir?: string;
 };
@@ -231,6 +233,9 @@ export class ProductsService {
           // Dosage Form/Schedule/Registration Type maps into the same "categories" field.
           categoryMaps: { where: { dimension: "COMMERCIAL" }, include: { category: true } },
           tagMaps: { include: { tag: true } },
+          // Loaded only when there is a term to match — the alias tier is the whole reason
+          // "panadol" finds a row registered as "PARACETAMOL TABLETS BP 500MG".
+          ...(query.q?.trim() ? { aliases: { select: { aliasText: true } } } : {}),
         },
       }),
       this.prisma.product.count({ where }),
@@ -249,6 +254,42 @@ export class ProductsService {
       this.mapProductWithRelations({ ...p, aliases: [] }),
     );
     const items = attachStockFields(mapped, stockMap);
+
+    /*
+     * Why the shop's product list now scores matches the way Search Catalog did:
+     * Search Catalog and the Reference tab were two searches over the same reference rows,
+     * and only one of them could tell you *why* a row came back. Consolidating them means
+     * this list has to answer that too — a register row surfaced because the term matched a
+     * shop alias is a very different result from one where it matched the registration
+     * number, and hiding that difference is what made the two screens feel unrelated.
+     */
+    const term = query.q?.trim();
+    if (term) {
+      const aliasesById = new Map(
+        rows.map((r) => [
+          r.id,
+          ((r as { aliases?: Array<{ aliasText: string }> }).aliases ?? []),
+        ]),
+      );
+      for (const item of items) {
+        const info = scoreMatch(
+          term,
+          {
+            sku: item.sku,
+            barcode: item.barcode,
+            name: item.name,
+            brandName: item.brandName,
+            genericName: item.genericName,
+            registrationNo: item.registrationNo,
+            aliases: aliasesById.get(item.id),
+          },
+          false,
+        );
+        const target = item as { matchType?: string; matchField?: string };
+        target.matchType = info?.matchType;
+        target.matchField = info?.matchField;
+      }
+    }
 
     // Duplicate display-name hint for multi-registration groups.
     const names = [...new Set(items.map((p) => p.name).filter(Boolean))];

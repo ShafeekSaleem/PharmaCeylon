@@ -3398,3 +3398,219 @@
   margin-top: 1px;
   color: var(--pc-alert-warning-icon);
 }
+
+/* ── Manage Catalog action ─────────────────────────────────────────────────
+   A secondary action beside Add Product, carrying a count badge when catalog work is
+   outstanding. Deliberately quieter than the primary button: the daily job on this page is
+   adding and finding products, not administering the catalog. */
+
+.manageCatalogBtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+
+.manageCatalogBtn:hover {
+  background: var(--pc-hover-overlay);
+  border-color: var(--pc-primary);
+}
+
+.manageCatalogBtn:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
+}
+
+.manageCatalogBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Catalog issue banner ──────────────────────────────────────────────────
+   Replaces the permanent row of five KPI tiles. Present only when there is work, which makes
+   its presence itself the signal — five tiles that are always there say nothing. */
+
+.issueBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--pc-alert-warning-border);
+  border-left-width: 3px;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+}
+
+.issueBannerIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--pc-alert-warning-icon);
+}
+
+.issueBannerText {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.issueBannerLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  padding: 0.28rem 0.5rem;
+  border-radius: var(--pc-radius-sm);
+  color: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.issueBannerLink:hover {
+  background: var(--pc-hover-overlay);
+  text-decoration: underline;
+}
+
+.issueBannerLink:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+@media (max-width: 640px) {
+  .issueBanner {
+    flex-wrap: wrap;
+  }
+
+  .issueBannerText {
+    flex-basis: 100%;
+  }
+}
+
+/* ── Reference-catalog row actions ─────────────────────────────────────────
+   Reference rows get Add, never edit/delete: they are the regulator's records, and the only
+   thing a pharmacy does to one is start selling it. */
+
+.referenceAddBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--pc-primary);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.referenceAddBtn:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+  border-color: var(--pc-primary-hover);
+}
+
+.referenceAddBtn:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
+}
+
+.referenceAddBtn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* "In my products" — a state, not a button. Carries a tick as well as the tone, so the
+   status does not rely on colour alone. */
+.referenceAddedChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--pc-alert-success-bg);
+  color: var(--pc-alert-success-text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ── Reference add review ──────────────────────────────────────────────────
+   The lightweight confirmation shown when adding would create a duplicate or move a
+   compliance flag. */
+
+.reviewList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.reviewItem {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-muted-bg);
+}
+
+.reviewItemName {
+  display: block;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.reviewItemWarning {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--pc-muted-fg);
+}
+
+.reviewItemBlocked {
+  color: var(--pc-alert-error-text);
+}
+
+/* Why a row matched the search term. Inherited from Search Catalog when its search merged
+   into the Reference tab — the difference between an alias hit and a registration-number hit
+   is the difference between a good result and a coincidence. */
+.matchChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
+}

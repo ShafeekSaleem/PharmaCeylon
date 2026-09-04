@@ -23,3 +23,8 @@ export {
 } from "./tree-multi-select";
 export { FilterPopover, FilterRow } from "./filter-popover";
 export { ActiveFilterBanner, type FilterPill } from "./active-filter-banner";
+export {
+  SegmentedTabs,
+  SegmentedTabPanel,
+  type SegmentedTabItem,
+} from "./segmented-tabs";

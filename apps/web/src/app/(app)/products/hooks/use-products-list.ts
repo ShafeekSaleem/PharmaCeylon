@@ -23,6 +23,7 @@ export function buildProductFilterParams(
   sortBy?: string,
   sortDir?: string,
   scope: ProductScope = "mine",
+  importId?: string | null,
 ) {
   const filterParams = productFiltersToQueryParams(filters);
   const params = new URLSearchParams({ status: filterParams.status });
@@ -40,6 +41,9 @@ export function buildProductFilterParams(
   if (filterParams.isControlled) params.set("isControlled", filterParams.isControlled);
   if (filterParams.lowStock) params.set("lowStock", "true");
   if (filterParams.requiresPrescription) params.set("requiresPrescription", "true");
+  // Not a panel filter — a scoping link from the import completion screen. See the API's
+  // `ProductFilterQuery.importId`.
+  if (importId) params.set("importId", importId);
   return params;
 }
 
@@ -50,16 +54,22 @@ function buildListParams(
   sortBy: string,
   sortDir: string,
   scope: ProductScope,
+  importId: string | null,
 ) {
   const skip = (page - 1) * PAGE_SIZE;
-  const params = buildProductFilterParams(q, filters, sortBy, sortDir, scope);
+  const params = buildProductFilterParams(q, filters, sortBy, sortDir, scope, importId);
   params.set("skip", String(skip));
   params.set("take", String(PAGE_SIZE));
   return params;
 }
 
-function buildFacetsParams(filters: ProductFilters, q: string, scope: ProductScope) {
-  return buildProductFilterParams(q, filters, undefined, undefined, scope);
+function buildFacetsParams(
+  filters: ProductFilters,
+  q: string,
+  scope: ProductScope,
+  importId: string | null,
+) {
+  return buildProductFilterParams(q, filters, undefined, undefined, scope, importId);
 }
 
 export function useProductsList(
@@ -69,6 +79,7 @@ export function useProductsList(
   sortBy: string,
   sortDir: string,
   scope: ProductScope = "mine",
+  importId: string | null = null,
 ) {
   const { branchId } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
@@ -95,6 +106,7 @@ export function useProductsList(
       sortBy,
       sortDir,
       scope,
+      importId,
     );
     apiJson<ProductList>(`/products?${params}`)
       .then((data) => {
@@ -116,7 +128,7 @@ export function useProductsList(
     return () => {
       cancelled = true;
     };
-  }, [page, debouncedQ, appliedFilters, sortBy, sortDir, scope]);
+  }, [page, debouncedQ, appliedFilters, sortBy, sortDir, scope, importId]);
 
   useEffect(() => fetchProducts(), [fetchProducts, branchId]);
 
@@ -145,14 +157,14 @@ export function useProductsList(
   }, [scope]);
 
   const fetchFilterFacets = useCallback(() => {
-    const params = buildFacetsParams(appliedFilters, debouncedQ, scope);
+    const params = buildFacetsParams(appliedFilters, debouncedQ, scope, importId);
     apiJson<FilterFacets>(`/catalog/facets?${params}`)
       .then((d) => {
         setFilterFacets(d);
         setSecondaryError(null);
       })
       .catch(() => setSecondaryError("Couldn't load filter options — some facets may be missing."));
-  }, [appliedFilters, debouncedQ, scope]);
+  }, [appliedFilters, debouncedQ, scope, importId]);
 
   useEffect(() => {
     refreshStats();

@@ -106,13 +106,6 @@ export function productOperationalLinks(
       roles: POS_ROLES,
     },
     {
-      id: "catalog",
-      label: "Search catalog",
-      description: "Pharmacist catalog view",
-      href: `/catalog?productId=${encodeURIComponent(productId)}`,
-      ready: true,
-    },
-    {
       id: "audit",
       label: "Audit log",
       description: "Full change history for this product",

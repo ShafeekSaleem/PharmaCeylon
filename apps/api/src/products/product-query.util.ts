@@ -27,6 +27,12 @@ export type ProductFilterQuery = {
    */
   commercialCategoryId?: string;
   tagId?: string;
+  /**
+   * Products created by one import run. Not part of the filter panel — it exists so the
+   * completion screen's "View imported products" is a real link rather than a link to the
+   * whole catalog, and so an import's effect stays inspectable afterwards.
+   */
+  importId?: string;
 };
 
 /**
@@ -247,6 +253,7 @@ export async function buildProductWhere(
       ? resolveRequiresPrescriptionFilter(query.requiresPrescription)
       : {}),
     ...(lowStockIds ? { id: { in: lowStockIds } } : {}),
+    ...(query.importId ? { importId: query.importId } : {}),
     ...(categoryIds.length === 1
       ? { categoryMaps: { some: { tenantId, categoryId: categoryIds[0] } } }
       : categoryIds.length > 1

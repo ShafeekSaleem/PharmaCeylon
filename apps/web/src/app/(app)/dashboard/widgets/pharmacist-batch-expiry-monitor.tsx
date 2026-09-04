@@ -57,7 +57,7 @@ export function PharmacistBatchExpiryMonitorWidget({ data }: { data: DashboardDa
             </thead>
             <tbody>
               {paginate(nearExpiryItems, page, BATCHES_PAGE_SIZE).map((b) => (
-                <tr key={b.batchId} {...rowLinkProps(router, `/catalog?productId=${b.productId}`)}>
+                <tr key={b.batchId} {...rowLinkProps(router, `/products/${b.productId}`)}>
                   <td>
                     {b.product.name}
                     {b.product.isControlled ? <span className={css.muted}> · CD</span> : null}

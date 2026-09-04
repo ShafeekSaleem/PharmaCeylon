@@ -183,6 +183,17 @@ export type ImportResult = {
   categorizedFromFile: number;
   categorizedByClassifier: number;
   leftUnclassified: number;
+  /**
+   * Catalog work this import created, stamped with its import id so the completion screen can
+   * link to exactly this upload's leftovers rather than the whole backlog.
+   */
+  catalogTasks: {
+    total: number;
+    needsCategory: number;
+    nmraMatch: number;
+    complianceReview: number;
+    ambiguous: number;
+  };
 };
 
 export type ImportJobProgress = {

@@ -50,6 +50,7 @@ export class ProductsController {
     @Query("categoryId") categoryId?: string,
     @Query("commercialCategoryId") commercialCategoryId?: string,
     @Query("tagId") tagId?: string,
+    @Query("importId") importId?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDir") sortDir?: string,
   ) {
@@ -68,6 +69,7 @@ export class ProductsController {
       categoryId,
       commercialCategoryId,
       tagId,
+      importId,
       sortBy,
       sortDir,
     });
@@ -91,6 +93,7 @@ export class ProductsController {
     @Query("categoryId") categoryId?: string,
     @Query("commercialCategoryId") commercialCategoryId?: string,
     @Query("tagId") tagId?: string,
+    @Query("importId") importId?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDir") sortDir?: string,
   ): Promise<StreamableFile> {
@@ -107,6 +110,7 @@ export class ProductsController {
       categoryId,
       commercialCategoryId,
       tagId,
+      importId,
       sortBy,
       sortDir,
     });

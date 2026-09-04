@@ -42,7 +42,7 @@ export function InventoryClerkStockWatchWidget({ data }: { data: DashboardData }
               {paginate(lowStockRows, page, LOW_STOCK_PAGE_SIZE).map((r) => {
                 const need = Math.max(0, r.product.reorderLevel - r.qtyOnHand);
                 return (
-                  <tr key={r.productId} {...rowLinkProps(router, `/catalog?productId=${r.productId}`)}>
+                  <tr key={r.productId} {...rowLinkProps(router, `/products/${r.productId}`)}>
                     <td>
                       <strong>{r.product.sku}</strong>
                       <div className={css.muted}>{r.product.name}</div>

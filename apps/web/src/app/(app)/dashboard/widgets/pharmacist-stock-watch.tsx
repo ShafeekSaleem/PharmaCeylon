@@ -35,7 +35,7 @@ export function PharmacistStockWatchWidget({ data }: { data: DashboardData }) {
             </thead>
             <tbody>
               {paginate(lowStockRows, page, LOW_STOCK_PAGE_SIZE).map((r) => (
-                <tr key={r.productId} {...rowLinkProps(router, `/catalog?productId=${r.productId}`)}>
+                <tr key={r.productId} {...rowLinkProps(router, `/products/${r.productId}`)}>
                   <td>
                     {r.product.name}
                     {r.product.isControlled ? <span className={css.muted}> · CD</span> : null}

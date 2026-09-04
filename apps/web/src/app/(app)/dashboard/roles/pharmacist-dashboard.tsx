@@ -170,7 +170,7 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
             tone: "info",
           },
           {
-            href: "/catalog",
+            href: "/products?scope=reference",
             label: "Drug profile lookup",
             icon: <IconSearch size={18} />,
             roles: OPERATIONS_ROLES,

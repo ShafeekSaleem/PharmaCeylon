@@ -183,6 +183,19 @@ export function ProductImportPage() {
       (p) => !io.confirmedRows.has(p.rowNumber),
     ).length;
 
+  /*
+   * How many things on the Review step actually want a person: unknown incoming categories,
+   * compliance-sensitive matches, and rows that will be skipped. Stated at the top so the
+   * step opens by saying how much work it is, rather than making the reader find out by
+   * scrolling past a table of matches that needed nothing.
+   */
+  const unplacedCategories =
+    io.preview?.categoryPlan.entries.filter((e) => e.status === "unmatched").length ?? 0;
+  const attentionCount =
+    unplacedCategories +
+    (io.preview?.pendingCompliance.length ?? 0) +
+    (io.preview?.issues.length ?? 0);
+
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
@@ -416,7 +429,12 @@ export function ProductImportPage() {
           <header className={css.cardHead}>
             <div>
               <h2 className={css.cardTitle}>Review before importing</h2>
-              <p className={css.dim}>Nothing has been changed yet.</p>
+              <p className={css.dim}>
+                Nothing has been changed yet.
+                {attentionCount > 0
+                  ? ` ${attentionCount.toLocaleString()} thing${attentionCount === 1 ? "" : "s"} below need${attentionCount === 1 ? "s" : ""} a decision — everything else is handled.`
+                  : " Nothing needs a decision — everything matched cleanly."}
+              </p>
             </div>
           </header>
 
@@ -432,39 +450,14 @@ export function ProductImportPage() {
             )}
           </div>
 
-          {io.preview.update > 0 && (
-            <>
-              <h3 className={css.groupTitle}>How rows were matched</h3>
-              <div className={css.chipRow}>
-                {(Object.keys(io.preview.matchCounts) as MatchConfidence[])
-                  .filter((k) => io.preview!.matchCounts[k] > 0)
-                  .map((k) => (
-                    <span key={k} className={css.chip}>
-                      {CONFIDENCE_LABELS[k]}
-                      <strong>{io.preview!.matchCounts[k]}</strong>
-                    </span>
-                  ))}
-              </div>
-              {io.preview.sampleMatches.length > 0 && (
-                <ul className={css.sampleList}>
-                  {io.preview.sampleMatches.map((m) => (
-                    <li key={m.rowNumber}>
-                      <span className={css.dim}>Row {m.rowNumber}</span> {m.name}{" "}
-                      <span className={css.arrow}>→</span> {m.matchedName}{" "}
-                      <span className={css.miniChip}>{CONFIDENCE_LABELS[m.confidence]}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-
           {io.preview.create > 0 && (
             <ImportCategoryBlock
               plan={io.preview.categoryPlan}
               categories={categories}
               choices={io.categoryChoices}
               onChange={io.setCategoryChoice}
+              createRows={io.preview.create}
+              updateRows={io.preview.update}
             />
           )}
 
@@ -543,6 +536,48 @@ export function ProductImportPage() {
               </h3>
               <IssueTable issues={io.preview.issues} />
             </>
+          )}
+
+          {/*
+            Everything the importer decided on its own, folded away.
+            The Review step used to open with it — a table of confident matches nobody needs to
+            read, above the handful of rows that genuinely need a decision. Leading with the
+            automatic work buried the actual job, so it now sits behind a disclosure and the
+            decisions come first.
+          */}
+          {io.preview.update > 0 && (
+            <details className={css.autoDecisions}>
+              <summary className={css.autoDecisionsSummary}>
+                View automatic decisions
+                <span className={css.optional}>
+                  {io.preview.update.toLocaleString()} matched without needing you
+                </span>
+              </summary>
+              <div className={css.autoDecisionsBody}>
+                <h3 className={css.groupTitle}>How rows were matched</h3>
+                <div className={css.chipRow}>
+                  {(Object.keys(io.preview.matchCounts) as MatchConfidence[])
+                    .filter((k) => io.preview!.matchCounts[k] > 0)
+                    .map((k) => (
+                      <span key={k} className={css.chip}>
+                        {CONFIDENCE_LABELS[k]}
+                        <strong>{io.preview!.matchCounts[k]}</strong>
+                      </span>
+                    ))}
+                </div>
+                {io.preview.sampleMatches.length > 0 && (
+                  <ul className={css.sampleList}>
+                    {io.preview.sampleMatches.map((m) => (
+                      <li key={m.rowNumber}>
+                        <span className={css.dim}>Row {m.rowNumber}</span> {m.name}{" "}
+                        <span className={css.arrow}>→</span> {m.matchedName}{" "}
+                        <span className={css.miniChip}>{CONFIDENCE_LABELS[m.confidence]}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </details>
           )}
 
           <footer className={css.cardFoot} data-fab-avoid>
@@ -624,14 +659,50 @@ export function ProductImportPage() {
               {io.result.leftUnclassified > 0 ? (
                 <>
                   , <strong>{io.result.leftUnclassified.toLocaleString()}</strong> left in
-                  Unclassified —{" "}
-                  <Link href="/products/organize" className={css.inlineLink}>
-                    place them now
-                  </Link>
+                  Unclassified
                 </>
               ) : null}
               .
             </p>
+          )}
+
+          {/*
+            The part of an import that used to disappear. A 2,000-row upload routinely left
+            hundreds of products needing a category and dozens needing a register match, and
+            nothing said so — you found out weeks later by noticing the Unclassified count. The
+            counts are stamped with this import's id, so "Review catalog tasks" opens the queue
+            filtered to exactly this upload's leftovers rather than the whole backlog.
+          */}
+          {io.result.catalogTasks.total > 0 && (
+            <div className={css.resultTaskNote}>
+              <IconClipboardList size={16} aria-hidden />
+              <span>
+                This import left{" "}
+                <strong>{io.result.catalogTasks.total.toLocaleString()}</strong> catalog task
+                {io.result.catalogTasks.total === 1 ? "" : "s"}:{" "}
+                {[
+                  io.result.catalogTasks.needsCategory > 0
+                    ? `${io.result.catalogTasks.needsCategory.toLocaleString()} needing a category`
+                    : null,
+                  io.result.catalogTasks.nmraMatch > 0
+                    ? `${io.result.catalogTasks.nmraMatch.toLocaleString()} possible register match${io.result.catalogTasks.nmraMatch === 1 ? "" : "es"}`
+                    : null,
+                  io.result.catalogTasks.ambiguous > 0
+                    ? `${io.result.catalogTasks.ambiguous.toLocaleString()} ambiguous`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+                .
+                {io.result.catalogTasks.complianceReview > 0 && (
+                  <>
+                    {" "}
+                    <strong>{io.result.catalogTasks.complianceReview.toLocaleString()}</strong>{" "}
+                    would change a compliance flag and need individual review.
+                  </>
+                )}
+              </span>
+            </div>
           )}
 
           {io.result.expiryReviewCount > 0 && (
@@ -667,17 +738,21 @@ export function ProductImportPage() {
             <button type="button" className={css.secondaryBtn} onClick={io.reset}>
               Import another file
             </button>
-            {io.result.leftUnclassified > 0 && (
-              <Link href="/products" className={css.secondaryBtn}>
-                <IconPackage size={15} />
-                View my products
-              </Link>
-            )}
-            {io.result.leftUnclassified > 0 ? (
-              <Link href="/products/organize" className={css.primaryBtn}>
+            <Link
+              href={`/products?importId=${encodeURIComponent(io.result.importId)}`}
+              className={css.secondaryBtn}
+            >
+              <IconPackage size={15} />
+              View imported products
+            </Link>
+            {io.result.catalogTasks.total > 0 ? (
+              <Link
+                href={`/products/manage?importId=${encodeURIComponent(io.result.importId)}`}
+                className={css.primaryBtn}
+              >
                 <IconClipboardList size={15} />
-                Organize {io.result.leftUnclassified.toLocaleString()} product
-                {io.result.leftUnclassified === 1 ? "" : "s"}
+                Review {io.result.catalogTasks.total.toLocaleString()} catalog task
+                {io.result.catalogTasks.total === 1 ? "" : "s"}
               </Link>
             ) : (
               <Link href="/products" className={css.primaryBtn}>

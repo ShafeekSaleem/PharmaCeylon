@@ -99,6 +99,14 @@ export type Product = {
   reorderGap?: number | null;
   /** Count of products sharing this display name (multi-registration groups). */
   sameNameCount?: number;
+  /**
+   * Why this row matched the search term, when one was given. Carried over from Search
+   * Catalog, whose search this list absorbed — "matched an alias" and "matched the
+   * registration number" are different enough answers that hiding the difference makes the
+   * results look arbitrary.
+   */
+  matchType?: "exact" | "generic" | "alias" | "partial";
+  matchField?: string;
 };
 
 export type ProductList = { items: Product[]; total: number; skip: number; take: number };

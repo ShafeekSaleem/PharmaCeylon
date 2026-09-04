@@ -48,7 +48,7 @@ export function InventoryClerkExpiryWatchWidget({ data }: { data: DashboardData 
                 const days = daysUntil(b.expiryDate);
                 const tone = days < 0 ? "danger" : days <= 14 ? "warning" : "info";
                 return (
-                  <tr key={b.batchId} {...rowLinkProps(router, `/catalog?productId=${b.productId}`)}>
+                  <tr key={b.batchId} {...rowLinkProps(router, `/products/${b.productId}`)}>
                     <td>
                       <strong>{b.product.name}</strong>
                       <div className={css.muted}>{b.product.sku}</div>

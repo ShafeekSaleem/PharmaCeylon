@@ -18,6 +18,8 @@ type Props = {
   canWrite: boolean;
   canDelete: boolean;
   busyId: string | null;
+  /** Off by default — see the display option in CategoriesSection for why. */
+  showReferenceCounts?: boolean;
   onToggleActive: (node: CommercialCategoryNode) => void;
   onRequestAddChild: (parent: CommercialCategoryNode) => void;
   onRequestRename: (node: CommercialCategoryNode) => void;
@@ -40,6 +42,7 @@ export function CategoryTree({
   canWrite,
   canDelete,
   busyId,
+  showReferenceCounts = false,
   onToggleActive,
   onRequestAddChild,
   onRequestRename,
@@ -97,7 +100,7 @@ export function CategoryTree({
             <span className={css.count}>
               {node.rangedCount.toLocaleString()} product
               {node.rangedCount === 1 ? "" : "s"}
-              {node.referenceCount > 0 && (
+              {showReferenceCounts && node.referenceCount > 0 && (
                 <span className={css.countMuted}>
                   {" · "}
                   {node.referenceCount.toLocaleString()} reference

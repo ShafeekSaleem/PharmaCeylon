@@ -193,7 +193,7 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
             tone: "primary",
           },
           {
-            href: "/catalog",
+            href: "/products?scope=reference",
             label: "Price Check",
             icon: <IconSearch size={18} />,
             roles: CATALOG_ROLES,

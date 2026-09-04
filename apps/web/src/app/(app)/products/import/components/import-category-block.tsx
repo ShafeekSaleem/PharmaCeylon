@@ -19,6 +19,9 @@ type Props = {
   plan: ImportCategoryPlan;
   categories: ProductCategory[];
   choices: ImportCategoryChoices;
+  /** Rows this import will create, and rows it matched to existing products. */
+  createRows?: number;
+  updateRows?: number;
   onChange: (incoming: string, decision: CategoryDecision | null) => void;
 };
 
@@ -47,7 +50,14 @@ function decode(value: string): CategoryDecision | null {
  * listed with where it will land and how many rows it affects, and every one of them can be
  * redirected before a single product is written.
  */
-export function ImportCategoryBlock({ plan, categories, choices, onChange }: Props) {
+export function ImportCategoryBlock({
+  plan,
+  categories,
+  choices,
+  createRows = 0,
+  updateRows = 0,
+  onChange,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const departments = useMemo(
@@ -86,6 +96,13 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
   }, [departments, childrenByParent]);
 
   const unmatched = plan.entries.filter((e) => e.status === "unmatched").length;
+  /*
+   * Split so the caveat can be stated as a number rather than a policy. "Only products this
+   * import creates are filed" sat in a footnote below the fold; someone choosing a category
+   * for 400 rows had no way to know 380 of them would ignore it.
+   */
+  const matchedRows = Math.max(0, updateRows);
+  const createdRows = Math.max(0, createRows);
   const placedRows = plan.entries.reduce(
     (sum, e) => (effective(e, choices) ? sum + e.rowCount : sum),
     0,
@@ -122,7 +139,16 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
         {placedRows > 0 ? (
           <>
             <strong>{placedRows.toLocaleString()}</strong> row
-            {placedRows === 1 ? "" : "s"} will be filed from your Category column.{" "}
+            {placedRows === 1 ? "" : "s"} will be filed from your Category column
+            {matchedRows > 0 ? (
+              <>
+                {" "}
+                — but only the {createdRows.toLocaleString()} this import{" "}
+                <em>creates</em>. The {matchedRows.toLocaleString()} matched to products you
+                already have keep the category they already have
+              </>
+            ) : null}
+            .{" "}
           </>
         ) : null}
         {plan.blankRows > 0 ? (
@@ -223,8 +249,8 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
 
       <p className={css.categoryFootnote}>
         <IconInfo size={14} />
-        Only products this import creates are filed. Anything matched to a product you already
-        have keeps the category it already has.
+        Anything left unplaced becomes a &quot;needs a category&quot; task in Catalog
+        Management rather than being guessed at.
       </p>
     </>
   );

@@ -330,7 +330,7 @@ export default function GetStartedPage() {
               <IconChevronRight size={15} />
             </Link>
             {data.optional.catalogCoverage.ranged > 0 ? (
-              <Link href="/products/organize">
+              <Link href="/products/manage?view=needs_category">
                 <span className={css.optionalIcon}>
                   <IconGrid size={21} />
                 </span>

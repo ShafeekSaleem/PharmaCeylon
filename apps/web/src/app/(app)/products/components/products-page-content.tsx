@@ -1,22 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
 import {
-  IconActivity,
-  IconAlertTriangle,
   IconArchive,
   IconCheck,
+  IconClipboardList,
   IconDownload,
   IconGrid,
   IconInfo,
-  IconPackage,
   IconPause,
   IconPlus,
   IconSearch,
   IconSettings,
-  IconStethoscope,
   IconTag,
   IconUpload,
   IconX,
@@ -25,8 +23,6 @@ import {
   ActionButton,
   ActiveFilterBanner,
   PageHeader,
-  StatCard,
-  StatGrid,
   flattenCategoryTree,
   type SortDir,
 } from "@/components/ui";
@@ -41,6 +37,15 @@ import {
   REFERENCE_STAT_PILLS,
   type KpiIconTone,
 } from "../constants";
+import {
+  addReferenceProducts,
+  previewReferenceAdd,
+  exitRange,
+  type ReferenceAddPreview,
+} from "../api/catalog-tasks";
+import { useCatalogTaskSummary } from "../hooks/use-catalog-task-summary";
+import { CatalogIssueBanner } from "./catalog-issue-banner";
+import { ReferenceAddReviewModal } from "./reference-add-review-modal";
 import {
   CONTROLLED_LABELS,
   EMPTY_PRODUCT_FILTERS,
@@ -71,9 +76,15 @@ import {
   type BulkExtras,
   type BulkTarget,
 } from "../hooks/use-product-bulk-actions";
-import { BulkOrganiseModal, type BulkOrganiseMode } from "./bulk-organise-modal";
+import {
+  BulkOrganiseModal,
+  type BulkOrganiseMode,
+} from "./bulk-organise-modal";
 import { CatalogTabs } from "./catalog-tabs";
-import { buildProductFilterParams, useProductsList } from "../hooks/use-products-list";
+import {
+  buildProductFilterParams,
+  useProductsList,
+} from "../hooks/use-products-list";
 import { useProductsUrlState } from "../hooks/use-products-url-state";
 import { ConfirmDialog } from "./confirm-dialog";
 import { NmraImportModal, type ImportMode } from "./nmra-import-modal";
@@ -103,6 +114,22 @@ export function ProductsPageContent() {
   const canImportProducts = hasPermission(permissionKeys, ["products.import"]);
   const hasBranch = !!getBranchId();
 
+  /*
+   * Products and Search Catalog were two pages behind two permissions. Merging the second into
+   * this page's Reference tab must not quietly take access away from anyone who had only
+   * `catalog.view`, so the two scopes are gated separately rather than both riding on
+   * `products.view` — see the layout guard, which admits either key.
+   */
+  const canViewMine = hasPermission(permissionKeys, ["products.view"]);
+  const canViewReference = hasPermission(permissionKeys, [
+    "catalog.view",
+    "products.view",
+  ]);
+  const canManageCatalog = hasPermission(permissionKeys, [
+    "products.view",
+    "product_meta.view",
+  ]);
+
   const {
     q,
     page,
@@ -121,7 +148,8 @@ export function ProductsPageContent() {
 
   const [search, setSearch] = useState(q);
   const [debouncedSearch, setDebouncedSearch] = useState(q);
-  const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(DEFAULT_VISIBLE);
+  const [visibleColumns, setVisibleColumns] =
+    useState<Set<ColumnKey>>(DEFAULT_VISIBLE);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingAll, setExportingAll] = useState(false);
@@ -136,6 +164,10 @@ export function ProductsPageContent() {
 
   const { categories, tags, refresh: refreshMeta } = useProductMeta();
   const metaMutations = useProductMetaMutations(refreshMeta);
+  /* Set by the import completion screen's "View imported products". Not a panel filter — it
+     scopes the list to one upload so an import's effect stays inspectable afterwards. */
+  const importScopeId = searchParams.get("importId");
+
   const list = useProductsList(
     page,
     debouncedSearch,
@@ -143,16 +175,34 @@ export function ProductsPageContent() {
     sortBy,
     sortDir,
     scope,
+    importScopeId,
   );
   const mutations = useProductMutations(() => {
     list.reload();
     refreshMeta();
   });
-  const [organiseMode, setOrganiseMode] = useState<BulkOrganiseMode | null>(null);
+  const [organiseMode, setOrganiseMode] = useState<BulkOrganiseMode | null>(
+    null,
+  );
   const bulk = useProductBulkActions(() => {
     setSelectedIds(new Set());
     list.reload();
   });
+
+  const { summary: taskSummary, reload: reloadTaskSummary } =
+    useCatalogTaskSummary(canManageCatalog);
+  const openTaskCount = taskSummary?.open ?? 0;
+
+  /* Reference "Add to my products": preview first, apply second. */
+  const [addPreview, setAddPreview] = useState<ReferenceAddPreview | null>(
+    null,
+  );
+  const [addPending, setAddPending] = useState<string[]>([]);
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [applyingAdd, setApplyingAdd] = useState(false);
+  const [addedIds, setAddedIds] = useState<Set<string>>(() => new Set());
+  const [referenceNotice, setReferenceNotice] = useState<string | null>(null);
+  const [referenceError, setReferenceError] = useState<string | null>(null);
 
   /* ?import=nmra opens the registry import — the Get started journey links straight here
      when a fresh pharmacy has no reference catalog to search yet. */
@@ -172,7 +222,9 @@ export function ProductsPageContent() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("view");
     const returnQs = params.toString();
-    const returnParam = returnQs ? { return: `/products?${returnQs}` } : undefined;
+    const returnParam = returnQs
+      ? { return: `/products?${returnQs}` }
+      : undefined;
     router.replace(productDetailPath(legacyView, returnParam));
   }, [searchParams, router]);
 
@@ -209,13 +261,25 @@ export function ProductsPageContent() {
     if (!columnsOpen && !exportOpen && !importMenuOpen) return;
     function onDocClick(e: MouseEvent) {
       const target = e.target as Node;
-      if (columnsOpen && columnsRef.current && !columnsRef.current.contains(target)) {
+      if (
+        columnsOpen &&
+        columnsRef.current &&
+        !columnsRef.current.contains(target)
+      ) {
         setColumnsOpen(false);
       }
-      if (exportOpen && exportRef.current && !exportRef.current.contains(target)) {
+      if (
+        exportOpen &&
+        exportRef.current &&
+        !exportRef.current.contains(target)
+      ) {
         setExportOpen(false);
       }
-      if (importMenuOpen && importRef.current && !importRef.current.contains(target)) {
+      if (
+        importMenuOpen &&
+        importRef.current &&
+        !importRef.current.contains(target)
+      ) {
         setImportMenuOpen(false);
       }
     }
@@ -271,9 +335,118 @@ export function ProductsPageContent() {
         undefined,
         undefined,
         scope,
+        importScopeId,
       ),
     });
   };
+
+  /**
+   * Add register rows to the pharmacy's range.
+   *
+   * Always previews first. When the server flags nothing, the add goes straight through — the
+   * common case must stay one click. When it flags a duplicate identifier or a compliance
+   * difference, the review modal opens instead, because those create a second record for one
+   * real medicine and split its stock from then on.
+   */
+  async function startReferenceAdd(referenceProductIds: string[]) {
+    if (referenceProductIds.length === 0) return;
+    setReferenceError(null);
+    setReferenceNotice(null);
+    setAddingId(
+      referenceProductIds.length === 1 ? referenceProductIds[0] : null,
+    );
+    try {
+      const preview = await previewReferenceAdd(referenceProductIds);
+      if (preview.needsReview > 0 || preview.blocked > 0) {
+        setAddPending(referenceProductIds);
+        setAddPreview(preview);
+        return;
+      }
+      await applyReferenceAdd(referenceProductIds, false);
+    } catch (err) {
+      setReferenceError(
+        err instanceof Error ? err.message : "Couldn't add those products",
+      );
+    } finally {
+      setAddingId(null);
+    }
+  }
+
+  async function applyReferenceAdd(
+    referenceProductIds: string[],
+    acknowledge: boolean,
+  ) {
+    setApplyingAdd(true);
+    setReferenceError(null);
+    try {
+      const result = await addReferenceProducts(
+        referenceProductIds,
+        acknowledge,
+      );
+      setAddedIds((prev) => new Set([...prev, ...result.added]));
+      const parts = [
+        `${result.added.length.toLocaleString()} product${result.added.length === 1 ? "" : "s"} added to your range`,
+      ];
+      if (result.held.length > 0) {
+        parts.push(
+          `${result.held.length.toLocaleString()} skipped — ${result.held[0].reason}`,
+        );
+      }
+      setReferenceNotice(parts.join(". "));
+      setAddPreview(null);
+      setAddPending([]);
+      setSelectedIds(new Set());
+      list.reload();
+      reloadTaskSummary();
+    } catch (err) {
+      setReferenceError(
+        err instanceof Error ? err.message : "Couldn't add those products",
+      );
+    } finally {
+      setApplyingAdd(false);
+    }
+  }
+
+  /**
+   * Take products out of the range. Goes through the policy endpoint rather than the plain
+   * bulk `unrange`, so a locally created product is deactivated instead of being filed into
+   * the NMRA reference catalog, and anything still holding stock is refused with a reason.
+   */
+  async function runRangeExit(productIds: string[]) {
+    if (productIds.length === 0) return;
+    setReferenceError(null);
+    setReferenceNotice(null);
+    try {
+      const result = await exitRange(productIds);
+      const parts: string[] = [];
+      if (result.unranged.length > 0) {
+        parts.push(
+          `${result.unranged.length.toLocaleString()} moved back to the reference catalog`,
+        );
+      }
+      if (result.deactivated.length > 0) {
+        parts.push(`${result.deactivated.length.toLocaleString()} deactivated`);
+      }
+      if (result.blocked.length > 0) {
+        parts.push(`${result.blocked.length.toLocaleString()} left alone`);
+      }
+      setReferenceNotice(
+        [
+          parts.join(", ") || "Nothing changed",
+          ...result.notes,
+          result.blocked[0]?.reason,
+        ]
+          .filter(Boolean)
+          .join(". "),
+      );
+      setSelectedIds(new Set());
+      list.reload();
+    } catch (err) {
+      setReferenceError(
+        err instanceof Error ? err.message : "Couldn't update those products",
+      );
+    }
+  }
 
   const changeScope = (next: ProductScope) => {
     if (next === scope) return;
@@ -299,10 +472,13 @@ export function ProductsPageContent() {
         sortBy,
         sortDir,
         scope,
+        importScopeId,
       );
       await downloadProductsExportCsv(params.toString());
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : "Failed to export products");
+      setExportError(
+        err instanceof Error ? err.message : "Failed to export products",
+      );
     } finally {
       setExportingAll(false);
     }
@@ -420,10 +596,10 @@ export function ProductsPageContent() {
 
   const openProduct = useCallback(
     (row: Product) => {
-      const returnPath = listQueryString ? `/products?${listQueryString}` : "/products";
-      router.push(
-        productDetailPath(row.id, { return: returnPath }),
-      );
+      const returnPath = listQueryString
+        ? `/products?${listQueryString}`
+        : "/products";
+      router.push(productDetailPath(row.id, { return: returnPath }));
     },
     [listQueryString, router],
   );
@@ -446,22 +622,27 @@ export function ProductsPageContent() {
     const pills: { key: string; label: string }[] = [];
 
     if (f.commercialCategories.length) {
-      const categoryOptions = flattenCategoryTree(facetsData?.commercialDepartments);
+      const categoryOptions = flattenCategoryTree(
+        facetsData?.commercialDepartments,
+      );
       for (const id of f.commercialCategories) {
         const label = categoryOptions.find((o) => o.value === id)?.label ?? id;
         pills.push({ key: `cat-${id}`, label: `Category: ${label}` });
       }
     }
     for (const code of f.schedules) {
-      const label = facetsData?.schedules?.find((s) => s.value === code)?.label ?? code;
+      const label =
+        facetsData?.schedules?.find((s) => s.value === code)?.label ?? code;
       pills.push({ key: `sch-${code}`, label: `Schedule: ${label}` });
     }
     for (const id of f.formGroups) {
-      const label = facetsData?.formGroups?.find((g) => g.value === id)?.label ?? id;
+      const label =
+        facetsData?.formGroups?.find((g) => g.value === id)?.label ?? id;
       pills.push({ key: `fg-${id}`, label: `Form group: ${label}` });
     }
     for (const id of f.registrationTypes) {
-      const label = facetsData?.registrationTypes?.find((r) => r.value === id)?.label ?? id;
+      const label =
+        facetsData?.registrationTypes?.find((r) => r.value === id)?.label ?? id;
       pills.push({ key: `rt-${id}`, label: `Registration type: ${label}` });
     }
     for (const brand of f.brands) {
@@ -472,7 +653,10 @@ export function ProductsPageContent() {
       pills.push({ key: `tag-${id}`, label: `Tag: ${label}` });
     }
     for (const status of f.status) {
-      pills.push({ key: `status-${status}`, label: STATUS_LABELS[status] ?? status });
+      pills.push({
+        key: `status-${status}`,
+        label: STATUS_LABELS[status] ?? status,
+      });
     }
     for (const c of f.controlled) {
       pills.push({ key: `ctrl-${c}`, label: CONTROLLED_LABELS[c] ?? c });
@@ -496,126 +680,90 @@ export function ProductsPageContent() {
             : "The products your pharmacy sells."
         }
         actions={
-          canWrite ? (
-            <ActionButton icon={<IconPlus size={16} />} onClick={mutations.openCreate}>
-              Add Product
-            </ActionButton>
-          ) : undefined
+          <>
+            {/* Secondary, and quieter than Add Product on purpose: administering the catalog
+                is occasional work, adding a product is the daily one. The badge is the only
+                thing that raises its voice, and only when there is something to raise it about. */}
+            {canManageCatalog && (
+              <Link
+                href="/products/manage"
+                className={css.manageCatalogBtn}
+                aria-label={
+                  openTaskCount > 0
+                    ? `Manage catalog, ${openTaskCount.toLocaleString()} tasks need review`
+                    : "Manage catalog"
+                }
+              >
+                <IconClipboardList size={15} aria-hidden />
+                Manage catalog
+                {openTaskCount > 0 && (
+                  <span className={css.manageCatalogBadge} aria-hidden>
+                    {openTaskCount.toLocaleString()}
+                  </span>
+                )}
+              </Link>
+            )}
+            {canWrite && scope === "mine" && (
+              <ActionButton
+                icon={<IconPlus size={16} />}
+                onClick={mutations.openCreate}
+              >
+                Add Product
+              </ActionButton>
+            )}
+          </>
         }
       />
 
       <div className={css.mainCol}>
-        {scope === "mine" && !rangeNoticeDismissed && (list.referenceCount ?? 0) > 0 && (
-          <div className={css.rangeNotice} role="status">
-            <span className={css.rangeNoticeIcon}>
-              <IconInfo size={16} />
-            </span>
-            <div className={css.rangeNoticeBody}>
-              <strong className={css.rangeNoticeTitle}>
-                Your products and the NMRA register are now separate
-              </strong>
-              <p className={css.rangeNoticeText}>
-                This page shows the{" "}
-                {(list.rangedCount ?? 0).toLocaleString()} product
-                {list.rangedCount === 1 ? "" : "s"} you actually sell. The{" "}
-                {(list.referenceCount ?? 0).toLocaleString()} imported registry record
-                {list.referenceCount === 1 ? " is" : "s are"} on the{" "}
-                <strong>Reference catalog</strong> tab — still fully searchable, and you can
-                tick any of them and choose <strong>Add to my products</strong>.
-              </p>
+        {scope === "mine" &&
+          !rangeNoticeDismissed &&
+          (list.referenceCount ?? 0) > 0 && (
+            <div className={css.rangeNotice} role="status">
+              <span className={css.rangeNoticeIcon}>
+                <IconInfo size={16} />
+              </span>
+              <div className={css.rangeNoticeBody}>
+                <strong className={css.rangeNoticeTitle}>
+                  Your products and the NMRA register are now separate
+                </strong>
+                <p className={css.rangeNoticeText}>
+                  This page shows the {(list.rangedCount ?? 0).toLocaleString()}{" "}
+                  product
+                  {list.rangedCount === 1 ? "" : "s"} you actually sell. The{" "}
+                  {(list.referenceCount ?? 0).toLocaleString()} imported
+                  registry record
+                  {list.referenceCount === 1 ? " is" : "s are"} on the{" "}
+                  <strong>Reference catalog</strong> tab — still fully
+                  searchable, and you can tick any of them and choose{" "}
+                  <strong>Add to my products</strong>.
+                </p>
+              </div>
+              <button
+                type="button"
+                className={css.rangeNoticeClose}
+                onClick={dismissRangeNotice}
+                aria-label="Dismiss this message"
+                data-tooltip="Dismiss"
+              >
+                <IconX size={14} />
+              </button>
             </div>
-            <button
-              type="button"
-              className={css.rangeNoticeClose}
-              onClick={dismissRangeNotice}
-              aria-label="Dismiss this message"
-              data-tooltip="Dismiss"
-            >
-              <IconX size={14} />
-            </button>
-          </div>
-        )}
+          )}
 
         <CatalogTabs
           active={scope === "reference" ? "reference" : "mine"}
           onScopeChange={changeScope}
           rangedCount={list.rangedCount}
           referenceCount={list.referenceCount}
+          canViewMine={canViewMine}
+          canViewReference={canViewReference}
         />
 
-        <div className={css.statsSection}>
-          {/* The reference tab drops the tiles that can't apply to a lookup-only record —
-              active/inactive is the pharmacist's flag, and low stock needs stock. */}
-          <StatGrid columns={scope === "reference" ? 3 : 5} dense>
-            <StatCard
-              size="sm"
-              title={scope === "reference" ? "Reference Products" : "Total Products"}
-              value={list.totalAll ?? "…"}
-              subtitle={scope === "reference" ? "On the NMRA register" : "In your range"}
-              icon={<IconPackage size={14} />}
-              iconTone="primary"
-              active={activePill === "all"}
-              onClick={() => toggleStatFilter("all")}
-            />
-            {scope === "mine" && (
-              <StatCard
-                size="sm"
-                title="Active Products"
-                value={list.summaryFacets ? list.activeCount : "…"}
-                subtitle="Sellable SKUs"
-                icon={<IconCheck size={14} />}
-                iconTone="success"
-                active={activePill === "active"}
-                onClick={() => toggleStatFilter("active")}
-              />
-            )}
-            {scope === "mine" && (
-              <StatCard
-                size="sm"
-                title="Inactive Products"
-                value={list.summaryFacets ? list.inactiveCount : "…"}
-                subtitle="Hidden from sell"
-                icon={<IconPause size={14} />}
-                iconTone="info"
-                active={activePill === "inactive"}
-                onClick={() => toggleStatFilter("inactive")}
-              />
-            )}
-            <StatCard
-              size="sm"
-              title="Controlled Substances"
-              value={list.controlledCount}
-              subtitle="Restricted items"
-              icon={<IconAlertTriangle size={14} />}
-              iconTone="warning"
-              active={activePill === "controlled"}
-              onClick={() => toggleStatFilter("controlled")}
-            />
-            {scope === "reference" ? (
-              <StatCard
-                size="sm"
-                title="Prescription Required"
-                value={list.summaryFacets ? list.rxCount : "…"}
-                subtitle="Needs a prescription"
-                icon={<IconStethoscope size={14} />}
-                iconTone="info"
-                active={activePill === "rx"}
-                onClick={() => toggleStatFilter("rx")}
-              />
-            ) : (
-              <StatCard
-                size="sm"
-                title="Low Stock"
-                value={list.lowStock ?? "—"}
-                subtitle={hasBranch ? "Below reorder level" : "Select a branch"}
-                icon={<IconActivity size={14} />}
-                iconTone="danger"
-                active={activePill === "lowStock"}
-                onClick={() => hasBranch && toggleStatFilter("lowStock")}
-              />
-            )}
-          </StatGrid>
-        </div>
+        {/* Only when there is work. See CatalogIssueBanner for why this replaced five tiles. */}
+        {scope === "mine" && canManageCatalog && (
+          <CatalogIssueBanner summary={taskSummary} />
+        )}
 
         <div className={css.toolbar}>
           <div className={css.toolbarGroup}>
@@ -638,7 +786,11 @@ export function ProductsPageContent() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div className={css.statusPills} role="tablist" aria-label="Quick status filters">
+            <div
+              className={css.statusPills}
+              role="tablist"
+              aria-label="Quick status filters"
+            >
               {(scope === "reference"
                 ? REFERENCE_STAT_PILLS
                 : PRODUCT_STAT_PILLS
@@ -683,7 +835,9 @@ export function ProductsPageContent() {
                 </button>
                 {importMenuOpen && (
                   <div className={css.columnsPopover} role="menu">
-                    <div className={css.columnsPopoverTitle}>Import products</div>
+                    <div className={css.columnsPopoverTitle}>
+                      Import products
+                    </div>
                     {canImportProducts && (
                       <button
                         type="button"
@@ -694,7 +848,9 @@ export function ProductsPageContent() {
                           router.push("/products/import");
                         }}
                       >
-                        <span className={css.exportMenuItemLabel}>My product list</span>
+                        <span className={css.exportMenuItemLabel}>
+                          My product list
+                        </span>
                         <span className={css.exportMenuItemHint}>
                           A spreadsheet from your old system, with stock
                         </span>
@@ -709,7 +865,9 @@ export function ProductsPageContent() {
                         setImportModal("nmra");
                       }}
                     >
-                      <span className={css.exportMenuItemLabel}>NMRA register</span>
+                      <span className={css.exportMenuItemLabel}>
+                        NMRA register
+                      </span>
                       <span className={css.exportMenuItemHint}>
                         The official Sri Lankan medicines list
                       </span>
@@ -777,9 +935,12 @@ export function ProductsPageContent() {
                     disabled={list.total === 0 || exportingAll}
                     onClick={() => void handleExportAll()}
                   >
-                    <span className={css.exportMenuItemLabel}>Export all matching</span>
+                    <span className={css.exportMenuItemLabel}>
+                      Export all matching
+                    </span>
                     <span className={css.exportMenuItemHint}>
-                      All filtered results ({list.total.toLocaleString()} product
+                      All filtered results ({list.total.toLocaleString()}{" "}
+                      product
                       {list.total === 1 ? "" : "s"})
                     </span>
                   </button>
@@ -834,6 +995,25 @@ export function ProductsPageContent() {
           </Alert>
         )}
 
+        {referenceError && (
+          <Alert
+            variant="error"
+            className={css.listAlert}
+            onClose={() => setReferenceError(null)}
+          >
+            {referenceError}
+          </Alert>
+        )}
+        {referenceNotice && (
+          <Alert
+            variant="success"
+            className={css.listAlert}
+            onClose={() => setReferenceNotice(null)}
+          >
+            {referenceNotice}
+          </Alert>
+        )}
+
         {bulk.error && (
           <Alert
             variant="error"
@@ -856,23 +1036,27 @@ export function ProductsPageContent() {
         {/* Same shell as the filter banner above: both say "a subset of this page is in
             play, here is how to drop it". They used to look like two unrelated systems. */}
         {canWrite && selectedIds.size > 0 && (
-          <div className={css.selectionBar} role="region" aria-label="Selected products">
+          <div
+            className={css.selectionBar}
+            role="region"
+            aria-label="Selected products"
+          >
             <div className={css.selectionMain}>
               <span className={css.selectionSummary}>
                 {selectedIds.size.toLocaleString()} product
                 {selectedIds.size === 1 ? "" : "s"} selected
               </span>
-              {list.total > list.products.length && (
+              {/* Only offered for the register tab. "Deactivate all 4,000 matching" is not an
+                  action anyone means to take, and the range-exit policy is per-product by
+                  design — it needs each product's stock and history to decide. */}
+              {scope === "reference" && list.total > list.products.length && (
                 <button
                   type="button"
                   className={css.selectionLink}
                   disabled={bulk.running !== null}
-                  onClick={() =>
-                    runBulkOnAllMatching(scope === "reference" ? "range" : "unrange")
-                  }
+                  onClick={() => runBulkOnAllMatching("range")}
                 >
-                  {scope === "reference" ? "Add" : "Move"} all{" "}
-                  {list.total.toLocaleString()} matching instead
+                  Add all {list.total.toLocaleString()} matching instead
                 </button>
               )}
             </div>
@@ -882,11 +1066,11 @@ export function ProductsPageContent() {
                 <button
                   type="button"
                   className={css.selectionBtnPrimary}
-                  disabled={bulk.running !== null}
-                  onClick={() => runBulk("range")}
+                  disabled={applyingAdd}
+                  onClick={() => void startReferenceAdd([...selectedIds])}
                 >
                   <IconPlus size={14} />
-                  {bulk.running === "range" ? "Adding…" : "Add to my products"}
+                  {applyingAdd ? "Adding…" : "Add to my products"}
                 </button>
               ) : (
                 <>
@@ -906,7 +1090,9 @@ export function ProductsPageContent() {
                     onClick={() => runBulk("deactivate")}
                   >
                     <IconPause size={14} />
-                    {bulk.running === "deactivate" ? "Deactivating…" : "Deactivate"}
+                    {bulk.running === "deactivate"
+                      ? "Deactivating…"
+                      : "Deactivate"}
                   </button>
                   <button
                     type="button"
@@ -930,11 +1116,11 @@ export function ProductsPageContent() {
                     type="button"
                     className={css.selectionBtn}
                     disabled={bulk.running !== null}
-                    onClick={() => runBulk("unrange")}
-                    data-tooltip="Keep the record, but stop listing it as something you sell"
+                    onClick={() => void runRangeExit([...selectedIds])}
+                    data-tooltip="Register medicines go back to the reference catalog; your own products are deactivated instead"
                   >
                     <IconArchive size={14} />
-                    {bulk.running === "unrange" ? "Moving…" : "Move to reference"}
+                    Stop selling
                   </button>
                 </>
               )}
@@ -950,10 +1136,24 @@ export function ProductsPageContent() {
         )}
 
         <ActiveFilterBanner
-          active={filtersActive}
-          summary={`Filtered products · ${list.total} product${list.total === 1 ? "" : "s"}`}
+          active={filtersActive || Boolean(importScopeId)}
+          summary={
+            importScopeId
+              ? `Products from one import · ${list.total.toLocaleString()} product${list.total === 1 ? "" : "s"}`
+              : `Filtered products · ${list.total} product${list.total === 1 ? "" : "s"}`
+          }
           pills={activeFilterPills}
-          onClear={handleClearFilters}
+          onClear={() => {
+            handleClearFilters();
+            if (importScopeId) {
+              const params = new URLSearchParams(searchParams.toString());
+              params.delete("importId");
+              const qs = params.toString();
+              router.replace(qs ? `/products?${qs}` : "/products", {
+                scroll: false,
+              });
+            }
+          }}
           clearTooltip="Reset all product filters"
         />
 
@@ -975,8 +1175,26 @@ export function ProductsPageContent() {
           onRowClick={openProduct}
           onEdit={mutations.openEdit}
           onDelete={mutations.openDelete}
+          onAddReference={
+            scope === "reference"
+              ? (row) => void startReferenceAdd([row.id])
+              : undefined
+          }
+          addedReferenceIds={addedIds}
+          addingReferenceId={addingId}
         />
       </div>
+
+      <ReferenceAddReviewModal
+        open={addPreview !== null}
+        preview={addPreview}
+        applying={applyingAdd}
+        onCancel={() => {
+          setAddPreview(null);
+          setAddPending([]);
+        }}
+        onConfirm={() => void applyReferenceAdd(addPending, true)}
+      />
 
       <NmraImportModal
         open={importModal !== null}
@@ -1004,7 +1222,11 @@ export function ProductsPageContent() {
         onCreateCategory={canWrite ? metaMutations.createCategory : undefined}
         onCreateTag={canWrite ? metaMutations.createTag : undefined}
         onManageMeta={() =>
-          window.open("/products/categories", "_blank", "noopener,noreferrer")
+          window.open(
+            "/products/manage?section=categories",
+            "_blank",
+            "noopener,noreferrer",
+          )
         }
         onAliasesChanged={
           mutations.editingProduct
@@ -1045,8 +1267,8 @@ export function ProductsPageContent() {
           {mutations.deleteTarget?.sku})?
         </p>
         <p className={css.confirmDialogHint}>
-          This cannot be undone. Deletion fails if the product is linked to inventory, sales, or
-          purchase records. Mark inactive via Edit instead.
+          This cannot be undone. Deletion fails if the product is linked to
+          inventory, sales, or purchase records. Mark inactive via Edit instead.
         </p>
       </ConfirmDialog>
     </div>

@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
-import { usePermissions } from "@/lib/permissions";
+import { hasPermission, usePermissions } from "@/lib/permissions";
 import { fetchSetupReadiness } from "@/lib/setup-readiness-client";
 import { useFullscreen } from "@/lib/use-fullscreen";
 import {
@@ -29,7 +29,6 @@ import {
   IconFileText,
   IconUsers,
   IconSettings,
-  IconSearch,
   IconMenu,
   IconLogOut,
   IconUser,
@@ -68,8 +67,11 @@ type NavEntry = {
    * custom role can be granted this permission without being one of the static `roles`, so
    * checking `roles` alone can show the nav item as restricted even though the page itself
    * would let the user in. `roles` is kept only as the source for the denied-tooltip copy.
+   *
+   * An array means "any of these" — used where one page absorbed another's job and must stay
+   * reachable by everyone who could reach either (Products, which took over Search Catalog).
    */
-  permission?: string;
+  permission?: string | string[];
 };
 
 type NavGroup = { label: string; items: NavEntry[] };
@@ -86,8 +88,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Catalog",
     items: [
-      { href: "/products", label: "Products", icon: <IconPackage size={18} />, roles: CATALOG_ROLES, permission: "products.view" },
-      { href: "/catalog", label: "Search Catalog", icon: <IconSearch size={18} />, roles: CATALOG_ROLES, permission: "catalog.view" },
+      // Search Catalog used to sit here as a second entry. It searched the same reference rows
+      // as Products' Reference tab, so the sidebar offered two doors into one room — and only
+      // one of them could add a medicine to the range. `/catalog` now redirects here.
+      // `permission` admits either key so nobody who had only `catalog.view` loses the nav item.
+      { href: "/products", label: "Products", icon: <IconPackage size={18} />, roles: CATALOG_ROLES, permission: ["products.view", "catalog.view"] },
     ],
   },
   {
@@ -162,7 +167,9 @@ function readCollapsed(): boolean {
 }
 
 function navItemAllowed(item: NavEntry, userRoles: string[], permissionKeys: string[]): boolean {
-  if (item.permission) return permissionKeys.includes(item.permission);
+  if (item.permission) {
+    return hasPermission(permissionKeys, [item.permission].flat());
+  }
   return hasRoleAccess(userRoles, item.roles);
 }
 

@@ -64,10 +64,10 @@ export default function CatalogSettingsPage() {
                 </p>
               </div>
               <div style={{ display: "flex", gap: "0.5rem" }}>
-                <Link href="/products/categories" className={css.chip}>
+                <Link href="/products/manage?section=categories" className={css.chip}>
                   Manage Categories <IconChevronRight size={13} />
                 </Link>
-                <Link href="/products/tags" className={css.chip}>
+                <Link href="/products/manage?section=tags" className={css.chip}>
                   <IconTag size={13} /> Manage Tags <IconChevronRight size={13} />
                 </Link>
               </div>

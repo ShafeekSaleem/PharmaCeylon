@@ -707,3 +707,81 @@
   margin-top: 2px;
   color: var(--pc-primary);
 }
+
+/* ── "View automatic decisions" ────────────────────────────────────────────
+   Everything the importer settled on its own, folded away so the Review step opens with the
+   handful of rows that need a person rather than a table of confident matches. */
+
+.autoDecisions {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-card-bg);
+  overflow: hidden;
+}
+
+.autoDecisionsSummary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  color: var(--pc-muted-fg);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+
+.autoDecisionsSummary::-webkit-details-marker {
+  display: none;
+}
+
+.autoDecisionsSummary::before {
+  content: "›";
+  display: inline-block;
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.autoDecisions[open] .autoDecisionsSummary::before {
+  transform: rotate(90deg);
+}
+
+.autoDecisionsSummary:hover {
+  background: var(--pc-hover-overlay);
+  color: var(--pc-foreground);
+}
+
+.autoDecisionsSummary:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
+}
+
+.autoDecisionsBody {
+  padding: 0 0.85rem 0.85rem;
+}
+
+/* ── Post-import next steps ────────────────────────────────────────────────
+   What the import left behind, and where to go and deal with it. */
+
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.resultTaskNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--pc-alert-warning-border);
+  border-left-width: 3px;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
