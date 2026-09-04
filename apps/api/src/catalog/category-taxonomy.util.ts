@@ -346,11 +346,22 @@ export class CategoryTaxonomyOps {
    * never touched. Anything the rules can't confidently place stays in Unclassified Medicines
    * for human review, rather than guessing. Batched by target category, not per-product, so it
    * stays cheap against a full NMRA-sized catalog.
+   *
+   * `productIds` narrows the sweep to one import's own products. Without it every call
+   * re-scans the tenant's whole Unclassified pile, which on a registry-sized catalog means a
+   * product-list import of twenty rows drags several thousand reference rows through the
+   * classifier for nothing.
    */
-  async applyDeterministicMedicineClassification(tenantId: string): Promise<{
+  async applyDeterministicMedicineClassification(
+    tenantId: string,
+    productIds?: readonly string[],
+  ): Promise<{
     reclassified: number;
     stillUnclassified: number;
   }> {
+    if (productIds && productIds.length === 0) {
+      return { reclassified: 0, stillUnclassified: 0 };
+    }
     const unclassified = await this.prisma.productCategory.findFirst({
       where: { tenantId, dimension: "COMMERCIAL", canonicalKey: UNCLASSIFIED_MEDICINES_CANONICAL_KEY },
       select: { id: true },
@@ -364,6 +375,7 @@ export class CategoryTaxonomyOps {
         isPrimary: true,
         categoryId: unclassified.id,
         assignmentSource: "SYSTEM_DEFAULT",
+        ...(productIds ? { productId: { in: [...productIds] } } : {}),
       },
       select: {
         productId: true,

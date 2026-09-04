@@ -5,7 +5,9 @@ import { apiFetch, apiJson } from "@/lib/auth-client";
 import { parseApiError } from "@/lib/api-error";
 import { createIdempotencyKey } from "@/lib/idempotency";
 import type {
+  CategoryDecision,
   ImportAnalysis,
+  ImportCategoryChoices,
   ImportJobProgress,
   ImportMapping,
   ImportPreview,
@@ -44,6 +46,12 @@ export function useProductImport() {
   const [mapping, setMapping] = useState<ImportMapping>({});
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [confirmedRows, setConfirmedRows] = useState<Set<number>>(() => new Set());
+  /**
+   * Only the values the user actually changed. Anything untouched keeps the resolution the
+   * preview worked out, so confirming without opening the Categories block still applies every
+   * automatic match — the choices are overrides, not the whole answer.
+   */
+  const [categoryChoices, setCategoryChoices] = useState<ImportCategoryChoices>({});
   const [progress, setProgress] = useState<ImportJobProgress | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -88,6 +96,7 @@ export function useProductImport() {
       setMapping(data.suggestedMapping);
       setPreview(null);
       setConfirmedRows(new Set());
+      setCategoryChoices({});
       setResult(null);
       setProgress(null);
       setStep("map");
@@ -181,6 +190,7 @@ export function useProductImport() {
         {
           mapping: JSON.stringify(mapping),
           confirmedRows: JSON.stringify([...confirmedRows]),
+          categoryChoices: JSON.stringify(categoryChoices),
         },
         { "Idempotency-Key": idempotencyKeyRef.current },
       );
@@ -191,7 +201,20 @@ export function useProductImport() {
     } finally {
       setBusy(false);
     }
-  }, [file, mapping, confirmedRows, poll]);
+  }, [file, mapping, confirmedRows, categoryChoices, poll]);
+
+  /** Record (or clear) the user's decision for one incoming category value. */
+  const setCategoryChoice = useCallback(
+    (incoming: string, decision: CategoryDecision | null) => {
+      setCategoryChoices((prev) => {
+        const next = { ...prev };
+        if (decision) next[incoming] = decision;
+        else delete next[incoming];
+        return next;
+      });
+    },
+    [],
+  );
 
   const toggleConfirmedRow = useCallback((rowNumber: number) => {
     setConfirmedRows((prev) => {
@@ -230,6 +253,7 @@ export function useProductImport() {
     setMapping({});
     setPreview(null);
     setConfirmedRows(new Set());
+    setCategoryChoices({});
     setProgress(null);
     setResult(null);
     setError(null);
@@ -244,6 +268,7 @@ export function useProductImport() {
     mapping,
     preview,
     confirmedRows,
+    categoryChoices,
     progress,
     result,
     busy,
@@ -255,6 +280,7 @@ export function useProductImport() {
     runImport,
     toggleConfirmedRow,
     confirmAllPending,
+    setCategoryChoice,
     undo,
     reset,
     dismissError: () => setError(null),

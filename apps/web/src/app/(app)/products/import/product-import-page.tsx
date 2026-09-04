@@ -27,6 +27,8 @@ import {
   type ImportStep,
   type MatchConfidence,
 } from "./types";
+import { ImportCategoryBlock } from "./components/import-category-block";
+import { useProductMeta } from "../hooks/use-product-meta";
 import { useProductImport } from "./use-product-import";
 
 const STEPS: Array<{ id: ImportStep; label: string }> = [
@@ -160,6 +162,8 @@ function IssueTable({ issues }: { issues: ImportRowIssue[] }) {
 
 export function ProductImportPage() {
   const io = useProductImport();
+  // The commercial tree drives the Review step's category dropdowns.
+  const { categories } = useProductMeta();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const hasBranch = Boolean(getBranchId());
@@ -454,6 +458,15 @@ export function ProductImportPage() {
             </>
           )}
 
+          {io.preview.create > 0 && (
+            <ImportCategoryBlock
+              plan={io.preview.categoryPlan}
+              categories={categories}
+              choices={io.categoryChoices}
+              onChange={io.setCategoryChoice}
+            />
+          )}
+
           {io.preview.missingExpiry > 0 && (
             <Alert variant="info">
               <strong>{io.preview.missingExpiry}</strong> batch
@@ -600,6 +613,22 @@ export function ProductImportPage() {
               <Stat label="Rows skipped" value={io.result.rowsFailed} tone="warn" />
             )}
           </div>
+
+          {io.result.productsCreated > 0 && (
+            <p className={css.dim}>
+              Filed under a category:{" "}
+              <strong>{io.result.categorizedFromFile.toLocaleString()}</strong> from your file,{" "}
+              <strong>{io.result.categorizedByClassifier.toLocaleString()}</strong> sorted
+              automatically
+              {io.result.leftUnclassified > 0 ? (
+                <>
+                  , <strong>{io.result.leftUnclassified.toLocaleString()}</strong> left in
+                  Unclassified for you to place
+                </>
+              ) : null}
+              .
+            </p>
+          )}
 
           {io.result.expiryReviewCount > 0 && (
             <Alert variant="info">

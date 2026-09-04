@@ -8,8 +8,18 @@ import { randomUUID } from "node:crypto";
 import { Prisma, StockMovementType } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
+import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-category-template";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { normalizeIdempotencyKey } from "../common/idempotency.util";
+import {
+  buildCategoryPlan,
+  CommercialCategoryIndex,
+  normalizeCategoryName,
+  resolveCategoryAssignments,
+  type ImportCategoryChoices,
+  type ImportCategoryPlan,
+} from "./product-import-category";
 import {
   CatalogIndex,
   needsComplianceConfirmation,
@@ -54,6 +64,9 @@ const EXPIRY_PLACEHOLDER = new Date(Date.UTC(2099, 11, 31));
 
 /** Product write batch size — sequential batches, never Promise.all on one pg client. */
 const PRODUCT_BATCH = 100;
+
+/** `createMany` batch size for relation rows (category maps), matching the NMRA importer. */
+const RELATION_BATCH = 400;
 
 const MAX_ISSUES_KEPT = 500;
 
@@ -100,6 +113,7 @@ export class ProductImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly categoryTaxonomy: CategoryTaxonomyService,
   ) {}
 
   // ── Step 1: read the file, propose a mapping ────────────────────────────
@@ -131,6 +145,11 @@ export class ProductImportService {
     const resolved = this.resolveRows(rows, mapping);
     const index = await this.buildIndex(tenantId);
     const plan = this.planRows(resolved.rows, index, new Set());
+    const categoryPlan = buildCategoryPlan(
+      await this.buildCategoryIndex(tenantId),
+      resolved.rows.map((r) => r.categoryName),
+      Boolean(mapping.categoryName),
+    );
 
     let create = 0;
     let update = 0;
@@ -178,6 +197,7 @@ export class ProductImportService {
       unitsToPost,
       missingExpiry,
       matchCounts: plan.matchCounts,
+      categoryPlan,
       issues: [...resolved.issues, ...plan.issues].slice(0, MAX_ISSUES_KEPT),
       pendingCompliance: plan.pendingCompliance,
       sampleCreates,
@@ -200,6 +220,7 @@ export class ProductImportService {
     file: Express.Multer.File,
     mapping: ImportMapping,
     confirmedRows: number[],
+    categoryChoices: ImportCategoryChoices,
     idempotencyKeyRaw: string | undefined,
   ): Promise<{ jobId: string; importId: string }> {
     const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
@@ -278,6 +299,7 @@ export class ProductImportService {
       importRecord.id,
       resolved,
       new Set(confirmedRows),
+      categoryChoices,
     );
     return { jobId, importId: importRecord.id };
   }
@@ -298,6 +320,7 @@ export class ProductImportService {
     importId: string,
     resolved: { rows: ResolvedRow[]; issues: ImportRowIssue[] },
     confirmedRows: Set<number>,
+    categoryChoices: ImportCategoryChoices,
   ): Promise<void> {
     patchImportJob(jobId, { status: "running", phase: "matching" });
     try {
@@ -323,6 +346,14 @@ export class ProductImportService {
             productsUpdated: updated,
             errorCount: issues.length,
           }),
+      );
+
+      patchImportJob(jobId, { phase: "categories" });
+      const categorized = await this.applyCategories(
+        tenantId,
+        toRun,
+        written.productIdByRow,
+        categoryChoices,
       );
 
       let batchesCreated = 0;
@@ -372,6 +403,9 @@ export class ProductImportService {
         rowsFailed: allIssues.length,
         expiryReviewCount,
         issues: allIssues,
+        categorizedFromFile: categorized.fromFile,
+        categorizedByClassifier: categorized.byClassifier,
+        leftUnclassified: categorized.unclassified,
       };
 
       await this.prisma.productImport.updateMany({
@@ -405,6 +439,9 @@ export class ProductImportService {
           unitsPosted,
           rowsFailed: result.rowsFailed,
           expiryReviewCount,
+          categorizedFromFile: categorized.fromFile,
+          categorizedByClassifier: categorized.byClassifier,
+          leftUnclassified: categorized.unclassified,
         },
       });
 
@@ -737,6 +774,194 @@ export class ProductImportService {
     });
 
     return { rows: out, issues };
+  }
+
+  // ── Commercial categories ───────────────────────────────────────────────
+
+  private async buildCategoryIndex(tenantId: string): Promise<CommercialCategoryIndex> {
+    await this.categoryTaxonomy.ensureCommercialTemplate(tenantId);
+    const rows = await this.prisma.productCategory.findMany({
+      where: { tenantId, dimension: "COMMERCIAL" },
+      select: {
+        id: true,
+        name: true,
+        parentCategoryId: true,
+        canonicalKey: true,
+        isActive: true,
+      },
+    });
+    return new CommercialCategoryIndex(rows);
+  }
+
+  /**
+   * Turn the Review step's "create a new category" choices into real rows, once, before the
+   * row loop. Returns the choices with every `create` rewritten as a plain `use`, and drops
+   * any `use` naming a category outside this tenant's commercial tree — the choice map arrives
+   * from the client, so it is never trusted as a category id on its own.
+   */
+  private async materializeCategoryChoices(
+    tenantId: string,
+    index: CommercialCategoryIndex,
+    plan: ImportCategoryPlan,
+    choices: ImportCategoryChoices,
+  ): Promise<ImportCategoryChoices> {
+    const out: ImportCategoryChoices = {};
+    const known = new Set(plan.entries.map((e) => e.incoming));
+
+    for (const [incoming, decision] of Object.entries(choices)) {
+      if (!known.has(incoming)) continue;
+
+      if (decision.action === "use") {
+        if (index.get(decision.categoryId)) out[incoming] = decision;
+        continue;
+      }
+      if (decision.action === "skip") {
+        out[incoming] = decision;
+        continue;
+      }
+
+      const parentId = decision.parentCategoryId;
+      if (parentId && !index.get(parentId)) continue;
+      const name = incoming.trim().slice(0, 120);
+      if (!name) continue;
+
+      // A concurrent import (or a category the user created in another tab) may already own
+      // this name under this parent — the unique constraint is the source of truth, so take
+      // whatever is there rather than failing the whole import over a duplicate.
+      const existing = await this.prisma.productCategory.findFirst({
+        where: {
+          tenantId,
+          dimension: "COMMERCIAL",
+          name,
+          parentCategoryId: parentId ?? null,
+        },
+        select: { id: true },
+      });
+      const categoryId =
+        existing?.id ??
+        (
+          await this.prisma.productCategory.create({
+            data: {
+              tenantId,
+              dimension: "COMMERCIAL",
+              name,
+              parentCategoryId: parentId ?? null,
+              source: "TENANT",
+              isSystem: false,
+              isActive: true,
+            },
+            select: { id: true },
+          })
+        ).id;
+      out[incoming] = { action: "use", categoryId };
+    }
+
+    return out;
+  }
+
+  /**
+   * File every product this import *created* under a commercial category.
+   *
+   * Products the import matched to an existing record keep the category they already had —
+   * the same "only fill gaps" policy the field merge follows, and it keeps undo free, because
+   * undo deletes created products and their category maps cascade with them.
+   *
+   * Rows whose Category column was blank, unmatched, or explicitly skipped fall through the
+   * same ladder the NMRA importer uses: the Unclassified Medicines floor, then the
+   * deterministic keyword classifier — which until now only ever ran inside an NMRA import,
+   * so a product-list import never saw it.
+   */
+  private async applyCategories(
+    tenantId: string,
+    planned: PlannedRow[],
+    productIdByRow: Map<number, string>,
+    rawChoices: ImportCategoryChoices,
+  ): Promise<{ fromFile: number; byClassifier: number; unclassified: number }> {
+    // Only rows this run created: a matched row already has a home, and a row that failed to
+    // write has no product to file.
+    const created = planned.filter(
+      (p) => !p.match && productIdByRow.has(p.row.rowNumber),
+    );
+    if (created.length === 0) {
+      return { fromFile: 0, byClassifier: 0, unclassified: 0 };
+    }
+    const createdIds = created.map((p) => productIdByRow.get(p.row.rowNumber)!);
+
+    const index = await this.buildCategoryIndex(tenantId);
+    const plan = buildCategoryPlan(
+      index,
+      created.map((p) => p.row.categoryName),
+      true,
+    );
+    const choices = await this.materializeCategoryChoices(
+      tenantId,
+      index,
+      plan,
+      rawChoices,
+    );
+    // `materializeCategoryChoices` may have created categories the index predates.
+    const assignments = resolveCategoryAssignments(plan, choices);
+
+    const maps: Prisma.ProductCategoryMapCreateManyInput[] = [];
+    const targetCategoryIds = new Set<string>();
+    for (const item of created) {
+      const key = normalizeCategoryName(item.row.categoryName ?? "");
+      if (!key) continue;
+      const categoryId = assignments.get(key);
+      if (!categoryId) continue;
+      targetCategoryIds.add(categoryId);
+      maps.push({
+        tenantId,
+        productId: productIdByRow.get(item.row.rowNumber)!,
+        categoryId,
+        dimension: "COMMERCIAL",
+        isPrimary: true,
+        // The pharmacy stated this in its own file, so it outranks anything the classifier
+        // would infer — and MANUAL keeps the classifier from ever overwriting it.
+        assignmentSource: "MANUAL",
+      });
+    }
+
+    let fromFile = 0;
+    for (let i = 0; i < maps.length; i += RELATION_BATCH) {
+      const res = await this.prisma.productCategoryMap.createMany({
+        data: maps.slice(i, i + RELATION_BATCH),
+        skipDuplicates: true,
+      });
+      fromFile += res.count;
+    }
+
+    // A department the tenant had switched off is switched back on rather than hiding the
+    // products just filed under it — importing into a category is a clear statement that the
+    // pharmacy sells it. Parents come along, or the child stays invisible under a dead branch.
+    if (targetCategoryIds.size > 0) {
+      const withParents = new Set<string>(targetCategoryIds);
+      for (const id of targetCategoryIds) {
+        const parentId = index.get(id)?.parentCategoryId;
+        if (parentId) withParents.add(parentId);
+      }
+      await this.prisma.productCategory.updateMany({
+        where: { tenantId, id: { in: [...withParents] }, isActive: false },
+        data: { isActive: true },
+      });
+    }
+
+    const unclassifiedCount = await this.categoryTaxonomy.assignMissingPrimaryCommercial(
+      tenantId,
+      createdIds,
+      UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
+      "SYSTEM_DEFAULT",
+    );
+    const classified = await this.categoryTaxonomy.applyDeterministicMedicineClassification(
+      tenantId,
+      createdIds,
+    );
+
+    return {
+      fromFile,
+      byClassifier: classified.reclassified,
+      unclassified: Math.max(0, unclassifiedCount - classified.reclassified),
+    };
   }
 
   private async buildIndex(tenantId: string): Promise<CatalogIndex> {

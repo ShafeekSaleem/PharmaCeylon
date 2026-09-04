@@ -620,3 +620,77 @@
     flex-wrap: wrap;
   }
 }
+
+/* ── Review: category assignment ───────────────────────────────────────── */
+
+.categoryTableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+}
+
+.categoryTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  min-width: 460px;
+}
+
+.categoryTable th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.categoryTable td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--pc-border-subtle, var(--pc-border));
+  vertical-align: middle;
+}
+
+.categoryTable tr:last-child td {
+  border-bottom: 0;
+}
+
+.categoryTable .numCol {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--pc-muted-fg);
+}
+
+.categoryIncoming {
+  font-weight: 600;
+  color: var(--pc-foreground);
+  margin-right: 0.4rem;
+}
+
+.categoryHint {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.categoryFootnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--pc-muted-fg);
+}
+
+.categoryFootnote svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--pc-primary);
+}

@@ -119,6 +119,34 @@ export type PendingComplianceMatch = {
   wouldSetPrescription: boolean;
 };
 
+/** Mirrors `apps/api/src/product-import/product-import-category.ts`. */
+export type CategoryMatchStatus = "matched" | "matched_synonym" | "unmatched";
+
+export type ImportCategoryPlanEntry = {
+  /** The value exactly as it appears in the file — the key a decision is sent back under. */
+  incoming: string;
+  rowCount: number;
+  status: CategoryMatchStatus;
+  categoryId: string | null;
+  categoryName: string | null;
+  categoryPath: string | null;
+  /** Target exists but is switched off — importing into it turns it back on. */
+  willEnable: boolean;
+};
+
+export type ImportCategoryPlan = {
+  entries: ImportCategoryPlanEntry[];
+  blankRows: number;
+  mapped: boolean;
+};
+
+export type CategoryDecision =
+  | { action: "use"; categoryId: string }
+  | { action: "create"; parentCategoryId: string | null }
+  | { action: "skip" };
+
+export type ImportCategoryChoices = Record<string, CategoryDecision>;
+
 export type ImportPreview = {
   totalRows: number;
   create: number;
@@ -128,6 +156,7 @@ export type ImportPreview = {
   unitsToPost: number;
   missingExpiry: number;
   matchCounts: Record<MatchConfidence, number>;
+  categoryPlan: ImportCategoryPlan;
   issues: ImportRowIssue[];
   pendingCompliance: PendingComplianceMatch[];
   sampleCreates: Array<{ rowNumber: number; name: string; barcode: string | null }>;
@@ -151,6 +180,9 @@ export type ImportResult = {
   rowsFailed: number;
   expiryReviewCount: number;
   issues: ImportRowIssue[];
+  categorizedFromFile: number;
+  categorizedByClassifier: number;
+  leftUnclassified: number;
 };
 
 export type ImportJobProgress = {
