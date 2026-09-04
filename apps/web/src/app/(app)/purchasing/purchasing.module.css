@@ -898,6 +898,10 @@
   font-weight: 600;
 }
 
+.checkboxRow input {
+  accent-color: var(--pc-primary);
+}
+
 .modalAlert {
   margin-bottom: 0.85rem;
 }

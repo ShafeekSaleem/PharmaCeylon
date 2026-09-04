@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { IconInfo } from "@/components/icons";
+import { SelectField, type SelectFieldOption } from "@/components/ui";
 import type { ProductCategory } from "../../types";
 import type {
   CategoryDecision,
@@ -63,6 +64,26 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
     }
     return map;
   }, [categories]);
+
+  // Shared across every row — only the trailing "new department called X" option is row-specific.
+  const baseCategoryOptions = useMemo<SelectFieldOption[]>(() => {
+    const options: SelectFieldOption[] = [{ value: "skip", label: "Sort it automatically" }];
+    for (const dept of departments) {
+      options.push({ value: `use:${dept.id}`, label: `${dept.name} (department)`, shortLabel: dept.name });
+      for (const child of childrenByParent.get(dept.id) ?? []) {
+        options.push({
+          value: `use:${child.id}`,
+          label: `${dept.name} › ${child.name}`,
+          shortLabel: child.name,
+        });
+      }
+      options.push({
+        value: `create:${dept.id}`,
+        label: `＋ New category under ${dept.name}`,
+      });
+    }
+    return options;
+  }, [departments, childrenByParent]);
 
   const unmatched = plan.entries.filter((e) => e.status === "unmatched").length;
   const placedRows = plan.entries.reduce(
@@ -154,39 +175,29 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
                   </td>
                   <td className={css.numCol}>{entry.rowCount.toLocaleString()}</td>
                   <td>
-                    <select
-                      className={css.mapSelect}
-                      aria-label={`Category for ${entry.incoming}`}
+                    <SelectField
+                      hideLabel
+                      label={`Category for ${entry.incoming}`}
+                      className={css.categorySelect}
+                      fullWidth={false}
+                      wideMenu
                       value={value}
-                      onChange={(e) => {
-                        const next = decode(e.target.value);
+                      onChange={(next) => {
+                        const parsed = decode(next);
                         // Clearing back to the automatic answer keeps the payload to real
                         // overrides only.
                         const isAuto =
-                          next?.action === "use" && next.categoryId === entry.categoryId;
-                        onChange(entry.incoming, isAuto ? null : next);
+                          parsed?.action === "use" && parsed.categoryId === entry.categoryId;
+                        onChange(entry.incoming, isAuto ? null : parsed);
                       }}
-                    >
-                      <option value="skip">Sort it automatically</option>
-                      {departments.map((dept) => (
-                        <optgroup key={dept.id} label={dept.name}>
-                          <option value={`use:${dept.id}`}>{dept.name} (department)</option>
-                          {(childrenByParent.get(dept.id) ?? []).map((child) => (
-                            <option key={child.id} value={`use:${child.id}`}>
-                              {child.name}
-                            </option>
-                          ))}
-                          <option value={`create:${dept.id}`}>
-                            ＋ New category under {dept.name}
-                          </option>
-                        </optgroup>
-                      ))}
-                      <optgroup label="Something else">
-                        <option value="create:">
-                          ＋ New department called “{entry.incoming}”
-                        </option>
-                      </optgroup>
-                    </select>
+                      options={[
+                        ...baseCategoryOptions,
+                        {
+                          value: "create:",
+                          label: `＋ New department called "${entry.incoming}"`,
+                        },
+                      ]}
+                    />
                     {isUnplaced && (
                       <span className={css.categoryHint}>
                         we don&apos;t recognise this name

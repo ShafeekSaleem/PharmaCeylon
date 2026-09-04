@@ -499,18 +499,6 @@ export function NmraImportModal({ open, mode, onClose, onImported }: Props) {
             <StatTile label="Would update" value={preview.update} />
             <StatTile label="Would skip" value={preview.skip} />
           </div>
-          {preview.sampleCreates.length > 0 && (
-            <div className={css.nmraSample}>
-              <strong>Sample creates</strong>
-              <ul>
-                {preview.sampleCreates.map((s) => (
-                  <li key={s.registrationNo}>
-                    {s.registrationNo} — {s.name}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
           {preview.errors.length > 0 && (
             <Alert variant="error" className={css.modalAlert}>
               {preview.errors[0]!.message}

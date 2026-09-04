@@ -305,10 +305,21 @@
   vertical-align: bottom;
 }
 
+/* Fixed layout so the "Product details" and "Opening stock" tables — two separate <table>s —
+   size their columns identically instead of each auto-fitting to its own longest label, which
+   is what let the "Example value" column drift out of alignment between them. */
+.mapTable {
+  table-layout: fixed;
+}
+
 .mapField {
-  width: 34%;
+  width: 210px;
   font-weight: 600;
   color: var(--pc-foreground);
+}
+
+.mapTable td:nth-child(2) {
+  width: 300px;
 }
 
 .mapHint {
@@ -319,21 +330,15 @@
   color: var(--pc-muted-fg);
 }
 
+/* `SelectField`'s own `.field`/`.control` carry the themed look now — this fills the fixed-width
+   cell `.mapTable td:nth-child(2)` sets above, so both map-step tables' columns line up. */
 .mapSelect {
   width: 100%;
-  max-width: 320px;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-input-bg);
-  color: var(--pc-foreground);
-  font-family: inherit;
-  font-size: 0.82rem;
 }
 
-.mapSelect:focus-visible {
-  outline: 2px solid var(--pc-primary);
-  outline-offset: -1px;
+/* The "Files under" picker in the Categories review table — a different table, sized on its own. */
+.categorySelect {
+  width: 280px;
 }
 
 .mapSample {
@@ -608,7 +613,15 @@
 }
 
 @media (max-width: 720px) {
+  .mapTable {
+    table-layout: auto;
+  }
+
   .mapField {
+    width: auto;
+  }
+
+  .mapTable td:nth-child(2) {
     width: auto;
   }
 

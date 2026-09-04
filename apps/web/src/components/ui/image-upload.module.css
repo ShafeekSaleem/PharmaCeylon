@@ -104,9 +104,9 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: none;
-  background: var(--pc-destructive);
-  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--pc-destructive) 40%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-destructive) 14%, var(--pc-card-bg));
+  color: var(--pc-destructive);
   font-size: 14px;
   line-height: 1;
   display: flex;
@@ -114,11 +114,13 @@
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  transition: opacity 0.15s;
+  transition:
+    background-color 0.15s,
+    opacity 0.15s;
 }
 
 .removeBtn:hover {
-  opacity: 0.85;
+  background: color-mix(in srgb, var(--pc-destructive) 22%, var(--pc-card-bg));
 }
 
 .spinner {

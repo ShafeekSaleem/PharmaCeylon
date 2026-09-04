@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
-import { IconSearch } from "@/components/icons";
+import { IconChevronDown, IconChevronRight, IconSearch } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
@@ -49,6 +49,9 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
   const [reviewerId, setReviewerId] = useState("");
   const [counterIds, setCounterIds] = useState<string[]>([]);
   const [counterQuery, setCounterQuery] = useState("");
+  // Scheduling, movement handling and notes are edge cases — most stocktakes are "count now,
+  // by me". Collapsed by default so the common path is a short form, not a long one to skim.
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
   const [directoryHint, setDirectoryHint] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -69,6 +72,7 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
     setReviewerId("");
     setCounterIds(user?.id ? [user.id] : []);
     setCounterQuery("");
+    setShowAdvanced(false);
     setError(null);
     setSaving(false);
     setDirectoryHint(null);
@@ -330,64 +334,81 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
               disabled={saving}
             />
           </div>
-          <div className={css.field}>
-            <label className={css.fieldLabel} htmlFor="stocktake-scheduled">
-              Scheduled date and time
-            </label>
-            <input
-              id="stocktake-scheduled"
-              className={css.input}
-              type="datetime-local"
-              value={scheduledFor}
-              onChange={(e) => setScheduledFor(e.target.value)}
-              disabled={saving}
-            />
-            <p className={css.fieldHint}>Leave blank to create as a draft.</p>
-          </div>
-          <div className={css.field}>
-            <label className={css.fieldLabel} htmlFor="stocktake-expected">
-              Expected completion
-            </label>
-            <input
-              id="stocktake-expected"
-              className={css.input}
-              type="datetime-local"
-              value={expectedCompletionAt}
-              onChange={(e) => setExpectedCompletionAt(e.target.value)}
-              disabled={saving}
-            />
-          </div>
         </div>
 
-        <div className={css.field} style={{ marginTop: "0.85rem" }}>
-          <PurchasingSelect
-            label="Movement handling"
-            value={movementMode}
-            options={MOVEMENT_MODE_OPTIONS}
-            onChange={(value) => setMovementMode(value as StocktakeMovementMode)}
-            disabled={saving}
-          />
-          <p className={css.fieldHint}>
-            Freeze blocks stock movements for this branch while counting; continue reconciles
-            movements that happen during the count.
-          </p>
-        </div>
+        <button
+          type="button"
+          className={scss.advancedToggle}
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+        >
+          {showAdvanced ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+          Scheduling, movement handling &amp; notes
+        </button>
 
-        <div className={css.field} style={{ marginTop: "0.85rem" }}>
-          <label className={css.fieldLabel} htmlFor="stocktake-notes">
-            Notes (optional)
-          </label>
-          <textarea
-            id="stocktake-notes"
-            className={css.textarea}
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Shift count, cycle count area…"
-            maxLength={2000}
-            disabled={saving}
-          />
-        </div>
+        {showAdvanced && (
+          <>
+            <div className={css.createHeaderGrid} style={{ marginTop: "0.85rem" }}>
+              <div className={css.field}>
+                <label className={css.fieldLabel} htmlFor="stocktake-scheduled">
+                  Scheduled date and time
+                </label>
+                <input
+                  id="stocktake-scheduled"
+                  className={css.input}
+                  type="datetime-local"
+                  value={scheduledFor}
+                  onChange={(e) => setScheduledFor(e.target.value)}
+                  disabled={saving}
+                />
+                <p className={css.fieldHint}>Leave blank to create as a draft.</p>
+              </div>
+              <div className={css.field}>
+                <label className={css.fieldLabel} htmlFor="stocktake-expected">
+                  Expected completion
+                </label>
+                <input
+                  id="stocktake-expected"
+                  className={css.input}
+                  type="datetime-local"
+                  value={expectedCompletionAt}
+                  onChange={(e) => setExpectedCompletionAt(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+            </div>
+
+            <div className={css.field} style={{ marginTop: "0.85rem" }}>
+              <PurchasingSelect
+                label="Movement handling"
+                value={movementMode}
+                options={MOVEMENT_MODE_OPTIONS}
+                onChange={(value) => setMovementMode(value as StocktakeMovementMode)}
+                disabled={saving}
+              />
+              <p className={css.fieldHint}>
+                Freeze blocks stock movements for this branch while counting; continue
+                reconciles movements that happen during the count.
+              </p>
+            </div>
+
+            <div className={css.field} style={{ marginTop: "0.85rem" }}>
+              <label className={css.fieldLabel} htmlFor="stocktake-notes">
+                Notes (optional)
+              </label>
+              <textarea
+                id="stocktake-notes"
+                className={css.textarea}
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Shift count, cycle count area…"
+                maxLength={2000}
+                disabled={saving}
+              />
+            </div>
+          </>
+        )}
       </section>
 
       <section className={css.createSection}>
