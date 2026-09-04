@@ -305,12 +305,39 @@
   align-items: center;
   justify-content: center;
   padding: 7px 11px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.taskNext .primarySmall {
+.primarySmall:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
+  background: var(--pc-muted-bg);
+  color: var(--pc-primary-hover);
+}
+
+.primarySmall:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.primarySmall:focus-visible,
+.secondaryButton:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
+}
+
+/* The next step's call to action, on the brand gradient. Its label is white, so the hover
+   state has to restate that or the anchor rule in globals.css takes the colour. */
+.taskNext .primarySmall,
+.taskNext .primarySmall:visited {
   border-color: transparent;
-  color: white;
+  color: #fff;
   background: var(--pc-gradient-main);
+}
+
+.taskNext .primarySmall:hover:not(:disabled) {
+  color: #fff;
+  background: var(--pc-gradient-hover);
+  border-color: transparent;
 }
 
 .primarySmall:disabled {
@@ -459,6 +486,25 @@
   gap: 10px;
   color: inherit;
   text-decoration: none;
+}
+
+.optionalCard > a {
+  border-radius: var(--pc-radius-sm);
+  transition: background 0.15s;
+}
+
+/* These read as rows, not links, until you touch them — there was no hover state at all. */
+.optionalCard > a:hover {
+  background: var(--pc-hover-overlay);
+}
+
+.optionalCard > a:hover em {
+  text-decoration: underline;
+}
+
+.optionalCard > a:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
 }
 
 .optionalCard > a:last-child {

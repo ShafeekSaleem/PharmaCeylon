@@ -552,7 +552,14 @@
   text-decoration: none;
 }
 
-.primaryBtn {
+/* "View my products" is a Link, so globals.css's `a:hover { color: --pc-primary }` applies
+   to it — which painted the label teal on the teal hover background and made it disappear.
+   The colour is stated on every state so no anchor rule can take it. */
+.primaryBtn,
+.primaryBtn:hover,
+.primaryBtn:focus,
+.primaryBtn:visited,
+.primaryBtn:active {
   border: 1px solid var(--pc-primary);
   background: var(--pc-primary);
   color: var(--pc-btn-primary-text);
@@ -561,10 +568,15 @@
 .primaryBtn:hover:not(:disabled) {
   background: var(--pc-primary-hover);
   border-color: var(--pc-primary-hover);
+  color: var(--pc-btn-primary-text);
 }
 
 .secondaryBtn,
-.undoBtn {
+.secondaryBtn:hover,
+.secondaryBtn:visited,
+.undoBtn,
+.undoBtn:hover,
+.undoBtn:visited {
   border: 1px solid var(--pc-border);
   background: var(--pc-card-bg);
   color: var(--pc-foreground);
