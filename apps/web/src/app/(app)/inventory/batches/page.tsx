@@ -24,6 +24,7 @@ import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import css from "../inventory.module.css";
 import type { BatchRow, ExpiryFilter } from "../types";
 import { canAdjustOut, hasInventoryWriteAccess } from "../utils";
+import { InventorySubnav } from "../components/inventory-subnav";
 
 function BatchesContent() {
   const router = useRouter();
@@ -282,6 +283,8 @@ function BatchesContent() {
           </>
         }
       />
+
+      <InventorySubnav />
 
       {needsExpiryReview && (
         <Alert variant="info">

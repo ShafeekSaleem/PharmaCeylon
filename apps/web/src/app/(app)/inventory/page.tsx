@@ -38,6 +38,7 @@ import {
   hasInventoryWriteAccess,
   stockStatusLabel,
 } from "./utils";
+import { InventorySubnav } from "./components/inventory-subnav";
 
 function StockOverviewContent() {
   const router = useRouter();
@@ -323,6 +324,8 @@ function StockOverviewContent() {
           ) : null
         }
       />
+
+      <InventorySubnav />
 
       {adjustmentSuccess && <Alert variant="success">{adjustmentSuccess}</Alert>}
 

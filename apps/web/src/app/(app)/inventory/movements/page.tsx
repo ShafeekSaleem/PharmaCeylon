@@ -17,6 +17,7 @@ import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
 import type { MovementCategory } from "../types";
 import { hasInventoryWriteAccess } from "../utils";
+import { InventorySubnav } from "../components/inventory-subnav";
 
 const PAGE_SIZE = 15;
 
@@ -126,6 +127,8 @@ function MovementsContent() {
           ) : null
         }
       />
+
+      <InventorySubnav />
 
       {adjustmentSuccess && <Alert variant="success">{adjustmentSuccess}</Alert>}
 
