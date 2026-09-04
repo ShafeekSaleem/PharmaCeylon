@@ -269,10 +269,30 @@ export type StatFilter =
 /** Products page tab: the shop's own range, or the imported reference catalog. */
 export type ProductScope = "mine" | "reference";
 
-export type BulkProductAction = "range" | "unrange" | "activate" | "deactivate";
+export type BulkProductAction =
+  | "range"
+  | "unrange"
+  | "activate"
+  | "deactivate"
+  | "set_category"
+  | "clear_category"
+  | "add_tags"
+  | "remove_tags";
 
 export type BulkProductResult = {
   matched: number;
   updated: number;
   action: BulkProductAction;
+};
+
+/** Mirrors `BulkProductPreview` in apps/api/src/products/products.service.ts. */
+export type BulkProductPreview = {
+  action: BulkProductAction;
+  matched: number;
+  willChange: number;
+  alreadyOnTarget: number;
+  replacingExisting: number;
+  replacingManual: number;
+  categoryName: string | null;
+  tagNames: string[];
 };

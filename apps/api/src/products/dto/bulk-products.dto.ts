@@ -17,7 +17,26 @@ export const BULK_PRODUCT_ACTIONS = [
   "unrange",
   "activate",
   "deactivate",
+  "set_category",
+  "clear_category",
+  "add_tags",
+  "remove_tags",
 ] as const;
+
+/**
+ * The actions that write category/tag relations rather than a column on `product`. They can't
+ * go through `updateMany`, and each needs its own preview count, so the service branches on
+ * this set rather than on the action name in three places.
+ */
+export const BULK_RELATION_ACTIONS = new Set<string>([
+  "set_category",
+  "clear_category",
+  "add_tags",
+  "remove_tags",
+]);
+
+/** Ceiling on tags per bulk call — a selection bar offering more than this is a UI bug. */
+export const BULK_TAG_LIMIT = 25;
 
 export type BulkProductAction = (typeof BULK_PRODUCT_ACTIONS)[number];
 
@@ -106,4 +125,17 @@ export class BulkProductsDto {
   @ValidateNested()
   @Type(() => BulkProductFilterDto)
   filter?: BulkProductFilterDto;
+
+  /** The primary commercial category to file the selection under. Required by `set_category`. */
+  @IsOptional()
+  @IsUUID("4")
+  categoryId?: string;
+
+  /** Tags to attach or detach. Required by `add_tags` and `remove_tags`. */
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(BULK_TAG_LIMIT)
+  @IsUUID("4", { each: true })
+  tagIds?: string[];
 }

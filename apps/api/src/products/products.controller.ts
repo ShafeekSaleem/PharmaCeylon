@@ -112,8 +112,19 @@ export class ProductsController {
   }
 
   /**
-   * Range/un-range or activate/deactivate many products in one call. Declared before the
-   * `:id` routes so the path segment is never parsed as a product id.
+   * What a bulk action would do, so the confirmation dialog can state the change before it
+   * happens rather than reporting it afterwards. Same body as `POST bulk`, no writes.
+   */
+  @RequirePermission("products.manage")
+  @Post("bulk/preview")
+  bulkPreview(@CurrentUser() user: RequestUser, @Body() dto: BulkProductsDto) {
+    return this.products.bulkPreview(user.tenantId, dto);
+  }
+
+  /**
+   * Range/un-range, activate/deactivate, or re-file the categories and tags of many products
+   * in one call. Declared before the `:id` routes so the path segment is never parsed as a
+   * product id.
    */
   @RequirePermission("products.manage")
   @Post("bulk")
