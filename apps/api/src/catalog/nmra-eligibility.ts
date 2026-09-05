@@ -23,8 +23,20 @@
 
 export type NmraEligibilityVerdict = "eligible" | "not_applicable" | "uncertain";
 
+/**
+ * How strong the evidence for "this is a medicine" was.
+ *
+ * The distinction earns its keep in one specific place: whether a product with *no* register
+ * match deserves a queue entry saying so. A product carrying a registration number or a
+ * schedule and matching nothing is a real discrepancy worth surfacing. A product that merely
+ * has "Gel" in its name and matches nothing is a hand sanitiser, and putting it in a medicines
+ * worklist is how that worklist fills with things nobody can action.
+ */
+export type NmraEligibilityTier = "regulatory" | "weak" | "none";
+
 export type NmraEligibility = {
   verdict: NmraEligibilityVerdict;
+  tier: NmraEligibilityTier;
   /** Human-readable, shown verbatim in the UI — an exclusion nobody can explain is a bug report. */
   reason: string;
   /** The signal names that drove the verdict, for diagnostics and tests. */
@@ -57,7 +69,7 @@ const MEDICINE_FORMS = [
   "syrup", "syrups", "suspension", "suspensions", "elixir", "linctus",
   "ointment", "ointments", "cream", "creams", "gel", "gels", "lotion",
   "suppository", "suppositories", "pessary", "pessaries",
-  "inhaler", "inhalers", "nebuliser", "nebulizer", "respirator solution",
+  "inhaler", "inhalers", "respirator solution",
   "eye drops", "ear drops", "nasal spray", "eye ointment", "drops",
   "granules", "sachet", "sachets", "powder for injection", "lozenge", "lozenges",
   "patch", "patches", "solution for injection", "iv fluid", "dry syrup",
@@ -87,6 +99,14 @@ const RETAIL_KEYWORDS = [
   "sunglasses", "spectacle case", "water bottle", "flask", "lunch box",
   "sanitary napkin", "sanitary pad", "panty liner",
   "cotton bud", "cotton buds",
+  // Added after running the classifier over a real seeded catalog, where each of these was
+  // being read as a medicine: "Gel" and "Lotion" are dosage forms, and "100ml"/"400g" are
+  // dosed strengths, so a hand sanitiser and a baby cereal both looked medicinal.
+  "sanitizer", "sanitiser", "hand wash", "hand rub",
+  "cereal", "baby food", "baby formula", "infant formula", "porridge",
+  "thermometer", "blood pressure monitor",
+  "glucometer", "weighing", "crutch", "wheelchair", "walking stick",
+  "hot water bottle", "ice pack", "face mask", "gloves", "syringe box",
 ];
 
 /** Strength units that only appear on a dosed medicinal product. */
@@ -138,13 +158,19 @@ export function classifyNmraEligibility(input: NmraEligibilityInput): NmraEligib
   if (input.commercialCanonicalKey?.startsWith("MEDICINES_")) strong.push("medicine_category");
 
   if (strong.length > 0) {
-    return { verdict: "eligible", reason: describeEligible(strong), signals: strong };
+    return {
+      verdict: "eligible",
+      tier: "regulatory",
+      reason: describeEligible(strong),
+      signals: strong,
+    };
   }
 
   const retailHit = RETAIL_KEYWORDS.find((k) => containsWord(text, k));
   if (retailHit) {
     return {
       verdict: "not_applicable",
+      tier: "none",
       reason: `Looks like general retail stock ("${retailHit}") rather than a registered medicine.`,
       signals: [`retail:${retailHit}`],
     };
@@ -160,11 +186,12 @@ export function classifyNmraEligibility(input: NmraEligibilityInput): NmraEligib
   if (STRENGTH_UNIT_PATTERN.test(text)) weak.push("dosed_strength");
 
   if (weak.length > 0) {
-    return { verdict: "eligible", reason: describeEligible(weak), signals: weak };
+    return { verdict: "eligible", tier: "weak", reason: describeEligible(weak), signals: weak };
   }
 
   return {
     verdict: "uncertain",
+    tier: "none",
     reason:
       "No medicine signals (no generic name, dosage form, strength, schedule or registration number) — matched only if the register turns up a candidate.",
     signals: [],

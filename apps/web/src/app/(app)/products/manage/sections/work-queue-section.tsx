@@ -14,6 +14,7 @@ import {
 import {
   ActionButton,
   DataTable,
+  RowMenu,
   SelectField,
   type Column,
   type SelectFieldOption,
@@ -57,6 +58,15 @@ const STATUS_VIEWS = [
 ] as const;
 
 type StatusViewId = (typeof STATUS_VIEWS)[number]["id"];
+
+/** Closed-status wording. "NOT_APPLICABLE".toLowerCase() is not a sentence. */
+const STATUS_LABELS: Record<string, string> = {
+  OPEN: "Open",
+  NEEDS_REVIEW: "Needs review",
+  RESOLVED: "Resolved",
+  DISMISSED: "Dismissed",
+  NOT_APPLICABLE: "Not applicable",
+};
 
 /** A view id maps onto the API's `type` / `view` filters — the API has no compound "view" enum. */
 function toQuery(
@@ -445,8 +455,17 @@ export function WorkQueueSection({
       {
         key: "actions",
         header: "Action",
-        width: "210px",
+        width: "170px",
         align: "right",
+        /*
+         * One primary action, and everything else behind the overflow menu.
+         *
+         * The first version put "Review" and "N/A" side by side on every row, which meant a
+         * queue of fifty unmatched products offered "N/A" fifty times as its most prominent
+         * control — the least useful thing a person could do, given top billing. The primary
+         * action is now whatever this particular task is actually asking for: file it, link
+         * it, or go and find the register entry it couldn't.
+         */
         render: (task) => {
           if (!canWrite) return null;
           const busy = busyId === task.id;
@@ -454,7 +473,7 @@ export function WorkQueueSection({
           if (statusView !== "open") {
             return (
               <div className={css.rowActions}>
-                <span className={css.statusChip}>{task.status.replace(/_/g, " ").toLowerCase()}</span>
+                <span className={css.statusChip}>{STATUS_LABELS[task.status]}</span>
                 <button
                   type="button"
                   className={css.rowBtn}
@@ -467,44 +486,72 @@ export function WorkQueueSection({
             );
           }
 
-          const canApplyDirectly =
-            task.type === "MISSING_CATEGORY"
-              ? Boolean(chosenCategory[task.id] ?? (isCategorySuggestion(task.suggestion) && task.suggestion.categoryId))
-              : isReferenceSuggestion(task.suggestion) && !task.complianceImpact;
+          const isCategory = task.type === "MISSING_CATEGORY";
+          const chosen = chosenCategory[task.id];
+          const suggestedCategoryId = isCategorySuggestion(task.suggestion)
+            ? task.suggestion.categoryId
+            : undefined;
+          const canFile = Boolean(chosen ?? suggestedCategoryId);
+          const canLink = isReferenceSuggestion(task.suggestion) && !task.complianceImpact;
+
+          const secondary = [
+            ...(!isCategory
+              ? [
+                  {
+                    label: task.complianceImpact
+                      ? "Review the compliance change…"
+                      : "Compare with the register…",
+                    onClick: () => setReviewProductId(task.product.id),
+                  },
+                ]
+              : []),
+            {
+              label: "Not a medicine",
+              hint: "Stops this product appearing in the register queue",
+              onClick: () => void act(task, "not-applicable"),
+            },
+            {
+              label: "Dismiss",
+              hint: "I've looked — there's nothing to do here",
+              separated: true,
+              onClick: () => void act(task, "dismiss"),
+            },
+          ];
 
           return (
             <div className={css.rowActions}>
-              {canApplyDirectly && (
+              {isCategory ? (
+                <button
+                  type="button"
+                  className={`${css.rowBtn} ${css.rowBtnPrimary}`}
+                  disabled={busy || !canFile}
+                  data-tooltip={canFile ? undefined : "Choose a category first"}
+                  onClick={() => void act(task, "apply")}
+                >
+                  {busy ? "Filing…" : "File"}
+                </button>
+              ) : canLink ? (
                 <button
                   type="button"
                   className={`${css.rowBtn} ${css.rowBtnPrimary}`}
                   disabled={busy}
                   onClick={() => void act(task, "apply")}
                 >
-                  <IconCheck size={12} aria-hidden />
-                  {task.type === "MISSING_CATEGORY" ? "File" : "Link"}
+                  {busy ? "Linking…" : "Link"}
                 </button>
-              )}
-              {task.type !== "MISSING_CATEGORY" && (
+              ) : (
+                /* No match, or one that changes a compliance flag — either way the honest
+                   next step is to open the register and look, not to offer a one-click apply. */
                 <button
                   type="button"
                   className={css.rowBtn}
                   disabled={busy}
                   onClick={() => setReviewProductId(task.product.id)}
                 >
-                  Review
+                  {task.complianceImpact ? "Review" : "Find match"}
                 </button>
               )}
-              <button
-                type="button"
-                className={css.rowBtn}
-                disabled={busy}
-                data-tooltip="Not a medicine — stop asking about this one"
-                onClick={() => void act(task, "not-applicable")}
-              >
-                <IconX size={12} aria-hidden />
-                N/A
-              </button>
+              <RowMenu label={task.product.name} actions={secondary} />
             </div>
           );
         },

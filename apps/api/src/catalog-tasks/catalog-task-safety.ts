@@ -17,7 +17,16 @@ import type { CatalogTaskStatus, CatalogTaskType } from "@prisma/client";
 /** Evidence tiers that identify a product outright rather than resembling one. */
 const EXACT_IDENTIFIER_EVIDENCE = ["barcode", "registration", "name"];
 
-/** A category suggestion has to be at least this confident to apply unattended. */
+/**
+ * A category suggestion has to be at least this confident to apply unattended.
+ *
+ * Set above the classifier's keyword tiers (0.7 for a product-type keyword, 0.6 for a
+ * display-name match) and below its strongest (0.85, a substance keyword on the generic name).
+ * Running it over a real catalog is what settled the number: at 0.7, "Gaviscon Double Action"
+ * would have been auto-filed under Vitamins & Supplements › Minerals, because its generic name
+ * contains "calcium". It is an antacid. The suggestion is still worth showing — it is just not
+ * worth applying to forty products without anyone reading it.
+ */
 export const SAFE_CATEGORY_CONFIDENCE = 0.8;
 
 export type TaskSafetyInput = {

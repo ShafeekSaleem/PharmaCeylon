@@ -24,16 +24,24 @@ export function CatalogIssueBanner({
 }) {
   if (!summary || summary.open === 0) return null;
 
+  /*
+   * Only break the total down when the breakdown says something the total didn't. With a
+   * single kind of task outstanding this used to read "213 products need catalog review: 213
+   * missing a category", which spends a clause restating the number it just gave.
+   */
   const parts: string[] = [];
   if (summary.needsCategory > 0) {
     parts.push(`${summary.needsCategory.toLocaleString()} missing a category`);
   }
   if (summary.nmraMatch > 0) {
-    parts.push(`${summary.nmraMatch.toLocaleString()} possible NMRA match${summary.nmraMatch === 1 ? "" : "es"}`);
+    parts.push(
+      `${summary.nmraMatch.toLocaleString()} possible NMRA match${summary.nmraMatch === 1 ? "" : "es"}`,
+    );
   }
   if (summary.ambiguous > 0) {
     parts.push(`${summary.ambiguous.toLocaleString()} ambiguous`);
   }
+  const breakdown = parts.length > 1 ? parts.join(", ") : null;
 
   return (
     <div className={css.issueBanner} role="status">
@@ -45,7 +53,7 @@ export function CatalogIssueBanner({
           {summary.open.toLocaleString()} product{summary.open === 1 ? "" : "s"} need
           {summary.open === 1 ? "s" : ""} catalog review
         </strong>
-        {parts.length > 0 && <>: {parts.join(", ")}.</>}
+        {breakdown && <>: {breakdown}.</>}
         {summary.complianceReview > 0 && (
           <>
             {" "}

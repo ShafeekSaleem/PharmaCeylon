@@ -199,6 +199,14 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
     if (typeof this.prisma?.productImport?.updateMany !== "function") return 0;
     const cutoff = new Date(Date.now() - STALE_AFTER_MS);
     try {
+      /*
+       * Runs with no tenant context by design. A restart strands `running` rows across every
+       * tenant at once; a per-tenant sweep would need a tenant list to iterate and would
+       * silently skip any tenant nobody happened to log into afterwards. The filter is narrow
+       * where it matters — only rows this process can prove are dead — and the only write it
+       * makes is `running` → `failed`.
+       */
+      // tenant-scope: system-auth — boot/interval recovery sweep, not a request path.
       const result = await this.prisma.productImport.updateMany({
         where: {
           status: "running",

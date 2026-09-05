@@ -114,91 +114,249 @@
   color: var(--pc-muted-fg);
 }
 
-.deptGroup:not(:last-child) {
-  border-bottom: 1px solid var(--pc-border);
-  margin-bottom: 0.3rem;
-  padding-bottom: 0.3rem;
+/* ── Tree ───────────────────────────────────────────────────────────────────
+   Departments are cards; their categories sit inside against a guide rail. The old version
+   was one flat list of forty near-identical rows, which made the hierarchy invisible and put
+   four always-on controls beside every name. */
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* Category names are short. Stretched across a 1400px viewport the rows became a name on the
+     far left and a count on the far right with half a screen of nothing between them, which is
+     what made the list read as sparse rather than dense. */
+  max-width: 760px;
 }
 
-.row {
+.dept {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-card-bg);
+  overflow: hidden;
+}
+
+.deptOff {
+  background: var(--pc-muted-bg);
+}
+
+.deptHead {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.55rem 0.6rem;
-  border-radius: var(--pc-radius-sm);
+  padding: 0.6rem 0.7rem;
 }
 
-.row:hover {
+.deptHead:hover {
   background: var(--pc-hover-overlay);
 }
 
-.rowDept {
-  background: var(--pc-muted-bg);
-  margin-bottom: 1px;
-}
-
-.rowDept:hover {
-  background: color-mix(in srgb, var(--pc-muted-bg) 70%, var(--pc-hover-overlay));
-}
-
-.rowDept .rowNameText {
-  font-weight: 700;
-}
-
-.rowInactive {
-  opacity: 0.62;
-}
-
-.disclosure {
-  width: 1.4rem;
-  height: 1.4rem;
+.deptDisclosure {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 6px;
   background: none;
   color: var(--pc-muted-fg);
   cursor: pointer;
-  flex: 0 0 auto;
-  border-radius: 4px;
 }
 
-.disclosureSpacer {
-  width: 1.4rem;
-  flex: 0 0 auto;
+.deptDisclosure:hover:not(:disabled) {
+  background: var(--pc-hover-overlay);
+  color: var(--pc-foreground);
+}
+
+.deptDisclosure:disabled {
+  cursor: default;
+}
+
+.deptDisclosure:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 1px;
 }
 
 .disclosureOpen {
   transform: rotate(90deg);
 }
 
-.rowName {
-  font-size: 0.86rem;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-width: 0;
+.disclosureDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--pc-border);
 }
 
-.rowNameText {
+.deptTitleWrap {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.deptTitle {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--pc-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.rowMeta {
+.deptSummary {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--pc-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  margin: 0 0.35rem;
+}
+
+.deptActions,
+.childActions {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-left: auto;
+  gap: 0.3rem;
   flex: 0 0 auto;
 }
 
-.count {
-  font-size: 0.76rem;
+/* Reorder and add sit out of the way until the row is hovered or something in it is focused,
+   which is what lets a forty-row tree read as names rather than as a control panel. */
+.hoverActions {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.deptHead:hover .hoverActions,
+.child:hover .hoverActions,
+.hoverActions:focus-within {
+  opacity: 1;
+}
+
+/* Touch has no hover, so nothing may be hover-only there. */
+@media (hover: none) {
+  .hoverActions {
+    opacity: 1;
+  }
+}
+
+/* ── Children ── */
+
+.childList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0 0.7rem 0.5rem 2.2rem;
+  list-style: none;
+}
+
+/* The reveal reads as the section opening rather than the page jumping. */
+@media (prefers-reduced-motion: no-preference) {
+  .childList {
+    animation: childReveal 0.14s ease-out;
+  }
+}
+
+@keyframes childReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.34rem 0.4rem 0.34rem 0.8rem;
+  /* The rail is what makes "these belong to the department above" readable without a label. */
+  border-left: 2px solid var(--pc-border);
+  border-radius: 0 var(--pc-radius-sm) var(--pc-radius-sm) 0;
+}
+
+.child:hover {
+  background: var(--pc-hover-overlay);
+}
+
+.childOff .childName {
+  color: var(--pc-muted-fg);
+}
+
+.childName {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.83rem;
   color: var(--pc-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.childCount {
+  font-size: 0.76rem;
+  color: var(--pc-muted-fg);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.childEmpty {
+  margin: 0;
+  padding: 0 0.7rem 0.7rem 2.95rem;
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.inlineAction {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pc-primary);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.inlineAction:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ── Chips ──
+   Only the informative cases are chipped. Every row used to carry a "Standard" badge, which
+   is twenty repetitions of a word that distinguishes nothing; "Custom" is the exception worth
+   marking, and "Hidden" states in words what opacity alone was implying. */
+
+.customChip {
+  flex: 0 0 auto;
+  padding: 0.08rem 0.4rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  font-size: 0.67rem;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.offChip {
+  flex: 0 0 auto;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  border: 1px solid var(--pc-border);
+  font-size: 0.67rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
   white-space: nowrap;
 }
 
@@ -207,29 +365,14 @@
   font-weight: 400;
 }
 
-.chip {
-  font-size: 0.68rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  border: 1px solid var(--pc-border);
-  color: var(--pc-muted-fg);
-  white-space: nowrap;
-}
+@media (max-width: 640px) {
+  .childList {
+    padding-left: 1.2rem;
+  }
 
-.rowActions {
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  flex: 0 0 auto;
-}
-
-.reorderGroup {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  margin-right: 0.2rem;
-  padding-right: 0.35rem;
-  border-right: 1px solid var(--pc-border);
+  .deptSummary {
+    font-size: 0.72rem;
+  }
 }
 
 .iconBtn {
@@ -272,65 +415,6 @@
 
 /* ── Row overflow menu ─────────────────────────────────────────────────── */
 
-.menuWrap {
-  position: relative;
-  display: inline-flex;
-}
-
-.menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 30;
-  min-width: 190px;
-  display: flex;
-  flex-direction: column;
-  padding: 0.25rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-card-bg);
-  box-shadow: var(--pc-shadow-md, 0 8px 24px -10px rgba(0, 0, 0, 0.25));
-}
-
-.menu button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.1rem;
-  width: 100%;
-  padding: 0.42rem 0.6rem;
-  border: none;
-  border-radius: var(--pc-radius-sm);
-  background: none;
-  font-family: inherit;
-  font-size: 0.82rem;
-  color: var(--pc-foreground);
-  text-align: left;
-  cursor: pointer;
-}
-
-.menu button:hover {
-  background: var(--pc-hover-overlay);
-}
-
-.menu button:focus-visible {
-  outline: 2px solid var(--pc-primary);
-  outline-offset: -2px;
-}
-
-.menuItemDanger {
-  color: var(--pc-alert-error-text);
-}
-
-.menuItemDanger:hover {
-  background: var(--pc-alert-error-bg);
-}
-
-.menuItemHint {
-  font-size: 0.7rem;
-  color: var(--pc-muted-fg);
-  line-height: 1.35;
-}
 
 /* ── Tag groups ────────────────────────────────────────────────────────── */
 

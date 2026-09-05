@@ -101,9 +101,6 @@ const STAT_PILL_TONE_CLASS: Record<KpiIconTone, string> = {
   danger: css.statusPillRose,
 };
 
-/** One-time explainer after the range-status migration, dismissed per browser. */
-const RANGE_NOTICE_KEY = "pc-products-range-notice-dismissed-v1";
-
 export function ProductsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -157,7 +154,6 @@ export function ProductsPageContent() {
   const [importModal, setImportModal] = useState<ImportMode | null>(null);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [rangeNoticeDismissed, setRangeNoticeDismissed] = useState(true);
   const columnsRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const importRef = useRef<HTMLDivElement>(null);
@@ -243,12 +239,6 @@ export function ProductsPageContent() {
 
   useEffect(() => {
     setVisibleColumns(loadVisibleColumns());
-    try {
-      setRangeNoticeDismissed(localStorage.getItem(RANGE_NOTICE_KEY) === "1");
-    } catch {
-      // Private mode / blocked storage — showing the notice again is harmless.
-      setRangeNoticeDismissed(false);
-    }
   }, []);
 
   /* A selection is only meaningful for the rows it was made against, so changing tab,
@@ -297,15 +287,6 @@ export function ProductsPageContent() {
       document.removeEventListener("keydown", onKey);
     };
   }, [columnsOpen, exportOpen, importMenuOpen]);
-
-  const dismissRangeNotice = () => {
-    setRangeNoticeDismissed(true);
-    try {
-      localStorage.setItem(RANGE_NOTICE_KEY, "1");
-    } catch {
-      // Nothing to persist to — the notice simply returns next visit.
-    }
-  };
 
   const runBulk = (action: BulkProductAction) => {
     void bulk.run(action, { kind: "ids", productIds: [...selectedIds] });
@@ -716,41 +697,6 @@ export function ProductsPageContent() {
       />
 
       <div className={css.mainCol}>
-        {scope === "mine" &&
-          !rangeNoticeDismissed &&
-          (list.referenceCount ?? 0) > 0 && (
-            <div className={css.rangeNotice} role="status">
-              <span className={css.rangeNoticeIcon}>
-                <IconInfo size={16} />
-              </span>
-              <div className={css.rangeNoticeBody}>
-                <strong className={css.rangeNoticeTitle}>
-                  Your products and the NMRA register are now separate
-                </strong>
-                <p className={css.rangeNoticeText}>
-                  This page shows the {(list.rangedCount ?? 0).toLocaleString()}{" "}
-                  product
-                  {list.rangedCount === 1 ? "" : "s"} you actually sell. The{" "}
-                  {(list.referenceCount ?? 0).toLocaleString()} imported
-                  registry record
-                  {list.referenceCount === 1 ? " is" : "s are"} on the{" "}
-                  <strong>Reference catalog</strong> tab — still fully
-                  searchable, and you can tick any of them and choose{" "}
-                  <strong>Add to my products</strong>.
-                </p>
-              </div>
-              <button
-                type="button"
-                className={css.rangeNoticeClose}
-                onClick={dismissRangeNotice}
-                aria-label="Dismiss this message"
-                data-tooltip="Dismiss"
-              >
-                <IconX size={14} />
-              </button>
-            </div>
-          )}
-
         <CatalogTabs
           active={scope === "reference" ? "reference" : "mine"}
           onScopeChange={changeScope}

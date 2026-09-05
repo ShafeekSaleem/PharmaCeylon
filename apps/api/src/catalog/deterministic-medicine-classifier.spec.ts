@@ -36,6 +36,18 @@ describe("classifyMedicine — retail goods", () => {
     });
   });
 
+  /**
+   * Found by running the classifier over a real seeded register. A register row is titled by
+   * its brand and carries the substance in `genericName`, so a rule that read only name and
+   * brand could never see "VITAMIN C" — and every vitamin in the catalog fell through to
+   * Unclassified.
+   */
+  it("reads the generic name, which is where a register row keeps the substance", () => {
+    expect(
+      classifyMedicine("VITAMIN C CHEWABLE TABLETS 500MG", "CEE STRAWBERRY", "Tablet", "CEE"),
+    ).toEqual({ canonicalKey: "VITAMINS_SUPPLEMENTS_VITAMINS", confidence: 0.7 });
+  });
+
   it("reads the brand name too, where an import sometimes puts the product type", () => {
     expect(classifyMedicine(null, "Sensodyne 75g", null, "Sensodyne Toothpaste")).toEqual({
       canonicalKey: "PERSONAL_CARE_ORAL_CARE",

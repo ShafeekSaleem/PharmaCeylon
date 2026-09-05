@@ -3407,6 +3407,7 @@
 .manageCatalogBtn {
   position: relative;
   display: inline-flex;
+  text-decoration: none;
   align-items: center;
   gap: 0.4rem;
   padding: 0.45rem 0.8rem;

@@ -243,6 +243,7 @@ export class CatalogTaskService {
       );
 
       const matchable: ProductRow[] = [];
+      const eligibilityByProduct = new Map<string, ReturnType<typeof classifyNmraEligibility>>();
       for (const row of batch) {
         const eligibility = classifyNmraEligibility({
           name: row.name,
@@ -258,6 +259,7 @@ export class CatalogTaskService {
         });
 
         seen.push(row.id);
+        eligibilityByProduct.set(row.id, eligibility);
 
         if (eligibility.verdict === "not_applicable") {
           // Recorded rather than skipped: the exclusion is then visible under the
@@ -341,21 +343,17 @@ export class CatalogTaskService {
         const top = ranked[0];
 
         if (!top) {
-          // Nothing found. Worth a row only when the product genuinely looks like a medicine;
-          // an "uncertain" product with no candidate is noise, not work.
-          const eligibility = classifyNmraEligibility({
-            name: row.name,
-            genericName: row.genericName,
-            dosageForm: row.dosageForm,
-            strength: row.strength,
-            registrationNo: row.registrationNo,
-            schedule: row.schedule,
-            regType: row.regType,
-            isControlled: row.isControlled,
-            requiresPrescription: row.requiresPrescription,
-            commercialCanonicalKey: canonicalByProduct.get(row.id) ?? null,
-          });
-          if (eligibility.verdict !== "eligible") continue;
+          /*
+           * Nothing matched. Only worth a row when the product carries a *regulatory* signal —
+           * a registration number, a schedule, a compliance flag. That is a real discrepancy:
+           * something says this is registered and the register disagrees.
+           *
+           * A weak signal is not. Running this against a real catalog, "Hand Sanitizer Gel
+           * 100ml", "Body Lotion 400ml" and "Wheat Baby Cereal 400g" all queued here, because
+           * "gel"/"lotion" are dosage forms and "100ml"/"400g" are dosed strengths. Twenty
+           * unactionable rows for every real one is how a worklist stops being read.
+           */
+          if (eligibilityByProduct.get(row.id)?.tier !== "regulatory") continue;
           pending.push({
             productId: row.id,
             type: "NMRA_MATCH",
@@ -478,7 +476,7 @@ export class CatalogTaskService {
       if (terminal) continue;
 
       await this.prisma.catalogTask.update({
-        where: { id: prior.id },
+        where: { id: prior.id, tenantId },
         data: {
           status: task.status,
           suggestion: task.suggestion ?? Prisma.DbNull,
@@ -802,7 +800,7 @@ export class CatalogTaskService {
   async reopen(tenantId: string, userId: string, taskId: string): Promise<CatalogTaskView> {
     const task = await this.loadTask(tenantId, taskId);
     await this.prisma.catalogTask.update({
-      where: { id: task.id },
+      where: { id: task.id, tenantId },
       data: {
         status: task.complianceImpact ? "NEEDS_REVIEW" : "OPEN",
         resolvedAt: null,
@@ -830,7 +828,7 @@ export class CatalogTaskService {
   ): Promise<CatalogTaskView> {
     const task = await this.loadTask(tenantId, taskId);
     await this.prisma.catalogTask.update({
-      where: { id: task.id },
+      where: { id: task.id, tenantId },
       data: {
         status,
         resolvedAt: new Date(),

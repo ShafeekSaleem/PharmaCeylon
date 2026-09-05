@@ -208,7 +208,7 @@ export function CategoriesSection() {
           These are merchandising categories. Dosage form, NMRA schedule and registration type
           come from the register and aren&apos;t edited here.
         </p>
-        <div className={manageCss.sectionHeader}>
+        <div className={manageCss.sectionHeaderActions}>
           {/* Off by default. A 15,000-row register puts four-digit reference counts on every
               row, which drowns the number a shop actually acts on — how many of ITS products
               are filed here. */}

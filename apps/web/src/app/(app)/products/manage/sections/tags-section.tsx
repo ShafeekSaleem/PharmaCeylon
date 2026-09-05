@@ -2,31 +2,28 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
-import {
-  IconChevronRight,
-  IconEdit,
-  IconInfo,
-  IconPlus,
-  IconSearch,
-  IconTrash,
-} from "@/components/icons";
-import { ActionButton } from "@/components/ui";
+import { IconChevronRight, IconInfo, IconPlus, IconSearch, IconTag } from "@/components/icons";
+import { ActionButton, RowMenu } from "@/components/ui";
 import { usePermissions } from "@/lib/permissions";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { ProductTag } from "../../types";
 import { createTag, deleteTag, fetchTags, updateTag } from "../../tags/api";
 import { TagFormModal, type TagModalState } from "../../tags/components/tag-form-modal";
-import css from "../../categories/categories.module.css";
-import manageCss from "../manage.module.css";
+import css from "./tags.module.css";
 
 /**
  * Tags the pharmacy creates and applies itself.
  *
- * The regulatory attributes the NMRA import derives — schedule, controlled, prescription
- * required, registration valid — used to sit in the same flat, editable-looking list. They are
- * not tags in any sense a user can act on: they are facts about a registration, re-applied on
- * every import refresh, and a Delete button beside one implied a control that did not exist.
- * They now live in a collapsed, read-only area below, stated as what they are.
+ * Two things were wrong with the version this replaces. The regulatory attributes the NMRA
+ * import derives — schedule, controlled, prescription required, registration valid — sat in the
+ * same flat, editable-looking list, complete with a Delete button for a control that does not
+ * exist: one click there used to drop thousands of assignments the importer owns and would only
+ * partly rebuild. They are now read-only and collapsed, stated as what they are.
+ *
+ * And a tag was drawn as a full-width table row, which is a lot of furniture for a word and a
+ * number. They are laid out as labels now, which is both what they are and roughly four times
+ * as many per screen — the difference between seeing your existing tags and adding a fifth
+ * near-duplicate of one.
  */
 export function TagsSection() {
   const { permissionKeys } = usePermissions();
@@ -68,8 +65,6 @@ export function TagsSection() {
     return tags.filter((t) => t.name.toLowerCase().includes(q));
   }, [tags, query]);
 
-  // The ten NMRA-derived tags are the importer's, and mixing them into one flat list is how a
-  // delete on "NMRA registered" came to sit next to a delete on the shop's own label.
   const ownTags = useMemo(() => filtered.filter((t) => !t.isSystem), [filtered]);
   const systemTags = useMemo(() => filtered.filter((t) => t.isSystem), [filtered]);
 
@@ -78,11 +73,8 @@ export function TagsSection() {
     setTagSaving(true);
     setTagError(null);
     try {
-      if (tagModal.mode === "rename") {
-        await updateTag(tagModal.tag.id, name);
-      } else {
-        await createTag(name);
-      }
+      if (tagModal.mode === "rename") await updateTag(tagModal.tag.id, name);
+      else await createTag(name);
       await load();
       setTagModal(null);
     } catch (err) {
@@ -113,61 +105,10 @@ export function TagsSection() {
     }
   }
 
-  /** Only ever called for the pharmacy's own tags now; system attributes render above. */
-  function renderTagRow(tag: ProductTag) {
-    const ranged = tag.rangedCount ?? 0;
-    return (
-      <div key={tag.id} className={css.row}>
-        <span className={css.disclosureSpacer} />
-        <span className={css.rowName}>
-          <span className={css.rowNameText}>{tag.name}</span>
-        </span>
-        <div className={css.rowMeta}>
-          <span className={css.count}>
-            {ranged.toLocaleString()} product{ranged === 1 ? "" : "s"}
-          </span>
-        </div>
-        {!(canWrite || canDelete) && <span className={css.rowActionsSpacer} />}
-        {(canWrite || canDelete) && (
-          <div className={css.rowActions}>
-            {canWrite && (
-              <button
-                type="button"
-                className={css.iconBtn}
-                aria-label={`Rename ${tag.name}`}
-                data-tooltip="Rename"
-                onClick={() => {
-                  setTagError(null);
-                  setTagModal({ mode: "rename", tag });
-                }}
-              >
-                <IconEdit size={14} />
-              </button>
-            )}
-            {canDelete && (
-              <button
-                type="button"
-                className={`${css.iconBtn} ${css.iconBtnDanger}`}
-                aria-label={`Delete ${tag.name}`}
-                data-tooltip="Delete"
-                onClick={() => {
-                  setDeleteError(null);
-                  setDeleteTarget(tag);
-                }}
-              >
-                <IconTrash size={14} />
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className={css.page}>
-      <div className={manageCss.sectionHeader}>
-        <p className={manageCss.sectionHint}>
+    <div className={css.section}>
+      <div className={css.head}>
+        <p className={css.hint}>
           Labels for cutting across categories — filters, POS and reports all read them.
         </p>
         {canWrite && (
@@ -186,78 +127,124 @@ export function TagsSection() {
 
       {error ? <Alert variant="error">{error}</Alert> : null}
 
-      <div className={css.toolbar}>
-        <div className={css.searchWrap}>
-          <IconSearch size={15} className={css.searchIcon} />
-          <input
-            className={css.searchInput}
-            placeholder="Search tags…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+      {(tags.length > 0 || query) && (
+        <div className={css.toolbar}>
+          <div className={css.searchWrap}>
+            <IconSearch size={15} className={css.searchIcon} />
+            <input
+              className={css.searchInput}
+              type="search"
+              placeholder="Search tags…"
+              aria-label="Search tags"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          {!canWrite && <span className={css.readOnlyNote}>You have read-only access.</span>}
         </div>
-        {!canWrite ? <span className={css.count}>You have read-only access to tags.</span> : null}
-      </div>
+      )}
 
       {loading ? (
-        <div className={css.treeCard}>
-          <div className={css.treeEmpty}>Loading…</div>
+        <div className={css.empty}>
+          <p className={css.emptyText}>Loading…</p>
         </div>
-      ) : filtered.length === 0 ? (
-        <div className={css.treeCard}>
-          <div className={css.treeEmpty}>{query ? "No tags match." : "No tags yet."}</div>
+      ) : ownTags.length === 0 ? (
+        <div className={css.empty}>
+          <IconTag size={22} aria-hidden />
+          <p className={css.emptyTitle}>
+            {query ? "No tags match that search." : "You haven't created any tags yet."}
+          </p>
+          <p className={css.emptyText}>
+            {query
+              ? "Try a different word, or check the regulatory attributes below."
+              : "Tags cut across categories — “Fridge line”, “Fast moving”, “Ward supply”. Apply them in bulk from the Products list."}
+          </p>
         </div>
       ) : (
-        <>
-          <div className={css.groupHead}>
-            <h2 className={css.groupTitle}>Your tags</h2>
-            <p className={css.groupNote}>Free-form labels you create and apply yourself.</p>
-          </div>
-          <div className={css.treeCard}>
-            {ownTags.length === 0 ? (
-              <div className={css.treeEmpty}>
-                {query ? "None of your own tags match." : "You haven't created any tags yet."}
-              </div>
-            ) : (
-              ownTags.map((tag) => renderTagRow(tag))
-            )}
-          </div>
+        <ul className={css.grid}>
+          {ownTags.map((tag) => {
+            const used = tag.rangedCount ?? 0;
+            return (
+              <li key={tag.id} className={css.tag}>
+                <span className={css.tagDot} aria-hidden />
+                <div className={css.tagBody}>
+                  <span className={css.tagName} title={tag.name}>
+                    {tag.name}
+                  </span>
+                  <span className={`${css.tagCount}${used === 0 ? ` ${css.tagUnused}` : ""}`}>
+                    {used === 0
+                      ? "Not used yet"
+                      : `${used.toLocaleString()} product${used === 1 ? "" : "s"}`}
+                  </span>
+                </div>
+                {(canWrite || canDelete) && (
+                  <div className={css.tagActions}>
+                    <RowMenu
+                      label={tag.name}
+                      actions={[
+                        ...(canWrite
+                          ? [
+                              {
+                                label: "Rename",
+                                onClick: () => {
+                                  setTagError(null);
+                                  setTagModal({ mode: "rename", tag });
+                                },
+                              },
+                            ]
+                          : []),
+                        ...(canDelete
+                          ? [
+                              {
+                                label: "Delete",
+                                danger: true,
+                                separated: canWrite,
+                                onClick: () => {
+                                  setDeleteError(null);
+                                  setDeleteTarget(tag);
+                                },
+                                hint:
+                                  used > 0
+                                    ? `Removes it from ${used.toLocaleString()} product${used === 1 ? "" : "s"}`
+                                    : undefined,
+                              },
+                            ]
+                          : []),
+                      ]}
+                    />
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
-          {/*
-            Read-only, collapsed, and no longer shaped like the list above. These are facts the
-            register states about a registration, not labels anyone here chose — rendering them
-            as tag rows with a Rename and a Delete offered a control that never existed and, on
-            the one occasion someone used it, dropped thousands of assignments the importer
-            owns and would only partly rebuild.
-          */}
-          {systemTags.length > 0 && (
-            <details className={manageCss.systemDisclosure}>
-              <summary className={manageCss.systemSummary}>
-                <IconChevronRight size={14} className={manageCss.systemChevron} aria-hidden />
-                <IconInfo size={14} aria-hidden />
-                Regulatory attributes from the NMRA register ({systemTags.length})
-              </summary>
-              <div className={manageCss.systemBody}>
-                <p className={manageCss.systemNote}>
-                  Schedule, controlled status, prescription requirement and registration validity
-                  come from the register and are re-applied on every import, so they can&apos;t be
-                  renamed or deleted. Filter by them from Products, or open a product to see its
-                  registration.
-                </p>
-                <ul className={manageCss.systemList}>
-                  {systemTags.map((tag) => (
-                    <li key={tag.id} className={manageCss.systemAttr}>
-                      {tag.name}
-                      <span className={manageCss.systemAttrCount}>
-                        {(tag.rangedCount ?? 0).toLocaleString()}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </details>
-          )}
-        </>
+      {systemTags.length > 0 && (
+        <details className={css.systemDisclosure}>
+          <summary className={css.systemSummary}>
+            <IconChevronRight size={14} className={css.systemChevron} aria-hidden />
+            <IconInfo size={14} aria-hidden />
+            Regulatory attributes from the NMRA register ({systemTags.length})
+          </summary>
+          <div className={css.systemBody}>
+            <p className={css.systemNote}>
+              Schedule, controlled status, prescription requirement and registration validity come
+              from the register and are re-applied on every import, so they can&apos;t be renamed
+              or deleted. Filter by them from Products, or open a product to see its registration.
+            </p>
+            <ul className={css.systemList}>
+              {systemTags.map((tag) => (
+                <li key={tag.id} className={css.systemAttr}>
+                  {tag.name}
+                  <span className={css.systemAttrCount}>
+                    {(tag.rangedCount ?? 0).toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
       )}
 
       <ConfirmDialog

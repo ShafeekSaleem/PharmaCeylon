@@ -110,6 +110,60 @@ describe("classifyNmraEligibility", () => {
     });
   });
 
+  /**
+   * The tier decides one thing: whether a product that matched *nothing* in the register still
+   * earns a queue entry saying so. Running the classifier over a real seeded catalog is what
+   * surfaced this — "Hand Sanitizer Gel 100ml", "Body Lotion 400ml" and "Wheat Baby Cereal
+   * 400g" were all being queued as unmatched medicines, because "gel"/"lotion" are dosage forms
+   * and "100ml"/"400g" are dosed strengths.
+   */
+  describe("evidence tier", () => {
+    it.each([
+      ["a registration number", { name: "X", registrationNo: "M016695" }],
+      ["a schedule", { name: "X", schedule: "IIB" }],
+      ["a controlled flag", { name: "X", isControlled: true }],
+      ["a prescription flag", { name: "X", requiresPrescription: true }],
+    ])("calls %s a regulatory signal", (_label, input) => {
+      expect(classifyNmraEligibility(input).tier).toBe("regulatory");
+    });
+
+    it.each([
+      ["a dosage form", { name: "Cetirizine Tablet" }],
+      ["a generic name", { name: "Norvasc", genericName: "Amlodipine" }],
+      ["a dosed strength", { name: "Mystery 500mg" }],
+    ])("calls %s a weak signal", (_label, input) => {
+      const result = classifyNmraEligibility(input);
+      expect(result.verdict).toBe("eligible");
+      expect(result.tier).toBe("weak");
+    });
+
+    it.each(["Hand Sanitizer Gel 100ml", "Wheat Baby Cereal 400g"])(
+      "does not treat %s as a regulatory signal",
+      (name) => {
+        expect(classifyNmraEligibility({ name }).tier).not.toBe("regulatory");
+      },
+    );
+
+    it("gives nothing at all the none tier", () => {
+      expect(classifyNmraEligibility({ name: "Blue Box" }).tier).toBe("none");
+      expect(classifyNmraEligibility({ name: "Umbrella" }).tier).toBe("none");
+    });
+  });
+
+  /** A nebuliser is a device; the medicine is the solution that goes in it. */
+  it("does not read a nebuliser machine as a dosage form", () => {
+    expect(classifyNmraEligibility({ name: "Compressor Nebulizer" }).verdict).toBe("uncertain");
+  });
+
+  it("still keeps the solution that goes in one", () => {
+    expect(
+      classifyNmraEligibility({
+        name: "Salbutamol Respirator Solution",
+        genericName: "Salbutamol",
+      }).verdict,
+    ).toBe("eligible");
+  });
+
   it("always explains itself — an exclusion nobody can account for is a bug report", () => {
     for (const name of ["Umbrella", "Cetirizine 10mg Tablet", "Blue Box"]) {
       expect(classifyNmraEligibility({ name }).reason.length).toBeGreaterThan(20);

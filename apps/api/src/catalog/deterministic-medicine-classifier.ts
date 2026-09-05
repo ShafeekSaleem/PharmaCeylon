@@ -284,8 +284,13 @@ export function classifyMedicine(
     }
   }
 
-  // Retail goods: matched on the display name and brand, which is all a shampoo has.
-  const retailHaystack = `${productName} ${(brandName ?? "").toUpperCase()}`;
+  // Retail goods: matched on the display name, brand and generic.
+  //
+  // The generic name was missing here, and it cost the vitamins and supplements rules most of
+  // their reach: a register row is titled by its brand ("CEE STRAWBERRY") and carries the
+  // substance in `genericName` ("VITAMIN C CHEWABLE TABLETS 500MG"), so "VITAMIN C" was in the
+  // one field this never read. Every such product fell through to Unclassified.
+  const retailHaystack = `${productName} ${(brandName ?? "").toUpperCase()} ${generic}`;
   for (const rule of RETAIL_CLASSIFICATION_RULES) {
     for (const keyword of rule.keywords) {
       if (matchesKeyword(retailHaystack, keyword)) {
