@@ -67,7 +67,9 @@ export function classifyTaskSafety(input: TaskSafetyInput): TaskSafety {
     needsReview = true;
   }
   if (input.complianceImpact) {
-    blockers.push("Would change a compliance flag (controlled or prescription-only).");
+    blockers.push(
+      "Would change a compliance flag (controlled or prescription-only).",
+    );
     needsReview = true;
   }
   if (input.type === "IMPORT_DUPLICATE") {
@@ -79,7 +81,9 @@ export function classifyTaskSafety(input: TaskSafetyInput): TaskSafety {
     blockers.push("No candidate found.");
   }
   if (input.candidateCount > 1) {
-    blockers.push("More than one candidate — the right one is a judgement call.");
+    blockers.push(
+      "More than one candidate — the right one is a judgement call.",
+    );
   }
   if (input.alreadyLinked) {
     blockers.push("Already linked to a register entry.");

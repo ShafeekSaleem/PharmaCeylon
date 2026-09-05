@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { CategoryTree } from "./category-tree";
 import type { CommercialCategoryNode } from "../types";
 
-function node(over: Partial<CommercialCategoryNode> = {}): CommercialCategoryNode {
+function node(
+  over: Partial<CommercialCategoryNode> = {},
+): CommercialCategoryNode {
   return {
     id: "c1",
     name: "Pain & Fever",
@@ -45,7 +47,9 @@ const TREE: CommercialCategoryNode[] = [
   }),
 ];
 
-function renderTree(over: Partial<React.ComponentProps<typeof CategoryTree>> = {}) {
+function renderTree(
+  over: Partial<React.ComponentProps<typeof CategoryTree>> = {},
+) {
   const props = {
     nodes: TREE,
     query: "",
@@ -74,14 +78,18 @@ describe("CategoryTree", () => {
   it("starts closed, showing departments rather than every category", () => {
     renderTree();
 
-    expect(screen.getByRole("heading", { name: "Medicines" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Medicines" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Pain & Fever")).toBeNull();
   });
 
   it("summarises what is inside a closed department", () => {
     renderTree();
 
-    const medicines = screen.getByRole("heading", { name: "Medicines" }).parentElement!;
+    const medicines = screen.getByRole("heading", {
+      name: "Medicines",
+    }).parentElement!;
     expect(medicines).toHaveTextContent(/2 categories/);
     expect(medicines).toHaveTextContent(/745 products/);
   });
@@ -89,16 +97,22 @@ describe("CategoryTree", () => {
   it("opens on the disclosure", async () => {
     renderTree();
 
-    await userEvent.click(screen.getByRole("button", { name: "Expand Medicines" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Expand Medicines" }),
+    );
 
     expect(screen.getByText("Pain & Fever")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Collapse Medicines" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Collapse Medicines" }),
+    ).toBeInTheDocument();
   });
 
   it("disables the disclosure on a department with nothing in it", () => {
     renderTree();
 
-    expect(screen.getByRole("button", { name: "Expand Own Brand" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Expand Own Brand" }),
+    ).toBeDisabled();
   });
 
   /**
@@ -128,7 +142,11 @@ describe("CategoryTree", () => {
     });
 
     it("says a hidden category is hidden rather than only fading it", () => {
-      renderTree({ nodes: [node({ id: "d3", name: "Seasonal", isActive: false, children: [] })] });
+      renderTree({
+        nodes: [
+          node({ id: "d3", name: "Seasonal", isActive: false, children: [] }),
+        ],
+      });
 
       expect(screen.getByText("Hidden")).toBeInTheDocument();
     });
@@ -137,7 +155,9 @@ describe("CategoryTree", () => {
   describe("counts", () => {
     it("shows the shop's own count and hides the register's by default", async () => {
       renderTree();
-      await userEvent.click(screen.getByRole("button", { name: "Expand Medicines" }));
+      await userEvent.click(
+        screen.getByRole("button", { name: "Expand Medicines" }),
+      );
 
       const row = screen.getByText("Pain & Fever").closest("li")!;
       expect(within(row).getByText("43")).toBeInTheDocument();
@@ -146,7 +166,9 @@ describe("CategoryTree", () => {
 
     it("adds the register's count only when asked", async () => {
       renderTree({ showReferenceCounts: true });
-      await userEvent.click(screen.getByRole("button", { name: "Expand Medicines" }));
+      await userEvent.click(
+        screen.getByRole("button", { name: "Expand Medicines" }),
+      );
 
       const row = screen.getByText("Pain & Fever").closest("li")!;
       expect(within(row).getByText(/1,200 ref/)).toBeInTheDocument();
@@ -157,29 +179,43 @@ describe("CategoryTree", () => {
     it("offers rename, add and delete by name rather than as bare icons", async () => {
       renderTree();
 
-      await userEvent.click(screen.getByRole("button", { name: "Actions for Medicines" }));
+      await userEvent.click(
+        screen.getByRole("button", { name: "Actions for Medicines" }),
+      );
 
-      expect(screen.getByRole("menuitem", { name: /Rename/ })).toBeInTheDocument();
-      expect(screen.getByRole("menuitem", { name: /Add subcategory/ })).toBeInTheDocument();
-      expect(screen.getByRole("menuitem", { name: /Delete/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("menuitem", { name: /Rename/ }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("menuitem", { name: /Add subcategory/ }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("menuitem", { name: /Delete/ }),
+      ).toBeInTheDocument();
     });
 
     it("says why a standard category cannot be deleted instead of just failing", async () => {
       renderTree();
 
-      await userEvent.click(screen.getByRole("button", { name: "Actions for Medicines" }));
-
-      expect(screen.getByRole("menuitem", { name: /Delete/ })).toHaveTextContent(
-        /Standard categories can be hidden, not deleted/,
+      await userEvent.click(
+        screen.getByRole("button", { name: "Actions for Medicines" }),
       );
+
+      expect(
+        screen.getByRole("menuitem", { name: /Delete/ }),
+      ).toHaveTextContent(/Standard categories can be hidden, not deleted/);
     });
 
     it("offers to move products out only when there are some", async () => {
       renderTree();
 
-      await userEvent.click(screen.getByRole("button", { name: "Actions for Own Brand" }));
+      await userEvent.click(
+        screen.getByRole("button", { name: "Actions for Own Brand" }),
+      );
 
-      expect(screen.queryByRole("menuitem", { name: /Move products out/ })).toBeNull();
+      expect(
+        screen.queryByRole("menuitem", { name: /Move products out/ }),
+      ).toBeNull();
     });
 
     it("gives a read-only caller no controls at all", () => {
@@ -191,9 +227,13 @@ describe("CategoryTree", () => {
 
     it("reorders against its siblings", async () => {
       const props = renderTree();
-      await userEvent.click(screen.getByRole("button", { name: "Expand Medicines" }));
+      await userEvent.click(
+        screen.getByRole("button", { name: "Expand Medicines" }),
+      );
 
-      await userEvent.click(screen.getByRole("button", { name: /Move Cold, Cough & Allergy up/ }));
+      await userEvent.click(
+        screen.getByRole("button", { name: /Move Cold, Cough & Allergy up/ }),
+      );
 
       expect(props.onMove).toHaveBeenCalledWith(
         expect.objectContaining({ id: "c2" }),
@@ -204,9 +244,13 @@ describe("CategoryTree", () => {
 
     it("cannot move the first sibling up", async () => {
       renderTree();
-      await userEvent.click(screen.getByRole("button", { name: "Expand Medicines" }));
+      await userEvent.click(
+        screen.getByRole("button", { name: "Expand Medicines" }),
+      );
 
-      expect(screen.getByRole("button", { name: /Move Pain & Fever up/ })).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Move Pain & Fever up/ }),
+      ).toBeDisabled();
     });
   });
 

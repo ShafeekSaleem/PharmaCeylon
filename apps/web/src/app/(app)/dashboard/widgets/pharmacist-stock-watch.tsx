@@ -16,12 +16,21 @@ export function PharmacistStockWatchWidget({ data }: { data: DashboardData }) {
   const router = useRouter();
   const { lowStockRows } = data;
   const [page, setPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(lowStockRows.length / LOW_STOCK_PAGE_SIZE));
+  const pageCount = Math.max(
+    1,
+    Math.ceil(lowStockRows.length / LOW_STOCK_PAGE_SIZE),
+  );
 
   return (
-    <DashboardPanel title="Stock Watch — Therapeutic Essentials" footerHref="/inventory?view=low" footerLabel="Open inventory →">
+    <DashboardPanel
+      title="Stock Watch — Therapeutic Essentials"
+      footerHref="/inventory?view=low"
+      footerLabel="Open inventory →"
+    >
       {lowStockRows.length === 0 ? (
-        <p className={css.emptyState}>No low / out-of-stock essentials right now.</p>
+        <p className={css.emptyState}>
+          No low / out-of-stock essentials right now.
+        </p>
       ) : (
         <>
           <table className={css.salesTable}>
@@ -35,10 +44,15 @@ export function PharmacistStockWatchWidget({ data }: { data: DashboardData }) {
             </thead>
             <tbody>
               {paginate(lowStockRows, page, LOW_STOCK_PAGE_SIZE).map((r) => (
-                <tr key={r.productId} {...rowLinkProps(router, `/products/${r.productId}`)}>
+                <tr
+                  key={r.productId}
+                  {...rowLinkProps(router, `/products/${r.productId}`)}
+                >
                   <td>
                     {r.product.name}
-                    {r.product.isControlled ? <span className={css.muted}> · CD</span> : null}
+                    {r.product.isControlled ? (
+                      <span className={css.muted}> · CD</span>
+                    ) : null}
                   </td>
                   <td>{r.qtyOnHand}</td>
                   <td>{r.product.reorderLevel}</td>

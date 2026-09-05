@@ -49,7 +49,8 @@ export const FIELD_LABELS: Record<ImportField, string> = {
 export const FIELD_HINTS: Partial<Record<ImportField, string>> = {
   name: "The only column every row must have.",
   barcode: "Used first when matching against products you already have.",
-  registrationNo: "Matches the NMRA register, carrying schedule and Rx flags across.",
+  registrationNo:
+    "Matches the NMRA register, carrying schedule and Rx flags across.",
   qty: "Map this to bring opening stock in from the same file.",
   sellingPrice: "Required for any row that carries a quantity.",
   expiryDate: "Missing dates are accepted and flagged for review.",
@@ -159,7 +160,11 @@ export type ImportPreview = {
   categoryPlan: ImportCategoryPlan;
   issues: ImportRowIssue[];
   pendingCompliance: PendingComplianceMatch[];
-  sampleCreates: Array<{ rowNumber: number; name: string; barcode: string | null }>;
+  sampleCreates: Array<{
+    rowNumber: number;
+    name: string;
+    barcode: string | null;
+  }>;
   sampleMatches: Array<{
     rowNumber: number;
     name: string;

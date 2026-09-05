@@ -18,7 +18,10 @@ export type ProductNavLink = {
   roles?: RoleName[];
 };
 
-export function productDetailPath(productId: string, query?: Record<string, string>): string {
+export function productDetailPath(
+  productId: string,
+  query?: Record<string, string>,
+): string {
   const params = new URLSearchParams(query);
   const qs = params.toString();
   return qs ? `/products/${productId}?${qs}` : `/products/${productId}`;

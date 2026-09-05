@@ -48,7 +48,9 @@ export type RangeTransitionDecision =
  * vanish from the list the person counting the shelf is looking at, regardless of where it
  * came from.
  */
-export function decideRangeExit(input: RangeTransitionInput): RangeTransitionDecision {
+export function decideRangeExit(
+  input: RangeTransitionInput,
+): RangeTransitionDecision {
   if (input.rangeStatus !== "RANGED") {
     return {
       action: "blocked",
@@ -70,7 +72,8 @@ export function decideRangeExit(input: RangeTransitionInput): RangeTransitionDec
   // the product leaves the shop's own list entirely.
   const hasHistory = input.saleCount > 0 || input.purchasingCount > 0;
 
-  const isRegisterDerived = input.source === "NMRA" || input.nmraReferenceId !== null;
+  const isRegisterDerived =
+    input.source === "NMRA" || input.nmraReferenceId !== null;
 
   if (!isRegisterDerived) {
     return {
@@ -114,7 +117,11 @@ export type ReferencePromotionInput = {
   /** A shop product already claiming this register row. */
   claimedByProductId: string | null;
   /** Shop products sharing this row's barcode or registration number. */
-  duplicateCandidates: Array<{ id: string; name: string; matchedOn: "barcode" | "registrationNo" }>;
+  duplicateCandidates: Array<{
+    id: string;
+    name: string;
+    matchedOn: "barcode" | "registrationNo";
+  }>;
   /** Applying would change a compliance flag on an existing product it would merge with. */
   complianceChange: boolean;
 };

@@ -1,7 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { IconChevronDown, IconChevronRight, IconChevronUp, IconPlus } from "@/components/icons";
+import {
+  IconChevronDown,
+  IconChevronRight,
+  IconChevronUp,
+  IconPlus,
+} from "@/components/icons";
 import { RowMenu, ToggleSwitch } from "@/components/ui";
 import type { CommercialCategoryNode } from "../types";
 import css from "../categories.module.css";
@@ -71,7 +76,10 @@ export function CategoryTree({
    */
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const visible = useMemo(() => nodes.filter((n) => matchesQuery(n, query)), [nodes, query]);
+  const visible = useMemo(
+    () => nodes.filter((n) => matchesQuery(n, query)),
+    [nodes, query],
+  );
   const searching = query.trim().length > 0;
 
   function toggleExpand(id: string) {
@@ -113,7 +121,10 @@ export function CategoryTree({
                 disabled={children.length === 0}
               >
                 {children.length > 0 ? (
-                  <IconChevronRight size={14} className={open ? css.disclosureOpen : undefined} />
+                  <IconChevronRight
+                    size={14}
+                    className={open ? css.disclosureOpen : undefined}
+                  />
                 ) : (
                   <span className={css.disclosureDot} aria-hidden />
                 )}
@@ -122,13 +133,16 @@ export function CategoryTree({
               <div
                 className={css.deptTitleWrap}
                 role={children.length > 0 ? "presentation" : undefined}
-                onClick={children.length > 0 ? () => toggleExpand(dept.id) : undefined}
+                onClick={
+                  children.length > 0 ? () => toggleExpand(dept.id) : undefined
+                }
               >
                 <h3 className={css.deptTitle}>{dept.name}</h3>
                 <p className={css.deptSummary}>
                   {children.length > 0 && (
                     <>
-                      {children.length} categor{children.length === 1 ? "y" : "ies"}
+                      {children.length} categor
+                      {children.length === 1 ? "y" : "ies"}
                       <span className={css.dot} aria-hidden>
                         ·
                       </span>
@@ -175,7 +189,11 @@ export function CategoryTree({
                       checked={dept.isActive}
                       onChange={() => onToggleActive(dept)}
                       disabled={busyId === dept.id}
-                      label={dept.isActive ? `Hide ${dept.name}` : `Show ${dept.name}`}
+                      label={
+                        dept.isActive
+                          ? `Hide ${dept.name}`
+                          : `Show ${dept.name}`
+                      }
                     />
                   </div>
                   <RowMenu
@@ -201,8 +219,12 @@ export function CategoryTree({
                     className={`${css.child}${child.isActive ? "" : ` ${css.childOff}`}`}
                   >
                     <span className={css.childName}>{child.name}</span>
-                    {!child.isActive && <span className={css.offChip}>Hidden</span>}
-                    {!child.isSystem && <span className={css.customChip}>Custom</span>}
+                    {!child.isActive && (
+                      <span className={css.offChip}>Hidden</span>
+                    )}
+                    {!child.isSystem && (
+                      <span className={css.customChip}>Custom</span>
+                    )}
 
                     <span className={css.childCount}>
                       {child.rangedCount.toLocaleString()}
@@ -227,7 +249,11 @@ export function CategoryTree({
                             checked={child.isActive}
                             onChange={() => onToggleActive(child)}
                             disabled={busyId === child.id}
-                            label={child.isActive ? `Hide ${child.name}` : `Show ${child.name}`}
+                            label={
+                              child.isActive
+                                ? `Hide ${child.name}`
+                                : `Show ${child.name}`
+                            }
                           />
                         </div>
                         <RowMenu

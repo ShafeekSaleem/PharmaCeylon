@@ -50,14 +50,16 @@ export function CatalogIssueBanner({
       </span>
       <p className={css.issueBannerText}>
         <strong>
-          {summary.open.toLocaleString()} product{summary.open === 1 ? "" : "s"} need
+          {summary.open.toLocaleString()} product{summary.open === 1 ? "" : "s"}{" "}
+          need
           {summary.open === 1 ? "s" : ""} catalog review
         </strong>
         {breakdown && <>: {breakdown}.</>}
         {summary.complianceReview > 0 && (
           <>
             {" "}
-            {summary.complianceReview.toLocaleString()} would change a compliance flag and need
+            {summary.complianceReview.toLocaleString()} would change a
+            compliance flag and need
             {summary.complianceReview === 1 ? "s" : ""} individual review.
           </>
         )}

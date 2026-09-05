@@ -44,7 +44,10 @@ describe("ProductsService — category dimension scoping", () => {
       },
     };
     const audit = { log: jest.fn() } as unknown as AuditService;
-    const meta = { syncProductCategories: jest.fn(), syncProductTags: jest.fn() } as unknown as ProductMetaService;
+    const meta = {
+      syncProductCategories: jest.fn(),
+      syncProductTags: jest.fn(),
+    } as unknown as ProductMetaService;
     const service = new ProductsService(prisma as never, audit, meta);
     return { service, prisma };
   }
@@ -55,21 +58,25 @@ describe("ProductsService — category dimension scoping", () => {
     await service.getById(tenantId, productId);
 
     const call = prisma.product.findFirst.mock.calls[0][0];
-    expect(call.include.categoryMaps.where).toEqual({ dimension: "COMMERCIAL" });
+    expect(call.include.categoryMaps.where).toEqual({
+      dimension: "COMMERCIAL",
+    });
   });
 
   it("list() only requests COMMERCIAL-dimension category maps for the products table", async () => {
     const { service, prisma } = makeService();
     // $transaction in the real PrismaService runs an array of promises — mock it the same way.
-    (prisma as unknown as { $transaction: jest.Mock }).$transaction = jest.fn((ops: Promise<unknown>[]) =>
-      Promise.all(ops),
+    (prisma as unknown as { $transaction: jest.Mock }).$transaction = jest.fn(
+      (ops: Promise<unknown>[]) => Promise.all(ops),
     );
     prisma.product.findMany.mockResolvedValue([]);
 
     await service.list(tenantId, undefined, {});
 
     const call = prisma.product.findMany.mock.calls[0][0];
-    expect(call.include.categoryMaps.where).toEqual({ dimension: "COMMERCIAL" });
+    expect(call.include.categoryMaps.where).toEqual({
+      dimension: "COMMERCIAL",
+    });
   });
 
   it("a product's returned `categories` never includes a non-COMMERCIAL map, so editing round-trips safely", async () => {
@@ -80,12 +87,16 @@ describe("ProductsService — category dimension scoping", () => {
     // Every id in here is what the web edit form sends back as `categoryIds` on save —
     // if this ever includes a Dosage Form/Schedule/RegType id, ProductMetaService.
     // syncProductCategories will reject the save with "One or more categories are invalid".
-    expect(product.categories).toEqual([{ id: "cat-commercial-1", name: "Anti-infectives" }]);
+    expect(product.categories).toEqual([
+      { id: "cat-commercial-1", name: "Anti-infectives" },
+    ]);
   });
 
   it("scopes the final product update by tenant as well as id", async () => {
     const { service, prisma } = makeService();
-    await service.update(tenantId, "user-1", productId, { name: "Updated name" });
+    await service.update(tenantId, "user-1", productId, {
+      name: "Updated name",
+    });
     expect(prisma.product.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: productId, tenantId } }),
     );
@@ -116,7 +127,12 @@ describe("ProductsService — bulk range/status actions", () => {
    * (a register-derived product with no history and no stock) so a test only states the part
    * it is actually about.
    */
-  function makeService(opts: { rows?: unknown[]; stock?: Array<{ productId: string; qty: number }> } = {}) {
+  function makeService(
+    opts: {
+      rows?: unknown[];
+      stock?: Array<{ productId: string; qty: number }>;
+    } = {},
+  ) {
     const prisma = {
       product: {
         findMany: jest.fn().mockResolvedValue(opts.rows ?? []),
@@ -125,9 +141,14 @@ describe("ProductsService — bulk range/status actions", () => {
       },
       productCategory: { findMany: jest.fn().mockResolvedValue([]) },
       stockLedger: {
-        groupBy: jest.fn().mockResolvedValue(
-          (opts.stock ?? []).map((s) => ({ productId: s.productId, _sum: { qtyDelta: s.qty } })),
-        ),
+        groupBy: jest
+          .fn()
+          .mockResolvedValue(
+            (opts.stock ?? []).map((s) => ({
+              productId: s.productId,
+              _sum: { qtyDelta: s.qty },
+            })),
+          ),
       },
     };
     const audit = { log: jest.fn() } as unknown as AuditService;
@@ -198,7 +219,10 @@ describe("ProductsService — bulk range/status actions", () => {
       ],
     });
 
-    await service.bulkUpdate(tenantId, userId, { action: "unrange", productIds: ["p2"] });
+    await service.bulkUpdate(tenantId, userId, {
+      action: "unrange",
+      productIds: ["p2"],
+    });
 
     const call = prisma.product.updateMany.mock.calls[0][0];
     expect(call.data).toEqual({ isActive: false });
@@ -221,7 +245,12 @@ describe("ProductsService — bulk range/status actions", () => {
 
   it("keeps a register-derived product with sales history in the range, deactivated", async () => {
     const { service } = makeService({
-      rows: [{ ...registerDerived, _count: { saleItems: 3, purchaseItems: 0, receiptItems: 0 } }],
+      rows: [
+        {
+          ...registerDerived,
+          _count: { saleItems: 3, purchaseItems: 0, receiptItems: 0 },
+        },
+      ],
     });
 
     const result = await service.applyRangeExit(tenantId, ["p1"]);
@@ -269,7 +298,9 @@ describe("ProductsService — bulk range/status actions", () => {
     expect(prisma.product.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ select: { id: true } }),
     );
-    expect(prisma.product.updateMany.mock.calls[0][0].where.tenantId).toBe(tenantId);
+    expect(prisma.product.updateMany.mock.calls[0][0].where.tenantId).toBe(
+      tenantId,
+    );
     expect(result).toEqual({ matched: 2, updated: 2, action: "range" });
   });
 

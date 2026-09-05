@@ -12,7 +12,10 @@ import {
 } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { CATALOG_ROLES, POS_ROLES, RETURNS_ROLES } from "@/lib/role-access";
-import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
+import {
+  AttentionTicker,
+  type TickerItem,
+} from "../components/attention-ticker";
 import { DashboardCanvas } from "../components/dashboard-canvas";
 import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
@@ -22,7 +25,11 @@ import { useCustomerBreakdown } from "../hooks/use-customer-breakdown";
 import css from "../dashboard.module.css";
 import type { WidgetDef } from "../widgets/types";
 
-type Props = { data: DashboardData; catalog: WidgetDef[]; layout: UseDashboardLayoutResult };
+type Props = {
+  data: DashboardData;
+  catalog: WidgetDef[];
+  layout: UseDashboardLayoutResult;
+};
 
 export function CashierDashboard({ data, catalog, layout }: Props) {
   const {
@@ -85,7 +92,13 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
       });
     }
     return items;
-  }, [rxWaiting, holdCount, lowStockRows.length, returnsTodayCount, returnsTodayTotal]);
+  }, [
+    rxWaiting,
+    holdCount,
+    lowStockRows.length,
+    returnsTodayCount,
+    returnsTodayTotal,
+  ]);
 
   return (
     <>
@@ -97,7 +110,10 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
         sparkline={hourlyToday}
         trend={
           salesTrendLabel
-            ? { label: salesTrendLabel, direction: salesTrendPositive ? "up" : "down" }
+            ? {
+                label: salesTrendLabel,
+                direction: salesTrendPositive ? "up" : "down",
+              }
             : undefined
         }
         secondary={[
@@ -107,7 +123,10 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
             value: todaySalesCount,
             meta: "Posted today",
             trend: billsTrendLabel
-              ? { label: billsTrendLabel, direction: billsTrendPositive ? "up" : "down" }
+              ? {
+                  label: billsTrendLabel,
+                  direction: billsTrendPositive ? "up" : "down",
+                }
               : undefined,
             href: "/pos",
             linkLabel: "Open POS",
@@ -127,11 +146,17 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
             meta: breakdown ? (
               <span className={css.heroBreakdownRow}>
                 <span className={css.heroBreakdownItem}>
-                  <i className={css.heroBreakdownDot} style={{ background: "var(--pc-muted-fg)" }} />
+                  <i
+                    className={css.heroBreakdownDot}
+                    style={{ background: "var(--pc-muted-fg)" }}
+                  />
                   {breakdown.walkIn} walk-in
                 </span>
                 <span className={css.heroBreakdownItem}>
-                  <i className={css.heroBreakdownDot} style={{ background: "var(--pc-primary)" }} />
+                  <i
+                    className={css.heroBreakdownDot}
+                    style={{ background: "var(--pc-primary)" }}
+                  />
                   {breakdown.registered} registered
                 </span>
               </span>
@@ -142,7 +167,11 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
         ]}
       />
 
-      <AttentionTicker items={tickerItems} loading={loading} allClearText="No counter alerts — all clear" />
+      <AttentionTicker
+        items={tickerItems}
+        loading={loading}
+        allClearText="No counter alerts — all clear"
+      />
 
       <DashboardCanvas
         catalog={catalog}

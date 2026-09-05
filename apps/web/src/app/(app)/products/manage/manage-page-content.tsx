@@ -3,14 +3,22 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { IconChevronLeft, IconClipboardList, IconGrid, IconTag } from "@/components/icons";
+import {
+  IconChevronLeft,
+  IconClipboardList,
+  IconGrid,
+  IconTag,
+} from "@/components/icons";
 import { PageHeader, SegmentedTabPanel, SegmentedTabs } from "@/components/ui";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { usePermissions } from "@/lib/permissions";
 import { useCatalogTaskSummary } from "../hooks/use-catalog-task-summary";
 import { CategoriesSection } from "./sections/categories-section";
 import { TagsSection } from "./sections/tags-section";
-import { WorkQueueSection, type WorkQueueViewId } from "./sections/work-queue-section";
+import {
+  WorkQueueSection,
+  type WorkQueueViewId,
+} from "./sections/work-queue-section";
 import css from "./manage.module.css";
 
 const SECTIONS = ["queue", "categories", "tags"] as const;
@@ -43,7 +51,8 @@ export function ManagePageContent() {
     parseSection(searchParams.get("section")),
   );
   const importId = searchParams.get("importId");
-  const initialView = (searchParams.get("view") as WorkQueueViewId | null) ?? undefined;
+  const initialView =
+    (searchParams.get("view") as WorkQueueViewId | null) ?? undefined;
 
   const { summary, reload } = useCatalogTaskSummary();
 
@@ -60,7 +69,9 @@ export function ManagePageContent() {
       if (next === "queue") params.delete("section");
       else params.set("section", next);
       const qs = params.toString();
-      router.replace(qs ? `/products/manage?${qs}` : "/products/manage", { scroll: false });
+      router.replace(qs ? `/products/manage?${qs}` : "/products/manage", {
+        scroll: false,
+      });
     },
     [router, searchParams],
   );
@@ -69,7 +80,9 @@ export function ManagePageContent() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("importId");
     const qs = params.toString();
-    router.replace(qs ? `/products/manage?${qs}` : "/products/manage", { scroll: false });
+    router.replace(qs ? `/products/manage?${qs}` : "/products/manage", {
+      scroll: false,
+    });
   }, [router, searchParams]);
 
   const tabs = useMemo(
@@ -84,7 +97,11 @@ export function ManagePageContent() {
       },
       ...(canViewMeta
         ? [
-            { id: "categories" as const, label: "Categories", icon: <IconGrid size={14} /> },
+            {
+              id: "categories" as const,
+              label: "Categories",
+              icon: <IconGrid size={14} />,
+            },
             { id: "tags" as const, label: "Tags", icon: <IconTag size={14} /> },
           ]
         : []),

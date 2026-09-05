@@ -11,7 +11,13 @@ import { RowMenu } from "./row-menu";
 describe("RowMenu", () => {
   const actions = [
     { label: "Rename", onClick: jest.fn() },
-    { label: "Delete", danger: true, separated: true, onClick: jest.fn(), hint: "Removes it from 4 products" },
+    {
+      label: "Delete",
+      danger: true,
+      separated: true,
+      onClick: jest.fn(),
+      hint: "Removes it from 4 products",
+    },
   ];
 
   it("renders nothing when there is nothing to do", () => {
@@ -22,7 +28,9 @@ describe("RowMenu", () => {
   it("names its trigger after the row, so a page of them is not twenty identical buttons", () => {
     render(<RowMenu label="Pain & Fever" actions={actions} />);
 
-    expect(screen.getByRole("button", { name: "Actions for Pain & Fever" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Actions for Pain & Fever" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps the menu closed until asked", () => {
@@ -40,8 +48,12 @@ describe("RowMenu", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /Actions for/ }));
 
-    expect(screen.getByRole("menuitem", { name: /Rename/ })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /Delete/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /Rename/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /Delete/ }),
+    ).toBeInTheDocument();
   });
 
   it("shows the hint that says what a destructive action will actually take with it", async () => {
@@ -56,7 +68,9 @@ describe("RowMenu", () => {
 
   it("runs the action and closes", async () => {
     const onClick = jest.fn();
-    render(<RowMenu label="Pain & Fever" actions={[{ label: "Rename", onClick }]} />);
+    render(
+      <RowMenu label="Pain & Fever" actions={[{ label: "Rename", onClick }]} />,
+    );
 
     await userEvent.click(screen.getByRole("button", { name: /Actions for/ }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Rename" }));

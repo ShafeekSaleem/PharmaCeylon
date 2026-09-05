@@ -1,8 +1,18 @@
 "use client";
 
 import { useMemo } from "react";
-import { IconAlertTriangle, IconCheck, IconPackage, IconPlus } from "@/components/icons";
-import { DataTable, StatusBadge, type Column, type SortDir } from "@/components/ui";
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconPackage,
+  IconPlus,
+} from "@/components/icons";
+import {
+  DataTable,
+  StatusBadge,
+  type Column,
+  type SortDir,
+} from "@/components/ui";
 import { PAGE_SIZE } from "../constants";
 import css from "../products.module.css";
 import type { ColumnKey, Product, ProductScope } from "../types";
@@ -108,7 +118,9 @@ export function ProductTable({
                 {/* Only ever present when a search term was given. Words, not a colour —
                     "why did this come back" has to be readable, not decoded. */}
                 {row.matchType && row.matchType !== "partial" && (
-                  <span className={css.matchChip}>{MATCH_LABELS[row.matchType]}</span>
+                  <span className={css.matchChip}>
+                    {MATCH_LABELS[row.matchType]}
+                  </span>
                 )}
                 {(row.requiresPrescription || row.isControlled) && (
                   <span className={css.rxTag}>Rx</span>
@@ -128,7 +140,9 @@ export function ProductTable({
                   ))}
                 {(row.tags ?? [])
                   .filter((t) =>
-                    /unbranded|prescription required|controlled medicine/i.test(t.name),
+                    /unbranded|prescription required|controlled medicine/i.test(
+                      t.name,
+                    ),
                   )
                   .slice(0, 1)
                   .map((t) => (
@@ -285,7 +299,12 @@ export function ProductTable({
             );
           }
           return canWrite ? (
-            <ProductActions row={row} canDelete={canDelete} onEdit={onEdit} onDelete={onDelete} />
+            <ProductActions
+              row={row}
+              canDelete={canDelete}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
           ) : null;
         },
       },
@@ -304,7 +323,8 @@ export function ProductTable({
   );
 
   const columns = useMemo(
-    () => allColumnDefs.filter((col) => visibleColumns.has(col.key as ColumnKey)),
+    () =>
+      allColumnDefs.filter((col) => visibleColumns.has(col.key as ColumnKey)),
     [allColumnDefs, visibleColumns],
   );
 
@@ -326,7 +346,9 @@ export function ProductTable({
       onSelectionChange={onSelectionChange}
       compact
       emptyTitle={
-        scope === "reference" ? "No reference products found" : "No products yet"
+        scope === "reference"
+          ? "No reference products found"
+          : "No products yet"
       }
       emptyDescription={
         scope === "reference"

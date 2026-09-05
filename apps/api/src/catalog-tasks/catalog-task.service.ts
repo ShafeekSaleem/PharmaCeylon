@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { CatalogTaskStatus, CatalogTaskType } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
@@ -7,7 +12,10 @@ import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-cate
 import { classifyMedicine } from "../catalog/deterministic-medicine-classifier";
 import { classifyNmraEligibility } from "../catalog/nmra-eligibility";
 import { PrismaService } from "../prisma/prisma.service";
-import { CatalogIndex, type MatchCandidate } from "../product-import/product-import-match";
+import {
+  CatalogIndex,
+  type MatchCandidate,
+} from "../product-import/product-import-match";
 import { ProductNmraLinkService } from "../products/product-nmra-link.service";
 import { ReferenceCandidateFinder } from "../products/reference-candidates";
 import { classifyTaskSafety } from "./catalog-task-safety";
@@ -126,8 +134,16 @@ export class CatalogTaskService {
 
     const totals = { created: 0, updated: 0, closed: 0 };
 
-    const categoryOutcome = await this.refreshCategoryTasks(tenantId, scope, opts.importId);
-    const nmraOutcome = await this.refreshNmraTasks(tenantId, scope, opts.importId);
+    const categoryOutcome = await this.refreshCategoryTasks(
+      tenantId,
+      scope,
+      opts.importId,
+    );
+    const nmraOutcome = await this.refreshNmraTasks(
+      tenantId,
+      scope,
+      opts.importId,
+    );
     for (const outcome of [categoryOutcome, nmraOutcome]) {
       totals.created += outcome.created;
       totals.updated += outcome.updated;
@@ -148,15 +164,27 @@ export class CatalogTaskService {
       ...(unclassifiedId
         ? {
             OR: [
-              { categoryMaps: { none: { dimension: "COMMERCIAL", isPrimary: true } } },
               {
                 categoryMaps: {
-                  some: { dimension: "COMMERCIAL", isPrimary: true, categoryId: unclassifiedId },
+                  none: { dimension: "COMMERCIAL", isPrimary: true },
+                },
+              },
+              {
+                categoryMaps: {
+                  some: {
+                    dimension: "COMMERCIAL",
+                    isPrimary: true,
+                    categoryId: unclassifiedId,
+                  },
                 },
               },
             ],
           }
-        : { categoryMaps: { none: { dimension: "COMMERCIAL", isPrimary: true } } }),
+        : {
+            categoryMaps: {
+              none: { dimension: "COMMERCIAL", isPrimary: true },
+            },
+          }),
     };
 
     const canonicalIds = await this.taxonomy.commercialCanonicalIds(tenantId);
@@ -165,7 +193,9 @@ export class CatalogTaskService {
       select: { id: true, name: true, parentCategoryId: true },
     });
     const nameById = new Map(categories.map((c) => [c.id, c.name]));
-    const parentById = new Map(categories.map((c) => [c.id, c.parentCategoryId]));
+    const parentById = new Map(
+      categories.map((c) => [c.id, c.parentCategoryId]),
+    );
 
     const seen: string[] = [];
     const pending: PendingTask[] = [];
@@ -173,7 +203,12 @@ export class CatalogTaskService {
     for await (const batch of this.pageProducts(where)) {
       for (const row of batch) {
         seen.push(row.id);
-        const hit = classifyMedicine(row.genericName, row.name, row.dosageForm, row.brandName);
+        const hit = classifyMedicine(
+          row.genericName,
+          row.name,
+          row.dosageForm,
+          row.brandName,
+        );
         const categoryId = hit ? canonicalIds.get(hit.canonicalKey) : undefined;
         // The Unclassified floor is what the task is *about* — proposing it is a no-op.
         const usable =
@@ -185,7 +220,11 @@ export class CatalogTaskService {
           ? {
               categoryId: usable.categoryId,
               categoryName: nameById.get(usable.categoryId) ?? "",
-              categoryPath: this.pathOf(usable.categoryId, nameById, parentById),
+              categoryPath: this.pathOf(
+                usable.categoryId,
+                nameById,
+                parentById,
+              ),
             }
           : null;
 
@@ -217,7 +256,12 @@ export class CatalogTaskService {
     }
 
     const written = await this.writeTasks(tenantId, pending);
-    const closed = await this.closeStaleTasks(tenantId, "MISSING_CATEGORY", seen, scope);
+    const closed = await this.closeStaleTasks(
+      tenantId,
+      "MISSING_CATEGORY",
+      seen,
+      scope,
+    );
     return { ...written, closed };
   }
 
@@ -243,7 +287,10 @@ export class CatalogTaskService {
       );
 
       const matchable: ProductRow[] = [];
-      const eligibilityByProduct = new Map<string, ReturnType<typeof classifyNmraEligibility>>();
+      const eligibilityByProduct = new Map<
+        string,
+        ReturnType<typeof classifyNmraEligibility>
+      >();
       for (const row of batch) {
         const eligibility = classifyNmraEligibility({
           name: row.name,
@@ -307,24 +354,36 @@ export class CatalogTaskService {
 
         // Ambiguity beats everything: if the product's own identifier lands on more than one
         // register row, no amount of ranking makes picking one of them defensible.
-        const barcodeKey = (row.barcode ?? "").replace(/\s+/g, "").toLowerCase();
-        const regKey = (row.registrationNo ?? "").replace(/\s+/g, "").toLowerCase();
+        const barcodeKey = (row.barcode ?? "")
+          .replace(/\s+/g, "")
+          .toLowerCase();
+        const regKey = (row.registrationNo ?? "")
+          .replace(/\s+/g, "")
+          .toLowerCase();
         const collision =
           (barcodeKey && set.ambiguousByBarcode.get(barcodeKey)) ||
           (regKey && set.ambiguousByRegistration.get(regKey)) ||
           null;
 
         if (collision && collision.length > 1) {
-          const field = barcodeKey && set.ambiguousByBarcode.has(barcodeKey) ? "barcode" : "registration number";
+          const field =
+            barcodeKey && set.ambiguousByBarcode.has(barcodeKey)
+              ? "barcode"
+              : "registration number";
           pending.push({
             productId: row.id,
             type: "NMRA_AMBIGUOUS",
             status: "NEEDS_REVIEW",
             suggestion: null,
-            evidence: barcodeKey && set.ambiguousByBarcode.has(barcodeKey) ? "barcode" : "registration",
+            evidence:
+              barcodeKey && set.ambiguousByBarcode.has(barcodeKey)
+                ? "barcode"
+                : "registration",
             confidence: null,
             complianceImpact: collision.some(
-              (c) => c.isControlled !== row.isControlled || c.requiresPrescription !== row.requiresPrescription,
+              (c) =>
+                c.isControlled !== row.isControlled ||
+                c.requiresPrescription !== row.requiresPrescription,
             ),
             safeToApply: false,
             candidates: collision.map((c) => ({
@@ -365,7 +424,8 @@ export class CatalogTaskService {
             safeToApply: false,
             candidates: null,
             importId: importId ?? row.importId,
-            resolutionNote: "No register entry matched — search the register or leave it unlinked.",
+            resolutionNote:
+              "No register entry matched — search the register or leave it unlinked.",
           });
           continue;
         }
@@ -408,7 +468,8 @@ export class CatalogTaskService {
             registrationNo: r.candidate.registrationNo,
           })),
           importId: importId ?? row.importId,
-          resolutionNote: safety.blockers.length > 0 ? safety.blockers.join(" ") : null,
+          resolutionNote:
+            safety.blockers.length > 0 ? safety.blockers.join(" ") : null,
         });
       }
     }
@@ -437,9 +498,17 @@ export class CatalogTaskService {
         productId: { in: pending.map((p) => p.productId) },
         type: { in: [...new Set(pending.map((p) => p.type))] },
       },
-      select: { id: true, productId: true, type: true, status: true, resolvedByUserId: true },
+      select: {
+        id: true,
+        productId: true,
+        type: true,
+        status: true,
+        resolvedByUserId: true,
+      },
     });
-    const existingByKey = new Map(existing.map((e) => [`${e.productId}:${e.type}`, e]));
+    const existingByKey = new Map(
+      existing.map((e) => [`${e.productId}:${e.type}`, e]),
+    );
 
     let created = 0;
     let updated = 0;
@@ -461,7 +530,9 @@ export class CatalogTaskService {
             candidates: task.candidates ?? Prisma.DbNull,
             importId: task.importId,
             resolutionNote: task.resolutionNote,
-            ...(task.status === "NOT_APPLICABLE" ? { resolvedAt: new Date() } : {}),
+            ...(task.status === "NOT_APPLICABLE"
+              ? { resolvedAt: new Date() }
+              : {}),
           },
         });
         created += 1;
@@ -514,13 +585,16 @@ export class CatalogTaskService {
         tenantId,
         type,
         status: { in: OPEN_STATUSES },
-        productId: { notIn: stillOpenProductIds.length > 0 ? stillOpenProductIds : [""] },
+        productId: {
+          notIn: stillOpenProductIds.length > 0 ? stillOpenProductIds : [""],
+        },
         product: scope,
       },
       data: {
         status: "RESOLVED",
         resolvedAt: new Date(),
-        resolutionNote: "Resolved elsewhere — this product no longer needs the change.",
+        resolutionNote:
+          "Resolved elsewhere — this product no longer needs the change.",
       },
     });
     return result.count;
@@ -573,18 +647,30 @@ export class CatalogTaskService {
       ranged,
     ] = await Promise.all([
       this.prisma.catalogTask.count({ where: open }),
-      this.prisma.catalogTask.count({ where: { ...open, type: "MISSING_CATEGORY" } }),
+      this.prisma.catalogTask.count({
+        where: { ...open, type: "MISSING_CATEGORY" },
+      }),
       this.prisma.catalogTask.count({ where: { ...open, type: "NMRA_MATCH" } }),
-      this.prisma.catalogTask.count({ where: { ...open, complianceImpact: true } }),
-      this.prisma.catalogTask.count({ where: { ...open, type: "NMRA_AMBIGUOUS" } }),
+      this.prisma.catalogTask.count({
+        where: { ...open, complianceImpact: true },
+      }),
+      this.prisma.catalogTask.count({
+        where: { ...open, type: "NMRA_AMBIGUOUS" },
+      }),
       this.prisma.catalogTask.count({ where: { ...open, evidence: null } }),
       this.prisma.catalogTask.count({ where: { ...open, safeToApply: true } }),
       this.prisma.catalogTask.count({
         where: { ...open, import: { createdAt: { gte: weekAgo } } },
       }),
-      this.prisma.catalogTask.count({ where: { tenantId, status: "RESOLVED" } }),
-      this.prisma.catalogTask.count({ where: { tenantId, status: "DISMISSED" } }),
-      this.prisma.catalogTask.count({ where: { tenantId, status: "NOT_APPLICABLE" } }),
+      this.prisma.catalogTask.count({
+        where: { tenantId, status: "RESOLVED" },
+      }),
+      this.prisma.catalogTask.count({
+        where: { tenantId, status: "DISMISSED" },
+      }),
+      this.prisma.catalogTask.count({
+        where: { tenantId, status: "NOT_APPLICABLE" },
+      }),
       this.prisma.product.count({ where: { tenantId, rangeStatus: "RANGED" } }),
     ]);
 
@@ -605,14 +691,21 @@ export class CatalogTaskService {
       categoryCoveragePercent:
         ranged === 0
           ? 100
-          : Math.round(((ranged - Math.min(needsCategory, ranged)) / ranged) * 100),
+          : Math.round(
+              ((ranged - Math.min(needsCategory, ranged)) / ranged) * 100,
+            ),
     };
   }
 
   async list(
     tenantId: string,
     filter: CatalogTaskFilter,
-  ): Promise<{ items: CatalogTaskView[]; total: number; skip: number; take: number }> {
+  ): Promise<{
+    items: CatalogTaskView[];
+    total: number;
+    skip: number;
+    take: number;
+  }> {
     const take = Math.min(Math.max(1, filter.take ?? DEFAULT_TAKE), MAX_TAKE);
     const skip = Math.max(0, filter.skip ?? 0);
     const where = this.buildWhere(tenantId, filter);
@@ -635,10 +728,15 @@ export class CatalogTaskService {
     return { items: rows.map((row) => this.toView(row)), total, skip, take };
   }
 
-  private buildWhere(tenantId: string, filter: CatalogTaskFilter): Prisma.CatalogTaskWhereInput {
+  private buildWhere(
+    tenantId: string,
+    filter: CatalogTaskFilter,
+  ): Prisma.CatalogTaskWhereInput {
     const where: Prisma.CatalogTaskWhereInput = { tenantId };
 
-    where.status = { in: filter.status?.length ? filter.status : OPEN_STATUSES };
+    where.status = {
+      in: filter.status?.length ? filter.status : OPEN_STATUSES,
+    };
     if (filter.type?.length) where.type = { in: filter.type };
     if (filter.importId) where.importId = filter.importId;
     if (filter.source) where.product = { source: filter.source as never };
@@ -761,19 +859,29 @@ export class CatalogTaskService {
       const suggestion = task.suggestion as { categoryId?: string } | null;
       const categoryId = override?.categoryId ?? suggestion?.categoryId;
       if (!categoryId) {
-        throw new BadRequestException("Choose a category — this task has no suggestion to apply.");
+        throw new BadRequestException(
+          "Choose a category — this task has no suggestion to apply.",
+        );
       }
       const category = await this.prisma.productCategory.findFirst({
         where: { tenantId, id: categoryId, dimension: "COMMERCIAL" },
         select: { id: true },
       });
       if (!category) throw new NotFoundException("Category not found.");
-      await this.taxonomy.setPrimaryCommercialCategory(tenantId, task.productId, categoryId, {
-        assignmentSource: "MANUAL",
-      });
+      await this.taxonomy.setPrimaryCommercialCategory(
+        tenantId,
+        task.productId,
+        categoryId,
+        {
+          assignmentSource: "MANUAL",
+        },
+      );
     } else {
-      const suggestion = task.suggestion as { referenceProductId?: string } | null;
-      const referenceProductId = override?.referenceProductId ?? suggestion?.referenceProductId;
+      const suggestion = task.suggestion as {
+        referenceProductId?: string;
+      } | null;
+      const referenceProductId =
+        override?.referenceProductId ?? suggestion?.referenceProductId;
       if (!referenceProductId) {
         throw new BadRequestException(
           "Choose a register entry — this task has no single match to apply.",
@@ -782,22 +890,41 @@ export class CatalogTaskService {
       // Goes through the link service so the field-ownership policy, the undo snapshot and the
       // audit entry are identical to a link made from the product page. There is exactly one
       // way to link a product, and this is not a second one.
-      await this.nmraLink.link(tenantId, userId, task.productId, referenceProductId);
+      await this.nmraLink.link(
+        tenantId,
+        userId,
+        task.productId,
+        referenceProductId,
+      );
     }
 
     return this.close(tenantId, userId, taskId, "RESOLVED", null);
   }
 
-  async dismiss(tenantId: string, userId: string, taskId: string, note?: string) {
+  async dismiss(
+    tenantId: string,
+    userId: string,
+    taskId: string,
+    note?: string,
+  ) {
     return this.close(tenantId, userId, taskId, "DISMISSED", note ?? null);
   }
 
-  async markNotApplicable(tenantId: string, userId: string, taskId: string, note?: string) {
+  async markNotApplicable(
+    tenantId: string,
+    userId: string,
+    taskId: string,
+    note?: string,
+  ) {
     return this.close(tenantId, userId, taskId, "NOT_APPLICABLE", note ?? null);
   }
 
   /** Put a closed task back in the queue — the manual override for a wrong exclusion. */
-  async reopen(tenantId: string, userId: string, taskId: string): Promise<CatalogTaskView> {
+  async reopen(
+    tenantId: string,
+    userId: string,
+    taskId: string,
+  ): Promise<CatalogTaskView> {
     const task = await this.loadTask(tenantId, taskId);
     await this.prisma.catalogTask.update({
       where: { id: task.id, tenantId },
@@ -858,8 +985,15 @@ export class CatalogTaskService {
     tenantId: string,
     userId: string,
     filter: CatalogTaskFilter,
-  ): Promise<{ applied: number; failed: Array<{ taskId: string; reason: string }> }> {
-    const where = { ...this.buildWhere(tenantId, filter), safeToApply: true, status: { in: OPEN_STATUSES } };
+  ): Promise<{
+    applied: number;
+    failed: Array<{ taskId: string; reason: string }>;
+  }> {
+    const where = {
+      ...this.buildWhere(tenantId, filter),
+      safeToApply: true,
+      status: { in: OPEN_STATUSES },
+    };
     const tasks = await this.prisma.catalogTask.findMany({
       where,
       select: { id: true },
@@ -875,7 +1009,8 @@ export class CatalogTaskService {
       } catch (err) {
         failed.push({
           taskId: task.id,
-          reason: err instanceof Error ? err.message : "Could not apply this change.",
+          reason:
+            err instanceof Error ? err.message : "Could not apply this change.",
         });
       }
     }
@@ -908,14 +1043,20 @@ export class CatalogTaskService {
   // ───────────────────────────── helpers ─────────────────────────────
 
   private async loadTask(tenantId: string, taskId: string) {
-    const task = await this.prisma.catalogTask.findFirst({ where: { tenantId, id: taskId } });
+    const task = await this.prisma.catalogTask.findFirst({
+      where: { tenantId, id: taskId },
+    });
     if (!task) throw new NotFoundException("Task not found.");
     return task;
   }
 
   private async unclassifiedId(tenantId: string): Promise<string | null> {
     const row = await this.prisma.productCategory.findFirst({
-      where: { tenantId, dimension: "COMMERCIAL", canonicalKey: UNCLASSIFIED_MEDICINES_CANONICAL_KEY },
+      where: {
+        tenantId,
+        dimension: "COMMERCIAL",
+        canonicalKey: UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
+      },
       select: { id: true },
     });
     return row?.id ?? null;
@@ -926,7 +1067,12 @@ export class CatalogTaskService {
     productIds: string[],
   ): Promise<Map<string, string | null>> {
     const maps = await this.prisma.productCategoryMap.findMany({
-      where: { tenantId, productId: { in: productIds }, dimension: "COMMERCIAL", isPrimary: true },
+      where: {
+        tenantId,
+        productId: { in: productIds },
+        dimension: "COMMERCIAL",
+        isPrimary: true,
+      },
       select: { productId: true, category: { select: { canonicalKey: true } } },
     });
     return new Map(maps.map((m) => [m.productId, m.category.canonicalKey]));

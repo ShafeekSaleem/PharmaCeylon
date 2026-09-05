@@ -17,13 +17,19 @@ import {
   reorderCategories,
   updateCategory,
 } from "../../categories/api";
-import { CategoryFormModal, type CategoryModalState } from "../../categories/components/category-form-modal";
+import {
+  CategoryFormModal,
+  type CategoryModalState,
+} from "../../categories/components/category-form-modal";
 import { CategoryTree } from "../../categories/components/category-tree";
 import { MoveProductsModal } from "../../categories/components/move-products-modal";
 import { OnboardingPanel } from "../../categories/components/onboarding-panel";
 import css from "../../categories/categories.module.css";
 import manageCss from "../manage.module.css";
-import type { CommercialCategoryNode, OnboardingGroupStatus } from "../../categories/types";
+import type {
+  CommercialCategoryNode,
+  OnboardingGroupStatus,
+} from "../../categories/types";
 
 /**
  * Merchandising categories — how the pharmacy groups what it sells, for the shop floor and for
@@ -47,21 +53,29 @@ export function CategoriesSection() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showReferenceCounts, setShowReferenceCounts] = useState(false);
 
-  const [onboarding, setOnboarding] = useState<OnboardingGroupStatus[] | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingGroupStatus[] | null>(
+    null,
+  );
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingSaving, setOnboardingSaving] = useState(false);
 
-  const [deleteTarget, setDeleteTarget] = useState<CommercialCategoryNode | null>(null);
+  const [deleteTarget, setDeleteTarget] =
+    useState<CommercialCategoryNode | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const [disableWarning, setDisableWarning] = useState<CommercialCategoryNode | null>(null);
+  const [disableWarning, setDisableWarning] =
+    useState<CommercialCategoryNode | null>(null);
 
-  const [moveSource, setMoveSource] = useState<CommercialCategoryNode | null>(null);
+  const [moveSource, setMoveSource] = useState<CommercialCategoryNode | null>(
+    null,
+  );
   const [moveLoading, setMoveLoading] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
 
-  const [categoryModal, setCategoryModal] = useState<CategoryModalState | null>(null);
+  const [categoryModal, setCategoryModal] = useState<CategoryModalState | null>(
+    null,
+  );
   const [categorySaving, setCategorySaving] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
 
@@ -76,7 +90,9 @@ export function CategoriesSection() {
       setTree(treeData);
       setOnboarding(onboardingData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load categories");
+      setError(
+        err instanceof Error ? err.message : "Failed to load categories",
+      );
     } finally {
       setLoading(false);
     }
@@ -106,7 +122,9 @@ export function CategoriesSection() {
       await updateCategory(node.id, { isActive: !node.isActive });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update category");
+      setError(
+        err instanceof Error ? err.message : "Failed to update category",
+      );
     } finally {
       setBusyId(null);
     }
@@ -146,13 +164,19 @@ export function CategoriesSection() {
       setDeleteTarget(null);
       await load();
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "Failed to delete category");
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete category",
+      );
     } finally {
       setDeleting(false);
     }
   }
 
-  async function handleMove(node: CommercialCategoryNode, direction: "up" | "down", siblings: CommercialCategoryNode[]) {
+  async function handleMove(
+    node: CommercialCategoryNode,
+    direction: "up" | "down",
+    siblings: CommercialCategoryNode[],
+  ) {
     const idx = siblings.findIndex((s) => s.id === node.id);
     const swapWith = direction === "up" ? siblings[idx - 1] : siblings[idx + 1];
     if (!swapWith) return;
@@ -164,7 +188,9 @@ export function CategoriesSection() {
       ]);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reorder categories");
+      setError(
+        err instanceof Error ? err.message : "Failed to reorder categories",
+      );
     } finally {
       setBusyId(null);
     }
@@ -182,7 +208,9 @@ export function CategoriesSection() {
       setMoveSource(null);
       await load();
     } catch (err) {
-      setMoveError(err instanceof Error ? err.message : "Failed to move products");
+      setMoveError(
+        err instanceof Error ? err.message : "Failed to move products",
+      );
     } finally {
       setMoveLoading(false);
     }
@@ -195,7 +223,11 @@ export function CategoriesSection() {
       setOnboarding(status);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save department selection");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save department selection",
+      );
     } finally {
       setOnboardingSaving(false);
     }
@@ -205,8 +237,8 @@ export function CategoriesSection() {
     <div className={css.page}>
       <div className={manageCss.sectionHeader}>
         <p className={manageCss.sectionHint}>
-          These are merchandising categories. Dosage form, NMRA schedule and registration type
-          come from the register and aren&apos;t edited here.
+          These are merchandising categories. Dosage form, NMRA schedule and
+          registration type come from the register and aren&apos;t edited here.
         </p>
         <div className={manageCss.sectionHeaderActions}>
           {/* Off by default. A 15,000-row register puts four-digit reference counts on every
@@ -257,7 +289,9 @@ export function CategoriesSection() {
           />
         </div>
         {!canWrite ? (
-          <span className={css.count}>You have read-only access to categories.</span>
+          <span className={css.count}>
+            You have read-only access to categories.
+          </span>
         ) : null}
       </div>
 
@@ -306,8 +340,9 @@ export function CategoriesSection() {
       >
         {deleteError ? <Alert variant="error">{deleteError}</Alert> : null}
         <p>
-          Permanently delete <strong>{deleteTarget?.name}</strong>? Only empty, custom categories
-          with no subcategories can be deleted — everything else must be disabled instead.
+          Permanently delete <strong>{deleteTarget?.name}</strong>? Only empty,
+          custom categories with no subcategories can be deleted — everything
+          else must be disabled instead.
         </p>
       </ConfirmDialog>
 
@@ -323,10 +358,12 @@ export function CategoriesSection() {
         }}
       >
         <p>
-          <strong>{disableWarning?.name}</strong> has {disableWarning?.productCount} product
-          {disableWarning?.productCount === 1 ? "" : "s"} assigned. Disabling it hides it from the
-          Products filter, POS, and onboarding — existing product assignments and historical sales
-          are kept intact and nothing is deleted. You can re-enable it any time.
+          <strong>{disableWarning?.name}</strong> has{" "}
+          {disableWarning?.productCount} product
+          {disableWarning?.productCount === 1 ? "" : "s"} assigned. Disabling it
+          hides it from the Products filter, POS, and onboarding — existing
+          product assignments and historical sales are kept intact and nothing
+          is deleted. You can re-enable it any time.
         </p>
       </ConfirmDialog>
 

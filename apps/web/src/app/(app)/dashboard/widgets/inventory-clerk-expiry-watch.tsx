@@ -17,11 +17,18 @@ function daysUntil(iso: string): number {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 }
 
-export function InventoryClerkExpiryWatchWidget({ data }: { data: DashboardData }) {
+export function InventoryClerkExpiryWatchWidget({
+  data,
+}: {
+  data: DashboardData;
+}) {
   const router = useRouter();
   const { nearExpiryItems, nearExpiryCount } = data;
   const [page, setPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(nearExpiryItems.length / BATCHES_PAGE_SIZE));
+  const pageCount = Math.max(
+    1,
+    Math.ceil(nearExpiryItems.length / BATCHES_PAGE_SIZE),
+  );
 
   return (
     <DashboardPanel
@@ -31,7 +38,9 @@ export function InventoryClerkExpiryWatchWidget({ data }: { data: DashboardData 
       footerMeta={`${nearExpiryCount} near expiry`}
     >
       {nearExpiryItems.length === 0 ? (
-        <p className={css.emptyState}>No near-expiry batches in the 30-day window.</p>
+        <p className={css.emptyState}>
+          No near-expiry batches in the 30-day window.
+        </p>
       ) : (
         <>
           <table className={css.salesTable}>
@@ -46,9 +55,13 @@ export function InventoryClerkExpiryWatchWidget({ data }: { data: DashboardData 
             <tbody>
               {paginate(nearExpiryItems, page, BATCHES_PAGE_SIZE).map((b) => {
                 const days = daysUntil(b.expiryDate);
-                const tone = days < 0 ? "danger" : days <= 14 ? "warning" : "info";
+                const tone =
+                  days < 0 ? "danger" : days <= 14 ? "warning" : "info";
                 return (
-                  <tr key={b.batchId} {...rowLinkProps(router, `/products/${b.productId}`)}>
+                  <tr
+                    key={b.batchId}
+                    {...rowLinkProps(router, `/products/${b.productId}`)}
+                  >
                     <td>
                       <strong>{b.product.name}</strong>
                       <div className={css.muted}>{b.product.sku}</div>
@@ -57,7 +70,9 @@ export function InventoryClerkExpiryWatchWidget({ data }: { data: DashboardData 
                     <td>
                       <StatusBadge
                         status={days < 0 ? "failed" : "pending"}
-                        label={days < 0 ? "Expired" : formatExpiry(b.expiryDate)}
+                        label={
+                          days < 0 ? "Expired" : formatExpiry(b.expiryDate)
+                        }
                         variant={tone === "info" ? "muted" : tone}
                       />
                     </td>

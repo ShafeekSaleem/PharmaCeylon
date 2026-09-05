@@ -14,7 +14,13 @@ import {
 import { CatalogTaskStatus, CatalogTaskType } from "@prisma/client";
 
 /** Cross-cutting views over the queue that aren't a single type or status. */
-export const CATALOG_TASK_VIEWS = ["all", "compliance", "ambiguous", "no_suggestion", "safe"] as const;
+export const CATALOG_TASK_VIEWS = [
+  "all",
+  "compliance",
+  "ambiguous",
+  "no_suggestion",
+  "safe",
+] as const;
 export type CatalogTaskViewKey = (typeof CATALOG_TASK_VIEWS)[number];
 
 /**

@@ -13,7 +13,10 @@ import { CATALOG_ROLES } from "@/lib/role-access";
  */
 export default function ProductsLayout({ children }: { children: ReactNode }) {
   return (
-    <RolePageGuard roles={CATALOG_ROLES} permissions={["products.view", "catalog.view"]}>
+    <RolePageGuard
+      roles={CATALOG_ROLES}
+      permissions={["products.view", "catalog.view"]}
+    >
       {children}
     </RolePageGuard>
   );

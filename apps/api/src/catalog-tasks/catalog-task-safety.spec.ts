@@ -1,4 +1,7 @@
-import { classifyTaskSafety, SAFE_CATEGORY_CONFIDENCE } from "./catalog-task-safety";
+import {
+  classifyTaskSafety,
+  SAFE_CATEGORY_CONFIDENCE,
+} from "./catalog-task-safety";
 
 /**
  * "Apply safe changes" is one click over an unbounded number of products, so the definition of
@@ -28,7 +31,9 @@ describe("classifyTaskSafety", () => {
   it.each(["barcode", "registration", "name"])(
     "treats %s as an exact identifier",
     (evidence) => {
-      expect(classifyTaskSafety({ ...exactNmraMatch, evidence }).safeToApply).toBe(true);
+      expect(
+        classifyTaskSafety({ ...exactNmraMatch, evidence }).safeToApply,
+      ).toBe(true);
     },
   );
 
@@ -58,30 +63,43 @@ describe("classifyTaskSafety", () => {
   });
 
   it("routes an ambiguous identifier to review rather than picking one", () => {
-    const result = classifyTaskSafety({ ...exactNmraMatch, identifierAmbiguous: true });
+    const result = classifyTaskSafety({
+      ...exactNmraMatch,
+      identifierAmbiguous: true,
+    });
     expect(result.safeToApply).toBe(false);
     expect(result.status).toBe("NEEDS_REVIEW");
     expect(result.blockers.join(" ")).toContain("more than one register entry");
   });
 
   it("refuses when more than one candidate survived", () => {
-    expect(classifyTaskSafety({ ...exactNmraMatch, candidateCount: 3 }).safeToApply).toBe(false);
+    expect(
+      classifyTaskSafety({ ...exactNmraMatch, candidateCount: 3 }).safeToApply,
+    ).toBe(false);
   });
 
   it("refuses when there is no candidate at all", () => {
-    const result = classifyTaskSafety({ ...exactNmraMatch, candidateCount: 0, evidence: null });
+    const result = classifyTaskSafety({
+      ...exactNmraMatch,
+      candidateCount: 0,
+      evidence: null,
+    });
     expect(result.safeToApply).toBe(false);
     expect(result.blockers.join(" ")).toContain("No candidate found");
   });
 
   it("refuses to re-link a product that already carries a link", () => {
-    expect(classifyTaskSafety({ ...exactNmraMatch, alreadyLinked: true }).safeToApply).toBe(false);
+    expect(
+      classifyTaskSafety({ ...exactNmraMatch, alreadyLinked: true })
+        .safeToApply,
+    ).toBe(false);
   });
 
   it("refuses a register entry another product has already claimed", () => {
-    expect(classifyTaskSafety({ ...exactNmraMatch, referenceClaimed: true }).safeToApply).toBe(
-      false,
-    );
+    expect(
+      classifyTaskSafety({ ...exactNmraMatch, referenceClaimed: true })
+        .safeToApply,
+    ).toBe(false);
   });
 
   it("always refuses an NMRA_AMBIGUOUS task, whatever else it carries", () => {
@@ -95,7 +113,10 @@ describe("classifyTaskSafety", () => {
   });
 
   it("always sends an import duplicate to review", () => {
-    const result = classifyTaskSafety({ ...exactNmraMatch, type: "IMPORT_DUPLICATE" });
+    const result = classifyTaskSafety({
+      ...exactNmraMatch,
+      type: "IMPORT_DUPLICATE",
+    });
     expect(result.status).toBe("NEEDS_REVIEW");
     expect(result.safeToApply).toBe(false);
   });
@@ -133,7 +154,9 @@ describe("classifyTaskSafety", () => {
       });
       expect(result.safeToApply).toBe(false);
       expect(result.status).toBe("OPEN");
-      expect(result.blockers.join(" ")).toContain("No category could be suggested");
+      expect(result.blockers.join(" ")).toContain(
+        "No category could be suggested",
+      );
     });
   });
 });

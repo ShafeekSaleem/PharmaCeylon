@@ -25,7 +25,10 @@ import {
 } from "./stock-qty.util";
 import { buildProductDetailExtras } from "./product-detail.util";
 import { scoreMatch } from "../catalog/catalog-match.util";
-import { decideRangeExit, decideReferencePromotion } from "./range-transition.util";
+import {
+  decideRangeExit,
+  decideReferencePromotion,
+} from "./range-transition.util";
 
 const SORTABLE_FIELDS = new Set([
   "name",
@@ -117,7 +120,9 @@ type ProductListQuery = {
   sortDir?: string;
 };
 
-function escapeCsv(value: string | number | boolean | null | undefined): string {
+function escapeCsv(
+  value: string | number | boolean | null | undefined,
+): string {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
@@ -188,7 +193,10 @@ const productInclude = {
   // now validates every id is a COMMERCIAL category, so returning Dosage Form/Schedule/
   // Registration Type maps here would make saving ANY NMRA product fail with "One or more
   // categories are invalid" even when the user never touched categories.
-  categoryMaps: { where: { dimension: "COMMERCIAL" as const }, include: { category: true } },
+  categoryMaps: {
+    where: { dimension: "COMMERCIAL" as const },
+    include: { category: true },
+  },
   tagMaps: { include: { tag: true } },
   aliases: { orderBy: { aliasText: "asc" as const } },
 };
@@ -231,11 +239,16 @@ export class ProductsService {
         include: {
           // COMMERCIAL only — see productInclude above for why this must never leak
           // Dosage Form/Schedule/Registration Type maps into the same "categories" field.
-          categoryMaps: { where: { dimension: "COMMERCIAL" }, include: { category: true } },
+          categoryMaps: {
+            where: { dimension: "COMMERCIAL" },
+            include: { category: true },
+          },
           tagMaps: { include: { tag: true } },
           // Loaded only when there is a term to match — the alias tier is the whole reason
           // "panadol" finds a row registered as "PARACETAMOL TABLETS BP 500MG".
-          ...(query.q?.trim() ? { aliases: { select: { aliasText: true } } } : {}),
+          ...(query.q?.trim()
+            ? { aliases: { select: { aliasText: true } } }
+            : {}),
         },
       }),
       this.prisma.product.count({ where }),
@@ -268,7 +281,7 @@ export class ProductsService {
       const aliasesById = new Map(
         rows.map((r) => [
           r.id,
-          ((r as { aliases?: Array<{ aliasText: string }> }).aliases ?? []),
+          (r as { aliases?: Array<{ aliasText: string }> }).aliases ?? [],
         ]),
       );
       for (const item of items) {
@@ -299,7 +312,9 @@ export class ProductsService {
         where: { tenantId, name: { in: names } },
         _count: { _all: true },
       });
-      const countByName = new Map(nameCounts.map((n) => [n.name, n._count._all]));
+      const countByName = new Map(
+        nameCounts.map((n) => [n.name, n._count._all]),
+      );
       for (const item of items) {
         (item as { sameNameCount?: number }).sameNameCount =
           countByName.get(item.name) ?? 1;
@@ -454,7 +469,12 @@ export class ProductsService {
     );
 
     if (branchId) {
-      const stockMap = await stockQtyByProductId(this.prisma, tenantId, branchId, [id]);
+      const stockMap = await stockQtyByProductId(
+        this.prisma,
+        tenantId,
+        branchId,
+        [id],
+      );
       qtyOnHand = stockMap.get(id) ?? 0;
       const attached = attachStockFields(
         [{ ...product, reorderLevel: product.reorderLevel }],
@@ -520,7 +540,10 @@ export class ProductsService {
       historyMap.set(item.id, item);
     }
     const history = [...historyMap.values()]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
       .slice(0, 60)
       .map((item) => ({
         id: item.id,
@@ -590,7 +613,11 @@ export class ProductsService {
           reorderLevel: dto.reorderLevel ?? 0,
         },
       });
-      await this.meta.syncProductCategories(tenantId, product.id, dto.categoryIds);
+      await this.meta.syncProductCategories(
+        tenantId,
+        product.id,
+        dto.categoryIds,
+      );
       await this.meta.syncProductTags(tenantId, product.id, dto.tagIds);
       await this.audit.log({
         tenantId,
@@ -602,14 +629,22 @@ export class ProductsService {
       });
       return this.getById(tenantId, product.id);
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
         throw new ConflictException("SKU must be unique within the tenant");
       }
       throw e;
     }
   }
 
-  async update(tenantId: string, userId: string, id: string, dto: UpdateProductDto) {
+  async update(
+    tenantId: string,
+    userId: string,
+    id: string,
+    dto: UpdateProductDto,
+  ) {
     const before = await this.getById(tenantId, id);
     const mutation = await this.prisma.product.updateMany({
       where: { id, tenantId },
@@ -617,20 +652,44 @@ export class ProductsService {
         // `source` is deliberately absent: an edit can change what a product is, never how it
         // arrived. It used to be a dropdown offering "CSV import" and "Barcode lookup" as
         // things to pick, which described the record's history rather than the product.
-        ...(dto.barcode !== undefined ? { barcode: dto.barcode?.trim() || null } : {}),
+        ...(dto.barcode !== undefined
+          ? { barcode: dto.barcode?.trim() || null }
+          : {}),
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.brandName !== undefined ? { brandName: dto.brandName?.trim() || null } : {}),
-        ...(dto.genericName !== undefined ? { genericName: dto.genericName?.trim() || null } : {}),
-        ...(dto.manufacturer !== undefined ? { manufacturer: dto.manufacturer?.trim() || null } : {}),
-        ...(dto.dosageForm !== undefined ? { dosageForm: dto.dosageForm?.trim() || null } : {}),
-        ...(dto.strength !== undefined ? { strength: dto.strength?.trim() || null } : {}),
+        ...(dto.brandName !== undefined
+          ? { brandName: dto.brandName?.trim() || null }
+          : {}),
+        ...(dto.genericName !== undefined
+          ? { genericName: dto.genericName?.trim() || null }
+          : {}),
+        ...(dto.manufacturer !== undefined
+          ? { manufacturer: dto.manufacturer?.trim() || null }
+          : {}),
+        ...(dto.dosageForm !== undefined
+          ? { dosageForm: dto.dosageForm?.trim() || null }
+          : {}),
+        ...(dto.strength !== undefined
+          ? { strength: dto.strength?.trim() || null }
+          : {}),
         ...(dto.unit !== undefined ? { unit: dto.unit?.trim() || null } : {}),
-        ...(dto.packSize !== undefined ? { packSize: dto.packSize?.trim() || null } : {}),
-        ...(dto.packType !== undefined ? { packType: dto.packType?.trim() || null } : {}),
-        ...(dto.storage !== undefined ? { storage: dto.storage?.trim() || null } : {}),
-        ...(dto.shelfLife !== undefined ? { shelfLife: dto.shelfLife?.trim() || null } : {}),
-        ...(dto.taxCategory !== undefined ? { taxCategory: dto.taxCategory?.trim() || null } : {}),
-        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
+        ...(dto.packSize !== undefined
+          ? { packSize: dto.packSize?.trim() || null }
+          : {}),
+        ...(dto.packType !== undefined
+          ? { packType: dto.packType?.trim() || null }
+          : {}),
+        ...(dto.storage !== undefined
+          ? { storage: dto.storage?.trim() || null }
+          : {}),
+        ...(dto.shelfLife !== undefined
+          ? { shelfLife: dto.shelfLife?.trim() || null }
+          : {}),
+        ...(dto.taxCategory !== undefined
+          ? { taxCategory: dto.taxCategory?.trim() || null }
+          : {}),
+        ...(dto.imageUrl !== undefined
+          ? { imageUrl: dto.imageUrl?.trim() || null }
+          : {}),
         ...(dto.registrationNo !== undefined
           ? { registrationNo: dto.registrationNo?.trim() || null }
           : {}),
@@ -641,20 +700,32 @@ export class ProductsService {
                 : null,
             }
           : {}),
-        ...(dto.schedule !== undefined ? { schedule: dto.schedule?.trim() || null } : {}),
-        ...(dto.regType !== undefined ? { regType: dto.regType?.trim() || null } : {}),
-        ...(dto.dossierNo !== undefined ? { dossierNo: dto.dossierNo?.trim() || null } : {}),
+        ...(dto.schedule !== undefined
+          ? { schedule: dto.schedule?.trim() || null }
+          : {}),
+        ...(dto.regType !== undefined
+          ? { regType: dto.regType?.trim() || null }
+          : {}),
+        ...(dto.dossierNo !== undefined
+          ? { dossierNo: dto.dossierNo?.trim() || null }
+          : {}),
         ...(dto.countryOfOrigin !== undefined
           ? { countryOfOrigin: dto.countryOfOrigin?.trim() || null }
           : {}),
-        ...(dto.localAgent !== undefined ? { localAgent: dto.localAgent?.trim() || null } : {}),
-        ...(dto.isControlled !== undefined ? { isControlled: dto.isControlled } : {}),
+        ...(dto.localAgent !== undefined
+          ? { localAgent: dto.localAgent?.trim() || null }
+          : {}),
+        ...(dto.isControlled !== undefined
+          ? { isControlled: dto.isControlled }
+          : {}),
         ...(dto.isControlled === true
           ? { requiresPrescription: true }
           : dto.requiresPrescription !== undefined
             ? { requiresPrescription: dto.requiresPrescription }
             : {}),
-        ...(dto.reorderLevel !== undefined ? { reorderLevel: dto.reorderLevel } : {}),
+        ...(dto.reorderLevel !== undefined
+          ? { reorderLevel: dto.reorderLevel }
+          : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
@@ -709,7 +780,11 @@ export class ProductsService {
         sku: after.sku,
         changes,
         ...(changes.length === 1
-          ? { field: changes[0].field, from: changes[0].from, to: changes[0].to }
+          ? {
+              field: changes[0].field,
+              from: changes[0].from,
+              to: changes[0].to,
+            }
           : {}),
       } as Prisma.InputJsonValue,
     });
@@ -732,7 +807,10 @@ export class ProductsService {
    * catalog. Shared by the preview and the apply, so the number the confirmation dialog shows
    * and the number the action touches are computed the same way.
    */
-  private async resolveBulkIds(tenantId: string, dto: BulkProductsDto): Promise<string[]> {
+  private async resolveBulkIds(
+    tenantId: string,
+    dto: BulkProductsDto,
+  ): Promise<string[]> {
     const hasIds = Boolean(dto.productIds?.length);
     const hasFilter = dto.filter !== undefined;
     if (hasIds === hasFilter) {
@@ -756,7 +834,10 @@ export class ProductsService {
         `This action would affect ${matched.toLocaleString()} products, above the limit of ${BULK_PRODUCT_MATCH_LIMIT.toLocaleString()}. Narrow your filters and try again.`,
       );
     }
-    const rows = await this.prisma.product.findMany({ where, select: { id: true } });
+    const rows = await this.prisma.product.findMany({
+      where,
+      select: { id: true },
+    });
     return rows.map((r) => r.id);
   }
 
@@ -768,14 +849,18 @@ export class ProductsService {
   private async resolveBulkTargets(tenantId: string, dto: BulkProductsDto) {
     if (dto.action === "set_category") {
       if (!dto.categoryId) {
-        throw new BadRequestException("Choose a category to file these products under.");
+        throw new BadRequestException(
+          "Choose a category to file these products under.",
+        );
       }
       const category = await this.prisma.productCategory.findFirst({
         where: { id: dto.categoryId, tenantId, dimension: "COMMERCIAL" },
         select: { id: true, name: true },
       });
       if (!category) {
-        throw new NotFoundException("Category not found, or is not a merchandising category.");
+        throw new NotFoundException(
+          "Category not found, or is not a merchandising category.",
+        );
       }
       return { category, tags: [] as Array<{ id: string; name: string }> };
     }
@@ -806,7 +891,10 @@ export class ProductsService {
    * the classifier. "Set the category on 217 products" is not a decision anyone can make;
    * "43 of them already have one, 12 chosen by hand" is.
    */
-  async bulkPreview(tenantId: string, dto: BulkProductsDto): Promise<BulkProductPreview> {
+  async bulkPreview(
+    tenantId: string,
+    dto: BulkProductsDto,
+  ): Promise<BulkProductPreview> {
     const ids = await this.resolveBulkIds(tenantId, dto);
     const targets = await this.resolveBulkTargets(tenantId, dto);
 
@@ -841,10 +929,17 @@ export class ProductsService {
             ? targets.category!.id
             : await this.unclassifiedCategoryId(tenantId);
         const existing = await this.prisma.productCategoryMap.findMany({
-          where: { tenantId, productId: { in: ids }, dimension: "COMMERCIAL", isPrimary: true },
+          where: {
+            tenantId,
+            productId: { in: ids },
+            dimension: "COMMERCIAL",
+            isPrimary: true,
+          },
           select: { categoryId: true, assignmentSource: true },
         });
-        base.alreadyOnTarget = existing.filter((e) => e.categoryId === targetId).length;
+        base.alreadyOnTarget = existing.filter(
+          (e) => e.categoryId === targetId,
+        ).length;
         const replacing = existing.filter((e) => e.categoryId !== targetId);
         base.replacingExisting = replacing.length;
         base.replacingManual = replacing.filter(
@@ -865,7 +960,9 @@ export class ProductsService {
           _count: { tagId: true },
         });
         if (dto.action === "add_tags") {
-          const fullyTagged = groups.filter((g) => g._count.tagId >= tagIds.length).length;
+          const fullyTagged = groups.filter(
+            (g) => g._count.tagId >= tagIds.length,
+          ).length;
           base.alreadyOnTarget = fullyTagged;
           base.willChange = ids.length - fullyTagged;
         } else {
@@ -949,7 +1046,9 @@ export class ProductsService {
           updated,
           selection: dto.productIds?.length ? "ids" : "filter",
           ...(targets.category ? { categoryName: targets.category.name } : {}),
-          ...(targets.tags.length ? { tagNames: targets.tags.map((t) => t.name) } : {}),
+          ...(targets.tags.length
+            ? { tagNames: targets.tags.map((t) => t.name) }
+            : {}),
         },
       });
     }
@@ -976,7 +1075,13 @@ export class ProductsService {
     notes: string[];
   }> {
     if (productIds.length === 0) {
-      return { changed: 0, unranged: [], deactivated: [], blocked: [], notes: [] };
+      return {
+        changed: 0,
+        unranged: [],
+        deactivated: [],
+        blocked: [],
+        notes: [],
+      };
     }
 
     const [rows, stockByProduct] = await Promise.all([
@@ -988,7 +1093,13 @@ export class ProductsService {
           source: true,
           rangeStatus: true,
           nmraReferenceId: true,
-          _count: { select: { saleItems: true, purchaseItems: true, receiptItems: true } },
+          _count: {
+            select: {
+              saleItems: true,
+              purchaseItems: true,
+              receiptItems: true,
+            },
+          },
         },
       }),
       // Across every branch, not the caller's: a product with units in another shop is still
@@ -999,7 +1110,10 @@ export class ProductsService {
           where: { tenantId, productId: { in: productIds } },
           _sum: { qtyDelta: true },
         })
-        .then((rowsAgg) => new Map(rowsAgg.map((g) => [g.productId, g._sum.qtyDelta ?? 0]))),
+        .then(
+          (rowsAgg) =>
+            new Map(rowsAgg.map((g) => [g.productId, g._sum.qtyDelta ?? 0])),
+        ),
     ]);
 
     const unranged: string[] = [];
@@ -1080,8 +1194,12 @@ export class ProductsService {
     needsReview: number;
     blocked: number;
   }> {
-    const ids = [...new Set(referenceProductIds)].slice(0, BULK_PRODUCT_MATCH_LIMIT);
-    if (ids.length === 0) return { items: [], addable: 0, needsReview: 0, blocked: 0 };
+    const ids = [...new Set(referenceProductIds)].slice(
+      0,
+      BULK_PRODUCT_MATCH_LIMIT,
+    );
+    if (ids.length === 0)
+      return { items: [], addable: 0, needsReview: 0, blocked: 0 };
 
     const rows = await this.prisma.product.findMany({
       where: { tenantId, id: { in: ids } },
@@ -1098,7 +1216,9 @@ export class ProductsService {
       },
     });
 
-    const barcodes = rows.map((r) => r.barcode).filter((v): v is string => Boolean(v?.trim()));
+    const barcodes = rows
+      .map((r) => r.barcode)
+      .filter((v): v is string => Boolean(v?.trim()));
     const registrations = rows
       .map((r) => r.registrationNo)
       .filter((v): v is string => Boolean(v?.trim()));
@@ -1112,7 +1232,9 @@ export class ProductsService {
               rangeStatus: "RANGED",
               OR: [
                 ...(barcodes.length ? [{ barcode: { in: barcodes } }] : []),
-                ...(registrations.length ? [{ registrationNo: { in: registrations } }] : []),
+                ...(registrations.length
+                  ? [{ registrationNo: { in: registrations } }]
+                  : []),
               ],
             },
             select: {
@@ -1129,7 +1251,11 @@ export class ProductsService {
     const byBarcode = new Map<string, (typeof existing)[number][]>();
     const byRegistration = new Map<string, (typeof existing)[number][]>();
     for (const row of existing) {
-      if (row.barcode) byBarcode.set(row.barcode, [...(byBarcode.get(row.barcode) ?? []), row]);
+      if (row.barcode)
+        byBarcode.set(row.barcode, [
+          ...(byBarcode.get(row.barcode) ?? []),
+          row,
+        ]);
       if (row.registrationNo) {
         byRegistration.set(row.registrationNo, [
           ...(byRegistration.get(row.registrationNo) ?? []),
@@ -1144,7 +1270,10 @@ export class ProductsService {
           d,
           matchedOn: "barcode" as const,
         })),
-        ...(row.registrationNo ? (byRegistration.get(row.registrationNo) ?? []) : []).map((d) => ({
+        ...(row.registrationNo
+          ? (byRegistration.get(row.registrationNo) ?? [])
+          : []
+        ).map((d) => ({
           d,
           matchedOn: "registrationNo" as const,
         })),
@@ -1201,10 +1330,17 @@ export class ProductsService {
     added: string[];
     held: Array<{ referenceProductId: string; name: string; reason: string }>;
   }> {
-    const preview = await this.previewReferenceAdd(tenantId, referenceProductIds);
+    const preview = await this.previewReferenceAdd(
+      tenantId,
+      referenceProductIds,
+    );
 
     const toAdd: string[] = [];
-    const held: Array<{ referenceProductId: string; name: string; reason: string }> = [];
+    const held: Array<{
+      referenceProductId: string;
+      name: string;
+      reason: string;
+    }> = [];
     for (const item of preview.items) {
       if (!item.allowed) {
         held.push({
@@ -1239,7 +1375,11 @@ export class ProductsService {
         eventName: "products.reference_added",
         entityName: "product",
         entityId: tenantId,
-        payload: { count: toAdd.length, productIds: toAdd.slice(0, 100), held: held.length },
+        payload: {
+          count: toAdd.length,
+          productIds: toAdd.slice(0, 100),
+          held: held.length,
+        },
       });
     }
 
@@ -1328,7 +1468,10 @@ export class ProductsService {
     }
 
     // One row per product per tag, so the product batch shrinks as the tag count grows.
-    const perBatch = Math.max(1, Math.floor(BULK_RELATION_BATCH / tagIds.length));
+    const perBatch = Math.max(
+      1,
+      Math.floor(BULK_RELATION_BATCH / tagIds.length),
+    );
     let added = 0;
     for (let i = 0; i < ids.length; i += perBatch) {
       const group = ids.slice(i, i + perBatch);
@@ -1344,10 +1487,14 @@ export class ProductsService {
   }
 
   async remove(tenantId: string, userId: string, id: string) {
-    const existing = await this.prisma.product.findFirst({ where: { id, tenantId } });
+    const existing = await this.prisma.product.findFirst({
+      where: { id, tenantId },
+    });
     if (!existing) throw new NotFoundException("Product not found");
     try {
-      const mutation = await this.prisma.product.deleteMany({ where: { id, tenantId } });
+      const mutation = await this.prisma.product.deleteMany({
+        where: { id, tenantId },
+      });
       assertOneScopedMutation(mutation, "Product");
       await this.audit.log({
         tenantId,
@@ -1359,7 +1506,10 @@ export class ProductsService {
       });
       return { ok: true };
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2003"
+      ) {
         throw new ConflictException(
           "Product cannot be deleted because it is referenced by inventory or sales records",
         );

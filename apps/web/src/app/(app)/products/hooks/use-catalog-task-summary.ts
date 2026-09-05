@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { fetchCatalogTaskSummary, type CatalogTaskSummary } from "../api/catalog-tasks";
+import {
+  fetchCatalogTaskSummary,
+  type CatalogTaskSummary,
+} from "../api/catalog-tasks";
 
 /**
  * The Work Queue's headline counts, for the Manage Catalog badge and the Products issue banner.

@@ -49,7 +49,12 @@ const REFERENCE_SELECT = {
 export type IdentifierAmbiguity = {
   field: "barcode" | "registrationNo";
   value: string;
-  candidates: Array<{ id: string; name: string; brandName: string | null; registrationNo: string | null }>;
+  candidates: Array<{
+    id: string;
+    name: string;
+    brandName: string | null;
+    registrationNo: string | null;
+  }>;
 };
 
 export type ReferenceCandidateSet = {
@@ -159,61 +164,75 @@ export class ReferenceCandidateFinder {
       rows.flatMap((r) => [innHead(r.genericName), leadingSearchTerm(r.name)]),
     ).filter((t) => t.length >= 4);
 
-    const [byBarcode, byRegistration, byExactName, byPrefix] = await Promise.all([
-      barcodes.length
-        ? this.prisma.product.findMany({
-            where: { ...base, barcode: { in: caseVariants(barcodes) } },
-            select: REFERENCE_SELECT,
-            take: PROBE_LIMIT,
-          })
-        : Promise.resolve([]),
-      registrations.length
-        ? this.prisma.product.findMany({
-            where: { ...base, registrationNo: { in: caseVariants(registrations) } },
-            select: REFERENCE_SELECT,
-            take: PROBE_LIMIT,
-          })
-        : Promise.resolve([]),
-      names.length
-        ? this.prisma.product.findMany({
-            where: {
-              ...base,
-              OR: names.slice(0, 100).map((n) => ({
-                name: { equals: n, mode: "insensitive" as const },
-              })),
-            },
-            select: REFERENCE_SELECT,
-            take: PROBE_LIMIT,
-          })
-        : Promise.resolve([]),
-      heads.length
-        ? this.prisma.product.findMany({
-            where: {
-              ...base,
-              OR: heads.slice(0, 60).flatMap((t) => [
-                { genericName: { startsWith: t, mode: "insensitive" as const } },
-                { name: { startsWith: t, mode: "insensitive" as const } },
-              ]),
-            },
-            select: REFERENCE_SELECT,
-            // The prefix probe is the loose one and carries the bulk of real matches, so it
-            // gets the page budget rather than the per-probe limit.
-            take: PAGE_CANDIDATE_LIMIT,
-          })
-        : Promise.resolve([]),
-    ]);
+    const [byBarcode, byRegistration, byExactName, byPrefix] =
+      await Promise.all([
+        barcodes.length
+          ? this.prisma.product.findMany({
+              where: { ...base, barcode: { in: caseVariants(barcodes) } },
+              select: REFERENCE_SELECT,
+              take: PROBE_LIMIT,
+            })
+          : Promise.resolve([]),
+        registrations.length
+          ? this.prisma.product.findMany({
+              where: {
+                ...base,
+                registrationNo: { in: caseVariants(registrations) },
+              },
+              select: REFERENCE_SELECT,
+              take: PROBE_LIMIT,
+            })
+          : Promise.resolve([]),
+        names.length
+          ? this.prisma.product.findMany({
+              where: {
+                ...base,
+                OR: names.slice(0, 100).map((n) => ({
+                  name: { equals: n, mode: "insensitive" as const },
+                })),
+              },
+              select: REFERENCE_SELECT,
+              take: PROBE_LIMIT,
+            })
+          : Promise.resolve([]),
+        heads.length
+          ? this.prisma.product.findMany({
+              where: {
+                ...base,
+                OR: heads
+                  .slice(0, 60)
+                  .flatMap((t) => [
+                    {
+                      genericName: {
+                        startsWith: t,
+                        mode: "insensitive" as const,
+                      },
+                    },
+                    { name: { startsWith: t, mode: "insensitive" as const } },
+                  ]),
+              },
+              select: REFERENCE_SELECT,
+              // The prefix probe is the loose one and carries the bulk of real matches, so it
+              // gets the page budget rather than the per-probe limit.
+              take: PAGE_CANDIDATE_LIMIT,
+            })
+          : Promise.resolve([]),
+      ]);
 
     const merged = new Map<string, MatchCandidate>();
     for (const list of [byBarcode, byRegistration, byExactName, byPrefix]) {
       for (const row of list) {
-        if (merged.size >= PAGE_CANDIDATE_LIMIT && !merged.has(row.id)) continue;
+        if (merged.size >= PAGE_CANDIDATE_LIMIT && !merged.has(row.id))
+          continue;
         merged.set(row.id, row as MatchCandidate);
       }
     }
 
     return {
       candidates: [...merged.values()],
-      ambiguousByBarcode: collisionsBy(byBarcode as MatchCandidate[], (c) => normalizeCode(c.barcode)),
+      ambiguousByBarcode: collisionsBy(byBarcode as MatchCandidate[], (c) =>
+        normalizeCode(c.barcode),
+      ),
       ambiguousByRegistration: collisionsBy(
         byRegistration as MatchCandidate[],
         (c) => normalizeCode(c.registrationNo),

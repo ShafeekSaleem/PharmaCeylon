@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   createImportJob,
@@ -120,18 +126,30 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
       .catch(async (err: unknown) => {
         const message = err instanceof Error ? err.message : "Import failed";
         this.logger.error(`Import ${importId} failed: ${message}`);
-        patchImportJob(jobId, { status: "failed", phase: "failed", error: message });
+        patchImportJob(jobId, {
+          status: "failed",
+          phase: "failed",
+          error: message,
+        });
         await this.prisma.productImport
           .updateMany({
             where: { id: importId, tenantId },
-            data: { status: "failed", error: message, completedAt: new Date(), heartbeatAt: null },
+            data: {
+              status: "failed",
+              error: message,
+              completedAt: new Date(),
+              heartbeatAt: null,
+            },
           })
           .catch(() => undefined);
       })
       .finally(() => {
         this.stopHeartbeat(jobId);
         void this.prisma.productImport
-          .updateMany({ where: { id: importId, tenantId }, data: { heartbeatAt: null } })
+          .updateMany({
+            where: { id: importId, tenantId },
+            data: { heartbeatAt: null },
+          })
           .catch(() => undefined);
       });
   }
@@ -141,7 +159,10 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
    * otherwise. The database fallback is what makes the progress poll survive both a restart
    * and a load balancer sending the poll to a different instance than the upload.
    */
-  async getProgress(tenantId: string, jobId: string): Promise<ImportJobProgress> {
+  async getProgress(
+    tenantId: string,
+    jobId: string,
+  ): Promise<ImportJobProgress> {
     const inMemory = getImportJob(jobId);
     if (inMemory && inMemory.tenantId === tenantId) {
       return toImportJobProgress(inMemory);
@@ -210,7 +231,10 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
       const result = await this.prisma.productImport.updateMany({
         where: {
           status: "running",
-          OR: [{ heartbeatAt: { lt: cutoff } }, { heartbeatAt: null, createdAt: { lt: cutoff } }],
+          OR: [
+            { heartbeatAt: { lt: cutoff } },
+            { heartbeatAt: null, createdAt: { lt: cutoff } },
+          ],
         },
         data: {
           status: "failed",
@@ -243,7 +267,11 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
       .catch(() => undefined);
   }
 
-  private startHeartbeat(jobId: string, tenantId: string, importId: string): void {
+  private startHeartbeat(
+    jobId: string,
+    tenantId: string,
+    importId: string,
+  ): void {
     const timer = setInterval(() => {
       void this.prisma.productImport
         .updateMany({
@@ -280,8 +308,12 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
       .updateMany({
         where: { id: importId, tenantId },
         data: {
-          ...(patch.phase !== undefined ? { phase: patch.phase.slice(0, 32) } : {}),
-          ...(patch.processed !== undefined ? { rowsProcessed: patch.processed } : {}),
+          ...(patch.phase !== undefined
+            ? { phase: patch.phase.slice(0, 32) }
+            : {}),
+          ...(patch.processed !== undefined
+            ? { rowsProcessed: patch.processed }
+            : {}),
           ...(patch.total !== undefined ? { rowsTotal: patch.total } : {}),
           heartbeatAt: new Date(),
         },

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from "@nestjs/common";
 import { CatalogTaskStatus, CatalogTaskType } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -44,9 +52,21 @@ export class CatalogTaskController {
     @Query("skip") skip?: string,
     @Query("take") take?: string,
   ) {
-    return this.tasks.list(user.tenantId, parseFilter({
-      status, type, view, q, importId, source, createdFrom, createdTo, skip, take,
-    }));
+    return this.tasks.list(
+      user.tenantId,
+      parseFilter({
+        status,
+        type,
+        view,
+        q,
+        importId,
+        source,
+        createdFrom,
+        createdTo,
+        skip,
+        take,
+      }),
+    );
   }
 
   /**
@@ -56,13 +76,19 @@ export class CatalogTaskController {
    */
   @RequirePermission("products.manage")
   @Post("refresh")
-  refresh(@CurrentUser() user: RequestUser, @Body() dto: RefreshCatalogTasksDto) {
+  refresh(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: RefreshCatalogTasksDto,
+  ) {
     return this.tasks.refresh(user.tenantId, { importId: dto.importId });
   }
 
   @RequirePermission("products.manage")
   @Post("apply-safe")
-  applySafe(@CurrentUser() user: RequestUser, @Body() dto: ApplySafeCatalogTasksDto) {
+  applySafe(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: ApplySafeCatalogTasksDto,
+  ) {
     return this.tasks.applySafe(user.tenantId, user.userId, {
       status: dto.status,
       type: dto.type,
@@ -77,7 +103,10 @@ export class CatalogTaskController {
 
   @RequirePermission("products.view")
   @Get(":id")
-  view(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+  view(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.tasks.view(user.tenantId, id);
   }
 
@@ -111,12 +140,20 @@ export class CatalogTaskController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: CloseCatalogTaskDto,
   ) {
-    return this.tasks.markNotApplicable(user.tenantId, user.userId, id, dto.note);
+    return this.tasks.markNotApplicable(
+      user.tenantId,
+      user.userId,
+      id,
+      dto.note,
+    );
   }
 
   @RequirePermission("products.manage")
   @Post(":id/reopen")
-  reopen(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+  reopen(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.tasks.reopen(user.tenantId, user.userId, id);
   }
 }

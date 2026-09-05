@@ -60,7 +60,12 @@ export type ImportAnalysis = {
   unmappedHeaders: string[];
 };
 
-export type MatchConfidence = "barcode" | "registration" | "name" | "normalized" | "fuzzy";
+export type MatchConfidence =
+  | "barcode"
+  | "registration"
+  | "name"
+  | "normalized"
+  | "fuzzy";
 
 export type ImportRowIssue = {
   rowNumber: number;
@@ -99,7 +104,11 @@ export type ImportPreview = {
   categoryPlan: ImportCategoryPlan;
   issues: ImportRowIssue[];
   pendingCompliance: PendingComplianceMatch[];
-  sampleCreates: Array<{ rowNumber: number; name: string; barcode: string | null }>;
+  sampleCreates: Array<{
+    rowNumber: number;
+    name: string;
+    barcode: string | null;
+  }>;
   sampleMatches: Array<{
     rowNumber: number;
     name: string;

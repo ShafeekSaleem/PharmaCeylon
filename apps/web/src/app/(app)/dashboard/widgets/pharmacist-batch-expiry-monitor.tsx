@@ -28,11 +28,18 @@ function expiryLabel(iso: string): string {
   return formatExpiry(iso);
 }
 
-export function PharmacistBatchExpiryMonitorWidget({ data }: { data: DashboardData }) {
+export function PharmacistBatchExpiryMonitorWidget({
+  data,
+}: {
+  data: DashboardData;
+}) {
   const router = useRouter();
   const { nearExpiryItems, nearExpiryCount } = data;
   const [page, setPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(nearExpiryItems.length / BATCHES_PAGE_SIZE));
+  const pageCount = Math.max(
+    1,
+    Math.ceil(nearExpiryItems.length / BATCHES_PAGE_SIZE),
+  );
 
   return (
     <DashboardPanel
@@ -57,10 +64,15 @@ export function PharmacistBatchExpiryMonitorWidget({ data }: { data: DashboardDa
             </thead>
             <tbody>
               {paginate(nearExpiryItems, page, BATCHES_PAGE_SIZE).map((b) => (
-                <tr key={b.batchId} {...rowLinkProps(router, `/products/${b.productId}`)}>
+                <tr
+                  key={b.batchId}
+                  {...rowLinkProps(router, `/products/${b.productId}`)}
+                >
                   <td>
                     {b.product.name}
-                    {b.product.isControlled ? <span className={css.muted}> · CD</span> : null}
+                    {b.product.isControlled ? (
+                      <span className={css.muted}> · CD</span>
+                    ) : null}
                   </td>
                   <td>{b.batchNo}</td>
                   <td className={css.muted}>{formatExpiry(b.expiryDate)}</td>

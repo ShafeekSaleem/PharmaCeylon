@@ -4,13 +4,25 @@ import { useState } from "react";
 import { SegmentedTabPanel, SegmentedTabs } from "./segmented-tabs";
 
 const ITEMS = [
-  { id: "queue" as const, label: "Work queue", count: 24, attention: true, countLabel: "open tasks" },
+  {
+    id: "queue" as const,
+    label: "Work queue",
+    count: 24,
+    attention: true,
+    countLabel: "open tasks",
+  },
   { id: "categories" as const, label: "Categories" },
   { id: "tags" as const, label: "Tags" },
 ];
 
-function Harness({ initial = "queue" }: { initial?: "queue" | "categories" | "tags" }) {
-  const [active, setActive] = useState<"queue" | "categories" | "tags">(initial);
+function Harness({
+  initial = "queue",
+}: {
+  initial?: "queue" | "categories" | "tags";
+}) {
+  const [active, setActive] = useState<"queue" | "categories" | "tags">(
+    initial,
+  );
   return (
     <>
       <SegmentedTabs
@@ -42,15 +54,21 @@ describe("SegmentedTabs", () => {
   it("exposes a labelled tablist with one selected tab", () => {
     render(<Harness />);
 
-    expect(screen.getByRole("tablist", { name: "Catalog management sections" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("tablist", { name: "Catalog management sections" }),
+    ).toBeInTheDocument();
     expect(screen.getAllByRole("tab")).toHaveLength(3);
-    expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(/Work queue/);
+    expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(
+      /Work queue/,
+    );
   });
 
   it("spells the count out in the accessible name rather than leaving a bare number", () => {
     render(<Harness />);
 
-    expect(screen.getByRole("tab", { name: "Work queue, 24 open tasks" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Work queue, 24 open tasks" }),
+    ).toBeInTheDocument();
   });
 
   it("shows only the active panel", () => {
@@ -85,7 +103,9 @@ describe("SegmentedTabs", () => {
 
       await userEvent.keyboard("{ArrowRight}");
 
-      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName("Categories");
+      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(
+        "Categories",
+      );
       expect(screen.getByText("Categories panel")).toBeInTheDocument();
     });
 
@@ -95,7 +115,9 @@ describe("SegmentedTabs", () => {
 
       await userEvent.keyboard("{ArrowRight}");
 
-      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(/Work queue/);
+      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(
+        /Work queue/,
+      );
     });
 
     it("wraps backwards from the first tab to the last", async () => {
@@ -104,7 +126,9 @@ describe("SegmentedTabs", () => {
 
       await userEvent.keyboard("{ArrowLeft}");
 
-      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName("Tags");
+      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(
+        "Tags",
+      );
     });
 
     it("jumps to the ends with Home and End", async () => {
@@ -112,10 +136,14 @@ describe("SegmentedTabs", () => {
       screen.getAllByRole("tab")[0].focus();
 
       await userEvent.keyboard("{End}");
-      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName("Tags");
+      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(
+        "Tags",
+      );
 
       await userEvent.keyboard("{Home}");
-      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(/Work queue/);
+      expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(
+        /Work queue/,
+      );
     });
 
     it("moves focus with selection, so the arrow keys are usable without a mouse", async () => {

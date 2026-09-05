@@ -33,7 +33,9 @@ function product(over: Partial<Product> = {}): Product {
   } as Product;
 }
 
-function renderTable(over: Partial<React.ComponentProps<typeof ProductTable>> = {}) {
+function renderTable(
+  over: Partial<React.ComponentProps<typeof ProductTable>> = {},
+) {
   const props = {
     products: [product()],
     total: 1,
@@ -65,7 +67,9 @@ describe("ProductTable — reference rows", () => {
   it("offers Add, not edit or delete", () => {
     renderTable({ onAddReference: jest.fn() });
 
-    expect(screen.getByRole("button", { name: "Add STAMLO 5 to my products" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add STAMLO 5 to my products" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
   });
@@ -76,7 +80,9 @@ describe("ProductTable — reference rows", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /Add STAMLO 5/ }));
 
-    expect(onAddReference).toHaveBeenCalledWith(expect.objectContaining({ id: "ref-1" }));
+    expect(onAddReference).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "ref-1" }),
+    );
   });
 
   it("does not also open the row's detail panel when Add is pressed", async () => {
@@ -90,7 +96,10 @@ describe("ProductTable — reference rows", () => {
   });
 
   it("shows a state, not a button, once a row has been added", () => {
-    renderTable({ onAddReference: jest.fn(), addedReferenceIds: new Set(["ref-1"]) });
+    renderTable({
+      onAddReference: jest.fn(),
+      addedReferenceIds: new Set(["ref-1"]),
+    });
 
     expect(screen.getByText("In my products")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add STAMLO 5/ })).toBeNull();
@@ -109,7 +118,10 @@ describe("ProductTable — reference rows", () => {
   });
 
   it("keeps edit and delete for the shop's own products", () => {
-    renderTable({ scope: "mine", products: [product({ rangeStatus: "RANGED" })] });
+    renderTable({
+      scope: "mine",
+      products: [product({ rangeStatus: "RANGED" })],
+    });
 
     expect(screen.queryByRole("button", { name: /to my products/ })).toBeNull();
   });
@@ -121,7 +133,9 @@ describe("ProductTable — reference rows", () => {
  * record for one real medicine.
  */
 describe("ReferenceAddReviewModal", () => {
-  const preview = (over: Partial<ReferenceAddPreview> = {}): ReferenceAddPreview => ({
+  const preview = (
+    over: Partial<ReferenceAddPreview> = {},
+  ): ReferenceAddPreview => ({
     items: [
       {
         referenceProductId: "ref-1",
@@ -129,7 +143,9 @@ describe("ReferenceAddReviewModal", () => {
         allowed: true,
         needsReview: true,
         reason: null,
-        warnings: ['You already sell "Amlodipine 5mg", which has the same barcode.'],
+        warnings: [
+          'You already sell "Amlodipine 5mg", which has the same barcode.',
+        ],
       },
     ],
     addable: 1,
@@ -195,7 +211,9 @@ describe("ReferenceAddReviewModal", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Add 12 products" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add 12 products" }),
+    ).toBeInTheDocument();
   });
 
   it("has nothing to confirm when everything is blocked", () => {
@@ -209,7 +227,9 @@ describe("ReferenceAddReviewModal", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Add 0 products/ })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Add 0 products/ }),
+    ).toBeDisabled();
   });
 
   it("confirms and cancels through its callbacks", async () => {
@@ -226,10 +246,14 @@ describe("ReferenceAddReviewModal", () => {
     );
 
     const dialog = screen.getByRole("dialog");
-    await userEvent.click(within(dialog).getByRole("button", { name: /Add 1 product/ }));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /Add 1 product/ }),
+    );
     expect(onConfirm).toHaveBeenCalled();
 
-    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Cancel" }),
+    );
     expect(onCancel).toHaveBeenCalled();
   });
 

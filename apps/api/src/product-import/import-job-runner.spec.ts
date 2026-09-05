@@ -22,13 +22,16 @@ describe("ImportJobRunner", () => {
 
   describe("sweepStale", () => {
     it("moves interrupted jobs to failed with a message an operator can act on", async () => {
-      const prisma = makePrisma({ updateMany: jest.fn().mockResolvedValue({ count: 2 }) });
+      const prisma = makePrisma({
+        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+      });
       const runner = new ImportJobRunner(prisma);
 
       const swept = await runner.sweepStale();
 
       expect(swept).toBe(2);
-      const args = (prisma.productImport.updateMany as jest.Mock).mock.calls[0][0];
+      const args = (prisma.productImport.updateMany as jest.Mock).mock
+        .calls[0][0];
       expect(args.where.status).toBe("running");
       expect(args.data.status).toBe("failed");
       expect(args.data.error).toBe(INTERRUPTED_MESSAGE);
@@ -43,7 +46,8 @@ describe("ImportJobRunner", () => {
 
       await runner.sweepStale();
 
-      const where = (prisma.productImport.updateMany as jest.Mock).mock.calls[0][0].where;
+      const where = (prisma.productImport.updateMany as jest.Mock).mock
+        .calls[0][0].where;
       expect(where.OR).toEqual([
         { heartbeatAt: { lt: expect.any(Date) } },
         { heartbeatAt: null, createdAt: { lt: expect.any(Date) } },
@@ -52,7 +56,9 @@ describe("ImportJobRunner", () => {
 
     it("survives a database failure rather than taking the process down with it", async () => {
       const prisma = makePrisma({
-        updateMany: jest.fn().mockRejectedValue(new Error("connection refused")),
+        updateMany: jest
+          .fn()
+          .mockRejectedValue(new Error("connection refused")),
       });
       const runner = new ImportJobRunner(prisma);
 
@@ -120,7 +126,9 @@ describe("ImportJobRunner", () => {
 
     it("404s for a job id that belongs to no import", async () => {
       const runner = new ImportJobRunner(makePrisma());
-      await expect(runner.getProgress("t1", "nope")).rejects.toThrow(/not found/i);
+      await expect(runner.getProgress("t1", "nope")).rejects.toThrow(
+        /not found/i,
+      );
     });
 
     it("scopes the lookup by tenant, so one tenant cannot poll another's import", async () => {
@@ -129,7 +137,9 @@ describe("ImportJobRunner", () => {
 
       await runner.getProgress("t1", "imp-1").catch(() => undefined);
 
-      expect((prisma.productImport.findFirst as jest.Mock).mock.calls[0][0].where).toEqual({
+      expect(
+        (prisma.productImport.findFirst as jest.Mock).mock.calls[0][0].where,
+      ).toEqual({
         id: "imp-1",
         tenantId: "t1",
       });
@@ -148,9 +158,9 @@ describe("ImportJobRunner", () => {
       await new Promise((resolve) => setImmediate(resolve));
       await new Promise((resolve) => setImmediate(resolve));
 
-      const failure = (prisma.productImport.updateMany as jest.Mock).mock.calls.find(
-        (call) => call[0].data?.status === "failed",
-      );
+      const failure = (
+        prisma.productImport.updateMany as jest.Mock
+      ).mock.calls.find((call) => call[0].data?.status === "failed");
       expect(failure?.[0].data.error).toBe("row 42 is malformed");
       runner.onModuleDestroy();
     });
@@ -162,9 +172,9 @@ describe("ImportJobRunner", () => {
       runner.start("job-1", "t1", "imp-1", async () => undefined);
       await new Promise((resolve) => setImmediate(resolve));
 
-      const running = (prisma.productImport.updateMany as jest.Mock).mock.calls.find(
-        (call) => call[0].data?.status === "running",
-      );
+      const running = (
+        prisma.productImport.updateMany as jest.Mock
+      ).mock.calls.find((call) => call[0].data?.status === "running");
       expect(running?.[0].data.heartbeatAt).toBeInstanceOf(Date);
       runner.onModuleDestroy();
     });

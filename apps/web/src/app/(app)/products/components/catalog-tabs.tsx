@@ -43,7 +43,11 @@ export function CatalogTabs({
   canViewReference = true,
 }: Props) {
   return (
-    <div className={css.scopeTabs} role="tablist" aria-label="Product catalog view">
+    <div
+      className={css.scopeTabs}
+      role="tablist"
+      aria-label="Product catalog view"
+    >
       {canViewMine && (
         <ScopeTab
           tab="mine"

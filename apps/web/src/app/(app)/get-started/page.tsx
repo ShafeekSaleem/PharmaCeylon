@@ -63,7 +63,7 @@ export default function GetStartedPage() {
     () =>
       data && nextTask
         ? data.tasks.findIndex((task) => task.key === nextTask.key) + 1
-        : data?.totalCount ?? 0,
+        : (data?.totalCount ?? 0),
     [data, nextTask],
   );
 
@@ -96,10 +96,17 @@ export default function GetStartedPage() {
   if (!data.journeyEnabled) {
     return (
       <div className={css.notApplicable}>
-        <span><IconCheckCircle size={28} /></span>
+        <span>
+          <IconCheckCircle size={28} />
+        </span>
         <h1>This workspace is already established</h1>
-        <p>The guided first-branch setup is only used for newly created pharmacy workspaces.</p>
-        <Link href="/dashboard" className={css.secondaryButton}>Go to dashboard</Link>
+        <p>
+          The guided first-branch setup is only used for newly created pharmacy
+          workspaces.
+        </p>
+        <Link href="/dashboard" className={css.secondaryButton}>
+          Go to dashboard
+        </Link>
       </div>
     );
   }
@@ -185,7 +192,9 @@ export default function GetStartedPage() {
                         {task.facts.map((fact) => (
                           <li
                             key={fact.label}
-                            className={fact.ok === false ? css.taskFactWarn : undefined}
+                            className={
+                              fact.ok === false ? css.taskFactWarn : undefined
+                            }
                           >
                             <span>{fact.label}</span>
                             <strong>{fact.value}</strong>

@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import type { RegulatoryDimension } from "../catalog/category-taxonomy.service";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-category-template";
@@ -112,7 +117,10 @@ function toLinkable(row: LinkableRow): NmraLinkableFields {
 type NmraLinkSnapshot = {
   scalars: NmraLinkableFields;
   aliasesAdded: NmraLinkAlias[];
-  regulatoryBefore: Array<{ dimension: RegulatoryDimension; categoryId: string }>;
+  regulatoryBefore: Array<{
+    dimension: RegulatoryDimension;
+    categoryId: string;
+  }>;
   commercialCategoryIdBefore: string | null;
   commercialCategoryAdopted: boolean;
   tagIdsAdded: string[];
@@ -135,7 +143,11 @@ export type NmraLinkCandidate = {
 };
 
 /** The shop product row shown in the bulk review queue — just enough to identify it in a list. */
-export type LinkableSummary = { id: string; name: string; brandName: string | null };
+export type LinkableSummary = {
+  id: string;
+  name: string;
+  brandName: string | null;
+};
 
 /** The keys `CatalogIndex.rankedCandidates` reads off a linkable row. */
 function searchKeysOf(row: {
@@ -158,10 +170,23 @@ function searchKeysOf(row: {
 
 export type NmraLinkPreview = {
   plan: NmraLinkPlan;
-  regulatoryCategories: Array<{ dimension: RegulatoryDimension; categoryId: string; categoryName: string }>;
-  commercialCategory: { willAdopt: boolean; categoryId: string | null; categoryName: string | null } | null;
+  regulatoryCategories: Array<{
+    dimension: RegulatoryDimension;
+    categoryId: string;
+    categoryName: string;
+  }>;
+  commercialCategory: {
+    willAdopt: boolean;
+    categoryId: string | null;
+    categoryName: string | null;
+  } | null;
   tagsToMerge: Array<{ id: string; name: string }>;
-  reference: { id: string; name: string; brandName: string | null; registrationNo: string | null };
+  reference: {
+    id: string;
+    name: string;
+    brandName: string | null;
+    registrationNo: string | null;
+  };
 };
 
 /**
@@ -184,9 +209,15 @@ export class ProductNmraLinkService {
   }
 
   /** Ranked candidates for linking one product, strongest evidence first. */
-  async candidates(tenantId: string, productId: string, take = 20): Promise<NmraLinkCandidate[]> {
+  async candidates(
+    tenantId: string,
+    productId: string,
+    take = 20,
+  ): Promise<NmraLinkCandidate[]> {
     const shop = await this.loadLinkable(tenantId, productId);
-    const index = await this.buildReferenceIndex(tenantId, productId, [searchKeysOf(shop)]);
+    const index = await this.buildReferenceIndex(tenantId, productId, [
+      searchKeysOf(shop),
+    ]);
     const ranked = index.rankedCandidates(searchKeysOf(shop), take);
     return ranked.map((r) => this.toLinkCandidate(r));
   }
@@ -204,7 +235,10 @@ export class ProductNmraLinkService {
     tenantId: string,
     skip = 0,
     take = 50,
-  ): Promise<{ items: Array<{ product: LinkableSummary; candidates: NmraLinkCandidate[] }>; total: number }> {
+  ): Promise<{
+    items: Array<{ product: LinkableSummary; candidates: NmraLinkCandidate[] }>;
+    total: number;
+  }> {
     const where = {
       tenantId,
       rangeStatus: "RANGED" as const,
@@ -222,10 +256,16 @@ export class ProductNmraLinkService {
       this.prisma.product.count({ where }),
     ]);
 
-    const index = await this.buildReferenceIndex(tenantId, null, rows.map(searchKeysOf));
+    const index = await this.buildReferenceIndex(
+      tenantId,
+      null,
+      rows.map(searchKeysOf),
+    );
     const items = rows.map((row) => ({
       product: { id: row.id, name: row.name, brandName: row.brandName },
-      candidates: index.rankedCandidates(searchKeysOf(row), 5).map((r) => this.toLinkCandidate(r)),
+      candidates: index
+        .rankedCandidates(searchKeysOf(row), 5)
+        .map((r) => this.toLinkCandidate(r)),
     }));
 
     return { items, total };
@@ -259,28 +299,39 @@ export class ProductNmraLinkService {
       where: { tenantId, id: { in: pairs.map((p) => p.productId) } },
       select: LINKABLE_SELECT,
     });
-    const index = await this.buildReferenceIndex(tenantId, null, shopRows.map(searchKeysOf));
+    const index = await this.buildReferenceIndex(
+      tenantId,
+      null,
+      shopRows.map(searchKeysOf),
+    );
 
     for (const pair of pairs) {
       try {
         const shop = await this.loadLinkable(tenantId, pair.productId);
         if (shop.nmraReferenceId) {
-          held.push({ productId: pair.productId, reason: "Already linked to a register entry." });
+          held.push({
+            productId: pair.productId,
+            reason: "Already linked to a register entry.",
+          });
           continue;
         }
         const ranked = index.rankedCandidates(searchKeysOf(shop), 20);
-        const match = ranked.find((r) => r.candidate.id === pair.referenceProductId);
+        const match = ranked.find(
+          (r) => r.candidate.id === pair.referenceProductId,
+        );
         if (!match) {
           held.push({
             productId: pair.productId,
-            reason: "That register entry is no longer offered as a candidate for this product.",
+            reason:
+              "That register entry is no longer offered as a candidate for this product.",
           });
           continue;
         }
         if (rankedCandidateNeedsComplianceConfirmation(match)) {
           held.push({
             productId: pair.productId,
-            reason: "Would change a compliance flag on evidence weaker than an exact identifier — needs individual confirmation.",
+            reason:
+              "Would change a compliance flag on evidence weaker than an exact identifier — needs individual confirmation.",
           });
           continue;
         }
@@ -291,11 +342,17 @@ export class ProductNmraLinkService {
         } catch (err) {
           held.push({
             productId: pair.productId,
-            reason: err instanceof Error ? err.message : "Identifier is ambiguous.",
+            reason:
+              err instanceof Error ? err.message : "Identifier is ambiguous.",
           });
           continue;
         }
-        await this.link(tenantId, userId, pair.productId, pair.referenceProductId);
+        await this.link(
+          tenantId,
+          userId,
+          pair.productId,
+          pair.referenceProductId,
+        );
         linked.push(pair.productId);
       } catch (err) {
         failed.push({
@@ -316,36 +373,75 @@ export class ProductNmraLinkService {
     opts?: { adoptFieldOverrides?: string[] },
   ): Promise<NmraLinkPreview> {
     const shop = await this.loadLinkable(tenantId, productId);
-    const reference = await this.loadReferenceCandidate(tenantId, referenceProductId, productId);
-    const plan = buildNmraLinkPlan(toLinkable(shop), toLinkable(reference), opts);
+    const reference = await this.loadReferenceCandidate(
+      tenantId,
+      referenceProductId,
+      productId,
+    );
+    const plan = buildNmraLinkPlan(
+      toLinkable(shop),
+      toLinkable(reference),
+      opts,
+    );
 
-    const [referenceRegulatory, referenceCommercial, referenceTags, shopCommercial, shopTagIds] =
-      await Promise.all([
-        this.prisma.productCategoryMap.findMany({
-          where: { tenantId, productId: reference.id, dimension: { in: REGULATORY_DIMENSIONS } },
-          select: { dimension: true, categoryId: true, category: { select: { name: true } } },
-        }),
-        this.prisma.productCategoryMap.findFirst({
-          where: { tenantId, productId: reference.id, dimension: "COMMERCIAL", isPrimary: true },
-          select: { categoryId: true, category: { select: { name: true, canonicalKey: true } } },
-        }),
-        this.prisma.productTagMap.findMany({
-          where: { tenantId, productId: reference.id },
-          select: { tagId: true, tag: { select: { id: true, name: true } } },
-        }),
-        this.prisma.productCategoryMap.findFirst({
-          where: { tenantId, productId: shop.id, dimension: "COMMERCIAL", isPrimary: true },
-          select: { categoryId: true, category: { select: { canonicalKey: true } } },
-        }),
-        this.prisma.productTagMap.findMany({
-          where: { tenantId, productId: shop.id },
-          select: { tagId: true },
-        }),
-      ]);
+    const [
+      referenceRegulatory,
+      referenceCommercial,
+      referenceTags,
+      shopCommercial,
+      shopTagIds,
+    ] = await Promise.all([
+      this.prisma.productCategoryMap.findMany({
+        where: {
+          tenantId,
+          productId: reference.id,
+          dimension: { in: REGULATORY_DIMENSIONS },
+        },
+        select: {
+          dimension: true,
+          categoryId: true,
+          category: { select: { name: true } },
+        },
+      }),
+      this.prisma.productCategoryMap.findFirst({
+        where: {
+          tenantId,
+          productId: reference.id,
+          dimension: "COMMERCIAL",
+          isPrimary: true,
+        },
+        select: {
+          categoryId: true,
+          category: { select: { name: true, canonicalKey: true } },
+        },
+      }),
+      this.prisma.productTagMap.findMany({
+        where: { tenantId, productId: reference.id },
+        select: { tagId: true, tag: { select: { id: true, name: true } } },
+      }),
+      this.prisma.productCategoryMap.findFirst({
+        where: {
+          tenantId,
+          productId: shop.id,
+          dimension: "COMMERCIAL",
+          isPrimary: true,
+        },
+        select: {
+          categoryId: true,
+          category: { select: { canonicalKey: true } },
+        },
+      }),
+      this.prisma.productTagMap.findMany({
+        where: { tenantId, productId: shop.id },
+        select: { tagId: true },
+      }),
+    ]);
 
     const shopTagIdSet = new Set(shopTagIds.map((t) => t.tagId));
     const willAdoptCommercial =
-      !shopCommercial || shopCommercial.category.canonicalKey === UNCLASSIFIED_MEDICINES_CANONICAL_KEY;
+      !shopCommercial ||
+      shopCommercial.category.canonicalKey ===
+        UNCLASSIFIED_MEDICINES_CANONICAL_KEY;
 
     return {
       plan,
@@ -387,43 +483,81 @@ export class ProductNmraLinkService {
         "This product is already linked to a register entry — unlink it first.",
       );
     }
-    const reference = await this.loadReferenceCandidate(tenantId, referenceProductId, productId);
+    const reference = await this.loadReferenceCandidate(
+      tenantId,
+      referenceProductId,
+      productId,
+    );
 
-    const plan = buildNmraLinkPlan(toLinkable(shop), toLinkable(reference), opts);
+    const plan = buildNmraLinkPlan(
+      toLinkable(shop),
+      toLinkable(reference),
+      opts,
+    );
 
-    const [shopRegulatoryBefore, shopCommercialBefore, referenceRegulatory, referenceCommercial, referenceTags, shopTagIds] =
-      await Promise.all([
-        this.prisma.productCategoryMap.findMany({
-          where: { tenantId, productId: shop.id, dimension: { in: REGULATORY_DIMENSIONS } },
-          select: { dimension: true, categoryId: true },
-        }),
-        this.prisma.productCategoryMap.findFirst({
-          where: { tenantId, productId: shop.id, dimension: "COMMERCIAL", isPrimary: true },
-          select: { categoryId: true, category: { select: { canonicalKey: true } } },
-        }),
-        this.prisma.productCategoryMap.findMany({
-          where: { tenantId, productId: reference.id, dimension: { in: REGULATORY_DIMENSIONS } },
-          select: { dimension: true, categoryId: true },
-        }),
-        this.prisma.productCategoryMap.findFirst({
-          where: { tenantId, productId: reference.id, dimension: "COMMERCIAL", isPrimary: true },
-          select: { categoryId: true },
-        }),
-        this.prisma.productTagMap.findMany({
-          where: { tenantId, productId: reference.id },
-          select: { tagId: true },
-        }),
-        this.prisma.productTagMap.findMany({
-          where: { tenantId, productId: shop.id },
-          select: { tagId: true },
-        }),
-      ]);
+    const [
+      shopRegulatoryBefore,
+      shopCommercialBefore,
+      referenceRegulatory,
+      referenceCommercial,
+      referenceTags,
+      shopTagIds,
+    ] = await Promise.all([
+      this.prisma.productCategoryMap.findMany({
+        where: {
+          tenantId,
+          productId: shop.id,
+          dimension: { in: REGULATORY_DIMENSIONS },
+        },
+        select: { dimension: true, categoryId: true },
+      }),
+      this.prisma.productCategoryMap.findFirst({
+        where: {
+          tenantId,
+          productId: shop.id,
+          dimension: "COMMERCIAL",
+          isPrimary: true,
+        },
+        select: {
+          categoryId: true,
+          category: { select: { canonicalKey: true } },
+        },
+      }),
+      this.prisma.productCategoryMap.findMany({
+        where: {
+          tenantId,
+          productId: reference.id,
+          dimension: { in: REGULATORY_DIMENSIONS },
+        },
+        select: { dimension: true, categoryId: true },
+      }),
+      this.prisma.productCategoryMap.findFirst({
+        where: {
+          tenantId,
+          productId: reference.id,
+          dimension: "COMMERCIAL",
+          isPrimary: true,
+        },
+        select: { categoryId: true },
+      }),
+      this.prisma.productTagMap.findMany({
+        where: { tenantId, productId: reference.id },
+        select: { tagId: true },
+      }),
+      this.prisma.productTagMap.findMany({
+        where: { tenantId, productId: shop.id },
+        select: { tagId: true },
+      }),
+    ]);
 
     const shopTagIdSet = new Set(shopTagIds.map((t) => t.tagId));
-    const tagIdsToAdd = referenceTags.map((t) => t.tagId).filter((id) => !shopTagIdSet.has(id));
+    const tagIdsToAdd = referenceTags
+      .map((t) => t.tagId)
+      .filter((id) => !shopTagIdSet.has(id));
     const willAdoptCommercial =
       !shopCommercialBefore ||
-      shopCommercialBefore.category.canonicalKey === UNCLASSIFIED_MEDICINES_CANONICAL_KEY;
+      shopCommercialBefore.category.canonicalKey ===
+        UNCLASSIFIED_MEDICINES_CANONICAL_KEY;
 
     const snapshot: NmraLinkSnapshot = {
       scalars: toLinkable(shop),
@@ -433,14 +567,18 @@ export class ProductNmraLinkService {
         categoryId: m.categoryId,
       })),
       commercialCategoryIdBefore: shopCommercialBefore?.categoryId ?? null,
-      commercialCategoryAdopted: willAdoptCommercial && Boolean(referenceCommercial),
+      commercialCategoryAdopted:
+        willAdoptCommercial && Boolean(referenceCommercial),
       tagIdsAdded: tagIdsToAdd,
     };
 
     await this.prisma.$transaction(async (tx) => {
       await tx.product.update({
         where: { id: shop.id, tenantId },
-        data: { ...toPrismaUpdate(plan.updates), nmraReferenceId: reference.id },
+        data: {
+          ...toPrismaUpdate(plan.updates),
+          nmraReferenceId: reference.id,
+        },
       });
 
       for (const alias of plan.aliasesToAdd) {
@@ -452,14 +590,23 @@ export class ProductNmraLinkService {
               aliasText: alias.aliasText,
             },
           },
-          create: { tenantId, productId: shop.id, aliasText: alias.aliasText, aliasType: alias.aliasType },
+          create: {
+            tenantId,
+            productId: shop.id,
+            aliasText: alias.aliasText,
+            aliasType: alias.aliasType,
+          },
           update: { aliasType: alias.aliasType },
         });
       }
 
       if (referenceRegulatory.length > 0) {
         await tx.productCategoryMap.deleteMany({
-          where: { tenantId, productId: shop.id, dimension: { in: REGULATORY_DIMENSIONS } },
+          where: {
+            tenantId,
+            productId: shop.id,
+            dimension: { in: REGULATORY_DIMENSIONS },
+          },
         });
         await tx.productCategoryMap.createMany({
           data: referenceRegulatory.map((m) => ({
@@ -476,7 +623,11 @@ export class ProductNmraLinkService {
 
       if (tagIdsToAdd.length > 0) {
         await tx.productTagMap.createMany({
-          data: tagIdsToAdd.map((tagId) => ({ tenantId, productId: shop.id, tagId })),
+          data: tagIdsToAdd.map((tagId) => ({
+            tenantId,
+            productId: shop.id,
+            tagId,
+          })),
           skipDuplicates: true,
         });
       }
@@ -486,7 +637,9 @@ export class ProductNmraLinkService {
           tenantId,
           productId: shop.id,
           referenceProductId: reference.id,
-          adoptedFields: plan.changes.filter((c) => c.changed).map((c) => c.field),
+          adoptedFields: plan.changes
+            .filter((c) => c.changed)
+            .map((c) => c.field),
           previousValues: snapshot as object,
           linkedByUserId: userId,
         },
@@ -516,7 +669,9 @@ export class ProductNmraLinkService {
         referenceProductId: reference.id,
         referenceName: reference.name,
         registrationNo: reference.registrationNo,
-        fieldsChanged: plan.changes.filter((c) => c.changed).map((c) => c.field),
+        fieldsChanged: plan.changes
+          .filter((c) => c.changed)
+          .map((c) => c.field),
         complianceStatements: plan.complianceStatements,
       },
     });
@@ -530,7 +685,9 @@ export class ProductNmraLinkService {
       where: { tenantId, productId },
     });
     if (!link) {
-      throw new NotFoundException("This product isn't linked to a register entry.");
+      throw new NotFoundException(
+        "This product isn't linked to a register entry.",
+      );
     }
     const snapshot = link.previousValues as unknown as NmraLinkSnapshot;
 
@@ -540,7 +697,8 @@ export class ProductNmraLinkService {
     let restoreCommercialTo = snapshot.commercialCategoryIdBefore;
     if (snapshot.commercialCategoryAdopted && !restoreCommercialTo) {
       const canonicalIds = await this.taxonomy.commercialCanonicalIds(tenantId);
-      restoreCommercialTo = canonicalIds.get(UNCLASSIFIED_MEDICINES_CANONICAL_KEY) ?? null;
+      restoreCommercialTo =
+        canonicalIds.get(UNCLASSIFIED_MEDICINES_CANONICAL_KEY) ?? null;
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -551,7 +709,12 @@ export class ProductNmraLinkService {
 
       for (const alias of snapshot.aliasesAdded) {
         await tx.productAlias.deleteMany({
-          where: { tenantId, productId, aliasText: alias.aliasText, aliasType: alias.aliasType },
+          where: {
+            tenantId,
+            productId,
+            aliasText: alias.aliasText,
+            aliasType: alias.aliasType,
+          },
         });
       }
 
@@ -567,7 +730,11 @@ export class ProductNmraLinkService {
         });
       } else {
         await tx.productCategoryMap.deleteMany({
-          where: { tenantId, productId, dimension: { in: REGULATORY_DIMENSIONS } },
+          where: {
+            tenantId,
+            productId,
+            dimension: { in: REGULATORY_DIMENSIONS },
+          },
         });
       }
       if (snapshot.regulatoryBefore.length > 0) {
@@ -623,10 +790,15 @@ export class ProductNmraLinkService {
       payload: { referenceProductId: link.referenceProductId },
     });
 
-    return this.prisma.product.findFirst({ where: { id: productId, tenantId } });
+    return this.prisma.product.findFirst({
+      where: { id: productId, tenantId },
+    });
   }
 
-  private async loadLinkable(tenantId: string, productId: string): Promise<LinkableRow> {
+  private async loadLinkable(
+    tenantId: string,
+    productId: string,
+  ): Promise<LinkableRow> {
     const row = await this.prisma.product.findFirst({
       where: { id: productId, tenantId },
       select: LINKABLE_SELECT,
@@ -658,7 +830,9 @@ export class ProductNmraLinkService {
       select: { id: true },
     });
     if (claim) {
-      throw new ConflictException("This register entry is already linked to another product.");
+      throw new ConflictException(
+        "This register entry is already linked to another product.",
+      );
     }
     return row;
   }
@@ -688,19 +862,29 @@ export class ProductNmraLinkService {
    * identify anything, and picking the first row Postgres returned would set compliance flags
    * from an arbitrary product. Callers surface this as a review task instead.
    */
-  private async assertIdentifiersUnambiguous(tenantId: string, shop: LinkableRow): Promise<void> {
+  private async assertIdentifiersUnambiguous(
+    tenantId: string,
+    shop: LinkableRow,
+  ): Promise<void> {
     const probes: Array<["barcode" | "registrationNo", string | null]> = [
       ["barcode", shop.barcode],
       ["registrationNo", shop.registrationNo],
     ];
     for (const [field, value] of probes) {
       if (!value?.trim()) continue;
-      const ambiguity = await this.finder.resolveIdentifier(tenantId, field, value);
+      const ambiguity = await this.finder.resolveIdentifier(
+        tenantId,
+        field,
+        value,
+      );
       if (!ambiguity) continue;
       const label = field === "barcode" ? "barcode" : "registration number";
       throw new ConflictException(
         `The ${label} "${ambiguity.value}" matches ${ambiguity.candidates.length} register entries ` +
-          `(${ambiguity.candidates.map((c) => c.name).slice(0, 3).join(", ")}…). ` +
+          `(${ambiguity.candidates
+            .map((c) => c.name)
+            .slice(0, 3)
+            .join(", ")}…). ` +
           "Pick the right one explicitly — it can't be resolved automatically.",
       );
     }
@@ -720,12 +904,15 @@ export class ProductNmraLinkService {
         requiresPrescription: ranked.candidate.requiresPrescription,
       },
       evidence: ranked.evidence,
-      needsComplianceConfirmation: rankedCandidateNeedsComplianceConfirmation(ranked),
+      needsComplianceConfirmation:
+        rankedCandidateNeedsComplianceConfirmation(ranked),
     };
   }
 }
 
 /** `NmraLinkableFields` values as a Prisma `product.update` data object. */
-function toPrismaUpdate(fields: Partial<NmraLinkableFields>): Record<string, unknown> {
+function toPrismaUpdate(
+  fields: Partial<NmraLinkableFields>,
+): Record<string, unknown> {
   return { ...fields };
 }

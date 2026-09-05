@@ -30,31 +30,41 @@ describe("classifyNmraEligibility", () => {
      * being classified as medicine on a units suffix.
      */
     it("is not fooled by a units suffix on a toiletry", () => {
-      expect(classifyNmraEligibility({ name: "Axe Deodorant Spray 150ml" }).verdict).toBe(
-        "not_applicable",
-      );
       expect(
-        classifyNmraEligibility({ name: "Anchor Full Cream Milk Powder 400g" }).verdict,
+        classifyNmraEligibility({ name: "Axe Deodorant Spray 150ml" }).verdict,
+      ).toBe("not_applicable");
+      expect(
+        classifyNmraEligibility({ name: "Anchor Full Cream Milk Powder 400g" })
+          .verdict,
       ).toBe("not_applicable");
     });
   });
 
   describe("regulatory signals win outright", () => {
     it("keeps a product that already carries a registration number", () => {
-      const result = classifyNmraEligibility({ name: "Mystery Item", registrationNo: "M016695" });
+      const result = classifyNmraEligibility({
+        name: "Mystery Item",
+        registrationNo: "M016695",
+      });
       expect(result.verdict).toBe("eligible");
       expect(result.signals).toContain("registration_no");
     });
 
     it("keeps a controlled product even when its name reads like retail", () => {
       // A regulatory flag someone has already set outranks any keyword guess.
-      const result = classifyNmraEligibility({ name: "Cough Candy", isControlled: true });
+      const result = classifyNmraEligibility({
+        name: "Cough Candy",
+        isControlled: true,
+      });
       expect(result.verdict).toBe("eligible");
     });
 
     it("keeps a prescription-only product", () => {
       expect(
-        classifyNmraEligibility({ name: "Something", requiresPrescription: true }).verdict,
+        classifyNmraEligibility({
+          name: "Something",
+          requiresPrescription: true,
+        }).verdict,
       ).toBe("eligible");
     });
 
@@ -68,10 +78,13 @@ describe("classifyNmraEligibility", () => {
     });
 
     it("reads a real NMRA schedule but ignores free text in the schedule field", () => {
-      expect(classifyNmraEligibility({ name: "X", schedule: "IIB" }).verdict).toBe("eligible");
-      expect(classifyNmraEligibility({ name: "X", schedule: "not applicable" }).verdict).toBe(
-        "uncertain",
-      );
+      expect(
+        classifyNmraEligibility({ name: "X", schedule: "IIB" }).verdict,
+      ).toBe("eligible");
+      expect(
+        classifyNmraEligibility({ name: "X", schedule: "not applicable" })
+          .verdict,
+      ).toBe("uncertain");
     });
   });
 
@@ -83,22 +96,29 @@ describe("classifyNmraEligibility", () => {
         strength: "10mg",
       });
       expect(result.verdict).toBe("eligible");
-      expect(result.signals.some((s) => s.startsWith("dosage_form:"))).toBe(true);
+      expect(result.signals.some((s) => s.startsWith("dosage_form:"))).toBe(
+        true,
+      );
     });
 
     it("keeps anything with a generic/substance name", () => {
       expect(
-        classifyNmraEligibility({ name: "Norvasc", genericName: "Amlodipine" }).verdict,
+        classifyNmraEligibility({ name: "Norvasc", genericName: "Amlodipine" })
+          .verdict,
       ).toBe("eligible");
     });
 
     it("reads a dosage form out of the name when the column is empty", () => {
-      expect(classifyNmraEligibility({ name: "Panadol Tablets" }).verdict).toBe("eligible");
+      expect(classifyNmraEligibility({ name: "Panadol Tablets" }).verdict).toBe(
+        "eligible",
+      );
     });
 
     it("does not fire on a word that merely contains a form abbreviation", () => {
       // "tab" inside "Table" and "gel" inside "Gelatin Sheets" must not read as a dosage form.
-      expect(classifyNmraEligibility({ name: "Folding Table" }).verdict).toBe("uncertain");
+      expect(classifyNmraEligibility({ name: "Folding Table" }).verdict).toBe(
+        "uncertain",
+      );
     });
   });
 
@@ -152,7 +172,9 @@ describe("classifyNmraEligibility", () => {
 
   /** A nebuliser is a device; the medicine is the solution that goes in it. */
   it("does not read a nebuliser machine as a dosage form", () => {
-    expect(classifyNmraEligibility({ name: "Compressor Nebulizer" }).verdict).toBe("uncertain");
+    expect(
+      classifyNmraEligibility({ name: "Compressor Nebulizer" }).verdict,
+    ).toBe("uncertain");
   });
 
   it("still keeps the solution that goes in one", () => {
@@ -166,7 +188,9 @@ describe("classifyNmraEligibility", () => {
 
   it("always explains itself — an exclusion nobody can account for is a bug report", () => {
     for (const name of ["Umbrella", "Cetirizine 10mg Tablet", "Blue Box"]) {
-      expect(classifyNmraEligibility({ name }).reason.length).toBeGreaterThan(20);
+      expect(classifyNmraEligibility({ name }).reason.length).toBeGreaterThan(
+        20,
+      );
     }
   });
 });

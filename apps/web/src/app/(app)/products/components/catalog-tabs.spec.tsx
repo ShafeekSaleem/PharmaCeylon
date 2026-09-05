@@ -21,7 +21,9 @@ jest.mock("next/link", () => ({
  */
 describe("CatalogTabs", () => {
   it("shows exactly two tabs", () => {
-    render(<CatalogTabs active="mine" rangedCount={106} referenceCount={6589} />);
+    render(
+      <CatalogTabs active="mine" rangedCount={106} referenceCount={6589} />,
+    );
 
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(2);
@@ -32,24 +34,36 @@ describe("CatalogTabs", () => {
   it.each(["Categories", "Tags", "Organize", "Register matches"])(
     "no longer offers %s as a primary tab",
     (label) => {
-      render(<CatalogTabs active="mine" rangedCount={106} referenceCount={6589} />);
-      expect(screen.queryByRole("tab", { name: new RegExp(label, "i") })).toBeNull();
+      render(
+        <CatalogTabs active="mine" rangedCount={106} referenceCount={6589} />,
+      );
+      expect(
+        screen.queryByRole("tab", { name: new RegExp(label, "i") }),
+      ).toBeNull();
     },
   );
 
   it("says what each count is, so a screen reader hears more than two bare numbers", () => {
-    render(<CatalogTabs active="mine" rangedCount={106} referenceCount={6589} />);
+    render(
+      <CatalogTabs active="mine" rangedCount={106} referenceCount={6589} />,
+    );
 
     expect(
-      screen.getByRole("tab", { name: "My products, 106 products in your range" }),
+      screen.getByRole("tab", {
+        name: "My products, 106 products in your range",
+      }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Reference catalog, 6,589 medicines on the NMRA register" }),
+      screen.getByRole("tab", {
+        name: "Reference catalog, 6,589 medicines on the NMRA register",
+      }),
     ).toBeInTheDocument();
   });
 
   it("marks the active scope selected", () => {
-    render(<CatalogTabs active="reference" rangedCount={1} referenceCount={2} />);
+    render(
+      <CatalogTabs active="reference" rangedCount={1} referenceCount={2} />,
+    );
 
     expect(screen.getByRole("tab", { selected: true })).toHaveAccessibleName(
       /Reference catalog/,
@@ -67,7 +81,9 @@ describe("CatalogTabs", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: /Reference catalog/ }));
+    await userEvent.click(
+      screen.getByRole("tab", { name: /Reference catalog/ }),
+    );
 
     expect(onScopeChange).toHaveBeenCalledWith("reference");
   });
@@ -75,10 +91,9 @@ describe("CatalogTabs", () => {
   it("falls back to links when there is no in-place handler", () => {
     render(<CatalogTabs active="mine" rangedCount={1} referenceCount={2} />);
 
-    expect(screen.getByRole("tab", { name: /Reference catalog/ })).toHaveAttribute(
-      "href",
-      "/products?scope=reference",
-    );
+    expect(
+      screen.getByRole("tab", { name: /Reference catalog/ }),
+    ).toHaveAttribute("href", "/products?scope=reference");
   });
 
   /**
@@ -88,14 +103,18 @@ describe("CatalogTabs", () => {
    */
   describe("permission-scoped tabs", () => {
     it("hides My products from a caller with only catalog.view", () => {
-      render(<CatalogTabs active="reference" canViewMine={false} canViewReference />);
+      render(
+        <CatalogTabs active="reference" canViewMine={false} canViewReference />,
+      );
 
       expect(screen.getAllByRole("tab")).toHaveLength(1);
       expect(screen.getByRole("tab")).toHaveAccessibleName(/Reference catalog/);
     });
 
     it("hides the Reference tab from a caller without catalog.view", () => {
-      render(<CatalogTabs active="mine" canViewMine canViewReference={false} />);
+      render(
+        <CatalogTabs active="mine" canViewMine canViewReference={false} />,
+      );
 
       expect(screen.getAllByRole("tab")).toHaveLength(1);
       expect(screen.getByRole("tab")).toHaveAccessibleName(/My products/);
@@ -108,7 +127,9 @@ describe("CatalogTabs", () => {
  * usually absent — a shop with a clean catalog should see nothing at all.
  */
 describe("CatalogIssueBanner", () => {
-  const summary = (over: Partial<CatalogTaskSummary> = {}): CatalogTaskSummary => ({
+  const summary = (
+    over: Partial<CatalogTaskSummary> = {},
+  ): CatalogTaskSummary => ({
     open: 8,
     needsCategory: 3,
     nmraMatch: 5,
@@ -125,7 +146,9 @@ describe("CatalogIssueBanner", () => {
   });
 
   it("renders nothing when there is no outstanding work", () => {
-    const { container } = render(<CatalogIssueBanner summary={summary({ open: 0 })} />);
+    const { container } = render(
+      <CatalogIssueBanner summary={summary({ open: 0 })} />,
+    );
     expect(container).toBeEmptyDOMElement();
   });
 

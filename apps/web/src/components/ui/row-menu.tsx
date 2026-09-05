@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { IconMoreVertical } from "@/components/icons";
 import styles from "./row-menu.module.css";
 
@@ -44,7 +50,8 @@ export function RowMenu({
   useEffect(() => {
     if (!open) return;
     function onPointer(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
@@ -91,7 +98,9 @@ export function RowMenu({
         >
           {actions.map((action) => (
             <div key={action.label}>
-              {action.separated && <div className={styles.separator} role="separator" />}
+              {action.separated && (
+                <div className={styles.separator} role="separator" />
+              )}
               <button
                 type="button"
                 role="menuitem"
@@ -104,7 +113,9 @@ export function RowMenu({
                 }}
               >
                 {action.label}
-                {action.hint && <span className={styles.hint}>{action.hint}</span>}
+                {action.hint && (
+                  <span className={styles.hint}>{action.hint}</span>
+                )}
               </button>
             </div>
           ))}

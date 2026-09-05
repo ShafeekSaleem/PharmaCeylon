@@ -20,7 +20,10 @@ export type ReferenceSuggestion = {
   requiresPrescription: boolean;
 };
 
-export type CatalogTaskSuggestion = CategorySuggestion | ReferenceSuggestion | null;
+export type CatalogTaskSuggestion =
+  | CategorySuggestion
+  | ReferenceSuggestion
+  | null;
 
 export type CatalogTaskProduct = {
   id: string;
@@ -49,7 +52,12 @@ export type CatalogTaskView = {
   confidence: number | null;
   complianceImpact: boolean;
   safeToApply: boolean;
-  candidates: Array<{ id: string; name: string; brandName: string | null; registrationNo: string | null }>;
+  candidates: Array<{
+    id: string;
+    name: string;
+    brandName: string | null;
+    registrationNo: string | null;
+  }>;
   importId: string | null;
   importFilename: string | null;
   sourceRow: number | null;

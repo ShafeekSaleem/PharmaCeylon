@@ -2,7 +2,10 @@ import type { AuditService } from "../audit/audit.service";
 import type { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import type { PrismaService } from "../prisma/prisma.service";
 import type { ProductNmraLinkService } from "../products/product-nmra-link.service";
-import { CatalogTaskService, confidenceForEvidence } from "./catalog-task.service";
+import {
+  CatalogTaskService,
+  confidenceForEvidence,
+} from "./catalog-task.service";
 
 /**
  * A minimal in-memory `catalogTask` table. The lifecycle rules — which rows a refresh may
@@ -14,8 +17,12 @@ function makeTaskStore(seed: Array<Record<string, unknown>> = []) {
   return {
     rows,
     model: {
-      findMany: jest.fn(async ({ where, select }: never) => filter(rows, where, select)),
-      findFirst: jest.fn(async ({ where }: never) => filter(rows, where)[0] ?? null),
+      findMany: jest.fn(async ({ where, select }: never) =>
+        filter(rows, where, select),
+      ),
+      findFirst: jest.fn(
+        async ({ where }: never) => filter(rows, where)[0] ?? null,
+      ),
       count: jest.fn(async ({ where }: never) => filter(rows, where).length),
       create: jest.fn(async ({ data }: never) => {
         const row = { id: `task-${rows.length + 1}`, ...(data as object) };
@@ -66,7 +73,10 @@ function makeService(store: ReturnType<typeof makeTaskStore>) {
   const audit = { log: jest.fn() } as unknown as AuditService;
   const prisma = {
     catalogTask: store.model,
-    product: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    product: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
     productCategory: {
       findFirst: jest.fn().mockResolvedValue({ id: "cat-1" }),
       findMany: jest.fn().mockResolvedValue([]),
@@ -74,7 +84,12 @@ function makeService(store: ReturnType<typeof makeTaskStore>) {
     productCategoryMap: { findMany: jest.fn().mockResolvedValue([]) },
   } as unknown as PrismaService;
 
-  return { service: new CatalogTaskService(prisma, taxonomy, link, audit), link, taxonomy, audit };
+  return {
+    service: new CatalogTaskService(prisma, taxonomy, link, audit),
+    link,
+    taxonomy,
+    audit,
+  };
 }
 
 function task(over: Record<string, unknown> = {}) {
@@ -146,14 +161,27 @@ describe("CatalogTaskService — lifecycle", () => {
     const store = makeTaskStore([task()]);
     const { service } = makeService(store);
 
-    await service.markNotApplicable(tenantId, userId, "task-1", "Kitchen scale.");
+    await service.markNotApplicable(
+      tenantId,
+      userId,
+      "task-1",
+      "Kitchen scale.",
+    );
 
-    expect(store.rows[0]).toMatchObject({ status: "NOT_APPLICABLE", resolvedByUserId: userId });
+    expect(store.rows[0]).toMatchObject({
+      status: "NOT_APPLICABLE",
+      resolvedByUserId: userId,
+    });
   });
 
   it("reopening clears the closure so the task is workable again", async () => {
     const store = makeTaskStore([
-      task({ status: "DISMISSED", resolvedByUserId: userId, resolvedAt: new Date(), resolutionNote: "x" }),
+      task({
+        status: "DISMISSED",
+        resolvedByUserId: userId,
+        resolvedAt: new Date(),
+        resolutionNote: "x",
+      }),
     ]);
     const { service } = makeService(store);
 
@@ -168,7 +196,9 @@ describe("CatalogTaskService — lifecycle", () => {
   });
 
   it("reopening a compliance-sensitive task returns it to review, not to plain open", async () => {
-    const store = makeTaskStore([task({ status: "DISMISSED", complianceImpact: true })]);
+    const store = makeTaskStore([
+      task({ status: "DISMISSED", complianceImpact: true }),
+    ]);
     const { service } = makeService(store);
 
     await service.reopen(tenantId, userId, "task-1");
@@ -187,7 +217,9 @@ describe("CatalogTaskService — lifecycle", () => {
 
   it("rejects an unknown task id rather than silently doing nothing", async () => {
     const { service } = makeService(makeTaskStore([]));
-    await expect(service.dismiss(tenantId, userId, "nope")).rejects.toThrow(/not found/i);
+    await expect(service.dismiss(tenantId, userId, "nope")).rejects.toThrow(
+      /not found/i,
+    );
   });
 });
 
@@ -214,7 +246,9 @@ describe("CatalogTaskService — applying", () => {
     const store = makeTaskStore([task()]);
     const { service, link } = makeService(store);
 
-    await service.apply(tenantId, userId, "task-1", { referenceProductId: "ref-other" });
+    await service.apply(tenantId, userId, "task-1", {
+      referenceProductId: "ref-other",
+    });
 
     expect(link.link).toHaveBeenCalledWith(tenantId, userId, "p1", "ref-other");
   });
@@ -230,7 +264,11 @@ describe("CatalogTaskService — applying", () => {
 
   it("applies a category task through the taxonomy service", async () => {
     const store = makeTaskStore([
-      task({ type: "MISSING_CATEGORY", suggestion: { categoryId: "cat-1" }, evidence: "generic_rule" }),
+      task({
+        type: "MISSING_CATEGORY",
+        suggestion: { categoryId: "cat-1" },
+        evidence: "generic_rule",
+      }),
     ]);
     const { service, taxonomy } = makeService(store);
 
@@ -245,17 +283,26 @@ describe("CatalogTaskService — applying", () => {
   });
 
   it("refuses a category task with no suggestion and no chosen category", async () => {
-    const store = makeTaskStore([task({ type: "MISSING_CATEGORY", suggestion: null })]);
+    const store = makeTaskStore([
+      task({ type: "MISSING_CATEGORY", suggestion: null }),
+    ]);
     const { service } = makeService(store);
 
-    await expect(service.apply(tenantId, userId, "task-1")).rejects.toThrow(/Choose a category/);
+    await expect(service.apply(tenantId, userId, "task-1")).rejects.toThrow(
+      /Choose a category/,
+    );
   });
 
   /** The bulk button must touch only rows that passed the safety rule, never the queue at large. */
   it("apply-safe applies only tasks flagged safe", async () => {
     const store = makeTaskStore([
       task({ id: "safe-1", safeToApply: true }),
-      task({ id: "unsafe-1", safeToApply: false, complianceImpact: true, status: "NEEDS_REVIEW" }),
+      task({
+        id: "unsafe-1",
+        safeToApply: false,
+        complianceImpact: true,
+        status: "NEEDS_REVIEW",
+      }),
     ]);
     const { service, link } = makeService(store);
 
@@ -263,7 +310,9 @@ describe("CatalogTaskService — applying", () => {
 
     expect(result.applied).toBe(1);
     expect(link.link).toHaveBeenCalledTimes(1);
-    expect(store.rows.find((r) => r.id === "unsafe-1")!.status).toBe("NEEDS_REVIEW");
+    expect(store.rows.find((r) => r.id === "unsafe-1")!.status).toBe(
+      "NEEDS_REVIEW",
+    );
   });
 
   it("apply-safe reports a failure instead of aborting the rest of the batch", async () => {
@@ -273,7 +322,9 @@ describe("CatalogTaskService — applying", () => {
     ]);
     const { service, link } = makeService(store);
     (link.link as jest.Mock)
-      .mockRejectedValueOnce(new Error("That register entry is already linked."))
+      .mockRejectedValueOnce(
+        new Error("That register entry is already linked."),
+      )
       .mockResolvedValueOnce({});
 
     const result = await service.applySafe(tenantId, userId, {});
@@ -286,9 +337,15 @@ describe("CatalogTaskService — applying", () => {
 
 describe("confidenceForEvidence", () => {
   it("ranks exact identifiers above resemblances", () => {
-    expect(confidenceForEvidence("barcode")!).toBeGreaterThan(confidenceForEvidence("normalized")!);
-    expect(confidenceForEvidence("normalized")!).toBeGreaterThan(confidenceForEvidence("fuzzy")!);
-    expect(confidenceForEvidence("fuzzy")!).toBeGreaterThan(confidenceForEvidence("inn_head")!);
+    expect(confidenceForEvidence("barcode")!).toBeGreaterThan(
+      confidenceForEvidence("normalized")!,
+    );
+    expect(confidenceForEvidence("normalized")!).toBeGreaterThan(
+      confidenceForEvidence("fuzzy")!,
+    );
+    expect(confidenceForEvidence("fuzzy")!).toBeGreaterThan(
+      confidenceForEvidence("inn_head")!,
+    );
   });
 
   it("has no number for an absent evidence tier", () => {

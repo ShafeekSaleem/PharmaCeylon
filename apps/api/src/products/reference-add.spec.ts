@@ -27,14 +27,19 @@ describe("ProductsService — adding reference products", () => {
     claimedBy: null,
   };
 
-  function makeService(opts: { references?: unknown[]; existing?: unknown[] } = {}) {
+  function makeService(
+    opts: { references?: unknown[]; existing?: unknown[] } = {},
+  ) {
     const findMany = jest
       .fn()
       // First call loads the reference rows, second the shop products that might collide.
       .mockResolvedValueOnce(opts.references ?? [referenceRow])
       .mockResolvedValueOnce(opts.existing ?? []);
     const prisma = {
-      product: { findMany, updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      product: {
+        findMany,
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
     };
     const audit = { log: jest.fn() } as unknown as AuditService;
     const meta = {} as unknown as ProductMetaService;
@@ -93,7 +98,9 @@ describe("ProductsService — adding reference products", () => {
 
       const preview = await service.previewReferenceAdd(tenantId, ["ref-1"]);
 
-      expect(preview.items[0].warnings.join(" ")).toContain("controlled or prescription-only");
+      expect(preview.items[0].warnings.join(" ")).toContain(
+        "controlled or prescription-only",
+      );
     });
 
     it("counts one duplicate once even when both identifiers collide", async () => {
@@ -151,7 +158,9 @@ describe("ProductsService — adding reference products", () => {
     it("adds a clean row and stamps rangedAt", async () => {
       const { service, prisma, audit } = makeService();
 
-      const result = await service.addReferenceProducts(tenantId, userId, ["ref-1"]);
+      const result = await service.addReferenceProducts(tenantId, userId, [
+        "ref-1",
+      ]);
 
       expect(result.added).toEqual(["ref-1"]);
       const call = prisma.product.updateMany.mock.calls[0][0];
@@ -184,7 +193,9 @@ describe("ProductsService — adding reference products", () => {
         ],
       });
 
-      const result = await service.addReferenceProducts(tenantId, userId, ["ref-1"]);
+      const result = await service.addReferenceProducts(tenantId, userId, [
+        "ref-1",
+      ]);
 
       expect(result.added).toEqual([]);
       expect(result.held[0].reason).toContain("same barcode");
@@ -205,9 +216,14 @@ describe("ProductsService — adding reference products", () => {
         ],
       });
 
-      const result = await service.addReferenceProducts(tenantId, userId, ["ref-1"], {
-        acknowledgeWarnings: true,
-      });
+      const result = await service.addReferenceProducts(
+        tenantId,
+        userId,
+        ["ref-1"],
+        {
+          acknowledgeWarnings: true,
+        },
+      );
 
       expect(result.added).toEqual(["ref-1"]);
     });
@@ -217,9 +233,14 @@ describe("ProductsService — adding reference products", () => {
         references: [{ ...referenceRow, claimedBy: { id: "p9" } }],
       });
 
-      const result = await service.addReferenceProducts(tenantId, userId, ["ref-1"], {
-        acknowledgeWarnings: true,
-      });
+      const result = await service.addReferenceProducts(
+        tenantId,
+        userId,
+        ["ref-1"],
+        {
+          acknowledgeWarnings: true,
+        },
+      );
 
       expect(result.added).toEqual([]);
       expect(result.held).toHaveLength(1);

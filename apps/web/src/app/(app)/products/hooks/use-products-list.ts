@@ -9,10 +9,17 @@ import {
   type FilterFacets,
   type ProductFilters,
 } from "../products-filter-panel";
-import type { Product, ProductList, ProductScope, SummaryFacets } from "../types";
+import type {
+  Product,
+  ProductList,
+  ProductScope,
+  SummaryFacets,
+} from "../types";
 
 /** Products page tab -> the API's `rangeStatus` filter value. */
-export function scopeToRangeStatus(scope: ProductScope): "RANGED" | "REFERENCE" {
+export function scopeToRangeStatus(
+  scope: ProductScope,
+): "RANGED" | "REFERENCE" {
   return scope === "reference" ? "REFERENCE" : "RANGED";
 }
 
@@ -35,12 +42,16 @@ export function buildProductFilterParams(
   if (q) params.set("q", q);
   if (filterParams.brandName) params.set("brandName", filterParams.brandName);
   if (filterParams.schedule) params.set("schedule", filterParams.schedule);
-  if (filterParams.categoryId) params.set("categoryId", filterParams.categoryId);
-  if (filterParams.commercialCategoryId) params.set("commercialCategoryId", filterParams.commercialCategoryId);
+  if (filterParams.categoryId)
+    params.set("categoryId", filterParams.categoryId);
+  if (filterParams.commercialCategoryId)
+    params.set("commercialCategoryId", filterParams.commercialCategoryId);
   if (filterParams.tagId) params.set("tagId", filterParams.tagId);
-  if (filterParams.isControlled) params.set("isControlled", filterParams.isControlled);
+  if (filterParams.isControlled)
+    params.set("isControlled", filterParams.isControlled);
   if (filterParams.lowStock) params.set("lowStock", "true");
-  if (filterParams.requiresPrescription) params.set("requiresPrescription", "true");
+  if (filterParams.requiresPrescription)
+    params.set("requiresPrescription", "true");
   // Not a panel filter — a scoping link from the import completion screen. See the API's
   // `ProductFilterQuery.importId`.
   if (importId) params.set("importId", importId);
@@ -57,7 +68,14 @@ function buildListParams(
   importId: string | null,
 ) {
   const skip = (page - 1) * PAGE_SIZE;
-  const params = buildProductFilterParams(q, filters, sortBy, sortDir, scope, importId);
+  const params = buildProductFilterParams(
+    q,
+    filters,
+    sortBy,
+    sortDir,
+    scope,
+    importId,
+  );
   params.set("skip", String(skip));
   params.set("take", String(PAGE_SIZE));
   return params;
@@ -69,7 +87,14 @@ function buildFacetsParams(
   scope: ProductScope,
   importId: string | null,
 ) {
-  return buildProductFilterParams(q, filters, undefined, undefined, scope, importId);
+  return buildProductFilterParams(
+    q,
+    filters,
+    undefined,
+    undefined,
+    scope,
+    importId,
+  );
 }
 
 export function useProductsList(
@@ -86,7 +111,9 @@ export function useProductsList(
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
-  const [summaryFacets, setSummaryFacets] = useState<SummaryFacets | null>(null);
+  const [summaryFacets, setSummaryFacets] = useState<SummaryFacets | null>(
+    null,
+  );
   const [filterFacets, setFilterFacets] = useState<FilterFacets | null>(null);
   const [totalAll, setTotalAll] = useState<number | null>(null);
   /** Unscoped facets, used only for the "My products"/"Reference catalog" tab counts. */
@@ -117,7 +144,9 @@ export function useProductsList(
       })
       .catch((err) => {
         if (!cancelled) {
-          setListError(err instanceof Error ? err.message : "Failed to load products");
+          setListError(
+            err instanceof Error ? err.message : "Failed to load products",
+          );
           setProducts([]);
           setTotal(0);
         }
@@ -137,13 +166,17 @@ export function useProductsList(
     // counts themselves come from `rangeStatus`, which is deliberately NOT scoped — both
     // numbers have to be visible from either tab.
     const rangeStatus = scopeToRangeStatus(scope);
-    apiJson<SummaryFacets>(`/catalog/facets?status=all&rangeStatus=${rangeStatus}`)
+    apiJson<SummaryFacets>(
+      `/catalog/facets?status=all&rangeStatus=${rangeStatus}`,
+    )
       .then((d) => {
         setSummaryFacets(d);
         setSecondaryError(null);
       })
       .catch(() => setSecondaryError("Couldn't load the summary stat tiles."));
-    apiJson<ProductList>(`/products?take=0&status=all&rangeStatus=${rangeStatus}`)
+    apiJson<ProductList>(
+      `/products?take=0&status=all&rangeStatus=${rangeStatus}`,
+    )
       .then((d) => {
         setTotalAll(d.total);
         setSecondaryError(null);
@@ -157,13 +190,22 @@ export function useProductsList(
   }, [scope]);
 
   const fetchFilterFacets = useCallback(() => {
-    const params = buildFacetsParams(appliedFilters, debouncedQ, scope, importId);
+    const params = buildFacetsParams(
+      appliedFilters,
+      debouncedQ,
+      scope,
+      importId,
+    );
     apiJson<FilterFacets>(`/catalog/facets?${params}`)
       .then((d) => {
         setFilterFacets(d);
         setSecondaryError(null);
       })
-      .catch(() => setSecondaryError("Couldn't load filter options — some facets may be missing."));
+      .catch(() =>
+        setSecondaryError(
+          "Couldn't load filter options — some facets may be missing.",
+        ),
+      );
   }, [appliedFilters, debouncedQ, scope, importId]);
 
   useEffect(() => {
@@ -180,7 +222,9 @@ export function useProductsList(
   }, [summaryFacets]);
 
   const rxCount = useMemo(() => {
-    const entry = summaryFacets?.requiresPrescription?.find((c) => c.value === true);
+    const entry = summaryFacets?.requiresPrescription?.find(
+      (c) => c.value === true,
+    );
     return entry?.count ?? 0;
   }, [summaryFacets]);
 
@@ -202,11 +246,15 @@ export function useProductsList(
   const lowStock = summaryFacets?.branchStockSummary?.lowStockProductCount;
 
   const rangedCount = useMemo(
-    () => scopeFacets?.rangeStatus?.find((r) => r.value === "RANGED")?.count ?? null,
+    () =>
+      scopeFacets?.rangeStatus?.find((r) => r.value === "RANGED")?.count ??
+      null,
     [scopeFacets],
   );
   const referenceCount = useMemo(
-    () => scopeFacets?.rangeStatus?.find((r) => r.value === "REFERENCE")?.count ?? null,
+    () =>
+      scopeFacets?.rangeStatus?.find((r) => r.value === "REFERENCE")?.count ??
+      null,
     [scopeFacets],
   );
 

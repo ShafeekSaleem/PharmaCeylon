@@ -2,13 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
-import { IconChevronRight, IconInfo, IconPlus, IconSearch, IconTag } from "@/components/icons";
+import {
+  IconChevronRight,
+  IconInfo,
+  IconPlus,
+  IconSearch,
+  IconTag,
+} from "@/components/icons";
 import { ActionButton, RowMenu } from "@/components/ui";
 import { usePermissions } from "@/lib/permissions";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { ProductTag } from "../../types";
 import { createTag, deleteTag, fetchTags, updateTag } from "../../tags/api";
-import { TagFormModal, type TagModalState } from "../../tags/components/tag-form-modal";
+import {
+  TagFormModal,
+  type TagModalState,
+} from "../../tags/components/tag-form-modal";
 import css from "./tags.module.css";
 
 /**
@@ -65,8 +74,14 @@ export function TagsSection() {
     return tags.filter((t) => t.name.toLowerCase().includes(q));
   }, [tags, query]);
 
-  const ownTags = useMemo(() => filtered.filter((t) => !t.isSystem), [filtered]);
-  const systemTags = useMemo(() => filtered.filter((t) => t.isSystem), [filtered]);
+  const ownTags = useMemo(
+    () => filtered.filter((t) => !t.isSystem),
+    [filtered],
+  );
+  const systemTags = useMemo(
+    () => filtered.filter((t) => t.isSystem),
+    [filtered],
+  );
 
   async function handleTagModalSubmit(name: string) {
     if (!tagModal) return;
@@ -99,7 +114,9 @@ export function TagsSection() {
       setDeleteTarget(null);
       await load();
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "Failed to delete tag");
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete tag",
+      );
     } finally {
       setDeleting(false);
     }
@@ -109,7 +126,8 @@ export function TagsSection() {
     <div className={css.section}>
       <div className={css.head}>
         <p className={css.hint}>
-          Labels for cutting across categories — filters, POS and reports all read them.
+          Labels for cutting across categories — filters, POS and reports all
+          read them.
         </p>
         {canWrite && (
           <ActionButton
@@ -140,7 +158,9 @@ export function TagsSection() {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          {!canWrite && <span className={css.readOnlyNote}>You have read-only access.</span>}
+          {!canWrite && (
+            <span className={css.readOnlyNote}>You have read-only access.</span>
+          )}
         </div>
       )}
 
@@ -152,7 +172,9 @@ export function TagsSection() {
         <div className={css.empty}>
           <IconTag size={22} aria-hidden />
           <p className={css.emptyTitle}>
-            {query ? "No tags match that search." : "You haven't created any tags yet."}
+            {query
+              ? "No tags match that search."
+              : "You haven't created any tags yet."}
           </p>
           <p className={css.emptyText}>
             {query
@@ -171,7 +193,9 @@ export function TagsSection() {
                   <span className={css.tagName} title={tag.name}>
                     {tag.name}
                   </span>
-                  <span className={`${css.tagCount}${used === 0 ? ` ${css.tagUnused}` : ""}`}>
+                  <span
+                    className={`${css.tagCount}${used === 0 ? ` ${css.tagUnused}` : ""}`}
+                  >
                     {used === 0
                       ? "Not used yet"
                       : `${used.toLocaleString()} product${used === 1 ? "" : "s"}`}
@@ -223,15 +247,20 @@ export function TagsSection() {
       {systemTags.length > 0 && (
         <details className={css.systemDisclosure}>
           <summary className={css.systemSummary}>
-            <IconChevronRight size={14} className={css.systemChevron} aria-hidden />
+            <IconChevronRight
+              size={14}
+              className={css.systemChevron}
+              aria-hidden
+            />
             <IconInfo size={14} aria-hidden />
             Regulatory attributes from the NMRA register ({systemTags.length})
           </summary>
           <div className={css.systemBody}>
             <p className={css.systemNote}>
-              Schedule, controlled status, prescription requirement and registration validity come
-              from the register and are re-applied on every import, so they can&apos;t be renamed
-              or deleted. Filter by them from Products, or open a product to see its registration.
+              Schedule, controlled status, prescription requirement and
+              registration validity come from the register and are re-applied on
+              every import, so they can&apos;t be renamed or deleted. Filter by
+              them from Products, or open a product to see its registration.
             </p>
             <ul className={css.systemList}>
               {systemTags.map((tag) => (
@@ -259,8 +288,8 @@ export function TagsSection() {
       >
         {deleteError ? <Alert variant="error">{deleteError}</Alert> : null}
         <p>
-          Permanently delete <strong>{deleteTarget?.name}</strong>? Product assignments using this
-          tag will be removed. This cannot be undone.
+          Permanently delete <strong>{deleteTarget?.name}</strong>? Product
+          assignments using this tag will be removed. This cannot be undone.
         </p>
       </ConfirmDialog>
 

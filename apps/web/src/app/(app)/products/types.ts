@@ -50,7 +50,12 @@ export type StockStatus = "out" | "low" | "ok";
 export type ProductRangeStatus = "REFERENCE" | "RANGED";
 
 /** Catalog record origin. NMRA-specific fields only apply when source = NMRA. */
-export type CatalogSource = "NMRA" | "MANUAL" | "SUPPLIER" | "CSV_IMPORT" | "BARCODE";
+export type CatalogSource =
+  | "NMRA"
+  | "MANUAL"
+  | "SUPPLIER"
+  | "CSV_IMPORT"
+  | "BARCODE";
 
 export type Product = {
   id: string;
@@ -109,7 +114,12 @@ export type Product = {
   matchField?: string;
 };
 
-export type ProductList = { items: Product[]; total: number; skip: number; take: number };
+export type ProductList = {
+  items: Product[];
+  total: number;
+  skip: number;
+  take: number;
+};
 
 export type ProductBatch = {
   id: string;

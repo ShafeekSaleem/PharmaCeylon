@@ -194,7 +194,8 @@ export class ProductImportService {
       totalRows: resolved.rows.length + resolved.issues.length,
       create,
       update,
-      skip: plan.skipped + plan.pendingCompliance.length + resolved.issues.length,
+      skip:
+        plan.skipped + plan.pendingCompliance.length + resolved.issues.length,
       withStock,
       unitsToPost,
       missingExpiry,
@@ -480,7 +481,13 @@ export class ProductImportService {
     tenantId: string,
     importId: string,
   ): Promise<ImportResult["catalogTasks"]> {
-    const empty = { total: 0, needsCategory: 0, nmraMatch: 0, complianceReview: 0, ambiguous: 0 };
+    const empty = {
+      total: 0,
+      needsCategory: 0,
+      nmraMatch: 0,
+      complianceReview: 0,
+      ambiguous: 0,
+    };
     try {
       await this.catalogTasks.refresh(tenantId, { importId });
     } catch (err) {
@@ -493,13 +500,22 @@ export class ProductImportService {
     }
 
     const open = { tenantId, importId, status: { in: OPEN_STATUSES } };
-    const [total, needsCategory, nmraMatch, complianceReview, ambiguous] = await Promise.all([
-      this.prisma.catalogTask.count({ where: open }),
-      this.prisma.catalogTask.count({ where: { ...open, type: "MISSING_CATEGORY" } }),
-      this.prisma.catalogTask.count({ where: { ...open, type: "NMRA_MATCH" } }),
-      this.prisma.catalogTask.count({ where: { ...open, complianceImpact: true } }),
-      this.prisma.catalogTask.count({ where: { ...open, type: "NMRA_AMBIGUOUS" } }),
-    ]);
+    const [total, needsCategory, nmraMatch, complianceReview, ambiguous] =
+      await Promise.all([
+        this.prisma.catalogTask.count({ where: open }),
+        this.prisma.catalogTask.count({
+          where: { ...open, type: "MISSING_CATEGORY" },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...open, type: "NMRA_MATCH" },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...open, complianceImpact: true },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...open, type: "NMRA_AMBIGUOUS" },
+        }),
+      ]);
     return { total, needsCategory, nmraMatch, complianceReview, ambiguous };
   }
 
@@ -587,9 +603,16 @@ export class ProductImportService {
     return null;
   }
 
-  private async importBatchIds(tenantId: string, importId: string): Promise<string[]> {
+  private async importBatchIds(
+    tenantId: string,
+    importId: string,
+  ): Promise<string[]> {
     const rows = await this.prisma.stockLedger.findMany({
-      where: { tenantId, referenceType: "product_import", referenceId: importId },
+      where: {
+        tenantId,
+        referenceType: "product_import",
+        referenceId: importId,
+      },
       select: { batchId: true },
       distinct: ["batchId"],
     });
@@ -616,11 +639,17 @@ export class ProductImportService {
     const removed = await this.prisma.$transaction(
       async (tx) => {
         await tx.stockLedger.deleteMany({
-          where: { tenantId, referenceType: "product_import", referenceId: importId },
+          where: {
+            tenantId,
+            referenceType: "product_import",
+            referenceId: importId,
+          },
         });
         const batches =
           batchIds.length > 0
-            ? await tx.batch.deleteMany({ where: { tenantId, id: { in: batchIds } } })
+            ? await tx.batch.deleteMany({
+                where: { tenantId, id: { in: batchIds } },
+              })
             : { count: 0 };
 
         // Products the import only matched and updated are left alone: the import didn't
@@ -736,31 +765,51 @@ export class ProductImportService {
       const rowNumber = i + 2;
       const name = cell(raw, "name").trim();
       if (!name) {
-        issues.push({ rowNumber, name: "", message: "No product name in this row." });
+        issues.push({
+          rowNumber,
+          name: "",
+          message: "No product name in this row.",
+        });
         return;
       }
 
       const qtyText = cell(raw, "qty");
       const qty = parseQty(qtyText);
       if (qtyText && qty == null) {
-        issues.push({ rowNumber, name, message: `Quantity "${qtyText}" isn't a number.` });
+        issues.push({
+          rowNumber,
+          name,
+          message: `Quantity "${qtyText}" isn't a number.`,
+        });
         return;
       }
       if (qty != null && qty < 0) {
-        issues.push({ rowNumber, name, message: "Quantity can't be negative." });
+        issues.push({
+          rowNumber,
+          name,
+          message: "Quantity can't be negative.",
+        });
         return;
       }
 
       const costText = cell(raw, "costPrice");
       const cost = parseMoney(costText);
       if (costText && cost == null) {
-        issues.push({ rowNumber, name, message: `Cost "${costText}" isn't a valid amount.` });
+        issues.push({
+          rowNumber,
+          name,
+          message: `Cost "${costText}" isn't a valid amount.`,
+        });
         return;
       }
       const priceText = cell(raw, "sellingPrice");
       const price = parseMoney(priceText);
       if (priceText && price == null) {
-        issues.push({ rowNumber, name, message: `Price "${priceText}" isn't a valid amount.` });
+        issues.push({
+          rowNumber,
+          name,
+          message: `Price "${priceText}" isn't a valid amount.`,
+        });
         return;
       }
 
@@ -779,7 +828,8 @@ export class ProductImportService {
         issues.push({
           rowNumber,
           name,
-          message: "This row has stock but no selling price — a batch can't be priced without one.",
+          message:
+            "This row has stock but no selling price — a batch can't be priced without one.",
         });
         return;
       }
@@ -813,7 +863,9 @@ export class ProductImportService {
 
   // ── Commercial categories ───────────────────────────────────────────────
 
-  private async buildCategoryIndex(tenantId: string): Promise<CommercialCategoryIndex> {
+  private async buildCategoryIndex(
+    tenantId: string,
+  ): Promise<CommercialCategoryIndex> {
     await this.categoryTaxonomy.ensureCommercialTemplate(tenantId);
     const rows = await this.prisma.productCategory.findMany({
       where: { tenantId, dimension: "COMMERCIAL" },
@@ -981,16 +1033,18 @@ export class ProductImportService {
       });
     }
 
-    const unclassifiedCount = await this.categoryTaxonomy.assignMissingPrimaryCommercial(
-      tenantId,
-      createdIds,
-      UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
-      "SYSTEM_DEFAULT",
-    );
-    const classified = await this.categoryTaxonomy.applyDeterministicMedicineClassification(
-      tenantId,
-      createdIds,
-    );
+    const unclassifiedCount =
+      await this.categoryTaxonomy.assignMissingPrimaryCommercial(
+        tenantId,
+        createdIds,
+        UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
+        "SYSTEM_DEFAULT",
+      );
+    const classified =
+      await this.categoryTaxonomy.applyDeterministicMedicineClassification(
+        tenantId,
+        createdIds,
+      );
 
     return {
       fromFile,
@@ -1079,7 +1133,11 @@ export class ProductImportService {
       }
 
       let held = false;
-      if (match && needsComplianceConfirmation(match) && !confirmedRows.has(row.rowNumber)) {
+      if (
+        match &&
+        needsComplianceConfirmation(match) &&
+        !confirmedRows.has(row.rowNumber)
+      ) {
         pendingCompliance.push({
           rowNumber: row.rowNumber,
           name: row.name,
@@ -1151,14 +1209,20 @@ export class ProductImportService {
                     // Only fill gaps: an existing catalog record's own data is better than a
                     // spreadsheet's, so the import never overwrites what is already there.
                     ...(item.row.barcode ? { barcode: item.row.barcode } : {}),
-                    ...(item.row.brandName ? { brandName: item.row.brandName } : {}),
-                    ...(item.row.packSize ? { packSize: item.row.packSize } : {}),
+                    ...(item.row.brandName
+                      ? { brandName: item.row.brandName }
+                      : {}),
+                    ...(item.row.packSize
+                      ? { packSize: item.row.packSize }
+                      : {}),
                     ...(item.row.reorderLevel != null
                       ? { reorderLevel: item.row.reorderLevel }
                       : {}),
                     // The pharmacy is telling us it sells this — that is the point of the file.
                     rangeStatus: "RANGED",
-                    ...(before?.rangeStatus === "REFERENCE" ? { rangedAt: new Date() } : {}),
+                    ...(before?.rangeStatus === "REFERENCE"
+                      ? { rangedAt: new Date() }
+                      : {}),
                   },
                 });
                 if (before?.rangeStatus === "REFERENCE") ranged += 1;
@@ -1197,7 +1261,10 @@ export class ProductImportService {
               issues.push({
                 rowNumber: item.row.rowNumber,
                 name: item.row.name,
-                message: err instanceof Error ? err.message : "Could not save this product.",
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "Could not save this product.",
               });
             }
           }
@@ -1220,7 +1287,11 @@ export class ProductImportService {
     productIdByRow: Map<number, string>,
     issues: ImportRowIssue[],
     onProgress: (processed: number) => void,
-  ): Promise<{ batchesCreated: number; unitsPosted: number; expiryReviewCount: number }> {
+  ): Promise<{
+    batchesCreated: number;
+    unitsPosted: number;
+    expiryReviewCount: number;
+  }> {
     const withStock = planned.filter((p) => p.row.qty != null && p.row.qty > 0);
     let batchesCreated = 0;
     let unitsPosted = 0;
@@ -1291,7 +1362,9 @@ export class ProductImportService {
                 rowNumber: item.row.rowNumber,
                 name: item.row.name,
                 message:
-                  err instanceof Error ? err.message : "Could not post opening stock.",
+                  err instanceof Error
+                    ? err.message
+                    : "Could not post opening stock.",
               });
             }
           }

@@ -170,7 +170,9 @@ export function WorkQueueSection({
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [applyingSafe, setApplyingSafe] = useState(false);
-  const [chosenCategory, setChosenCategory] = useState<Record<string, string>>({});
+  const [chosenCategory, setChosenCategory] = useState<Record<string, string>>(
+    {},
+  );
   const [reviewProductId, setReviewProductId] = useState<string | null>(null);
   /** Set once the first refresh has run, so opening the page doesn't show a stale queue. */
   const [refreshed, setRefreshed] = useState(false);
@@ -197,7 +199,9 @@ export function WorkQueueSection({
       setItems(result.items);
       setTotal(result.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't load the work queue");
+      setError(
+        err instanceof Error ? err.message : "Couldn't load the work queue",
+      );
     } finally {
       setLoading(false);
     }
@@ -232,10 +236,18 @@ export function WorkQueueSection({
 
   const categoryOptions = useMemo<SelectFieldOption[]>(() => {
     const departments = categories.filter((c) => !c.parentCategoryId);
-    const options: SelectFieldOption[] = [{ value: "", label: "Choose a category…" }];
+    const options: SelectFieldOption[] = [
+      { value: "", label: "Choose a category…" },
+    ];
     for (const dept of departments) {
-      options.push({ value: dept.id, label: `${dept.name} (department)`, shortLabel: dept.name });
-      for (const child of categories.filter((c) => c.parentCategoryId === dept.id)) {
+      options.push({
+        value: dept.id,
+        label: `${dept.name} (department)`,
+        shortLabel: dept.name,
+      });
+      for (const child of categories.filter(
+        (c) => c.parentCategoryId === dept.id,
+      )) {
         options.push({
           value: child.id,
           label: `${dept.name} › ${child.name}`,
@@ -256,7 +268,10 @@ export function WorkQueueSection({
     try {
       if (action === "apply") {
         const chosen = chosenCategory[task.id];
-        await applyCatalogTask(task.id, chosen ? { categoryId: chosen } : undefined);
+        await applyCatalogTask(
+          task.id,
+          chosen ? { categoryId: chosen } : undefined,
+        );
         setNotice(`"${task.product.name}" updated.`);
       } else {
         await closeCatalogTask(task.id, action);
@@ -269,7 +284,9 @@ export function WorkQueueSection({
       await load();
       onSummaryChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't update that task");
+      setError(
+        err instanceof Error ? err.message : "Couldn't update that task",
+      );
     } finally {
       setBusyId(null);
     }
@@ -283,15 +300,21 @@ export function WorkQueueSection({
     setNotice(null);
     try {
       const result = await applySafeCatalogTasks(query, safeCount);
-      const parts = [`${result.applied.toLocaleString()} change${result.applied === 1 ? "" : "s"} applied`];
+      const parts = [
+        `${result.applied.toLocaleString()} change${result.applied === 1 ? "" : "s"} applied`,
+      ];
       if (result.failed.length > 0) {
-        parts.push(`${result.failed.length.toLocaleString()} couldn't be applied — ${result.failed[0].reason}`);
+        parts.push(
+          `${result.failed.length.toLocaleString()} couldn't be applied — ${result.failed[0].reason}`,
+        );
       }
       setNotice(parts.join(". "));
       await load();
       onSummaryChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't apply those changes");
+      setError(
+        err instanceof Error ? err.message : "Couldn't apply those changes",
+      );
     } finally {
       setApplyingSafe(false);
     }
@@ -304,7 +327,10 @@ export function WorkQueueSection({
         header: "Product",
         render: (task) => (
           <div className={css.taskProduct}>
-            <Link href={`/products/${task.product.id}`} className={css.taskProductName}>
+            <Link
+              href={`/products/${task.product.id}`}
+              className={css.taskProductName}
+            >
               {task.product.name}
               {task.product.brandName ? ` — ${task.product.brandName}` : ""}
             </Link>
@@ -312,7 +338,9 @@ export function WorkQueueSection({
               {[
                 task.product.sku,
                 task.product.genericName,
-                [task.product.dosageForm, task.product.strength].filter(Boolean).join(" · "),
+                [task.product.dosageForm, task.product.strength]
+                  .filter(Boolean)
+                  .join(" · "),
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -334,13 +362,21 @@ export function WorkQueueSection({
         width: "150px",
         render: (task) => {
           const map = {
-            MISSING_CATEGORY: { label: "Needs category", cls: css.typeChipCategory },
+            MISSING_CATEGORY: {
+              label: "Needs category",
+              cls: css.typeChipCategory,
+            },
             NMRA_MATCH: { label: "Register match", cls: css.typeChipMatch },
             NMRA_AMBIGUOUS: { label: "Ambiguous", cls: css.typeChipAmbiguous },
-            IMPORT_DUPLICATE: { label: "Import duplicate", cls: css.typeChipAmbiguous },
+            IMPORT_DUPLICATE: {
+              label: "Import duplicate",
+              cls: css.typeChipAmbiguous,
+            },
           } as const;
           const meta = map[task.type];
-          return <span className={`${css.typeChip} ${meta.cls}`}>{meta.label}</span>;
+          return (
+            <span className={`${css.typeChip} ${meta.cls}`}>{meta.label}</span>
+          );
         },
       },
       {
@@ -350,7 +386,11 @@ export function WorkQueueSection({
           if (task.type === "MISSING_CATEGORY") {
             // A category task without a suggestion still needs an answer, so the picker is
             // offered inline rather than sending the user off to the product page.
-            if (!isCategorySuggestion(task.suggestion) && canWrite && task.status !== "RESOLVED") {
+            if (
+              !isCategorySuggestion(task.suggestion) &&
+              canWrite &&
+              task.status !== "RESOLVED"
+            ) {
               return (
                 <SelectField
                   hideLabel
@@ -369,16 +409,23 @@ export function WorkQueueSection({
             if (isCategorySuggestion(task.suggestion)) {
               return (
                 <div className={css.suggestion}>
-                  <span className={css.suggestionText}>{task.suggestion.categoryPath}</span>
+                  <span className={css.suggestionText}>
+                    {task.suggestion.categoryPath}
+                  </span>
                   {canWrite && task.status !== "RESOLVED" && (
                     <SelectField
                       hideLabel
                       label={`Choose a different category for ${task.product.name}`}
                       className={css.rowSelect}
                       fullWidth={false}
-                      value={chosenCategory[task.id] ?? task.suggestion.categoryId}
+                      value={
+                        chosenCategory[task.id] ?? task.suggestion.categoryId
+                      }
                       onChange={(value) =>
-                        setChosenCategory((prev) => ({ ...prev, [task.id]: value }))
+                        setChosenCategory((prev) => ({
+                          ...prev,
+                          [task.id]: value,
+                        }))
                       }
                       options={categoryOptions}
                       wideMenu
@@ -395,10 +442,14 @@ export function WorkQueueSection({
               <div className={css.suggestion}>
                 <span className={css.suggestionText}>
                   {task.suggestion.name}
-                  {task.suggestion.brandName ? ` — ${task.suggestion.brandName}` : ""}
+                  {task.suggestion.brandName
+                    ? ` — ${task.suggestion.brandName}`
+                    : ""}
                 </span>
                 {task.suggestion.registrationNo && (
-                  <span className={css.suggestionSub}>Reg. {task.suggestion.registrationNo}</span>
+                  <span className={css.suggestionSub}>
+                    Reg. {task.suggestion.registrationNo}
+                  </span>
                 )}
               </div>
             );
@@ -408,17 +459,25 @@ export function WorkQueueSection({
             return (
               <div className={css.suggestion}>
                 <span className={css.suggestionNone}>
-                  {task.candidates.length} register entries share this identifier
+                  {task.candidates.length} register entries share this
+                  identifier
                 </span>
                 <span className={css.suggestionSub}>
-                  {task.candidates.slice(0, 2).map((c) => c.name).join(", ")}
+                  {task.candidates
+                    .slice(0, 2)
+                    .map((c) => c.name)
+                    .join(", ")}
                   {task.candidates.length > 2 ? "…" : ""}
                 </span>
               </div>
             );
           }
 
-          return <span className={css.suggestionNone}>{task.detail ?? "No suggestion"}</span>;
+          return (
+            <span className={css.suggestionNone}>
+              {task.detail ?? "No suggestion"}
+            </span>
+          );
         },
       },
       {
@@ -436,15 +495,21 @@ export function WorkQueueSection({
                 {task.evidenceLabel}
               </span>
             ) : (
-              <span className={`${css.evidenceChip} ${css.evidenceChipWeak}`}>No evidence</span>
+              <span className={`${css.evidenceChip} ${css.evidenceChipWeak}`}>
+                No evidence
+              </span>
             )}
             {task.confidence != null && (
-              <span className={css.confidence}>{Math.round(task.confidence * 100)}%</span>
+              <span className={css.confidence}>
+                {Math.round(task.confidence * 100)}%
+              </span>
             )}
             {/* Spelled out, not a colour: this is the difference between a product being
                 dispensable and not. */}
             {task.complianceImpact && (
-              <span className={`${css.evidenceChip} ${css.evidenceChipCompliance}`}>
+              <span
+                className={`${css.evidenceChip} ${css.evidenceChipCompliance}`}
+              >
                 <IconAlertTriangle size={10} aria-hidden />
                 Changes compliance
               </span>
@@ -473,7 +538,9 @@ export function WorkQueueSection({
           if (statusView !== "open") {
             return (
               <div className={css.rowActions}>
-                <span className={css.statusChip}>{STATUS_LABELS[task.status]}</span>
+                <span className={css.statusChip}>
+                  {STATUS_LABELS[task.status]}
+                </span>
                 <button
                   type="button"
                   className={css.rowBtn}
@@ -492,7 +559,8 @@ export function WorkQueueSection({
             ? task.suggestion.categoryId
             : undefined;
           const canFile = Boolean(chosen ?? suggestedCategoryId);
-          const canLink = isReferenceSuggestion(task.suggestion) && !task.complianceImpact;
+          const canLink =
+            isReferenceSuggestion(task.suggestion) && !task.complianceImpact;
 
           const secondary = [
             ...(!isCategory
@@ -570,27 +638,35 @@ export function WorkQueueSection({
         <div className={css.summary}>
           <span className={css.summaryTotal}>
             {summary.open.toLocaleString()}
-            <span className={css.summaryTotalLabel}>open task{summary.open === 1 ? "" : "s"}</span>
+            <span className={css.summaryTotalLabel}>
+              open task{summary.open === 1 ? "" : "s"}
+            </span>
           </span>
           <div className={css.summaryChips}>
             <SummaryChip
               label="need a category"
               count={summary.needsCategory}
               active={view === "needs_category"}
-              onClick={() => setView(view === "needs_category" ? "all" : "needs_category")}
+              onClick={() =>
+                setView(view === "needs_category" ? "all" : "needs_category")
+              }
             />
             <SummaryChip
               label="register matches"
               count={summary.nmraMatch}
               active={view === "nmra_match"}
-              onClick={() => setView(view === "nmra_match" ? "all" : "nmra_match")}
+              onClick={() =>
+                setView(view === "nmra_match" ? "all" : "nmra_match")
+              }
             />
             <SummaryChip
               label="need compliance review"
               count={summary.complianceReview}
               attention
               active={view === "compliance"}
-              onClick={() => setView(view === "compliance" ? "all" : "compliance")}
+              onClick={() =>
+                setView(view === "compliance" ? "all" : "compliance")
+              }
             />
             <SummaryChip
               label="from recent imports"
@@ -611,7 +687,9 @@ export function WorkQueueSection({
                 aria-label="Products filed under a category"
               />
             </div>
-            <span className={css.coverageText}>{summary.categoryCoveragePercent}% filed</span>
+            <span className={css.coverageText}>
+              {summary.categoryCoveragePercent}% filed
+            </span>
           </div>
         </div>
       )}
@@ -629,7 +707,11 @@ export function WorkQueueSection({
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <div className={css.filterChips} role="group" aria-label="Filter by task type">
+          <div
+            className={css.filterChips}
+            role="group"
+            aria-label="Filter by task type"
+          >
             {VIEWS.map((v) => (
               <button
                 key={v.id}
@@ -642,7 +724,11 @@ export function WorkQueueSection({
               </button>
             ))}
           </div>
-          <div className={css.filterChips} role="group" aria-label="Filter by status">
+          <div
+            className={css.filterChips}
+            role="group"
+            aria-label="Filter by status"
+          >
             {STATUS_VIEWS.map((v) => (
               <button
                 key={v.id}
@@ -701,7 +787,9 @@ export function WorkQueueSection({
         <div className={css.card}>
           <p className={css.done}>
             <IconCheckCircle size={18} aria-hidden />
-            {statusView === "open" ? "Nothing left to review." : "Nothing here."}
+            {statusView === "open"
+              ? "Nothing left to review."
+              : "Nothing here."}
           </p>
           <p className={css.empty}>
             {statusView === "open" ? (

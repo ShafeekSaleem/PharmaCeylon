@@ -28,13 +28,15 @@ type Props = {
 /** `use:<id>` / `create:<parentId or empty>` / `skip` — one select, three kinds of answer. */
 function encode(decision: CategoryDecision): string {
   if (decision.action === "use") return `use:${decision.categoryId}`;
-  if (decision.action === "create") return `create:${decision.parentCategoryId ?? ""}`;
+  if (decision.action === "create")
+    return `create:${decision.parentCategoryId ?? ""}`;
   return "skip";
 }
 
 function decode(value: string): CategoryDecision | null {
   if (value === "skip") return { action: "skip" };
-  if (value.startsWith("use:")) return { action: "use", categoryId: value.slice(4) };
+  if (value.startsWith("use:"))
+    return { action: "use", categoryId: value.slice(4) };
   if (value.startsWith("create:")) {
     const parent = value.slice(7);
     return { action: "create", parentCategoryId: parent || null };
@@ -77,9 +79,15 @@ export function ImportCategoryBlock({
 
   // Shared across every row — only the trailing "new department called X" option is row-specific.
   const baseCategoryOptions = useMemo<SelectFieldOption[]>(() => {
-    const options: SelectFieldOption[] = [{ value: "skip", label: "Sort it automatically" }];
+    const options: SelectFieldOption[] = [
+      { value: "skip", label: "Sort it automatically" },
+    ];
     for (const dept of departments) {
-      options.push({ value: `use:${dept.id}`, label: `${dept.name} (department)`, shortLabel: dept.name });
+      options.push({
+        value: `use:${dept.id}`,
+        label: `${dept.name} (department)`,
+        shortLabel: dept.name,
+      });
       for (const child of childrenByParent.get(dept.id) ?? []) {
         options.push({
           value: `use:${child.id}`,
@@ -108,7 +116,9 @@ export function ImportCategoryBlock({
     0,
   );
 
-  const visible = expanded ? plan.entries : plan.entries.slice(0, COLLAPSED_ROWS);
+  const visible = expanded
+    ? plan.entries
+    : plan.entries.slice(0, COLLAPSED_ROWS);
   const hidden = plan.entries.length - visible.length;
 
   if (!plan.mapped && plan.entries.length === 0) {
@@ -116,9 +126,9 @@ export function ImportCategoryBlock({
       <>
         <h3 className={css.groupTitle}>Categories</h3>
         <p className={css.dim}>
-          No Category column is mapped, so every new product will be filed automatically —
-          medicines by their generic name where we recognise it, and anything else into
-          Unclassified for you to place later.
+          No Category column is mapped, so every new product will be filed
+          automatically — medicines by their generic name where we recognise it,
+          and anything else into Unclassified for you to place later.
         </p>
       </>
     );
@@ -129,9 +139,7 @@ export function ImportCategoryBlock({
       <h3 className={css.groupTitle}>
         Categories
         {unmatched > 0 && (
-          <span className={css.required}>
-            {unmatched} to place
-          </span>
+          <span className={css.required}>{unmatched} to place</span>
         )}
       </h3>
 
@@ -139,13 +147,14 @@ export function ImportCategoryBlock({
         {placedRows > 0 ? (
           <>
             <strong>{placedRows.toLocaleString()}</strong> row
-            {placedRows === 1 ? "" : "s"} will be filed from your Category column
+            {placedRows === 1 ? "" : "s"} will be filed from your Category
+            column
             {matchedRows > 0 ? (
               <>
                 {" "}
                 — but only the {createdRows.toLocaleString()} this import{" "}
-                <em>creates</em>. The {matchedRows.toLocaleString()} matched to products you
-                already have keep the category they already have
+                <em>creates</em>. The {matchedRows.toLocaleString()} matched to
+                products you already have keep the category they already have
               </>
             ) : null}
             .{" "}
@@ -154,8 +163,8 @@ export function ImportCategoryBlock({
         {plan.blankRows > 0 ? (
           <>
             <strong>{plan.blankRows.toLocaleString()}</strong> row
-            {plan.blankRows === 1 ? " has" : "s have"} no category — those are sorted
-            automatically, or land in Unclassified.
+            {plan.blankRows === 1 ? " has" : "s have"} no category — those are
+            sorted automatically, or land in Unclassified.
           </>
         ) : null}
       </p>
@@ -184,7 +193,9 @@ export function ImportCategoryBlock({
               return (
                 <tr key={entry.incoming}>
                   <td>
-                    <span className={css.categoryIncoming}>{entry.incoming}</span>
+                    <span className={css.categoryIncoming}>
+                      {entry.incoming}
+                    </span>
                     {entry.status === "matched_synonym" && !decision && (
                       <span
                         className={css.miniChip}
@@ -199,7 +210,9 @@ export function ImportCategoryBlock({
                       </span>
                     )}
                   </td>
-                  <td className={css.numCol}>{entry.rowCount.toLocaleString()}</td>
+                  <td className={css.numCol}>
+                    {entry.rowCount.toLocaleString()}
+                  </td>
                   <td>
                     <SelectField
                       hideLabel
@@ -213,7 +226,8 @@ export function ImportCategoryBlock({
                         // Clearing back to the automatic answer keeps the payload to real
                         // overrides only.
                         const isAuto =
-                          parsed?.action === "use" && parsed.categoryId === entry.categoryId;
+                          parsed?.action === "use" &&
+                          parsed.categoryId === entry.categoryId;
                         onChange(entry.incoming, isAuto ? null : parsed);
                       }}
                       options={[
@@ -249,8 +263,8 @@ export function ImportCategoryBlock({
 
       <p className={css.categoryFootnote}>
         <IconInfo size={14} />
-        Anything left unplaced becomes a &quot;needs a category&quot; task in Catalog
-        Management rather than being guessed at.
+        Anything left unplaced becomes a &quot;needs a category&quot; task in
+        Catalog Management rather than being guessed at.
       </p>
     </>
   );

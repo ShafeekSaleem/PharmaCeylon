@@ -21,7 +21,10 @@
  *                    unclassifiable teapot doesn't generate a "no suggestion" row.
  */
 
-export type NmraEligibilityVerdict = "eligible" | "not_applicable" | "uncertain";
+export type NmraEligibilityVerdict =
+  | "eligible"
+  | "not_applicable"
+  | "uncertain";
 
 /**
  * How strong the evidence for "this is a medicine" was.
@@ -63,16 +66,60 @@ export type NmraEligibilityInput = {
  * carries "Tablet" only inside the name.
  */
 const MEDICINE_FORMS = [
-  "tablet", "tablets", "tab", "tabs", "caplet", "caplets",
-  "capsule", "capsules", "cap", "caps",
-  "injection", "injections", "inj", "ampoule", "ampoules", "vial", "vials", "infusion",
-  "syrup", "syrups", "suspension", "suspensions", "elixir", "linctus",
-  "ointment", "ointments", "cream", "creams", "gel", "gels", "lotion",
-  "suppository", "suppositories", "pessary", "pessaries",
-  "inhaler", "inhalers", "respirator solution",
-  "eye drops", "ear drops", "nasal spray", "eye ointment", "drops",
-  "granules", "sachet", "sachets", "powder for injection", "lozenge", "lozenges",
-  "patch", "patches", "solution for injection", "iv fluid", "dry syrup",
+  "tablet",
+  "tablets",
+  "tab",
+  "tabs",
+  "caplet",
+  "caplets",
+  "capsule",
+  "capsules",
+  "cap",
+  "caps",
+  "injection",
+  "injections",
+  "inj",
+  "ampoule",
+  "ampoules",
+  "vial",
+  "vials",
+  "infusion",
+  "syrup",
+  "syrups",
+  "suspension",
+  "suspensions",
+  "elixir",
+  "linctus",
+  "ointment",
+  "ointments",
+  "cream",
+  "creams",
+  "gel",
+  "gels",
+  "lotion",
+  "suppository",
+  "suppositories",
+  "pessary",
+  "pessaries",
+  "inhaler",
+  "inhalers",
+  "respirator solution",
+  "eye drops",
+  "ear drops",
+  "nasal spray",
+  "eye ointment",
+  "drops",
+  "granules",
+  "sachet",
+  "sachets",
+  "powder for injection",
+  "lozenge",
+  "lozenges",
+  "patch",
+  "patches",
+  "solution for injection",
+  "iv fluid",
+  "dry syrup",
 ];
 
 /**
@@ -82,35 +129,129 @@ const MEDICINE_FORMS = [
  * beside the dispensary, not a guess at what might not be a drug.
  */
 const RETAIL_KEYWORDS = [
-  "umbrella", "kitchen scale", "weighing scale", "bathroom scale",
-  "diaper", "diapers", "nappy", "nappies",
-  "soap", "shampoo", "conditioner", "body wash", "shower gel", "face wash",
-  "toothbrush", "toothpaste", "mouthwash", "dental floss",
-  "razor", "shaving", "deodorant", "perfume", "cologne", "talc", "talcum",
-  "tissue", "tissues", "toilet paper", "paper towel", "napkin", "wet wipes",
-  "detergent", "bleach", "dishwash", "cleaner", "air freshener", "insect repellent",
-  "mosquito coil", "mosquito net", "candle", "matches", "lighter",
-  "battery", "batteries", "torch", "bulb", "charger", "cable", "earphone",
-  "confectionery", "chocolate", "biscuit", "biscuits", "candy", "toffee", "chewing gum",
-  "milk powder", "beverage", "juice", "soft drink", "tea", "coffee", "sugar",
-  "greeting card", "gift", "stationery", "pen", "pencil", "notebook",
-  "toy", "toys", "sock", "socks", "slipper", "slippers", "bag", "wallet",
-  "comb", "hair brush", "hair oil", "hair dye", "nail polish", "cosmetic", "lipstick",
-  "sunglasses", "spectacle case", "water bottle", "flask", "lunch box",
-  "sanitary napkin", "sanitary pad", "panty liner",
-  "cotton bud", "cotton buds",
+  "umbrella",
+  "kitchen scale",
+  "weighing scale",
+  "bathroom scale",
+  "diaper",
+  "diapers",
+  "nappy",
+  "nappies",
+  "soap",
+  "shampoo",
+  "conditioner",
+  "body wash",
+  "shower gel",
+  "face wash",
+  "toothbrush",
+  "toothpaste",
+  "mouthwash",
+  "dental floss",
+  "razor",
+  "shaving",
+  "deodorant",
+  "perfume",
+  "cologne",
+  "talc",
+  "talcum",
+  "tissue",
+  "tissues",
+  "toilet paper",
+  "paper towel",
+  "napkin",
+  "wet wipes",
+  "detergent",
+  "bleach",
+  "dishwash",
+  "cleaner",
+  "air freshener",
+  "insect repellent",
+  "mosquito coil",
+  "mosquito net",
+  "candle",
+  "matches",
+  "lighter",
+  "battery",
+  "batteries",
+  "torch",
+  "bulb",
+  "charger",
+  "cable",
+  "earphone",
+  "confectionery",
+  "chocolate",
+  "biscuit",
+  "biscuits",
+  "candy",
+  "toffee",
+  "chewing gum",
+  "milk powder",
+  "beverage",
+  "juice",
+  "soft drink",
+  "tea",
+  "coffee",
+  "sugar",
+  "greeting card",
+  "gift",
+  "stationery",
+  "pen",
+  "pencil",
+  "notebook",
+  "toy",
+  "toys",
+  "sock",
+  "socks",
+  "slipper",
+  "slippers",
+  "bag",
+  "wallet",
+  "comb",
+  "hair brush",
+  "hair oil",
+  "hair dye",
+  "nail polish",
+  "cosmetic",
+  "lipstick",
+  "sunglasses",
+  "spectacle case",
+  "water bottle",
+  "flask",
+  "lunch box",
+  "sanitary napkin",
+  "sanitary pad",
+  "panty liner",
+  "cotton bud",
+  "cotton buds",
   // Added after running the classifier over a real seeded catalog, where each of these was
   // being read as a medicine: "Gel" and "Lotion" are dosage forms, and "100ml"/"400g" are
   // dosed strengths, so a hand sanitiser and a baby cereal both looked medicinal.
-  "sanitizer", "sanitiser", "hand wash", "hand rub",
-  "cereal", "baby food", "baby formula", "infant formula", "porridge",
-  "thermometer", "blood pressure monitor",
-  "glucometer", "weighing", "crutch", "wheelchair", "walking stick",
-  "hot water bottle", "ice pack", "face mask", "gloves", "syringe box",
+  "sanitizer",
+  "sanitiser",
+  "hand wash",
+  "hand rub",
+  "cereal",
+  "baby food",
+  "baby formula",
+  "infant formula",
+  "porridge",
+  "thermometer",
+  "blood pressure monitor",
+  "glucometer",
+  "weighing",
+  "crutch",
+  "wheelchair",
+  "walking stick",
+  "hot water bottle",
+  "ice pack",
+  "face mask",
+  "gloves",
+  "syringe box",
 ];
 
 /** Strength units that only appear on a dosed medicinal product. */
-const STRENGTH_UNIT_PATTERN = /\b\d+(?:\.\d+)?\s?(mg|mcg|µg|ug|g|ml|l|iu|u|%|mg\/ml|mg\/5ml|meq|mmol)\b/i;
+const STRENGTH_UNIT_PATTERN =
+  /\b\d+(?:\.\d+)?\s?(mg|mcg|µg|ug|g|ml|l|iu|u|%|mg\/ml|mg\/5ml|meq|mmol)\b/i;
 
 /** NMRA schedule codes, as they appear on the register. */
 const SCHEDULE_PATTERN = /^(i{1,3}|iv|v)\s?[abc]?$/i;
@@ -144,7 +285,9 @@ function containsWord(text: string, term: string): boolean {
  * 3. **Weak medicine signals** — dosage form, generic/substance name, dosed strength. Enough
  *    on their own, but only once nothing louder has spoken.
  */
-export function classifyNmraEligibility(input: NmraEligibilityInput): NmraEligibility {
+export function classifyNmraEligibility(
+  input: NmraEligibilityInput,
+): NmraEligibility {
   const text = haystack(input);
 
   const strong: string[] = [];
@@ -155,7 +298,8 @@ export function classifyNmraEligibility(input: NmraEligibilityInput): NmraEligib
   if (input.regType?.trim()) strong.push("registration_type");
   if (input.isControlled) strong.push("controlled");
   if (input.requiresPrescription) strong.push("prescription_required");
-  if (input.commercialCanonicalKey?.startsWith("MEDICINES_")) strong.push("medicine_category");
+  if (input.commercialCanonicalKey?.startsWith("MEDICINES_"))
+    strong.push("medicine_category");
 
   if (strong.length > 0) {
     return {
@@ -179,14 +323,21 @@ export function classifyNmraEligibility(input: NmraEligibilityInput): NmraEligib
   const weak: string[] = [];
   const form = (input.dosageForm ?? "").toLowerCase().trim();
   const formHit = MEDICINE_FORMS.find(
-    (f) => (form && containsWord(form, f)) || containsWord(input.name.toLowerCase(), f),
+    (f) =>
+      (form && containsWord(form, f)) ||
+      containsWord(input.name.toLowerCase(), f),
   );
   if (formHit) weak.push(`dosage_form:${formHit}`);
   if (input.genericName?.trim()) weak.push("generic_name");
   if (STRENGTH_UNIT_PATTERN.test(text)) weak.push("dosed_strength");
 
   if (weak.length > 0) {
-    return { verdict: "eligible", tier: "weak", reason: describeEligible(weak), signals: weak };
+    return {
+      verdict: "eligible",
+      tier: "weak",
+      reason: describeEligible(weak),
+      signals: weak,
+    };
   }
 
   return {
@@ -200,14 +351,21 @@ export function classifyNmraEligibility(input: NmraEligibilityInput): NmraEligib
 
 function describeEligible(signals: string[]): string {
   const parts: string[] = [];
-  if (signals.includes("registration_no")) parts.push("carries a registration number");
+  if (signals.includes("registration_no"))
+    parts.push("carries a registration number");
   if (signals.includes("schedule")) parts.push("carries an NMRA schedule");
   if (signals.includes("controlled")) parts.push("is marked controlled");
-  if (signals.includes("prescription_required")) parts.push("requires a prescription");
+  if (signals.includes("prescription_required"))
+    parts.push("requires a prescription");
   const form = signals.find((s) => s.startsWith("dosage_form:"));
-  if (form) parts.push(`has a medicinal dosage form (${form.slice("dosage_form:".length)})`);
-  if (signals.includes("generic_name")) parts.push("has a generic/substance name");
+  if (form)
+    parts.push(
+      `has a medicinal dosage form (${form.slice("dosage_form:".length)})`,
+    );
+  if (signals.includes("generic_name"))
+    parts.push("has a generic/substance name");
   if (signals.includes("dosed_strength")) parts.push("has a dosed strength");
-  if (signals.includes("medicine_category")) parts.push("is filed under a medicines category");
+  if (signals.includes("medicine_category"))
+    parts.push("is filed under a medicines category");
   return `Treated as a medicine: ${parts.join(", ")}.`;
 }

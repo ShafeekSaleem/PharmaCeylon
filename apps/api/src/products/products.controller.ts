@@ -173,8 +173,14 @@ export class ProductsController {
    */
   @RequirePermission("products.view")
   @Post("reference/preview-add")
-  previewReferenceAdd(@CurrentUser() user: RequestUser, @Body() dto: ReferenceAddDto) {
-    return this.products.previewReferenceAdd(user.tenantId, dto.referenceProductIds);
+  previewReferenceAdd(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: ReferenceAddDto,
+  ) {
+    return this.products.previewReferenceAdd(
+      user.tenantId,
+      dto.referenceProductIds,
+    );
   }
 
   @RequirePermission("products.manage")
@@ -211,7 +217,10 @@ export class ProductsController {
 
   @RequirePermission("products.view")
   @Get(":id")
-  getOne(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+  getOne(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.products.getById(user.tenantId, id);
   }
 
@@ -233,7 +242,10 @@ export class ProductsController {
 
   @RequirePermission("products.delete")
   @Delete(":id")
-  remove(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+  remove(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.products.remove(user.tenantId, user.userId, id);
   }
 }

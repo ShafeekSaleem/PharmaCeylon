@@ -43,7 +43,11 @@ export function ReferenceAddReviewModal({
       canDismiss={!applying}
       footer={
         <ModalFooter>
-          <ModalButton variant="secondary" onClick={onCancel} disabled={applying}>
+          <ModalButton
+            variant="secondary"
+            onClick={onCancel}
+            disabled={applying}
+          >
             Cancel
           </ModalButton>
           <ModalButton
@@ -62,13 +66,14 @@ export function ReferenceAddReviewModal({
       <p>
         {clean > 0 && (
           <>
-            {clean.toLocaleString()} product{clean === 1 ? "" : "s"} will be added without
-            question.{" "}
+            {clean.toLocaleString()} product{clean === 1 ? "" : "s"} will be
+            added without question.{" "}
           </>
         )}
         {flagged.length > 0 && (
           <>
-            {flagged.length.toLocaleString()} need{flagged.length === 1 ? "s" : ""} a look first.
+            {flagged.length.toLocaleString()} need
+            {flagged.length === 1 ? "s" : ""} a look first.
           </>
         )}
       </p>
@@ -93,13 +98,16 @@ export function ReferenceAddReviewModal({
       {blocked.length > 0 && (
         <>
           <p className={css.reviewItemWarning}>
-            {blocked.length.toLocaleString()} cannot be added and will be skipped:
+            {blocked.length.toLocaleString()} cannot be added and will be
+            skipped:
           </p>
           <ul className={css.reviewList}>
             {blocked.map((item) => (
               <li key={item.referenceProductId} className={css.reviewItem}>
                 <span className={css.reviewItemName}>{item.name}</span>
-                <p className={`${css.reviewItemWarning} ${css.reviewItemBlocked}`}>
+                <p
+                  className={`${css.reviewItemWarning} ${css.reviewItemBlocked}`}
+                >
                   {item.reason}
                 </p>
               </li>
@@ -107,7 +115,6 @@ export function ReferenceAddReviewModal({
           </ul>
         </>
       )}
-
     </Modal>
   );
 }

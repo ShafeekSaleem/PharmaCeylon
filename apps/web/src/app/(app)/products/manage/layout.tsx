@@ -7,7 +7,11 @@ import { CATALOG_ROLES } from "@/lib/role-access";
  * action inside it is separately checked against `products.manage`. Consolidating four screens
  * into one must not change who can reach the work.
  */
-export default function CatalogManageLayout({ children }: { children: ReactNode }) {
+export default function CatalogManageLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return (
     <RolePageGuard roles={CATALOG_ROLES} permissions={["products.view"]}>
       {children}

@@ -120,7 +120,12 @@ export function fetchCatalogTaskSummary(): Promise<CatalogTaskSummary> {
 
 export function fetchCatalogTasks(
   query: CatalogTaskQuery,
-): Promise<{ items: CatalogTask[]; total: number; skip: number; take: number }> {
+): Promise<{
+  items: CatalogTask[];
+  total: number;
+  skip: number;
+  take: number;
+}> {
   const qs = catalogTaskParams(query).toString();
   return apiJson(`/catalog-tasks${qs ? `?${qs}` : ""}`);
 }
@@ -168,7 +173,10 @@ export function closeCatalogTask(
 export function applySafeCatalogTasks(
   query: CatalogTaskQuery,
   expected: number,
-): Promise<{ applied: number; failed: Array<{ taskId: string; reason: string }> }> {
+): Promise<{
+  applied: number;
+  failed: Array<{ taskId: string; reason: string }>;
+}> {
   return apiJson("/catalog-tasks/apply-safe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -202,7 +210,9 @@ export type ReferenceAddPreview = {
   blocked: number;
 };
 
-export function previewReferenceAdd(referenceProductIds: string[]): Promise<ReferenceAddPreview> {
+export function previewReferenceAdd(
+  referenceProductIds: string[],
+): Promise<ReferenceAddPreview> {
   return apiJson("/products/reference/preview-add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

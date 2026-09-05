@@ -7,7 +7,9 @@ const user = { tenantId: "t1", userId: "u1" } as never;
 
 function makeController() {
   const service = {
-    list: jest.fn().mockResolvedValue({ items: [], total: 0, skip: 0, take: 50 }),
+    list: jest
+      .fn()
+      .mockResolvedValue({ items: [], total: 0, skip: 0, take: 50 }),
     summary: jest.fn().mockResolvedValue({}),
     refresh: jest.fn().mockResolvedValue({ created: 0, updated: 0, closed: 0 }),
     applySafe: jest.fn().mockResolvedValue({ applied: 0, failed: [] }),
@@ -54,13 +56,20 @@ describe("parseFilter", () => {
   });
 
   it("parses paging and ignores values that are not numbers", () => {
-    expect(parseFilter({ skip: "50", take: "25" })).toMatchObject({ skip: 50, take: 25 });
+    expect(parseFilter({ skip: "50", take: "25" })).toMatchObject({
+      skip: 50,
+      take: 25,
+    });
     expect(parseFilter({ skip: "abc" }).skip).toBeUndefined();
   });
 
   it("parses dates and discards unparseable ones", () => {
-    expect(parseFilter({ createdFrom: "2026-09-01" }).createdFrom).toBeInstanceOf(Date);
-    expect(parseFilter({ createdFrom: "not-a-date" }).createdFrom).toBeUndefined();
+    expect(
+      parseFilter({ createdFrom: "2026-09-01" }).createdFrom,
+    ).toBeInstanceOf(Date);
+    expect(
+      parseFilter({ createdFrom: "not-a-date" }).createdFrom,
+    ).toBeUndefined();
   });
 });
 
@@ -68,7 +77,19 @@ describe("CatalogTaskController", () => {
   it("passes the parsed filter straight through to the service", async () => {
     const { controller, service } = makeController();
 
-    await controller.list(user, "OPEN", "NMRA_MATCH", "compliance", "amlo", "imp-1", "NMRA", undefined, undefined, "50", "25");
+    await controller.list(
+      user,
+      "OPEN",
+      "NMRA_MATCH",
+      "compliance",
+      "amlo",
+      "imp-1",
+      "NMRA",
+      undefined,
+      undefined,
+      "50",
+      "25",
+    );
 
     expect(service.list).toHaveBeenCalledWith("t1", {
       status: ["OPEN"],
@@ -102,7 +123,11 @@ describe("CatalogTaskController", () => {
     expect(service.applySafe).toHaveBeenCalledWith(
       "t1",
       "u1",
-      expect.objectContaining({ view: "compliance", q: "amlo", importId: "imp-1" }),
+      expect.objectContaining({
+        view: "compliance",
+        q: "amlo",
+        importId: "imp-1",
+      }),
     );
   });
 
@@ -111,7 +136,9 @@ describe("CatalogTaskController", () => {
 
     await controller.apply(user, "task-1", { categoryId: "cat-1" } as never);
     await controller.dismiss(user, "task-1", { note: "no" } as never);
-    await controller.notApplicable(user, "task-1", { note: "umbrella" } as never);
+    await controller.notApplicable(user, "task-1", {
+      note: "umbrella",
+    } as never);
     await controller.reopen(user, "task-1");
 
     expect(service.apply).toHaveBeenCalledWith("t1", "u1", "task-1", {
@@ -119,7 +146,12 @@ describe("CatalogTaskController", () => {
       referenceProductId: undefined,
     });
     expect(service.dismiss).toHaveBeenCalledWith("t1", "u1", "task-1", "no");
-    expect(service.markNotApplicable).toHaveBeenCalledWith("t1", "u1", "task-1", "umbrella");
+    expect(service.markNotApplicable).toHaveBeenCalledWith(
+      "t1",
+      "u1",
+      "task-1",
+      "umbrella",
+    );
     expect(service.reopen).toHaveBeenCalledWith("t1", "u1", "task-1");
   });
 });
@@ -133,17 +165,29 @@ describe("CatalogTaskController — permissions", () => {
   const permissionsOf = (method: string): string[] | undefined =>
     Reflect.getMetadata(
       PERMISSION_KEY,
-      (CatalogTaskController.prototype as unknown as Record<string, () => unknown>)[method],
+      (
+        CatalogTaskController.prototype as unknown as Record<
+          string,
+          () => unknown
+        >
+      )[method],
     );
 
-  it.each(["summary", "list", "view"])("%s requires products.view", (method) => {
-    expect(permissionsOf(method)).toEqual(["products.view"]);
-  });
-
-  it.each(["refresh", "applySafe", "apply", "dismiss", "notApplicable", "reopen"])(
-    "%s requires products.manage",
+  it.each(["summary", "list", "view"])(
+    "%s requires products.view",
     (method) => {
-      expect(permissionsOf(method)).toEqual(["products.manage"]);
+      expect(permissionsOf(method)).toEqual(["products.view"]);
     },
   );
+
+  it.each([
+    "refresh",
+    "applySafe",
+    "apply",
+    "dismiss",
+    "notApplicable",
+    "reopen",
+  ])("%s requires products.manage", (method) => {
+    expect(permissionsOf(method)).toEqual(["products.manage"]);
+  });
 });

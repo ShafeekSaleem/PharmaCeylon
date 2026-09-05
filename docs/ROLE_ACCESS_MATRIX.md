@@ -4,34 +4,34 @@ This document defines which pages each role can access in PharmaCeylon.
 
 ## Roles
 
-| Role | Description |
-|---|---|
-| `owner` | Tenant owner. Full system access including billing and tenant config. |
-| `manager` | Branch/operations manager. Near-full access except tenant-level settings. |
-| `pharmacist` | Licensed pharmacist. Handles dispensing, POS, supplier and stock workflows. |
-| `cashier` | Front-desk cashier. Processes sales and can browse products. |
+| Role              | Description                                                                     |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `owner`           | Tenant owner. Full system access including billing and tenant config.           |
+| `manager`         | Branch/operations manager. Near-full access except tenant-level settings.       |
+| `pharmacist`      | Licensed pharmacist. Handles dispensing, POS, supplier and stock workflows.     |
+| `cashier`         | Front-desk cashier. Processes sales and can browse products.                    |
 | `inventory_clerk` | Stock management staff. Manages inventory, purchasing, transfers, and products. |
 
 Tenants may also create **custom roles** (see `docs/API_CONTRACT.md` and the Users & Roles → Roles & Permissions page) with any subset of the permission catalog. Custom roles use the `custom` sentinel in `RoleName` and resolve their access from a per-tenant `Role`/`RolePermission` grant, not from this static matrix.
 
 ## Page Access Matrix
 
-| Page | Route | owner | manager | pharmacist | cashier | inventory_clerk |
-|---|---|---|---|---|---|---|
-| Dashboard | `/dashboard` | yes | yes | yes | yes | yes |
-| POS / Checkout | `/pos` | yes | yes | yes | yes | — |
-| Products | `/products` | yes | yes | — | view | yes |
-| Search Catalog | `/catalog` | yes | yes | yes | yes | yes |
-| Suppliers | `/suppliers` | yes | yes | yes | — | yes |
-| Inventory | `/inventory` | yes | yes | yes | — | yes |
-| Purchasing | `/purchasing` | yes | yes | yes | — | yes |
-| Transfers | `/transfers` | yes | yes | yes | — | yes |
-| Reports | `/reports` | yes | yes | — | — | — |
-| Audit Log | `/audit` | yes | yes | — | — | — |
-| Users & Roles | `/users` | yes | yes* | — | — | — |
-| Settings | `/settings` | yes | yes* | — | — | — |
+| Page               | Route              | owner | manager | pharmacist | cashier | inventory_clerk |
+| ------------------ | ------------------ | ----- | ------- | ---------- | ------- | --------------- |
+| Dashboard          | `/dashboard`       | yes   | yes     | yes        | yes     | yes             |
+| POS / Checkout     | `/pos`             | yes   | yes     | yes        | yes     | —               |
+| Products           | `/products`        | yes   | yes     | view       | view    | yes             |
+| Catalog management | `/products/manage` | yes   | yes     | view       | view    | yes             |
+| Suppliers          | `/suppliers`       | yes   | yes     | yes        | —       | yes             |
+| Inventory          | `/inventory`       | yes   | yes     | yes        | —       | yes             |
+| Purchasing         | `/purchasing`      | yes   | yes     | yes        | —       | yes             |
+| Transfers          | `/transfers`       | yes   | yes     | yes        | —       | yes             |
+| Reports            | `/reports`         | yes   | yes     | —          | —       | —               |
+| Audit Log          | `/audit`           | yes   | yes     | —          | —       | —               |
+| Users & Roles      | `/users`           | yes   | yes\*   | —          | —       | —               |
+| Settings           | `/settings`        | yes   | yes\*   | —          | —       | —               |
 
-> **yes*** = access with limitations (e.g. manager cannot escalate roles to owner, cannot modify tenant-level settings).
+> **yes\*** = access with limitations (e.g. manager cannot escalate roles to owner, cannot modify tenant-level settings).
 >
 > **view** = page is visible (nav shown) but write operations (create/edit/delete) are restricted at the page and API level.
 
@@ -39,15 +39,15 @@ Tenants may also create **custom roles** (see `docs/API_CONTRACT.md` and the Use
 
 These are the named groups used in `app-shell.tsx` for nav-level visibility:
 
-| Constant | Roles | Used by |
-|---|---|---|
-| `ADMIN_ROLES` | owner, manager | Audit Log, Users & Roles, Settings |
-| `POS_ROLES` | owner, manager, pharmacist, cashier | POS / Checkout |
-| `CATALOG_ROLES` | owner, manager, cashier, inventory_clerk | Products |
+| Constant           | Roles                                       | Used by                                     |
+| ------------------ | ------------------------------------------- | ------------------------------------------- |
+| `ADMIN_ROLES`      | owner, manager                              | Audit Log, Users & Roles, Settings          |
+| `POS_ROLES`        | owner, manager, pharmacist, cashier         | POS / Checkout                              |
+| `CATALOG_ROLES`    | owner, manager, cashier, inventory_clerk    | Products                                    |
 | `OPERATIONS_ROLES` | owner, manager, pharmacist, inventory_clerk | Suppliers, Inventory, Purchasing, Transfers |
-| `INSIGHTS_ROLES` | owner, manager | Reports |
+| `INSIGHTS_ROLES`   | owner, manager                              | Reports                                     |
 
-Pages without a `roles` restriction (Dashboard, Search Catalog) are visible to all authenticated users.
+Pages without a `roles` restriction (Dashboard) are visible to all authenticated users.
 
 ## Enforcement Layers
 
@@ -62,9 +62,9 @@ Access is enforced at three levels:
 ## Design Decisions
 
 - **Dashboard** is unrestricted because each role sees a tailored summary relevant to their function.
-- **Search Catalog** is unrestricted because all staff may need to look up drug information (interactions, alternatives, availability).
+- **Products** is open to every role because all staff may need to look up drug information, which is what Search Catalog used to be for. Its Reference catalog tab absorbed that page (`/catalog` now redirects there), so the route guard admits `catalog.view` as well as `products.view` and the two tabs are gated separately — a tenant that granted one key and not the other keeps exactly the access it had. Write actions stay behind `products.manage`.
 - **POS** excludes `inventory_clerk` as they do not process customer sales.
-- **Products** excludes `pharmacist` (they use Search Catalog for lookups). Cashiers get view-only access to verify product details during sales.
+- **Catalog management** (`/products/manage`) holds the work queue, categories and tags. Reading it takes `products.view` and every action inside takes `products.manage` — the same pair the `/products/organize` and `/products/nmra-matches` screens it replaced required, so consolidating four screens into one changed no one's access. Both old routes redirect to the matching filter.
 - **Reports** (the analytics/financial section labeled "Insights" in the nav group) is restricted to owner and manager to protect sensitive financial data.
 - **AI Insights** (`/insights`) is a separate, unrestricted hub aggregating every role's own dashboard recommendations — every role sees their own relevant insights, reached via the "View all insights" link on their dashboard rather than a sidebar entry (same pattern as `/notifications`). Owner/manager additionally see insights sourced from the 6 report sections whose backend already computes them (stock movement, transfers, stocktakes, purchase summary, supplier spend, supplier performance); that report-sourced content is gated inline by the `reports.view` permission, not by a route-level restriction, so it simply doesn't fetch/render for the other three roles.
 - **Admin** pages are limited to owner and manager to prevent privilege escalation.

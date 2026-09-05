@@ -1,4 +1,7 @@
-import { decideRangeExit, decideReferencePromotion } from "./range-transition.util";
+import {
+  decideRangeExit,
+  decideReferencePromotion,
+} from "./range-transition.util";
 
 const base = {
   productId: "p1",
@@ -20,7 +23,11 @@ describe("decideRangeExit", () => {
   it("recognises a linked product as register-derived even when its source is local", () => {
     // A CSV-imported product that was later linked to a register row belongs to the register
     // as much as one that came from it — the link is the statement of provenance.
-    const result = decideRangeExit({ ...base, source: "CSV_IMPORT", nmraReferenceId: "ref-9" });
+    const result = decideRangeExit({
+      ...base,
+      source: "CSV_IMPORT",
+      nmraReferenceId: "ref-9",
+    });
     expect(result.action).toBe("unrange");
   });
 
@@ -32,7 +39,11 @@ describe("decideRangeExit", () => {
   it.each(["MANUAL", "CSV_IMPORT", "SUPPLIER", "BARCODE"])(
     "deactivates a %s product instead of filing it into the register",
     (source) => {
-      const result = decideRangeExit({ ...base, source, nmraReferenceId: null });
+      const result = decideRangeExit({
+        ...base,
+        source,
+        nmraReferenceId: null,
+      });
       expect(result.action).toBe("deactivate");
       expect(result.reason).toContain("local records don't belong in it");
     },
@@ -45,11 +56,15 @@ describe("decideRangeExit", () => {
   });
 
   it("keeps a product with sales history in the range, deactivated", () => {
-    expect(decideRangeExit({ ...base, saleCount: 1 }).action).toBe("deactivate");
+    expect(decideRangeExit({ ...base, saleCount: 1 }).action).toBe(
+      "deactivate",
+    );
   });
 
   it("keeps a product with purchasing history in the range, deactivated", () => {
-    expect(decideRangeExit({ ...base, purchasingCount: 1 }).action).toBe("deactivate");
+    expect(decideRangeExit({ ...base, purchasingCount: 1 }).action).toBe(
+      "deactivate",
+    );
   });
 
   it("blocks a product that is not ranged in the first place", () => {
@@ -59,7 +74,11 @@ describe("decideRangeExit", () => {
   });
 
   it("always says why", () => {
-    for (const input of [base, { ...base, stockOnHand: 3 }, { ...base, source: "MANUAL", nmraReferenceId: null }]) {
+    for (const input of [
+      base,
+      { ...base, stockOnHand: 3 },
+      { ...base, source: "MANUAL", nmraReferenceId: null },
+    ]) {
       expect(decideRangeExit(input).reason.length).toBeGreaterThan(20);
     }
   });
@@ -78,23 +97,35 @@ describe("decideReferencePromotion", () => {
 
   it("allows a clean promotion without review", () => {
     const result = decideReferencePromotion(reference);
-    expect(result).toMatchObject({ allowed: true, needsReview: false, warnings: [] });
+    expect(result).toMatchObject({
+      allowed: true,
+      needsReview: false,
+      warnings: [],
+    });
   });
 
   it("refuses a row already in the range", () => {
-    const result = decideReferencePromotion({ ...reference, rangeStatus: "RANGED" });
+    const result = decideReferencePromotion({
+      ...reference,
+      rangeStatus: "RANGED",
+    });
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("already in your products");
   });
 
   it("refuses a row another product has already claimed", () => {
-    const result = decideReferencePromotion({ ...reference, claimedByProductId: "p9" });
+    const result = decideReferencePromotion({
+      ...reference,
+      claimedByProductId: "p9",
+    });
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("already linked");
   });
 
   it("refuses anything that is not an NMRA register entry", () => {
-    expect(decideReferencePromotion({ ...reference, source: "MANUAL" }).allowed).toBe(false);
+    expect(
+      decideReferencePromotion({ ...reference, source: "MANUAL" }).allowed,
+    ).toBe(false);
   });
 
   /**
@@ -105,7 +136,9 @@ describe("decideReferencePromotion", () => {
   it("flags a barcode duplicate for review without blocking it", () => {
     const result = decideReferencePromotion({
       ...reference,
-      duplicateCandidates: [{ id: "p2", name: "Amlodipine 5mg", matchedOn: "barcode" }],
+      duplicateCandidates: [
+        { id: "p2", name: "Amlodipine 5mg", matchedOn: "barcode" },
+      ],
     });
     expect(result.allowed).toBe(true);
     expect(result.needsReview).toBe(true);
@@ -115,13 +148,18 @@ describe("decideReferencePromotion", () => {
   it("flags a registration-number duplicate", () => {
     const result = decideReferencePromotion({
       ...reference,
-      duplicateCandidates: [{ id: "p2", name: "Amlodipine 5mg", matchedOn: "registrationNo" }],
+      duplicateCandidates: [
+        { id: "p2", name: "Amlodipine 5mg", matchedOn: "registrationNo" },
+      ],
     });
     expect(result.warnings[0]).toContain("same registration number");
   });
 
   it("flags a compliance difference against the product it would merge with", () => {
-    const result = decideReferencePromotion({ ...reference, complianceChange: true });
+    const result = decideReferencePromotion({
+      ...reference,
+      complianceChange: true,
+    });
     expect(result.needsReview).toBe(true);
     expect(result.warnings[0]).toContain("controlled or prescription-only");
   });
