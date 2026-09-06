@@ -7,6 +7,7 @@ import { AnalyticsModule } from "./analytics/analytics.module";
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { CatalogModule } from "./catalog/catalog.module";
+import { CatalogTaskModule } from "./catalog-tasks/catalog-task.module";
 import { CustomersModule } from "./customers/customers.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { HealthController } from "./health/health.controller";
@@ -50,6 +51,7 @@ import { SetupModule } from "./setup/setup.module";
     TenantModule,
     ProductsModule,
     ProductImportModule,
+    CatalogTaskModule,
     SuppliersModule,
     AdminModule,
     PurchasingModule,

@@ -18,6 +18,7 @@ import {
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
 import { BulkProductsDto } from "./dto/bulk-products.dto";
+import { RangeExitDto, ReferenceAddDto } from "./dto/reference-add.dto";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
 import { ProductOrganizeService } from "./product-organize.service";
@@ -49,6 +50,7 @@ export class ProductsController {
     @Query("categoryId") categoryId?: string,
     @Query("commercialCategoryId") commercialCategoryId?: string,
     @Query("tagId") tagId?: string,
+    @Query("importId") importId?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDir") sortDir?: string,
   ) {
@@ -67,6 +69,7 @@ export class ProductsController {
       categoryId,
       commercialCategoryId,
       tagId,
+      importId,
       sortBy,
       sortDir,
     });
@@ -90,6 +93,7 @@ export class ProductsController {
     @Query("categoryId") categoryId?: string,
     @Query("commercialCategoryId") commercialCategoryId?: string,
     @Query("tagId") tagId?: string,
+    @Query("importId") importId?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDir") sortDir?: string,
   ): Promise<StreamableFile> {
@@ -106,6 +110,7 @@ export class ProductsController {
       categoryId,
       commercialCategoryId,
       tagId,
+      importId,
       sortBy,
       sortDir,
     });
@@ -161,6 +166,45 @@ export class ProductsController {
     return this.products.bulkUpdate(user.tenantId, user.userId, dto);
   }
 
+  /**
+   * The Reference Catalog's Add action, dry-run. Reports duplicates and compliance differences
+   * so the confirmation can state them, and so `reference/add` can refuse anything the operator
+   * has not acknowledged.
+   */
+  @RequirePermission("products.view")
+  @Post("reference/preview-add")
+  previewReferenceAdd(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: ReferenceAddDto,
+  ) {
+    return this.products.previewReferenceAdd(
+      user.tenantId,
+      dto.referenceProductIds,
+    );
+  }
+
+  @RequirePermission("products.manage")
+  @Post("reference/add")
+  addReference(@CurrentUser() user: RequestUser, @Body() dto: ReferenceAddDto) {
+    return this.products.addReferenceProducts(
+      user.tenantId,
+      user.userId,
+      dto.referenceProductIds,
+      { acknowledgeWarnings: dto.acknowledgeWarnings },
+    );
+  }
+
+  /**
+   * Take products out of the range. Not a rename of "unrange": the policy decides per product
+   * whether that means going back to the register (only ever for register-derived rows with no
+   * history), being deactivated, or being refused because stock is still on hand.
+   */
+  @RequirePermission("products.manage")
+  @Post("range/exit")
+  rangeExit(@CurrentUser() user: RequestUser, @Body() dto: RangeExitDto) {
+    return this.products.applyRangeExit(user.tenantId, dto.productIds);
+  }
+
   @RequirePermission("products.view")
   @Get(":id/detail")
   detail(
@@ -173,7 +217,10 @@ export class ProductsController {
 
   @RequirePermission("products.view")
   @Get(":id")
-  getOne(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+  getOne(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.products.getById(user.tenantId, id);
   }
 
@@ -195,7 +242,10 @@ export class ProductsController {
 
   @RequirePermission("products.delete")
   @Delete(":id")
-  remove(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+  remove(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
     return this.products.remove(user.tenantId, user.userId, id);
   }
 }

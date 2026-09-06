@@ -19,19 +19,24 @@ type Props = {
   plan: ImportCategoryPlan;
   categories: ProductCategory[];
   choices: ImportCategoryChoices;
+  /** Rows this import will create, and rows it matched to existing products. */
+  createRows?: number;
+  updateRows?: number;
   onChange: (incoming: string, decision: CategoryDecision | null) => void;
 };
 
 /** `use:<id>` / `create:<parentId or empty>` / `skip` — one select, three kinds of answer. */
 function encode(decision: CategoryDecision): string {
   if (decision.action === "use") return `use:${decision.categoryId}`;
-  if (decision.action === "create") return `create:${decision.parentCategoryId ?? ""}`;
+  if (decision.action === "create")
+    return `create:${decision.parentCategoryId ?? ""}`;
   return "skip";
 }
 
 function decode(value: string): CategoryDecision | null {
   if (value === "skip") return { action: "skip" };
-  if (value.startsWith("use:")) return { action: "use", categoryId: value.slice(4) };
+  if (value.startsWith("use:"))
+    return { action: "use", categoryId: value.slice(4) };
   if (value.startsWith("create:")) {
     const parent = value.slice(7);
     return { action: "create", parentCategoryId: parent || null };
@@ -47,7 +52,14 @@ function decode(value: string): CategoryDecision | null {
  * listed with where it will land and how many rows it affects, and every one of them can be
  * redirected before a single product is written.
  */
-export function ImportCategoryBlock({ plan, categories, choices, onChange }: Props) {
+export function ImportCategoryBlock({
+  plan,
+  categories,
+  choices,
+  createRows = 0,
+  updateRows = 0,
+  onChange,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const departments = useMemo(
@@ -67,9 +79,15 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
 
   // Shared across every row — only the trailing "new department called X" option is row-specific.
   const baseCategoryOptions = useMemo<SelectFieldOption[]>(() => {
-    const options: SelectFieldOption[] = [{ value: "skip", label: "Sort it automatically" }];
+    const options: SelectFieldOption[] = [
+      { value: "skip", label: "Sort it automatically" },
+    ];
     for (const dept of departments) {
-      options.push({ value: `use:${dept.id}`, label: `${dept.name} (department)`, shortLabel: dept.name });
+      options.push({
+        value: `use:${dept.id}`,
+        label: `${dept.name} (department)`,
+        shortLabel: dept.name,
+      });
       for (const child of childrenByParent.get(dept.id) ?? []) {
         options.push({
           value: `use:${child.id}`,
@@ -86,12 +104,21 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
   }, [departments, childrenByParent]);
 
   const unmatched = plan.entries.filter((e) => e.status === "unmatched").length;
+  /*
+   * Split so the caveat can be stated as a number rather than a policy. "Only products this
+   * import creates are filed" sat in a footnote below the fold; someone choosing a category
+   * for 400 rows had no way to know 380 of them would ignore it.
+   */
+  const matchedRows = Math.max(0, updateRows);
+  const createdRows = Math.max(0, createRows);
   const placedRows = plan.entries.reduce(
     (sum, e) => (effective(e, choices) ? sum + e.rowCount : sum),
     0,
   );
 
-  const visible = expanded ? plan.entries : plan.entries.slice(0, COLLAPSED_ROWS);
+  const visible = expanded
+    ? plan.entries
+    : plan.entries.slice(0, COLLAPSED_ROWS);
   const hidden = plan.entries.length - visible.length;
 
   if (!plan.mapped && plan.entries.length === 0) {
@@ -99,9 +126,9 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
       <>
         <h3 className={css.groupTitle}>Categories</h3>
         <p className={css.dim}>
-          No Category column is mapped, so every new product will be filed automatically —
-          medicines by their generic name where we recognise it, and anything else into
-          Unclassified for you to place later.
+          No Category column is mapped, so every new product will be filed
+          automatically — medicines by their generic name where we recognise it,
+          and anything else into Unclassified for you to place later.
         </p>
       </>
     );
@@ -112,9 +139,7 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
       <h3 className={css.groupTitle}>
         Categories
         {unmatched > 0 && (
-          <span className={css.required}>
-            {unmatched} to place
-          </span>
+          <span className={css.required}>{unmatched} to place</span>
         )}
       </h3>
 
@@ -122,14 +147,24 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
         {placedRows > 0 ? (
           <>
             <strong>{placedRows.toLocaleString()}</strong> row
-            {placedRows === 1 ? "" : "s"} will be filed from your Category column.{" "}
+            {placedRows === 1 ? "" : "s"} will be filed from your Category
+            column
+            {matchedRows > 0 ? (
+              <>
+                {" "}
+                — but only the {createdRows.toLocaleString()} this import{" "}
+                <em>creates</em>. The {matchedRows.toLocaleString()} matched to
+                products you already have keep the category they already have
+              </>
+            ) : null}
+            .{" "}
           </>
         ) : null}
         {plan.blankRows > 0 ? (
           <>
             <strong>{plan.blankRows.toLocaleString()}</strong> row
-            {plan.blankRows === 1 ? " has" : "s have"} no category — those are sorted
-            automatically, or land in Unclassified.
+            {plan.blankRows === 1 ? " has" : "s have"} no category — those are
+            sorted automatically, or land in Unclassified.
           </>
         ) : null}
       </p>
@@ -158,7 +193,9 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
               return (
                 <tr key={entry.incoming}>
                   <td>
-                    <span className={css.categoryIncoming}>{entry.incoming}</span>
+                    <span className={css.categoryIncoming}>
+                      {entry.incoming}
+                    </span>
                     {entry.status === "matched_synonym" && !decision && (
                       <span
                         className={css.miniChip}
@@ -173,7 +210,9 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
                       </span>
                     )}
                   </td>
-                  <td className={css.numCol}>{entry.rowCount.toLocaleString()}</td>
+                  <td className={css.numCol}>
+                    {entry.rowCount.toLocaleString()}
+                  </td>
                   <td>
                     <SelectField
                       hideLabel
@@ -187,7 +226,8 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
                         // Clearing back to the automatic answer keeps the payload to real
                         // overrides only.
                         const isAuto =
-                          parsed?.action === "use" && parsed.categoryId === entry.categoryId;
+                          parsed?.action === "use" &&
+                          parsed.categoryId === entry.categoryId;
                         onChange(entry.incoming, isAuto ? null : parsed);
                       }}
                       options={[
@@ -223,8 +263,8 @@ export function ImportCategoryBlock({ plan, categories, choices, onChange }: Pro
 
       <p className={css.categoryFootnote}>
         <IconInfo size={14} />
-        Only products this import creates are filed. Anything matched to a product you already
-        have keeps the category it already has.
+        Anything left unplaced becomes a &quot;needs a category&quot; task in
+        Catalog Management rather than being guessed at.
       </p>
     </>
   );

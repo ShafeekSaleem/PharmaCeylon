@@ -24,6 +24,11 @@ import {
   type StockStatus,
 } from "./stock-qty.util";
 import { buildProductDetailExtras } from "./product-detail.util";
+import { scoreMatch } from "../catalog/catalog-match.util";
+import {
+  decideRangeExit,
+  decideReferencePromotion,
+} from "./range-transition.util";
 
 const SORTABLE_FIELDS = new Set([
   "name",
@@ -110,11 +115,14 @@ type ProductListQuery = {
   categoryId?: string;
   commercialCategoryId?: string;
   tagId?: string;
+  importId?: string;
   sortBy?: string;
   sortDir?: string;
 };
 
-function escapeCsv(value: string | number | boolean | null | undefined): string {
+function escapeCsv(
+  value: string | number | boolean | null | undefined,
+): string {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
@@ -185,7 +193,10 @@ const productInclude = {
   // now validates every id is a COMMERCIAL category, so returning Dosage Form/Schedule/
   // Registration Type maps here would make saving ANY NMRA product fail with "One or more
   // categories are invalid" even when the user never touched categories.
-  categoryMaps: { where: { dimension: "COMMERCIAL" as const }, include: { category: true } },
+  categoryMaps: {
+    where: { dimension: "COMMERCIAL" as const },
+    include: { category: true },
+  },
   tagMaps: { include: { tag: true } },
   aliases: { orderBy: { aliasText: "asc" as const } },
 };
@@ -228,8 +239,16 @@ export class ProductsService {
         include: {
           // COMMERCIAL only — see productInclude above for why this must never leak
           // Dosage Form/Schedule/Registration Type maps into the same "categories" field.
-          categoryMaps: { where: { dimension: "COMMERCIAL" }, include: { category: true } },
+          categoryMaps: {
+            where: { dimension: "COMMERCIAL" },
+            include: { category: true },
+          },
           tagMaps: { include: { tag: true } },
+          // Loaded only when there is a term to match — the alias tier is the whole reason
+          // "panadol" finds a row registered as "PARACETAMOL TABLETS BP 500MG".
+          ...(query.q?.trim()
+            ? { aliases: { select: { aliasText: true } } }
+            : {}),
         },
       }),
       this.prisma.product.count({ where }),
@@ -249,6 +268,42 @@ export class ProductsService {
     );
     const items = attachStockFields(mapped, stockMap);
 
+    /*
+     * Why the shop's product list now scores matches the way Search Catalog did:
+     * Search Catalog and the Reference tab were two searches over the same reference rows,
+     * and only one of them could tell you *why* a row came back. Consolidating them means
+     * this list has to answer that too — a register row surfaced because the term matched a
+     * shop alias is a very different result from one where it matched the registration
+     * number, and hiding that difference is what made the two screens feel unrelated.
+     */
+    const term = query.q?.trim();
+    if (term) {
+      const aliasesById = new Map(
+        rows.map((r) => [
+          r.id,
+          (r as { aliases?: Array<{ aliasText: string }> }).aliases ?? [],
+        ]),
+      );
+      for (const item of items) {
+        const info = scoreMatch(
+          term,
+          {
+            sku: item.sku,
+            barcode: item.barcode,
+            name: item.name,
+            brandName: item.brandName,
+            genericName: item.genericName,
+            registrationNo: item.registrationNo,
+            aliases: aliasesById.get(item.id),
+          },
+          false,
+        );
+        const target = item as { matchType?: string; matchField?: string };
+        target.matchType = info?.matchType;
+        target.matchField = info?.matchField;
+      }
+    }
+
     // Duplicate display-name hint for multi-registration groups.
     const names = [...new Set(items.map((p) => p.name).filter(Boolean))];
     if (names.length > 0) {
@@ -257,7 +312,9 @@ export class ProductsService {
         where: { tenantId, name: { in: names } },
         _count: { _all: true },
       });
-      const countByName = new Map(nameCounts.map((n) => [n.name, n._count._all]));
+      const countByName = new Map(
+        nameCounts.map((n) => [n.name, n._count._all]),
+      );
       for (const item of items) {
         (item as { sameNameCount?: number }).sameNameCount =
           countByName.get(item.name) ?? 1;
@@ -412,7 +469,12 @@ export class ProductsService {
     );
 
     if (branchId) {
-      const stockMap = await stockQtyByProductId(this.prisma, tenantId, branchId, [id]);
+      const stockMap = await stockQtyByProductId(
+        this.prisma,
+        tenantId,
+        branchId,
+        [id],
+      );
       qtyOnHand = stockMap.get(id) ?? 0;
       const attached = attachStockFields(
         [{ ...product, reorderLevel: product.reorderLevel }],
@@ -478,7 +540,10 @@ export class ProductsService {
       historyMap.set(item.id, item);
     }
     const history = [...historyMap.values()]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
       .slice(0, 60)
       .map((item) => ({
         id: item.id,
@@ -548,7 +613,11 @@ export class ProductsService {
           reorderLevel: dto.reorderLevel ?? 0,
         },
       });
-      await this.meta.syncProductCategories(tenantId, product.id, dto.categoryIds);
+      await this.meta.syncProductCategories(
+        tenantId,
+        product.id,
+        dto.categoryIds,
+      );
       await this.meta.syncProductTags(tenantId, product.id, dto.tagIds);
       await this.audit.log({
         tenantId,
@@ -560,14 +629,22 @@ export class ProductsService {
       });
       return this.getById(tenantId, product.id);
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
         throw new ConflictException("SKU must be unique within the tenant");
       }
       throw e;
     }
   }
 
-  async update(tenantId: string, userId: string, id: string, dto: UpdateProductDto) {
+  async update(
+    tenantId: string,
+    userId: string,
+    id: string,
+    dto: UpdateProductDto,
+  ) {
     const before = await this.getById(tenantId, id);
     const mutation = await this.prisma.product.updateMany({
       where: { id, tenantId },
@@ -575,20 +652,44 @@ export class ProductsService {
         // `source` is deliberately absent: an edit can change what a product is, never how it
         // arrived. It used to be a dropdown offering "CSV import" and "Barcode lookup" as
         // things to pick, which described the record's history rather than the product.
-        ...(dto.barcode !== undefined ? { barcode: dto.barcode?.trim() || null } : {}),
+        ...(dto.barcode !== undefined
+          ? { barcode: dto.barcode?.trim() || null }
+          : {}),
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.brandName !== undefined ? { brandName: dto.brandName?.trim() || null } : {}),
-        ...(dto.genericName !== undefined ? { genericName: dto.genericName?.trim() || null } : {}),
-        ...(dto.manufacturer !== undefined ? { manufacturer: dto.manufacturer?.trim() || null } : {}),
-        ...(dto.dosageForm !== undefined ? { dosageForm: dto.dosageForm?.trim() || null } : {}),
-        ...(dto.strength !== undefined ? { strength: dto.strength?.trim() || null } : {}),
+        ...(dto.brandName !== undefined
+          ? { brandName: dto.brandName?.trim() || null }
+          : {}),
+        ...(dto.genericName !== undefined
+          ? { genericName: dto.genericName?.trim() || null }
+          : {}),
+        ...(dto.manufacturer !== undefined
+          ? { manufacturer: dto.manufacturer?.trim() || null }
+          : {}),
+        ...(dto.dosageForm !== undefined
+          ? { dosageForm: dto.dosageForm?.trim() || null }
+          : {}),
+        ...(dto.strength !== undefined
+          ? { strength: dto.strength?.trim() || null }
+          : {}),
         ...(dto.unit !== undefined ? { unit: dto.unit?.trim() || null } : {}),
-        ...(dto.packSize !== undefined ? { packSize: dto.packSize?.trim() || null } : {}),
-        ...(dto.packType !== undefined ? { packType: dto.packType?.trim() || null } : {}),
-        ...(dto.storage !== undefined ? { storage: dto.storage?.trim() || null } : {}),
-        ...(dto.shelfLife !== undefined ? { shelfLife: dto.shelfLife?.trim() || null } : {}),
-        ...(dto.taxCategory !== undefined ? { taxCategory: dto.taxCategory?.trim() || null } : {}),
-        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
+        ...(dto.packSize !== undefined
+          ? { packSize: dto.packSize?.trim() || null }
+          : {}),
+        ...(dto.packType !== undefined
+          ? { packType: dto.packType?.trim() || null }
+          : {}),
+        ...(dto.storage !== undefined
+          ? { storage: dto.storage?.trim() || null }
+          : {}),
+        ...(dto.shelfLife !== undefined
+          ? { shelfLife: dto.shelfLife?.trim() || null }
+          : {}),
+        ...(dto.taxCategory !== undefined
+          ? { taxCategory: dto.taxCategory?.trim() || null }
+          : {}),
+        ...(dto.imageUrl !== undefined
+          ? { imageUrl: dto.imageUrl?.trim() || null }
+          : {}),
         ...(dto.registrationNo !== undefined
           ? { registrationNo: dto.registrationNo?.trim() || null }
           : {}),
@@ -599,20 +700,32 @@ export class ProductsService {
                 : null,
             }
           : {}),
-        ...(dto.schedule !== undefined ? { schedule: dto.schedule?.trim() || null } : {}),
-        ...(dto.regType !== undefined ? { regType: dto.regType?.trim() || null } : {}),
-        ...(dto.dossierNo !== undefined ? { dossierNo: dto.dossierNo?.trim() || null } : {}),
+        ...(dto.schedule !== undefined
+          ? { schedule: dto.schedule?.trim() || null }
+          : {}),
+        ...(dto.regType !== undefined
+          ? { regType: dto.regType?.trim() || null }
+          : {}),
+        ...(dto.dossierNo !== undefined
+          ? { dossierNo: dto.dossierNo?.trim() || null }
+          : {}),
         ...(dto.countryOfOrigin !== undefined
           ? { countryOfOrigin: dto.countryOfOrigin?.trim() || null }
           : {}),
-        ...(dto.localAgent !== undefined ? { localAgent: dto.localAgent?.trim() || null } : {}),
-        ...(dto.isControlled !== undefined ? { isControlled: dto.isControlled } : {}),
+        ...(dto.localAgent !== undefined
+          ? { localAgent: dto.localAgent?.trim() || null }
+          : {}),
+        ...(dto.isControlled !== undefined
+          ? { isControlled: dto.isControlled }
+          : {}),
         ...(dto.isControlled === true
           ? { requiresPrescription: true }
           : dto.requiresPrescription !== undefined
             ? { requiresPrescription: dto.requiresPrescription }
             : {}),
-        ...(dto.reorderLevel !== undefined ? { reorderLevel: dto.reorderLevel } : {}),
+        ...(dto.reorderLevel !== undefined
+          ? { reorderLevel: dto.reorderLevel }
+          : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
@@ -667,7 +780,11 @@ export class ProductsService {
         sku: after.sku,
         changes,
         ...(changes.length === 1
-          ? { field: changes[0].field, from: changes[0].from, to: changes[0].to }
+          ? {
+              field: changes[0].field,
+              from: changes[0].from,
+              to: changes[0].to,
+            }
           : {}),
       } as Prisma.InputJsonValue,
     });
@@ -690,7 +807,10 @@ export class ProductsService {
    * catalog. Shared by the preview and the apply, so the number the confirmation dialog shows
    * and the number the action touches are computed the same way.
    */
-  private async resolveBulkIds(tenantId: string, dto: BulkProductsDto): Promise<string[]> {
+  private async resolveBulkIds(
+    tenantId: string,
+    dto: BulkProductsDto,
+  ): Promise<string[]> {
     const hasIds = Boolean(dto.productIds?.length);
     const hasFilter = dto.filter !== undefined;
     if (hasIds === hasFilter) {
@@ -714,7 +834,10 @@ export class ProductsService {
         `This action would affect ${matched.toLocaleString()} products, above the limit of ${BULK_PRODUCT_MATCH_LIMIT.toLocaleString()}. Narrow your filters and try again.`,
       );
     }
-    const rows = await this.prisma.product.findMany({ where, select: { id: true } });
+    const rows = await this.prisma.product.findMany({
+      where,
+      select: { id: true },
+    });
     return rows.map((r) => r.id);
   }
 
@@ -726,14 +849,18 @@ export class ProductsService {
   private async resolveBulkTargets(tenantId: string, dto: BulkProductsDto) {
     if (dto.action === "set_category") {
       if (!dto.categoryId) {
-        throw new BadRequestException("Choose a category to file these products under.");
+        throw new BadRequestException(
+          "Choose a category to file these products under.",
+        );
       }
       const category = await this.prisma.productCategory.findFirst({
         where: { id: dto.categoryId, tenantId, dimension: "COMMERCIAL" },
         select: { id: true, name: true },
       });
       if (!category) {
-        throw new NotFoundException("Category not found, or is not a merchandising category.");
+        throw new NotFoundException(
+          "Category not found, or is not a merchandising category.",
+        );
       }
       return { category, tags: [] as Array<{ id: string; name: string }> };
     }
@@ -764,7 +891,10 @@ export class ProductsService {
    * the classifier. "Set the category on 217 products" is not a decision anyone can make;
    * "43 of them already have one, 12 chosen by hand" is.
    */
-  async bulkPreview(tenantId: string, dto: BulkProductsDto): Promise<BulkProductPreview> {
+  async bulkPreview(
+    tenantId: string,
+    dto: BulkProductsDto,
+  ): Promise<BulkProductPreview> {
     const ids = await this.resolveBulkIds(tenantId, dto);
     const targets = await this.resolveBulkTargets(tenantId, dto);
 
@@ -799,10 +929,17 @@ export class ProductsService {
             ? targets.category!.id
             : await this.unclassifiedCategoryId(tenantId);
         const existing = await this.prisma.productCategoryMap.findMany({
-          where: { tenantId, productId: { in: ids }, dimension: "COMMERCIAL", isPrimary: true },
+          where: {
+            tenantId,
+            productId: { in: ids },
+            dimension: "COMMERCIAL",
+            isPrimary: true,
+          },
           select: { categoryId: true, assignmentSource: true },
         });
-        base.alreadyOnTarget = existing.filter((e) => e.categoryId === targetId).length;
+        base.alreadyOnTarget = existing.filter(
+          (e) => e.categoryId === targetId,
+        ).length;
         const replacing = existing.filter((e) => e.categoryId !== targetId);
         base.replacingExisting = replacing.length;
         base.replacingManual = replacing.filter(
@@ -823,7 +960,9 @@ export class ProductsService {
           _count: { tagId: true },
         });
         if (dto.action === "add_tags") {
-          const fullyTagged = groups.filter((g) => g._count.tagId >= tagIds.length).length;
+          const fullyTagged = groups.filter(
+            (g) => g._count.tagId >= tagIds.length,
+          ).length;
           base.alreadyOnTarget = fullyTagged;
           base.willChange = ids.length - fullyTagged;
         } else {
@@ -877,6 +1016,12 @@ export class ProductsService {
           "remove",
         );
         break;
+      case "unrange":
+        // Not a plain column write any more — see `decideRangeExit`. A locally created product
+        // must never be filed into the NMRA reference catalog, and nothing with stock on hand
+        // may leave the list at all.
+        updated = (await this.applyRangeExit(tenantId, ids)).changed;
+        break;
       default: {
         const { data, scope } = bulkActionUpdate(dto.action);
         const result = await this.prisma.product.updateMany({
@@ -901,12 +1046,344 @@ export class ProductsService {
           updated,
           selection: dto.productIds?.length ? "ids" : "filter",
           ...(targets.category ? { categoryName: targets.category.name } : {}),
-          ...(targets.tags.length ? { tagNames: targets.tags.map((t) => t.name) } : {}),
+          ...(targets.tags.length
+            ? { tagNames: targets.tags.map((t) => t.name) }
+            : {}),
         },
       });
     }
 
     return { matched: ids.length, updated, action: dto.action };
+  }
+
+  /**
+   * Take a selection out of the range, routing each product to whatever is actually safe for
+   * it: back to the register, deactivated, or refused with a reason.
+   *
+   * Returns per-product outcomes as well as a count, so the UI can say "12 moved, 3
+   * deactivated instead, 2 blocked because they still have stock" rather than a bare number
+   * that hides two thirds of what happened.
+   */
+  async applyRangeExit(
+    tenantId: string,
+    productIds: string[],
+  ): Promise<{
+    changed: number;
+    unranged: string[];
+    deactivated: string[];
+    blocked: Array<{ productId: string; reason: string }>;
+    notes: string[];
+  }> {
+    if (productIds.length === 0) {
+      return {
+        changed: 0,
+        unranged: [],
+        deactivated: [],
+        blocked: [],
+        notes: [],
+      };
+    }
+
+    const [rows, stockByProduct] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { tenantId, id: { in: productIds } },
+        select: {
+          id: true,
+          name: true,
+          source: true,
+          rangeStatus: true,
+          nmraReferenceId: true,
+          _count: {
+            select: {
+              saleItems: true,
+              purchaseItems: true,
+              receiptItems: true,
+            },
+          },
+        },
+      }),
+      // Across every branch, not the caller's: a product with units in another shop is still
+      // holding stock, and hiding it there would be someone else's missing inventory.
+      this.prisma.stockLedger
+        .groupBy({
+          by: ["productId"],
+          where: { tenantId, productId: { in: productIds } },
+          _sum: { qtyDelta: true },
+        })
+        .then(
+          (rowsAgg) =>
+            new Map(rowsAgg.map((g) => [g.productId, g._sum.qtyDelta ?? 0])),
+        ),
+    ]);
+
+    const unranged: string[] = [];
+    const deactivated: string[] = [];
+    const blocked: Array<{ productId: string; reason: string }> = [];
+    const notes: string[] = [];
+
+    for (const row of rows) {
+      const decision = decideRangeExit({
+        productId: row.id,
+        name: row.name,
+        source: row.source,
+        rangeStatus: row.rangeStatus,
+        nmraReferenceId: row.nmraReferenceId,
+        stockOnHand: stockByProduct.get(row.id) ?? 0,
+        saleCount: row._count.saleItems,
+        purchasingCount: row._count.purchaseItems + row._count.receiptItems,
+      });
+
+      if (decision.action === "blocked") {
+        blocked.push({ productId: row.id, reason: decision.reason });
+        continue;
+      }
+      if (decision.action === "unrange") unranged.push(row.id);
+      else {
+        deactivated.push(row.id);
+        notes.push(decision.reason);
+      }
+    }
+
+    if (unranged.length > 0) {
+      await this.prisma.product.updateMany({
+        where: { tenantId, id: { in: unranged } },
+        data: { rangeStatus: "REFERENCE", rangedAt: null },
+      });
+    }
+    if (deactivated.length > 0) {
+      await this.prisma.product.updateMany({
+        where: { tenantId, id: { in: deactivated } },
+        data: { isActive: false },
+      });
+    }
+
+    return {
+      changed: unranged.length + deactivated.length,
+      unranged,
+      deactivated,
+      blocked,
+      // De-duplicated: fifty locally created products produce one explanation, not fifty.
+      notes: [...new Set(notes)].slice(0, 5),
+    };
+  }
+
+  /**
+   * What "Add to my products" would do to a set of NMRA reference rows, before it does it.
+   *
+   * The Reference Catalog is a 15,000-row register and the Add button is one click, so the
+   * dangerous case is not the refusal but the silent success: promoting a register row the shop
+   * already sells under its own name creates a second product for one real medicine, and from
+   * then on the stock count, the reorder level and the sales history are split between them
+   * with nothing to say so. Duplicates are looked up on the two identifiers that actually
+   * identify — barcode and registration number — and reported as warnings for confirmation
+   * rather than being blocked outright, since a genuine second pack size is a real case too.
+   */
+  async previewReferenceAdd(
+    tenantId: string,
+    referenceProductIds: string[],
+  ): Promise<{
+    items: Array<{
+      referenceProductId: string;
+      name: string;
+      allowed: boolean;
+      needsReview: boolean;
+      reason: string | null;
+      warnings: string[];
+    }>;
+    addable: number;
+    needsReview: number;
+    blocked: number;
+  }> {
+    const ids = [...new Set(referenceProductIds)].slice(
+      0,
+      BULK_PRODUCT_MATCH_LIMIT,
+    );
+    if (ids.length === 0)
+      return { items: [], addable: 0, needsReview: 0, blocked: 0 };
+
+    const rows = await this.prisma.product.findMany({
+      where: { tenantId, id: { in: ids } },
+      select: {
+        id: true,
+        name: true,
+        source: true,
+        rangeStatus: true,
+        barcode: true,
+        registrationNo: true,
+        isControlled: true,
+        requiresPrescription: true,
+        claimedBy: { select: { id: true } },
+      },
+    });
+
+    const barcodes = rows
+      .map((r) => r.barcode)
+      .filter((v): v is string => Boolean(v?.trim()));
+    const registrations = rows
+      .map((r) => r.registrationNo)
+      .filter((v): v is string => Boolean(v?.trim()));
+
+    // One query for the whole selection rather than two per row.
+    const existing =
+      barcodes.length || registrations.length
+        ? await this.prisma.product.findMany({
+            where: {
+              tenantId,
+              rangeStatus: "RANGED",
+              OR: [
+                ...(barcodes.length ? [{ barcode: { in: barcodes } }] : []),
+                ...(registrations.length
+                  ? [{ registrationNo: { in: registrations } }]
+                  : []),
+              ],
+            },
+            select: {
+              id: true,
+              name: true,
+              barcode: true,
+              registrationNo: true,
+              isControlled: true,
+              requiresPrescription: true,
+            },
+          })
+        : [];
+
+    const byBarcode = new Map<string, (typeof existing)[number][]>();
+    const byRegistration = new Map<string, (typeof existing)[number][]>();
+    for (const row of existing) {
+      if (row.barcode)
+        byBarcode.set(row.barcode, [
+          ...(byBarcode.get(row.barcode) ?? []),
+          row,
+        ]);
+      if (row.registrationNo) {
+        byRegistration.set(row.registrationNo, [
+          ...(byRegistration.get(row.registrationNo) ?? []),
+          row,
+        ]);
+      }
+    }
+
+    const items = rows.map((row) => {
+      const dupRows = [
+        ...(row.barcode ? (byBarcode.get(row.barcode) ?? []) : []).map((d) => ({
+          d,
+          matchedOn: "barcode" as const,
+        })),
+        ...(row.registrationNo
+          ? (byRegistration.get(row.registrationNo) ?? [])
+          : []
+        ).map((d) => ({
+          d,
+          matchedOn: "registrationNo" as const,
+        })),
+      ];
+      const seen = new Set<string>();
+      const duplicates = dupRows.filter(({ d }) => {
+        if (seen.has(d.id)) return false;
+        seen.add(d.id);
+        return true;
+      });
+
+      const decision = decideReferencePromotion({
+        referenceProductId: row.id,
+        name: row.name,
+        rangeStatus: row.rangeStatus,
+        source: row.source,
+        claimedByProductId: row.claimedBy?.id ?? null,
+        duplicateCandidates: duplicates.map(({ d, matchedOn }) => ({
+          id: d.id,
+          name: d.name,
+          matchedOn,
+        })),
+        complianceChange: duplicates.some(
+          ({ d }) =>
+            d.isControlled !== row.isControlled ||
+            d.requiresPrescription !== row.requiresPrescription,
+        ),
+      });
+
+      return { referenceProductId: row.id, name: row.name, ...decision };
+    });
+
+    return {
+      items,
+      addable: items.filter((i) => i.allowed).length,
+      needsReview: items.filter((i) => i.allowed && i.needsReview).length,
+      blocked: items.filter((i) => !i.allowed).length,
+    };
+  }
+
+  /**
+   * Promote NMRA reference rows into the pharmacy's range.
+   *
+   * `acknowledgeWarnings` is the operator saying "yes, I saw the duplicate warning" — without
+   * it, anything the preview flagged is held back rather than added, so the review is not
+   * something the UI can forget to show.
+   */
+  async addReferenceProducts(
+    tenantId: string,
+    userId: string,
+    referenceProductIds: string[],
+    opts: { acknowledgeWarnings?: boolean } = {},
+  ): Promise<{
+    added: string[];
+    held: Array<{ referenceProductId: string; name: string; reason: string }>;
+  }> {
+    const preview = await this.previewReferenceAdd(
+      tenantId,
+      referenceProductIds,
+    );
+
+    const toAdd: string[] = [];
+    const held: Array<{
+      referenceProductId: string;
+      name: string;
+      reason: string;
+    }> = [];
+    for (const item of preview.items) {
+      if (!item.allowed) {
+        held.push({
+          referenceProductId: item.referenceProductId,
+          name: item.name,
+          reason: item.reason ?? "Cannot be added.",
+        });
+        continue;
+      }
+      if (item.needsReview && !opts.acknowledgeWarnings) {
+        held.push({
+          referenceProductId: item.referenceProductId,
+          name: item.name,
+          reason: item.warnings.join(" "),
+        });
+        continue;
+      }
+      toAdd.push(item.referenceProductId);
+    }
+
+    if (toAdd.length > 0) {
+      await this.prisma.product.updateMany({
+        // `rangeStatus: REFERENCE` in the filter is the last line of defence against a race:
+        // two operators adding the same row concurrently, where the second must be a no-op
+        // rather than a second `rangedAt` stamp.
+        where: { tenantId, id: { in: toAdd }, rangeStatus: "REFERENCE" },
+        data: { rangeStatus: "RANGED", rangedAt: new Date() },
+      });
+      await this.audit.log({
+        tenantId,
+        actorUserId: userId,
+        eventName: "products.reference_added",
+        entityName: "product",
+        entityId: tenantId,
+        payload: {
+          count: toAdd.length,
+          productIds: toAdd.slice(0, 100),
+          held: held.length,
+        },
+      });
+    }
+
+    return { added: toAdd, held };
   }
 
   /** The tenant's Unclassified Medicines id — the floor every product falls back to. */
@@ -991,7 +1468,10 @@ export class ProductsService {
     }
 
     // One row per product per tag, so the product batch shrinks as the tag count grows.
-    const perBatch = Math.max(1, Math.floor(BULK_RELATION_BATCH / tagIds.length));
+    const perBatch = Math.max(
+      1,
+      Math.floor(BULK_RELATION_BATCH / tagIds.length),
+    );
     let added = 0;
     for (let i = 0; i < ids.length; i += perBatch) {
       const group = ids.slice(i, i + perBatch);
@@ -1007,10 +1487,14 @@ export class ProductsService {
   }
 
   async remove(tenantId: string, userId: string, id: string) {
-    const existing = await this.prisma.product.findFirst({ where: { id, tenantId } });
+    const existing = await this.prisma.product.findFirst({
+      where: { id, tenantId },
+    });
     if (!existing) throw new NotFoundException("Product not found");
     try {
-      const mutation = await this.prisma.product.deleteMany({ where: { id, tenantId } });
+      const mutation = await this.prisma.product.deleteMany({
+        where: { id, tenantId },
+      });
       assertOneScopedMutation(mutation, "Product");
       await this.audit.log({
         tenantId,
@@ -1022,7 +1506,10 @@ export class ProductsService {
       });
       return { ok: true };
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2003"
+      ) {
         throw new ConflictException(
           "Product cannot be deleted because it is referenced by inventory or sales records",
         );

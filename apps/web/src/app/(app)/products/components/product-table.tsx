@@ -1,14 +1,32 @@
 "use client";
 
 import { useMemo } from "react";
-import { IconAlertTriangle, IconPackage } from "@/components/icons";
-import { DataTable, StatusBadge, type Column, type SortDir } from "@/components/ui";
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconPackage,
+  IconPlus,
+} from "@/components/icons";
+import {
+  DataTable,
+  StatusBadge,
+  type Column,
+  type SortDir,
+} from "@/components/ui";
 import { PAGE_SIZE } from "../constants";
 import css from "../products.module.css";
 import type { ColumnKey, Product, ProductScope } from "../types";
 import { ProductActions } from "./product-actions";
 import { ProductStockBadge } from "./product-stock-badge";
 import { ProductThumb } from "./product-thumb";
+
+/** Search Catalog's vocabulary, kept verbatim so the merged screen reads the same. */
+const MATCH_LABELS: Record<string, string> = {
+  exact: "Exact match",
+  generic: "Generic match",
+  alias: "Alias match",
+  partial: "Partial match",
+};
 
 type ProductTableProps = {
   products: Product[];
@@ -29,6 +47,12 @@ type ProductTableProps = {
   onRowClick: (row: Product) => void;
   onEdit: (p: Product) => void;
   onDelete: (p: Product) => void;
+  /** Reference scope only: promote one register row into the pharmacy's range. */
+  onAddReference?: (p: Product) => void;
+  /** Ids added in this session, so the row reads "In my products" before the list refetches. */
+  addedReferenceIds?: ReadonlySet<string>;
+  /** The row currently being added, for its pending label. */
+  addingReferenceId?: string | null;
 };
 
 export function ProductTable({
@@ -49,6 +73,9 @@ export function ProductTable({
   onRowClick,
   onEdit,
   onDelete,
+  onAddReference,
+  addedReferenceIds,
+  addingReferenceId,
 }: ProductTableProps) {
   const allColumnDefs: Column<Product>[] = useMemo(
     () => [
@@ -88,6 +115,13 @@ export function ProductTable({
                 <span className={css.genericName}>{row.genericName}</span>
               ) : null}
               <span className={css.tagRow}>
+                {/* Only ever present when a search term was given. Words, not a colour —
+                    "why did this come back" has to be readable, not decoded. */}
+                {row.matchType && row.matchType !== "partial" && (
+                  <span className={css.matchChip}>
+                    {MATCH_LABELS[row.matchType]}
+                  </span>
+                )}
                 {(row.requiresPrescription || row.isControlled) && (
                   <span className={css.rxTag}>Rx</span>
                 )}
@@ -106,7 +140,9 @@ export function ProductTable({
                   ))}
                 {(row.tags ?? [])
                   .filter((t) =>
-                    /unbranded|prescription required|controlled medicine/i.test(t.name),
+                    /unbranded|prescription required|controlled medicine/i.test(
+                      t.name,
+                    ),
                   )
                   .slice(0, 1)
                   .map((t) => (
@@ -226,19 +262,69 @@ export function ProductTable({
       {
         key: "actions",
         header: "Actions",
-        width: "72px",
+        width: scope === "reference" ? "132px" : "72px",
         align: "right",
-        render: (row) =>
-          canWrite ? (
-            <ProductActions row={row} canDelete={canDelete} onEdit={onEdit} onDelete={onDelete} />
-          ) : null,
+        // A reference row is the regulator's record, not the shop's. Edit and delete on one
+        // would be editing the register, so the only action offered is the one that makes
+        // sense: start selling it. (Deleting a claimed reference row is also refused by the
+        // API's new foreign key, which would otherwise strand the link history.)
+        render: (row) => {
+          if (scope === "reference") {
+            if (!canWrite || !onAddReference) return null;
+            const added = addedReferenceIds?.has(row.id) ?? false;
+            if (added) {
+              return (
+                <span className={css.referenceAddedChip}>
+                  <IconCheck size={11} aria-hidden />
+                  In my products
+                </span>
+              );
+            }
+            const busy = addingReferenceId === row.id;
+            return (
+              <button
+                type="button"
+                className={css.referenceAddBtn}
+                disabled={busy}
+                aria-label={`Add ${row.name} to my products`}
+                onClick={(e) => {
+                  // The row itself opens the detail panel; the button must not do both.
+                  e.stopPropagation();
+                  onAddReference(row);
+                }}
+              >
+                <IconPlus size={12} aria-hidden />
+                {busy ? "Adding…" : "Add"}
+              </button>
+            );
+          }
+          return canWrite ? (
+            <ProductActions
+              row={row}
+              canDelete={canDelete}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+          ) : null;
+        },
       },
     ],
-    [canDelete, canWrite, onDelete, onEdit, scope, visibleColumns],
+    [
+      addedReferenceIds,
+      addingReferenceId,
+      canDelete,
+      canWrite,
+      onAddReference,
+      onDelete,
+      onEdit,
+      scope,
+      visibleColumns,
+    ],
   );
 
   const columns = useMemo(
-    () => allColumnDefs.filter((col) => visibleColumns.has(col.key as ColumnKey)),
+    () =>
+      allColumnDefs.filter((col) => visibleColumns.has(col.key as ColumnKey)),
     [allColumnDefs, visibleColumns],
   );
 
@@ -260,12 +346,14 @@ export function ProductTable({
       onSelectionChange={onSelectionChange}
       compact
       emptyTitle={
-        scope === "reference" ? "No reference products found" : "No products yet"
+        scope === "reference"
+          ? "No reference products found"
+          : "No products yet"
       }
       emptyDescription={
         scope === "reference"
-          ? "Import the NMRA registry to search every medicine registered in Sri Lanka."
-          : "Add a product, or open the Reference catalog tab to pull one in from the registry."
+          ? "Import the NMRA register to search every medicine registered in Sri Lanka, then add the ones you sell."
+          : "Add a product, or open the Reference catalog tab to pull one in from the register."
       }
       emptyIcon={<IconPackage size={42} />}
     />

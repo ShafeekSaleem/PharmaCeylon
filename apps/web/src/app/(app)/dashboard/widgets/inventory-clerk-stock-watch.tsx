@@ -12,18 +12,27 @@ import css from "../dashboard.module.css";
 
 const LOW_STOCK_PAGE_SIZE = 4;
 
-export function InventoryClerkStockWatchWidget({ data }: { data: DashboardData }) {
+export function InventoryClerkStockWatchWidget({
+  data,
+}: {
+  data: DashboardData;
+}) {
   const router = useRouter();
   const { lowStockRows } = data;
   const [page, setPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(lowStockRows.length / LOW_STOCK_PAGE_SIZE));
+  const pageCount = Math.max(
+    1,
+    Math.ceil(lowStockRows.length / LOW_STOCK_PAGE_SIZE),
+  );
 
   return (
     <DashboardPanel
       title="Stock Watch"
       footerHref="/inventory?view=low"
       footerLabel="View low stock →"
-      footerMeta={lowStockRows.length > 0 ? `${lowStockRows.length} SKUs` : undefined}
+      footerMeta={
+        lowStockRows.length > 0 ? `${lowStockRows.length} SKUs` : undefined
+      }
     >
       {lowStockRows.length === 0 ? (
         <p className={css.emptyState}>Stock levels look healthy.</p>
@@ -42,7 +51,10 @@ export function InventoryClerkStockWatchWidget({ data }: { data: DashboardData }
               {paginate(lowStockRows, page, LOW_STOCK_PAGE_SIZE).map((r) => {
                 const need = Math.max(0, r.product.reorderLevel - r.qtyOnHand);
                 return (
-                  <tr key={r.productId} {...rowLinkProps(router, `/catalog?productId=${r.productId}`)}>
+                  <tr
+                    key={r.productId}
+                    {...rowLinkProps(router, `/products/${r.productId}`)}
+                  >
                     <td>
                       <strong>{r.product.sku}</strong>
                       <div className={css.muted}>{r.product.name}</div>
@@ -52,7 +64,13 @@ export function InventoryClerkStockWatchWidget({ data }: { data: DashboardData }
                     <td>
                       <StatusBadge
                         status={r.qtyOnHand <= 0 ? "failed" : "pending"}
-                        label={r.qtyOnHand <= 0 ? "OOS" : need > 0 ? `+${need}` : "Low"}
+                        label={
+                          r.qtyOnHand <= 0
+                            ? "OOS"
+                            : need > 0
+                              ? `+${need}`
+                              : "Low"
+                        }
                       />
                     </td>
                   </tr>

@@ -3,8 +3,19 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, FormField, SelectField, ToggleSwitch } from "@/components/ui";
-import { IconPackage, IconDollarSign, IconChevronRight, IconTag } from "@/components/icons";
+import {
+  PageHeader,
+  ActionButton,
+  FormField,
+  SelectField,
+  ToggleSwitch,
+} from "@/components/ui";
+import {
+  IconPackage,
+  IconDollarSign,
+  IconChevronRight,
+  IconTag,
+} from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import { apiJson } from "@/lib/auth-client";
 import { invalidateProfitabilityTargetCache } from "@/app/(app)/reports/lib/use-profitability-target";
@@ -33,7 +44,8 @@ export default function CatalogSettingsPage() {
         if (!cancelled) setSettings(s);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load settings");
+        if (!cancelled)
+          setError(e instanceof Error ? e.message : "Failed to load settings");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -60,15 +72,20 @@ export default function CatalogSettingsPage() {
                   <IconPackage size={16} /> Categories &amp; Tags
                 </h2>
                 <p className={css.cardDesc}>
-                  Merchandise categories and product tags used by the Products page, POS, and reports.
+                  Merchandise categories and product tags used by the Products
+                  page, POS, and reports.
                 </p>
               </div>
               <div style={{ display: "flex", gap: "0.5rem" }}>
-                <Link href="/products/categories" className={css.chip}>
+                <Link
+                  href="/products/manage?section=categories"
+                  className={css.chip}
+                >
                   Manage Categories <IconChevronRight size={13} />
                 </Link>
-                <Link href="/products/tags" className={css.chip}>
-                  <IconTag size={13} /> Manage Tags <IconChevronRight size={13} />
+                <Link href="/products/manage?section=tags" className={css.chip}>
+                  <IconTag size={13} /> Manage Tags{" "}
+                  <IconChevronRight size={13} />
                 </Link>
               </div>
             </div>
@@ -78,9 +95,17 @@ export default function CatalogSettingsPage() {
             <p className={css.rowHint}>Loading…</p>
           ) : (
             <>
-              <ProductDisplayCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
+              <ProductDisplayCard
+                settings={settings}
+                onSaved={setSettings}
+                canEdit={canEdit}
+              />
               <ProfitabilityTargetCard canEdit={canEdit} />
-              <TaxConfigurationCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
+              <TaxConfigurationCard
+                settings={settings}
+                onSaved={setSettings}
+                canEdit={canEdit}
+              />
             </>
           )}
         </div>
@@ -122,7 +147,9 @@ function ProductDisplayCard({ settings, onSaved, canEdit }: CardProps) {
       <div className={css.cardHead}>
         <div>
           <h2 className={css.cardTitle}>Product Display</h2>
-          <p className={css.cardDesc}>Defaults for how products appear across the app.</p>
+          <p className={css.cardDesc}>
+            Defaults for how products appear across the app.
+          </p>
         </div>
       </div>
       {error ? <Alert variant="error">{error}</Alert> : null}
@@ -139,10 +166,14 @@ function ProductDisplayCard({ settings, onSaved, canEdit }: CardProps) {
         />
       </div>
       <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-        <div className={css.rowLabel}>Show controlled-substance badge in product lists</div>
+        <div className={css.rowLabel}>
+          Show controlled-substance badge in product lists
+        </div>
         <ToggleSwitch
           checked={draft.showControlledBadgeInLists}
-          onChange={(v) => setDraft((d) => ({ ...d, showControlledBadgeInLists: v }))}
+          onChange={(v) =>
+            setDraft((d) => ({ ...d, showControlledBadgeInLists: v }))
+          }
           disabled={!canEdit}
           label="Show controlled-substance badge in product lists"
         />
@@ -172,11 +203,20 @@ function ProfitabilityTargetCard({ canEdit }: { canEdit: boolean }) {
     apiJson<ProfitabilityTarget>("/tenant/profitability-target")
       .then((res) => {
         if (!cancelled) {
-          setInput(res.targetGrossMarginPercent != null ? String(res.targetGrossMarginPercent) : "");
+          setInput(
+            res.targetGrossMarginPercent != null
+              ? String(res.targetGrossMarginPercent)
+              : "",
+          );
         }
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load the current target");
+        if (!cancelled)
+          setError(
+            e instanceof Error
+              ? e.message
+              : "Failed to load the current target",
+          );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -192,7 +232,9 @@ function ProfitabilityTargetCard({ canEdit }: { canEdit: boolean }) {
     const trimmed = input.trim();
     const value = trimmed === "" ? null : Number(trimmed);
     if (value != null && (Number.isNaN(value) || value < 0 || value > 100)) {
-      setError("Enter a margin between 0 and 100, or leave the field blank to clear the target.");
+      setError(
+        "Enter a margin between 0 and 100, or leave the field blank to clear the target.",
+      );
       return;
     }
     setSaving(true);
@@ -219,7 +261,8 @@ function ProfitabilityTargetCard({ canEdit }: { canEdit: boolean }) {
             <IconDollarSign size={16} /> Profitability Target
           </h2>
           <p className={css.cardDesc}>
-            Tenant-wide gross margin % goal shown on Reports → Profitability → Gross Profit&apos;s goal tracker.
+            Tenant-wide gross margin % goal shown on Reports → Profitability →
+            Gross Profit&apos;s goal tracker.
           </p>
         </div>
       </div>
@@ -262,8 +305,15 @@ function TaxConfigurationCard({ settings, onSaved, canEdit }: CardProps) {
     setError(null);
     const trimmed = vatInput.trim();
     const vatRatePercent = trimmed === "" ? null : Number(trimmed);
-    if (vatRatePercent != null && (Number.isNaN(vatRatePercent) || vatRatePercent < 0 || vatRatePercent > 100)) {
-      setError("Enter a VAT rate between 0 and 100, or leave blank to use the server default.");
+    if (
+      vatRatePercent != null &&
+      (Number.isNaN(vatRatePercent) ||
+        vatRatePercent < 0 ||
+        vatRatePercent > 100)
+    ) {
+      setError(
+        "Enter a VAT rate between 0 and 100, or leave blank to use the server default.",
+      );
       return;
     }
     setSaving(true);
@@ -288,8 +338,8 @@ function TaxConfigurationCard({ settings, onSaved, canEdit }: CardProps) {
         <div>
           <h2 className={css.cardTitle}>Tax Configuration</h2>
           <p className={css.cardDesc}>
-            VAT rate and how it&apos;s calculated and shown, applied to POS checkout lines that
-            don&apos;t specify their own tax amount.
+            VAT rate and how it&apos;s calculated and shown, applied to POS
+            checkout lines that don&apos;t specify their own tax amount.
           </p>
         </div>
       </div>
@@ -318,10 +368,14 @@ function TaxConfigurationCard({ settings, onSaved, canEdit }: CardProps) {
         />
       </div>
       <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-        <div className={css.rowLabel}>Show tax breakdown on receipts and invoices</div>
+        <div className={css.rowLabel}>
+          Show tax breakdown on receipts and invoices
+        </div>
         <ToggleSwitch
           checked={draft.showTaxBreakdownOnDocuments}
-          onChange={(v) => setDraft((d) => ({ ...d, showTaxBreakdownOnDocuments: v }))}
+          onChange={(v) =>
+            setDraft((d) => ({ ...d, showTaxBreakdownOnDocuments: v }))
+          }
           disabled={!canEdit}
           label="Show tax breakdown on receipts and invoices"
         />

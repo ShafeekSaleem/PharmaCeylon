@@ -25,6 +25,7 @@ npm install              # also runs `prepare`, which builds @pharmaceylon/share
 npm run dev               # turbo: runs api + web dev servers together
 npm run build              # turbo: builds all workspaces
 npm run lint                # turbo: lints all workspaces
+npm run test                 # turbo: api (jest) + web (jest/jsdom) suites
 npm run format               # prettier --write across the repo
 ```
 
@@ -35,6 +36,7 @@ npm run dev -w api          # Nest only, :3001 — does NOT start web
 npm run dev -w web           # Next only, :3000
 npm run lint -w api           # tsc --noEmit (api has no eslint script; lint = typecheck)
 npm run test -w api            # jest, all *.spec.ts
+npm run test -w web             # jest + testing-library, all *.spec.tsx
 npm run prisma:migrate -w api   # prisma migrate dev
 npm run prisma:seed -w api       # seed demo tenant/users/data
 ```
@@ -52,7 +54,7 @@ Every API request that isn't `@Public()` passes through four global guards, in t
 1. **`JwtAuthGuard`** — validates the access token (cookie or Bearer), attaches `request.user` (a `UserContext`: userId, tenantId, email, `tokenVersion`, and `branchRoles: {branchId, role, roleId}[]`).
 2. **`CsrfGuard`** — double-submit check, only enforced when `request.user.authMethod === "cookie"` (browser flow) and the method is unsafe (not GET/HEAD/OPTIONS). Bearer-token clients (mobile) skip this — no cookie means no CSRF exposure.
 3. **`TenantBranchGuard`** — reads the `x-branch-id` header, verifies the user has a role on that branch, sets `request.branchId`. No header ⇒ passes through with no branch scoping (endpoint decides what that means).
-4. **`RolesGuard`** — reads `@RequirePermission(...)` metadata; `owner` on *any* branch always passes (hardcoded, non-configurable); otherwise resolves the caller's tenant-configurable permission grants **on `request.branchId`** (or across all their branches if no branch header was sent) via `PermissionsService`.
+4. **`RolesGuard`** — reads `@RequirePermission(...)` metadata; `owner` on _any_ branch always passes (hardcoded, non-configurable); otherwise resolves the caller's tenant-configurable permission grants **on `request.branchId`** (or across all their branches if no branch header was sent) via `PermissionsService`.
 
 `AppUser.email` is globally unique — login resolves `tenantId` from the user row, not from a header/subdomain. Tenant isolation itself is enforced by services scoping every Prisma query with `tenantId` (there's no Postgres RLS) — when adding a query, always filter by tenant/branch explicitly, don't rely on the guards for data scoping beyond authn/authz.
 
@@ -84,15 +86,50 @@ The browser always calls the **same origin as Next** (`NEXT_PUBLIC_API_BASE_URL`
   only.
 
 Read-side default: the Products page, transaction pickers and the global search bar show
-`RANGED` only; Search Catalog shows reference records too but ranks them below the shop's own.
+`RANGED` only; the Reference catalog tab shows the register.
+
+Leaving the range is **not** a free toggle — see `products/range-transition.util.ts`. Only a
+register-derived product with no stock and no history may go back to `REFERENCE`; anything the
+shop created itself is deactivated instead, because the reference catalog _is_ the NMRA
+register and local records don't belong in it. Nothing holding stock moves at all.
+
+### Catalog Management (`/products/manage`)
+
+Products has two tabs — My products and Reference catalog. Everything else about the catalog
+lives in one workspace with three in-place sections: Work Queue, Categories, Tags. The four
+screens it replaced (`/products/categories`, `/products/tags`, `/products/organize`,
+`/products/nmra-matches`) all redirect to the matching section or filter, as does `/catalog`,
+whose search folded into the Reference tab.
+
+`CatalogTask` is the durable spine. Missing categories and register matches used to be
+recomputed on every page load, so a decision could not be _recorded_ — dismissing an umbrella
+from the medicines queue hid it until the next refresh. Tasks now have a lifecycle (`OPEN`,
+`NEEDS_REVIEW`, `RESOLVED`, `DISMISSED`, `NOT_APPLICABLE`), and `CatalogTaskService.refresh` is
+idempotent and never overwrites a terminal row — safe to run after every import and whenever
+the queue is opened.
+
+Three rules the matching side depends on, all in `apps/api/src`:
+
+- **`catalog/nmra-eligibility.ts`** decides what belongs in the register queue at all. Checks
+  regulatory signals first, retail keywords _second_, and weak medicine signals last — the order
+  matters, because "Deodorant Spray 150ml" has a dosed strength and "Hand Sanitizer Gel" has a
+  dosage form. Only a `regulatory`-tier product earns a "nothing matched" task.
+- **`products/reference-candidates.ts`** finds candidates with bounded, indexed probes driven by
+  the product's own identifiers. It replaced a `take: 5000` scan that silently made two thirds
+  of a 15,000-row register unmatchable, with _which_ two thirds depending on row order.
+- **`catalog-tasks/catalog-task-safety.ts`** defines what "Apply safe changes" may touch.
+  Compliance changes and ambiguous identifiers are excluded however strong the evidence.
+
+Applying an NMRA task goes through `ProductNmraLinkService.link` — there is one implementation
+of the field-ownership policy, not a second one in the queue.
 
 ### Idempotency (money/stock mutations)
 
-Money- and stock-mutating endpoints (POS checkout, goods receipt, transfer ship/receive) accept an optional `Idempotency-Key` header, scoped per `tenantId + userId + operation`. First request performs the mutation and records key → resource id; retries with the same key replay the same result; reusing a key for a *different* logical operation is a 400. See `apps/api/src/common/idempotency.util.ts` and `docs/API_CONTRACT.md` for the exact scope table. Any new endpoint that mutates money or stock should follow this pattern, not invent a new one.
+Money- and stock-mutating endpoints (POS checkout, goods receipt, transfer ship/receive) accept an optional `Idempotency-Key` header, scoped per `tenantId + userId + operation`. First request performs the mutation and records key → resource id; retries with the same key replay the same result; reusing a key for a _different_ logical operation is a 400. See `apps/api/src/common/idempotency.util.ts` and `docs/API_CONTRACT.md` for the exact scope table. Any new endpoint that mutates money or stock should follow this pattern, not invent a new one.
 
 ### Domain modules (`apps/api/src/*`)
 
-Business logic is organized as one Nest module per domain: `sales` (POS/checkout/held-sales/pharmacist-approval/refunds), `products`, `product-import` (a pharmacy's own product list + opening stock, uploaded and column-mapped), `catalog`, `inventory`, `pricing` (VAT), `purchasing`, `returns`, `transfers`, `stocktakes`, `suppliers`, `customers` (+ prescriptions), `nmra` (Sri Lanka National Medicines Regulatory Authority catalog import/normalize), plus platform modules `auth`, `security` (guards/decorators), `tenant`, `admin`, `audit`, `analytics`, `reports`, `uploads`. Controlled products (`Product.isControlled`) require pharmacist/manager/owner at checkout — see `sales/pharmacist-approval.service.ts` and `sales.checkout-controlled.spec.ts`.
+Business logic is organized as one Nest module per domain: `sales` (POS/checkout/held-sales/pharmacist-approval/refunds), `products`, `product-import` (a pharmacy's own product list + opening stock, uploaded and column-mapped), `catalog`, `catalog-tasks` (the Catalog Management work queue), `inventory`, `pricing` (VAT), `purchasing`, `returns`, `transfers`, `stocktakes`, `suppliers`, `customers` (+ prescriptions), `nmra` (Sri Lanka National Medicines Regulatory Authority catalog import/normalize), plus platform modules `auth`, `security` (guards/decorators), `tenant`, `admin`, `audit`, `analytics`, `reports`, `uploads`. Controlled products (`Product.isControlled`) require pharmacist/manager/owner at checkout — see `sales/pharmacist-approval.service.ts` and `sales.checkout-controlled.spec.ts`.
 
 Pricing/VAT is Sri Lanka–oriented but configurable via `PRICING_VAT_RATE_PERCENT`; a checkout line either sends its own `taxAmount` or the server computes VAT exclusive on `(unitPrice × qty − discountAmount)`.
 

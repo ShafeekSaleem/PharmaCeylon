@@ -43,12 +43,30 @@ const TAB_DEFS: {
   countKey?: keyof Pick<ProductDetail, "batches" | "history"> | "pricing";
 }[] = [
   { id: "overview", label: "Overview", icon: <IconPackage size={15} /> },
-  { id: "stock", label: "Stock & batches", icon: <IconBox size={15} />, countKey: "batches" },
-  { id: "pricing", label: "Pricing", icon: <IconDollarSign size={15} />, countKey: "pricing" },
-  { id: "history", label: "History", icon: <IconFileText size={15} />, countKey: "history" },
+  {
+    id: "stock",
+    label: "Stock & batches",
+    icon: <IconBox size={15} />,
+    countKey: "batches",
+  },
+  {
+    id: "pricing",
+    label: "Pricing",
+    icon: <IconDollarSign size={15} />,
+    countKey: "pricing",
+  },
+  {
+    id: "history",
+    label: "History",
+    icon: <IconFileText size={15} />,
+    countKey: "history",
+  },
 ];
 
-function tabCount(detail: ProductDetail | null, key?: string): number | undefined {
+function tabCount(
+  detail: ProductDetail | null,
+  key?: string,
+): number | undefined {
   if (!detail || !key) return undefined;
   if (key === "batches") return detail.batches.length;
   if (key === "history") return detail.history.length;
@@ -77,7 +95,9 @@ export function ProductDetailPage({ productId }: { productId: string }) {
     return apiJson<ProductDetail>(`/products/${productId}/detail`)
       .then(setDetail)
       .catch((err) => {
-        setLoadError(err instanceof Error ? err.message : "Failed to load product");
+        setLoadError(
+          err instanceof Error ? err.message : "Failed to load product",
+        );
       })
       .finally(() => setLoading(false));
   }, [productId]);
@@ -240,7 +260,11 @@ export function ProductDetailPage({ productId }: { productId: string }) {
         onCreateCategory={canWrite ? metaMutations.createCategory : undefined}
         onCreateTag={canWrite ? metaMutations.createTag : undefined}
         onManageMeta={() =>
-          window.open("/products/categories", "_blank", "noopener,noreferrer")
+          window.open(
+            "/products/manage?section=categories",
+            "_blank",
+            "noopener,noreferrer",
+          )
         }
         onAliasesChanged={
           mutations.editingProduct
@@ -272,8 +296,8 @@ export function ProductDetailPage({ productId }: { productId: string }) {
           {mutations.deleteTarget?.sku})?
         </p>
         <p className={listCss.confirmDialogHint}>
-          This cannot be undone. Deletion fails if the product is linked to inventory, sales, or
-          purchase records. Mark inactive via Edit instead.
+          This cannot be undone. Deletion fails if the product is linked to
+          inventory, sales, or purchase records. Mark inactive via Edit instead.
         </p>
       </ConfirmDialog>
     </div>

@@ -12,7 +12,11 @@ import {
   IconRotateCcw,
   IconUpload,
 } from "@/components/icons";
-import { PageHeader, SelectField, type SelectFieldOption } from "@/components/ui";
+import {
+  PageHeader,
+  SelectField,
+  type SelectFieldOption,
+} from "@/components/ui";
 import { apiFetch } from "@/lib/auth-client";
 import { getBranchId } from "@/lib/auth-session";
 import { usePageChrome } from "@/lib/page-chrome-context";
@@ -178,10 +182,23 @@ export function ProductImportPage() {
 
   const current = stepIndex(io.step);
   const stockMapped = STOCK_FIELDS.some((f) => Boolean(io.mapping[f]));
-  const pendingUnconfirmed =
-    (io.preview?.pendingCompliance ?? []).filter(
-      (p) => !io.confirmedRows.has(p.rowNumber),
-    ).length;
+  const pendingUnconfirmed = (io.preview?.pendingCompliance ?? []).filter(
+    (p) => !io.confirmedRows.has(p.rowNumber),
+  ).length;
+
+  /*
+   * How many things on the Review step actually want a person: unknown incoming categories,
+   * compliance-sensitive matches, and rows that will be skipped. Stated at the top so the
+   * step opens by saying how much work it is, rather than making the reader find out by
+   * scrolling past a table of matches that needed nothing.
+   */
+  const unplacedCategories =
+    io.preview?.categoryPlan.entries.filter((e) => e.status === "unmatched")
+      .length ?? 0;
+  const attentionCount =
+    unplacedCategories +
+    (io.preview?.pendingCompliance.length ?? 0) +
+    (io.preview?.issues.length ?? 0);
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -220,7 +237,9 @@ export function ProductImportPage() {
             options={columnSelectOptions}
           />
         </td>
-        <td className={css.mapSample}>{sample || <span className={css.dim}>—</span>}</td>
+        <td className={css.mapSample}>
+          {sample || <span className={css.dim}>—</span>}
+        </td>
       </tr>
     );
   }
@@ -296,9 +315,12 @@ export function ProductImportPage() {
             }}
           >
             <IconUpload size={26} />
-            <strong>{io.busy ? "Reading your file…" : "Drop your product list here"}</strong>
+            <strong>
+              {io.busy ? "Reading your file…" : "Drop your product list here"}
+            </strong>
             <span className={css.dim}>
-              CSV or Excel, up to 20 MB. Any column names — you&apos;ll match them next.
+              CSV or Excel, up to 20 MB. Any column names — you&apos;ll match
+              them next.
             </span>
             <input
               ref={inputRef}
@@ -315,8 +337,8 @@ export function ProductImportPage() {
 
           <div className={css.uploadAside}>
             <p className={css.dim}>
-              Don&apos;t have an export? Start from our template — it has every column the
-              importer understands, with two example rows.
+              Don&apos;t have an export? Start from our template — it has every
+              column the importer understands, with two example rows.
             </p>
             <button
               type="button"
@@ -343,8 +365,8 @@ export function ProductImportPage() {
               <h2 className={css.cardTitle}>Match your columns</h2>
               <p className={css.dim}>
                 {io.file?.name} · {io.analysis.totalRows.toLocaleString()} row
-                {io.analysis.totalRows === 1 ? "" : "s"} · we&apos;ve guessed these from your
-                headers, change anything that looks wrong.
+                {io.analysis.totalRows === 1 ? "" : "s"} · we&apos;ve guessed
+                these from your headers, change anything that looks wrong.
               </p>
             </div>
           </header>
@@ -352,8 +374,8 @@ export function ProductImportPage() {
           {io.analysis.unmappedHeaders.length > 0 && (
             <Alert variant="info">
               These columns aren&apos;t being used:{" "}
-              <strong>{io.analysis.unmappedHeaders.join(", ")}</strong>. Match one above if it
-              belongs somewhere, otherwise it will be ignored.
+              <strong>{io.analysis.unmappedHeaders.join(", ")}</strong>. Match
+              one above if it belongs somewhere, otherwise it will be ignored.
             </Alert>
           )}
 
@@ -373,8 +395,8 @@ export function ProductImportPage() {
             Opening stock <span className={css.optional}>optional</span>
           </h3>
           <p className={css.dim}>
-            Map a quantity column to bring your stock in from the same file. Leave these blank
-            to import products only.
+            Map a quantity column to bring your stock in from the same file.
+            Leave these blank to import products only.
           </p>
           <table className={css.mapTable}>
             <thead>
@@ -389,19 +411,25 @@ export function ProductImportPage() {
 
           {stockMapped && !hasBranch && (
             <Alert variant="warning">
-              Select a branch in the header before importing opening stock — stock is always
-              held at a branch.
+              Select a branch in the header before importing opening stock —
+              stock is always held at a branch.
             </Alert>
           )}
 
           <footer className={css.cardFoot} data-fab-avoid>
-            <button type="button" className={css.secondaryBtn} onClick={io.reset}>
+            <button
+              type="button"
+              className={css.secondaryBtn}
+              onClick={io.reset}
+            >
               Choose a different file
             </button>
             <button
               type="button"
               className={css.primaryBtn}
-              disabled={io.busy || !io.mapping.name || (stockMapped && !hasBranch)}
+              disabled={
+                io.busy || !io.mapping.name || (stockMapped && !hasBranch)
+              }
               onClick={() => void io.runPreview()}
             >
               {io.busy ? "Checking…" : "Preview import"}
@@ -416,48 +444,33 @@ export function ProductImportPage() {
           <header className={css.cardHead}>
             <div>
               <h2 className={css.cardTitle}>Review before importing</h2>
-              <p className={css.dim}>Nothing has been changed yet.</p>
+              <p className={css.dim}>
+                Nothing has been changed yet.
+                {attentionCount > 0
+                  ? ` ${attentionCount.toLocaleString()} thing${attentionCount === 1 ? "" : "s"} below need${attentionCount === 1 ? "s" : ""} a decision — everything else is handled.`
+                  : " Nothing needs a decision — everything matched cleanly."}
+              </p>
             </div>
           </header>
 
           <div className={css.statRow}>
             <Stat label="New products" value={io.preview.create} tone="good" />
             <Stat label="Matched to existing" value={io.preview.update} />
-            <Stat label="Rows skipped" value={io.preview.skip} tone={io.preview.skip ? "warn" : undefined} />
+            <Stat
+              label="Rows skipped"
+              value={io.preview.skip}
+              tone={io.preview.skip ? "warn" : undefined}
+            />
             {io.preview.hasStockColumns && (
               <>
                 <Stat label="Batches to create" value={io.preview.withStock} />
-                <Stat label="Units of stock" value={io.preview.unitsToPost.toLocaleString()} />
+                <Stat
+                  label="Units of stock"
+                  value={io.preview.unitsToPost.toLocaleString()}
+                />
               </>
             )}
           </div>
-
-          {io.preview.update > 0 && (
-            <>
-              <h3 className={css.groupTitle}>How rows were matched</h3>
-              <div className={css.chipRow}>
-                {(Object.keys(io.preview.matchCounts) as MatchConfidence[])
-                  .filter((k) => io.preview!.matchCounts[k] > 0)
-                  .map((k) => (
-                    <span key={k} className={css.chip}>
-                      {CONFIDENCE_LABELS[k]}
-                      <strong>{io.preview!.matchCounts[k]}</strong>
-                    </span>
-                  ))}
-              </div>
-              {io.preview.sampleMatches.length > 0 && (
-                <ul className={css.sampleList}>
-                  {io.preview.sampleMatches.map((m) => (
-                    <li key={m.rowNumber}>
-                      <span className={css.dim}>Row {m.rowNumber}</span> {m.name}{" "}
-                      <span className={css.arrow}>→</span> {m.matchedName}{" "}
-                      <span className={css.miniChip}>{CONFIDENCE_LABELS[m.confidence]}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
 
           {io.preview.create > 0 && (
             <ImportCategoryBlock
@@ -465,15 +478,17 @@ export function ProductImportPage() {
               categories={categories}
               choices={io.categoryChoices}
               onChange={io.setCategoryChoice}
+              createRows={io.preview.create}
+              updateRows={io.preview.update}
             />
           )}
 
           {io.preview.missingExpiry > 0 && (
             <Alert variant="info">
               <strong>{io.preview.missingExpiry}</strong> batch
-              {io.preview.missingExpiry === 1 ? " has" : "es have"} no expiry date. They&apos;ll
-              be imported and flagged for review rather than rejected — find them later under
-              Inventory → Batches.
+              {io.preview.missingExpiry === 1 ? " has" : "es have"} no expiry
+              date. They&apos;ll be imported and flagged for review rather than
+              rejected — find them later under Inventory → Batches.
             </Alert>
           )}
 
@@ -486,14 +501,16 @@ export function ProductImportPage() {
                 <div>
                   <strong>
                     {io.preview.pendingCompliance.length} row
-                    {io.preview.pendingCompliance.length === 1 ? "" : "s"} need your confirmation
+                    {io.preview.pendingCompliance.length === 1 ? "" : "s"} need
+                    your confirmation
                   </strong>
                   <p className={css.dim}>
-                    These matched on generic name and strength rather than a barcode or
-                    registration number, and the match would mark the product controlled or
-                    prescription-only. Getting that wrong blocks a legitimate sale — or fails to
-                    block one. Tick the ones that are right; anything left unticked is skipped
-                    and listed in the error report.
+                    These matched on generic name and strength rather than a
+                    barcode or registration number, and the match would mark the
+                    product controlled or prescription-only. Getting that wrong
+                    blocks a legitimate sale — or fails to block one. Tick the
+                    ones that are right; anything left unticked is skipped and
+                    listed in the error report.
                   </p>
                 </div>
                 <button
@@ -514,17 +531,23 @@ export function ProductImportPage() {
                         onChange={() => io.toggleConfirmedRow(p.rowNumber)}
                       />
                       <span>
-                        <span className={css.dim}>Row {p.rowNumber}</span> {p.name}{" "}
-                        <span className={css.arrow}>→</span> {p.matchedName}
+                        <span className={css.dim}>Row {p.rowNumber}</span>{" "}
+                        {p.name} <span className={css.arrow}>→</span>{" "}
+                        {p.matchedName}
                         {p.matchedRegistrationNo && (
-                          <span className={css.dim}> · Reg. {p.matchedRegistrationNo}</span>
+                          <span className={css.dim}>
+                            {" "}
+                            · Reg. {p.matchedRegistrationNo}
+                          </span>
                         )}
                         <span className={css.flagRow}>
                           {p.wouldSetControlled && (
                             <span className={css.flagChip}>Controlled</span>
                           )}
                           {p.wouldSetPrescription && (
-                            <span className={css.flagChip}>Prescription only</span>
+                            <span className={css.flagChip}>
+                              Prescription only
+                            </span>
                           )}
                         </span>
                       </span>
@@ -545,6 +568,52 @@ export function ProductImportPage() {
             </>
           )}
 
+          {/*
+            Everything the importer decided on its own, folded away.
+            The Review step used to open with it — a table of confident matches nobody needs to
+            read, above the handful of rows that genuinely need a decision. Leading with the
+            automatic work buried the actual job, so it now sits behind a disclosure and the
+            decisions come first.
+          */}
+          {io.preview.update > 0 && (
+            <details className={css.autoDecisions}>
+              <summary className={css.autoDecisionsSummary}>
+                View automatic decisions
+                <span className={css.optional}>
+                  {io.preview.update.toLocaleString()} matched without needing
+                  you
+                </span>
+              </summary>
+              <div className={css.autoDecisionsBody}>
+                <h3 className={css.groupTitle}>How rows were matched</h3>
+                <div className={css.chipRow}>
+                  {(Object.keys(io.preview.matchCounts) as MatchConfidence[])
+                    .filter((k) => io.preview!.matchCounts[k] > 0)
+                    .map((k) => (
+                      <span key={k} className={css.chip}>
+                        {CONFIDENCE_LABELS[k]}
+                        <strong>{io.preview!.matchCounts[k]}</strong>
+                      </span>
+                    ))}
+                </div>
+                {io.preview.sampleMatches.length > 0 && (
+                  <ul className={css.sampleList}>
+                    {io.preview.sampleMatches.map((m) => (
+                      <li key={m.rowNumber}>
+                        <span className={css.dim}>Row {m.rowNumber}</span>{" "}
+                        {m.name} <span className={css.arrow}>→</span>{" "}
+                        {m.matchedName}{" "}
+                        <span className={css.miniChip}>
+                          {CONFIDENCE_LABELS[m.confidence]}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </details>
+          )}
+
           <footer className={css.cardFoot} data-fab-avoid>
             <button
               type="button"
@@ -559,9 +628,12 @@ export function ProductImportPage() {
               disabled={io.busy || io.preview.create + io.preview.update === 0}
               onClick={() => void io.runImport()}
             >
-              Import {(io.preview.create + io.preview.update).toLocaleString()} product
+              Import {(io.preview.create + io.preview.update).toLocaleString()}{" "}
+              product
               {io.preview.create + io.preview.update === 1 ? "" : "s"}
-              {pendingUnconfirmed > 0 ? ` (skipping ${pendingUnconfirmed} unconfirmed)` : ""}
+              {pendingUnconfirmed > 0
+                ? ` (skipping ${pendingUnconfirmed} unconfirmed)`
+                : ""}
             </button>
           </footer>
         </section>
@@ -570,14 +642,21 @@ export function ProductImportPage() {
       {/* ── Step 4: running ────────────────────────────────────────────── */}
       {io.step === "running" && (
         <section className={css.card}>
-          <h2 className={css.cardTitle}>{phaseLabel(io.progress?.phase ?? "preparing")}</h2>
+          <h2 className={css.cardTitle}>
+            {phaseLabel(io.progress?.phase ?? "preparing")}
+          </h2>
           <div className={css.progressTrack}>
             <div
               className={css.progressBar}
               style={{
                 width: `${
                   io.progress && io.progress.total > 0
-                    ? Math.min(100, Math.round((io.progress.processed / io.progress.total) * 100))
+                    ? Math.min(
+                        100,
+                        Math.round(
+                          (io.progress.processed / io.progress.total) * 100,
+                        ),
+                      )
                     : 5
                 }%`,
               }}
@@ -588,7 +667,9 @@ export function ProductImportPage() {
               ? `${io.progress.processed.toLocaleString()} of ${io.progress.total.toLocaleString()} · ${io.progress.productsCreated} created, ${io.progress.productsUpdated} updated, ${io.progress.batchesCreated} batches`
               : "Starting…"}
           </p>
-          <p className={css.dim}>You can leave this page — the import keeps running.</p>
+          <p className={css.dim}>
+            You can leave this page — the import keeps running.
+          </p>
         </section>
       )}
 
@@ -603,43 +684,104 @@ export function ProductImportPage() {
           </header>
 
           <div className={css.statRow}>
-            <Stat label="Products created" value={io.result.productsCreated} tone="good" />
+            <Stat
+              label="Products created"
+              value={io.result.productsCreated}
+              tone="good"
+            />
             <Stat label="Products updated" value={io.result.productsUpdated} />
             {io.result.productsRanged > 0 && (
-              <Stat label="Added from the register" value={io.result.productsRanged} />
+              <Stat
+                label="Added from the register"
+                value={io.result.productsRanged}
+              />
             )}
             <Stat label="Batches created" value={io.result.batchesCreated} />
-            <Stat label="Units posted" value={io.result.unitsPosted.toLocaleString()} />
+            <Stat
+              label="Units posted"
+              value={io.result.unitsPosted.toLocaleString()}
+            />
             {io.result.rowsFailed > 0 && (
-              <Stat label="Rows skipped" value={io.result.rowsFailed} tone="warn" />
+              <Stat
+                label="Rows skipped"
+                value={io.result.rowsFailed}
+                tone="warn"
+              />
             )}
           </div>
 
           {io.result.productsCreated > 0 && (
             <p className={css.dim}>
               Filed under a category:{" "}
-              <strong>{io.result.categorizedFromFile.toLocaleString()}</strong> from your file,{" "}
-              <strong>{io.result.categorizedByClassifier.toLocaleString()}</strong> sorted
-              automatically
+              <strong>{io.result.categorizedFromFile.toLocaleString()}</strong>{" "}
+              from your file,{" "}
+              <strong>
+                {io.result.categorizedByClassifier.toLocaleString()}
+              </strong>{" "}
+              sorted automatically
               {io.result.leftUnclassified > 0 ? (
                 <>
-                  , <strong>{io.result.leftUnclassified.toLocaleString()}</strong> left in
-                  Unclassified —{" "}
-                  <Link href="/products/organize" className={css.inlineLink}>
-                    place them now
-                  </Link>
+                  ,{" "}
+                  <strong>{io.result.leftUnclassified.toLocaleString()}</strong>{" "}
+                  left in Unclassified
                 </>
               ) : null}
               .
             </p>
           )}
 
+          {/*
+            The part of an import that used to disappear. A 2,000-row upload routinely left
+            hundreds of products needing a category and dozens needing a register match, and
+            nothing said so — you found out weeks later by noticing the Unclassified count. The
+            counts are stamped with this import's id, so "Review catalog tasks" opens the queue
+            filtered to exactly this upload's leftovers rather than the whole backlog.
+          */}
+          {io.result.catalogTasks.total > 0 && (
+            <div className={css.resultTaskNote}>
+              <IconClipboardList size={16} aria-hidden />
+              <span>
+                This import left{" "}
+                <strong>{io.result.catalogTasks.total.toLocaleString()}</strong>{" "}
+                catalog task
+                {io.result.catalogTasks.total === 1 ? "" : "s"}:{" "}
+                {[
+                  io.result.catalogTasks.needsCategory > 0
+                    ? `${io.result.catalogTasks.needsCategory.toLocaleString()} needing a category`
+                    : null,
+                  io.result.catalogTasks.nmraMatch > 0
+                    ? `${io.result.catalogTasks.nmraMatch.toLocaleString()} possible register match${io.result.catalogTasks.nmraMatch === 1 ? "" : "es"}`
+                    : null,
+                  io.result.catalogTasks.ambiguous > 0
+                    ? `${io.result.catalogTasks.ambiguous.toLocaleString()} ambiguous`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+                .
+                {io.result.catalogTasks.complianceReview > 0 && (
+                  <>
+                    {" "}
+                    <strong>
+                      {io.result.catalogTasks.complianceReview.toLocaleString()}
+                    </strong>{" "}
+                    would change a compliance flag and need individual review.
+                  </>
+                )}
+              </span>
+            </div>
+          )}
+
           {io.result.expiryReviewCount > 0 && (
             <Alert variant="info">
               <strong>{io.result.expiryReviewCount}</strong> batch
-              {io.result.expiryReviewCount === 1 ? "" : "es"} came in without an expiry date.
-              They&apos;re held out of expiry alerts until you confirm the real dates —{" "}
-              <Link href="/inventory/batches?needsExpiryReview=true" className={css.inlineLink}>
+              {io.result.expiryReviewCount === 1 ? "" : "es"} came in without an
+              expiry date. They&apos;re held out of expiry alerts until you
+              confirm the real dates —{" "}
+              <Link
+                href="/inventory/batches?needsExpiryReview=true"
+                className={css.inlineLink}
+              >
                 review them now
               </Link>
               .
@@ -664,20 +806,29 @@ export function ProductImportPage() {
                 </button>
               )}
             </div>
-            <button type="button" className={css.secondaryBtn} onClick={io.reset}>
+            <button
+              type="button"
+              className={css.secondaryBtn}
+              onClick={io.reset}
+            >
               Import another file
             </button>
-            {io.result.leftUnclassified > 0 && (
-              <Link href="/products" className={css.secondaryBtn}>
-                <IconPackage size={15} />
-                View my products
-              </Link>
-            )}
-            {io.result.leftUnclassified > 0 ? (
-              <Link href="/products/organize" className={css.primaryBtn}>
+            <Link
+              href={`/products?importId=${encodeURIComponent(io.result.importId)}`}
+              className={css.secondaryBtn}
+            >
+              <IconPackage size={15} />
+              View imported products
+            </Link>
+            {io.result.catalogTasks.total > 0 ? (
+              <Link
+                href={`/products/manage?importId=${encodeURIComponent(io.result.importId)}`}
+                className={css.primaryBtn}
+              >
                 <IconClipboardList size={15} />
-                Organize {io.result.leftUnclassified.toLocaleString()} product
-                {io.result.leftUnclassified === 1 ? "" : "s"}
+                Review {io.result.catalogTasks.total.toLocaleString()} catalog
+                task
+                {io.result.catalogTasks.total === 1 ? "" : "s"}
               </Link>
             ) : (
               <Link href="/products" className={css.primaryBtn}>
@@ -694,9 +845,9 @@ export function ProductImportPage() {
         <section className={css.card}>
           <h2 className={css.cardTitle}>Recent imports</h2>
           <p className={css.dim}>
-            An import can be undone while nothing has been sold from it. Undo removes the
-            products it created and the stock it posted; products it only matched and updated
-            stay as they are.
+            An import can be undone while nothing has been sold from it. Undo
+            removes the products it created and the stock it posted; products it
+            only matched and updated stay as they are.
           </p>
           <table className={css.historyTable}>
             <thead>
@@ -712,7 +863,9 @@ export function ProductImportPage() {
                 <tr key={h.id}>
                   <td>
                     <strong>{h.filename}</strong>
-                    {h.actorName && <span className={css.dim}> · {h.actorName}</span>}
+                    {h.actorName && (
+                      <span className={css.dim}> · {h.actorName}</span>
+                    )}
                   </td>
                   <td className={css.dim}>
                     {new Date(h.createdAt).toLocaleString()}
@@ -724,8 +877,10 @@ export function ProductImportPage() {
                       <span className={css.failedTag}>Failed</span>
                     ) : (
                       <>
-                        {h.productsCreated} created · {h.productsUpdated} updated
-                        {h.batchesCreated > 0 && ` · ${h.batchesCreated} batches`}
+                        {h.productsCreated} created · {h.productsUpdated}{" "}
+                        updated
+                        {h.batchesCreated > 0 &&
+                          ` · ${h.batchesCreated} batches`}
                       </>
                     )}
                   </td>
@@ -742,7 +897,10 @@ export function ProductImportPage() {
                       </button>
                     ) : (
                       h.undoBlockedReason && (
-                        <span className={css.dim} data-tooltip={h.undoBlockedReason}>
+                        <span
+                          className={css.dim}
+                          data-tooltip={h.undoBlockedReason}
+                        >
                           Can&apos;t undo
                         </span>
                       )

@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Logger,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma, StockMovementType } from "@prisma/client";
@@ -35,13 +36,10 @@ import {
   suggestMapping,
   unmappedHeaders,
 } from "./product-import-parse";
-import {
-  createImportJob,
-  getImportJob,
-  patchImportJob,
-  toImportJobProgress,
-  type ImportJobProgress,
-} from "./product-import-jobs";
+import { patchImportJob, type ImportJobProgress } from "./product-import-jobs";
+import { ImportJobRunner, type ImportJobContext } from "./import-job-runner";
+import { CatalogTaskService } from "../catalog-tasks/catalog-task.service";
+import { OPEN_STATUSES } from "../catalog-tasks/catalog-task.types";
 import {
   STOCK_FIELDS,
   type ImportAnalysis,
@@ -110,10 +108,14 @@ type Plan = {
 
 @Injectable()
 export class ProductImportService {
+  private readonly logger = new Logger(ProductImportService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly categoryTaxonomy: CategoryTaxonomyService,
+    private readonly runner: ImportJobRunner,
+    private readonly catalogTasks: CatalogTaskService,
   ) {}
 
   // ── Step 1: read the file, propose a mapping ────────────────────────────
@@ -192,7 +194,8 @@ export class ProductImportService {
       totalRows: resolved.rows.length + resolved.issues.length,
       create,
       update,
-      skip: plan.skipped + plan.pendingCompliance.length + resolved.issues.length,
+      skip:
+        plan.skipped + plan.pendingCompliance.length + resolved.issues.length,
       withStock,
       unitsToPost,
       missingExpiry,
@@ -289,31 +292,30 @@ export class ProductImportService {
       });
     }
 
+    // Same id for both by construction, which is what lets a progress poll fall back to the
+    // durable import row when the in-memory job is gone (restart, or another API instance).
     const jobId = importRecord.id;
-    createImportJob(jobId, tenantId, importRecord.id);
-    void this.runImport(
-      jobId,
-      tenantId,
-      userId,
-      hasStock ? branchId! : null,
-      importRecord.id,
-      resolved,
-      new Set(confirmedRows),
-      categoryChoices,
+    this.runner.start(jobId, tenantId, importRecord.id, (ctx) =>
+      this.runImport(
+        ctx,
+        tenantId,
+        userId,
+        hasStock ? branchId! : null,
+        importRecord.id,
+        resolved,
+        new Set(confirmedRows),
+        categoryChoices,
+      ),
     );
     return { jobId, importId: importRecord.id };
   }
 
-  getJobProgress(tenantId: string, jobId: string): ImportJobProgress {
-    const job = getImportJob(jobId);
-    if (!job || job.tenantId !== tenantId) {
-      throw new NotFoundException("Import job not found.");
-    }
-    return toImportJobProgress(job);
+  getJobProgress(tenantId: string, jobId: string): Promise<ImportJobProgress> {
+    return this.runner.getProgress(tenantId, jobId);
   }
 
   private async runImport(
-    jobId: string,
+    ctx: ImportJobContext,
     tenantId: string,
     userId: string,
     branchId: string | null,
@@ -322,15 +324,15 @@ export class ProductImportService {
     confirmedRows: Set<number>,
     categoryChoices: ImportCategoryChoices,
   ): Promise<void> {
-    patchImportJob(jobId, { status: "running", phase: "matching" });
-    try {
+    ctx.progress({ phase: "matching" });
+    {
       const index = await this.buildIndex(tenantId);
       const plan = this.planRows(resolved.rows, index, confirmedRows);
       const issues = [...resolved.issues, ...plan.issues];
 
       const toRun = plan.planned.filter((p) => !p.held);
       const total = toRun.length + (branchId ? toRun.length : 0);
-      patchImportJob(jobId, { phase: "products", total, processed: 0 });
+      ctx.progress({ phase: "products", total, processed: 0 });
 
       const written = await this.writeProducts(
         tenantId,
@@ -338,7 +340,7 @@ export class ProductImportService {
         toRun,
         issues,
         (processed, created, updated) =>
-          patchImportJob(jobId, {
+          ctx.progress({
             phase: "products",
             processed,
             total,
@@ -348,7 +350,7 @@ export class ProductImportService {
           }),
       );
 
-      patchImportJob(jobId, { phase: "categories" });
+      ctx.progress({ phase: "categories" });
       const categorized = await this.applyCategories(
         tenantId,
         toRun,
@@ -360,7 +362,7 @@ export class ProductImportService {
       let unitsPosted = 0;
       let expiryReviewCount = 0;
       if (branchId) {
-        patchImportJob(jobId, { phase: "stock" });
+        ctx.progress({ phase: "stock" });
         const stock = await this.postOpeningStock(
           tenantId,
           branchId,
@@ -370,7 +372,7 @@ export class ProductImportService {
           written.productIdByRow,
           issues,
           (processed) =>
-            patchImportJob(jobId, {
+            ctx.progress({
               phase: "stock",
               processed: written.processed + processed,
               total,
@@ -392,6 +394,14 @@ export class ProductImportService {
       }));
       const allIssues = [...issues, ...heldIssues].slice(0, MAX_ISSUES_KEPT);
 
+      // Every product this run created or touched goes through catalog-task generation, stamped
+      // with the import id. That stamp is what makes "Review catalog tasks" on the completion
+      // screen a real, filtered link back to exactly this upload's leftovers — the traceability
+      // that used to be missing, where a 2,000-row import silently added 400 uncategorised
+      // products and nothing said so.
+      ctx.progress({ phase: "review-tasks" });
+      const taskCounts = await this.generateCatalogTasks(tenantId, importId);
+
       const result: ImportResult = {
         importId,
         parsed: resolved.rows.length,
@@ -406,6 +416,7 @@ export class ProductImportService {
         categorizedFromFile: categorized.fromFile,
         categorizedByClassifier: categorized.byClassifier,
         leftUnclassified: categorized.unclassified,
+        catalogTasks: taskCounts,
       };
 
       await this.prisma.productImport.updateMany({
@@ -445,7 +456,7 @@ export class ProductImportService {
         },
       });
 
-      patchImportJob(jobId, {
+      patchImportJob(ctx.jobId, {
         status: "completed",
         phase: "done",
         processed: total,
@@ -456,16 +467,56 @@ export class ProductImportService {
         errorCount: result.rowsFailed,
         result,
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Import failed";
-      await this.prisma.productImport
-        .updateMany({
-          where: { id: importId, tenantId },
-          data: { status: "failed", error: message, completedAt: new Date() },
-        })
-        .catch(() => undefined);
-      patchImportJob(jobId, { status: "failed", phase: "failed", error: message });
     }
+  }
+
+  /**
+   * Generate the catalog work this import left behind, and count it by kind.
+   *
+   * Failure here must not fail the import: the products and stock are already written and
+   * committed, and losing the *worklist* is recoverable (the Work Queue refreshes on open),
+   * whereas reporting a successful import as failed is not.
+   */
+  private async generateCatalogTasks(
+    tenantId: string,
+    importId: string,
+  ): Promise<ImportResult["catalogTasks"]> {
+    const empty = {
+      total: 0,
+      needsCategory: 0,
+      nmraMatch: 0,
+      complianceReview: 0,
+      ambiguous: 0,
+    };
+    try {
+      await this.catalogTasks.refresh(tenantId, { importId });
+    } catch (err) {
+      this.logger.error(
+        `Catalog task generation failed for import ${importId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return empty;
+    }
+
+    const open = { tenantId, importId, status: { in: OPEN_STATUSES } };
+    const [total, needsCategory, nmraMatch, complianceReview, ambiguous] =
+      await Promise.all([
+        this.prisma.catalogTask.count({ where: open }),
+        this.prisma.catalogTask.count({
+          where: { ...open, type: "MISSING_CATEGORY" },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...open, type: "NMRA_MATCH" },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...open, complianceImpact: true },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...open, type: "NMRA_AMBIGUOUS" },
+        }),
+      ]);
+    return { total, needsCategory, nmraMatch, complianceReview, ambiguous };
   }
 
   // ── Undo ────────────────────────────────────────────────────────────────
@@ -552,9 +603,16 @@ export class ProductImportService {
     return null;
   }
 
-  private async importBatchIds(tenantId: string, importId: string): Promise<string[]> {
+  private async importBatchIds(
+    tenantId: string,
+    importId: string,
+  ): Promise<string[]> {
     const rows = await this.prisma.stockLedger.findMany({
-      where: { tenantId, referenceType: "product_import", referenceId: importId },
+      where: {
+        tenantId,
+        referenceType: "product_import",
+        referenceId: importId,
+      },
       select: { batchId: true },
       distinct: ["batchId"],
     });
@@ -581,11 +639,17 @@ export class ProductImportService {
     const removed = await this.prisma.$transaction(
       async (tx) => {
         await tx.stockLedger.deleteMany({
-          where: { tenantId, referenceType: "product_import", referenceId: importId },
+          where: {
+            tenantId,
+            referenceType: "product_import",
+            referenceId: importId,
+          },
         });
         const batches =
           batchIds.length > 0
-            ? await tx.batch.deleteMany({ where: { tenantId, id: { in: batchIds } } })
+            ? await tx.batch.deleteMany({
+                where: { tenantId, id: { in: batchIds } },
+              })
             : { count: 0 };
 
         // Products the import only matched and updated are left alone: the import didn't
@@ -701,31 +765,51 @@ export class ProductImportService {
       const rowNumber = i + 2;
       const name = cell(raw, "name").trim();
       if (!name) {
-        issues.push({ rowNumber, name: "", message: "No product name in this row." });
+        issues.push({
+          rowNumber,
+          name: "",
+          message: "No product name in this row.",
+        });
         return;
       }
 
       const qtyText = cell(raw, "qty");
       const qty = parseQty(qtyText);
       if (qtyText && qty == null) {
-        issues.push({ rowNumber, name, message: `Quantity "${qtyText}" isn't a number.` });
+        issues.push({
+          rowNumber,
+          name,
+          message: `Quantity "${qtyText}" isn't a number.`,
+        });
         return;
       }
       if (qty != null && qty < 0) {
-        issues.push({ rowNumber, name, message: "Quantity can't be negative." });
+        issues.push({
+          rowNumber,
+          name,
+          message: "Quantity can't be negative.",
+        });
         return;
       }
 
       const costText = cell(raw, "costPrice");
       const cost = parseMoney(costText);
       if (costText && cost == null) {
-        issues.push({ rowNumber, name, message: `Cost "${costText}" isn't a valid amount.` });
+        issues.push({
+          rowNumber,
+          name,
+          message: `Cost "${costText}" isn't a valid amount.`,
+        });
         return;
       }
       const priceText = cell(raw, "sellingPrice");
       const price = parseMoney(priceText);
       if (priceText && price == null) {
-        issues.push({ rowNumber, name, message: `Price "${priceText}" isn't a valid amount.` });
+        issues.push({
+          rowNumber,
+          name,
+          message: `Price "${priceText}" isn't a valid amount.`,
+        });
         return;
       }
 
@@ -744,7 +828,8 @@ export class ProductImportService {
         issues.push({
           rowNumber,
           name,
-          message: "This row has stock but no selling price — a batch can't be priced without one.",
+          message:
+            "This row has stock but no selling price — a batch can't be priced without one.",
         });
         return;
       }
@@ -778,7 +863,9 @@ export class ProductImportService {
 
   // ── Commercial categories ───────────────────────────────────────────────
 
-  private async buildCategoryIndex(tenantId: string): Promise<CommercialCategoryIndex> {
+  private async buildCategoryIndex(
+    tenantId: string,
+  ): Promise<CommercialCategoryIndex> {
     await this.categoryTaxonomy.ensureCommercialTemplate(tenantId);
     const rows = await this.prisma.productCategory.findMany({
       where: { tenantId, dimension: "COMMERCIAL" },
@@ -946,16 +1033,18 @@ export class ProductImportService {
       });
     }
 
-    const unclassifiedCount = await this.categoryTaxonomy.assignMissingPrimaryCommercial(
-      tenantId,
-      createdIds,
-      UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
-      "SYSTEM_DEFAULT",
-    );
-    const classified = await this.categoryTaxonomy.applyDeterministicMedicineClassification(
-      tenantId,
-      createdIds,
-    );
+    const unclassifiedCount =
+      await this.categoryTaxonomy.assignMissingPrimaryCommercial(
+        tenantId,
+        createdIds,
+        UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
+        "SYSTEM_DEFAULT",
+      );
+    const classified =
+      await this.categoryTaxonomy.applyDeterministicMedicineClassification(
+        tenantId,
+        createdIds,
+      );
 
     return {
       fromFile,
@@ -1044,7 +1133,11 @@ export class ProductImportService {
       }
 
       let held = false;
-      if (match && needsComplianceConfirmation(match) && !confirmedRows.has(row.rowNumber)) {
+      if (
+        match &&
+        needsComplianceConfirmation(match) &&
+        !confirmedRows.has(row.rowNumber)
+      ) {
         pendingCompliance.push({
           rowNumber: row.rowNumber,
           name: row.name,
@@ -1116,14 +1209,20 @@ export class ProductImportService {
                     // Only fill gaps: an existing catalog record's own data is better than a
                     // spreadsheet's, so the import never overwrites what is already there.
                     ...(item.row.barcode ? { barcode: item.row.barcode } : {}),
-                    ...(item.row.brandName ? { brandName: item.row.brandName } : {}),
-                    ...(item.row.packSize ? { packSize: item.row.packSize } : {}),
+                    ...(item.row.brandName
+                      ? { brandName: item.row.brandName }
+                      : {}),
+                    ...(item.row.packSize
+                      ? { packSize: item.row.packSize }
+                      : {}),
                     ...(item.row.reorderLevel != null
                       ? { reorderLevel: item.row.reorderLevel }
                       : {}),
                     // The pharmacy is telling us it sells this — that is the point of the file.
                     rangeStatus: "RANGED",
-                    ...(before?.rangeStatus === "REFERENCE" ? { rangedAt: new Date() } : {}),
+                    ...(before?.rangeStatus === "REFERENCE"
+                      ? { rangedAt: new Date() }
+                      : {}),
                   },
                 });
                 if (before?.rangeStatus === "REFERENCE") ranged += 1;
@@ -1162,7 +1261,10 @@ export class ProductImportService {
               issues.push({
                 rowNumber: item.row.rowNumber,
                 name: item.row.name,
-                message: err instanceof Error ? err.message : "Could not save this product.",
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "Could not save this product.",
               });
             }
           }
@@ -1185,7 +1287,11 @@ export class ProductImportService {
     productIdByRow: Map<number, string>,
     issues: ImportRowIssue[],
     onProgress: (processed: number) => void,
-  ): Promise<{ batchesCreated: number; unitsPosted: number; expiryReviewCount: number }> {
+  ): Promise<{
+    batchesCreated: number;
+    unitsPosted: number;
+    expiryReviewCount: number;
+  }> {
     const withStock = planned.filter((p) => p.row.qty != null && p.row.qty > 0);
     let batchesCreated = 0;
     let unitsPosted = 0;
@@ -1256,7 +1362,9 @@ export class ProductImportService {
                 rowNumber: item.row.rowNumber,
                 name: item.row.name,
                 message:
-                  err instanceof Error ? err.message : "Could not post opening stock.",
+                  err instanceof Error
+                    ? err.message
+                    : "Could not post opening stock.",
               });
             }
           }

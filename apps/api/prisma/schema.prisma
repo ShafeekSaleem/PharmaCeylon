@@ -26,7 +26,6 @@ enum OwnerRegistrationStatus {
   cancelled
 }
 
-
 enum NotificationCategory {
   inventory
   expiry
@@ -240,6 +239,35 @@ enum CategoryAssignmentSource {
 
 /// Where a Product's catalog record originated. NMRA-specific fields (schedule, regType,
 /// dossierNo, registrationNo/Date) are only expected to be populated when source = NMRA.
+/// What kind of decision a `CatalogTask` is waiting on. One queue, many task shapes — the
+/// Work Queue is the single place a pharmacist finds catalog work, rather than one screen per
+/// task type as it used to be (Organize for categories, Register matches for NMRA).
+enum CatalogTaskType {
+  /// The product has no primary commercial category, or is parked in the Unclassified floor.
+  MISSING_CATEGORY
+  /// The product looks like a registered medicine and a register row matches it.
+  NMRA_MATCH
+  /// An identifier (barcode / registration no.) points at more than one register row, so no
+  /// single match can be chosen without a person looking. Never auto-linked.
+  NMRA_AMBIGUOUS
+  /// An import row collided with an existing product on an identifier.
+  IMPORT_DUPLICATE
+}
+
+/// The durable lifecycle of a catalog task. `OPEN` and `NEEDS_REVIEW` are the two states that
+/// count as outstanding work; the other three are terminal and keep the row as history so the
+/// same task is never regenerated and quietly re-asked.
+enum CatalogTaskStatus {
+  OPEN
+  /// Compliance-sensitive or ambiguous — deliberately excluded from bulk "apply safe changes".
+  NEEDS_REVIEW
+  RESOLVED
+  DISMISSED
+  /// "This isn't a medicine" — the escape hatch that stops an umbrella sitting in the NMRA
+  /// queue forever. Also written automatically by the eligibility classifier.
+  NOT_APPLICABLE
+}
+
 enum CatalogSource {
   NMRA
   MANUAL
@@ -262,12 +290,12 @@ enum ProductImportStatus {
 /// stamped with its id (`Product.importId`, and `StockLedger.referenceId` with
 /// `referenceType = "product_import"`), which is what makes undo possible.
 model ProductImport {
-  id       String @id @default(uuid()) @db.Uuid
-  tenantId String @map("tenant_id") @db.Uuid
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
   /// Where opening stock was posted. Null when the file carried products only.
-  branchId String? @map("branch_id") @db.Uuid
+  branchId  String? @map("branch_id") @db.Uuid
   /// Who ran it — an import can create thousands of rows, so this is never anonymous.
-  createdBy String @map("created_by") @db.Uuid
+  createdBy String  @map("created_by") @db.Uuid
 
   filename String
   status   ProductImportStatus @default(running)
@@ -275,28 +303,41 @@ model ProductImport {
   /// The column mapping the user confirmed on screen, kept so a failed run can be explained.
   mapping Json @default("{}")
 
-  productsCreated Int @default(0) @map("products_created")
-  productsUpdated Int @default(0) @map("products_updated")
-  productsRanged  Int @default(0) @map("products_ranged")
-  batchesCreated  Int @default(0) @map("batches_created")
-  unitsPosted     Int @default(0) @map("units_posted")
-  rowsFailed      Int @default(0) @map("rows_failed")
+  productsCreated   Int @default(0) @map("products_created")
+  productsUpdated   Int @default(0) @map("products_updated")
+  productsRanged    Int @default(0) @map("products_ranged")
+  batchesCreated    Int @default(0) @map("batches_created")
+  unitsPosted       Int @default(0) @map("units_posted")
+  rowsFailed        Int @default(0) @map("rows_failed")
   /// Batches accepted without a real expiry date, awaiting review.
   expiryReviewCount Int @default(0) @map("expiry_review_count")
 
   /// Rows that could not be imported, in the shape the downloadable error CSV needs.
-  errorReport Json? @map("error_report")
+  errorReport Json?   @map("error_report")
   error       String?
+
+  /// Live progress, mirrored from the job runner so any API instance (or a page reloaded
+  /// after a restart) can answer "how far did it get" without the originating process.
+  phase         String? @db.VarChar(32)
+  rowsProcessed Int     @default(0) @map("rows_processed")
+  rowsTotal     Int     @default(0) @map("rows_total")
+
+  /// Bumped by the running job every few hundred rows. A `running` row whose heartbeat has
+  /// gone stale was interrupted (restart, crash, deploy) and is swept to `failed` — the state
+  /// that lets an operator re-run it — rather than being left running forever.
+  heartbeatAt DateTime? @map("heartbeat_at")
 
   createdAt   DateTime  @default(now()) @map("created_at")
   completedAt DateTime? @map("completed_at")
   undoneAt    DateTime? @map("undone_at")
 
-  tenant Tenant   @relation(fields: [tenantId], references: [id])
-  branch Branch?  @relation(fields: [branchId], references: [id])
-  actor  AppUser  @relation("ProductImportActor", fields: [createdBy], references: [id])
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  branch       Branch?       @relation(fields: [branchId], references: [id])
+  actor        AppUser       @relation("ProductImportActor", fields: [createdBy], references: [id])
+  catalogTasks CatalogTask[]
 
   @@index([tenantId, createdAt])
+  @@index([status, heartbeatAt])
   @@map("product_import")
 }
 
@@ -331,43 +372,43 @@ model IdempotencyRecord {
 }
 
 model Tenant {
-  id               String   @id @default(uuid()) @db.Uuid
-  code             String   @unique
-  legalName        String   @map("legal_name")
-  displayName      String   @map("display_name")
-  complianceRegion String   @map("compliance_region")
-  timezone         String   @default("Asia/Colombo")
-  isActive         Boolean  @default(true) @map("is_active")
+  id                       String   @id @default(uuid()) @db.Uuid
+  code                     String   @unique
+  legalName                String   @map("legal_name")
+  displayName              String   @map("display_name")
+  complianceRegion         String   @map("compliance_region")
+  timezone                 String   @default("Asia/Colombo")
+  isActive                 Boolean  @default(true) @map("is_active")
   /// Tenant-configured gross margin % goal shown on Reports → Profitability → Gross Profit's
   /// goal tracker. Null until an owner/manager sets one in Settings — never defaulted/fabricated.
   targetGrossMarginPercent Decimal? @map("target_gross_margin_percent") @db.Decimal(5, 2)
   /// Operating defaults shown in Settings → General → Tenant Profile, apply across every branch.
-  currency                String   @default("LKR")
-  dateFormat              String   @default("DD/MM/YYYY") @map("date_format")
-  fiscalYearStartMonth    Int      @default(1) @map("fiscal_year_start_month")
-  businessRegistrationNo  String?  @map("business_registration_no")
-  logoUrl                 String?  @map("logo_url")
-  addressLine1            String?  @map("address_line1")
-  addressLine2            String?  @map("address_line2")
-  city                    String?
-  postalCode              String?  @map("postal_code")
-  email                   String?
-  phone                   String?
-  taxIdentificationNo     String?  @map("tax_identification_no")
-  vatRegistrationNo       String?  @map("vat_registration_no")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  currency                 String   @default("LKR")
+  dateFormat               String   @default("DD/MM/YYYY") @map("date_format")
+  fiscalYearStartMonth     Int      @default(1) @map("fiscal_year_start_month")
+  businessRegistrationNo   String?  @map("business_registration_no")
+  logoUrl                  String?  @map("logo_url")
+  addressLine1             String?  @map("address_line1")
+  addressLine2             String?  @map("address_line2")
+  city                     String?
+  postalCode               String?  @map("postal_code")
+  email                    String?
+  phone                    String?
+  taxIdentificationNo      String?  @map("tax_identification_no")
+  vatRegistrationNo        String?  @map("vat_registration_no")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
 
-  branches         Branch[]
-  users            AppUser[]
-  userBranchRoles  UserBranchRole[]
-  auditEvents      AuditEvent[]
-  suppliers        Supplier[]
-  supplierInvoices SupplierInvoice[]
-  customers        Customer[]
-  roles            Role[]
-  settings         TenantSettings?
-  notifications    Notification[]
+  branches                Branch[]
+  users                   AppUser[]
+  userBranchRoles         UserBranchRole[]
+  auditEvents             AuditEvent[]
+  suppliers               Supplier[]
+  supplierInvoices        SupplierInvoice[]
+  customers               Customer[]
+  roles                   Role[]
+  settings                TenantSettings?
+  notifications           Notification[]
   notificationPreferences NotificationPreference[]
   dashboardLayouts        DashboardLayout[]
   productImports          ProductImport[]
@@ -376,24 +417,24 @@ model Tenant {
 }
 
 model Branch {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @map("tenant_id") @db.Uuid
-  code         String
-  name         String
-  timezone     String
-  addressLine1 String?  @map("address_line1")
-  addressLine2 String?  @map("address_line2")
-  city         String?
-  district     String?
-  postalCode   String?  @map("postal_code")
-  phone        String?
-  email        String?
-  pharmacyLicenceNo      String?   @map("pharmacy_licence_no")
-  pharmacyLicenceExpiry  DateTime? @map("pharmacy_licence_expiry") @db.Date
-  responsiblePharmacist  String?   @map("responsible_pharmacist")
-  pharmacistSlmcNo       String?   @map("pharmacist_slmc_no")
-  openingHours           String?   @map("opening_hours")
-  isActive     Boolean  @default(true) @map("is_active")
+  id                      String    @id @default(uuid()) @db.Uuid
+  tenantId                String    @map("tenant_id") @db.Uuid
+  code                    String
+  name                    String
+  timezone                String
+  addressLine1            String?   @map("address_line1")
+  addressLine2            String?   @map("address_line2")
+  city                    String?
+  district                String?
+  postalCode              String?   @map("postal_code")
+  phone                   String?
+  email                   String?
+  pharmacyLicenceNo       String?   @map("pharmacy_licence_no")
+  pharmacyLicenceExpiry   DateTime? @map("pharmacy_licence_expiry") @db.Date
+  responsiblePharmacist   String?   @map("responsible_pharmacist")
+  pharmacistSlmcNo        String?   @map("pharmacist_slmc_no")
+  openingHours            String?   @map("opening_hours")
+  isActive                Boolean   @default(true) @map("is_active")
   /// First-run readiness is enabled only for branches created by the guided
   /// owner onboarding flow. Existing branches keep normal POS behaviour.
   setupRequired           Boolean   @default(false) @map("setup_required")
@@ -405,8 +446,8 @@ model Branch {
   openingStockConfirmedAt DateTime? @map("opening_stock_confirmed_at")
   checkoutPreparedAt      DateTime? @map("checkout_prepared_at")
   setupCompletedAt        DateTime? @map("setup_completed_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
   tenant            Tenant                @relation(fields: [tenantId], references: [id])
   userBranchRoles   UserBranchRole[]
@@ -479,7 +520,7 @@ model TenantSettings {
   posRequireCustomer      Boolean @default(false) @map("pos_require_customer")
   posAutoPrintReceipt     Boolean @default(true) @map("pos_auto_print_receipt")
   posDefaultPaymentMethod String  @default("cash") @map("pos_default_payment_method")
-  posMaxDiscountPercent   Decimal @default(10) @db.Decimal(5, 2) @map("pos_max_discount_percent")
+  posMaxDiscountPercent   Decimal @default(10) @map("pos_max_discount_percent") @db.Decimal(5, 2)
 
   // ── Receipt & invoice customization (Settings → Modules → Main) ──
   receiptPaperSize         String  @default("80mm") @map("receipt_paper_size")
@@ -497,23 +538,23 @@ model TenantSettings {
 
   // ── Tax configuration (Settings → Modules → Catalog) ──
   /// Overrides PRICING_VAT_RATE_PERCENT when set; env var stays the fallback when null.
-  vatRatePercent               Decimal? @db.Decimal(5, 2) @map("vat_rate_percent")
-  vatCalculationMethod         String   @default("exclusive") @map("vat_calculation_method")
-  prescriptionTaxExempt        Boolean  @default(true) @map("prescription_tax_exempt")
-  showTaxBreakdownOnDocuments  Boolean  @default(true) @map("show_tax_breakdown_on_documents")
+  vatRatePercent              Decimal? @map("vat_rate_percent") @db.Decimal(5, 2)
+  vatCalculationMethod        String   @default("exclusive") @map("vat_calculation_method")
+  prescriptionTaxExempt       Boolean  @default(true) @map("prescription_tax_exempt")
+  showTaxBreakdownOnDocuments Boolean  @default(true) @map("show_tax_breakdown_on_documents")
 
   // ── Inventory & stock policies (Settings → Modules → Operations) ──
-  lowStockThresholdUnits          Int     @default(20) @map("low_stock_threshold_units")
-  expiryWarningDays               Int     @default(30) @map("expiry_warning_days")
-  defaultStockView                String  @default("batch") @map("default_stock_view")
-  stockPickingMethod              String  @default("fefo") @map("stock_picking_method")
-  barcodeAdjustmentsEnabled       Boolean @default(true) @map("barcode_adjustments_enabled")
-  blockExpiredBatchSalesAtPos     Boolean @default(true) @map("block_expired_batch_sales_at_pos")
+  lowStockThresholdUnits           Int     @default(20) @map("low_stock_threshold_units")
+  expiryWarningDays                Int     @default(30) @map("expiry_warning_days")
+  defaultStockView                 String  @default("batch") @map("default_stock_view")
+  stockPickingMethod               String  @default("fefo") @map("stock_picking_method")
+  barcodeAdjustmentsEnabled        Boolean @default(true) @map("barcode_adjustments_enabled")
+  blockExpiredBatchSalesAtPos      Boolean @default(true) @map("block_expired_batch_sales_at_pos")
   requireBatchExpiryOnGoodsReceipt Boolean @default(true) @map("require_batch_expiry_on_goods_receipt")
   allowNegativeStock               Boolean @default(false) @map("allow_negative_stock")
 
   // ── Purchasing defaults (Settings → Modules → Operations) ──
-  poNumberPrefix                 String  @default("PO-") @map("po_number_prefix")
+  poNumberPrefix                  String  @default("PO-") @map("po_number_prefix")
   defaultSupplierPaymentTermsDays Int     @default(30) @map("default_supplier_payment_terms_days")
   autoReceiveOnInvoiceMatch       Boolean @default(false) @map("auto_receive_on_invoice_match")
 
@@ -522,32 +563,32 @@ model TenantSettings {
   requireTransferReasonNote Boolean @default(true) @map("require_transfer_reason_note")
 
   // ── Stocktake defaults (Settings → Modules → Operations) ──
-  stocktakeDefaultCountMethod      String  @default("full") @map("stocktake_default_count_method")
-  stocktakeVarianceTolerancePercent Decimal @default(2) @db.Decimal(5, 2) @map("stocktake_variance_tolerance_percent")
+  stocktakeDefaultCountMethod       String  @default("full") @map("stocktake_default_count_method")
+  stocktakeVarianceTolerancePercent Decimal @default(2) @map("stocktake_variance_tolerance_percent") @db.Decimal(5, 2)
 
   // ── Alerts: recipients & channels ──
-  alertEmailDigestEnabled   Boolean @default(true)  @map("alert_email_digest_enabled")
-  alertNotifyOwner          Boolean @default(true)  @map("alert_notify_owner")
-  alertNotifyManager        Boolean @default(true)  @map("alert_notify_manager")
+  alertEmailDigestEnabled   Boolean @default(true) @map("alert_email_digest_enabled")
+  alertNotifyOwner          Boolean @default(true) @map("alert_notify_owner")
+  alertNotifyManager        Boolean @default(true) @map("alert_notify_manager")
   alertNotifyPharmacist     Boolean @default(false) @map("alert_notify_pharmacist")
-  alertNotifyInventoryClerk Boolean @default(true)  @map("alert_notify_inventory_clerk")
+  alertNotifyInventoryClerk Boolean @default(true) @map("alert_notify_inventory_clerk")
 
   // ── Approval rules ──
-  approvalRequiredPurchaseOrderThreshold Decimal? @db.Decimal(14, 2) @map("approval_required_po_threshold")
+  approvalRequiredPurchaseOrderThreshold Decimal? @map("approval_required_po_threshold") @db.Decimal(14, 2)
   approvalRequiredForBranchTransfers     Boolean  @default(true) @map("approval_required_for_branch_transfers")
-  approvalRequiredReturnThreshold        Decimal? @db.Decimal(14, 2) @map("approval_required_return_threshold")
+  approvalRequiredReturnThreshold        Decimal? @map("approval_required_return_threshold") @db.Decimal(14, 2)
 
   // ── Insights & reports ──
   defaultReportPeriod       String  @default("this_month") @map("default_report_period")
-  showFootfallAnalytics     Boolean @default(true)  @map("show_footfall_analytics")
+  showFootfallAnalytics     Boolean @default(true) @map("show_footfall_analytics")
   weeklySummaryEmailEnabled Boolean @default(false) @map("weekly_summary_email_enabled")
 
   // ── Security policy ──
-  sessionTimeoutMinutes         Int     @default(30)  @map("session_timeout_minutes")
+  sessionTimeoutMinutes         Int     @default(30) @map("session_timeout_minutes")
   auditLogRetentionDays         Int     @default(365) @map("audit_log_retention_days")
-  passwordMinLength             Int     @default(8)   @map("password_min_length")
+  passwordMinLength             Int     @default(8) @map("password_min_length")
   passwordRequireNumberOrSymbol Boolean @default(true) @map("password_require_number_or_symbol")
-  passwordExpiryDays            Int     @default(0)   @map("password_expiry_days")
+  passwordExpiryDays            Int     @default(0) @map("password_expiry_days")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -579,40 +620,42 @@ model AppUser {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  tenant                 Tenant                 @relation(fields: [tenantId], references: [id])
+  tenant                 Tenant                  @relation(fields: [tenantId], references: [id])
   userBranchRoles        UserBranchRole[]
   sessions               Session[]
-  purchaseOrdersCreated  PurchaseOrder[]        @relation("PurchaseOrderCreator")
-  goodsReceiptsReceived  GoodsReceipt[]         @relation("GoodsReceiptReceiver")
-  sales                  Sale[]                 @relation("SaleSeller")
-  salesDispensed         Sale[]                 @relation("SaleDispenser")
-  ledgerEntriesCreated   StockLedger[]          @relation("StockLedgerActor")
-  transfersRequested     Transfer[]             @relation("TransferRequester")
-  transfersApproved      Transfer[]             @relation("TransferApprover")
-  transfersReceived      Transfer[]             @relation("TransferReceiver")
-  goodsReturnsRequested  GoodsReturn[]          @relation("GoodsReturnRequester")
-  goodsReturnsApproved   GoodsReturn[]          @relation("GoodsReturnApprover")
-  goodsReturnsProcessed  GoodsReturn[]          @relation("GoodsReturnProcessor")
-  stocktakesCounted      Stocktake[]            @relation("StocktakeCounter")
+  purchaseOrdersCreated  PurchaseOrder[]         @relation("PurchaseOrderCreator")
+  goodsReceiptsReceived  GoodsReceipt[]          @relation("GoodsReceiptReceiver")
+  sales                  Sale[]                  @relation("SaleSeller")
+  salesDispensed         Sale[]                  @relation("SaleDispenser")
+  ledgerEntriesCreated   StockLedger[]           @relation("StockLedgerActor")
+  transfersRequested     Transfer[]              @relation("TransferRequester")
+  transfersApproved      Transfer[]              @relation("TransferApprover")
+  transfersReceived      Transfer[]              @relation("TransferReceiver")
+  goodsReturnsRequested  GoodsReturn[]           @relation("GoodsReturnRequester")
+  goodsReturnsApproved   GoodsReturn[]           @relation("GoodsReturnApprover")
+  goodsReturnsProcessed  GoodsReturn[]           @relation("GoodsReturnProcessor")
+  stocktakesCounted      Stocktake[]             @relation("StocktakeCounter")
   stocktakesAssigned     StocktakeAssignment[]
-  branchTargetsManaged   BranchMonthlyTarget[]  @relation("BranchTargetManager")
-  branchTargetsCreated   BranchMonthlyTarget[]  @relation("BranchTargetCreator")
-  stocktakesReviewed     Stocktake[]            @relation("StocktakeReviewer")
-  stocktakesApproved     Stocktake[]            @relation("StocktakeApprover")
-  stocktakesPosted       Stocktake[]            @relation("StocktakePoster")
-  stocktakesCompleted    Stocktake[]            @relation("StocktakeCompleter")
+  branchTargetsManaged   BranchMonthlyTarget[]   @relation("BranchTargetManager")
+  branchTargetsCreated   BranchMonthlyTarget[]   @relation("BranchTargetCreator")
+  stocktakesReviewed     Stocktake[]             @relation("StocktakeReviewer")
+  stocktakesApproved     Stocktake[]             @relation("StocktakeApprover")
+  stocktakesPosted       Stocktake[]             @relation("StocktakePoster")
+  stocktakesCompleted    Stocktake[]             @relation("StocktakeCompleter")
   stocktakeCountEntries  StocktakeCountEntry[]
   stocktakePostings      StocktakePosting[]
-  productImports         ProductImport[]        @relation("ProductImportActor")
-  stocktakeLineReviews   StocktakeLine[]        @relation("StocktakeLineReviewer")
-  stocktakeLineApprovals StocktakeLine[]        @relation("StocktakeLineApprover")
+  productImports         ProductImport[]         @relation("ProductImportActor")
+  stocktakeLineReviews   StocktakeLine[]         @relation("StocktakeLineReviewer")
+  stocktakeLineApprovals StocktakeLine[]         @relation("StocktakeLineApprover")
   stocktakePostingLines  StocktakePostingLine[]
-  auditEvents            AuditEvent[]           @relation("AuditActor")
-  prescriptionsCreated   Prescription[]         @relation("PrescriptionCreator")
-  heldSales              HeldSale[]             @relation("HeldSaleHolder")
+  auditEvents            AuditEvent[]            @relation("AuditActor")
+  prescriptionsCreated   Prescription[]          @relation("PrescriptionCreator")
+  heldSales              HeldSale[]              @relation("HeldSaleHolder")
   notifications          Notification[]
   notificationPreference NotificationPreference?
   dashboardLayout        DashboardLayout?
+  nmraLinksCreated       ProductNmraLink[]       @relation("ProductNmraLinkActor")
+  catalogTasksResolved   CatalogTask[]           @relation("CatalogTaskResolver")
 
   @@index([tenantId])
   @@map("app_user")
@@ -653,19 +696,19 @@ model Notification {
 }
 
 model NotificationPreference {
-  id                   String   @id @default(uuid()) @db.Uuid
-  tenantId             String   @map("tenant_id") @db.Uuid
-  userId               String   @unique @map("user_id") @db.Uuid
-  inventoryEnabled     Boolean  @default(true) @map("inventory_enabled")
-  expiryEnabled        Boolean  @default(true) @map("expiry_enabled")
-  purchasingEnabled    Boolean  @default(true) @map("purchasing_enabled")
-  transfersEnabled     Boolean  @default(true) @map("transfers_enabled")
-  stocktakesEnabled    Boolean  @default(true) @map("stocktakes_enabled")
-  salesEnabled         Boolean  @default(true) @map("sales_enabled")
-  complianceEnabled    Boolean  @default(true) @map("compliance_enabled")
-  systemEnabled        Boolean  @default(true) @map("system_enabled")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  userId            String   @unique @map("user_id") @db.Uuid
+  inventoryEnabled  Boolean  @default(true) @map("inventory_enabled")
+  expiryEnabled     Boolean  @default(true) @map("expiry_enabled")
+  purchasingEnabled Boolean  @default(true) @map("purchasing_enabled")
+  transfersEnabled  Boolean  @default(true) @map("transfers_enabled")
+  stocktakesEnabled Boolean  @default(true) @map("stocktakes_enabled")
+  salesEnabled      Boolean  @default(true) @map("sales_enabled")
+  complianceEnabled Boolean  @default(true) @map("compliance_enabled")
+  systemEnabled     Boolean  @default(true) @map("system_enabled")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -862,65 +905,65 @@ model SupplierInvoice {
 }
 
 model Product {
-  id                   String    @id @default(uuid()) @db.Uuid
-  tenantId             String    @map("tenant_id") @db.Uuid
-  sku                  String
-  barcode              String?
-  name                 String
-  brandName            String?   @map("brand_name")
-  genericName          String?   @map("generic_name")
-  manufacturer         String?
-  dosageForm           String?   @map("dosage_form")
-  strength             String?
-  unit                 String?
-  packSize             String?   @map("pack_size")
+  id                    String             @id @default(uuid()) @db.Uuid
+  tenantId              String             @map("tenant_id") @db.Uuid
+  sku                   String
+  barcode               String?
+  name                  String
+  brandName             String?            @map("brand_name")
+  genericName           String?            @map("generic_name")
+  manufacturer          String?
+  dosageForm            String?            @map("dosage_form")
+  strength              String?
+  unit                  String?
+  packSize              String?            @map("pack_size")
   /// NMRA pack type (blister, vial, bottle, etc.).
-  packType             String?   @map("pack_type")
-  storage              String?
-  shelfLife            String?   @map("shelf_life")
-  taxCategory          String?   @map("tax_category")
-  imageUrl             String?   @map("image_url")
+  packType              String?            @map("pack_type")
+  storage               String?
+  shelfLife             String?            @map("shelf_life")
+  taxCategory           String?            @map("tax_category")
+  imageUrl              String?            @map("image_url")
   /// NMRA registration number (REG.NO.).
-  registrationNo       String?   @map("registration_no")
-  registrationDate     DateTime? @map("registration_date") @db.Date
+  registrationNo        String?            @map("registration_no")
+  registrationDate      DateTime?          @map("registration_date") @db.Date
   /// NMRA schedule classification (I, IIA, IIB, IIC, III, …).
-  schedule             String?
+  schedule              String?
   /// NMRA registration type (Full, Two Years, Provisional).
-  regType              String?   @map("reg_type")
-  dossierNo            String?   @map("dossier_no")
-  countryOfOrigin      String?   @map("country_of_origin")
+  regType               String?            @map("reg_type")
+  dossierNo             String?            @map("dossier_no")
+  countryOfOrigin       String?            @map("country_of_origin")
   /// Local marketing authorisation holder / agent in Sri Lanka.
-  localAgent           String?   @map("local_agent")
+  localAgent            String?            @map("local_agent")
   /// Schedule / narcotic-class — needs pharmacist dispense authority (PIN or elevated session).
-  isControlled         Boolean   @default(false) @map("is_controlled")
+  isControlled          Boolean            @default(false) @map("is_controlled")
   /// Needs a linked prescription to sell (antibiotics etc.). Controlled always implies this.
-  requiresPrescription Boolean   @default(false) @map("requires_prescription")
-  reorderLevel         Int       @default(0) @map("reorder_level")
+  requiresPrescription  Boolean            @default(false) @map("requires_prescription")
+  reorderLevel          Int                @default(0) @map("reorder_level")
   /// Pharmacist-owned "is this record enabled". Imports must never write this — an NMRA
   /// refresh that flips it would silently undo a pharmacy's own deactivations.
-  isActive             Boolean   @default(true) @map("is_active")
+  isActive              Boolean            @default(true) @map("is_active")
   /// Does this pharmacy sell it? Defaults to RANGED so manually created products are part of
   /// the range immediately; the NMRA importer explicitly writes REFERENCE on create.
-  rangeStatus          ProductRangeStatus @default(RANGED) @map("range_status")
+  rangeStatus           ProductRangeStatus @default(RANGED) @map("range_status")
   /// When the product entered the pharmacy's own range. Null while REFERENCE.
-  rangedAt             DateTime? @map("ranged_at")
+  rangedAt              DateTime?          @map("ranged_at")
   /// Is the NMRA registration current? Import-owned, only meaningful when source = NMRA.
   /// This is the meaning the importer used to write onto `isActive`.
-  nmraRegistrationValid Boolean? @map("nmra_registration_valid")
+  nmraRegistrationValid Boolean?           @map("nmra_registration_valid")
   /// Catalog record origin. NMRA-specific fields are only expected when source = NMRA —
   /// MANUAL/SUPPLIER/CSV_IMPORT/BARCODE retail products may leave them null.
-  source               CatalogSource @default(MANUAL)
+  source                CatalogSource      @default(MANUAL)
   /// The ProductImport run that created this row, so a mistaken 2,000-row import can be undone
   /// while nothing has been sold against it. Plain column rather than a relation, matching
   /// StockLedger.referenceId — it is a provenance stamp, not a dependency.
-  importId             String?   @map("import_id") @db.Uuid
+  importId              String?            @map("import_id") @db.Uuid
   /// The REFERENCE (registry) product this one has been linked to, absorbing its registration
   /// number, schedule and compliance flags. Unique per tenant — a register row can be claimed
   /// by at most one shop product. Self-relation rather than a lookup on `ProductNmraLink` so
   /// Search Catalog can hide a claimed reference row with a plain `claimedBy: null` filter.
-  nmraReferenceId      String?   @unique @map("nmra_reference_id") @db.Uuid
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+  nmraReferenceId       String?            @unique @map("nmra_reference_id") @db.Uuid
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
 
   batches                Batch[]
   purchaseItems          PurchaseOrderItem[]
@@ -941,6 +984,10 @@ model Product {
   /// The shop product that has claimed this row, if this row is a claimed reference product.
   claimedBy              Product?                @relation("ProductNmraReference")
   nmraLink               ProductNmraLink?
+  /// Register-link history rows pointing AT this product as the reference row. Exists so the
+  /// FK below can restrict deletion instead of leaving orphaned link history.
+  nmraLinksAsReference   ProductNmraLink[]       @relation("ProductNmraLinkReference")
+  catalogTasks           CatalogTask[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -974,10 +1021,80 @@ model ProductNmraLink {
   linkedByUserId     String?  @map("linked_by_user_id") @db.Uuid
   linkedAt           DateTime @default(now()) @map("linked_at")
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product          Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// Restrict, not Cascade: this row is the undo record for a link, and losing it silently
+  /// would strand a product carrying adopted registration data with no way back. Deleting a
+  /// reference row that a product has linked to must unlink first — see
+  /// `ProductNmraLinkService.unlink`.
+  referenceProduct Product  @relation("ProductNmraLinkReference", fields: [referenceProductId], references: [id], onDelete: Restrict)
+  linkedBy         AppUser? @relation("ProductNmraLinkActor", fields: [linkedByUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, referenceProductId])
   @@map("product_nmra_link")
+}
+
+/// One catalog decision waiting on a person, in a queue that survives restarts.
+///
+/// Before this existed the same work was recomputed on every page load of two separate
+/// screens, which meant a decision could never be *made* — dismissing an umbrella from the
+/// NMRA match list only hid it until the next refresh. A row here has a durable lifecycle, so
+/// "this is not a medicine" and "I already looked, it's not a match" are answers that stick.
+///
+/// Generated by `CatalogTaskService.refresh`, which upserts OPEN/NEEDS_REVIEW rows and leaves
+/// every terminal row (RESOLVED / DISMISSED / NOT_APPLICABLE) alone.
+model CatalogTask {
+  id        String            @id @default(uuid()) @db.Uuid
+  tenantId  String            @map("tenant_id") @db.Uuid
+  productId String            @map("product_id") @db.Uuid
+  type      CatalogTaskType
+  status    CatalogTaskStatus @default(OPEN)
+
+  /// The resolution this task proposes, shaped per type: `{ categoryId, categoryName,
+  /// categoryPath }` for MISSING_CATEGORY, `{ referenceProductId, name, brandName,
+  /// registrationNo }` for NMRA_MATCH. Null when nothing could be suggested.
+  suggestion Json?
+  /// Why the suggestion was made, in the matcher's own vocabulary ("barcode", "registration",
+  /// "name", "normalized", "fuzzy", "inn_head", "name_rule"). Shown to the user as evidence —
+  /// a suggestion without a stated reason is not actionable.
+  evidence   String?  @db.VarChar(32)
+  confidence Decimal? @db.Decimal(4, 3)
+
+  /// Applying this task would change `isControlled` or `requiresPrescription`. Excluded from
+  /// bulk "apply safe changes" no matter how strong the evidence.
+  complianceImpact Boolean @default(false) @map("compliance_impact")
+  /// Meets every safe-apply condition (unique high-confidence match, no compliance change, no
+  /// identifier ambiguity, no existing link). Precomputed at generation time so the bulk
+  /// endpoint and the on-screen count can never disagree.
+  safeToApply      Boolean @default(false) @map("safe_to_apply")
+
+  /// For NMRA_AMBIGUOUS: every candidate the identifier resolved to, so the audit trail says
+  /// which rows collided rather than just "ambiguous".
+  candidates Json?
+
+  /// Provenance: which import created the product this task is about, and which row of it.
+  /// Lets the post-import screen deep-link straight to "the tasks this upload created".
+  importId  String? @map("import_id") @db.Uuid
+  sourceRow Int?    @map("source_row")
+
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  resolvedAt       DateTime? @map("resolved_at")
+  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
+  /// Free-text reason captured when a task is dismissed or marked not applicable.
+  resolutionNote   String?   @map("resolution_note")
+
+  product    Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  resolvedBy AppUser?       @relation("CatalogTaskResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  import     ProductImport? @relation(fields: [importId], references: [id], onDelete: SetNull)
+
+  /// One task per product per type — `refresh` upserts on this, which is what makes
+  /// regeneration idempotent and stops a nightly sweep re-opening dismissed work.
+  @@unique([tenantId, productId, type])
+  @@index([tenantId, status, type])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, importId])
+  @@index([tenantId, status, safeToApply])
+  @@map("catalog_task")
 }
 
 model ProductCategory {
@@ -1018,17 +1135,17 @@ model ProductCategory {
 }
 
 model ProductTag {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  name      String
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  name         String
   /// True for the tags the NMRA importer derives and re-applies on every refresh. They can't
   /// be renamed or deleted: one click used to drop thousands of assignments the importer owns
   /// and would only partly rebuild.
-  isSystem  Boolean  @default(false) @map("is_system")
+  isSystem     Boolean  @default(false) @map("is_system")
   /// Stable identity for a system tag, so a display-name change never orphans it. Null for
   /// tenant-created tags.
-  canonicalKey String? @map("canonical_key")
-  createdAt DateTime @default(now()) @map("created_at")
+  canonicalKey String?  @map("canonical_key")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   tagMaps ProductTagMap[]
 
@@ -1085,15 +1202,15 @@ model ProductSimilarity {
 }
 
 model ProductCategoryMap {
-  id         String                   @id @default(uuid()) @db.Uuid
-  tenantId   String                   @map("tenant_id") @db.Uuid
-  productId  String                   @map("product_id") @db.Uuid
-  categoryId String                   @map("category_id") @db.Uuid
+  id               String                   @id @default(uuid()) @db.Uuid
+  tenantId         String                   @map("tenant_id") @db.Uuid
+  productId        String                   @map("product_id") @db.Uuid
+  categoryId       String                   @map("category_id") @db.Uuid
   /// Denormalized copy of `category.dimension`, set at write time by the service layer.
   /// Lets the DB enforce "at most one primary COMMERCIAL category per product" via a partial
   /// unique index (see migration SQL) without a join, and lets report queries filter by
   /// dimension without joining ProductCategory on every row.
-  dimension  CategoryDimension
+  dimension        CategoryDimension
   /// For COMMERCIAL: the product's single primary merchandising category — all financial/
   /// profitability reporting groups by this so a product is never double counted. Secondary
   /// COMMERCIAL maps (isPrimary = false) are for discovery only. Always true for non-COMMERCIAL
@@ -1101,8 +1218,8 @@ model ProductCategoryMap {
   isPrimary        Boolean                  @default(true) @map("is_primary")
   assignmentSource CategoryAssignmentSource @default(MANUAL) @map("assignment_source")
   /// AI-suggested-mapping confidence (0–1), only meaningful when assignmentSource = AUTO_CLASSIFIED.
-  confidence Decimal? @db.Decimal(4, 3)
-  createdAt  DateTime @default(now()) @map("created_at")
+  confidence       Decimal?                 @db.Decimal(4, 3)
+  createdAt        DateTime                 @default(now()) @map("created_at")
 
   product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   category ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
@@ -1129,32 +1246,32 @@ model DocumentSequence {
 }
 
 model Batch {
-  id               String    @id @default(uuid()) @db.Uuid
-  tenantId         String    @map("tenant_id") @db.Uuid
-  branchId         String    @map("branch_id") @db.Uuid
-  productId        String    @map("product_id") @db.Uuid
-  batchNo          String    @map("batch_no")
-  expiryDate       DateTime  @map("expiry_date") @db.Date
-  costPrice        Decimal   @map("cost_price") @db.Decimal(12, 2)
-  sellingPrice     Decimal   @map("selling_price") @db.Decimal(12, 2)
-  isQuarantined    Boolean   @default(false) @map("is_quarantined")
-  quarantinedAt    DateTime? @map("quarantined_at")
-  quarantineReason String?   @map("quarantine_reason") @db.VarChar(512)
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  productId         String    @map("product_id") @db.Uuid
+  batchNo           String    @map("batch_no")
+  expiryDate        DateTime  @map("expiry_date") @db.Date
+  costPrice         Decimal   @map("cost_price") @db.Decimal(12, 2)
+  sellingPrice      Decimal   @map("selling_price") @db.Decimal(12, 2)
+  isQuarantined     Boolean   @default(false) @map("is_quarantined")
+  quarantinedAt     DateTime? @map("quarantined_at")
+  quarantineReason  String?   @map("quarantine_reason") @db.VarChar(512)
   /// Direct supplier reference, set at batch-creation time (goods receipt: from the PO's
   /// supplier; manual stock adjustment: whoever entered it may tag one, since not every
   /// opening-stock/adjustment batch has a PO behind it). Nullable — supplier is genuinely
   /// unknown for some manually-entered batches. This is the authoritative lookup for "who
   /// supplied this batch"; `GoodsReceiptItem → GoodsReceipt → PurchaseOrder → Supplier` is a
   /// fallback for batches created before this column existed, not a replacement for it.
-  supplierId       String?   @map("supplier_id") @db.Uuid
+  supplierId        String?   @map("supplier_id") @db.Uuid
   /// True when this batch was imported without a real expiry date and carries a far-future
   /// placeholder instead. Old systems frequently don't export expiry, and rejecting those rows
   /// would make a migration import unusable — so the batch is accepted, kept out of expiry
   /// alerts (it would otherwise report a date nobody entered), and listed for review. The
   /// placeholder sorts last under FEFO, so a flagged batch is never picked ahead of a real one.
-  needsExpiryReview Boolean  @default(false) @map("needs_expiry_review")
-  receivedAt       DateTime  @default(now()) @map("received_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
+  needsExpiryReview Boolean   @default(false) @map("needs_expiry_review")
+  receivedAt        DateTime  @default(now()) @map("received_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   branch   Branch    @relation(fields: [branchId], references: [id])
   product  Product   @relation(fields: [productId], references: [id])

@@ -1,0 +1,105 @@
+/**
+ * Compact secondary navigation for switching sections inside one page.
+ *
+ * Sized deliberately below the primary scope tabs on Products: these are management sections,
+ * and they must not read as a peer of "My products" / "Reference catalog". The pill treatment
+ * (rather than the underline the scope tabs use) is the visual statement of that difference.
+ */
+
+.bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  padding: 0.22rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-muted-bg);
+  /* Narrow screens scroll rather than clip or wrap into an unreadable two-row bar. */
+  overflow-x: auto;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.bar::-webkit-scrollbar-thumb {
+  background: var(--pc-border);
+  border-radius: 999px;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex: 0 0 auto;
+  padding: 0.36rem 0.7rem;
+  border: 0;
+  border-radius: var(--pc-radius-sm);
+  background: transparent;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s, color 0.12s;
+}
+
+.tab:hover:not(.tabActive) {
+  background: var(--pc-hover-overlay);
+  color: var(--pc-foreground);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
+}
+
+.tabActive {
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-weight: 600;
+  box-shadow: var(--pc-shadow-card);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.3rem;
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabActive .count {
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+/* Attention tone. Never the only signal — the accessible name spells the count out in words,
+   and the label beside it already says what the number is. */
+.countAttention,
+.tabActive .countAttention {
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+}
+
+@media (max-width: 640px) {
+  .bar {
+    display: flex;
+    width: 100%;
+  }
+
+  .tab {
+    padding: 0.36rem 0.55rem;
+  }
+}

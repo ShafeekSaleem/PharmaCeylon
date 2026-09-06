@@ -27,6 +27,12 @@ export type ProductFilterQuery = {
    */
   commercialCategoryId?: string;
   tagId?: string;
+  /**
+   * Products created by one import run. Not part of the filter panel — it exists so the
+   * completion screen's "View imported products" is a real link rather than a link to the
+   * whole catalog, and so an import's effect stays inspectable afterwards.
+   */
+  importId?: string;
 };
 
 /**
@@ -84,7 +90,14 @@ const EMPTY_WHERE = (tenantId: string): ProductWhereResult => ({
 
 export function parseCsv(value?: string): string[] {
   if (!value?.trim()) return [];
-  return [...new Set(value.split(",").map((s) => s.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 /**
@@ -104,7 +117,9 @@ export async function lowStockProductIds(
   const withStock = grouped.filter((g) => (g._sum.qtyDelta ?? 0) > 0);
   if (withStock.length === 0) return [];
 
-  const qtyMap = new Map(withStock.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+  const qtyMap = new Map(
+    withStock.map((g) => [g.productId, g._sum.qtyDelta ?? 0]),
+  );
   const products = await prisma.product.findMany({
     where: {
       tenantId,
@@ -200,7 +215,11 @@ export async function buildProductWhere(
 
   const commercialCategoryIdsRaw = parseCsv(query.commercialCategoryId);
   const commercialCategoryIds = commercialCategoryIdsRaw.length
-    ? await expandCommercialCategoryIds(prisma, tenantId, commercialCategoryIdsRaw)
+    ? await expandCommercialCategoryIds(
+        prisma,
+        tenantId,
+        commercialCategoryIdsRaw,
+      )
     : [];
   if (commercialCategoryIdsRaw.length && commercialCategoryIds.length === 0) {
     return EMPTY_WHERE(tenantId);
@@ -247,13 +266,26 @@ export async function buildProductWhere(
       ? resolveRequiresPrescriptionFilter(query.requiresPrescription)
       : {}),
     ...(lowStockIds ? { id: { in: lowStockIds } } : {}),
+    ...(query.importId ? { importId: query.importId } : {}),
     ...(categoryIds.length === 1
       ? { categoryMaps: { some: { tenantId, categoryId: categoryIds[0] } } }
       : categoryIds.length > 1
-        ? { categoryMaps: { some: { tenantId, categoryId: { in: categoryIds } } } }
+        ? {
+            categoryMaps: {
+              some: { tenantId, categoryId: { in: categoryIds } },
+            },
+          }
         : {}),
     ...(commercialCategoryIds.length
-      ? { AND: [{ categoryMaps: { some: { tenantId, categoryId: { in: commercialCategoryIds } } } }] }
+      ? {
+          AND: [
+            {
+              categoryMaps: {
+                some: { tenantId, categoryId: { in: commercialCategoryIds } },
+              },
+            },
+          ],
+        }
       : {}),
     ...(tagIds.length === 1
       ? { tagMaps: { some: { tenantId, tagId: tagIds[0] } } }
@@ -268,7 +300,9 @@ export async function buildProductWhere(
             { barcode: { contains: query.q.trim(), mode: "insensitive" } },
             { brandName: { contains: query.q.trim(), mode: "insensitive" } },
             { genericName: { contains: query.q.trim(), mode: "insensitive" } },
-            { registrationNo: { contains: query.q.trim(), mode: "insensitive" } },
+            {
+              registrationNo: { contains: query.q.trim(), mode: "insensitive" },
+            },
             { dossierNo: { contains: query.q.trim(), mode: "insensitive" } },
             {
               aliases: {

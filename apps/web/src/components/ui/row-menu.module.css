@@ -1,0 +1,107 @@
+/**
+ * The overflow menu that sits at the end of a dense row.
+ *
+ * Shared because Categories, Tags and the catalog Work Queue all had the same problem: four to
+ * six unlabeled icon buttons per row, two of them destructive. One trigger and a named menu
+ * costs a click and removes the guessing.
+ */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.trigger {
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.trigger:hover,
+.triggerOpen {
+  background: var(--pc-hover-overlay);
+  color: var(--pc-foreground);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 1px;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 190px;
+  padding: 0.25rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-card-bg);
+  box-shadow: var(--pc-shadow-card);
+}
+
+/* Flips above the trigger for rows near the bottom of the viewport. */
+.menuUp {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 0;
+  border-radius: var(--pc-radius-sm);
+  background: none;
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--pc-hover-overlay);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: -2px;
+}
+
+.item:disabled {
+  color: var(--pc-muted-fg);
+  cursor: default;
+}
+
+.itemDanger {
+  color: var(--pc-destructive);
+}
+
+.itemDanger:hover:not(:disabled) {
+  background: var(--pc-destructive-soft);
+}
+
+.hint {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--pc-muted-fg);
+  line-height: 1.35;
+}
+
+.separator {
+  height: 1px;
+  margin: 0.25rem 0.3rem;
+  background: var(--pc-border);
+}

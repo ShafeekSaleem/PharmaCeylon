@@ -1,110 +1,78 @@
 "use client";
 
 import Link from "next/link";
-import {
-  IconArchive,
-  IconClipboardList,
-  IconGrid,
-  IconPackage,
-  IconRefresh,
-  IconTag,
-} from "@/components/icons";
+import { IconArchive, IconPackage } from "@/components/icons";
 import css from "../products.module.css";
 
-export type CatalogTab =
-  | "mine"
-  | "reference"
-  | "categories"
-  | "tags"
-  | "organize"
-  | "nmra-matches";
+export type CatalogTab = "mine" | "reference";
 
 type Props = {
   active: CatalogTab;
   /**
-   * On the Products page itself the first two tabs switch scope in place rather than
-   * navigating, so the list doesn't refetch through a route change. Omitted elsewhere, where
-   * they are ordinary links back to Products.
+   * On the Products page the two tabs switch scope in place rather than navigating, so the
+   * list doesn't refetch through a route change. Omitted elsewhere, where they are ordinary
+   * links back to Products.
    */
-  onScopeChange?: (scope: "mine" | "reference") => void;
+  onScopeChange?: (scope: CatalogTab) => void;
   rangedCount?: number | null;
   referenceCount?: number | null;
+  /** Hide a scope the caller has no permission for — see the Products layout guard. */
+  canViewMine?: boolean;
+  canViewReference?: boolean;
 };
 
 /**
- * The catalog's six views in one row: the two product scopes, the category and tag screens
- * that used to live three clicks deep in Settings, the organize worklist, and the register
- * match worklist.
+ * Products has exactly two views: what the pharmacy sells, and the register it can add from.
  *
- * They belong together because they are all the same subject — what this pharmacy sells and
- * how it is organised — and putting the management screens here gets them out of the Settings
- * shell, which cost a data-heavy screen a third of its width to a second navigation rail.
+ * It used to have six — Categories, Tags, Organize and Register matches sat alongside these
+ * two as equals, which put catalog administration (done occasionally, by a manager) in the
+ * same row as the product list (opened constantly, by everyone). Those four moved to
+ * Catalog Management, reached from the button beside the page heading; what is left here is
+ * the daily work.
+ *
+ * The counts live on the tabs rather than in a row of KPI cards above them, so a number is
+ * stated once. The old page showed the total three times — a stat card, a tab badge and a
+ * filter chip — which is a lot of furniture for one integer.
  */
 export function CatalogTabs({
   active,
   onScopeChange,
   rangedCount,
   referenceCount,
+  canViewMine = true,
+  canViewReference = true,
 }: Props) {
   return (
-    <div className={css.scopeTabs} role="tablist" aria-label="Product catalog view">
-      <ScopeTab
-        tab="mine"
-        active={active}
-        icon={<IconPackage size={15} />}
-        label="My products"
-        count={rangedCount}
-        href="/products"
-        onScopeChange={onScopeChange}
-      />
-      <ScopeTab
-        tab="reference"
-        active={active}
-        icon={<IconArchive size={15} />}
-        label="Reference catalog"
-        count={referenceCount}
-        href="/products?scope=reference"
-        tooltip="Medicines imported from the NMRA register that you don't stock yet"
-        onScopeChange={onScopeChange}
-      />
-      <Link
-        role="tab"
-        aria-selected={active === "categories"}
-        href="/products/categories"
-        className={`${css.scopeTab}${active === "categories" ? ` ${css.scopeTabActive}` : ""}`}
-      >
-        <IconGrid size={15} />
-        Categories
-      </Link>
-      <Link
-        role="tab"
-        aria-selected={active === "tags"}
-        href="/products/tags"
-        className={`${css.scopeTab}${active === "tags" ? ` ${css.scopeTabActive}` : ""}`}
-      >
-        <IconTag size={15} />
-        Tags
-      </Link>
-      <Link
-        role="tab"
-        aria-selected={active === "organize"}
-        href="/products/organize"
-        className={`${css.scopeTab}${active === "organize" ? ` ${css.scopeTabActive}` : ""}`}
-        data-tooltip="Products you sell that aren't filed under a category yet"
-      >
-        <IconClipboardList size={15} />
-        Organize
-      </Link>
-      <Link
-        role="tab"
-        aria-selected={active === "nmra-matches"}
-        href="/products/nmra-matches"
-        className={`${css.scopeTab}${active === "nmra-matches" ? ` ${css.scopeTabActive}` : ""}`}
-        data-tooltip="Products that could pick up a registration number from the NMRA register"
-      >
-        <IconRefresh size={15} />
-        Register matches
-      </Link>
+    <div
+      className={css.scopeTabs}
+      role="tablist"
+      aria-label="Product catalog view"
+    >
+      {canViewMine && (
+        <ScopeTab
+          tab="mine"
+          active={active}
+          icon={<IconPackage size={15} />}
+          label="My products"
+          countLabel="products in your range"
+          count={rangedCount}
+          href="/products"
+          onScopeChange={onScopeChange}
+        />
+      )}
+      {canViewReference && (
+        <ScopeTab
+          tab="reference"
+          active={active}
+          icon={<IconArchive size={15} />}
+          label="Reference catalog"
+          countLabel="medicines on the NMRA register"
+          count={referenceCount}
+          href="/products?scope=reference"
+          tooltip="Every medicine on the NMRA register — search it and add what you sell"
+          onScopeChange={onScopeChange}
+        />
+      )}
     </div>
   );
 }
@@ -115,26 +83,36 @@ function ScopeTab({
   icon,
   label,
   count,
+  countLabel,
   href,
   tooltip,
   onScopeChange,
 }: {
-  tab: "mine" | "reference";
+  tab: CatalogTab;
   active: CatalogTab;
   icon: React.ReactNode;
   label: string;
   count?: number | null;
+  countLabel: string;
   href: string;
   tooltip?: string;
-  onScopeChange?: (scope: "mine" | "reference") => void;
+  onScopeChange?: (scope: CatalogTab) => void;
 }) {
-  const className = `${css.scopeTab}${active === tab ? ` ${css.scopeTabActive}` : ""}`;
+  const selected = active === tab;
+  const className = `${css.scopeTab}${selected ? ` ${css.scopeTabActive}` : ""}`;
+  // The count is decorative in the visual label and spelled out in the accessible name, so a
+  // screen reader hears "Reference catalog, 6,589 medicines on the NMRA register" rather than
+  // two unattached numbers.
+  const accessibleName =
+    count != null ? `${label}, ${count.toLocaleString()} ${countLabel}` : label;
   const body = (
     <>
       {icon}
       {label}
       {count != null && (
-        <span className={css.scopeTabCount}>{count.toLocaleString()}</span>
+        <span className={css.scopeTabCount} aria-hidden>
+          {count.toLocaleString()}
+        </span>
       )}
     </>
   );
@@ -143,7 +121,8 @@ function ScopeTab({
     return (
       <Link
         role="tab"
-        aria-selected={active === tab}
+        aria-selected={selected}
+        aria-label={accessibleName}
         href={href}
         className={className}
         data-tooltip={tooltip}
@@ -157,7 +136,8 @@ function ScopeTab({
     <button
       type="button"
       role="tab"
-      aria-selected={active === tab}
+      aria-selected={selected}
+      aria-label={accessibleName}
       className={className}
       onClick={() => onScopeChange(tab)}
       data-tooltip={tooltip}

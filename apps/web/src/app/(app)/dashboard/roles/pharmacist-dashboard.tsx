@@ -12,7 +12,10 @@ import {
 } from "@/components/icons";
 import { formatRelativeTime } from "@/app/(app)/inventory/utils";
 import { OPERATIONS_ROLES, POS_ROLES } from "@/lib/role-access";
-import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
+import {
+  AttentionTicker,
+  type TickerItem,
+} from "../components/attention-ticker";
 import { DashboardCanvas } from "../components/dashboard-canvas";
 import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
@@ -20,7 +23,11 @@ import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { UseDashboardLayoutResult } from "../hooks/use-dashboard-layout";
 import type { WidgetDef } from "../widgets/types";
 
-type Props = { data: DashboardData; catalog: WidgetDef[]; layout: UseDashboardLayoutResult };
+type Props = {
+  data: DashboardData;
+  catalog: WidgetDef[];
+  layout: UseDashboardLayoutResult;
+};
 
 export function PharmacistDashboard({ data, catalog, layout }: Props) {
   const {
@@ -82,8 +89,12 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
   const controlledSubtitle =
     controlledLowStockCount > 0 || controlledNearExpiryCount > 0
       ? [
-          controlledLowStockCount > 0 ? `${controlledLowStockCount} low stock` : null,
-          controlledNearExpiryCount > 0 ? `${controlledNearExpiryCount} near expiry` : null,
+          controlledLowStockCount > 0
+            ? `${controlledLowStockCount} low stock`
+            : null,
+          controlledNearExpiryCount > 0
+            ? `${controlledNearExpiryCount} near expiry`
+            : null,
         ]
           .filter(Boolean)
           .join(" · ")
@@ -92,7 +103,9 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
   const within7DaysCount = useMemo(
     () =>
       nearExpiryItems.filter((b) => {
-        const days = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / 86_400_000);
+        const days = Math.ceil(
+          (new Date(b.expiryDate).getTime() - Date.now()) / 86_400_000,
+        );
         return days <= 7;
       }).length,
     [nearExpiryItems],
@@ -107,7 +120,10 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
         sparkline={hourlyUnitsToday}
         trend={
           dispensedTrendLabel
-            ? { label: dispensedTrendLabel, direction: dispensedTrendPositive ? "up" : "down" }
+            ? {
+                label: dispensedTrendLabel,
+                direction: dispensedTrendPositive ? "up" : "down",
+              }
             : undefined
         }
         loading={loading}
@@ -117,7 +133,9 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
             label: "Prescriptions to Verify",
             value: pharmacistHolds.length,
             meta:
-              pharmacistHolds.length > 0 ? `Oldest waiting ${oldestHoldWait}` : "Nothing waiting right now",
+              pharmacistHolds.length > 0
+                ? `Oldest waiting ${oldestHoldWait}`
+                : "Nothing waiting right now",
             href: "/pos?panel=holds",
             linkLabel: "Open POS holds",
           },
@@ -133,14 +151,21 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
             key: "expiry",
             label: "Near-Expiry Batches",
             value: nearExpiryCount,
-            meta: within7DaysCount > 0 ? `${within7DaysCount} within 7 days` : "None within 7 days",
+            meta:
+              within7DaysCount > 0
+                ? `${within7DaysCount} within 7 days`
+                : "None within 7 days",
             href: "/inventory/batches?nearExpiryDays=30",
             linkLabel: "View batches",
           },
         ]}
       />
 
-      <AttentionTicker items={tickerItems} loading={loading} allClearText="No stock or expiry alerts right now" />
+      <AttentionTicker
+        items={tickerItems}
+        loading={loading}
+        allClearText="No stock or expiry alerts right now"
+      />
 
       <DashboardCanvas
         catalog={catalog}
@@ -170,7 +195,7 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
             tone: "info",
           },
           {
-            href: "/catalog",
+            href: "/products?scope=reference",
             label: "Drug profile lookup",
             icon: <IconSearch size={18} />,
             roles: OPERATIONS_ROLES,

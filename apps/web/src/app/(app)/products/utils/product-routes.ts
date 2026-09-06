@@ -18,7 +18,10 @@ export type ProductNavLink = {
   roles?: RoleName[];
 };
 
-export function productDetailPath(productId: string, query?: Record<string, string>): string {
+export function productDetailPath(
+  productId: string,
+  query?: Record<string, string>,
+): string {
   const params = new URLSearchParams(query);
   const qs = params.toString();
   return qs ? `/products/${productId}?${qs}` : `/products/${productId}`;
@@ -104,13 +107,6 @@ export function productOperationalLinks(
       href: `/pos?${q}`,
       ready: true,
       roles: POS_ROLES,
-    },
-    {
-      id: "catalog",
-      label: "Search catalog",
-      description: "Pharmacist catalog view",
-      href: `/catalog?productId=${encodeURIComponent(productId)}`,
-      ready: true,
     },
     {
       id: "audit",
