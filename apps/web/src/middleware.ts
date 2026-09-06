@@ -14,7 +14,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (PUBLIC_PATHS.has(pathname)) {
+  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/invite/")) {
     return NextResponse.next();
   }
 

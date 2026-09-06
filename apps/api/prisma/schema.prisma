@@ -332,7 +332,7 @@ model ProductImport {
   undoneAt    DateTime? @map("undone_at")
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  branch       Branch?       @relation(fields: [branchId], references: [id])
+  branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: Restrict)
   actor        AppUser       @relation("ProductImportActor", fields: [createdBy], references: [id])
   catalogTasks CatalogTask[]
 
@@ -400,6 +400,9 @@ model Tenant {
   updatedAt                DateTime @updatedAt @map("updated_at")
 
   branches                Branch[]
+  memberships             TenantMembership[]
+  staffInvitations        StaffInvitation[]
+  invitationRoles         StaffInvitationBranchRole[]
   users                   AppUser[]
   userBranchRoles         UserBranchRole[]
   auditEvents             AuditEvent[]
@@ -449,15 +452,16 @@ model Branch {
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 
-  tenant            Tenant                @relation(fields: [tenantId], references: [id])
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id])
   userBranchRoles   UserBranchRole[]
+  invitationRoles   StaffInvitationBranchRole[]
   batches           Batch[]
   purchaseOrders    PurchaseOrder[]
   goodsReceipts     GoodsReceipt[]
   sales             Sale[]
   ledgerEntries     StockLedger[]
-  transfersFrom     Transfer[]            @relation("TransferFromBranch")
-  transfersTo       Transfer[]            @relation("TransferToBranch")
+  transfersFrom     Transfer[]                  @relation("TransferFromBranch")
+  transfersTo       Transfer[]                  @relation("TransferToBranch")
   goodsReturns      GoodsReturn[]
   stocktakes        Stocktake[]
   documentSequences DocumentSequence[]
@@ -601,6 +605,8 @@ model TenantSettings {
 model AppUser {
   id                   String    @id @default(uuid()) @db.Uuid
   tenantId             String    @map("tenant_id") @db.Uuid
+  /// Most recently selected membership. `tenantId` remains the legacy/home tenant.
+  lastTenantId         String?   @map("last_tenant_id") @db.Uuid
   /// Globally unique — login resolves tenant from this email alone (subdomains may refine UX later).
   email                String    @unique
   fullName             String    @map("full_name")
@@ -620,45 +626,69 @@ model AppUser {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  tenant                 Tenant                  @relation(fields: [tenantId], references: [id])
-  userBranchRoles        UserBranchRole[]
-  sessions               Session[]
-  purchaseOrdersCreated  PurchaseOrder[]         @relation("PurchaseOrderCreator")
-  goodsReceiptsReceived  GoodsReceipt[]          @relation("GoodsReceiptReceiver")
-  sales                  Sale[]                  @relation("SaleSeller")
-  salesDispensed         Sale[]                  @relation("SaleDispenser")
-  ledgerEntriesCreated   StockLedger[]           @relation("StockLedgerActor")
-  transfersRequested     Transfer[]              @relation("TransferRequester")
-  transfersApproved      Transfer[]              @relation("TransferApprover")
-  transfersReceived      Transfer[]              @relation("TransferReceiver")
-  goodsReturnsRequested  GoodsReturn[]           @relation("GoodsReturnRequester")
-  goodsReturnsApproved   GoodsReturn[]           @relation("GoodsReturnApprover")
-  goodsReturnsProcessed  GoodsReturn[]           @relation("GoodsReturnProcessor")
-  stocktakesCounted      Stocktake[]             @relation("StocktakeCounter")
-  stocktakesAssigned     StocktakeAssignment[]
-  branchTargetsManaged   BranchMonthlyTarget[]   @relation("BranchTargetManager")
-  branchTargetsCreated   BranchMonthlyTarget[]   @relation("BranchTargetCreator")
-  stocktakesReviewed     Stocktake[]             @relation("StocktakeReviewer")
-  stocktakesApproved     Stocktake[]             @relation("StocktakeApprover")
-  stocktakesPosted       Stocktake[]             @relation("StocktakePoster")
-  stocktakesCompleted    Stocktake[]             @relation("StocktakeCompleter")
-  stocktakeCountEntries  StocktakeCountEntry[]
-  stocktakePostings      StocktakePosting[]
-  productImports         ProductImport[]         @relation("ProductImportActor")
-  stocktakeLineReviews   StocktakeLine[]         @relation("StocktakeLineReviewer")
-  stocktakeLineApprovals StocktakeLine[]         @relation("StocktakeLineApprover")
-  stocktakePostingLines  StocktakePostingLine[]
-  auditEvents            AuditEvent[]            @relation("AuditActor")
-  prescriptionsCreated   Prescription[]          @relation("PrescriptionCreator")
-  heldSales              HeldSale[]              @relation("HeldSaleHolder")
-  notifications          Notification[]
-  notificationPreference NotificationPreference?
-  dashboardLayout        DashboardLayout?
-  nmraLinksCreated       ProductNmraLink[]       @relation("ProductNmraLinkActor")
-  catalogTasksResolved   CatalogTask[]           @relation("CatalogTaskResolver")
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
+  userBranchRoles         UserBranchRole[]
+  sessions                Session[]
+  purchaseOrdersCreated   PurchaseOrder[]          @relation("PurchaseOrderCreator")
+  goodsReceiptsReceived   GoodsReceipt[]           @relation("GoodsReceiptReceiver")
+  sales                   Sale[]                   @relation("SaleSeller")
+  salesDispensed          Sale[]                   @relation("SaleDispenser")
+  ledgerEntriesCreated    StockLedger[]            @relation("StockLedgerActor")
+  transfersRequested      Transfer[]               @relation("TransferRequester")
+  transfersApproved       Transfer[]               @relation("TransferApprover")
+  transfersReceived       Transfer[]               @relation("TransferReceiver")
+  goodsReturnsRequested   GoodsReturn[]            @relation("GoodsReturnRequester")
+  goodsReturnsApproved    GoodsReturn[]            @relation("GoodsReturnApprover")
+  goodsReturnsProcessed   GoodsReturn[]            @relation("GoodsReturnProcessor")
+  stocktakesCounted       Stocktake[]              @relation("StocktakeCounter")
+  stocktakesAssigned      StocktakeAssignment[]
+  branchTargetsManaged    BranchMonthlyTarget[]    @relation("BranchTargetManager")
+  branchTargetsCreated    BranchMonthlyTarget[]    @relation("BranchTargetCreator")
+  stocktakesReviewed      Stocktake[]              @relation("StocktakeReviewer")
+  stocktakesApproved      Stocktake[]              @relation("StocktakeApprover")
+  stocktakesPosted        Stocktake[]              @relation("StocktakePoster")
+  stocktakesCompleted     Stocktake[]              @relation("StocktakeCompleter")
+  stocktakeCountEntries   StocktakeCountEntry[]
+  stocktakePostings       StocktakePosting[]
+  productImports          ProductImport[]          @relation("ProductImportActor")
+  stocktakeLineReviews    StocktakeLine[]          @relation("StocktakeLineReviewer")
+  stocktakeLineApprovals  StocktakeLine[]          @relation("StocktakeLineApprover")
+  stocktakePostingLines   StocktakePostingLine[]
+  auditEvents             AuditEvent[]             @relation("AuditActor")
+  prescriptionsCreated    Prescription[]           @relation("PrescriptionCreator")
+  heldSales               HeldSale[]               @relation("HeldSaleHolder")
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  dashboardLayouts        DashboardLayout[]
+  tenantMemberships       TenantMembership[]
+  invitationsSent         StaffInvitation[]        @relation("StaffInvitationInviter")
+  invitationsAccepted     StaffInvitation[]        @relation("StaffInvitationAcceptor")
+  nmraLinksCreated        ProductNmraLink[]        @relation("ProductNmraLinkActor")
+  catalogTasksResolved    CatalogTask[]            @relation("CatalogTaskResolver")
 
   @@index([tenantId])
   @@map("app_user")
+}
+
+/**
+ * A user's membership in one pharmacy business. AppUser remains the global
+ * sign-in identity during this migration phase; this row is the authoritative
+ * tenant access boundary and allows the same person to join multiple tenants.
+ */
+model TenantMembership {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId, isActive])
+  @@map("tenant_membership")
 }
 
 model Notification {
@@ -698,7 +728,7 @@ model Notification {
 model NotificationPreference {
   id                String   @id @default(uuid()) @db.Uuid
   tenantId          String   @map("tenant_id") @db.Uuid
-  userId            String   @unique @map("user_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
   inventoryEnabled  Boolean  @default(true) @map("inventory_enabled")
   expiryEnabled     Boolean  @default(true) @map("expiry_enabled")
   purchasingEnabled Boolean  @default(true) @map("purchasing_enabled")
@@ -713,6 +743,7 @@ model NotificationPreference {
   tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, userId])
   @@index([tenantId])
   @@map("notification_preference")
 }
@@ -723,7 +754,7 @@ model NotificationPreference {
 model DashboardLayout {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
-  userId    String   @unique @map("user_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   widgets   Json     @map("widgets")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -731,6 +762,7 @@ model DashboardLayout {
   tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, userId])
   @@index([tenantId])
   @@map("dashboard_layout")
 }
@@ -789,6 +821,49 @@ model UserBranchRole {
   @@map("user_branch_role")
 }
 
+model StaffInvitation {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  email           String
+  fullName        String    @map("full_name")
+  tokenHash       String    @unique @map("token_hash")
+  expiresAt       DateTime  @map("expires_at")
+  acceptedAt      DateTime? @map("accepted_at")
+  revokedAt       DateTime? @map("revoked_at")
+  invitedByUserId String    @map("invited_by_user_id") @db.Uuid
+  acceptedUserId  String?   @map("accepted_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant     Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy  AppUser                     @relation("StaffInvitationInviter", fields: [invitedByUserId], references: [id])
+  acceptedBy AppUser?                    @relation("StaffInvitationAcceptor", fields: [acceptedUserId], references: [id])
+  roles      StaffInvitationBranchRole[]
+
+  @@index([tenantId, email, acceptedAt, revokedAt])
+  @@index([expiresAt])
+  @@map("staff_invitation")
+}
+
+model StaffInvitationBranchRole {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  invitationId String   @map("invitation_id") @db.Uuid
+  branchId     String   @map("branch_id") @db.Uuid
+  role         RoleName
+  roleId       String?  @map("role_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitation StaffInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  branch     Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  roleRef    Role?           @relation(fields: [roleId], references: [id])
+
+  @@unique([invitationId, branchId, role])
+  @@index([tenantId, branchId])
+  @@map("staff_invitation_branch_role")
+}
+
 model Permission {
   /**
    * Global catalog — not tenant-scoped. Seeded from `security/permission-catalog.ts`.
@@ -826,9 +901,10 @@ model Role {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  tenant          Tenant                      @relation(fields: [tenantId], references: [id])
   permissions     RolePermission[]
   userBranchRoles UserBranchRole[]
+  invitationRoles StaffInvitationBranchRole[]
 
   @@unique([tenantId, key])
   @@map("role")

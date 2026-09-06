@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Alert } from "@/components/alert";
@@ -19,7 +20,9 @@ import {
 } from "@/components/icons";
 import {
   confirmSetupTask,
+  completeSetupJourney,
   fetchSetupReadiness,
+  notifySetupJourneyChanged,
   type ReadinessTaskKey,
   type SetupReadiness,
 } from "@/lib/setup-readiness-client";
@@ -35,10 +38,12 @@ const TASK_ICONS: Record<ReadinessTaskKey, ReactNode> = {
 };
 
 export default function GetStartedPage() {
+  const router = useRouter();
   const { userRoles } = useRoleAccess();
   const [data, setData] = useState<SetupReadiness | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
 
   const load = () => {
     setError(null);
@@ -54,6 +59,10 @@ export default function GetStartedPage() {
   };
 
   useEffect(load, []);
+
+  useEffect(() => {
+    if (data && !data.journeyEnabled) router.replace("/dashboard");
+  }, [data, router]);
 
   const nextTask = useMemo(
     () => data?.tasks.find((task) => task.key === data.nextTask) ?? null,
@@ -83,6 +92,19 @@ export default function GetStartedPage() {
     }
   }
 
+  async function finishSetup() {
+    setFinishing(true);
+    setError(null);
+    try {
+      const result = await completeSetupJourney();
+      notifySetupJourneyChanged();
+      router.replace(result.nextPath);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to finish setup");
+      setFinishing(false);
+    }
+  }
+
   if (!userRoles.includes("owner")) {
     return (
       <Alert variant="error">
@@ -94,21 +116,7 @@ export default function GetStartedPage() {
     return <div className={css.loading}>Loading your setup journey…</div>;
   if (!data) return <Alert variant="error">{error}</Alert>;
   if (!data.journeyEnabled) {
-    return (
-      <div className={css.notApplicable}>
-        <span>
-          <IconCheckCircle size={28} />
-        </span>
-        <h1>This workspace is already established</h1>
-        <p>
-          The guided first-branch setup is only used for newly created pharmacy
-          workspaces.
-        </p>
-        <Link href="/dashboard" className={css.secondaryButton}>
-          Go to dashboard
-        </Link>
-      </div>
-    );
+    return <div className={css.loading}>Opening your dashboard…</div>;
   }
 
   return (
@@ -307,8 +315,23 @@ export default function GetStartedPage() {
                   Continue setup
                 </Link>
               ) : null}
+              {!nextTask && data.readyForSales ? (
+                <button
+                  type="button"
+                  className={css.finishButton}
+                  disabled={finishing}
+                  onClick={() => void finishSetup()}
+                >
+                  {finishing ? "Finishing setup…" : "Finish setup and go to dashboard"}
+                  {!finishing ? <IconChevronRight size={16} /> : null}
+                </button>
+              ) : null}
             </div>
-            <small>Reference catalog items do not add branch stock.</small>
+            <small>
+              {data.readyForSales
+                ? "You can return to Settings whenever your business changes."
+                : "Reference catalog items do not add branch stock."}
+            </small>
           </section>
 
           <section className={css.optionalCard}>

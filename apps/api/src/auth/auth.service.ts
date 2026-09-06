@@ -78,8 +78,12 @@ export class AuthService {
     const emailNorm = dto.email.trim().toLowerCase();
 
     const userInclude = {
-      tenant: { select: { code: true, isActive: true } },
-      userBranchRoles: { select: { branchId: true, role: true } },
+      tenantMemberships: {
+        where: { isActive: true },
+        include: { tenant: { select: { code: true, isActive: true } } },
+        orderBy: { joinedAt: "asc" as const },
+      },
+      userBranchRoles: { select: { tenantId: true, branchId: true, role: true } },
     } satisfies Prisma.AppUserInclude;
 
     const user = await this.prisma.appUser.findUnique({
@@ -87,9 +91,18 @@ export class AuthService {
       include: userInclude,
     });
 
-    if (!user || !user.isActive || !user.tenant?.isActive) {
+    const activeMemberships =
+      user?.tenantMemberships.filter((membership) => membership.tenant.isActive) ?? [];
+    if (!user || !user.isActive || activeMemberships.length === 0) {
       throw new UnauthorizedException("Invalid credentials");
     }
+    const membership =
+      activeMemberships.find((entry) => entry.tenantId === user.lastTenantId) ??
+      activeMemberships.find((entry) => entry.tenantId === user.tenantId) ??
+      activeMemberships[0];
+    const branchRoles = user.userBranchRoles.filter(
+      (entry) => entry.tenantId === membership.tenantId,
+    );
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       const remainingMs = user.lockedUntil.getTime() - Date.now();
@@ -107,8 +120,9 @@ export class AuthService {
           ? new Date(Date.now() + AuthService.LOCKOUT_MINUTES * 60_000)
           : null;
 
+      // tenant-scope: system-auth — the globally unique login identity was verified by password.
       await this.prisma.appUser.update({
-        where: { id: user.id, tenantId: user.tenantId },
+        where: { id: user.id },
         data: {
           failedLoginAttempts: attempts,
           ...(lockout ? { lockedUntil: lockout } : {}),
@@ -116,7 +130,7 @@ export class AuthService {
       });
 
       await this.auditService.log({
-        tenantId: user.tenantId,
+        tenantId: membership.tenantId,
         actorUserId: user.id,
         eventName: "auth.login_failed",
         entityName: "app_user",
@@ -128,16 +142,18 @@ export class AuthService {
     }
 
     if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+      // tenant-scope: system-auth — the globally unique login identity was verified by password.
       await this.prisma.appUser.update({
-        where: { id: user.id, tenantId: user.tenantId },
+        where: { id: user.id },
         data: { failedLoginAttempts: 0, lockedUntil: null },
       });
     }
 
     return this.issueAndPersist({
       user,
-      tenantCode: user.tenant?.code,
-      branchRoles: user.userBranchRoles,
+      tenantId: membership.tenantId,
+      tenantCode: membership.tenant.code,
+      branchRoles,
       previousSession: null,
       meta,
     });
@@ -151,17 +167,41 @@ export class AuthService {
   ): Promise<LoginResult> {
     const user = await this.prisma.appUser.findUnique({
       where: { id: userId },
+      select: { tenantId: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException("Unable to start workspace session");
+    }
+    return this.issueTenantSession(userId, user.tenantId, meta);
+  }
+
+  /** Starts a session in one verified active tenant membership (used after invitation acceptance). */
+  async issueTenantSession(
+    userId: string,
+    tenantId: string,
+    meta: RequestMeta = {},
+  ): Promise<LoginResult> {
+    const user = await this.prisma.appUser.findUnique({
+      where: { id: userId },
       include: {
-        tenant: { select: { code: true, isActive: true } },
-        userBranchRoles: { select: { branchId: true, role: true } },
+        tenantMemberships: {
+          where: { tenantId, isActive: true },
+          include: { tenant: { select: { code: true, isActive: true } } },
+        },
+        userBranchRoles: {
+          where: { tenantId },
+          select: { branchId: true, role: true },
+        },
       },
     });
-    if (!user || !user.isActive || !user.tenant?.isActive) {
+    const membership = user?.tenantMemberships[0];
+    if (!user || !user.isActive || !membership?.tenant.isActive) {
       throw new UnauthorizedException("Unable to start workspace session");
     }
     return this.issueAndPersist({
       user,
-      tenantCode: user.tenant.code,
+      tenantId,
+      tenantCode: membership.tenant.code,
       branchRoles: user.userBranchRoles,
       previousSession: null,
       meta,
@@ -213,18 +253,26 @@ export class AuthService {
     const user = await this.prisma.appUser.findUnique({
       where: { id: session.userId },
       include: {
-        tenant: { select: { code: true } },
-        userBranchRoles: { select: { branchId: true, role: true } },
+        tenantMemberships: {
+          where: { tenantId: session.tenantId, isActive: true },
+          include: { tenant: { select: { code: true, isActive: true } } },
+        },
+        userBranchRoles: {
+          where: { tenantId: session.tenantId },
+          select: { branchId: true, role: true },
+        },
       },
     });
-    if (!user || !user.isActive) {
+    const membership = user?.tenantMemberships[0];
+    if (!user || !user.isActive || !membership?.tenant.isActive) {
       await this.sessions.revokeById(session.id, SESSION_REVOKED_REASONS.adminInvalidated);
       throw new UnauthorizedException("Invalid refresh token");
     }
 
     return this.issueAndPersist({
       user,
-      tenantCode: user.tenant?.code,
+      tenantId: session.tenantId,
+      tenantCode: membership.tenant.code,
       branchRoles: user.userBranchRoles,
       previousSession: session,
       meta,
@@ -265,6 +313,7 @@ export class AuthService {
         data: { revokedAt: new Date(), revokedReason: SESSION_REVOKED_REASONS.logoutAll },
       });
       // tenant-scope: system-auth — the same verified user identity scopes this token bump.
+      // tenant-scope: verified-parent — the caller verified this tenant membership first.
       await tx.appUser.update({
         where: { id: userId },
         data: { tokenVersion: { increment: 1 } },
@@ -317,6 +366,7 @@ export class AuthService {
         data: { revokedAt: new Date(), revokedReason: sessionReason },
       });
       // tenant-scope: system-auth — the same verified user identity scopes this token bump.
+      // tenant-scope: system-auth — session issuance already verified the active membership.
       await tx.appUser.update({
         where: { id: userId },
         data: { tokenVersion: { increment: 1 } },
@@ -326,18 +376,47 @@ export class AuthService {
     this.logger.log(`Hard-revoked all sessions for user=${userId} reason=${reason}`);
   }
 
-  async getMe(userId: string): Promise<AuthUserView> {
+  /** Revokes sessions for one pharmacy membership without signing the person out of others. */
+  async revokeTenantSessions(tenantId: string, userId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.updateMany({
+        where: { tenantId, userId, revokedAt: null },
+        data: {
+          revokedAt: new Date(),
+          revokedReason: SESSION_REVOKED_REASONS.adminInvalidated,
+        },
+      });
+      // Existing access tokens do not carry a membership version. Bumping the
+      // identity version expires them immediately; sessions in other pharmacies
+      // remain refreshable and receive a fresh access token transparently.
+      // tenant-scope: verified-parent — the caller verified this tenant membership first.
+      await tx.appUser.update({
+        where: { id: userId },
+        data: { tokenVersion: { increment: 1 } },
+      });
+    });
+    this.userContext.invalidate(userId);
+  }
+
+  async getMe(userId: string, tenantId: string): Promise<AuthUserView> {
     const user = await this.prisma.appUser.findUnique({
       where: { id: userId },
       include: {
-        tenant: { select: { code: true } },
-        userBranchRoles: { select: { branchId: true, role: true } },
+        tenantMemberships: {
+          where: { tenantId, isActive: true },
+          include: { tenant: { select: { code: true, isActive: true } } },
+        },
+        userBranchRoles: {
+          where: { tenantId },
+          select: { branchId: true, role: true },
+        },
       },
     });
-    if (!user) {
+    const membership = user?.tenantMemberships[0];
+    if (!user || !membership?.tenant.isActive) {
       throw new UnauthorizedException("User not found");
     }
-    return this.mapUser(user, user.tenant?.code, user.userBranchRoles);
+    return this.mapUser(user, tenantId, membership.tenant.code, user.userBranchRoles);
   }
 
   /** Settings → General → My Profile — read the caller's own editable + read-only fields. */
@@ -489,6 +568,7 @@ export class AuthService {
 
   private async issueAndPersist(args: {
     user: AppUser;
+    tenantId: string;
     tenantCode?: string;
     branchRoles: Array<{ branchId: string; role: RoleName }>;
     previousSession: Session | null;
@@ -508,7 +588,7 @@ export class AuthService {
 
       const session = await tx.session.create({
         data: {
-          tenantId: args.user.tenantId,
+          tenantId: args.tenantId,
           userId: args.user.id,
           familyId: familyId ?? cryptoRandomUuid(),
           refreshTokenHash: tempHash,
@@ -520,7 +600,7 @@ export class AuthService {
 
       const refreshPayload: RefreshTokenPayload = {
         sub: args.user.id,
-        tenantId: args.user.tenantId,
+        tenantId: args.tenantId,
         sessionId: session.id,
         familyId: session.familyId,
         type: "refresh",
@@ -532,7 +612,7 @@ export class AuthService {
 
       const realHash = await bcrypt.hash(refreshToken, 10);
       await tx.session.update({
-        where: { id: session.id, tenantId: args.user.tenantId },
+        where: { id: session.id, tenantId: args.tenantId },
         data: { refreshTokenHash: realHash, lastUsedAt: new Date() },
       });
 
@@ -550,13 +630,19 @@ export class AuthService {
 
       const accessPayload: AccessTokenPayload = {
         sub: args.user.id,
-        tenantId: args.user.tenantId,
+        tenantId: args.tenantId,
         tokenVersion: args.user.tokenVersion,
         type: "access",
       };
       const accessToken = await this.jwtService.signAsync(accessPayload, {
         secret: this.configService.getOrThrow<string>("JWT_ACCESS_SECRET"),
         expiresIn: accessTtl,
+      });
+
+      // tenant-scope: system-auth — session issuance already verified the active membership.
+      await tx.appUser.update({
+        where: { id: args.user.id },
+        data: { lastTenantId: args.tenantId },
       });
 
       return { accessToken, refreshToken };
@@ -573,7 +659,7 @@ export class AuthService {
       csrfToken,
       accessTtlSeconds: accessTtl,
       refreshTtlSeconds: refreshTtl,
-      user: this.mapUser(args.user, args.tenantCode, args.branchRoles),
+      user: this.mapUser(args.user, args.tenantId, args.tenantCode, args.branchRoles),
     };
   }
 
@@ -602,13 +688,14 @@ export class AuthService {
 
   private mapUser(
     user: AppUser,
+    tenantId: string,
     tenantCode: string | undefined,
     branchRoles: Array<{ branchId: string; role: RoleName }>,
   ): AuthUserView {
     const roleSet = new Set<RoleName>(branchRoles.map((entry) => entry.role));
     return {
       id: user.id,
-      tenantId: user.tenantId,
+      tenantId,
       tenantCode,
       email: user.email,
       fullName: user.fullName,

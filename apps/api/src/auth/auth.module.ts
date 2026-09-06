@@ -33,6 +33,13 @@ import { WorkspaceProvisioningService } from "./workspace-provisioning.service";
     VerificationEmailService,
     WorkspaceProvisioningService,
   ],
-  exports: [AuthService, OwnerRegistrationService, SessionStore, UserContextService, JwtModule],
+  exports: [
+    AuthService,
+    OwnerRegistrationService,
+    SessionStore,
+    UserContextService,
+    VerificationEmailService,
+    JwtModule,
+  ],
 })
 export class AuthModule {}

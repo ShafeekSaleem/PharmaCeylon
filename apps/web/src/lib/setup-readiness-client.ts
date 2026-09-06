@@ -40,6 +40,14 @@ export type SetupReadiness = {
   nextTask: ReadinessTaskKey | null;
 };
 
+export const SETUP_JOURNEY_CHANGED_EVENT = "pharmaceylon-setup-journey-changed";
+
+export function notifySetupJourneyChanged(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SETUP_JOURNEY_CHANGED_EVENT));
+  }
+}
+
 export const fetchSetupReadiness = () =>
   apiJson<SetupReadiness>("/setup/readiness");
 
@@ -49,3 +57,9 @@ export const confirmSetupTask = (task: "sales_settings" | "opening_inventory" | 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ task }),
   });
+
+export const completeSetupJourney = () =>
+  apiJson<{ completed: true; completedAt: string; nextPath: string }>(
+    "/setup/readiness/complete",
+    { method: "POST" },
+  );

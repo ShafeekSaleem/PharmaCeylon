@@ -112,7 +112,7 @@ export class NotificationsService {
 
   async getPreferences(tenantId: string, userId: string) {
     return this.prisma.notificationPreference.upsert({
-      where: { userId },
+      where: { tenantId_userId: { tenantId, userId } },
       create: { tenantId, userId },
       update: {},
     });
@@ -124,7 +124,7 @@ export class NotificationsService {
     dto: UpdateNotificationPreferencesDto,
   ) {
     const preferences = await this.prisma.notificationPreference.upsert({
-      where: { userId },
+      where: { tenantId_userId: { tenantId, userId } },
       create: { tenantId, userId, ...dto },
       update: dto,
     });
@@ -158,7 +158,7 @@ export class NotificationsService {
     if (!recipientIds.length) return;
 
     const preferenceRows = await this.prisma.notificationPreference.findMany({
-      where: { userId: { in: recipientIds } },
+      where: { tenantId, userId: { in: recipientIds } },
       select: { userId: true, complianceEnabled: true, systemEnabled: true },
     });
     const isEnabled = (userId: string) => {

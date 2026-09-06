@@ -38,6 +38,15 @@ export class SetupController {
       dto.task,
     );
   }
+
+  @Post("readiness/complete")
+  complete(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+  ) {
+    ensureOwner(user);
+    return this.readiness.complete(user.tenantId, branchId, user.userId);
+  }
 }
 
 function ensureOwner(user: RequestUser): void {

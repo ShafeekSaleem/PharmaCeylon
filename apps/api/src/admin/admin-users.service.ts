@@ -47,16 +47,20 @@ export class AdminUsersService {
   }
 
   async listUsers(tenantId: string) {
-    return this.prisma.appUser.findMany({
-      where: { tenantId },
+    const users = await this.prisma.appUser.findMany({
+      where: { tenantMemberships: { some: { tenantId } } },
       orderBy: { email: "asc" },
       select: {
         id: true,
         email: true,
         fullName: true,
-        isActive: true,
         createdAt: true,
+        tenantMemberships: {
+          where: { tenantId },
+          select: { isActive: true },
+        },
         userBranchRoles: {
+          where: { tenantId },
           select: {
             id: true,
             branchId: true,
@@ -67,6 +71,10 @@ export class AdminUsersService {
         },
       },
     });
+    return users.map(({ tenantMemberships, ...user }) => ({
+      ...user,
+      isActive: tenantMemberships[0]?.isActive ?? false,
+    }));
   }
 
   async createUser(actorTenantId: string, actorUserId: string, dto: CreateTenantUserDto) {
@@ -79,6 +87,7 @@ export class AdminUsersService {
           email,
           fullName: dto.fullName.trim(),
           passwordHash: hash,
+          tenantMemberships: { create: { tenantId: actorTenantId } },
         },
         select: {
           id: true,
@@ -131,7 +140,7 @@ export class AdminUsersService {
     }
 
     const target = await this.prisma.appUser.findFirst({
-      where: { id: targetUserId, tenantId },
+      where: { id: targetUserId, tenantMemberships: { some: { tenantId, isActive: true } } },
     });
     if (!target) throw new NotFoundException("User not found");
 
@@ -269,8 +278,11 @@ export class AdminUsersService {
     dto: UpdateUserDto,
   ) {
     const target = await this.prisma.appUser.findFirst({
-      where: { id: targetUserId, tenantId },
-      include: { userBranchRoles: { select: { role: true } } },
+      where: { id: targetUserId, tenantMemberships: { some: { tenantId } } },
+      include: {
+        tenantMemberships: { where: { tenantId }, select: { isActive: true } },
+        userBranchRoles: { where: { tenantId }, select: { role: true } },
+      },
     });
     if (!target) throw new NotFoundException("User not found");
 
@@ -295,33 +307,33 @@ export class AdminUsersService {
       }
     }
 
-    const updated = await this.prisma.appUser.update({
-      where: { id: targetUserId, tenantId },
-      data: {
-        ...(dto.fullName != null ? { fullName: dto.fullName.trim() } : {}),
-        ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
-        ...(dto.isActive === false ? { tokenVersion: { increment: 1 } } : {}),
-      },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        isActive: true,
-        createdAt: true,
-        userBranchRoles: {
-          select: {
-            id: true,
-            branchId: true,
-            role: true,
-            roleId: true,
-            roleRef: { select: { id: true, name: true, key: true } },
-          },
-        },
-      },
+    let updatedName = target.fullName;
+    await this.prisma.$transaction(async (tx) => {
+      if (dto.fullName != null) {
+        // tenant-scope: verified-parent — target was resolved through this tenant membership.
+        const renamed = await tx.appUser.update({
+          where: { id: targetUserId },
+          data: { fullName: dto.fullName.trim() },
+          select: { fullName: true },
+        });
+        updatedName = renamed.fullName;
+      }
+      if (dto.isActive != null) {
+        await tx.tenantMembership.update({
+          where: { tenantId_userId: { tenantId, userId: targetUserId } },
+          data: { isActive: dto.isActive },
+        });
+      }
     });
+    const updated = {
+      ...target,
+      fullName: updatedName,
+      isActive:
+        dto.isActive ?? target.tenantMemberships?.[0]?.isActive ?? target.isActive,
+    };
 
     if (dto.isActive === false) {
-      this.userContext.invalidate(targetUserId);
+      await this.authService.revokeTenantSessions(tenantId, targetUserId);
     }
 
     await this.audit.log({
@@ -358,13 +370,8 @@ export class AdminUsersService {
   }
 
   /**
-   * Permanently removes a staff account. Only allowed once the account is
-   * deactivated — this is not an alternative to deactivation, it's cleanup
-   * for an account that should never have existed (wrong email, test
-   * account, etc). Any account with real activity (a sale, a PO, a stock
-   * movement, an audit trail entry as actor, ...) still has rows referencing
-   * it via a restrictive foreign key, so the delete fails and we surface
-   * that as a clear error instead of enumerating every relation by hand.
+   * Removes a deactivated membership from this pharmacy while preserving the
+   * global identity and any memberships it has in other pharmacies.
    */
   async deleteUser(
     tenantId: string,
@@ -373,12 +380,15 @@ export class AdminUsersService {
     targetUserId: string,
   ) {
     const target = await this.prisma.appUser.findFirst({
-      where: { id: targetUserId, tenantId },
-      include: { userBranchRoles: { select: { role: true } } },
+      where: { id: targetUserId, tenantMemberships: { some: { tenantId } } },
+      include: {
+        tenantMemberships: { where: { tenantId }, select: { isActive: true } },
+        userBranchRoles: { where: { tenantId }, select: { role: true } },
+      },
     });
     if (!target) throw new NotFoundException("User not found");
 
-    if (target.isActive) {
+    if (target.tenantMemberships?.[0]?.isActive ?? target.isActive) {
       throw new ForbiddenException("Deactivate this account before deleting it");
     }
 
@@ -390,7 +400,9 @@ export class AdminUsersService {
     try {
       await this.prisma.$transaction([
         this.prisma.userBranchRole.deleteMany({ where: { tenantId, userId: targetUserId } }),
-        this.prisma.appUser.delete({ where: { id: targetUserId, tenantId } }),
+        this.prisma.tenantMembership.delete({
+          where: { tenantId_userId: { tenantId, userId: targetUserId } },
+        }),
       ]);
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code;
@@ -405,8 +417,8 @@ export class AdminUsersService {
     await this.audit.log({
       tenantId,
       actorUserId,
-      eventName: "user.deleted",
-      entityName: "app_user",
+      eventName: "tenant_membership.removed",
+      entityName: "tenant_membership",
       entityId: targetUserId,
       payload: { email: target.email },
     });
@@ -417,7 +429,7 @@ export class AdminUsersService {
       NotificationCategory.compliance,
       {
         severity: NotificationSeverity.warning,
-        title: `${target.fullName} (${target.email}) was permanently deleted`,
+        title: `${target.fullName} (${target.email}) was removed from this pharmacy`,
         actionHref: "/users",
       },
       actorUserId,
@@ -429,14 +441,14 @@ export class AdminUsersService {
   /** PIN lock/session state for the Manage Staff "Security" panel. */
   async getSecurity(tenantId: string, targetUserId: string) {
     const target = await this.prisma.appUser.findFirst({
-      where: { id: targetUserId, tenantId },
+      where: { id: targetUserId, tenantMemberships: { some: { tenantId } } },
       select: { posPinHash: true, failedPosPinAttempts: true, posPinLockedUntil: true },
     });
     if (!target) throw new NotFoundException("User not found");
 
     const now = new Date();
     const sessions = await this.prisma.session.findMany({
-      where: { userId: targetUserId, revokedAt: null, expiresAt: { gt: now } },
+      where: { tenantId, userId: targetUserId, revokedAt: null, expiresAt: { gt: now } },
       orderBy: { lastUsedAt: "desc" },
       select: { id: true, userAgent: true, ipAddress: true, lastUsedAt: true, createdAt: true },
     });
@@ -464,8 +476,8 @@ export class AdminUsersService {
     targetUserId: string,
   ) {
     const target = await this.prisma.appUser.findFirst({
-      where: { id: targetUserId, tenantId },
-      include: { userBranchRoles: { select: { role: true } } },
+      where: { id: targetUserId, tenantMemberships: { some: { tenantId } } },
+      include: { userBranchRoles: { where: { tenantId }, select: { role: true } } },
     });
     if (!target) throw new NotFoundException("User not found");
 
@@ -474,8 +486,9 @@ export class AdminUsersService {
       throw new ForbiddenException("Only an owner can modify another owner's account");
     }
 
+    // tenant-scope: verified-parent — target was resolved through this tenant membership.
     await this.prisma.appUser.update({
-      where: { id: targetUserId, tenantId },
+      where: { id: targetUserId },
       data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null },
     });
 
@@ -498,8 +511,8 @@ export class AdminUsersService {
     targetUserId: string,
   ) {
     const target = await this.prisma.appUser.findFirst({
-      where: { id: targetUserId, tenantId },
-      include: { userBranchRoles: { select: { role: true } } },
+      where: { id: targetUserId, tenantMemberships: { some: { tenantId } } },
+      include: { userBranchRoles: { where: { tenantId }, select: { role: true } } },
     });
     if (!target) throw new NotFoundException("User not found");
 
@@ -508,7 +521,7 @@ export class AdminUsersService {
       throw new ForbiddenException("Only an owner can modify another owner's account");
     }
 
-    await this.authService.revokeAllSessions(targetUserId, "admin_invalidated");
+    await this.authService.revokeTenantSessions(tenantId, targetUserId);
 
     await this.audit.log({
       tenantId,

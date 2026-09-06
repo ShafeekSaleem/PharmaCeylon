@@ -77,6 +77,7 @@ describe("WorkspaceProvisioningService", () => {
       },
       rolePermission: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
       userBranchRole: { create: jest.fn().mockResolvedValue({}) },
+      tenantMembership: { create: jest.fn().mockResolvedValue({}) },
       notificationPreference: { create: jest.fn().mockResolvedValue({}) },
       auditEvent: { create: jest.fn().mockResolvedValue({}) },
     };

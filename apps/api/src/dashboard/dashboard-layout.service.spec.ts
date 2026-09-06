@@ -19,11 +19,11 @@ describe("DashboardLayoutService", () => {
     const { service, dashboardLayout } = makeService();
     dashboardLayout.findUnique.mockResolvedValue(null);
 
-    const result = await service.getLayout(userId);
+    const result = await service.getLayout(tenantId, userId);
 
     expect(result).toBeNull();
     expect(dashboardLayout.findUnique).toHaveBeenCalledWith({
-      where: { userId },
+      where: { tenantId_userId: { tenantId, userId } },
       select: { widgets: true, updatedAt: true },
     });
   });
@@ -33,7 +33,7 @@ describe("DashboardLayoutService", () => {
     const updatedAt = new Date("2026-08-25T00:00:00.000Z");
     dashboardLayout.findUnique.mockResolvedValue({ widgets, updatedAt });
 
-    const result = await service.getLayout(userId);
+    const result = await service.getLayout(tenantId, userId);
 
     expect(result).toEqual({ widgets, updatedAt });
   });
@@ -45,7 +45,7 @@ describe("DashboardLayoutService", () => {
     await service.saveLayout(tenantId, userId, { widgets });
 
     expect(dashboardLayout.upsert).toHaveBeenCalledWith({
-      where: { userId },
+      where: { tenantId_userId: { tenantId, userId } },
       create: { tenantId, userId, widgets },
       update: { widgets },
       select: { widgets: true, updatedAt: true },

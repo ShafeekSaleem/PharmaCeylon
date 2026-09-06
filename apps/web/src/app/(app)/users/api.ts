@@ -1,5 +1,5 @@
 import { apiJson, type TenantBranch } from "@/lib/auth-client";
-import type { SecurityInfo } from "./types";
+import type { SecurityInfo, StaffInvitation } from "./types";
 
 /**
  * All active tenant branches, unscoped by the caller's own branch roles —
@@ -22,4 +22,30 @@ export function resetStaffPin(userId: string): Promise<{ reset: boolean }> {
 
 export function forceStaffLogout(userId: string): Promise<{ ok: boolean }> {
   return apiJson(`/admin/users/${userId}/force-logout`, { method: "POST" });
+}
+
+export function fetchStaffInvitations(): Promise<StaffInvitation[]> {
+  return apiJson<StaffInvitation[]>("/admin/users/invitations");
+}
+
+export function createStaffInvitation(input: {
+  email: string;
+  fullName: string;
+  assignments: Array<{ branchId: string; role: string; roleId?: string }>;
+}): Promise<{ id: string; expiresAt: string }> {
+  return apiJson("/admin/users/invitations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function resendStaffInvitation(id: string) {
+  return apiJson<{ ok: true; expiresAt: string }>(`/admin/users/invitations/${id}/resend`, {
+    method: "POST",
+  });
+}
+
+export function revokeStaffInvitation(id: string) {
+  return apiJson<{ ok: true }>(`/admin/users/invitations/${id}`, { method: "DELETE" });
 }

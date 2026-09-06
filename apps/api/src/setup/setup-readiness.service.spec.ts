@@ -31,6 +31,7 @@ describe("SetupReadinessService", () => {
     const prisma = {
       branch: {
         findFirst: jest.fn().mockResolvedValue(branch),
+        findFirstOrThrow: jest.fn().mockResolvedValue({ setupCompletedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       product: { count: jest.fn().mockResolvedValue(1) },
@@ -113,6 +114,67 @@ describe("SetupReadinessService", () => {
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ eventName: "onboarding.sales_settings_confirmed" }),
     );
+  });
+
+  it("finishes a ready journey, disables Get started, and records the handoff", async () => {
+    const { service, prisma, audit } = setup();
+    jest.spyOn(service, "get").mockResolvedValue({
+      journeyEnabled: true,
+      readyForSales: true,
+      completedCount: 5,
+      totalCount: 5,
+      percent: 100,
+      tenant: { id: tenantId, name: "Royal Pharmacy", hasLogo: false },
+      branch: { id: branchId, name: "Main", code: "MAIN", setupMode: "fresh" },
+      tasks: [],
+      optional: {
+        teamInvited: false,
+        logoAdded: false,
+        catalogOrganized: true,
+        catalogCoverage: { ranged: 0, categorized: 0, unplaced: 0, percent: 100 },
+      },
+      nextTask: null,
+    });
+
+    const result = await service.complete(tenantId, branchId, "owner-1");
+
+    expect(result).toEqual(expect.objectContaining({
+      completed: true,
+      nextPath: "/dashboard?setup=complete",
+    }));
+    expect(prisma.branch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: branchId, tenantId, setupRequired: true, setupCompletedAt: null },
+      data: { setupRequired: false, setupCompletedAt: expect.any(Date) },
+    }));
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      eventName: "onboarding.branch_setup_completed",
+    }));
+  });
+
+  it("does not finish while required checks remain incomplete", async () => {
+    const { service, prisma } = setup();
+    jest.spyOn(service, "get").mockResolvedValue({
+      journeyEnabled: true,
+      readyForSales: false,
+      completedCount: 4,
+      totalCount: 5,
+      percent: 80,
+      tenant: { id: tenantId, name: "Royal Pharmacy", hasLogo: false },
+      branch: { id: branchId, name: "Main", code: "MAIN", setupMode: "fresh" },
+      tasks: [{ key: "checkout", title: "Prepare checkout", description: "", complete: false, available: true, href: "/pos" }],
+      optional: {
+        teamInvited: false,
+        logoAdded: false,
+        catalogOrganized: true,
+        catalogCoverage: { ranged: 0, categorized: 0, unplaced: 0, percent: 100 },
+      },
+      nextTask: "checkout",
+    });
+
+    await expect(service.complete(tenantId, branchId, "owner-1")).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(prisma.branch.updateMany).not.toHaveBeenCalled();
   });
 });
 

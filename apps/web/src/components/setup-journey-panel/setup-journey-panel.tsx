@@ -1,7 +1,7 @@
 import { IconCheck } from "@/components/icons";
 import styles from "./setup-journey-panel.module.css";
 
-const JOURNEY = [
+const OWNER_JOURNEY = [
   [
     "Create your owner account",
     "Tell us who will own and manage the workspace.",
@@ -13,9 +13,16 @@ const JOURNEY = [
   ],
 ] as const;
 
+const STAFF_JOURNEY = [
+  ["Invitation received", "Review the pharmacy, role and branch access."],
+  ["Secure your account", "Sign in or create your own secure password."],
+  ["Enter the workspace", "Start directly in your assigned pharmacy branch."],
+] as const;
+
 type Props = {
   /** Which of the 3 journey steps the current page represents (1-indexed). */
   currentStep: 1 | 2 | 3;
+  variant?: "owner" | "staff";
 };
 
 /**
@@ -24,16 +31,19 @@ type Props = {
  * is marked complete/current updates, so the panel reads as one constant reference to the
  * whole journey rather than swapping its message per page.
  */
-export function SetupJourneyPanel({ currentStep }: Props) {
+export function SetupJourneyPanel({ currentStep, variant = "owner" }: Props) {
+  const journey = variant === "staff" ? STAFF_JOURNEY : OWNER_JOURNEY;
   return (
     <aside className={styles.panel}>
-      <p className={styles.eyebrow}>YOUR SETUP JOURNEY</p>
-      <h2>Begin with your owner account.</h2>
+      <p className={styles.eyebrow}>{variant === "staff" ? "YOUR INVITATION" : "YOUR SETUP JOURNEY"}</p>
+      <h2>{variant === "staff" ? "Join your pharmacy team." : "Begin with your owner account."}</h2>
       <p className={styles.lead}>
-        A guided path from account creation to a pharmacy ready for setup.
+        {variant === "staff"
+          ? "Your access is already prepared. Confirm your identity and get to work."
+          : "A guided path from account creation to a pharmacy ready for setup."}
       </p>
       <ol>
-        {JOURNEY.map(([title, description], index) => {
+        {journey.map(([title, description], index) => {
           const step = index + 1;
           const isComplete = step < currentStep;
           const isCurrent = step === currentStep;
@@ -54,8 +64,12 @@ export function SetupJourneyPanel({ currentStep }: Props) {
         })}
       </ol>
       <div className={styles.timeNote}>
-        <b>About 4 minutes</b>
-        <span>Your progress is saved as you go.</span>
+        <b>{variant === "staff" ? "Secure invitation" : "About 4 minutes"}</b>
+        <span>
+          {variant === "staff"
+            ? "Only the invited email can accept this access."
+            : "Your progress is saved as you go."}
+        </span>
       </div>
     </aside>
   );

@@ -20,8 +20,22 @@ export type AdminUser = {
 
 export type CreateStaffPayload = {
   email: string;
-  password: string;
   fullName: string;
+};
+
+export type StaffInvitation = {
+  id: string;
+  email: string;
+  fullName: string;
+  expiresAt: string;
+  createdAt: string;
+  roles: Array<{
+    branchId: string;
+    role: RoleName;
+    roleId?: string | null;
+    branch: { name: string; code: string };
+    roleRef?: { name: string } | null;
+  }>;
 };
 
 export type AssignRolePayload = {

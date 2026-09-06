@@ -57,6 +57,12 @@ export type SetupReadiness = {
   nextTask: ReadinessTaskKey | null;
 };
 
+export type SetupCompletion = {
+  completed: true;
+  completedAt: string;
+  nextPath: "/dashboard?setup=complete";
+};
+
 const PAYMENT_LABELS: Record<string, string> = {
   cash: "Cash",
   card: "Card",
@@ -120,7 +126,14 @@ export class SetupReadinessService {
         _sum: { qtyDelta: true },
       }),
       this.prisma.userBranchRole.findMany({
-        where: { tenantId, branchId, user: { isActive: true } },
+        where: {
+          tenantId,
+          branchId,
+          user: {
+            isActive: true,
+            tenantMemberships: { some: { tenantId, isActive: true } },
+          },
+        },
         distinct: ["userId"],
         select: { userId: true },
       }),
@@ -309,12 +322,6 @@ export class SetupReadinessService {
 
     const completedCount = tasks.filter((task) => task.complete).length;
     const readyForSales = completedCount === tasks.length;
-    if (readyForSales && !branch.setupCompletedAt) {
-      await this.prisma.branch.updateMany({
-        where: { id: branchId, tenantId, setupCompletedAt: null },
-        data: { setupCompletedAt: new Date() },
-      });
-    }
 
     return {
       journeyEnabled: branch.setupRequired,
@@ -342,6 +349,74 @@ export class SetupReadinessService {
       },
       nextTask:
         tasks.find((task) => !task.complete && task.available)?.key ?? null,
+    };
+  }
+
+  /** Side-effect-free readiness reads pair with this explicit, retry-safe finish command. */
+  async complete(
+    tenantId: string,
+    branchId: string,
+    userId: string,
+  ): Promise<SetupCompletion> {
+    const readiness = await this.get(tenantId, branchId);
+    if (!readiness.journeyEnabled) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: branchId, tenantId },
+        select: { setupCompletedAt: true },
+      });
+      if (branch?.setupCompletedAt) {
+        return {
+          completed: true,
+          completedAt: branch.setupCompletedAt.toISOString(),
+          nextPath: "/dashboard?setup=complete",
+        };
+      }
+      throw new ConflictException("Setup journey is not enabled for this branch");
+    }
+
+    if (!readiness.readyForSales) {
+      const remaining = readiness.tasks
+        .filter((task) => !task.complete)
+        .map((task) => ({ key: task.key, title: task.title }));
+      throw new ConflictException({
+        statusCode: 409,
+        code: "BRANCH_SETUP_INCOMPLETE",
+        message: "Complete every required setup step before finishing the journey.",
+        remaining,
+      });
+    }
+
+    const completedAt = new Date();
+    const updated = await this.prisma.branch.updateMany({
+      where: {
+        id: branchId,
+        tenantId,
+        setupRequired: true,
+        setupCompletedAt: null,
+      },
+      data: { setupRequired: false, setupCompletedAt: completedAt },
+    });
+
+    if (updated.count > 0) {
+      await this.audit.log({
+        tenantId,
+        branchId,
+        actorUserId: userId,
+        eventName: "onboarding.branch_setup_completed",
+        entityName: "branch",
+        entityId: branchId,
+        payload: { completedTasks: readiness.tasks.map((task) => task.key) },
+      });
+    }
+
+    const branch = await this.prisma.branch.findFirstOrThrow({
+      where: { id: branchId, tenantId },
+      select: { setupCompletedAt: true },
+    });
+    return {
+      completed: true,
+      completedAt: (branch.setupCompletedAt ?? completedAt).toISOString(),
+      nextPath: "/dashboard?setup=complete",
     };
   }
 

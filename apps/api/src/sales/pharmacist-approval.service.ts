@@ -62,7 +62,10 @@ export class PharmacistApprovalService {
           ...(grantedRoleIds.length ? [{ branchId, roleId: { in: grantedRoleIds } }] : []),
           { role: RoleName.owner },
         ],
-        user: { isActive: true, tenantId },
+        user: {
+          isActive: true,
+          tenantMemberships: { some: { tenantId, isActive: true } },
+        },
       },
       select: {
         role: true,
@@ -111,7 +114,11 @@ export class PharmacistApprovalService {
       throw new ForbiddenException("Only pharmacist, manager, or owner may set a POS PIN");
     }
     const user = await this.prisma.appUser.findFirst({
-      where: { id: userId, tenantId, isActive: true },
+      where: {
+        id: userId,
+        isActive: true,
+        tenantMemberships: { some: { tenantId, isActive: true } },
+      },
       select: { id: true, passwordHash: true },
     });
     if (!user) throw new UnauthorizedException("User not found");
@@ -119,8 +126,9 @@ export class PharmacistApprovalService {
     if (!ok) throw new UnauthorizedException("Login password is incorrect");
 
     const posPinHash = await bcrypt.hash(pin, 10);
+    // tenant-scope: verified-parent — the authenticated caller's membership was verified above.
     await this.prisma.appUser.update({
-      where: { id: userId, tenantId },
+      where: { id: userId },
       data: {
         posPinHash,
         failedPosPinAttempts: 0,
@@ -149,15 +157,20 @@ export class PharmacistApprovalService {
       throw new ForbiddenException("Only pharmacist, manager, or owner may clear a POS PIN");
     }
     const user = await this.prisma.appUser.findFirst({
-      where: { id: userId, tenantId, isActive: true },
+      where: {
+        id: userId,
+        isActive: true,
+        tenantMemberships: { some: { tenantId, isActive: true } },
+      },
       select: { id: true, passwordHash: true },
     });
     if (!user) throw new UnauthorizedException("User not found");
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException("Login password is incorrect");
 
+    // tenant-scope: verified-parent — the authenticated caller's membership was verified above.
     await this.prisma.appUser.update({
-      where: { id: userId, tenantId },
+      where: { id: userId },
       data: {
         posPinHash: null,
         failedPosPinAttempts: 0,
@@ -187,7 +200,11 @@ export class PharmacistApprovalService {
     actorUserId: string,
   ): Promise<{ approverUserId: string; approverName: string }> {
     const user = await this.prisma.appUser.findFirst({
-      where: { id: approverUserId, tenantId, isActive: true },
+      where: {
+        id: approverUserId,
+        isActive: true,
+        tenantMemberships: { some: { tenantId, isActive: true } },
+      },
       select: {
         id: true,
         fullName: true,
@@ -197,6 +214,7 @@ export class PharmacistApprovalService {
         posPinLockedUntil: true,
         userBranchRoles: {
           where: {
+            tenantId,
             OR: [{ branchId }, { role: RoleName.owner }],
           },
           select: { role: true, branchId: true, roleId: true },
@@ -230,8 +248,9 @@ export class PharmacistApprovalService {
         failures >= MAX_PIN_FAILURES
           ? new Date(Date.now() + PIN_LOCK_MINUTES * 60_000)
           : null;
+      // tenant-scope: verified-parent — the approver's tenant membership was verified above.
       await this.prisma.appUser.update({
-        where: { id: user.id, tenantId },
+        where: { id: user.id },
         data: {
           failedPosPinAttempts: failures,
           posPinLockedUntil: locked,
@@ -254,8 +273,9 @@ export class PharmacistApprovalService {
     }
 
     if (user.failedPosPinAttempts > 0 || user.posPinLockedUntil) {
+      // tenant-scope: verified-parent — the approver's tenant membership was verified above.
       await this.prisma.appUser.update({
-        where: { id: user.id, tenantId },
+        where: { id: user.id },
         data: { failedPosPinAttempts: 0, posPinLockedUntil: null },
       });
     }

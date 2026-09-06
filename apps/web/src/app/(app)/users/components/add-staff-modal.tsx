@@ -2,21 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { IconRefresh, IconShield, IconX } from "@/components/icons";
+import { IconMail, IconShield, IconX } from "@/components/icons";
 import { FormField, Modal, ModalButton, ModalFooter } from "@/components/ui";
-import { apiJson, type TenantBranch } from "@/lib/auth-client";
+import { type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
-import { fetchAdminBranches } from "../api";
+import { createStaffInvitation, fetchAdminBranches } from "../api";
 import { useRoles } from "../hooks/use-roles";
-import type { AdminUser } from "../types";
-import { generateTempPassword } from "../utils";
 import css from "../users.module.css";
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  onCreated: (id: string) => void;
+  onCreated: () => void;
 };
 
 type AssignRow = { roleKey: string; branchId: string };
@@ -36,7 +34,6 @@ export function AddStaffModal({ open, onClose, onCreated }: Props) {
   const [step, setStep] = useState<1 | 2>(1);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [rows, setRows] = useState<AssignRow[]>([emptyRow()]);
   const [branches, setBranches] = useState<TenantBranch[]>([]);
   const [step1Error, setStep1Error] = useState<string | null>(null);
@@ -48,7 +45,6 @@ export function AddStaffModal({ open, onClose, onCreated }: Props) {
     setStep(1);
     setFullName("");
     setEmail("");
-    setPassword(generateTempPassword());
     setRows([emptyRow()]);
     setStep1Error(null);
     setSaveError(null);
@@ -58,7 +54,6 @@ export function AddStaffModal({ open, onClose, onCreated }: Props) {
   function goNext() {
     if (!fullName.trim()) return setStep1Error("Full name is required");
     if (!EMAIL_RE.test(email.trim())) return setStep1Error("Enter a valid email");
-    if (password.trim().length < 8) return setStep1Error("Password must be at least 8 characters");
     setStep1Error(null);
     setStep(2);
   }
@@ -79,49 +74,29 @@ export function AddStaffModal({ open, onClose, onCreated }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      const created = await apiJson<AdminUser>("/admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fullName: fullName.trim(),
-          email: email.trim(),
-          password,
-        }),
-      });
-
       const validRows = rows.filter((r) => r.roleKey && r.branchId);
-      const failures: string[] = [];
-      for (const row of validRows) {
-        const roleRow = roles.find((r) => r.key === row.roleKey);
-        if (!roleRow) continue;
-        try {
-          await apiJson(`/admin/users/${created.id}/branch-roles`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              branchId: row.branchId,
-              role: roleRow.isSystem ? roleRow.key : "custom",
-              ...(roleRow.isSystem ? {} : { roleId: roleRow.id }),
-            }),
-          });
-        } catch (err) {
-          failures.push(err instanceof Error ? err.message : "Role assignment failed");
-        }
-      }
-
-      onCreated(created.id);
-      if (failures.length > 0) {
-        setSaveError(
-          `Account created, but ${failures.length} role assignment${
-            failures.length === 1 ? "" : "s"
-          } failed: ${failures.join("; ")}. Add roles from Manage roles.`,
-        );
+      if (validRows.length === 0) {
+        setSaveError("Assign at least one role and branch before sending the invitation.");
         setSaving(false);
         return;
       }
+      await createStaffInvitation({
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        assignments: validRows.flatMap((row) => {
+          const roleRow = roles.find((role) => role.key === row.roleKey);
+          if (!roleRow) return [];
+          return [{
+            branchId: row.branchId,
+            role: roleRow.isSystem ? roleRow.key : "custom",
+            ...(roleRow.isSystem ? {} : { roleId: roleRow.id }),
+          }];
+        }),
+      });
+      onCreated();
       onClose();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to create staff account");
+      setSaveError(err instanceof Error ? err.message : "Failed to send invitation");
     } finally {
       setSaving(false);
     }
@@ -133,8 +108,8 @@ export function AddStaffModal({ open, onClose, onCreated }: Props) {
     <Modal
       open={open}
       onClose={onClose}
-      title="Add staff"
-      description={step === 1 ? "Step 1 of 2 · account details" : "Step 2 of 2 · assign role & branch"}
+      title="Invite staff"
+      description={step === 1 ? "Step 1 of 2 · staff details" : "Step 2 of 2 · access details"}
       size="md"
       canDismiss={!saving}
       footer={
@@ -153,7 +128,7 @@ export function AddStaffModal({ open, onClose, onCreated }: Props) {
               Back
             </ModalButton>
             <ModalButton variant="primary" onClick={() => void handleFinish()} loading={saving}>
-              Create staff account
+              Send invitation
             </ModalButton>
           </ModalFooter>
         )
@@ -183,24 +158,10 @@ export function AddStaffModal({ open, onClose, onCreated }: Props) {
             placeholder="kamal@pharmaceylon.demo"
             hint="This is the login identifier — it can't be changed later."
           />
-          <div className={css.genRow}>
-            <FormField
-              label="Temporary password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button
-              type="button"
-              className={css.genBtn}
-              onClick={() => setPassword(generateTempPassword())}
-            >
-              <IconRefresh size={13} /> Generate
-            </button>
+          <div className={css.inviteNote}>
+            <IconMail size={16} />
+            <span>They’ll receive a secure link and create their own password.</span>
           </div>
-          <p style={{ fontSize: "0.76rem", color: "var(--pc-muted-fg)", marginTop: "0.3rem" }}>
-            Share this password with the new hire directly — it isn&apos;t sent automatically.
-          </p>
         </>
       ) : (
         <>

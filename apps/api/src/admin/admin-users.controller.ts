@@ -15,6 +15,8 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import { AdminUsersService } from "./admin-users.service";
 import { AssignBranchRoleDto } from "./dto/assign-branch-role.dto";
 import { CreateTenantUserDto } from "./dto/create-tenant-user.dto";
+import { CreateStaffInvitationDto } from "./dto/create-staff-invitation.dto";
+import { StaffInvitationsService } from "./staff-invitations.service";
 import { UpdateUserDto } from "./dto/update-user.dto";
 
 function isOwner(user: RequestUser): boolean {
@@ -23,7 +25,10 @@ function isOwner(user: RequestUser): boolean {
 
 @Controller("admin/users")
 export class AdminUsersController {
-  constructor(private readonly adminUsers: AdminUsersService) {}
+  constructor(
+    private readonly adminUsers: AdminUsersService,
+    private readonly invitations: StaffInvitationsService,
+  ) {}
 
   @RequirePermission("users.view")
   @Get()
@@ -35,6 +40,44 @@ export class AdminUsersController {
   @Get("branches")
   listBranches(@CurrentUser() user: RequestUser) {
     return this.adminUsers.listAllBranches(user.tenantId);
+  }
+
+  @RequirePermission("users.view")
+  @Get("invitations")
+  listInvitations(@CurrentUser() user: RequestUser) {
+    return this.invitations.list(user.tenantId);
+  }
+
+  @RequirePermission("users.create")
+  @Post("invitations")
+  invite(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: CreateStaffInvitationDto,
+  ) {
+    return this.invitations.create(
+      user.tenantId,
+      user.userId,
+      isOwner(user),
+      dto,
+    );
+  }
+
+  @RequirePermission("users.create")
+  @Post("invitations/:invitationId/resend")
+  resendInvitation(
+    @CurrentUser() user: RequestUser,
+    @Param("invitationId", ParseUUIDPipe) invitationId: string,
+  ) {
+    return this.invitations.resend(user.tenantId, user.userId, invitationId);
+  }
+
+  @RequirePermission("users.manage")
+  @Delete("invitations/:invitationId")
+  revokeInvitation(
+    @CurrentUser() user: RequestUser,
+    @Param("invitationId", ParseUUIDPipe) invitationId: string,
+  ) {
+    return this.invitations.revoke(user.tenantId, user.userId, invitationId);
   }
 
   @RequirePermission("users.create")

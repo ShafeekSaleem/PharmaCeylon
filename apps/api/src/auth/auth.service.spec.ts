@@ -25,13 +25,19 @@ describe("AuthService", () => {
   const baseUser = {
     id: "user-id",
     tenantId: "tenant-id",
+    lastTenantId: "tenant-id",
     email: "demo@pharma.com",
     fullName: "Demo User",
     passwordHash: "hash",
     tokenVersion: 3,
     isActive: true,
     tenant: { code: "demo", isActive: true },
-    userBranchRoles: [{ branchId: "branch-1", role: RoleName.manager }],
+    tenantMemberships: [
+      { tenantId: "tenant-id", isActive: true, tenant: { code: "demo", isActive: true } },
+    ],
+    userBranchRoles: [
+      { tenantId: "tenant-id", branchId: "branch-1", role: RoleName.manager },
+    ],
   };
 
   beforeEach(() => {

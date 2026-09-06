@@ -1,11 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Alert } from "@/components/alert";
 import {
   IconBox,
   IconCheckCircle,
+  IconMail,
+  IconRefresh,
   IconSearch,
   IconShield,
   IconTrash,
@@ -29,12 +31,17 @@ import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
 import { ConfirmDialog } from "../products/components/confirm-dialog";
 import layoutCss from "../purchasing/purchasing.module.css";
-import { fetchAdminBranches } from "./api";
+import {
+  fetchAdminBranches,
+  fetchStaffInvitations,
+  resendStaffInvitation,
+  revokeStaffInvitation,
+} from "./api";
 import { AddStaffModal } from "./components/add-staff-modal";
 import { ManageStaffModal } from "./components/manage-staff-modal";
-import { ROLE_COLORS, ROLE_FILTER_OPTIONS, STATUS_FILTER_OPTIONS } from "./constants";
+import { ROLE_COLORS, ROLE_FILTER_OPTIONS, ROLE_LABELS, STATUS_FILTER_OPTIONS } from "./constants";
 import { useAdminUsers } from "./hooks/use-admin-users";
-import type { AdminUser, BranchFilter, RoleFilter, StatusFilter } from "./types";
+import type { AdminUser, BranchFilter, RoleFilter, StaffInvitation, StatusFilter } from "./types";
 import { formatDate, roleDisplayName, staffInitials } from "./utils";
 import css from "./users.module.css";
 
@@ -58,9 +65,37 @@ function UsersContent() {
   const searchParams = useSearchParams();
 
   const [branches, setBranches] = useState<TenantBranch[]>([]);
+  const [invitations, setInvitations] = useState<StaffInvitation[]>([]);
+  const [invitationAction, setInvitationAction] = useState<string | null>(null);
+  const [invitationError, setInvitationError] = useState<string | null>(null);
+
+  const reloadInvitations = useCallback(async () => {
+    if (!canCreateUsers) return;
+    try {
+      setInvitations(await fetchStaffInvitations());
+    } catch (cause) {
+      setInvitationError(cause instanceof Error ? cause.message : "Could not load invitations");
+    }
+  }, [canCreateUsers]);
+
   useEffect(() => {
     void fetchAdminBranches().then(setBranches).catch(() => setBranches([]));
-  }, []);
+    void reloadInvitations();
+  }, [reloadInvitations]);
+
+  async function handleInvitationAction(id: string, action: "resend" | "revoke") {
+    setInvitationAction(id);
+    setInvitationError(null);
+    try {
+      if (action === "resend") await resendStaffInvitation(id);
+      else await revokeStaffInvitation(id);
+      await reloadInvitations();
+    } catch (cause) {
+      setInvitationError(cause instanceof Error ? cause.message : "Invitation action failed");
+    } finally {
+      setInvitationAction(null);
+    }
+  }
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -305,8 +340,8 @@ function UsersContent() {
                     setDeleteTarget(row);
                   }}
                   disabled={!canManage}
-                  aria-label={`Delete ${row.fullName}`}
-                  data-tooltip={canManage ? "Delete account" : "Only an owner can delete another owner"}
+                  aria-label={`Remove ${row.fullName} from this pharmacy`}
+                  data-tooltip={canManage ? "Remove from pharmacy" : "Only an owner can remove another owner"}
                 >
                   <IconTrash size={14} />
                 </button>
@@ -324,15 +359,15 @@ function UsersContent() {
       <PageHeader
         subtitleOnly
         floatingActions
-        description="Staff accounts, branch assignments, and role access across your tenant."
+        description="Staff access, branch assignments, and roles across your pharmacy business."
         actions={
           canCreateUsers ? (
             <ActionButton
               icon={<IconUserPlus size={16} />}
-              tooltip="Add a new staff account"
+              tooltip="Invite a staff member"
               onClick={() => setAddOpen(true)}
             >
-              Add staff
+              Invite staff
             </ActionButton>
           ) : null
         }
@@ -432,6 +467,49 @@ function UsersContent() {
         onClear={clearFilters}
       />
 
+      {canCreateUsers && invitations.length > 0 ? (
+        <section className={css.invitationSection} aria-labelledby="pending-invitations-title">
+          <div className={css.invitationHeader}>
+            <div>
+              <h2 id="pending-invitations-title">Pending invitations</h2>
+              <p>{invitations.length} invitation{invitations.length === 1 ? "" : "s"} waiting to be accepted</p>
+            </div>
+            <span className={css.invitationCount}>{invitations.length}</span>
+          </div>
+          {invitationError ? <Alert variant="error">{invitationError}</Alert> : null}
+          <div className={css.invitationList}>
+            {invitations.map((invitation) => (
+              <div className={css.invitationRow} key={invitation.id}>
+                <span className={css.invitationIcon}><IconMail size={16} /></span>
+                <div className={css.invitationPerson}>
+                  <strong>{invitation.fullName}</strong>
+                  <span>{invitation.email}</span>
+                </div>
+                <div className={css.invitationAccess}>
+                  {invitation.roles.map((role) => `${role.roleRef?.name ?? ROLE_LABELS[role.role]} · ${role.branch.name}`).join(", ")}
+                </div>
+                <span className={css.invitationExpiry}>Expires {formatDate(invitation.expiresAt)}</span>
+                <div className={css.invitationActions}>
+                  <button
+                    type="button"
+                    onClick={() => void handleInvitationAction(invitation.id, "resend")}
+                    disabled={invitationAction === invitation.id}
+                  ><IconRefresh size={13} /> Resend</button>
+                  {canManageUsers ? (
+                    <button
+                      type="button"
+                      className={css.revokeInvite}
+                      onClick={() => void handleInvitationAction(invitation.id, "revoke")}
+                      disabled={invitationAction === invitation.id}
+                    >Revoke</button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <DataTable
         columns={columns}
         data={paged}
@@ -446,8 +524,8 @@ function UsersContent() {
           hasActiveFilters
             ? "Try clearing filters or adjusting your search"
             : canCreateUsers
-              ? "Add your first staff account to get started"
-              : "Staff accounts for this tenant will appear here"
+              ? "Invite your first staff member to get started"
+              : "Staff members for this pharmacy will appear here"
         }
         emptyIcon={<IconUsers size={48} />}
         compact
@@ -459,6 +537,7 @@ function UsersContent() {
           onClose={() => setAddOpen(false)}
           onCreated={() => {
             void reload();
+            void reloadInvitations();
           }}
         />
       ) : null}
@@ -482,8 +561,8 @@ function UsersContent() {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="Delete this account?"
-        confirmLabel="Delete"
+        title="Remove this staff member?"
+        confirmLabel="Remove"
         loading={deleting}
         onCancel={() => {
           if (!deleting) setDeleteTarget(null);
@@ -492,8 +571,8 @@ function UsersContent() {
       >
         {deleteError ? <Alert variant="error">{deleteError}</Alert> : null}
         <p>
-          Permanently delete {deleteTarget?.fullName}&apos;s account? This can&apos;t be undone. It
-          will only succeed if the account has no sales, purchases, or other activity on record.
+          Remove {deleteTarget?.fullName} from this pharmacy? Their identity and access to any
+          other pharmacy workspaces will remain unchanged.
         </p>
       </ConfirmDialog>
     </div>
