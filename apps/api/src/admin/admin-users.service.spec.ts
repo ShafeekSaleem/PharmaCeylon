@@ -28,12 +28,13 @@ describe("AdminUsersService", () => {
       deleteMany: jest.Mock;
     };
     role: { findUnique: jest.Mock; findFirst: jest.Mock };
+    tenantMembership: { update: jest.Mock; delete: jest.Mock };
     session: { findMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let audit: AuditService;
   let userContext: UserContextService;
-  let authService: { revokeAllSessions: jest.Mock };
+  let authService: { revokeAllSessions: jest.Mock; revokeTenantSessions: jest.Mock };
   let notifications: { notifyByPermission: jest.Mock };
   let service: AdminUsersService;
 
@@ -54,12 +55,23 @@ describe("AdminUsersService", () => {
         deleteMany: jest.fn(),
       },
       role: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn() },
+      tenantMembership: {
+        update: jest.fn().mockResolvedValue({}),
+        delete: jest.fn().mockResolvedValue({}),
+      },
       session: { findMany: jest.fn() },
-      $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+      $transaction: jest.fn((input: unknown) =>
+        typeof input === "function"
+          ? (input as (tx: unknown) => Promise<unknown>)(prisma)
+          : Promise.all(input as unknown[]),
+      ),
     };
     audit = { log: jest.fn() } as unknown as AuditService;
     userContext = { invalidate: jest.fn() } as unknown as UserContextService;
-    authService = { revokeAllSessions: jest.fn().mockResolvedValue(undefined) };
+    authService = {
+      revokeAllSessions: jest.fn().mockResolvedValue(undefined),
+      revokeTenantSessions: jest.fn().mockResolvedValue(undefined),
+    };
     notifications = { notifyByPermission: jest.fn().mockResolvedValue(undefined) };
     service = new AdminUsersService(
       prisma as never,
@@ -241,7 +253,7 @@ describe("AdminUsersService", () => {
       expect(result.fullName).toBe("Renamed");
       expect(prisma.appUser.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: targetId, tenantId },
+          where: { id: targetId },
           data: expect.objectContaining({ fullName: "Renamed" }),
         }),
       );
@@ -285,7 +297,7 @@ describe("AdminUsersService", () => {
       expect(prisma.appUser.update).not.toHaveBeenCalled();
     });
 
-    it("allows deactivating one of several owners and bumps tokenVersion", async () => {
+    it("allows deactivating one of several owners and revokes that tenant's sessions", async () => {
       prisma.appUser.findFirst.mockResolvedValue({
         id: targetId,
         userBranchRoles: [{ role: RoleName.owner }],
@@ -306,21 +318,17 @@ describe("AdminUsersService", () => {
       });
 
       expect(result.isActive).toBe(false);
-      expect(prisma.appUser.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            isActive: false,
-            tokenVersion: { increment: 1 },
-          }),
-        }),
-      );
-      expect(userContext.invalidate).toHaveBeenCalledWith(targetId);
+      expect(prisma.tenantMembership.update).toHaveBeenCalledWith({
+        where: { tenantId_userId: { tenantId, userId: targetId } },
+        data: { isActive: false },
+      });
+      expect(authService.revokeTenantSessions).toHaveBeenCalledWith(tenantId, targetId);
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({ eventName: "user.deactivated" }),
       );
     });
 
-    it("reactivates a deactivated staff member without touching tokenVersion", async () => {
+    it("reactivates a deactivated tenant membership", async () => {
       prisma.appUser.findFirst.mockResolvedValue({
         id: targetId,
         userBranchRoles: [{ role: RoleName.cashier }],
@@ -334,11 +342,10 @@ describe("AdminUsersService", () => {
 
       await service.updateUser(tenantId, ownerId, true, targetId, { isActive: true });
 
-      expect(prisma.appUser.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.not.objectContaining({ tokenVersion: expect.anything() }),
-        }),
-      );
+      expect(prisma.tenantMembership.update).toHaveBeenCalledWith({
+        where: { tenantId_userId: { tenantId, userId: targetId } },
+        data: { isActive: true },
+      });
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({ eventName: "user.reactivated" }),
       );
@@ -388,7 +395,7 @@ describe("AdminUsersService", () => {
         userBranchRoles: [{ role: RoleName.cashier }],
       });
       prisma.userBranchRole.deleteMany.mockResolvedValue({ count: 1 });
-      prisma.appUser.delete.mockResolvedValue({ id: targetId });
+      prisma.tenantMembership.delete.mockResolvedValue({ id: targetId });
 
       const result = await service.deleteUser(tenantId, ownerId, true, targetId);
 
@@ -396,13 +403,15 @@ describe("AdminUsersService", () => {
       expect(prisma.userBranchRole.deleteMany).toHaveBeenCalledWith({
         where: { tenantId, userId: targetId },
       });
-      expect(prisma.appUser.delete).toHaveBeenCalledWith({ where: { id: targetId, tenantId } });
+      expect(prisma.tenantMembership.delete).toHaveBeenCalledWith({
+        where: { tenantId_userId: { tenantId, userId: targetId } },
+      });
       expect(audit.log).toHaveBeenCalledWith(
-        expect.objectContaining({ eventName: "user.deleted" }),
+        expect.objectContaining({ eventName: "tenant_membership.removed" }),
       );
     });
 
-    it("maps a foreign-key constraint failure to a friendly ConflictException", async () => {
+    it("maps a membership foreign-key constraint failure to a friendly ConflictException", async () => {
       prisma.appUser.findFirst.mockResolvedValue({
         id: targetId,
         isActive: false,
@@ -410,7 +419,7 @@ describe("AdminUsersService", () => {
         userBranchRoles: [{ role: RoleName.cashier }],
       });
       prisma.userBranchRole.deleteMany.mockResolvedValue({ count: 1 });
-      prisma.appUser.delete.mockRejectedValue({ code: "P2003" });
+      prisma.tenantMembership.delete.mockRejectedValue({ code: "P2003" });
 
       await expect(
         service.deleteUser(tenantId, ownerId, true, targetId),
@@ -487,7 +496,7 @@ describe("AdminUsersService", () => {
 
       expect(result).toEqual({ reset: true });
       expect(prisma.appUser.update).toHaveBeenCalledWith({
-        where: { id: targetId, tenantId },
+        where: { id: targetId },
         data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null },
       });
       expect(audit.log).toHaveBeenCalledWith(
@@ -526,7 +535,7 @@ describe("AdminUsersService", () => {
       const result = await service.forceLogout(tenantId, ownerId, true, targetId);
 
       expect(result).toEqual({ ok: true });
-      expect(authService.revokeAllSessions).toHaveBeenCalledWith(targetId, "admin_invalidated");
+      expect(authService.revokeTenantSessions).toHaveBeenCalledWith(tenantId, targetId);
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({ eventName: "user.sessions.force_logout" }),
       );

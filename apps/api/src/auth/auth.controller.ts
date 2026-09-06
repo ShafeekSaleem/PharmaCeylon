@@ -115,7 +115,7 @@ export class AuthController {
 
   @Get("me")
   me(@CurrentUser() user: RequestUser) {
-    return this.authService.getMe(user.userId);
+    return this.authService.getMe(user.userId, user.tenantId);
   }
 
   /**

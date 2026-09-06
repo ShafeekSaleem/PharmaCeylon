@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
+import { IconCheckCircle, IconShoppingCart, IconUserPlus } from "@/components/icons";
 import { useRoleAccess } from "@/lib/use-role-access";
 import { AddWidgetDrawer } from "./components/add-widget-drawer";
 import { DashboardHeader } from "./components/dashboard-header";
@@ -26,6 +28,21 @@ export default function DashboardPage() {
   const catalog = useMemo(() => catalogForRole(viewRole), [viewRole]);
   const layout = useDashboardLayout(viewRole, catalog);
   const [addWidgetOpen, setAddWidgetOpen] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [invitationAccepted, setInvitationAccepted] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("setup") === "complete") {
+      setSetupComplete(true);
+      params.delete("setup");
+    }
+    if (params.get("invitation") === "accepted") {
+      setInvitationAccepted(true);
+      params.delete("invitation");
+    }
+    const query = params.toString();
+    window.history.replaceState(null, "", `/dashboard${query ? `?${query}` : ""}`);
+  }, []);
   const activeKeys = useMemo(() => new Set(layout.layout.map((w) => w.key)), [layout.layout]);
 
   return (
@@ -56,6 +73,40 @@ export default function DashboardPage() {
           saving: layout.saving,
         }}
       />
+
+      {setupComplete ? (
+        <section className={css.setupCompleteBanner} role="status">
+          <span className={css.setupCompleteIcon}><IconCheckCircle size={22} /></span>
+          <div>
+            <strong>{data.branchLabel || "Your branch"} is ready</strong>
+            <p>All required setup checks are complete. You can start serving customers.</p>
+          </div>
+          <div className={css.setupCompleteActions}>
+            <Link href="/users"><IconUserPlus size={15} /> Invite team</Link>
+            <Link href="/pos" className={css.setupCompletePrimary}>
+              <IconShoppingCart size={15} /> Open POS
+            </Link>
+          </div>
+          <button type="button" onClick={() => setSetupComplete(false)} aria-label="Dismiss setup complete message">×</button>
+        </section>
+      ) : null}
+
+      {invitationAccepted ? (
+        <section className={css.setupCompleteBanner} role="status">
+          <span className={css.setupCompleteIcon}><IconCheckCircle size={22} /></span>
+          <div>
+            <strong>You’ve joined the pharmacy workspace</strong>
+            <p>Your assigned role and branch access are ready to use.</p>
+          </div>
+          <div className={css.setupCompleteActions}>
+            <Link href="/settings/my-profile">Review profile</Link>
+            <Link href="/pos" className={css.setupCompletePrimary}>
+              <IconShoppingCart size={15} /> Open POS
+            </Link>
+          </div>
+          <button type="button" onClick={() => setInvitationAccepted(false)} aria-label="Dismiss invitation message">×</button>
+        </section>
+      ) : null}
 
       {!data.branchId ? (
         <Alert variant="warning">Select a branch in the header to load dashboard metrics.</Alert>

@@ -18,6 +18,59 @@
   gap: 0.75rem;
 }
 
+.setupCompleteBanner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+  padding: 0.78rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 32%, var(--pc-border));
+  border-radius: 10px;
+  background: linear-gradient(105deg, color-mix(in srgb, var(--pc-primary) 9%, var(--pc-surface)) 0%, var(--pc-surface) 72%);
+}
+
+.setupCompleteIcon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 13%, var(--pc-surface));
+}
+
+.setupCompleteBanner strong { font-size: 0.9rem; }
+.setupCompleteBanner p { margin: 0.12rem 0 0; color: var(--pc-muted-fg); font-size: 0.76rem; }
+.setupCompleteActions { display: flex; align-items: center; gap: 0.45rem; }
+.setupCompleteActions a {
+  min-height: 34px;
+  padding: 0.45rem 0.68rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 8px;
+  color: var(--pc-foreground);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+.setupCompleteActions a:hover { color: var(--pc-primary); border-color: var(--pc-primary); }
+.setupCompleteActions .setupCompletePrimary,
+.setupCompleteActions .setupCompletePrimary:hover { color: #fff; border-color: var(--pc-primary); background: var(--pc-primary); }
+.setupCompleteBanner > button {
+  border: 0;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .setupCompleteBanner { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .setupCompleteActions { grid-column: 1 / -1; }
+}
+
 .pageHeader {
   margin-bottom: 0.15rem !important;
 }

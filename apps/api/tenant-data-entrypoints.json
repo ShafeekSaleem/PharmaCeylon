@@ -2,19 +2,24 @@
   "version": 1,
   "publicControllers": [
     {
+      "path": "src/admin/staff-invitations.controller.ts",
+      "mode": "signed-invitation-token",
+      "reason": "Reads and accepts only a single-use, hashed, expiring invitation token; the token fixes the tenant and assignments before session issuance."
+    },
+    {
       "path": "src/auth/auth.controller.ts",
       "mode": "pre-authentication",
       "reason": "Login and refresh establish user and tenant context from globally unique credentials or session tokens."
     },
     {
-      "path": "src/auth/owner-registration.controller.ts",
-      "mode": "pre-tenant-registration",
-      "reason": "Creates and verifies a staged owner registration without reading or writing tenant-owned domain rows."
+      "path": "src/auth/onboarding-draft.controller.ts",
+      "mode": "signed-onboarding-token",
+      "reason": "Owner onboarding uses a signed short-lived session tied to one verified registration before a tenant exists."
     },
     {
-      "path": "src/auth/onboarding-draft.controller.ts",
-      "mode": "verified-onboarding-session",
-      "reason": "Reads and updates only the verified owner's pre-tenant registration draft."
+      "path": "src/auth/owner-registration.controller.ts",
+      "mode": "pre-authentication",
+      "reason": "Creates and verifies a globally unique owner identity before any tenant data is provisioned."
     },
     {
       "path": "src/health/health.controller.ts",
@@ -27,16 +32,6 @@
       "path": "src/auth/auth.service.ts",
       "mode": "verified-global-identity",
       "reason": "Login resolves a globally unique email; refresh resolves a hashed session token before tenant context exists."
-    },
-    {
-      "path": "src/auth/owner-registration.service.ts",
-      "mode": "pre-tenant-registration",
-      "reason": "Uses globally unique registration email and hashed verification tokens before a tenant exists."
-    },
-    {
-      "path": "src/auth/onboarding-draft.service.ts",
-      "mode": "verified-onboarding-session",
-      "reason": "Scopes draft access to the OwnerRegistration id verified by the onboarding cookie guard."
     },
     {
       "path": "src/auth/user-context.service.ts",

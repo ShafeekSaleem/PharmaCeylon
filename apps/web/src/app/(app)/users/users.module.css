@@ -290,6 +290,120 @@
   background: var(--pc-primary);
 }
 
+.inviteNote {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-primary-soft) 60%, var(--pc-card-bg));
+  color: var(--pc-muted-fg);
+  font-size: 0.78rem;
+}
+
+.inviteNote svg {
+  flex-shrink: 0;
+  color: var(--pc-primary);
+}
+
+.invitationSection {
+  overflow: hidden;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius);
+  background: var(--pc-card-bg);
+  box-shadow: var(--pc-shadow-sm);
+}
+
+.invitationHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid var(--pc-border);
+  background: color-mix(in srgb, var(--pc-muted-bg) 55%, var(--pc-card-bg));
+}
+
+.invitationHeader h2 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.invitationHeader p {
+  margin: 0.15rem 0 0;
+  color: var(--pc-muted-fg);
+  font-size: 0.73rem;
+}
+
+.invitationCount {
+  min-width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.invitationRow {
+  display: grid;
+  grid-template-columns: auto minmax(170px, 0.8fr) minmax(240px, 1.35fr) auto auto;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 58px;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.invitationRow:last-child { border-bottom: 0; }
+
+.invitationIcon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+}
+
+.invitationPerson { display: grid; gap: 0.1rem; min-width: 0; }
+.invitationPerson strong { font-size: 0.8rem; font-weight: 600; }
+.invitationPerson span,
+.invitationAccess,
+.invitationExpiry { color: var(--pc-muted-fg); font-size: 0.72rem; }
+.invitationPerson span,
+.invitationAccess { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invitationExpiry { white-space: nowrap; }
+.invitationActions { display: flex; gap: 0.35rem; }
+.invitationActions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.invitationActions button:disabled { opacity: 0.55; cursor: wait; }
+.invitationActions .revokeInvite { color: var(--pc-alert-error-icon); }
+
+@media (max-width: 980px) {
+  .invitationRow {
+    grid-template-columns: auto 1fr auto;
+  }
+  .invitationAccess { grid-column: 2 / -1; }
+  .invitationExpiry { display: none; }
+}
+
 
 /* ── Security section (account actions) ── */
 

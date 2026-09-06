@@ -62,6 +62,13 @@ const SHIFT_RANGES: Array<{ key: "morning" | "afternoon" | "evening"; label: str
   { key: "evening", label: "Evening", hours: (h) => h >= 18 || h < 6 },
 ];
 
+/** Whole calendar days, independent of the clock time at which a report runs. */
+function calendarDaysBetween(from: Date, to: Date): number {
+  const fromDay = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
+  const toDay = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
+  return Math.round((toDay - fromDay) / 86_400_000);
+}
+
 // ── Stock Ageing ───────────────────────────────────────────────────────────────────────────
 
 export type AgeBucketKey = "0-30" | "31-60" | "61-90" | "91-180" | "180+";
@@ -1446,7 +1453,7 @@ export class ReportsService {
     const dead = new Map<string, { qty: number; value: Prisma.Decimal; daysSinceLastSale: number | null }>();
     for (const [productId, agg] of byProduct) {
       const lastSoldAt = lastSoldMap.get(productId) ?? null;
-      const daysSinceLastSale = lastSoldAt ? Math.round((asOf.getTime() - lastSoldAt.getTime()) / 86_400_000) : null;
+      const daysSinceLastSale = lastSoldAt ? calendarDaysBetween(lastSoldAt, asOf) : null;
       if (daysSinceLastSale != null && daysSinceLastSale <= thresholdDays) continue; // still selling recently enough — not dead
       dead.set(productId, { qty: agg.qty, value: agg.value, daysSinceLastSale });
     }
@@ -1501,7 +1508,9 @@ export class ReportsService {
     supplierId?: string,
   ): Promise<DeadStockResponse> {
     const now = new Date();
-    now.setHours(0, 0, 0, 0);
+    // Dead-stock thresholds are calendar-day based. Normalize in UTC so a
+    // server's local timezone cannot move the boundary into another date.
+    now.setUTCHours(0, 0, 0, 0);
     const empty: DeadStockResponse = { daysWithoutSale: thresholdDays, items: [], previousItems: [], trend: [] };
 
     const allBatches = await this.prisma.batch.findMany({
@@ -1541,7 +1550,7 @@ export class ReportsService {
 
     const productIds = [...new Set(batches.map((b) => b.productId))];
     const prevAsOf = new Date(now);
-    prevAsOf.setDate(prevAsOf.getDate() - 30);
+    prevAsOf.setUTCDate(prevAsOf.getUTCDate() - 30);
     // Always meaningfully wider than the selected threshold, so residual velocity never
     // trivially reads 0 for every item just because the item is dead by definition.
     const velocityWindowDays = thresholdDays + 90;
@@ -1694,7 +1703,8 @@ export class ReportsService {
    */
   async stockHealth(tenantId: string, branchId: string | null, categoryId?: string, supplierId?: string): Promise<StockHealthResponse> {
     const now = new Date();
-    now.setHours(0, 0, 0, 0);
+    // Keep stock-health aging deterministic across deployment timezones.
+    now.setUTCHours(0, 0, 0, 0);
     const empty: StockHealthResponse = { items: [], previousItems: [], skuUniverseCount: 0 };
 
     const allBatches = await this.prisma.batch.findMany({
@@ -1760,7 +1770,7 @@ export class ReportsService {
 
     function daysSinceLastSaleOf(productId: string): number | null {
       const lastSoldAt = lastSoldMap.get(productId) ?? null;
-      return lastSoldAt ? Math.round((now.getTime() - lastSoldAt.getTime()) / 86_400_000) : null;
+      return lastSoldAt ? calendarDaysBetween(lastSoldAt, now) : null;
     }
 
     function classifyZone(qtyOnHand: number, velocityPerDay: number, daysOfCover: number | null, daysSinceLastSale: number | null, isLowStock: boolean): StockHealthZone {
@@ -2575,7 +2585,10 @@ export class ReportsService {
     }
 
     const users = await this.prisma.appUser.findMany({
-      where: { tenantId, id: { in: [...byUser.keys()] } },
+      where: {
+        id: { in: [...byUser.keys()] },
+        tenantMemberships: { some: { tenantId, isActive: true } },
+      },
       select: { id: true, fullName: true },
     });
     const nameById = new Map(users.map((u) => [u.id, u.fullName]));
@@ -3005,8 +3018,7 @@ export class ReportsService {
     // even when that filter happens to match zero ledger rows in both periods.
     const ledgerProductIds = [...new Set([...currentLedgerRaw, ...previousLedgerRaw].map((r) => r.productId))];
     const activeProducts = await this.prisma.product.findMany({
-      // RANGED only: a reference record the pharmacy never carried is not a stock-out.
-      where: { tenantId, isActive: true, rangeStatus: "RANGED" },
+      where: { tenantId, isActive: true },
       select: { id: true, sku: true, name: true, reorderLevel: true },
     });
     if (activeProducts.length === 0 && ledgerProductIds.length === 0) return empty;

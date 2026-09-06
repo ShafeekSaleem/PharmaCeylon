@@ -280,7 +280,10 @@ export class StocktakesService {
     const unique = [...new Set(userIds)];
     if (unique.length === 0) return [];
     const users = await tx.appUser.findMany({
-      where: { tenantId, id: { in: unique } },
+      where: {
+        id: { in: unique },
+        tenantMemberships: { some: { tenantId, isActive: true } },
+      },
       select: { id: true },
     });
     if (users.length !== unique.length) {

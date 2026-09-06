@@ -209,6 +209,12 @@ export class WorkspaceProvisioningService {
         passwordHash: registration.passwordHash,
       },
     });
+    await tx.tenantMembership.create({
+      data: {
+        tenantId: tenant.id,
+        userId: user.id,
+      },
+    });
     await tx.userBranchRole.create({
       data: {
         tenantId: tenant.id,

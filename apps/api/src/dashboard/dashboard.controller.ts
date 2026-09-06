@@ -15,7 +15,7 @@ export class DashboardController {
 
   @Get("layout")
   getLayout(@CurrentUser() user: RequestUser) {
-    return this.layouts.getLayout(user.userId);
+    return this.layouts.getLayout(user.tenantId, user.userId);
   }
 
   @Put("layout")

@@ -6,7 +6,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
-import { fetchSetupReadiness } from "@/lib/setup-readiness-client";
+import {
+  fetchSetupReadiness,
+  SETUP_JOURNEY_CHANGED_EVENT,
+} from "@/lib/setup-readiness-client";
 import { useFullscreen } from "@/lib/use-fullscreen";
 import {
   BRANCHES_CHANGED_EVENT,
@@ -362,12 +365,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [ready, isAuthenticated]);
 
-  useEffect(() => {
+  const loadSetupJourney = useCallback(() => {
     const isOwner =
       user?.branchRoles.some((entry) => entry.role === "owner") ?? false;
     if (!ready || !isAuthenticated || !branchId || !isOwner) {
       setShowSetupJourney(false);
-      return;
+      return () => {};
     }
     let cancelled = false;
     fetchSetupReadiness()
@@ -381,6 +384,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [ready, isAuthenticated, branchId, user]);
+
+  useEffect(() => loadSetupJourney(), [loadSetupJourney]);
+
+  useEffect(() => {
+    const refresh = () => {
+      loadSetupJourney();
+    };
+    window.addEventListener(SETUP_JOURNEY_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(SETUP_JOURNEY_CHANGED_EVENT, refresh);
+  }, [loadSetupJourney]);
 
   useEffect(() => {
     const refresh = () => {

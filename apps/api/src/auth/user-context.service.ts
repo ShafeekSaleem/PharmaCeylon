@@ -51,9 +51,10 @@ export class UserContextService {
     this.ttlMs = Number(config.get("USER_CONTEXT_TTL_SECONDS", 30)) * 1000;
   }
 
-  async load(userId: string): Promise<UserContext | null> {
+  async load(userId: string, tenantId: string): Promise<UserContext | null> {
     const now = Date.now();
-    const cached = this.cache.get(userId);
+    const cacheKey = `${tenantId}:${userId}`;
+    const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
       return cached.value;
     }
@@ -61,17 +62,25 @@ export class UserContextService {
     const user = await this.prisma.appUser.findUnique({
       where: { id: userId },
       include: {
-        userBranchRoles: { select: { branchId: true, role: true, roleId: true } },
+        tenantMemberships: { where: { tenantId, isActive: true }, select: { id: true } },
+        userBranchRoles: {
+          where: { tenantId },
+          select: { branchId: true, role: true, roleId: true },
+        },
       },
     });
     if (!user) {
-      this.cache.delete(userId);
+      this.cache.delete(cacheKey);
+      return null;
+    }
+    if (user.tenantMemberships.length === 0) {
+      this.cache.delete(cacheKey);
       return null;
     }
 
     const value: UserContext = {
       userId: user.id,
-      tenantId: user.tenantId,
+      tenantId,
       email: user.email,
       fullName: user.fullName,
       isActive: user.isActive,
@@ -82,12 +91,14 @@ export class UserContextService {
         roleId: entry.roleId,
       })),
     };
-    this.cache.set(userId, { value, expiresAt: now + this.ttlMs });
+    this.cache.set(cacheKey, { value, expiresAt: now + this.ttlMs });
     return value;
   }
 
   invalidate(userId: string): void {
-    this.cache.delete(userId);
+    for (const key of this.cache.keys()) {
+      if (key.endsWith(`:${userId}`)) this.cache.delete(key);
+    }
   }
 
   /** Test/diagnostic helper. */

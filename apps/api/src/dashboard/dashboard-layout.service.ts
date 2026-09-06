@@ -7,9 +7,9 @@ import { SaveDashboardLayoutDto } from "./dto/save-dashboard-layout.dto";
 export class DashboardLayoutService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getLayout(userId: string) {
+  async getLayout(tenantId: string, userId: string) {
     const row = await this.prisma.dashboardLayout.findUnique({
-      where: { userId },
+      where: { tenantId_userId: { tenantId, userId } },
       select: { widgets: true, updatedAt: true },
     });
     return row ? { widgets: row.widgets, updatedAt: row.updatedAt } : null;
@@ -22,7 +22,7 @@ export class DashboardLayoutService {
   ) {
     const widgets = dto.widgets as unknown as Prisma.InputJsonValue;
     const row = await this.prisma.dashboardLayout.upsert({
-      where: { userId },
+      where: { tenantId_userId: { tenantId, userId } },
       create: { tenantId, userId, widgets },
       update: { widgets },
       select: { widgets: true, updatedAt: true },

@@ -51,7 +51,7 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     // Fetch fresh authorization context — bounded staleness via TTL cache.
-    const ctx = await this.userContext.load(payload.sub);
+    const ctx = await this.userContext.load(payload.sub, payload.tenantId);
     if (!ctx || !ctx.isActive) {
       throw new UnauthorizedException("User not found or inactive");
     }
