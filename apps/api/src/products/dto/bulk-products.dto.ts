@@ -108,6 +108,25 @@ export class BulkProductFilterDto {
   tagId?: string;
 }
 
+/**
+ * The selection alone, with no action attached — used by `bulk/selection` to report what the
+ * chosen products already carry. Same two mutually-exclusive ways of naming a selection as
+ * `BulkProductsDto`, so a dialog describes its selection once and both endpoints understand it.
+ */
+export class BulkSelectionDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(BULK_PRODUCT_ID_LIMIT)
+  @IsUUID("4", { each: true })
+  productIds?: string[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BulkProductFilterDto)
+  filter?: BulkProductFilterDto;
+}
+
 export class BulkProductsDto {
   @IsIn(BULK_PRODUCT_ACTIONS)
   action!: BulkProductAction;

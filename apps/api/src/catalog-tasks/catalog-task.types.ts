@@ -85,6 +85,37 @@ export type CatalogTaskSummary = {
   categoryCoveragePercent: number;
 };
 
+/**
+ * How many tasks each filter chip would return *under the rest of the current filter*.
+ *
+ * The Work Queue filters on two axes at once — kind of task, and how the task was closed — so
+ * a chip's count is only meaningful relative to the other axis's selection. These are computed
+ * per request with the counted axis removed from the where clause, which is what keeps the
+ * number on a chip equal to the number of rows clicking it produces.
+ */
+export type CatalogTaskFacetCounts = {
+  all: number;
+  needsCategory: number;
+  nmraMatch: number;
+  compliance: number;
+  ambiguous: number;
+  noSuggestion: number;
+  open: number;
+  resolved: number;
+  dismissed: number;
+  notApplicable: number;
+  /** Tasks the current filter selects that "Apply safe changes" would act on. */
+  safeToApply: number;
+};
+
+export type CatalogTaskListResult = {
+  items: CatalogTaskView[];
+  total: number;
+  skip: number;
+  take: number;
+  counts: CatalogTaskFacetCounts;
+};
+
 export type CatalogTaskFilter = {
   status?: CatalogTaskStatus[];
   type?: CatalogTaskType[];

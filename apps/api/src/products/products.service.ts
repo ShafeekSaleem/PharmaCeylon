@@ -72,6 +72,23 @@ export type BulkProductPreview = {
   tagNames: string[];
 };
 
+/**
+ * What a selection already carries, per tag and per primary category.
+ *
+ * The bulk dialogs used to offer every tag as an equal choice, so "add Prescription required"
+ * to a selection that already has it everywhere looked exactly like a change and reported
+ * "0 products updated" afterwards. These counts let the dialog say which options are actually
+ * a change *before* one is picked, and grey out the ones that are not.
+ */
+export type BulkSelectionFacets = {
+  /** Products the selection resolves to. */
+  matched: number;
+  /** Selected products carrying each tag. Tags nothing in the selection carries are omitted. */
+  tags: Array<{ tagId: string; productCount: number }>;
+  /** Selected products whose primary commercial category is this one. */
+  categories: Array<{ categoryId: string; productCount: number }>;
+};
+
 const CSV_HEADER = [
   "SKU",
   "Name",
@@ -809,7 +826,7 @@ export class ProductsService {
    */
   private async resolveBulkIds(
     tenantId: string,
-    dto: BulkProductsDto,
+    dto: Pick<BulkProductsDto, "productIds" | "filter">,
   ): Promise<string[]> {
     const hasIds = Boolean(dto.productIds?.length);
     const hasFilter = dto.filter !== undefined;
@@ -881,6 +898,52 @@ export class ProductsService {
     }
 
     return { category: null, tags: [] as Array<{ id: string; name: string }> };
+  }
+
+  /**
+   * Which tags and categories the current selection already carries.
+   *
+   * Read-only and action-free — it answers "what is true of these products now", which is what
+   * the dialog needs to render its options, rather than "what would this one action do".
+   */
+  async bulkSelectionFacets(
+    tenantId: string,
+    dto: Pick<BulkProductsDto, "productIds" | "filter">,
+  ): Promise<BulkSelectionFacets> {
+    const ids = await this.resolveBulkIds(tenantId, dto);
+    if (ids.length === 0) return { matched: 0, tags: [], categories: [] };
+
+    // Grouped in the database: a 25,000-product selection across 25 tags is far too many rows
+    // to pull back and count in memory just to shade a dialog's chips.
+    const [tags, categories] = await Promise.all([
+      this.prisma.productTagMap.groupBy({
+        by: ["tagId"],
+        where: { tenantId, productId: { in: ids } },
+        _count: { productId: true },
+      }),
+      this.prisma.productCategoryMap.groupBy({
+        by: ["categoryId"],
+        where: {
+          tenantId,
+          productId: { in: ids },
+          dimension: "COMMERCIAL",
+          isPrimary: true,
+        },
+        _count: { productId: true },
+      }),
+    ]);
+
+    return {
+      matched: ids.length,
+      tags: tags.map((t) => ({
+        tagId: t.tagId,
+        productCount: t._count.productId,
+      })),
+      categories: categories.map((c) => ({
+        categoryId: c.categoryId,
+        productCount: c._count.productId,
+      })),
+    };
   }
 
   /**

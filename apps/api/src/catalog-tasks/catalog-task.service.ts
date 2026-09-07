@@ -22,7 +22,9 @@ import { classifyTaskSafety } from "./catalog-task-safety";
 import {
   evidenceLabel,
   OPEN_STATUSES,
+  type CatalogTaskFacetCounts,
   type CatalogTaskFilter,
+  type CatalogTaskListResult,
   type CatalogTaskSummary,
   type CatalogTaskView,
 } from "./catalog-task.types";
@@ -33,6 +35,9 @@ const REFRESH_BATCH = 200;
 const REFRESH_MAX_PRODUCTS = 5000;
 const DEFAULT_TAKE = 50;
 const MAX_TAKE = 200;
+
+/** What "ambiguous" means everywhere: more than one plausible answer for one identifier. */
+const AMBIGUOUS_TYPES: CatalogTaskType[] = ["NMRA_AMBIGUOUS", "IMPORT_DUPLICATE"];
 
 type ProductRow = {
   id: string;
@@ -654,8 +659,11 @@ export class CatalogTaskService {
       this.prisma.catalogTask.count({
         where: { ...open, complianceImpact: true },
       }),
+      // The same rows the "ambiguous" view returns — an import duplicate is an ambiguous
+      // identifier too. Counting only NMRA_AMBIGUOUS here made the chip promise fewer rows
+      // than clicking it produced.
       this.prisma.catalogTask.count({
-        where: { ...open, type: "NMRA_AMBIGUOUS" },
+        where: { ...open, type: { in: AMBIGUOUS_TYPES } },
       }),
       this.prisma.catalogTask.count({ where: { ...open, evidence: null } }),
       this.prisma.catalogTask.count({ where: { ...open, safeToApply: true } }),
@@ -700,17 +708,12 @@ export class CatalogTaskService {
   async list(
     tenantId: string,
     filter: CatalogTaskFilter,
-  ): Promise<{
-    items: CatalogTaskView[];
-    total: number;
-    skip: number;
-    take: number;
-  }> {
+  ): Promise<CatalogTaskListResult> {
     const take = Math.min(Math.max(1, filter.take ?? DEFAULT_TAKE), MAX_TAKE);
     const skip = Math.max(0, filter.skip ?? 0);
     const where = this.buildWhere(tenantId, filter);
 
-    const [rows, total] = await Promise.all([
+    const [rows, total, counts] = await Promise.all([
       this.prisma.catalogTask.findMany({
         where,
         orderBy: [{ status: "asc" }, { createdAt: "desc" }],
@@ -723,21 +726,94 @@ export class CatalogTaskService {
         },
       }),
       this.prisma.catalogTask.count({ where }),
+      this.facetCounts(tenantId, filter),
     ]);
 
-    return { items: rows.map((row) => this.toView(row)), total, skip, take };
+    return {
+      items: rows.map((row) => this.toView(row)),
+      total,
+      skip,
+      take,
+      counts,
+    };
+  }
+
+  /**
+   * How many tasks each filter chip would return, given everything else already chosen.
+   *
+   * The queue's two chip rows are two axes over one list, so a count on either only means
+   * something relative to the other: with "Resolved" selected, "Needs category" has to say how
+   * many *resolved* category tasks there are. Counting each chip against the whole tenant
+   * instead — which is what a filter-blind summary does — puts a number on a chip that the
+   * table contradicts the moment it is clicked.
+   */
+  private async facetCounts(
+    tenantId: string,
+    filter: CatalogTaskFilter,
+  ): Promise<CatalogTaskFacetCounts> {
+    // Each axis is counted with itself dropped from the filter and every other clause kept.
+    const acrossTypes = this.buildWhere(tenantId, filter, { omitType: true });
+    const acrossStatuses = this.buildWhere(tenantId, filter, {
+      omitStatus: true,
+    });
+    const where = this.buildWhere(tenantId, filter);
+
+    const [byType, compliance, noSuggestion, byStatus, safeToApply] =
+      await Promise.all([
+        this.prisma.catalogTask.groupBy({
+          by: ["type"],
+          where: acrossTypes,
+          _count: { _all: true },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...acrossTypes, complianceImpact: true },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...acrossTypes, evidence: null },
+        }),
+        this.prisma.catalogTask.groupBy({
+          by: ["status"],
+          where: acrossStatuses,
+          _count: { _all: true },
+        }),
+        this.prisma.catalogTask.count({
+          where: { ...where, safeToApply: true },
+        }),
+      ]);
+
+    const typeCount = (type: CatalogTaskType) =>
+      byType.find((row) => row.type === type)?._count._all ?? 0;
+    const statusCount = (status: CatalogTaskStatus) =>
+      byStatus.find((row) => row.status === status)?._count._all ?? 0;
+
+    return {
+      all: byType.reduce((sum, row) => sum + row._count._all, 0),
+      needsCategory: typeCount("MISSING_CATEGORY"),
+      nmraMatch: typeCount("NMRA_MATCH"),
+      compliance,
+      ambiguous: AMBIGUOUS_TYPES.reduce((sum, t) => sum + typeCount(t), 0),
+      noSuggestion,
+      open: OPEN_STATUSES.reduce((sum, st) => sum + statusCount(st), 0),
+      resolved: statusCount("RESOLVED"),
+      dismissed: statusCount("DISMISSED"),
+      notApplicable: statusCount("NOT_APPLICABLE"),
+      safeToApply,
+    };
   }
 
   private buildWhere(
     tenantId: string,
     filter: CatalogTaskFilter,
+    omit: { omitStatus?: boolean; omitType?: boolean } = {},
   ): Prisma.CatalogTaskWhereInput {
     const where: Prisma.CatalogTaskWhereInput = { tenantId };
 
-    where.status = {
-      in: filter.status?.length ? filter.status : OPEN_STATUSES,
-    };
-    if (filter.type?.length) where.type = { in: filter.type };
+    if (!omit.omitStatus) {
+      where.status = {
+        in: filter.status?.length ? filter.status : OPEN_STATUSES,
+      };
+    }
+    if (!omit.omitType && filter.type?.length) where.type = { in: filter.type };
     if (filter.importId) where.importId = filter.importId;
     if (filter.source) where.product = { source: filter.source as never };
     if (filter.createdFrom || filter.createdTo) {
@@ -747,12 +823,15 @@ export class CatalogTaskService {
       };
     }
 
-    switch (filter.view) {
+    // The cross-cutting views narrow the same axis the type chips do, so counting "how many
+    // per type" drops them along with `filter.type`. "safe" is not one of those chips — it
+    // scopes `applySafe` — so it survives either way.
+    switch (omit.omitType && filter.view !== "safe" ? undefined : filter.view) {
       case "compliance":
         where.complianceImpact = true;
         break;
       case "ambiguous":
-        where.type = { in: ["NMRA_AMBIGUOUS", "IMPORT_DUPLICATE"] };
+        where.type = { in: AMBIGUOUS_TYPES };
         break;
       case "no_suggestion":
         where.evidence = null;

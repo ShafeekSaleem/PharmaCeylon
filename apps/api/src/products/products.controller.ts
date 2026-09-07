@@ -17,7 +17,10 @@ import {
   AuthenticatedRequest,
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
-import { BulkProductsDto } from "./dto/bulk-products.dto";
+import {
+  BulkProductsDto,
+  BulkSelectionDto,
+} from "./dto/bulk-products.dto";
 import { RangeExitDto, ReferenceAddDto } from "./dto/reference-add.dto";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { UpdateProductDto } from "./dto/update-product.dto";
@@ -143,6 +146,20 @@ export class ProductsController {
       skip ? Number(skip) : undefined,
       take ? Number(take) : undefined,
     );
+  }
+
+  /**
+   * What the selected products already carry — the tags on them and the categories they are
+   * filed under. Lets the bulk dialog mark an option as "already on all of these" instead of
+   * offering it and reporting "0 updated" afterwards.
+   */
+  @RequirePermission("products.manage")
+  @Post("bulk/selection")
+  bulkSelection(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: BulkSelectionDto,
+  ) {
+    return this.products.bulkSelectionFacets(user.tenantId, dto);
   }
 
   /**
