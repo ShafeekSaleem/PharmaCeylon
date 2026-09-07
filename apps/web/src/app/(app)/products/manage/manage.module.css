@@ -12,106 +12,6 @@
   gap: 0.85rem;
 }
 
-.backLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  align-self: flex-start;
-  margin-bottom: -0.5rem;
-  color: var(--pc-muted-fg);
-  font-size: 0.8rem;
-  text-decoration: none;
-}
-
-.backLink:hover {
-  color: var(--pc-primary);
-  text-decoration: underline;
-}
-
-.backLink:focus-visible {
-  outline: 2px solid var(--pc-primary);
-  outline-offset: 2px;
-  border-radius: var(--pc-radius-sm);
-}
-
-/* ── Summary line ──────────────────────────────────────────────────────────
-   A sentence and a thin bar, not a dashboard. The counts are clickable filters, so reading
-   the summary and acting on it are the same gesture. */
-
-.summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.85rem;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md);
-  background: var(--pc-card-bg);
-}
-
-.summaryTotal {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--pc-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.summaryTotalLabel {
-  margin-left: 0.3rem;
-  font-size: 0.8rem;
-  font-weight: 400;
-  color: var(--pc-muted-fg);
-}
-
-.summaryChips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  flex: 1 1 auto;
-}
-
-.summaryChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.55rem;
-  border: 1px solid var(--pc-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--pc-muted-fg);
-  font-family: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.summaryChip:hover {
-  background: var(--pc-hover-overlay);
-  color: var(--pc-foreground);
-}
-
-.summaryChip:focus-visible {
-  outline: 2px solid var(--pc-primary);
-  outline-offset: 1px;
-}
-
-.summaryChipActive {
-  border-color: var(--pc-primary);
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-  font-weight: 600;
-}
-
-.summaryChipCount {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.summaryChipAttention {
-  border-color: var(--pc-alert-warning-border);
-  color: var(--pc-alert-warning-text);
-}
-
 /* A thin coverage indicator. Present, but never the point of the page. */
 .coverage {
   display: flex;
@@ -143,7 +43,9 @@
   white-space: nowrap;
 }
 
-/* ── Toolbar ───────────────────────────────────────────────────────────── */
+/* ── Toolbar ───────────────────────────────────────────────────────────────
+   The same shell for all three sections, so the search field is in one place across the
+   workspace instead of moving between tabs. */
 
 .toolbar {
   display: flex;
@@ -156,6 +58,18 @@
   background: var(--pc-card-bg);
 }
 
+/* One filter line, divided from the search line above it. Type filters and status filters are
+   one continuous run separated by a rule, rather than two rows of chips in two places. */
+.toolbarFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--pc-border);
+}
+
 .toolbarGroup {
   display: flex;
   flex-wrap: wrap;
@@ -163,6 +77,16 @@
   gap: 0.5rem;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.readOnlyNote {
+  color: var(--pc-muted-fg);
+  font-size: 0.78rem;
+}
+
+/* The section's standing explainer. Compact, because it is on screen every visit. */
+.sectionNote {
+  margin: 0;
 }
 
 .toolbarActions {
@@ -207,11 +131,26 @@
 .filterChips {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.3rem;
 }
 
+.filterDivider {
+  width: 1px;
+  height: 18px;
+  margin: 0 0.35rem;
+  background: var(--pc-border);
+}
+
+/* Each filter carries the colour of the thing it selects — the same colour that thing's chip
+   uses in the table, so "compliance review" is amber in the filter row and amber in the row it
+   returns. The dot carries the colour; the label carries the meaning, so nothing here depends
+   on telling two hues apart. */
 .filterChip {
-  padding: 0.25rem 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.55rem;
   border: 1px solid var(--pc-border);
   border-radius: 999px;
   background: transparent;
@@ -220,6 +159,8 @@
   font-size: 0.75rem;
   cursor: pointer;
   white-space: nowrap;
+  --chip-color: var(--pc-muted-fg);
+  --chip-bg: var(--pc-muted-bg);
 }
 
 .filterChip:hover {
@@ -233,32 +174,72 @@
 }
 
 .filterChipActive {
-  border-color: var(--pc-primary);
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
+  border-color: var(--chip-color);
+  background: var(--chip-bg);
+  color: var(--chip-color);
   font-weight: 600;
 }
 
-.importScope {
+.chipDot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--chip-color);
+}
+
+/* The count a filter carries. Lives on the chip because the numbers used to sit in a second
+   bar above, as a second set of chips selecting the same filters. */
+.chipCount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* A read-only chip on the same colour system as the filters: the Task column's kind-of-task
+   chip and the evidence beside it, which now share a row's tone rather than each picking from
+   a palette of its own. Toneless is the neutral/muted case. */
+.toneChip {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid var(--pc-primary);
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-  font-size: 0.75rem;
+  background: var(--chip-bg, var(--pc-muted-bg));
+  color: var(--chip-color, var(--pc-muted-fg));
+  font-size: 0.72rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
-.importScopeClear {
-  display: inline-flex;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
+/* How strong the match is, as the tail of the evidence capsule. Separated by a hairline
+   rather than by being a second control: "Exact barcode" and "96%" are one finding. */
+.chipStrength {
+  padding-left: 0.35rem;
+  margin-left: 0.1rem;
+  border-left: 1px solid currentColor;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.chipInfo {
+  --chip-color: var(--pc-alert-info-text);
+  --chip-bg: var(--pc-alert-info-bg);
+}
+
+.chipPrimary {
+  --chip-color: var(--pc-primary);
+  --chip-bg: var(--pc-primary-soft);
+}
+
+.chipWarning {
+  --chip-color: var(--pc-alert-warning-text);
+  --chip-bg: var(--pc-alert-warning-bg);
+}
+
+.chipSuccess {
+  --chip-color: var(--pc-alert-success-text);
+  --chip-bg: var(--pc-alert-success-bg);
 }
 
 /* ── Task table ────────────────────────────────────────────────────────── */
@@ -289,44 +270,26 @@
 }
 
 .taskProductMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   color: var(--pc-muted-fg);
   font-size: 0.75rem;
 }
 
-.taskProvenance {
+/* Provenance in one word. Which upload a task came from matters when a task looks wrong, which
+   is rare — so it earns a chip and a tooltip, not a line on all fifty rows. */
+.importChip {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  color: var(--pc-muted-fg);
-  font-size: 0.72rem;
-}
-
-.typeChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.15rem 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--pc-border);
   border-radius: 999px;
-  background: var(--pc-muted-bg);
   color: var(--pc-muted-fg);
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.68rem;
   white-space: nowrap;
-}
-
-.typeChipCategory {
-  background: var(--pc-alert-info-bg);
-  color: var(--pc-alert-info-text);
-}
-
-.typeChipMatch {
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-}
-
-.typeChipAmbiguous {
-  background: var(--pc-alert-warning-bg);
-  color: var(--pc-alert-warning-text);
+  cursor: help;
 }
 
 .suggestion {
@@ -357,36 +320,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.3rem;
-}
-
-/* Evidence chips always carry words. Status is never conveyed by colour alone. */
-.evidenceChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.15rem 0.45rem;
-  border-radius: 999px;
-  background: var(--pc-alert-success-bg);
-  color: var(--pc-alert-success-text);
-  font-size: 0.7rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.evidenceChipWeak {
-  background: var(--pc-muted-bg);
-  color: var(--pc-muted-fg);
-}
-
-.evidenceChipCompliance {
-  background: var(--pc-alert-warning-bg);
-  color: var(--pc-alert-warning-text);
-}
-
-.confidence {
-  font-size: 0.72rem;
-  color: var(--pc-muted-fg);
-  font-variant-numeric: tabular-nums;
 }
 
 .rowActions {
@@ -441,8 +374,8 @@
 }
 
 .rowSelect {
-  min-width: 150px;
-  max-width: 200px;
+  width: 100%;
+  max-width: 230px;
 }
 
 .statusChip {
@@ -458,28 +391,6 @@
 }
 
 /* ── Section shells shared by Categories and Tags ───────────────────────── */
-
-.sectionHint {
-  margin: 0;
-  color: var(--pc-muted-fg);
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-
-.sectionHeader {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-
-.sectionHeaderActions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-}
 
 .displayOption {
   display: inline-flex;

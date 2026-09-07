@@ -1,16 +1,9 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.85rem;
   /* Clearance for the floating New Sale button over the last row's controls. */
   padding-bottom: 3.5rem;
-}
-
-.hint {
-  margin: -0.4rem 0 0;
-  font-size: 0.82rem;
-  color: var(--pc-muted-fg);
-  max-width: 68ch;
 }
 
 /* ── Onboarding panel ── */
@@ -56,49 +49,7 @@
   accent-color: var(--pc-primary);
 }
 
-/* ── Toolbar ── */
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.searchWrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-width: 220px;
-  flex: 1 1 260px;
-  max-width: 360px;
-}
-
-.searchIcon {
-  position: absolute;
-  left: 0.6rem;
-  color: var(--pc-muted-fg);
-  pointer-events: none;
-}
-
-.searchInput {
-  width: 100%;
-  padding: 0.5rem 0.6rem 0.5rem 1.85rem;
-  font-size: 0.82rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-input-bg);
-  color: var(--pc-foreground);
-  outline: none;
-}
-
-.searchInput:focus {
-  border-color: var(--pc-primary);
-  box-shadow: 0 0 0 3px var(--pc-focus-ring);
-}
-
-/* ── Tree ── */
+/* ── Empty / loading shell ── */
 
 .treeCard {
   border: 1px solid var(--pc-border);
@@ -114,207 +65,321 @@
   color: var(--pc-muted-fg);
 }
 
-/* ── Tree ───────────────────────────────────────────────────────────────────
-   Departments are cards; their categories sit inside against a guide rail. The old version
-   was one flat list of forty near-identical rows, which made the hierarchy invisible and put
-   four always-on controls beside every name. */
+/* ── Category table ────────────────────────────────────────────────────────
+   One row per department, the same three numbers on every row, read down a column. The two
+   layouts before this — a flat list of forty rows, then cards in a grid — both spent most of
+   the width on furniture, and neither let you compare departments by looking. */
 
-.tree {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  /* Category names are short. Stretched across a 1400px viewport the rows became a name on the
-     far left and a count on the far right with half a screen of nothing between them, which is
-     what made the list read as sparse rather than dense. */
-  max-width: 760px;
-}
-
-.dept {
+.tableWrap {
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-md);
   background: var(--pc-card-bg);
-  overflow: hidden;
+  overflow-x: auto;
 }
 
-.deptOff {
+/* Fixed layout: a department called "Vitamins & Supplements" must not make the Products
+   column narrower than it is on a page of short names. Every column below declares a width
+   except Category, which takes whatever is left. */
+.table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+.table thead th {
+  padding: 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--pc-border);
   background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
 }
 
-.deptHead {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 0.7rem;
+.colName {
+  width: auto;
 }
 
-.deptHead:hover {
+.colNum,
+.cellNum {
+  width: 110px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.colDist {
+  width: 30%;
+}
+
+.colActions {
+  width: 44px;
+}
+
+.group + .group .row > * {
+  border-top: 1px solid var(--pc-border);
+}
+
+.row:hover > * {
   background: var(--pc-hover-overlay);
 }
 
-.deptDisclosure {
+/* The open department is tinted so the expansion beneath it reads as belonging to this row. */
+.groupOpen .row > * {
+  background: var(--pc-primary-soft);
+}
+
+.groupOff .name,
+.groupOff .cellNum {
+  color: var(--pc-muted-fg);
+}
+
+.cellName {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.8rem;
+  font-weight: 400;
+  text-align: left;
+  min-width: 0;
+}
+
+/* Chevron and name are one control: two buttons that do the same thing is one tab stop too
+   many, and the name is the larger, more obvious target. */
+.disclosure {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  flex: 0 0 auto;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.1rem 0;
   border: 0;
-  border-radius: 6px;
   background: none;
-  color: var(--pc-muted-fg);
+  color: var(--pc-foreground);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
-.deptDisclosure:hover:not(:disabled) {
-  background: var(--pc-hover-overlay);
-  color: var(--pc-foreground);
-}
-
-.deptDisclosure:disabled {
+.disclosure:disabled {
   cursor: default;
 }
 
-.deptDisclosure:focus-visible {
+.disclosure:disabled .chevron {
+  opacity: 0.25;
+}
+
+.disclosure:focus-visible {
   outline: 2px solid var(--pc-primary);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: var(--pc-radius-sm);
 }
 
-.disclosureOpen {
+.chevron {
+  flex: 0 0 auto;
+  color: var(--pc-muted-fg);
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
   transform: rotate(90deg);
+  color: var(--pc-primary);
 }
 
-.disclosureDot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--pc-border);
-}
-
-.deptTitleWrap {
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.deptTitle {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 650;
-  color: var(--pc-foreground);
+.name {
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.deptSummary {
-  margin: 0;
-  font-size: 0.74rem;
-  color: var(--pc-muted-fg);
+.cellNum {
+  padding: 0.5rem 0.8rem;
   font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
 }
 
-.dot {
-  margin: 0 0.35rem;
+.cellNumMuted {
+  color: var(--pc-muted-fg);
 }
 
-.deptActions,
-.childActions {
+.zero {
+  color: var(--pc-muted-fg);
+}
+
+.cellDist {
+  padding: 0.5rem 0.8rem;
+}
+
+.cellActions {
+  padding: 0.35rem 0.5rem;
+  text-align: right;
+}
+
+/* ── Distribution bar ──
+   One segment per subcategory, biggest first, shaded strong-to-faint down that order. Empty
+   subcategories keep a small neutral sliver so "6 subcategories, 3 stocked" is a shape rather
+   than a sentence. Decorative — the numbers beside it say the same thing. */
+
+.distribution {
   display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  flex: 0 0 auto;
+  align-items: stretch;
+  gap: 2px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  overflow: hidden;
 }
 
-/* Reorder and add sit out of the way until the row is hovered or something in it is focused,
-   which is what lets a forty-row tree read as names rather than as a control panel. */
-.hoverActions {
-  display: flex;
-  align-items: center;
-  gap: 0.1rem;
-  opacity: 0;
-  transition: opacity 0.12s;
+.segmentFilled,
+.segmentEmpty {
+  flex-shrink: 0;
+  flex-basis: 3px;
+  min-width: 3px;
+  border-radius: 2px;
 }
 
-.deptHead:hover .hoverActions,
-.child:hover .hoverActions,
-.hoverActions:focus-within {
-  opacity: 1;
+.segmentFilled {
+  background: var(--pc-primary);
 }
 
-/* Touch has no hover, so nothing may be hover-only there. */
-@media (hover: none) {
-  .hoverActions {
-    opacity: 1;
-  }
+.segmentEmpty {
+  background: var(--pc-border);
 }
 
-/* ── Children ── */
+/* ── Expansion ── */
 
-.childList {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0 0.7rem 0.5rem 2.2rem;
-  list-style: none;
+.expansionRow > .expansionCell {
+  padding: 0 0.8rem 0.75rem;
+  background: var(--pc-primary-soft);
 }
 
-/* The reveal reads as the section opening rather than the page jumping. */
 @media (prefers-reduced-motion: no-preference) {
-  .childList {
-    animation: childReveal 0.14s ease-out;
+  .expansionCell {
+    animation: expansionReveal 0.14s ease-out;
   }
 }
 
-@keyframes childReveal {
+@keyframes expansionReveal {
   from {
     opacity: 0;
     transform: translateY(-2px);
   }
 }
 
-.child {
+.expansionHead {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.34rem 0.4rem 0.34rem 0.8rem;
-  /* The rail is what makes "these belong to the department above" readable without a label. */
-  border-left: 2px solid var(--pc-border);
-  border-radius: 0 var(--pc-radius-sm) var(--pc-radius-sm) 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.15rem 0 0.5rem;
 }
 
-.child:hover {
-  background: var(--pc-hover-overlay);
-}
-
-.childOff .childName {
+.expansionLabel {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--pc-muted-fg);
 }
 
-.childName {
+.expansionHint {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+.expansionEmpty {
+  margin: 0;
+  padding: 0.35rem 0 0.25rem;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+.capsules {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A second count pill costs the name about six characters, so the capsules get wider rather
+   than the names getting shorter. */
+.capsulesWithReference {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.capsule {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.35rem 0.3rem 0.35rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+}
+
+.capsule:hover {
+  border-color: var(--pc-primary);
+}
+
+.capsuleOff {
+  background: var(--pc-muted-bg);
+}
+
+.capsuleOff .capsuleName {
+  color: var(--pc-muted-fg);
+}
+
+.capsuleName {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.83rem;
+  font-size: 0.82rem;
   color: var(--pc-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.childCount {
-  font-size: 0.76rem;
-  color: var(--pc-muted-fg);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+.capsuleCounts {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
 }
 
-.childEmpty {
-  margin: 0;
-  padding: 0 0.7rem 0.7rem 2.95rem;
-  font-size: 0.78rem;
+/* Filled reads as "stocked" and neutral as "empty" before the number is read — the same
+   distinction the distribution bar draws for the department as a whole. */
+.countBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
   color: var(--pc-muted-fg);
+  font-size: 0.72rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.countBadgeFilled {
+  background: var(--pc-primary);
+  color: #fff;
+}
+
+/* The register's count, in the warning amber the theme already uses for "regulatory, not
+   yours". Distinct from the teal at a glance without introducing a colour of its own. */
+.countBadgeReference {
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  border: 1px solid var(--pc-alert-warning-border, transparent);
 }
 
 .inlineAction {
@@ -334,8 +399,8 @@
 }
 
 /* ── Chips ──
-   Only the informative cases are chipped. Every row used to carry a "Standard" badge, which
-   is twenty repetitions of a word that distinguishes nothing; "Custom" is the exception worth
+   Only the informative cases are chipped. Every row used to carry a "Standard" badge, which is
+   twenty repetitions of a word that distinguishes nothing; "Custom" is the exception worth
    marking, and "Hidden" states in words what opacity alone was implying. */
 
 .customChip {
@@ -360,95 +425,59 @@
   white-space: nowrap;
 }
 
-.countMuted {
-  color: var(--pc-muted-fg);
-  font-weight: 400;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-@media (max-width: 640px) {
-  .childList {
-    padding-left: 1.2rem;
+/* Narrow screens drop the columns that are context rather than answer, in that order: the bar
+   first, then the subcategory count, which the expansion states anyway. */
+@media (max-width: 1000px) {
+  .colDist,
+  .cellDist {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .colSubs,
+  .cellSubs {
+    display: none;
   }
 
-  .deptSummary {
-    font-size: 0.72rem;
+  .capsules {
+    grid-template-columns: 1fr;
   }
 }
 
-.iconBtn {
-  width: 1.7rem;
-  height: 1.7rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: none;
-  color: var(--pc-muted-fg);
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-.iconBtn:hover {
-  background: var(--pc-hover-overlay);
-  color: var(--pc-foreground);
-}
-
-.iconBtn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.iconBtnDanger:hover {
-  background: var(--pc-destructive-soft);
-  color: var(--pc-destructive);
-}
+/* ── Move-products dialog ── */
 
 .dialogBody p {
   margin: 0 0 0.5rem;
   font-size: 0.85rem;
 }
 
-.dialogHint {
-  font-size: 0.78rem;
-  color: var(--pc-muted-fg);
-}
-
-/* ── Row overflow menu ─────────────────────────────────────────────────── */
-
-
-/* ── Tag groups ────────────────────────────────────────────────────────── */
-
-.groupHead {
+.dialogField {
   display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin: 0.4rem 0 0.1rem;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
 }
 
-.groupTitle {
-  margin: 0;
-  font-size: 0.85rem;
-  font-weight: 650;
+.dialogFieldLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
   color: var(--pc-foreground);
 }
 
-.groupNote {
-  margin: 0;
-  font-size: 0.76rem;
+.dialogHint {
+  font-size: 0.78rem;
   color: var(--pc-muted-fg);
-}
-
-.lockedChip {
-  font-size: 0.68rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: var(--pc-primary-soft);
-  color: var(--pc-primary);
-  white-space: nowrap;
-}
-
-/* Keeps the counts in one column when a row has no actions (locked tags). */
-.rowActionsSpacer {
-  flex: 0 0 auto;
-  width: 3.7rem;
 }

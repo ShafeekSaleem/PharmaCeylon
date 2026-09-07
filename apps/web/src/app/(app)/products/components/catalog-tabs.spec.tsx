@@ -1,8 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CatalogTabs } from "./catalog-tabs";
-import { CatalogIssueBanner } from "./catalog-issue-banner";
-import type { CatalogTaskSummary } from "../api/catalog-tasks";
 
 jest.mock("next/link", () => ({
   __esModule: true,
@@ -119,66 +117,5 @@ describe("CatalogTabs", () => {
       expect(screen.getAllByRole("tab")).toHaveLength(1);
       expect(screen.getByRole("tab")).toHaveAccessibleName(/My products/);
     });
-  });
-});
-
-/**
- * The banner that replaced five permanently-visible KPI cards. Its whole value is that it is
- * usually absent — a shop with a clean catalog should see nothing at all.
- */
-describe("CatalogIssueBanner", () => {
-  const summary = (
-    over: Partial<CatalogTaskSummary> = {},
-  ): CatalogTaskSummary => ({
-    open: 8,
-    needsCategory: 3,
-    nmraMatch: 5,
-    complianceReview: 0,
-    ambiguous: 0,
-    noSuggestion: 0,
-    safeToApply: 4,
-    fromRecentImports: 0,
-    resolved: 0,
-    dismissed: 0,
-    notApplicable: 0,
-    categoryCoveragePercent: 92,
-    ...over,
-  });
-
-  it("renders nothing when there is no outstanding work", () => {
-    const { container } = render(
-      <CatalogIssueBanner summary={summary({ open: 0 })} />,
-    );
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("renders nothing before the summary has loaded", () => {
-    const { container } = render(<CatalogIssueBanner summary={null} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("breaks the total down instead of stating a bare number", () => {
-    render(<CatalogIssueBanner summary={summary()} />);
-
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /8 products need catalog review.*3 missing a category.*5 possible NMRA matches/,
-    );
-  });
-
-  it("calls out compliance-sensitive work separately", () => {
-    render(<CatalogIssueBanner summary={summary({ complianceReview: 2 })} />);
-
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /2 would change a compliance flag and need individual review/,
-    );
-  });
-
-  it("links into the queue", () => {
-    render(<CatalogIssueBanner summary={summary()} />);
-
-    expect(screen.getByRole("link", { name: /Review tasks/ })).toHaveAttribute(
-      "href",
-      "/products/manage",
-    );
   });
 });

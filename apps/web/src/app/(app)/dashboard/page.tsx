@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
-import { IconCheckCircle, IconShoppingCart, IconUserPlus } from "@/components/icons";
+import { IconShoppingCart, IconUserPlus } from "@/components/icons";
+import { StatusStrip } from "@/components/ui";
 import { useRoleAccess } from "@/lib/use-role-access";
 import { AddWidgetDrawer } from "./components/add-widget-drawer";
 import { DashboardHeader } from "./components/dashboard-header";
@@ -75,37 +76,41 @@ export default function DashboardPage() {
       />
 
       {setupComplete ? (
-        <section className={css.setupCompleteBanner} role="status">
-          <span className={css.setupCompleteIcon}><IconCheckCircle size={22} /></span>
-          <div>
-            <strong>{data.branchLabel || "Your branch"} is ready</strong>
-            <p>All required setup checks are complete. You can start serving customers.</p>
-          </div>
-          <div className={css.setupCompleteActions}>
-            <Link href="/users"><IconUserPlus size={15} /> Invite team</Link>
-            <Link href="/pos" className={css.setupCompletePrimary}>
-              <IconShoppingCart size={15} /> Open POS
-            </Link>
-          </div>
-          <button type="button" onClick={() => setSetupComplete(false)} aria-label="Dismiss setup complete message">×</button>
-        </section>
+        <StatusStrip
+          className={css.readyStrip}
+          label="Setup complete"
+          emphasis={`${data.branchName || "Your branch"} is ready to serve customers`}
+          actions={
+            <>
+              <Link href="/users">
+                <IconUserPlus size={15} /> Invite team
+              </Link>
+              <Link href="/pos" className="status-strip-primary">
+                <IconShoppingCart size={15} /> Open POS
+              </Link>
+            </>
+          }
+          onDismiss={() => setSetupComplete(false)}
+          dismissLabel="Dismiss setup complete message"
+        />
       ) : null}
 
       {invitationAccepted ? (
-        <section className={css.setupCompleteBanner} role="status">
-          <span className={css.setupCompleteIcon}><IconCheckCircle size={22} /></span>
-          <div>
-            <strong>You’ve joined the pharmacy workspace</strong>
-            <p>Your assigned role and branch access are ready to use.</p>
-          </div>
-          <div className={css.setupCompleteActions}>
-            <Link href="/settings/my-profile">Review profile</Link>
-            <Link href="/pos" className={css.setupCompletePrimary}>
-              <IconShoppingCart size={15} /> Open POS
-            </Link>
-          </div>
-          <button type="button" onClick={() => setInvitationAccepted(false)} aria-label="Dismiss invitation message">×</button>
-        </section>
+        <StatusStrip
+          className={css.readyStrip}
+          label="Workspace joined"
+          emphasis="Your role and branch access are ready to use"
+          actions={
+            <>
+              <Link href="/settings/my-profile">Review profile</Link>
+              <Link href="/pos" className="status-strip-primary">
+                <IconShoppingCart size={15} /> Open POS
+              </Link>
+            </>
+          }
+          onDismiss={() => setInvitationAccepted(false)}
+          dismissLabel="Dismiss invitation message"
+        />
       ) : null}
 
       {!data.branchId ? (

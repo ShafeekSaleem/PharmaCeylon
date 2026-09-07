@@ -33,7 +33,17 @@ export function buildProductFilterParams(
   importId?: string | null,
 ) {
   const filterParams = productFiltersToQueryParams(filters);
-  const params = new URLSearchParams({ status: filterParams.status });
+  /*
+   * The reference catalog ignores the two stock-shaped filters, whether they arrive from a
+   * filter panel that no longer offers them, a filter left applied on My Products before
+   * switching tab, or a pasted URL. A register row is never inactive and can never hold stock
+   * — stock arriving promotes it into the range — so honouring them would filter the register
+   * by a state it cannot be in.
+   */
+  const isReference = scope === "reference";
+  const params = new URLSearchParams({
+    status: isReference ? "all" : filterParams.status,
+  });
   params.set("rangeStatus", scopeToRangeStatus(scope));
   if (sortBy) {
     params.set("sortBy", sortBy);
@@ -49,7 +59,7 @@ export function buildProductFilterParams(
   if (filterParams.tagId) params.set("tagId", filterParams.tagId);
   if (filterParams.isControlled)
     params.set("isControlled", filterParams.isControlled);
-  if (filterParams.lowStock) params.set("lowStock", "true");
+  if (filterParams.lowStock && !isReference) params.set("lowStock", "true");
   if (filterParams.requiresPrescription)
     params.set("requiresPrescription", "true");
   // Not a panel filter — a scoping link from the import completion screen. See the API's

@@ -43,14 +43,6 @@ export function deleteCategory(id: string): Promise<{ ok: true }> {
   return apiJson(`/products/categories/${id}`, { method: "DELETE" });
 }
 
-export function reorderCategories(items: { id: string; sortOrder: number }[]): Promise<{ ok: true }> {
-  return apiJson("/products/commercial-categories/reorder", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items }),
-  });
-}
-
 /** Product ids currently mapped to a commercial category — capped at 200 for the "move all" action. */
 export async function fetchProductIdsInCategory(categoryId: string): Promise<string[]> {
   const data = await apiJson<{ items: { id: string }[]; total: number }>(

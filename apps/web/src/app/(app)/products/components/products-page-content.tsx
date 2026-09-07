@@ -31,6 +31,7 @@ import { useAuth } from "@/lib/use-auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
 import {
   COLUMN_META,
+  REFERENCE_HIDDEN_COLUMNS,
   COLUMN_STORAGE_KEY,
   DEFAULT_VISIBLE,
   PRODUCT_STAT_PILLS,
@@ -44,7 +45,6 @@ import {
   type ReferenceAddPreview,
 } from "../api/catalog-tasks";
 import { useCatalogTaskSummary } from "../hooks/use-catalog-task-summary";
-import { CatalogIssueBanner } from "./catalog-issue-banner";
 import { ReferenceAddReviewModal } from "./reference-add-review-modal";
 import {
   CONTROLLED_LABELS,
@@ -706,11 +706,6 @@ export function ProductsPageContent() {
           canViewReference={canViewReference}
         />
 
-        {/* Only when there is work. See CatalogIssueBanner for why this replaced five tiles. */}
-        {scope === "mine" && canManageCatalog && (
-          <CatalogIssueBanner summary={taskSummary} />
-        )}
-
         <div className={css.toolbar}>
           <div className={css.toolbarGroup}>
             <ProductsFilterPanel
@@ -718,6 +713,7 @@ export function ProductsPageContent() {
               applied={appliedFilters}
               onApply={handleFiltersApply}
               hasBranch={hasBranch}
+              scope={scope === "reference" ? "reference" : "mine"}
             />
             <div className={css.searchWrap}>
               <span className={css.searchIcon}>
@@ -909,7 +905,14 @@ export function ProductsPageContent() {
               {columnsOpen && (
                 <div className={css.columnsPopover}>
                   <div className={css.columnsPopoverTitle}>Show columns</div>
-                  {COLUMN_META.filter((c) => c.hideable).map((col) => (
+                  {COLUMN_META.filter(
+                    (c) =>
+                      c.hideable &&
+                      !(
+                        scope === "reference" &&
+                        REFERENCE_HIDDEN_COLUMNS.has(c.key)
+                      ),
+                  ).map((col) => (
                     <label key={col.key} className={css.columnOption}>
                       <input
                         type="checkbox"

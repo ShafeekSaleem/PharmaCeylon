@@ -1064,6 +1064,9 @@ export function useDashboardData() {
       branchLabel: currentBranch
         ? `${currentBranch.city ? `${currentBranch.city} — ` : ""}${currentBranch.name}`
         : null,
+      /* Just the name. The city belongs on the branch switcher, where you are choosing
+         between branches; in a sentence about one branch it reads as part of its name. */
+      branchName: currentBranch?.name ?? null,
       branchCount: branches.length,
       catalogSkuCount: inventory?.skuCount ?? null,
       /** Unsliced — for panels that paginate a combined PO/transfer/return list. */

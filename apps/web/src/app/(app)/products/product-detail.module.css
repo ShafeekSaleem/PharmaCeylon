@@ -137,18 +137,18 @@
 }
 
 .heroDeleteBtn {
-  border: 1px solid #ef4444;
+  border: 1px solid var(--pc-alert-error-icon);
   background: var(--pc-card-bg);
-  color: #dc2626;
+  color: var(--pc-alert-error-icon);
 }
 
 .heroDeleteBtn:hover {
-  background: color-mix(in srgb, #ef4444 8%, var(--pc-card-bg));
-  border-color: #dc2626;
+  background: var(--pc-alert-error-bg);
+  border-color: var(--pc-alert-error-icon);
 }
 
 .heroDeleteBtn svg {
-  color: #dc2626;
+  color: var(--pc-alert-error-icon);
 }
 
 .heroMetrics {
@@ -221,8 +221,8 @@
 }
 
 .heroMetricIconInfo {
-  background: color-mix(in srgb, #0ea5e9 12%, transparent);
-  color: #0ea5e9;
+  background: color-mix(in srgb, var(--pc-alert-info-icon) 12%, transparent);
+  color: var(--pc-alert-info-icon);
 }
 
 .heroMetricIconSuccess {
@@ -303,8 +303,8 @@
 }
 
 .stockKpiIcon_info {
-  background: color-mix(in srgb, #0ea5e9 12%, transparent);
-  color: #0ea5e9;
+  background: color-mix(in srgb, var(--pc-alert-info-icon) 12%, transparent);
+  color: var(--pc-alert-info-icon);
 }
 
 .stockKpiIcon_primary {
@@ -613,8 +613,8 @@
 }
 
 .historyActivityIcon_info {
-  background: color-mix(in srgb, #0ea5e9 12%, transparent);
-  color: #0ea5e9;
+  background: color-mix(in srgb, var(--pc-alert-info-icon) 12%, transparent);
+  color: var(--pc-alert-info-icon);
 }
 
 .sideCardHead {

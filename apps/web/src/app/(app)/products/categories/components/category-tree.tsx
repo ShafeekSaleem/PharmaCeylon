@@ -1,13 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  IconChevronDown,
-  IconChevronRight,
-  IconChevronUp,
-  IconPlus,
-} from "@/components/icons";
-import { RowMenu, ToggleSwitch } from "@/components/ui";
+import { IconChevronRight } from "@/components/icons";
+import { RowMenu } from "@/components/ui";
 import type { CommercialCategoryNode } from "../types";
 import css from "../categories.module.css";
 
@@ -23,11 +18,6 @@ type Props = {
   onRequestAddChild: (parent: CommercialCategoryNode) => void;
   onRequestRename: (node: CommercialCategoryNode) => void;
   onDelete: (node: CommercialCategoryNode) => void;
-  onMove: (
-    node: CommercialCategoryNode,
-    direction: "up" | "down",
-    siblings: CommercialCategoryNode[],
-  ) => void;
   onMoveProducts: (node: CommercialCategoryNode) => void;
 };
 
@@ -39,21 +29,35 @@ function matchesQuery(node: CommercialCategoryNode, query: string): boolean {
 }
 
 /**
+ * Biggest first. The bar and the capsules under it read in the same order, so the widest,
+ * darkest segment and the first capsule are the same subcategory — which is what makes the bar
+ * worth reading at all rather than being decoration.
+ */
+function byProductCount(
+  a: CommercialCategoryNode,
+  b: CommercialCategoryNode,
+): number {
+  return b.rangedCount - a.rangedCount || a.name.localeCompare(b.name);
+}
+
+/** Share of the bar an empty subcategory keeps, so it stays visible as a sliver. */
+const EMPTY_SEGMENT_SHARE = 0.35;
+/** Faintest a filled segment gets, so the smallest one is still clearly "stocked". */
+const MIN_SEGMENT_OPACITY = 0.4;
+
+/**
  * The commercial category tree: departments, each holding its categories.
  *
- * Rewritten because the flat version read as one undifferentiated list of forty rows. Three
- * things were doing the damage, and each is fixed here rather than restyled:
+ * Now a table, because that is what this is — one row per department, the same three numbers on
+ * every row, read down the column. The versions before it were a flat list of forty
+ * near-identical rows, then cards in a grid; both spent most of their width on furniture, and
+ * the grid made "which department has the most in it" a question you answered by reading rather
+ * than by looking.
  *
- * - **Every row carried a "Standard" chip.** Twenty repetitions of the same word carry no
- *   information. The informative case is the inverse — a category this pharmacy created — so
- *   only those are chipped now.
- * - **Four controls on every row, always.** A toggle, two reorder arrows and an overflow menu,
- *   on rows nobody was editing — twenty bright switches for a state that is almost always
- *   "on". They appear on hover or keyboard focus now, and the exception carries a "Hidden"
- *   chip, so the one piece of state worth seeing at a glance is the one still visible.
- * - **Departments and their children looked identical.** A department is now a card header
- *   with its own summary line, and its children sit inside against a guide rail, so the shape
- *   of the tree is visible without reading any of it.
+ * Each row carries a distribution bar: one segment per subcategory, ordered biggest-first and
+ * shaded from strong to faint, so the shape of a department is legible before it is opened.
+ * Opening one closes whichever was open and expands beneath its row, listing the same
+ * subcategories in the same order as capsules.
  */
 export function CategoryTree({
   nodes,
@@ -66,15 +70,14 @@ export function CategoryTree({
   onRequestAddChild,
   onRequestRename,
   onDelete,
-  onMove,
   onMoveProducts,
 }: Props) {
   /*
-   * Departments start closed. Expanded, this is eighty near-identical rows and the shape of the
-   * tree is invisible; closed, it is eight lines that each say what is inside. A search opens
-   * everything, because a match nobody can see is not a match.
+   * Departments start closed, and only one opens at a time. Searching is the exception: every
+   * matching department opens together, because a match hidden behind a closed row is not a
+   * match.
    */
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const visible = useMemo(
     () => nodes.filter((n) => matchesQuery(n, query)),
@@ -83,12 +86,7 @@ export function CategoryTree({
   const searching = query.trim().length > 0;
 
   function toggleExpand(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setExpandedId((prev) => (prev === id ? null : id));
   }
 
   if (visible.length === 0) {
@@ -101,247 +99,310 @@ export function CategoryTree({
     );
   }
 
+  const columnCount = showReferenceCounts ? 5 : 4;
+
   return (
-    <div className={css.tree}>
-      {visible.map((dept) => {
-        const open = searching || expanded.has(dept.id);
-        const children = dept.children.filter((c) => matchesQuery(c, query));
-        return (
-          <section
-            key={dept.id}
-            className={`${css.dept}${dept.isActive ? "" : ` ${css.deptOff}`}`}
-          >
-            <header className={css.deptHead}>
-              <button
-                type="button"
-                className={css.deptDisclosure}
-                onClick={() => toggleExpand(dept.id)}
-                aria-expanded={open}
-                aria-label={`${open ? "Collapse" : "Expand"} ${dept.name}`}
-                disabled={children.length === 0}
-              >
-                {children.length > 0 ? (
-                  <IconChevronRight
-                    size={14}
-                    className={open ? css.disclosureOpen : undefined}
-                  />
-                ) : (
-                  <span className={css.disclosureDot} aria-hidden />
-                )}
-              </button>
+    <div className={css.tableWrap}>
+      <table className={css.table}>
+        <thead>
+          <tr>
+            <th scope="col" className={css.colName}>
+              Category
+            </th>
+            <th scope="col" className={`${css.colNum} ${css.colSubs}`}>
+              Subcategories
+            </th>
+            <th scope="col" className={css.colNum}>
+              Products
+            </th>
+            {showReferenceCounts && (
+              <th scope="col" className={css.colNum}>
+                Reference
+              </th>
+            )}
+            <th scope="col" className={css.colDist}>
+              Distribution
+            </th>
+            <th scope="col" className={css.colActions}>
+              <span className={css.srOnly}>Actions</span>
+            </th>
+          </tr>
+        </thead>
 
-              <div
-                className={css.deptTitleWrap}
-                role={children.length > 0 ? "presentation" : undefined}
-                onClick={
-                  children.length > 0 ? () => toggleExpand(dept.id) : undefined
-                }
-              >
-                <h3 className={css.deptTitle}>{dept.name}</h3>
-                <p className={css.deptSummary}>
-                  {children.length > 0 && (
-                    <>
-                      {children.length} categor
-                      {children.length === 1 ? "y" : "ies"}
-                      <span className={css.dot} aria-hidden>
-                        ·
-                      </span>
-                    </>
-                  )}
-                  {dept.rangedCount.toLocaleString()} product
-                  {dept.rangedCount === 1 ? "" : "s"}
-                  {showReferenceCounts && dept.referenceCount > 0 && (
-                    <>
-                      <span className={css.dot} aria-hidden>
-                        ·
-                      </span>
-                      <span className={css.countMuted}>
-                        {dept.referenceCount.toLocaleString()} reference
-                      </span>
-                    </>
-                  )}
-                </p>
-              </div>
+        {visible.map((dept) => {
+          const open = searching || expandedId === dept.id;
+          const children = dept.children
+            .filter((c) => matchesQuery(c, query))
+            .sort(byProductCount);
 
-              {/* Words as well as opacity — a disabled department must not read as "just faded". */}
-              {!dept.isActive && <span className={css.offChip}>Hidden</span>}
-              {!dept.isSystem && <span className={css.customChip}>Custom</span>}
-
-              {canWrite && (
-                <div className={css.deptActions}>
-                  <div className={css.hoverActions}>
-                    <ReorderButtons
-                      node={dept}
-                      siblings={visible}
-                      busy={busyId === dept.id}
-                      onMove={onMove}
-                    />
-                    <button
-                      type="button"
-                      className={css.iconBtn}
-                      aria-label={`Add a category under ${dept.name}`}
-                      data-tooltip="Add category"
-                      onClick={() => onRequestAddChild(dept)}
-                    >
-                      <IconPlus size={14} />
-                    </button>
-                    <ToggleSwitch
-                      checked={dept.isActive}
-                      onChange={() => onToggleActive(dept)}
-                      disabled={busyId === dept.id}
-                      label={
-                        dept.isActive
-                          ? `Hide ${dept.name}`
-                          : `Show ${dept.name}`
-                      }
-                    />
-                  </div>
-                  <RowMenu
-                    label={dept.name}
-                    actions={rowActions(
-                      dept,
-                      canDelete,
-                      onRequestRename,
-                      onRequestAddChild,
-                      onMoveProducts,
-                      onDelete,
-                    )}
-                  />
-                </div>
-              )}
-            </header>
-
-            {open && children.length > 0 && (
-              <ul className={css.childList}>
-                {children.map((child) => (
-                  <li
-                    key={child.id}
-                    className={`${css.child}${child.isActive ? "" : ` ${css.childOff}`}`}
+          return (
+            <tbody
+              key={dept.id}
+              className={`${css.group}${open ? ` ${css.groupOpen}` : ""}${
+                dept.isActive ? "" : ` ${css.groupOff}`
+              }`}
+            >
+              <tr className={css.row}>
+                <th scope="row" className={css.cellName}>
+                  <button
+                    type="button"
+                    className={css.disclosure}
+                    onClick={() => toggleExpand(dept.id)}
+                    aria-expanded={open}
+                    aria-label={`${open ? "Collapse" : "Expand"} ${dept.name}`}
+                    disabled={children.length === 0}
                   >
-                    <span className={css.childName}>{child.name}</span>
-                    {!child.isActive && (
-                      <span className={css.offChip}>Hidden</span>
-                    )}
-                    {!child.isSystem && (
-                      <span className={css.customChip}>Custom</span>
-                    )}
-
-                    <span className={css.childCount}>
-                      {child.rangedCount.toLocaleString()}
-                      {showReferenceCounts && child.referenceCount > 0 && (
-                        <span className={css.countMuted}>
-                          {" "}
-                          / {child.referenceCount.toLocaleString()} ref
-                        </span>
-                      )}
+                    <IconChevronRight
+                      size={14}
+                      className={`${css.chevron}${open ? ` ${css.chevronOpen}` : ""}`}
+                      aria-hidden
+                    />
+                    <span className={css.name} title={dept.name}>
+                      {dept.name}
                     </span>
+                  </button>
+                  {/* Words as well as opacity — a hidden department must not read as "just faded". */}
+                  {!dept.isActive && <span className={css.offChip}>Hidden</span>}
+                  {!dept.isSystem && (
+                    <span className={css.customChip}>Custom</span>
+                  )}
+                </th>
 
-                    {canWrite && (
-                      <div className={css.childActions}>
-                        <div className={css.hoverActions}>
-                          <ReorderButtons
-                            node={child}
-                            siblings={dept.children}
-                            busy={busyId === child.id}
-                            onMove={onMove}
-                          />
-                          <ToggleSwitch
-                            checked={child.isActive}
-                            onChange={() => onToggleActive(child)}
-                            disabled={busyId === child.id}
-                            label={
-                              child.isActive
-                                ? `Hide ${child.name}`
-                                : `Show ${child.name}`
-                            }
-                          />
-                        </div>
-                        <RowMenu
-                          label={child.name}
-                          actions={rowActions(
-                            child,
-                            canDelete,
-                            onRequestRename,
-                            onRequestAddChild,
-                            onMoveProducts,
-                            onDelete,
+                <td className={`${css.cellNum} ${css.cellSubs}`}>
+                  {children.length > 0 ? (
+                    children.length
+                  ) : (
+                    <span className={css.zero}>—</span>
+                  )}
+                </td>
+
+                <td className={css.cellNum}>
+                  {dept.rangedCount > 0 ? (
+                    dept.rangedCount.toLocaleString()
+                  ) : (
+                    <span className={css.zero}>0</span>
+                  )}
+                </td>
+
+                {showReferenceCounts && (
+                  <td className={`${css.cellNum} ${css.cellNumMuted}`}>
+                    {dept.referenceCount.toLocaleString()}
+                  </td>
+                )}
+
+                <td className={css.cellDist}>
+                  {children.length > 0 ? (
+                    <DistributionBar subcategories={children} />
+                  ) : (
+                    <span className={css.zero}>—</span>
+                  )}
+                </td>
+
+                <td className={css.cellActions}>
+                  {canWrite && (
+                    <RowMenu
+                      label={dept.name}
+                      actions={rowActions(dept, {
+                        canDelete,
+                        busy: busyId === dept.id,
+                        isDepartment: true,
+                        onRequestRename,
+                        onRequestAddChild,
+                        onToggleActive,
+                        onMoveProducts,
+                        onDelete,
+                      })}
+                    />
+                  )}
+                </td>
+              </tr>
+
+              {open && children.length > 0 && (
+                <tr className={css.expansionRow}>
+                  <td className={css.expansionCell} colSpan={columnCount + 1}>
+                    <div className={css.expansionHead}>
+                      <span className={css.expansionLabel}>Subcategories</span>
+                      <span className={css.expansionHint}>
+                        Ordered by product count
+                      </span>
+                    </div>
+                    <ul
+                      className={`${css.capsules}${
+                        showReferenceCounts
+                          ? ` ${css.capsulesWithReference}`
+                          : ""
+                      }`}
+                    >
+                      {children.map((child) => (
+                        <li
+                          key={child.id}
+                          className={`${css.capsule}${child.isActive ? "" : ` ${css.capsuleOff}`}`}
+                        >
+                          <span className={css.capsuleName} title={child.name}>
+                            {child.name}
+                          </span>
+                          {!child.isActive && (
+                            <span className={css.offChip}>Hidden</span>
                           )}
-                        />
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+                          {!child.isSystem && (
+                            <span className={css.customChip}>Custom</span>
+                          )}
 
-            {open && children.length === 0 && canWrite && (
-              <p className={css.childEmpty}>
-                Nothing filed under {dept.name} yet.{" "}
-                <button
-                  type="button"
-                  className={css.inlineAction}
-                  onClick={() => onRequestAddChild(dept)}
-                >
-                  Add a category
-                </button>
-              </p>
-            )}
-          </section>
+                          <span className={css.capsuleCounts}>
+                            <span
+                              className={`${css.countBadge}${
+                                child.rangedCount > 0
+                                  ? ` ${css.countBadgeFilled}`
+                                  : ""
+                              }`}
+                              aria-label={`${child.rangedCount.toLocaleString()} products`}
+                            >
+                              {child.rangedCount.toLocaleString()}
+                            </span>
+                            {/* Same pill, different colour: the shop's own count is the one
+                                being acted on, the register's is context beside it. */}
+                            {showReferenceCounts && child.referenceCount > 0 && (
+                              <span
+                                className={`${css.countBadge} ${css.countBadgeReference}`}
+                                aria-label={`${child.referenceCount.toLocaleString()} reference-catalog products`}
+                              >
+                                {child.referenceCount.toLocaleString()}
+                              </span>
+                            )}
+                          </span>
+
+                          {canWrite && (
+                            <RowMenu
+                              label={child.name}
+                              actions={rowActions(child, {
+                                canDelete,
+                                busy: busyId === child.id,
+                                isDepartment: false,
+                                onRequestRename,
+                                onRequestAddChild,
+                                onToggleActive,
+                                onMoveProducts,
+                                onDelete,
+                              })}
+                            />
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              )}
+
+              {open && children.length === 0 && canWrite && (
+                <tr className={css.expansionRow}>
+                  <td className={css.expansionCell} colSpan={columnCount + 1}>
+                    <p className={css.expansionEmpty}>
+                      Nothing filed under {dept.name} yet.{" "}
+                      <button
+                        type="button"
+                        className={css.inlineAction}
+                        onClick={() => onRequestAddChild(dept)}
+                      >
+                        Add a category
+                      </button>
+                    </p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          );
+        })}
+      </table>
+    </div>
+  );
+}
+
+/**
+ * One segment per subcategory, ordered biggest-first, width proportional to its product count
+ * and shaded strong-to-faint down that order. A subcategory with nothing filed under it still
+ * gets `EMPTY_SEGMENT_SHARE` worth of width in neutral grey rather than disappearing — the bar
+ * answers "how many subcategories, and how full are they", not only "where the stock is".
+ *
+ * Decorative (aria-hidden): the numbers either side of it already state the same thing, so
+ * nothing here is carried by colour alone.
+ */
+function DistributionBar({
+  subcategories,
+}: {
+  subcategories: CommercialCategoryNode[];
+}) {
+  const filled = subcategories.filter((c) => c.rangedCount > 0).length;
+  let rank = 0;
+
+  return (
+    <div className={css.distribution} aria-hidden="true">
+      {subcategories.map((child) => {
+        const isFilled = child.rangedCount > 0;
+        // Even steps from full strength down to MIN_SEGMENT_OPACITY across the filled segments.
+        const opacity = isFilled
+          ? 1 - (rank++ / Math.max(1, filled - 1)) * (1 - MIN_SEGMENT_OPACITY)
+          : undefined;
+        return (
+          <span
+            key={child.id}
+            data-testid="category-distribution-segment"
+            className={isFilled ? css.segmentFilled : css.segmentEmpty}
+            style={{
+              flexGrow: isFilled ? child.rangedCount : EMPTY_SEGMENT_SHARE,
+              opacity,
+            }}
+          />
         );
       })}
     </div>
   );
 }
 
-function ReorderButtons({
-  node,
-  siblings,
-  busy,
-  onMove,
-}: {
-  node: CommercialCategoryNode;
-  siblings: CommercialCategoryNode[];
-  busy: boolean;
-  onMove: Props["onMove"];
-}) {
-  const idx = siblings.findIndex((s) => s.id === node.id);
-  return (
-    <>
-      <button
-        type="button"
-        className={css.iconBtn}
-        disabled={idx <= 0 || busy}
-        aria-label={`Move ${node.name} up`}
-        data-tooltip="Move up"
-        onClick={() => onMove(node, "up", siblings)}
-      >
-        <IconChevronUp size={13} />
-      </button>
-      <button
-        type="button"
-        className={css.iconBtn}
-        disabled={idx === -1 || idx >= siblings.length - 1 || busy}
-        aria-label={`Move ${node.name} down`}
-        data-tooltip="Move down"
-        onClick={() => onMove(node, "down", siblings)}
-      >
-        <IconChevronDown size={13} />
-      </button>
-    </>
-  );
-}
-
 function rowActions(
   node: CommercialCategoryNode,
-  canDelete: boolean,
-  onRequestRename: Props["onRequestRename"],
-  onRequestAddChild: Props["onRequestAddChild"],
-  onMoveProducts: Props["onMoveProducts"],
-  onDelete: Props["onDelete"],
+  {
+    canDelete,
+    busy,
+    isDepartment,
+    onRequestRename,
+    onRequestAddChild,
+    onToggleActive,
+    onMoveProducts,
+    onDelete,
+  }: {
+    canDelete: boolean;
+    busy: boolean;
+    /** Departments hold categories; a category holds products. The tree is two levels. */
+    isDepartment: boolean;
+  } & Pick<
+    Props,
+    | "onRequestRename"
+    | "onRequestAddChild"
+    | "onToggleActive"
+    | "onMoveProducts"
+    | "onDelete"
+  >,
 ) {
   return [
     { label: "Rename", onClick: () => onRequestRename(node) },
-    { label: "Add subcategory", onClick: () => onRequestAddChild(node) },
+    // Offered on departments only. A subcategory's children would be a third level the tree
+    // does not render, so the action created categories nobody could then see.
+    ...(isDepartment
+      ? [
+          {
+            label: "Add subcategory",
+            onClick: () => onRequestAddChild(node),
+          },
+        ]
+      : []),
+    {
+      label: node.isActive ? "Hide" : "Show",
+      hint: node.isActive
+        ? "Keeps it off the Products filter, POS and onboarding"
+        : "Offer it again everywhere it's chosen",
+      disabled: busy,
+      onClick: () => onToggleActive(node),
+    },
     ...(node.productCount > 0
       ? [{ label: "Move products out…", onClick: () => onMoveProducts(node) }]
       : []),

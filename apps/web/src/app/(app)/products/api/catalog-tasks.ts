@@ -85,6 +85,36 @@ export type CatalogTaskSummary = {
   categoryCoveragePercent: number;
 };
 
+/**
+ * How many tasks each filter chip would return under the rest of the current filter.
+ *
+ * The queue filters on two axes at once — kind of task and how it was closed — so a chip's
+ * count only means something relative to the other axis. These come back with the page they
+ * describe, which is what keeps the number on a chip equal to the number of rows clicking it
+ * produces; the tenant-wide `summary` can't answer that question.
+ */
+export type CatalogTaskCounts = {
+  all: number;
+  needsCategory: number;
+  nmraMatch: number;
+  compliance: number;
+  ambiguous: number;
+  noSuggestion: number;
+  open: number;
+  resolved: number;
+  dismissed: number;
+  notApplicable: number;
+  safeToApply: number;
+};
+
+export type CatalogTaskPage = {
+  items: CatalogTask[];
+  total: number;
+  skip: number;
+  take: number;
+  counts: CatalogTaskCounts;
+};
+
 export type CatalogTaskQuery = {
   status?: CatalogTaskStatus[];
   type?: CatalogTaskType[];
@@ -120,12 +150,7 @@ export function fetchCatalogTaskSummary(): Promise<CatalogTaskSummary> {
 
 export function fetchCatalogTasks(
   query: CatalogTaskQuery,
-): Promise<{
-  items: CatalogTask[];
-  total: number;
-  skip: number;
-  take: number;
-}> {
+): Promise<CatalogTaskPage> {
   const qs = catalogTaskParams(query).toString();
   return apiJson(`/catalog-tasks${qs ? `?${qs}` : ""}`);
 }

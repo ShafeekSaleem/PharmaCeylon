@@ -148,6 +148,13 @@ a:hover {
   color: var(--pc-primary-hover);
 }
 
+/* Checkboxes and radios are teal everywhere, rather than each component remembering to say so
+   and a stray one rendering in the browser's default blue. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--pc-primary);
+}
+
 /* Visually hidden — keep labels for screen readers */
 .pc-sr-only {
   position: absolute;

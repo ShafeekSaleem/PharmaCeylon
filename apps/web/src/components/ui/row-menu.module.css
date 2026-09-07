@@ -36,23 +36,21 @@
   outline-offset: 1px;
 }
 
+/* Fixed, in a portal on <body>: every container this menu opens inside clips it otherwise —
+   a card with rounded corners (`overflow: hidden`) or a horizontally scrolling table. Top/bottom
+   and right are set inline from the trigger's measured position; `bottom` is what flips it above
+   the trigger for rows near the foot of the viewport.
+   z-index sits with the other floating layers: above modals (130), below tooltips (10000). */
 .menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 1000;
   min-width: 190px;
+  max-width: min(280px, calc(100vw - 16px));
   padding: 0.25rem;
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-md);
   background: var(--pc-card-bg);
   box-shadow: var(--pc-shadow-card);
-}
-
-/* Flips above the trigger for rows near the bottom of the viewport. */
-.menuUp {
-  top: auto;
-  bottom: calc(100% + 4px);
 }
 
 .item {

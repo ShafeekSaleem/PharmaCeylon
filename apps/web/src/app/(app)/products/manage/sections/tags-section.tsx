@@ -5,11 +5,10 @@ import { Alert } from "@/components/alert";
 import {
   IconChevronRight,
   IconInfo,
-  IconPlus,
   IconSearch,
   IconTag,
 } from "@/components/icons";
-import { ActionButton, RowMenu } from "@/components/ui";
+import { RowMenu } from "@/components/ui";
 import { usePermissions } from "@/lib/permissions";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import type { ProductTag } from "../../types";
@@ -18,6 +17,7 @@ import {
   TagFormModal,
   type TagModalState,
 } from "../../tags/components/tag-form-modal";
+import manageCss from "../manage.module.css";
 import css from "./tags.module.css";
 
 /**
@@ -34,7 +34,14 @@ import css from "./tags.module.css";
  * as many per screen — the difference between seeing your existing tags and adding a fifth
  * near-duplicate of one.
  */
-export function TagsSection() {
+export function TagsSection({
+  createRequested = false,
+  onCreateHandled,
+}: {
+  /** Raised by the workspace header's "New tag" button — see ManagePageContent. */
+  createRequested?: boolean;
+  onCreateHandled?: () => void;
+} = {}) {
   const { permissionKeys } = usePermissions();
   const canWrite = permissionKeys.includes("product_meta.manage");
   const canDelete = permissionKeys.includes("product_meta.delete");
@@ -68,6 +75,13 @@ export function TagsSection() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!createRequested) return;
+    setTagError(null);
+    setTagModal({ mode: "create" });
+    onCreateHandled?.();
+  }, [createRequested, onCreateHandled]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return tags;
@@ -81,6 +95,11 @@ export function TagsSection() {
   const systemTags = useMemo(
     () => filtered.filter((t) => t.isSystem),
     [filtered],
+  );
+  /** The pharmacy's own tags, unfiltered — what the search field is searching through. */
+  const tagCount = useMemo(
+    () => tags.filter((t) => !t.isSystem).length,
+    [tags],
   );
 
   async function handleTagModalSubmit(name: string) {
@@ -124,43 +143,32 @@ export function TagsSection() {
 
   return (
     <div className={css.section}>
-      <div className={css.head}>
-        <p className={css.hint}>
-          Labels for cutting across categories — filters, POS and reports all
-          read them.
-        </p>
-        {canWrite && (
-          <ActionButton
-            icon={<IconPlus size={16} />}
-            variant="secondary"
-            onClick={() => {
-              setTagError(null);
-              setTagModal({ mode: "create" });
-            }}
-          >
-            New tag
-          </ActionButton>
-        )}
-      </div>
-
       {error ? <Alert variant="error">{error}</Alert> : null}
 
       {(tags.length > 0 || query) && (
-        <div className={css.toolbar}>
-          <div className={css.searchWrap}>
-            <IconSearch size={15} className={css.searchIcon} />
-            <input
-              className={css.searchInput}
-              type="search"
-              placeholder="Search tags…"
-              aria-label="Search tags"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+        <div className={manageCss.toolbar}>
+          <div className={manageCss.toolbarGroup}>
+            <div className={manageCss.searchWrap}>
+              <IconSearch size={15} className={manageCss.searchIcon} />
+              <input
+                className={manageCss.searchInput}
+                type="search"
+                placeholder={
+                  tagCount > 0
+                    ? `Search ${tagCount.toLocaleString()} tag${tagCount === 1 ? "" : "s"}…`
+                    : "Search tags…"
+                }
+                aria-label="Search tags"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            {!canWrite && (
+              <span className={manageCss.readOnlyNote}>
+                You have read-only access.
+              </span>
+            )}
           </div>
-          {!canWrite && (
-            <span className={css.readOnlyNote}>You have read-only access.</span>
-          )}
         </div>
       )}
 
@@ -188,19 +196,21 @@ export function TagsSection() {
             const used = tag.rangedCount ?? 0;
             return (
               <li key={tag.id} className={css.tag}>
-                <span className={css.tagDot} aria-hidden />
-                <div className={css.tagBody}>
-                  <span className={css.tagName} title={tag.name}>
-                    {tag.name}
-                  </span>
+                <span className={css.tagName} title={tag.name}>
+                  {tag.name}
+                </span>
+                {/* A tag nobody has applied is the one worth tidying up, so it says so in a
+                    word rather than showing a bare zero to be read as a count. */}
+                {used === 0 ? (
+                  <span className={css.tagUnused}>Unused</span>
+                ) : (
                   <span
-                    className={`${css.tagCount}${used === 0 ? ` ${css.tagUnused}` : ""}`}
+                    className={css.tagCount}
+                    aria-label={`${used.toLocaleString()} product${used === 1 ? "" : "s"}`}
                   >
-                    {used === 0
-                      ? "Not used yet"
-                      : `${used.toLocaleString()} product${used === 1 ? "" : "s"}`}
+                    {used.toLocaleString()}
                   </span>
-                </div>
+                )}
                 {(canWrite || canDelete) && (
                   <div className={css.tagActions}>
                     <RowMenu
@@ -257,10 +267,7 @@ export function TagsSection() {
           </summary>
           <div className={css.systemBody}>
             <p className={css.systemNote}>
-              Schedule, controlled status, prescription requirement and
-              registration validity come from the register and are re-applied on
-              every import, so they can&apos;t be renamed or deleted. Filter by
-              them from Products, or open a product to see its registration.
+              Set by the register on every import. Filter by them from Products.
             </p>
             <ul className={css.systemList}>
               {systemTags.map((tag) => (

@@ -13,7 +13,7 @@ import {
   type Column,
   type SortDir,
 } from "@/components/ui";
-import { PAGE_SIZE } from "../constants";
+import { PAGE_SIZE, REFERENCE_HIDDEN_COLUMNS } from "../constants";
 import css from "../products.module.css";
 import type { ColumnKey, Product, ProductScope } from "../types";
 import { ProductActions } from "./product-actions";
@@ -159,12 +159,13 @@ export function ProductTable({
         key: "sku",
         header: "SKU",
         sortable: true,
-        width: "110px",
+        width: "92px",
         getValue: (row) => row.sku,
       },
       {
         key: "brandName",
         header: "Brand",
+        width: "115px",
         sortable: true,
         getValue: (row) => row.brandName ?? "",
         render: (row) => <>{row.brandName ?? "—"}</>,
@@ -172,6 +173,7 @@ export function ProductTable({
       {
         key: "dosageForm",
         header: "Form / Strength",
+        width: "168px",
         getValue: (row) => row.dosageForm ?? "",
         render: (row) => (
           <>
@@ -183,20 +185,21 @@ export function ProductTable({
       {
         key: "manufacturer",
         header: "Manufacturer",
+        width: "150px",
         getValue: (row) => row.manufacturer ?? "",
         render: (row) => <>{row.manufacturer ?? "—"}</>,
       },
       {
         key: "unit",
         header: "Unit",
-        width: "80px",
+        width: "70px",
         getValue: (row) => row.unit ?? "",
         render: (row) => <>{row.unit ?? "—"}</>,
       },
       {
         key: "registrationNo",
         header: "Reg. no.",
-        width: "110px",
+        width: "95px",
         sortable: true,
         getValue: (row) => row.registrationNo ?? "",
         render: (row) => <>{row.registrationNo ?? "—"}</>,
@@ -204,7 +207,7 @@ export function ProductTable({
       {
         key: "schedule",
         header: "Schedule",
-        width: "90px",
+        width: "102px",
         sortable: true,
         getValue: (row) => row.schedule ?? "",
         render: (row) => <>{row.schedule ?? "—"}</>,
@@ -213,7 +216,7 @@ export function ProductTable({
         key: "stock",
         header: "Stock",
         align: "left",
-        width: "150px",
+        width: "132px",
         // A reference record isn't "out of stock" — the pharmacy never carried it. A red
         // 0-units badge on every row would read as a shelf full of problems.
         render: (row) =>
@@ -232,7 +235,7 @@ export function ProductTable({
         key: "reorderLevel",
         header: "Reorder Lvl",
         align: "right",
-        width: "100px",
+        width: "90px",
         sortable: true,
         getValue: (row) => row.reorderLevel,
         render: (row) => <>{row.reorderLevel}</>,
@@ -240,7 +243,7 @@ export function ProductTable({
       {
         key: "status",
         header: "Status",
-        width: "132px",
+        width: "118px",
         render: (row) => (
           <div className={css.statusCell}>
             {/* On the reference tab every row is REFERENCE, so an "active/inactive" badge
@@ -324,8 +327,15 @@ export function ProductTable({
 
   const columns = useMemo(
     () =>
-      allColumnDefs.filter((col) => visibleColumns.has(col.key as ColumnKey)),
-    [allColumnDefs, visibleColumns],
+      allColumnDefs.filter(
+        (col) =>
+          visibleColumns.has(col.key as ColumnKey) &&
+          !(
+            scope === "reference" &&
+            REFERENCE_HIDDEN_COLUMNS.has(col.key as ColumnKey)
+          ),
+      ),
+    [allColumnDefs, scope, visibleColumns],
   );
 
   return (
@@ -345,6 +355,7 @@ export function ProductTable({
       selectedKeys={selectedIds}
       onSelectionChange={onSelectionChange}
       compact
+      fixedLayout
       emptyTitle={
         scope === "reference"
           ? "No reference products found"

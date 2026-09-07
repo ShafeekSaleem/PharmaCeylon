@@ -69,6 +69,21 @@ export function ProductStockBadge({
   const label = stockStatusLabel(stockStatus);
   const units = qtyOnHand === 1 ? "unit" : "units";
   const text = `${qtyOnHand} ${units} - ${label}`;
+  /*
+   * What the pill shows is shorter than what it means, because the full wording never fitted
+   * the column — it used to run out under the Status badge beside it.
+   *
+   * Neither word it drops is carrying anything: "out of stock" is nought units by definition,
+   * and a healthy count is healthy because of the number already in the pill. Only "low" is a
+   * judgement the number alone doesn't make, so only "low" keeps its word. The full text stays
+   * in the tooltip and, importantly, in the accessible name — so nothing here rests on colour.
+   */
+  const shortText =
+    stockStatus === "out"
+      ? label
+      : stockStatus === "low"
+        ? `${qtyOnHand} ${units} - ${label}`
+        : `${qtyOnHand} ${units}`;
 
   const showGap =
     showReorderHint &&
@@ -83,7 +98,7 @@ export function ProductStockBadge({
       aria-label={text}
     >
       <StockIcon status={stockStatus} />
-      <span className={css.stockPillText}>{text}</span>
+      <span className={css.stockPillText}>{shortText}</span>
       {showGap && (
         <span className={css.stockPillHint}>
           {reorderGap} below reorder ({reorderLevel})

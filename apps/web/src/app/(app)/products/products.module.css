@@ -949,7 +949,7 @@
   font-size: 0.72rem;
   line-height: 1.3;
   text-align: center;
-  color: #991b1b;
+  color: var(--pc-alert-error-text);
   background: var(--pc-alert-error-bg);
   border-radius: var(--pc-radius-sm);
 }
@@ -1160,6 +1160,8 @@
 
 .stockPillText {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stockPillHint {
@@ -1755,14 +1757,30 @@
   background: var(--pc-muted-bg);
 }
 
+/* Selection is the theme's teal here as it is everywhere else. It used to be alert-green,
+   which reads as "this succeeded" rather than "this one is chosen". */
 .relationOptionSelected {
-  background: var(--pc-alert-success-bg);
-  color: var(--pc-alert-success-text);
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
   font-weight: 500;
 }
 
 .relationOptionSelected:hover {
-  background: color-mix(in srgb, var(--pc-alert-success-bg) 80%, var(--pc-alert-success-border));
+  background: color-mix(in srgb, var(--pc-primary) 16%, var(--pc-card-bg));
+}
+
+/* Departments and their categories, drawn as the two levels they are. */
+.relationOptionParent {
+  font-weight: 600;
+}
+
+.relationOptionChild {
+  padding-left: 1.5rem;
+  color: var(--pc-muted-fg);
+}
+
+.relationOptionChild:hover {
+  color: var(--pc-foreground);
 }
 
 .relationOption input {
@@ -3309,48 +3327,131 @@
   color: var(--pc-foreground);
 }
 
-.bulkSelect {
-  width: 100%;
-  padding: 0.45rem 0.55rem;
+/* Add / remove is a mode, not a pair of radio buttons: it changes what every chip below it
+   means, so it gets the weight of a segmented control. */
+.tagModeSwitch {
+  display: inline-flex;
+  gap: 0.15rem;
+  margin-bottom: 0.85rem;
+  padding: 0.15rem;
   border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-input-bg);
-  color: var(--pc-foreground);
-  font-family: inherit;
-  font-size: 0.85rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
 }
 
-.bulkSelect:focus-visible {
-  outline: 2px solid var(--pc-primary);
-  outline-offset: -1px;
-}
-
-.bulkModeRow {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}
-
-.bulkModeOption,
-.bulkTagOption {
+.tagModeOption {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-  color: var(--pc-foreground);
+  gap: 0.35rem;
+  padding: 0.32rem 0.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--pc-muted-fg);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
-.bulkTagList {
+.tagModeOption:hover {
+  color: var(--pc-foreground);
+}
+
+.tagModeOptionActive,
+.tagModeOptionActive:hover {
+  background: var(--pc-card-bg);
+  color: var(--pc-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Tags as capsules you toggle, rather than a wall of checkboxes. Each one states how much of
+   the selection already carries it, which is the fact that decides whether picking it does
+   anything at all. */
+.tagPicker {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 1rem;
-  max-height: 220px;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.7rem;
+  list-style: none;
+  max-height: 240px;
   overflow-y: auto;
-  padding: 0.6rem 0.7rem;
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
   background: var(--pc-muted-bg);
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem 0.3rem 0.45rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.tagChip:hover:not(:disabled) {
+  border-color: var(--pc-primary);
+}
+
+.tagChip:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.tagChipOn {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary);
+  color: #fff;
+}
+
+/* Removing is destructive, so a chip queued for removal wears the danger colour rather than
+   looking exactly like one queued for adding. */
+.tagChipRemoving {
+  border-color: var(--pc-danger);
+  background: var(--pc-danger);
+}
+
+.tagChipIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.tagChipName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tagChipCount {
+  flex-shrink: 0;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tagChipOn .tagChipCount {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.tagPickerHint {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
 }
 
 .bulkEmpty {
@@ -3447,69 +3548,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Catalog issue banner ──────────────────────────────────────────────────
-   Replaces the permanent row of five KPI tiles. Present only when there is work, which makes
-   its presence itself the signal — five tiles that are always there say nothing. */
-
-.issueBanner {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.55rem 0.8rem;
-  border: 1px solid var(--pc-alert-warning-border);
-  border-left-width: 3px;
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-alert-warning-bg);
-  color: var(--pc-alert-warning-text);
-}
-
-.issueBannerIcon {
-  display: inline-flex;
-  flex-shrink: 0;
-  color: var(--pc-alert-warning-icon);
-}
-
-.issueBannerText {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.45;
-}
-
-.issueBannerLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
-  flex-shrink: 0;
-  padding: 0.28rem 0.5rem;
-  border-radius: var(--pc-radius-sm);
-  color: inherit;
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.issueBannerLink:hover {
-  background: var(--pc-hover-overlay);
-  text-decoration: underline;
-}
-
-.issueBannerLink:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 1px;
-}
-
-@media (max-width: 640px) {
-  .issueBanner {
-    flex-wrap: wrap;
-  }
-
-  .issueBannerText {
-    flex-basis: 100%;
-  }
-}
 
 /* ── Reference-catalog row actions ─────────────────────────────────────────
    Reference rows get Add, never edit/delete: they are the regulator's records, and the only

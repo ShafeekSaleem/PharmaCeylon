@@ -4,7 +4,12 @@ import { useMemo, useRef, useState } from "react";
 import { IconPlus, IconSearch, IconX } from "@/components/icons";
 import css from "../products.module.css";
 
-type Option = { id: string; name: string };
+type Option = {
+  id: string;
+  name: string;
+  /** Present on commercial categories. Absent on tags, which are flat by nature. */
+  parentCategoryId?: string | null;
+};
 
 export function RelationMultiSelect({
   label,
@@ -27,10 +32,38 @@ export function RelationMultiSelect({
   const [newName, setNewName] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  const filtered = useMemo(() => {
+  /*
+   * Categories are a two-level tree, so they are drawn as one — department in the parent's
+   * weight, its categories indented under it. They used to be seventy-six flat, identical rows
+   * in which "Other Medicines" and "Medicines" looked like siblings, which is the one thing the
+   * list has to make clear. Tags carry no parent and fall through to the flat path unchanged.
+   */
+  const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => o.name.toLowerCase().includes(q));
+    const matches = (o: Option) => !q || o.name.toLowerCase().includes(q);
+    const hierarchical = options.some((o) => o.parentCategoryId);
+
+    if (!hierarchical) {
+      return options.filter(matches).map((opt) => ({ opt, depth: 0 }));
+    }
+
+    const childrenOf = new Map<string, Option[]>();
+    for (const o of options) {
+      if (!o.parentCategoryId) continue;
+      const list = childrenOf.get(o.parentCategoryId) ?? [];
+      list.push(o);
+      childrenOf.set(o.parentCategoryId, list);
+    }
+
+    const out: Array<{ opt: Option; depth: number }> = [];
+    for (const parent of options.filter((o) => !o.parentCategoryId)) {
+      const children = (childrenOf.get(parent.id) ?? []).filter(matches);
+      // A department with no matching children and no match of its own has nothing to show.
+      if (!matches(parent) && children.length === 0) continue;
+      out.push({ opt: parent, depth: 0 });
+      for (const child of children) out.push({ opt: child, depth: 1 });
+    }
+    return out;
   }, [options, query]);
 
   const singular = label.toLowerCase().replace(/s$/, "");
@@ -154,15 +187,17 @@ export function RelationMultiSelect({
         </div>
       ) : (
         <div className={css.relationList} role="listbox" aria-label={label} aria-multiselectable>
-          {filtered.length === 0 ? (
+          {rows.length === 0 ? (
             <p className={css.relationEmpty}>No matches.</p>
           ) : (
-            filtered.map((opt) => {
+            rows.map(({ opt, depth }) => {
               const checked = selected.includes(opt.id);
               return (
                 <label
                   key={opt.id}
-                  className={`${css.relationOption} ${checked ? css.relationOptionSelected : ""}`}
+                  className={`${css.relationOption} ${
+                    depth === 0 ? css.relationOptionParent : css.relationOptionChild
+                  } ${checked ? css.relationOptionSelected : ""}`}
                 >
                   <input
                     type="checkbox"

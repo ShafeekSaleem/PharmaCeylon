@@ -18,6 +18,7 @@ import {
   IconUpload,
   IconUserPlus,
 } from "@/components/icons";
+import { StatusStrip } from "@/components/ui";
 import {
   confirmSetupTask,
   completeSetupJourney,
@@ -121,17 +122,15 @@ export default function GetStartedPage() {
 
   return (
     <div className={css.page}>
-      <section className={css.workspaceBanner}>
-        <span>
-          <IconCheck size={17} />
-        </span>
-        <p>
-          Workspace created <i>·</i> <strong>{data.tenant.name}</strong>
-        </p>
-        <Link href="/settings/tenant-profile">
-          View business details <IconChevronRight size={15} />
-        </Link>
-      </section>
+      <StatusStrip
+        label="Workspace created"
+        emphasis={data.tenant.name}
+        actions={
+          <Link href="/settings/tenant-profile">
+            View business details <IconChevronRight size={15} />
+          </Link>
+        }
+      />
 
       <header className={css.hero}>
         <div>
@@ -293,7 +292,9 @@ export default function GetStartedPage() {
                 {nextStepNumber}/{data.totalCount}
               </span>
             </div>
-            <div className={css.nextVisual}>
+            <div
+              className={`${css.nextVisual}${nextTask ? "" : ` ${css.nextVisualDone}`}`}
+            >
               <span>
                 {nextTask ? (
                   TASK_ICONS[nextTask.key]
@@ -350,17 +351,19 @@ export default function GetStartedPage() {
               <em>{data.optional.teamInvited ? "Done" : "Invite"}</em>
               <IconChevronRight size={15} />
             </Link>
-            <Link href="/settings/tenant-profile">
-              <span className={css.optionalIcon}>
-                <IconUpload size={21} />
-              </span>
-              <p>
-                <strong>Add your logo</strong>
-                <small>Brand invoices and receipts.</small>
-              </p>
-              <em>{data.optional.logoAdded ? "Done" : "Upload"}</em>
-              <IconChevronRight size={15} />
-            </Link>
+            {!data.optional.logoAdded ? (
+              <Link href="/settings/tenant-profile">
+                <span className={css.optionalIcon}>
+                  <IconUpload size={21} />
+                </span>
+                <p>
+                  <strong>Add your logo</strong>
+                  <small>Brand invoices and receipts.</small>
+                </p>
+                <em>Upload</em>
+                <IconChevronRight size={15} />
+              </Link>
+            ) : null}
             {data.optional.catalogCoverage.ranged > 0 ? (
               <Link href="/products/manage?view=needs_category">
                 <span className={css.optionalIcon}>

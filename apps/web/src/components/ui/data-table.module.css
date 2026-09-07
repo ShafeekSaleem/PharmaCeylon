@@ -55,6 +55,23 @@
   font-size: 0.85rem;
 }
 
+/* Declared widths win over content. Long values then have to wrap or ellipsize rather than
+   push their column wider, so cells break inside a word when a word is all there is. */
+.fixedLayout {
+  table-layout: fixed;
+}
+
+.fixedLayout tbody td {
+  overflow-wrap: anywhere;
+}
+
+/* Headers stay on one line, so a label too long for its column is clipped rather than
+   printed over the next one. */
+.fixedLayout thead th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .table thead th {
   padding: 0.7rem 0.85rem;
   font-size: 0.72rem;

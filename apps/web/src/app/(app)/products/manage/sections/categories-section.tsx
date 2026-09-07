@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
-import { IconPlus, IconSearch } from "@/components/icons";
-import { ActionButton } from "@/components/ui";
+import { IconSearch } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import {
@@ -14,7 +13,6 @@ import {
   fetchOnboardingStatus,
   fetchProductIdsInCategory,
   moveProductsCategory,
-  reorderCategories,
   updateCategory,
 } from "../../categories/api";
 import {
@@ -41,7 +39,14 @@ import type {
  * put "Tablet" and "Pain & Fever" in the same editable tree as if they answered the same
  * question.
  */
-export function CategoriesSection() {
+export function CategoriesSection({
+  createRequested = false,
+  onCreateHandled,
+}: {
+  /** Raised by the workspace header's "New category" button — see ManagePageContent. */
+  createRequested?: boolean;
+  onCreateHandled?: () => void;
+} = {}) {
   const { permissionKeys } = usePermissions();
   const canWrite = permissionKeys.includes("product_meta.manage");
   const canDelete = permissionKeys.includes("product_meta.delete");
@@ -101,6 +106,19 @@ export function CategoriesSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!createRequested) return;
+    setCategoryError(null);
+    setCategoryModal({ mode: "create", parent: null });
+    onCreateHandled?.();
+  }, [createRequested, onCreateHandled]);
+
+  /** Every node in the tree, so the search field can say what it is searching. */
+  const categoryCount = useMemo(
+    () => tree.reduce((sum, dept) => sum + 1 + dept.children.length, 0),
+    [tree],
+  );
 
   // Show the onboarding panel until any department beyond Medicines is enabled.
   const needsOnboarding = useMemo(() => {
@@ -172,30 +190,6 @@ export function CategoriesSection() {
     }
   }
 
-  async function handleMove(
-    node: CommercialCategoryNode,
-    direction: "up" | "down",
-    siblings: CommercialCategoryNode[],
-  ) {
-    const idx = siblings.findIndex((s) => s.id === node.id);
-    const swapWith = direction === "up" ? siblings[idx - 1] : siblings[idx + 1];
-    if (!swapWith) return;
-    setBusyId(node.id);
-    try {
-      await reorderCategories([
-        { id: node.id, sortOrder: swapWith.sortOrder },
-        { id: swapWith.id, sortOrder: node.sortOrder },
-      ]);
-      await load();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to reorder categories",
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function handleConfirmMoveProducts(targetCategoryId: string) {
     if (!moveSource) return;
     setMoveLoading(true);
@@ -235,38 +229,6 @@ export function CategoriesSection() {
 
   return (
     <div className={css.page}>
-      <div className={manageCss.sectionHeader}>
-        <p className={manageCss.sectionHint}>
-          These are merchandising categories. Dosage form, NMRA schedule and
-          registration type come from the register and aren&apos;t edited here.
-        </p>
-        <div className={manageCss.sectionHeaderActions}>
-          {/* Off by default. A 15,000-row register puts four-digit reference counts on every
-              row, which drowns the number a shop actually acts on — how many of ITS products
-              are filed here. */}
-          <label className={manageCss.displayOption}>
-            <input
-              type="checkbox"
-              checked={showReferenceCounts}
-              onChange={(e) => setShowReferenceCounts(e.target.checked)}
-            />
-            Show reference counts
-          </label>
-          {canWrite && (
-            <ActionButton
-              icon={<IconPlus size={16} />}
-              variant="secondary"
-              onClick={() => {
-                setCategoryError(null);
-                setCategoryModal({ mode: "create", parent: null });
-              }}
-            >
-              New category
-            </ActionButton>
-          )}
-        </div>
-      </div>
-
       {error ? <Alert variant="error">{error}</Alert> : null}
 
       {!loading && onboarding && needsOnboarding && !onboardingDismissed ? (
@@ -278,21 +240,42 @@ export function CategoriesSection() {
         />
       ) : null}
 
-      <div className={css.toolbar}>
-        <div className={css.searchWrap}>
-          <IconSearch size={15} className={css.searchIcon} />
-          <input
-            className={css.searchInput}
-            placeholder="Search categories…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+      <div className={manageCss.toolbar}>
+        <div className={manageCss.toolbarGroup}>
+          <div className={manageCss.searchWrap}>
+            <IconSearch size={15} className={manageCss.searchIcon} />
+            <input
+              className={manageCss.searchInput}
+              type="search"
+              aria-label="Search categories"
+              placeholder={
+                categoryCount > 0
+                  ? `Search ${categoryCount.toLocaleString()} categor${categoryCount === 1 ? "y" : "ies"}…`
+                  : "Search categories…"
+              }
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          {!canWrite ? (
+            <span className={manageCss.readOnlyNote}>
+              You have read-only access to categories.
+            </span>
+          ) : null}
         </div>
-        {!canWrite ? (
-          <span className={css.count}>
-            You have read-only access to categories.
-          </span>
-        ) : null}
+        <div className={manageCss.toolbarActions}>
+          {/* Off by default. A 15,000-row register puts four-digit reference counts on every
+              row, which drowns the number a shop actually acts on — how many of ITS products
+              are filed here. */}
+          <label className={manageCss.displayOption}>
+            <input
+              type="checkbox"
+              checked={showReferenceCounts}
+              onChange={(e) => setShowReferenceCounts(e.target.checked)}
+            />
+            Show reference counts
+          </label>
+        </div>
       </div>
 
       {loading ? (
@@ -320,7 +303,6 @@ export function CategoriesSection() {
             setDeleteError(null);
             setDeleteTarget(node);
           }}
-          onMove={handleMove}
           onMoveProducts={(node) => {
             setMoveError(null);
             setMoveSource(node);

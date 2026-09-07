@@ -1,15 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  IconChevronLeft,
   IconClipboardList,
   IconGrid,
+  IconPlus,
   IconTag,
 } from "@/components/icons";
-import { PageHeader, SegmentedTabPanel, SegmentedTabs } from "@/components/ui";
+import {
+  ActionButton,
+  PageHeader,
+  SegmentedTabPanel,
+  SegmentedTabs,
+} from "@/components/ui";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { usePermissions } from "@/lib/permissions";
 import { useCatalogTaskSummary } from "../hooks/use-catalog-task-summary";
@@ -23,6 +27,17 @@ import css from "./manage.module.css";
 
 const SECTIONS = ["queue", "categories", "tags"] as const;
 type SectionId = (typeof SECTIONS)[number];
+
+/**
+ * The lead sentence belongs to the section, not the workspace. One line describing all three at
+ * once ("resolve catalog issues and maintain how products are organised") describes none of them
+ * well enough to orient someone who has just landed on Tags.
+ */
+const SECTION_LEAD: Record<SectionId, string> = {
+  queue: "Review and resolve catalog issues found in your products.",
+  categories: "Organise how your products are grouped across the pharmacy.",
+  tags: "Create labels to group products across categories.",
+};
 
 function parseSection(raw: string | null): SectionId {
   return SECTIONS.includes(raw as SectionId) ? (raw as SectionId) : "queue";
@@ -46,6 +61,7 @@ export function ManagePageContent() {
   const { setLastSegmentLabel } = usePageChrome();
   const { permissionKeys } = usePermissions();
   const canViewMeta = permissionKeys.includes("product_meta.view");
+  const canManageMeta = permissionKeys.includes("product_meta.manage");
 
   const [section, setSection] = useState<SectionId>(() =>
     parseSection(searchParams.get("section")),
@@ -55,6 +71,15 @@ export function ManagePageContent() {
     (searchParams.get("view") as WorkQueueViewId | null) ?? undefined;
 
   const { summary, reload } = useCatalogTaskSummary();
+
+  /*
+   * "New category" / "New tag" belong in the page header, where every other page in the app puts
+   * its primary action — but the modal, its API call and the reload after it belong to the
+   * section. Rather than hoisting all of that, the header raises a request and the section
+   * acknowledges it once it has opened its own modal.
+   */
+  const [pendingCreate, setPendingCreate] = useState<SectionId | null>(null);
+  const clearPendingCreate = useCallback(() => setPendingCreate(null), []);
 
   useEffect(() => {
     setLastSegmentLabel("Catalog management");
@@ -85,15 +110,18 @@ export function ManagePageContent() {
     });
   }, [router, searchParams]);
 
+  /*
+   * No count on the Work queue tab. It rode along on every section, so standing on Categories
+   * meant reading a lone "212" capsule that belonged to a different tab and filtered nothing.
+   * The number is already on the Products page's "Manage catalog" badge, which is where it is
+   * acted on, and inside the queue its own "Open" filter chip states it.
+   */
   const tabs = useMemo(
     () => [
       {
         id: "queue" as const,
         label: "Work queue",
         icon: <IconClipboardList size={14} />,
-        count: summary?.open ?? null,
-        attention: (summary?.open ?? 0) > 0,
-        countLabel: "open tasks",
       },
       ...(canViewMeta
         ? [
@@ -106,19 +134,30 @@ export function ManagePageContent() {
           ]
         : []),
     ],
-    [canViewMeta, summary],
+    [canViewMeta],
   );
 
   return (
     <div className={css.page}>
-      <Link href="/products" className={css.backLink}>
-        <IconChevronLeft size={14} aria-hidden />
-        Products
-      </Link>
-
       <PageHeader
         subtitleOnly
-        description="Resolve catalog issues and maintain how products are organised."
+        floatingActions
+        description={SECTION_LEAD[section]}
+        actions={
+          canManageMeta && section !== "queue" ? (
+            <ActionButton
+              icon={<IconPlus size={16} />}
+              tooltip={
+                section === "categories"
+                  ? "Create a merchandising category"
+                  : "Create a tag"
+              }
+              onClick={() => setPendingCreate(section)}
+            >
+              {section === "categories" ? "New category" : "New tag"}
+            </ActionButton>
+          ) : null
+        }
       />
 
       <SegmentedTabs
@@ -141,11 +180,17 @@ export function ManagePageContent() {
       {canViewMeta && (
         <>
           <SegmentedTabPanel id="categories" active={section === "categories"}>
-            <CategoriesSection />
+            <CategoriesSection
+              createRequested={pendingCreate === "categories"}
+              onCreateHandled={clearPendingCreate}
+            />
           </SegmentedTabPanel>
 
           <SegmentedTabPanel id="tags" active={section === "tags"}>
-            <TagsSection />
+            <TagsSection
+              createRequested={pendingCreate === "tags"}
+              onCreateHandled={clearPendingCreate}
+            />
           </SegmentedTabPanel>
         </>
       )}

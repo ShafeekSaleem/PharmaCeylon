@@ -136,6 +136,8 @@ type ProductsFilterPanelProps = {
   applied: ProductFilters;
   onApply: (filters: ProductFilters) => void;
   hasBranch?: boolean;
+  /** Reference scope drops the filters that only mean something for stock the shop holds. */
+  scope?: "mine" | "reference";
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -177,8 +179,16 @@ export function ProductsFilterPanel({
   applied,
   onApply,
   hasBranch = false,
+  scope = "mine",
 }: ProductsFilterPanelProps) {
   const active = productFiltersAreActive(applied);
+  /*
+   * Status and Low stock answer questions the reference catalog can't have. Every register row
+   * is REFERENCE, and a reference row can never hold stock — the moment any arrives,
+   * `ensureProductsRanged` promotes it into My Products — so both filters would return either
+   * everything or nothing.
+   */
+  const stockAware = scope !== "reference";
 
   const patch = (updater: (prev: ProductFilters) => ProductFilters) => {
     onApply(updater(applied));
@@ -297,41 +307,45 @@ export function ProductsFilterPanel({
             />
           </FilterRow>
 
-          <FilterRow
-            label="Status"
-            hasSelection={applied.status.length > 0}
-            onClear={() => patch((d) => ({ ...d, status: [] }))}
-          >
-            <TreeMultiSelect
-              options={facetOptions(facets?.status ?? [], STATUS_LABELS)}
-              selected={applied.status}
-              onChange={(status) =>
-                patch((d) => ({
-                  ...d,
-                  status: status as ("active" | "inactive")[],
-                }))
-              }
-              searchPlaceholder="Search…"
-              searchable={false}
-              menuPlacement="right"
-            />
-          </FilterRow>
-
-          <FilterRow
-            label="Low stock"
-            hasSelection={applied.lowStock}
-            onClear={() => patch((d) => ({ ...d, lowStock: false }))}
-          >
-            <label className={css.lowStockToggle}>
-              <input
-                type="checkbox"
-                checked={applied.lowStock}
-                disabled={!hasBranch}
-                onChange={(e) => patch((d) => ({ ...d, lowStock: e.target.checked }))}
+          {stockAware && (
+            <FilterRow
+              label="Status"
+              hasSelection={applied.status.length > 0}
+              onClear={() => patch((d) => ({ ...d, status: [] }))}
+            >
+              <TreeMultiSelect
+                options={facetOptions(facets?.status ?? [], STATUS_LABELS)}
+                selected={applied.status}
+                onChange={(status) =>
+                  patch((d) => ({
+                    ...d,
+                    status: status as ("active" | "inactive")[],
+                  }))
+                }
+                searchPlaceholder="Search…"
+                searchable={false}
+                menuPlacement="right"
               />
-              <span>{hasBranch ? "Below reorder level at branch" : "Select a branch first"}</span>
-            </label>
-          </FilterRow>
+            </FilterRow>
+          )}
+
+          {stockAware && (
+            <FilterRow
+              label="Low stock"
+              hasSelection={applied.lowStock}
+              onClear={() => patch((d) => ({ ...d, lowStock: false }))}
+            >
+              <label className={css.lowStockToggle}>
+                <input
+                  type="checkbox"
+                  checked={applied.lowStock}
+                  disabled={!hasBranch}
+                  onChange={(e) => patch((d) => ({ ...d, lowStock: e.target.checked }))}
+                />
+                <span>{hasBranch ? "Below reorder level at branch" : "Select a branch first"}</span>
+              </label>
+            </FilterRow>
+          )}
     </FilterPopover>
   );
 }

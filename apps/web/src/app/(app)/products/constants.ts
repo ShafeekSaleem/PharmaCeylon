@@ -68,6 +68,22 @@ export const COLUMN_META: { key: ColumnKey; label: string; hideable: boolean }[]
   { key: "actions", label: "Actions", hideable: false },
 ];
 
+/**
+ * Columns the reference catalog never shows, and never offers in the column picker.
+ *
+ * A register row cannot hold stock: every path that puts units on a shelf calls
+ * `ensureProductsRanged`, which promotes the product into the pharmacy's own range first. So
+ * "Stock" is a column of "Not stocked" and "Reorder level" a column of zeroes. "Status" is the
+ * same story — every row on the tab is REFERENCE, so it printed the word "Reference" 5,000
+ * times; what is worth knowing about a register row (Rx, controlled) is already chipped under
+ * its name.
+ */
+export const REFERENCE_HIDDEN_COLUMNS = new Set<ColumnKey>([
+  "stock",
+  "reorderLevel",
+  "status",
+]);
+
 export const DEFAULT_VISIBLE = new Set<ColumnKey>([
   "name",
   "sku",

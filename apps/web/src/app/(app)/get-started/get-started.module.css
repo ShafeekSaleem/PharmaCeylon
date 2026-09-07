@@ -494,6 +494,24 @@
   font-size: 12.5px;
 }
 
+/* Setup complete. There is no task left to illustrate or explain, so the glyph and the
+   reserved description height come back down — enough that the side column stops needing a
+   scrollbar of its own on a laptop screen. */
+.nextVisualDone {
+  padding: 15px 24px 15px;
+}
+
+.nextVisualDone > span {
+  width: 54px;
+  height: 54px;
+  margin-bottom: 9px;
+}
+
+.nextVisualDone p {
+  min-height: 0;
+  margin: 5px auto 11px;
+}
+
 .nextCard > small {
   display: block;
   padding: 10px 18px;

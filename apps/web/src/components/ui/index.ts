@@ -30,6 +30,12 @@ export {
   type TreeOption,
   type CategoryTreeNode,
 } from "./tree-multi-select";
+export {
+  CategoryPicker,
+  type CategoryPickerNode,
+  type CategoryPickerExtra,
+} from "./category-picker";
+export { StatusStrip } from "./status-strip";
 export { FilterPopover, FilterRow } from "./filter-popover";
 export { ActiveFilterBanner, type FilterPill } from "./active-filter-banner";
 export { RowMenu, type RowMenuAction } from "./row-menu";

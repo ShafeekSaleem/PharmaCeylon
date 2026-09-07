@@ -35,6 +35,14 @@ export type DataTableProps<T> = {
   /** Extra class(es) applied to a row's `<tr>`, e.g. to flag a critical/flagged row. */
   rowClassName?: (row: T, index: number) => string | undefined;
   compact?: boolean;
+  /**
+   * Column widths come from the `width` on each column rather than from what happens to be in
+   * the rows. Worth turning on for any table whose rows differ a lot in length: with the
+   * browser's default `auto` layout a single long product name silently steals width from
+   * every other column, so the same table is laid out differently on each page of results.
+   * Give every column a `width` except the one that should absorb the leftover space.
+   */
+  fixedLayout?: boolean;
   className?: string;
   stickyHeader?: boolean;
   noHorizontalScroll?: boolean;
@@ -79,6 +87,7 @@ export function DataTable<T>({
   onRowClick,
   rowClassName,
   compact = false,
+  fixedLayout = false,
   className,
   stickyHeader = false,
   noHorizontalScroll = false,
@@ -190,6 +199,7 @@ export function DataTable<T>({
 
   const tableCls = [
     styles.table,
+    fixedLayout ? styles.fixedLayout : "",
     compact ? styles.compact : "",
     stickyHeader ? styles.stickyHeader : "",
     onRowClick ? styles.clickable : "",

@@ -1,0 +1,136 @@
+/* The shared "milestone reached" strip. Carried over from Get Started's workspace banner,
+   which is the version of this the app already got right. */
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 9px 14px;
+  border: 1px solid color-mix(in srgb, var(--pc-primary) 32%, var(--pc-border));
+  border-radius: 11px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pc-primary) 11%, var(--pc-card-bg)),
+    color-mix(in srgb, var(--pc-secondary-cyan) 5%, var(--pc-card-bg))
+  );
+}
+
+.icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--pc-primary);
+  color: #fff;
+}
+
+.message {
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sep {
+  padding: 0 3px;
+  color: var(--pc-muted-fg);
+  font-style: normal;
+}
+
+/* Trailing edge, whatever the message length. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+/* Every action in the strip answers to one set of rules, whether it is a link or a button. */
+.actions :global(a),
+.actions :global(button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 32px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pc-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.actions :global(a:hover),
+.actions :global(button:hover) {
+  border-color: color-mix(in srgb, var(--pc-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--pc-primary) 10%, transparent);
+}
+
+.actions :global(a:focus-visible),
+.actions :global(button:focus-visible) {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
+}
+
+/* The one action that should look like the thing to do next. */
+.actions :global(.status-strip-primary) {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text, #fff);
+}
+
+.actions :global(.status-strip-primary:hover) {
+  border-color: var(--pc-primary-hover, var(--pc-primary));
+  background: var(--pc-primary-hover, var(--pc-primary));
+  color: var(--pc-btn-primary-text, #fff);
+}
+
+.dismiss {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 2px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.dismiss:hover {
+  background: color-mix(in srgb, var(--pc-muted-fg) 14%, transparent);
+  color: var(--pc-foreground);
+}
+
+.dismiss:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .strip {
+    flex-wrap: wrap;
+  }
+
+  .actions {
+    width: 100%;
+    margin-left: 0;
+  }
+}
