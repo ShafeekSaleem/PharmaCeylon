@@ -31,13 +31,14 @@ import {
 
 /** How many products one `refresh` pass examines per batch. */
 const REFRESH_BATCH = 200;
-/** Ceiling on a single refresh, so a first run against a 20,000-product tenant stays bounded. */
-const REFRESH_MAX_PRODUCTS = 5000;
 const DEFAULT_TAKE = 50;
 const MAX_TAKE = 200;
 
 /** What "ambiguous" means everywhere: more than one plausible answer for one identifier. */
-const AMBIGUOUS_TYPES: CatalogTaskType[] = ["NMRA_AMBIGUOUS", "IMPORT_DUPLICATE"];
+const AMBIGUOUS_TYPES: CatalogTaskType[] = [
+  "NMRA_AMBIGUOUS",
+  "IMPORT_DUPLICATE",
+];
 
 type ProductRow = {
   id: string;
@@ -591,7 +592,7 @@ export class CatalogTaskService {
         type,
         status: { in: OPEN_STATUSES },
         productId: {
-          notIn: stillOpenProductIds.length > 0 ? stillOpenProductIds : [""],
+          notIn: stillOpenProductIds,
         },
         product: scope,
       },
@@ -607,7 +608,6 @@ export class CatalogTaskService {
 
   private async *pageProducts(where: Prisma.ProductWhereInput) {
     let cursor: string | undefined;
-    let fetched = 0;
     for (;;) {
       const batch: ProductRow[] = await this.prisma.product.findMany({
         where,
@@ -618,15 +618,7 @@ export class CatalogTaskService {
       });
       if (batch.length === 0) return;
       yield batch;
-      fetched += batch.length;
-      if (batch.length < REFRESH_BATCH || fetched >= REFRESH_MAX_PRODUCTS) {
-        if (fetched >= REFRESH_MAX_PRODUCTS) {
-          this.logger.warn(
-            `Catalog task refresh stopped at ${REFRESH_MAX_PRODUCTS} products; run again to continue.`,
-          );
-        }
-        return;
-      }
+      if (batch.length < REFRESH_BATCH) return;
       cursor = batch[batch.length - 1].id;
     }
   }
@@ -1073,25 +1065,39 @@ export class CatalogTaskService {
       safeToApply: true,
       status: { in: OPEN_STATUSES },
     };
-    const tasks = await this.prisma.catalogTask.findMany({
-      where,
-      select: { id: true },
-      take: MAX_TAKE,
-    });
-
+    // Keyset pagination advances past failures too, so one bad task cannot loop forever.
+    let cursor: string | undefined;
+    let requested = 0;
+    let firstTaskId: string | undefined;
     let applied = 0;
     const failed: Array<{ taskId: string; reason: string }> = [];
-    for (const task of tasks) {
-      try {
-        await this.apply(tenantId, userId, task.id);
-        applied += 1;
-      } catch (err) {
-        failed.push({
-          taskId: task.id,
-          reason:
-            err instanceof Error ? err.message : "Could not apply this change.",
-        });
+    for (;;) {
+      const tasks = await this.prisma.catalogTask.findMany({
+        where,
+        select: { id: true },
+        take: MAX_TAKE,
+        orderBy: { id: "asc" },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      if (!tasks.length) break;
+      firstTaskId ??= tasks[0].id;
+      requested += tasks.length;
+      for (const task of tasks) {
+        try {
+          await this.apply(tenantId, userId, task.id);
+          applied += 1;
+        } catch (err) {
+          failed.push({
+            taskId: task.id,
+            reason:
+              err instanceof Error
+                ? err.message
+                : "Could not apply this change.",
+          });
+        }
       }
+      if (tasks.length < MAX_TAKE) break;
+      cursor = tasks[tasks.length - 1].id;
     }
 
     await this.audit.log({
@@ -1099,8 +1105,8 @@ export class CatalogTaskService {
       actorUserId: userId,
       eventName: "catalog_task.apply_safe",
       entityName: "catalog_task",
-      entityId: tasks[0]?.id ?? "00000000-0000-0000-0000-000000000000",
-      payload: { requested: tasks.length, applied, failed: failed.length },
+      entityId: firstTaskId ?? "00000000-0000-0000-0000-000000000000",
+      payload: { requested, applied, failed: failed.length },
     });
 
     return { applied, failed };

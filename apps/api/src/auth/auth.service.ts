@@ -19,10 +19,7 @@ import {
   AccessTokenPayload,
   RefreshTokenPayload,
 } from "./types/auth-token-payload.type";
-import {
-  SESSION_REVOKED_REASONS,
-  SessionStore,
-} from "./session.store";
+import { SESSION_REVOKED_REASONS, SessionStore } from "./session.store";
 import { UserContextService } from "./user-context.service";
 
 export type IssuedTokens = {
@@ -83,7 +80,9 @@ export class AuthService {
         include: { tenant: { select: { code: true, isActive: true } } },
         orderBy: { joinedAt: "asc" as const },
       },
-      userBranchRoles: { select: { tenantId: true, branchId: true, role: true } },
+      userBranchRoles: {
+        select: { tenantId: true, branchId: true, role: true },
+      },
     } satisfies Prisma.AppUserInclude;
 
     const user = await this.prisma.appUser.findUnique({
@@ -92,7 +91,9 @@ export class AuthService {
     });
 
     const activeMemberships =
-      user?.tenantMemberships.filter((membership) => membership.tenant.isActive) ?? [];
+      user?.tenantMemberships.filter(
+        (membership) => membership.tenant.isActive,
+      ) ?? [];
     if (!user || !user.isActive || activeMemberships.length === 0) {
       throw new UnauthorizedException("Invalid credentials");
     }
@@ -104,6 +105,31 @@ export class AuthService {
       (entry) => entry.tenantId === membership.tenantId,
     );
 
+    await this.verifyAccountPassword(
+      user,
+      dto.password,
+      membership.tenantId,
+      meta,
+    );
+
+    return this.issueAndPersist({
+      user,
+      tenantId: membership.tenantId,
+      tenantCode: membership.tenant.code,
+      branchRoles,
+      previousSession: null,
+      meta,
+    });
+  }
+
+  /** Shared by login and invitation acceptance; neither flow may bypass account lockout. */
+  async verifyAccountPassword(
+    user: AppUser,
+    password: string,
+    tenantId: string,
+    meta: RequestMeta = {},
+  ): Promise<void> {
+    if (!user.isActive) throw new UnauthorizedException("Invalid credentials");
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       const remainingMs = user.lockedUntil.getTime() - Date.now();
       const remainingMin = Math.ceil(remainingMs / 60_000);
@@ -112,7 +138,7 @@ export class AuthService {
       );
     }
 
-    const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    const passwordValid = await bcrypt.compare(password, user.passwordHash);
     if (!passwordValid) {
       const attempts = user.failedLoginAttempts + 1;
       const lockout =
@@ -130,12 +156,16 @@ export class AuthService {
       });
 
       await this.auditService.log({
-        tenantId: membership.tenantId,
+        tenantId: tenantId,
         actorUserId: user.id,
         eventName: "auth.login_failed",
         entityName: "app_user",
         entityId: user.id,
-        payload: { attempts, locked: !!lockout, ipAddress: meta.ipAddress ?? null },
+        payload: {
+          attempts,
+          locked: !!lockout,
+          ipAddress: meta.ipAddress ?? null,
+        },
       });
 
       throw new UnauthorizedException("Invalid credentials");
@@ -148,17 +178,7 @@ export class AuthService {
         data: { failedLoginAttempts: 0, lockedUntil: null },
       });
     }
-
-    return this.issueAndPersist({
-      user,
-      tenantId: membership.tenantId,
-      tenantCode: membership.tenant.code,
-      branchRoles,
-      previousSession: null,
-      meta,
-    });
   }
-
 
   /** Starts the owner's first authenticated session after workspace provisioning. */
   async issueProvisionedSession(
@@ -216,11 +236,20 @@ export class AuthService {
    * refresh token was used twice → wipe the entire family + bump tokenVersion
    * so any outstanding access tokens are also invalidated.
    */
-  async refresh(presentedRefreshToken: string, meta: RequestMeta = {}): Promise<LoginResult> {
-    const payload = await this.verifyRefreshTokenSignature(presentedRefreshToken);
+  async refresh(
+    presentedRefreshToken: string,
+    meta: RequestMeta = {},
+  ): Promise<LoginResult> {
+    const payload = await this.verifyRefreshTokenSignature(
+      presentedRefreshToken,
+    );
     const session = await this.sessions.findActiveById(payload.sessionId);
 
-    if (!session || session.familyId !== payload.familyId || session.userId !== payload.sub) {
+    if (
+      !session ||
+      session.familyId !== payload.familyId ||
+      session.userId !== payload.sub
+    ) {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
@@ -229,7 +258,10 @@ export class AuthService {
       this.logger.warn(
         `Refresh-token reuse detected for user=${session.userId} family=${session.familyId}`,
       );
-      await this.sessions.revokeFamily(session.familyId, SESSION_REVOKED_REASONS.reuseDetected);
+      await this.sessions.revokeFamily(
+        session.familyId,
+        SESSION_REVOKED_REASONS.reuseDetected,
+      );
       await this.bumpTokenVersion(session.userId);
       throw new UnauthorizedException("Refresh token reuse detected");
     }
@@ -240,12 +272,18 @@ export class AuthService {
 
     // Defence in depth: even if the JWT verifies, ensure the presented raw
     // token still matches the stored bcrypt hash.
-    const tokenValid = await this.sessions.matchToken(session, presentedRefreshToken);
+    const tokenValid = await this.sessions.matchToken(
+      session,
+      presentedRefreshToken,
+    );
     if (!tokenValid) {
       this.logger.warn(
         `Refresh-token hash mismatch for session=${session.id} — revoking family`,
       );
-      await this.sessions.revokeFamily(session.familyId, SESSION_REVOKED_REASONS.reuseDetected);
+      await this.sessions.revokeFamily(
+        session.familyId,
+        SESSION_REVOKED_REASONS.reuseDetected,
+      );
       await this.bumpTokenVersion(session.userId);
       throw new UnauthorizedException("Invalid refresh token");
     }
@@ -265,7 +303,10 @@ export class AuthService {
     });
     const membership = user?.tenantMemberships[0];
     if (!user || !user.isActive || !membership?.tenant.isActive) {
-      await this.sessions.revokeById(session.id, SESSION_REVOKED_REASONS.adminInvalidated);
+      await this.sessions.revokeById(
+        session.id,
+        SESSION_REVOKED_REASONS.adminInvalidated,
+      );
       throw new UnauthorizedException("Invalid refresh token");
     }
 
@@ -297,7 +338,10 @@ export class AuthService {
     } catch {
       return; // expired/invalid — nothing to revoke
     }
-    await this.sessions.revokeById(payload.sessionId, SESSION_REVOKED_REASONS.logout);
+    await this.sessions.revokeById(
+      payload.sessionId,
+      SESSION_REVOKED_REASONS.logout,
+    );
   }
 
   /**
@@ -310,7 +354,10 @@ export class AuthService {
       // tenant-scope: system-auth — userId is a verified globally unique identity.
       await tx.session.updateMany({
         where: { userId, revokedAt: null },
-        data: { revokedAt: new Date(), revokedReason: SESSION_REVOKED_REASONS.logoutAll },
+        data: {
+          revokedAt: new Date(),
+          revokedReason: SESSION_REVOKED_REASONS.logoutAll,
+        },
       });
       // tenant-scope: system-auth — the same verified user identity scopes this token bump.
       // tenant-scope: verified-parent — the caller verified this tenant membership first.
@@ -373,7 +420,9 @@ export class AuthService {
       });
     });
     this.userContext.invalidate(userId);
-    this.logger.log(`Hard-revoked all sessions for user=${userId} reason=${reason}`);
+    this.logger.log(
+      `Hard-revoked all sessions for user=${userId} reason=${reason}`,
+    );
   }
 
   /** Revokes sessions for one pharmacy membership without signing the person out of others. */
@@ -416,14 +465,26 @@ export class AuthService {
     if (!user || !membership?.tenant.isActive) {
       throw new UnauthorizedException("User not found");
     }
-    return this.mapUser(user, tenantId, membership.tenant.code, user.userBranchRoles);
+    return this.mapUser(
+      user,
+      tenantId,
+      membership.tenant.code,
+      user.userBranchRoles,
+    );
   }
 
   /** Settings → General → My Profile — read the caller's own editable + read-only fields. */
   async getMyProfile(userId: string) {
     const user = await this.prisma.appUser.findUniqueOrThrow({
       where: { id: userId },
-      select: { id: true, email: true, fullName: true, phone: true, avatarUrl: true, createdAt: true },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phone: true,
+        avatarUrl: true,
+        createdAt: true,
+      },
     });
     return user;
   }
@@ -436,7 +497,14 @@ export class AuthService {
         ...(dto.fullName != null ? { fullName: dto.fullName.trim() } : {}),
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
       },
-      select: { id: true, email: true, fullName: true, phone: true, avatarUrl: true, createdAt: true },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phone: true,
+        avatarUrl: true,
+        createdAt: true,
+      },
     });
     return user;
   }
@@ -492,13 +560,22 @@ export class AuthService {
     });
   }
 
-  async revokeMySession(tenantId: string, userId: string, sessionId: string): Promise<void> {
+  async revokeMySession(
+    tenantId: string,
+    userId: string,
+    sessionId: string,
+  ): Promise<void> {
     const result = await this.prisma.session.updateMany({
       where: { id: sessionId, tenantId, userId, revokedAt: null },
-      data: { revokedAt: new Date(), revokedReason: SESSION_REVOKED_REASONS.logout },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: SESSION_REVOKED_REASONS.logout,
+      },
     });
     if (result.count === 0) {
-      throw new BadRequestException("Session was not found or is already signed out");
+      throw new BadRequestException(
+        "Session was not found or is already signed out",
+      );
     }
     await this.auditService.log({
       tenantId,
@@ -512,13 +589,20 @@ export class AuthService {
   /** Self-service password change. Verifies the current password, enforces the tenant's
    *  password policy, then hard-revokes every session (already-built hook, see
    *  `revokeAllSessions`) so the user must sign back in everywhere — including this device. */
-  async changePassword(tenantId: string, userId: string, dto: ChangePasswordDto): Promise<void> {
+  async changePassword(
+    tenantId: string,
+    userId: string,
+    dto: ChangePasswordDto,
+  ): Promise<void> {
     const user = await this.prisma.appUser.findUniqueOrThrow({
       where: { id: userId },
       select: { passwordHash: true },
     });
 
-    const currentValid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    const currentValid = await bcrypt.compare(
+      dto.currentPassword,
+      user.passwordHash,
+    );
     if (!currentValid) {
       throw new UnauthorizedException("Current password is incorrect");
     }
@@ -530,7 +614,9 @@ export class AuthService {
     const minLength = policy?.passwordMinLength ?? 8;
 
     if (dto.newPassword.length < minLength) {
-      throw new BadRequestException(`Password must be at least ${minLength} characters`);
+      throw new BadRequestException(
+        `Password must be at least ${minLength} characters`,
+      );
     }
     const newHash = await bcrypt.hash(dto.newPassword, 10);
     // tenant-scope: system-auth — userId is a verified globally unique identity.
@@ -618,7 +704,10 @@ export class AuthService {
 
       if (args.previousSession) {
         await tx.session.update({
-          where: { id: args.previousSession.id, tenantId: args.previousSession.tenantId },
+          where: {
+            id: args.previousSession.id,
+            tenantId: args.previousSession.tenantId,
+          },
           data: {
             revokedAt: new Date(),
             revokedReason: SESSION_REVOKED_REASONS.rotated,
@@ -659,16 +748,30 @@ export class AuthService {
       csrfToken,
       accessTtlSeconds: accessTtl,
       refreshTtlSeconds: refreshTtl,
-      user: this.mapUser(args.user, args.tenantId, args.tenantCode, args.branchRoles),
+      user: this.mapUser(
+        args.user,
+        args.tenantId,
+        args.tenantCode,
+        args.branchRoles,
+      ),
     };
   }
 
-  private async verifyRefreshTokenSignature(token: string): Promise<RefreshTokenPayload> {
+  private async verifyRefreshTokenSignature(
+    token: string,
+  ): Promise<RefreshTokenPayload> {
     try {
-      const payload = await this.jwtService.verifyAsync<RefreshTokenPayload>(token, {
-        secret: this.configService.getOrThrow<string>("JWT_REFRESH_SECRET"),
-      });
-      if (payload.type !== "refresh" || !payload.sessionId || !payload.familyId) {
+      const payload = await this.jwtService.verifyAsync<RefreshTokenPayload>(
+        token,
+        {
+          secret: this.configService.getOrThrow<string>("JWT_REFRESH_SECRET"),
+        },
+      );
+      if (
+        payload.type !== "refresh" ||
+        !payload.sessionId ||
+        !payload.familyId
+      ) {
         throw new UnauthorizedException("Invalid refresh token");
       }
       return payload;

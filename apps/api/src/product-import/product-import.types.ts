@@ -128,6 +128,10 @@ export type ImportResult = {
   batchesCreated: number;
   unitsPosted: number;
   rowsFailed: number;
+  rowsPartiallyImported: number;
+  rowsWithIssues: number;
+  issueCount: number;
+  issuesTruncated: boolean;
   expiryReviewCount: number;
   issues: ImportRowIssue[];
   /** Filed under a category the file named. */
@@ -142,6 +146,7 @@ export type ImportResult = {
    * this import.
    */
   catalogTasks: {
+    unavailable?: boolean;
     total: number;
     needsCategory: number;
     nmraMatch: number;

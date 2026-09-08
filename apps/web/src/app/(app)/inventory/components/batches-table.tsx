@@ -10,7 +10,7 @@ import {
   IconPackage,
 } from "@/components/icons";
 import { RoleButton, RoleLink } from "@/components/role-access";
-import { DataTable, type Column } from "@/components/ui";
+import { DataTable, Modal, FormField, type Column } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
@@ -35,6 +35,7 @@ function RowActions({
   busyId,
   onQuarantine,
   onRelease,
+  onConfirmExpiry,
   onAdjust,
 }: {
   row: BatchRow;
@@ -42,6 +43,7 @@ function RowActions({
   busyId: string | null;
   onQuarantine: (row: BatchRow) => void;
   onRelease: (row: BatchRow) => void;
+  onConfirmExpiry: (row: BatchRow) => void;
   onAdjust: (row: BatchRow) => void;
 }) {
   const busy = busyId === row.id;
@@ -65,6 +67,18 @@ function RowActions({
       >
         <IconActivity size={17} />
       </RoleButton>
+      {canWrite && row.needsExpiryReview && (
+        <button
+          type="button"
+          className={css.actionIcon}
+          disabled={busy}
+          onClick={() => onConfirmExpiry(row)}
+          aria-label={`Confirm expiry for batch ${row.batchNo}`}
+          data-tooltip="Confirm actual expiry"
+        >
+          <IconCalendar size={17} />
+        </button>
+      )}
       {canWrite && !row.isQuarantined && (
         <button
           type="button"
@@ -104,6 +118,30 @@ export function BatchesTable({
 }: BatchesTableProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const [expiryBatch, setExpiryBatch] = useState<BatchRow | null>(null);
+  const [expiryDate, setExpiryDate] = useState("");
+  const [expiryError, setExpiryError] = useState<string | null>(null);
+  async function confirmExpiry() {
+    if (!expiryBatch || !expiryDate) return;
+    setBusyId(expiryBatch.id);
+    setExpiryError(null);
+    try {
+      await apiJson(`/inventory/batches/${expiryBatch.id}/confirm-expiry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiryDate }),
+      });
+      setExpiryBatch(null);
+      onChanged?.();
+    } catch (err) {
+      setExpiryError(
+        err instanceof Error ? err.message : "Unable to confirm expiry",
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function quarantine(row: BatchRow) {
     const reason = window.prompt(
@@ -164,7 +202,10 @@ export function BatchesTable({
               className={css.thumb}
             />
             <div>
-              <Link href={`/products/${row.productId}`} className={css.productName}>
+              <Link
+                href={`/products/${row.productId}`}
+                className={css.productName}
+              >
                 {row.product.name}
               </Link>
               <div className={css.productMeta}>{row.product.sku}</div>
@@ -250,7 +291,10 @@ export function BatchesTable({
         width: "210px",
         getValue: (row) => Number(row.costPrice),
         render: (row) => {
-          const { cost, sell } = formatCostToSell(row.costPrice, row.sellingPrice);
+          const { cost, sell } = formatCostToSell(
+            row.costPrice,
+            row.sellingPrice,
+          );
           return (
             <div className={css.priceCell}>
               <span>{cost}</span>
@@ -279,7 +323,7 @@ export function BatchesTable({
     cols.push({
       key: "actions",
       header: "Actions",
-      width: canWrite ? "128px" : "96px",
+      width: canWrite ? "160px" : "96px",
       align: "right",
       render: (row) => (
         <RowActions
@@ -288,6 +332,11 @@ export function BatchesTable({
           busyId={busyId}
           onQuarantine={(r) => void quarantine(r)}
           onRelease={(r) => void release(r)}
+          onConfirmExpiry={(r) => {
+            setExpiryBatch(r);
+            setExpiryDate("");
+            setExpiryError(null);
+          }}
           onAdjust={onAdjust}
         />
       ),
@@ -309,6 +358,42 @@ export function BatchesTable({
           {actionError}
         </p>
       )}
+      <Modal
+        open={!!expiryBatch}
+        onClose={() => setExpiryBatch(null)}
+        canDismiss={!busyId}
+        title="Confirm batch expiry"
+        size="sm"
+        description={`${expiryBatch?.product.name ?? ""} · ${expiryBatch?.batchNo ?? ""}`}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void confirmExpiry();
+          }}
+        >
+          <FormField
+            label="Actual expiry date"
+            type="date"
+            value={expiryDate}
+            required
+            onChange={(event) => setExpiryDate(event.target.value)}
+            hint="Read the date from the physical batch. An expired batch will remain blocked from sales."
+          />
+          {expiryError && (
+            <p role="alert" className={css.tableActionError}>
+              {expiryError}
+            </p>
+          )}
+          <button
+            type="submit"
+            className={css.confirmExpiryButton}
+            disabled={!expiryDate || !!busyId}
+          >
+            {busyId ? "Saving…" : "Confirm expiry"}
+          </button>
+        </form>
+      </Modal>
       <DataTable<BatchRow>
         columns={columns}
         data={paged}

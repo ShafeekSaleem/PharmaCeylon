@@ -71,13 +71,17 @@ export class StaffInvitationsService {
       where: { tenantId, isActive: true, user: { email } },
     });
     if (existingMember) {
-      throw new ConflictException("This person already belongs to the pharmacy");
+      throw new ConflictException(
+        "This person already belongs to the pharmacy",
+      );
     }
     const pending = await this.prisma.staffInvitation.findFirst({
       where: { tenantId, email, acceptedAt: null, revokedAt: null },
     });
     if (pending) {
-      throw new ConflictException("A pending invitation already exists for this email");
+      throw new ConflictException(
+        "A pending invitation already exists for this email",
+      );
     }
 
     const rawToken = randomBytes(32).toString("base64url");
@@ -105,23 +109,36 @@ export class StaffInvitationsService {
       entityId: invitation.id,
       payload: { email, assignments: assignments.length },
     });
-    return { id: invitation.id, email, fullName, expiresAt: invitation.expiresAt };
+    return {
+      id: invitation.id,
+      email,
+      fullName,
+      expiresAt: invitation.expiresAt,
+    };
   }
 
   async resend(tenantId: string, actorUserId: string, invitationId: string) {
     const rawToken = randomBytes(32).toString("base64url");
-    const invitation = await this.prisma.staffInvitation.update({
-      where: { id: invitationId, tenantId, acceptedAt: null, revokedAt: null },
-      data: {
-        tokenHash: hashToken(rawToken),
-        expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
-      },
-      include: {
-        tenant: { select: { displayName: true } },
-        invitedBy: { select: { fullName: true } },
-      },
-    }).catch(() => null);
-    if (!invitation) throw new NotFoundException("Pending invitation not found");
+    const invitation = await this.prisma.staffInvitation
+      .update({
+        where: {
+          id: invitationId,
+          tenantId,
+          acceptedAt: null,
+          revokedAt: null,
+        },
+        data: {
+          tokenHash: hashToken(rawToken),
+          expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
+        },
+        include: {
+          tenant: { select: { displayName: true } },
+          invitedBy: { select: { fullName: true } },
+        },
+      })
+      .catch(() => null);
+    if (!invitation)
+      throw new NotFoundException("Pending invitation not found");
     await this.send(invitation, rawToken);
     await this.audit.log({
       tenantId,
@@ -138,7 +155,8 @@ export class StaffInvitationsService {
       where: { id: invitationId, tenantId, acceptedAt: null, revokedAt: null },
       data: { revokedAt: new Date() },
     });
-    if (result.count === 0) throw new NotFoundException("Pending invitation not found");
+    if (result.count === 0)
+      throw new NotFoundException("Pending invitation not found");
     await this.audit.log({
       tenantId,
       actorUserId,
@@ -152,7 +170,9 @@ export class StaffInvitationsService {
   async inspect(token: string) {
     const invitation = await this.findUsable(token);
     const accountExists = Boolean(
-      await this.prisma.appUser.findUnique({ where: { email: invitation.email } }),
+      await this.prisma.appUser.findUnique({
+        where: { email: invitation.email },
+      }),
     );
     return {
       email: invitation.email,
@@ -168,7 +188,11 @@ export class StaffInvitationsService {
     };
   }
 
-  async accept(token: string, dto: AcceptStaffInvitationDto, meta: RequestMeta = {}) {
+  async accept(
+    token: string,
+    dto: AcceptStaffInvitationDto,
+    meta: RequestMeta = {},
+  ) {
     const invitation = await this.findUsable(token);
     const existing = await this.prisma.appUser.findUnique({
       where: { email: invitation.email },
@@ -178,12 +202,21 @@ export class StaffInvitationsService {
         "This account is suspended. Ask an administrator to reactivate it first",
       );
     }
-    if (existing && !(await bcrypt.compare(dto.password, existing.passwordHash))) {
-      throw new UnauthorizedException("The password for this account is incorrect");
+    if (existing) {
+      await this.auth.verifyAccountPassword(
+        existing,
+        dto.password,
+        invitation.tenantId,
+        meta,
+      );
     }
     const fullName = (dto.fullName ?? invitation.fullName).trim();
-    if (!existing && !fullName) throw new BadRequestException("Full name is required");
-    if (!existing && (!/\d/.test(dto.password) || !/[^A-Za-z0-9]/.test(dto.password))) {
+    if (!existing && !fullName)
+      throw new BadRequestException("Full name is required");
+    if (
+      !existing &&
+      (!/\d/.test(dto.password) || !/[^A-Za-z0-9]/.test(dto.password))
+    ) {
       throw new BadRequestException(
         "Use at least 8 characters, including a number and a symbol",
       );
@@ -201,19 +234,24 @@ export class StaffInvitationsService {
         },
         data: { acceptedAt: new Date() },
       });
-      if (claimed.count === 0) throw new ConflictException("This invitation is no longer available");
+      if (claimed.count === 0)
+        throw new ConflictException("This invitation is no longer available");
 
-      const user = existing ?? await tx.appUser.create({
-        data: {
-          tenantId: invitation.tenantId,
-          lastTenantId: invitation.tenantId,
-          email: invitation.email,
-          fullName,
-          passwordHash: passwordHash!,
-        },
-      });
+      const user =
+        existing ??
+        (await tx.appUser.create({
+          data: {
+            tenantId: invitation.tenantId,
+            lastTenantId: invitation.tenantId,
+            email: invitation.email,
+            fullName,
+            passwordHash: passwordHash!,
+          },
+        }));
       await tx.tenantMembership.upsert({
-        where: { tenantId_userId: { tenantId: invitation.tenantId, userId: user.id } },
+        where: {
+          tenantId_userId: { tenantId: invitation.tenantId, userId: user.id },
+        },
         create: { tenantId: invitation.tenantId, userId: user.id },
         update: { isActive: true },
       });
@@ -247,7 +285,9 @@ export class StaffInvitationsService {
         data: { acceptedUserId: user.id },
       });
       await tx.notificationPreference.upsert({
-        where: { tenantId_userId: { tenantId: invitation.tenantId, userId: user.id } },
+        where: {
+          tenantId_userId: { tenantId: invitation.tenantId, userId: user.id },
+        },
         create: { tenantId: invitation.tenantId, userId: user.id },
         update: {},
       });
@@ -266,7 +306,8 @@ export class StaffInvitationsService {
   }
 
   private async findUsable(token: string) {
-    if (!token || token.length < 20) throw new NotFoundException("Invitation not found");
+    if (!token || token.length < 20)
+      throw new NotFoundException("Invitation not found");
     const invitation = await this.prisma.staffInvitation.findUnique({
       where: { tokenHash: hashToken(token) },
       include: {
@@ -298,24 +339,34 @@ export class StaffInvitationsService {
     actorIsOwner: boolean,
     assignments: StaffInvitationAssignmentDto[],
   ) {
-    if (assignments.some((entry) => entry.role === RoleName.owner) && !actorIsOwner) {
+    if (
+      assignments.some((entry) => entry.role === RoleName.owner) &&
+      !actorIsOwner
+    ) {
       throw new ForbiddenException("Only an owner can invite another owner");
     }
     const unique = new Map<string, StaffInvitationAssignmentDto>();
-    for (const entry of assignments) unique.set(`${entry.branchId}:${entry.role}`, entry);
+    for (const entry of assignments)
+      unique.set(`${entry.branchId}:${entry.role}`, entry);
     const rows = [...unique.values()];
     const branchIds = [...new Set(rows.map((entry) => entry.branchId))];
     const branches = await this.prisma.branch.findMany({
       where: { tenantId, isActive: true, id: { in: branchIds } },
       select: { id: true },
     });
-    if (branches.length !== branchIds.length) throw new NotFoundException("Branch not found");
+    if (branches.length !== branchIds.length)
+      throw new NotFoundException("Branch not found");
 
-    const output: Array<{ branchId: string; role: RoleName; roleId: string | null }> = [];
+    const output: Array<{
+      branchId: string;
+      role: RoleName;
+      roleId: string | null;
+    }> = [];
     for (const entry of rows) {
       let roleId: string | null;
       if (entry.role === RoleName.custom) {
-        if (!entry.roleId) throw new BadRequestException("roleId is required for a custom role");
+        if (!entry.roleId)
+          throw new BadRequestException("roleId is required for a custom role");
         const role = await this.prisma.role.findFirst({
           where: { id: entry.roleId, tenantId, isSystem: false },
         });
@@ -356,5 +407,7 @@ function hashToken(value: string) {
 }
 
 function titleCase(value: string) {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }

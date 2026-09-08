@@ -33,7 +33,11 @@ describe("AuthService", () => {
     isActive: true,
     tenant: { code: "demo", isActive: true },
     tenantMemberships: [
-      { tenantId: "tenant-id", isActive: true, tenant: { code: "demo", isActive: true } },
+      {
+        tenantId: "tenant-id",
+        isActive: true,
+        tenant: { code: "demo", isActive: true },
+      },
     ],
     userBranchRoles: [
       { tenantId: "tenant-id", branchId: "branch-1", role: RoleName.manager },
@@ -115,12 +119,47 @@ describe("AuthService", () => {
     );
   });
 
+  describe("shared password verification", () => {
+    it("rejects locked accounts even with the correct password", async () => {
+      await expect(
+        service.verifyAccountPassword(
+          {
+            ...baseUser,
+            lockedUntil: new Date(Date.now() + 60_000),
+            failedLoginAttempts: 5,
+          } as never,
+          "correct",
+          "tenant-id",
+        ),
+      ).rejects.toThrow(/temporarily locked/);
+      expect(mockedBcrypt.compare).not.toHaveBeenCalled();
+    });
+    it("counts invitation failures and locks the fifth failure", async () => {
+      mockedBcrypt.compare.mockResolvedValue(false as never);
+      await expect(
+        service.verifyAccountPassword(
+          { ...baseUser, failedLoginAttempts: 4 } as never,
+          "wrong",
+          "tenant-id",
+        ),
+      ).rejects.toThrow(/Invalid credentials/);
+      expect(prisma.appUser.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { failedLoginAttempts: 5, lockedUntil: expect.any(Date) },
+        }),
+      );
+    });
+  });
+
   describe("login", () => {
     it("issues an access+refresh token pair, creates a session, and clears the user-context cache", async () => {
       prisma.appUser.findUnique.mockResolvedValue(baseUser);
       mockedBcrypt.compare.mockResolvedValue(true as never);
       mockedBcrypt.hash.mockResolvedValue("hashed" as never);
-      prisma.session.create.mockResolvedValue({ id: "session-1", familyId: "family-1" });
+      prisma.session.create.mockResolvedValue({
+        id: "session-1",
+        familyId: "family-1",
+      });
       (jwtService.signAsync as jest.Mock)
         .mockResolvedValueOnce("signed-refresh")
         .mockResolvedValueOnce("signed-access");
@@ -158,7 +197,10 @@ describe("AuthService", () => {
       ).rejects.toBeInstanceOf(UnauthorizedException);
       expect(prisma.session.create).not.toHaveBeenCalled();
       expect(auditService.log).toHaveBeenCalledWith(
-        expect.objectContaining({ eventName: "auth.login_failed", entityId: baseUser.id }),
+        expect.objectContaining({
+          eventName: "auth.login_failed",
+          entityId: baseUser.id,
+        }),
       );
     });
 
@@ -187,7 +229,13 @@ describe("AuthService", () => {
       ipAddress: null,
     };
 
-    function mockRefreshVerify(payload: Partial<{ sub: string; familyId: string; sessionId: string }> = {}) {
+    function mockRefreshVerify(
+      payload: Partial<{
+        sub: string;
+        familyId: string;
+        sessionId: string;
+      }> = {},
+    ) {
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue({
         sub: payload.sub ?? "user-id",
         tenantId: "tenant-id",
@@ -203,7 +251,10 @@ describe("AuthService", () => {
       sessionStore.matchToken.mockResolvedValue(true);
       prisma.appUser.findUnique.mockResolvedValue(baseUser);
       mockedBcrypt.hash.mockResolvedValue("hashed" as never);
-      prisma.session.create.mockResolvedValue({ id: "session-2", familyId: "family-1" });
+      prisma.session.create.mockResolvedValue({
+        id: "session-2",
+        familyId: "family-1",
+      });
       (jwtService.signAsync as jest.Mock)
         .mockResolvedValueOnce("rotated-refresh")
         .mockResolvedValueOnce("rotated-access");
@@ -226,9 +277,14 @@ describe("AuthService", () => {
 
     it("detects refresh-token reuse, revokes the family, and bumps tokenVersion", async () => {
       mockRefreshVerify();
-      sessionStore.findActiveById.mockResolvedValue({ ...session, revokedAt: new Date() } as any);
+      sessionStore.findActiveById.mockResolvedValue({
+        ...session,
+        revokedAt: new Date(),
+      } as any);
 
-      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
       expect(sessionStore.revokeFamily).toHaveBeenCalledWith(
         "family-1",
         SESSION_REVOKED_REASONS.reuseDetected,
@@ -245,7 +301,9 @@ describe("AuthService", () => {
       sessionStore.findActiveById.mockResolvedValue(session as any);
       sessionStore.matchToken.mockResolvedValue(false);
 
-      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
       expect(sessionStore.revokeFamily).toHaveBeenCalledWith(
         "family-1",
         SESSION_REVOKED_REASONS.reuseDetected,
@@ -254,13 +312,17 @@ describe("AuthService", () => {
 
     it("rejects when the refresh JWT signature is invalid", async () => {
       (jwtService.verifyAsync as jest.Mock).mockRejectedValue(new Error("bad"));
-      await expect(service.refresh("garbage")).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.refresh("garbage")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
 
     it("rejects when family/userId in the JWT doesn't match the stored session", async () => {
       mockRefreshVerify({ familyId: "other-family" });
       sessionStore.findActiveById.mockResolvedValue(session as any);
-      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
 
     it("rejects when the session has expired", async () => {
@@ -269,7 +331,9 @@ describe("AuthService", () => {
         ...session,
         expiresAt: new Date(Date.now() - 1_000),
       } as any);
-      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -308,7 +372,9 @@ describe("AuthService", () => {
 
       expect(prisma.session.updateMany).toHaveBeenCalledWith({
         where: { userId: "user-id", revokedAt: null },
-        data: expect.objectContaining({ revokedReason: SESSION_REVOKED_REASONS.logoutAll }),
+        data: expect.objectContaining({
+          revokedReason: SESSION_REVOKED_REASONS.logoutAll,
+        }),
       });
       expect(prisma.appUser.update).toHaveBeenCalledWith({
         where: { id: "user-id" },
@@ -337,7 +403,9 @@ describe("AuthService", () => {
 
       expect(prisma.session.updateMany).toHaveBeenCalledWith({
         where: { userId: "user-id", revokedAt: null },
-        data: expect.objectContaining({ revokedReason: SESSION_REVOKED_REASONS.passwordChanged }),
+        data: expect.objectContaining({
+          revokedReason: SESSION_REVOKED_REASONS.passwordChanged,
+        }),
       });
       expect(prisma.appUser.update).toHaveBeenCalledWith({
         where: { id: "user-id" },

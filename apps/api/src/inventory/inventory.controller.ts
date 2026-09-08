@@ -13,11 +13,16 @@ import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { ConfirmBatchExpiryDto } from "./dto/confirm-batch-expiry.dto";
 import { CustomerReturnDto } from "./dto/customer-return.dto";
 import { QuarantineBatchDto } from "./dto/quarantine-batch.dto";
 import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
 import { SupplierReturnDto } from "./dto/supplier-return.dto";
-import { InventoryService, type MovementCategory, type SummaryPeriod } from "./inventory.service";
+import {
+  InventoryService,
+  type MovementCategory,
+  type SummaryPeriod,
+} from "./inventory.service";
 
 const RETURNS_DEPRECATED =
   "Use POST /returns instead. This endpoint is deprecated.";
@@ -25,6 +30,23 @@ const RETURNS_DEPRECATED =
 @Controller("inventory")
 export class InventoryController {
   constructor(private readonly inventory: InventoryService) {}
+
+  @RequirePermission("inventory.manage")
+  @Post("batches/:id/confirm-expiry")
+  confirmExpiry(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) batchId: string,
+    @Body() dto: ConfirmBatchExpiryDto,
+  ) {
+    return this.inventory.confirmBatchExpiry(
+      user.tenantId,
+      branchId,
+      user.userId,
+      batchId,
+      dto.expiryDate,
+    );
+  }
 
   @RequirePermission("inventory.view")
   @Get("batches")
@@ -44,11 +66,20 @@ export class InventoryController {
       nearExpiryDays: nearExpiryDays ? Number(nearExpiryDays) : undefined,
       includeZero: includeZero === "false" ? false : true,
       quarantined:
-        quarantined === "true" ? true : quarantined === "false" ? false : undefined,
-      expired: expired === "true" ? true : expired === "false" ? false : undefined,
+        quarantined === "true"
+          ? true
+          : quarantined === "false"
+            ? false
+            : undefined,
+      expired:
+        expired === "true" ? true : expired === "false" ? false : undefined,
       needsExpiryReview: needsExpiryReview === "true" ? true : undefined,
       controlled:
-        controlled === "controlled" ? "controlled" : controlled === "regular" ? "regular" : undefined,
+        controlled === "controlled"
+          ? "controlled"
+          : controlled === "regular"
+            ? "regular"
+            : undefined,
     });
   }
 
@@ -85,7 +116,12 @@ export class InventoryController {
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.inventory.releaseQuarantine(user.tenantId, branchId, user.userId, id);
+    return this.inventory.releaseQuarantine(
+      user.tenantId,
+      branchId,
+      user.userId,
+      id,
+    );
   }
 
   @RequirePermission("inventory.manage_bulk")
@@ -94,7 +130,11 @@ export class InventoryController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
   ) {
-    return this.inventory.quarantineExpired(user.tenantId, branchId, user.userId);
+    return this.inventory.quarantineExpired(
+      user.tenantId,
+      branchId,
+      user.userId,
+    );
   }
 
   @RequirePermission("inventory.view")
@@ -198,10 +238,18 @@ export class InventoryController {
     @RequireBranchId() branchId: string,
     @Body() dto: StockAdjustmentDto,
   ) {
-    const roles = user.branchRoles.filter((b) => b.branchId === branchId).map((b) => b.role);
+    const roles = user.branchRoles
+      .filter((b) => b.branchId === branchId)
+      .map((b) => b.role);
     const ownerBypass = user.branchRoles.some((b) => b.role === RoleName.owner);
     const effectiveRoles = ownerBypass ? [...roles, RoleName.owner] : roles;
-    return this.inventory.adjustment(user.tenantId, branchId, user.userId, effectiveRoles, dto);
+    return this.inventory.adjustment(
+      user.tenantId,
+      branchId,
+      user.userId,
+      effectiveRoles,
+      dto,
+    );
   }
 
   @RequirePermission("inventory.customer_returns")

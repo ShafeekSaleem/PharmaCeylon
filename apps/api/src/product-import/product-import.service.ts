@@ -5,8 +5,9 @@ import {
   NotFoundException,
   Logger,
 } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Prisma, StockMovementType } from "@prisma/client";
+import { tenantTransactionStorage } from "../prisma/tenant-transaction.store";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
@@ -226,6 +227,23 @@ export class ProductImportService {
     categoryChoices: ImportCategoryChoices,
     idempotencyKeyRaw: string | undefined,
   ): Promise<{ jobId: string; importId: string }> {
+    if (!file?.buffer?.length)
+      throw new BadRequestException("Upload a CSV or Excel file.");
+    const fingerprint = createHash("sha256")
+      .update(file.buffer)
+      .update(
+        JSON.stringify({
+          branchId: branchId ?? null,
+          mapping: Object.entries(mapping).sort(([a], [b]) =>
+            a.localeCompare(b),
+          ),
+          confirmedRows: [...confirmedRows].sort((a, b) => a - b),
+          categoryChoices: Object.entries(categoryChoices).sort(([a], [b]) =>
+            a.localeCompare(b),
+          ),
+        }),
+      )
+      .digest("hex");
     const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
     if (idemKey) {
       const existing = await this.prisma.idempotencyRecord.findUnique({
@@ -241,11 +259,19 @@ export class ProductImportService {
       if (existing) {
         const replay = await this.prisma.productImport.findFirst({
           where: { id: existing.resourceId, tenantId },
-          select: { id: true },
+          select: { id: true, requestFingerprint: true },
         });
         if (!replay) {
           throw new BadRequestException(
             "Idempotency-Key is already recorded but the import could not be replayed",
+          );
+        }
+        if (
+          replay.requestFingerprint &&
+          replay.requestFingerprint !== fingerprint
+        ) {
+          throw new BadRequestException(
+            "Idempotency-Key was used for a different import. Start a new upload.",
           );
         }
         // A retried upload must never post the same opening stock twice.
@@ -269,27 +295,51 @@ export class ProductImportService {
       );
     }
 
-    const importRecord = await this.prisma.productImport.create({
-      data: {
-        tenantId,
-        branchId: hasStock ? branchId! : null,
-        createdBy: userId,
-        filename: file.originalname || "upload",
-        mapping: mapping as Prisma.InputJsonValue,
-      },
-      select: { id: true },
-    });
-
-    if (idemKey) {
-      await this.prisma.idempotencyRecord.create({
-        data: {
+    let importRecord: { id: string };
+    try {
+      importRecord = await this.prisma.$transaction(async (tx) => {
+        const record = await tx.productImport.create({
+          data: {
+            tenantId,
+            branchId: hasStock ? branchId! : null,
+            createdBy: userId,
+            filename: file.originalname || "upload",
+            mapping: mapping as Prisma.InputJsonValue,
+            requestFingerprint: fingerprint,
+          },
+          select: { id: true },
+        });
+        if (idemKey)
+          await tx.idempotencyRecord.create({
+            data: {
+              tenantId,
+              userId,
+              scope: IDEMPOTENCY_SCOPE.productImport,
+              idempotencyKey: idemKey,
+              resourceId: record.id,
+            },
+          });
+        return record;
+      });
+    } catch (error) {
+      // A concurrent request won the unique key. Its import is the only job that starts.
+      if (
+        idemKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        return this.startImport(
           tenantId,
           userId,
-          scope: IDEMPOTENCY_SCOPE.productImport,
-          idempotencyKey: idemKey,
-          resourceId: importRecord.id,
-        },
-      });
+          branchId,
+          file,
+          mapping,
+          confirmedRows,
+          categoryChoices,
+          idemKey,
+        );
+      }
+      throw error;
     }
 
     // Same id for both by construction, which is what lets a progress poll fall back to the
@@ -351,11 +401,16 @@ export class ProductImportService {
       );
 
       ctx.progress({ phase: "categories" });
-      const categorized = await this.applyCategories(
+      const categorized = await this.inImportTransaction(
         tenantId,
-        toRun,
-        written.productIdByRow,
-        categoryChoices,
+        importId,
+        () =>
+          this.applyCategories(
+            tenantId,
+            toRun,
+            written.productIdByRow,
+            categoryChoices,
+          ),
       );
 
       let batchesCreated = 0;
@@ -392,7 +447,12 @@ export class ProductImportService {
           p.wouldSetControlled ? "a controlled medicine" : "prescription-only"
         }. Confirm the match, or import this row separately.`,
       }));
-      const allIssues = [...issues, ...heldIssues].slice(0, MAX_ISSUES_KEPT);
+      const everyIssue = [...issues, ...heldIssues];
+      const issueRows = new Set(everyIssue.map((issue) => issue.rowNumber));
+      const partialRows = [...issueRows].filter((row) =>
+        written.productIdByRow.has(row),
+      ).length;
+      const allIssues = everyIssue.slice(0, MAX_ISSUES_KEPT);
 
       // Every product this run created or touched goes through catalog-task generation, stamped
       // with the import id. That stamp is what makes "Review catalog tasks" on the completion
@@ -404,13 +464,17 @@ export class ProductImportService {
 
       const result: ImportResult = {
         importId,
-        parsed: resolved.rows.length,
+        parsed: resolved.rows.length + resolved.issues.length,
         productsCreated: written.created,
         productsUpdated: written.updated,
         productsRanged: written.ranged,
         batchesCreated,
         unitsPosted,
-        rowsFailed: allIssues.length,
+        rowsFailed: issueRows.size - partialRows,
+        rowsPartiallyImported: partialRows,
+        rowsWithIssues: issueRows.size,
+        issueCount: everyIssue.length,
+        issuesTruncated: everyIssue.length > MAX_ISSUES_KEPT,
         expiryReviewCount,
         issues: allIssues,
         categorizedFromFile: categorized.fromFile,
@@ -419,41 +483,48 @@ export class ProductImportService {
         catalogTasks: taskCounts,
       };
 
-      await this.prisma.productImport.updateMany({
-        where: { id: importId, tenantId },
-        data: {
-          status: "completed",
-          productsCreated: result.productsCreated,
-          productsUpdated: result.productsUpdated,
-          productsRanged: result.productsRanged,
-          batchesCreated,
-          unitsPosted,
-          rowsFailed: result.rowsFailed,
-          expiryReviewCount,
-          errorReport: allIssues as unknown as Prisma.InputJsonValue,
-          completedAt: new Date(),
-        },
-      });
+      await this.completeWithRetry(tenantId, importId, async () => {
+        await this.prisma.productImport.updateMany({
+          where: { id: importId, tenantId },
+          data: {
+            status: "completed",
+            phase: "done",
+            rowsProcessed: total,
+            rowsTotal: total,
+            result: result as unknown as Prisma.InputJsonValue,
+            heartbeatAt: null,
+            productsCreated: result.productsCreated,
+            productsUpdated: result.productsUpdated,
+            productsRanged: result.productsRanged,
+            batchesCreated,
+            unitsPosted,
+            rowsFailed: result.rowsFailed,
+            expiryReviewCount,
+            errorReport: everyIssue as unknown as Prisma.InputJsonValue,
+            completedAt: new Date(),
+          },
+        });
 
-      await this.audit.log({
-        tenantId,
-        branchId,
-        actorUserId: userId,
-        eventName: "products.import_completed",
-        entityName: "product_import",
-        entityId: importId,
-        payload: {
-          productsCreated: result.productsCreated,
-          productsUpdated: result.productsUpdated,
-          productsRanged: result.productsRanged,
-          batchesCreated,
-          unitsPosted,
-          rowsFailed: result.rowsFailed,
-          expiryReviewCount,
-          categorizedFromFile: categorized.fromFile,
-          categorizedByClassifier: categorized.byClassifier,
-          leftUnclassified: categorized.unclassified,
-        },
+        await this.audit.log({
+          tenantId,
+          branchId,
+          actorUserId: userId,
+          eventName: "products.import_completed",
+          entityName: "product_import",
+          entityId: importId,
+          payload: {
+            productsCreated: result.productsCreated,
+            productsUpdated: result.productsUpdated,
+            productsRanged: result.productsRanged,
+            batchesCreated,
+            unitsPosted,
+            rowsFailed: result.rowsFailed,
+            expiryReviewCount,
+            categorizedFromFile: categorized.fromFile,
+            categorizedByClassifier: categorized.byClassifier,
+            leftUnclassified: categorized.unclassified,
+          },
+        });
       });
 
       patchImportJob(ctx.jobId, {
@@ -464,7 +535,7 @@ export class ProductImportService {
         productsCreated: result.productsCreated,
         productsUpdated: result.productsUpdated,
         batchesCreated,
-        errorCount: result.rowsFailed,
+        errorCount: result.rowsWithIssues,
         result,
       });
     }
@@ -490,33 +561,30 @@ export class ProductImportService {
     };
     try {
       await this.catalogTasks.refresh(tenantId, { importId });
+      const open = { tenantId, importId, status: { in: OPEN_STATUSES } };
+      const [total, needsCategory, nmraMatch, complianceReview, ambiguous] =
+        await Promise.all([
+          this.prisma.catalogTask.count({ where: open }),
+          this.prisma.catalogTask.count({
+            where: { ...open, type: "MISSING_CATEGORY" },
+          }),
+          this.prisma.catalogTask.count({
+            where: { ...open, type: "NMRA_MATCH" },
+          }),
+          this.prisma.catalogTask.count({
+            where: { ...open, complianceImpact: true },
+          }),
+          this.prisma.catalogTask.count({
+            where: { ...open, type: "NMRA_AMBIGUOUS" },
+          }),
+        ]);
+      return { total, needsCategory, nmraMatch, complianceReview, ambiguous };
     } catch (err) {
       this.logger.error(
-        `Catalog task generation failed for import ${importId}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `Catalog task generation failed for import ${importId}: ${String(err)}`,
       );
-      return empty;
+      return { ...empty, unavailable: true };
     }
-
-    const open = { tenantId, importId, status: { in: OPEN_STATUSES } };
-    const [total, needsCategory, nmraMatch, complianceReview, ambiguous] =
-      await Promise.all([
-        this.prisma.catalogTask.count({ where: open }),
-        this.prisma.catalogTask.count({
-          where: { ...open, type: "MISSING_CATEGORY" },
-        }),
-        this.prisma.catalogTask.count({
-          where: { ...open, type: "NMRA_MATCH" },
-        }),
-        this.prisma.catalogTask.count({
-          where: { ...open, complianceImpact: true },
-        }),
-        this.prisma.catalogTask.count({
-          where: { ...open, type: "NMRA_AMBIGUOUS" },
-        }),
-      ]);
-    return { total, needsCategory, nmraMatch, complianceReview, ambiguous };
   }
 
   // ── Undo ────────────────────────────────────────────────────────────────
@@ -532,10 +600,10 @@ export class ProductImportService {
     return Promise.all(
       rows.map(async (r) => {
         const blocked =
-          r.status !== "completed"
+          r.status !== "completed" && r.status !== "failed"
             ? r.status === "undone"
               ? "This import has already been undone."
-              : "Only a completed import can be undone."
+              : "Wait for the import to finish or stop before undoing it."
             : await this.undoBlockedReason(tenantId, r.id);
         return {
           id: r.id,
@@ -620,73 +688,86 @@ export class ProductImportService {
   }
 
   async undo(tenantId: string, userId: string, importId: string) {
-    const record = await this.prisma.productImport.findFirst({
-      where: { id: importId, tenantId },
-    });
-    if (!record) throw new NotFoundException("Import not found.");
-    if (record.status === "undone") {
-      throw new ConflictException("This import has already been undone.");
-    }
-    if (record.status !== "completed") {
-      throw new ConflictException("Only a completed import can be undone.");
-    }
-
-    const blocked = await this.undoBlockedReason(tenantId, importId);
-    if (blocked) throw new ConflictException(blocked);
-
-    const batchIds = await this.importBatchIds(tenantId, importId);
-
     const removed = await this.prisma.$transaction(
       async (tx) => {
-        await tx.stockLedger.deleteMany({
-          where: {
-            tenantId,
-            referenceType: "product_import",
-            referenceId: importId,
+        // Lock the import before checking its state. Fenced workers cannot write after undo.
+        await tx.$queryRaw`SELECT id FROM product_import WHERE id = ${importId}::uuid AND tenant_id = ${tenantId}::uuid FOR UPDATE`;
+        return tenantTransactionStorage.run(
+          { tenantId, client: tx },
+          async () => {
+            const record = await tx.productImport.findFirst({
+              where: { id: importId, tenantId },
+            });
+            if (!record) throw new NotFoundException("Import not found.");
+            if (record.status !== "completed" && record.status !== "failed") {
+              throw new ConflictException(
+                "Only a completed or stopped import can be undone.",
+              );
+            }
+            // FK writers take KEY SHARE on these parents. Lock first, then recheck history.
+            await tx.$queryRaw`SELECT id FROM product WHERE tenant_id = ${tenantId}::uuid AND import_id = ${importId}::uuid ORDER BY id FOR UPDATE`;
+            await tx.$queryRaw`SELECT id FROM batch WHERE tenant_id = ${tenantId}::uuid AND id IN
+          (SELECT batch_id FROM stock_ledger WHERE tenant_id = ${tenantId}::uuid AND reference_type = 'product_import' AND reference_id = ${importId}::uuid)
+          ORDER BY id FOR UPDATE`;
+            const blocked = await this.undoBlockedReason(tenantId, importId);
+            if (blocked) throw new ConflictException(blocked);
+            const batchIds = await this.importBatchIds(tenantId, importId);
+
+            await tx.stockLedger.deleteMany({
+              where: {
+                tenantId,
+                referenceType: "product_import",
+                referenceId: importId,
+              },
+            });
+            const batches =
+              batchIds.length > 0
+                ? await tx.batch.deleteMany({
+                    where: { tenantId, id: { in: batchIds } },
+                  })
+                : { count: 0 };
+
+            // Products the import only matched and updated are left alone: the import didn't
+            // create them, and there is no before-image to restore them to.
+            const products = await tx.product.deleteMany({
+              where: { tenantId, importId },
+            });
+
+            await tx.productImport.updateMany({
+              where: { id: importId, tenantId },
+              data: { status: "undone", undoneAt: new Date() },
+            });
+
+            const removed = {
+              batches: batches.count,
+              products: products.count,
+            };
+            await this.audit.log({
+              tenantId,
+              branchId: record.branchId,
+              actorUserId: userId,
+              eventName: "products.import_undone",
+              entityName: "product_import",
+              entityId: importId,
+              payload: {
+                batchesRemoved: removed.batches,
+                productsRemoved: removed.products,
+                productsLeftInPlace: record.productsUpdated,
+              },
+            });
+
+            return { ...removed, productsLeftInPlace: record.productsUpdated };
           },
-        });
-        const batches =
-          batchIds.length > 0
-            ? await tx.batch.deleteMany({
-                where: { tenantId, id: { in: batchIds } },
-              })
-            : { count: 0 };
-
-        // Products the import only matched and updated are left alone: the import didn't
-        // create them, and there is no before-image to restore them to.
-        const products = await tx.product.deleteMany({
-          where: { tenantId, importId },
-        });
-
-        await tx.productImport.updateMany({
-          where: { id: importId, tenantId },
-          data: { status: "undone", undoneAt: new Date() },
-        });
-
-        return { batches: batches.count, products: products.count };
+        );
       },
       { timeout: 120_000, maxWait: 60_000 },
     );
-
-    await this.audit.log({
-      tenantId,
-      branchId: record.branchId,
-      actorUserId: userId,
-      eventName: "products.import_undone",
-      entityName: "product_import",
-      entityId: importId,
-      payload: {
-        batchesRemoved: removed.batches,
-        productsRemoved: removed.products,
-        productsLeftInPlace: record.productsUpdated,
-      },
-    });
 
     return {
       ok: true,
       batchesRemoved: removed.batches,
       productsRemoved: removed.products,
-      productsLeftInPlace: record.productsUpdated,
+      productsLeftInPlace: removed.productsLeftInPlace,
     };
   }
 
@@ -1163,6 +1244,55 @@ export class ProductImportService {
     return { planned, issues, pendingCompliance, matchCounts, skipped };
   }
 
+  private async completeWithRetry(
+    tenantId: string,
+    importId: string,
+    work: () => Promise<void>,
+  ) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await this.inImportTransaction(tenantId, importId, work);
+        return;
+      } catch (error) {
+        // A lost commit acknowledgement must not relabel an already committed import.
+        const committed = await this.prisma.productImport.findFirst({
+          where: { id: importId, tenantId },
+        });
+        if (committed?.status === "completed" && committed.result) return;
+        if (committed?.status !== "running" || attempt >= 2) throw error;
+      }
+    }
+  }
+
+  private async inImportTransaction<T>(
+    tenantId: string,
+    importId: string,
+    work: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const claimed = await tx.productImport.updateMany({
+          where: { id: importId, tenantId, status: "running" },
+          data: { heartbeatAt: new Date() },
+        });
+        if (claimed.count !== 1)
+          throw new ConflictException(
+            "Import stopped. Review its committed results before retrying.",
+          );
+        const result = await tenantTransactionStorage.run(
+          { tenantId, client: tx },
+          () => work(tx),
+        );
+        await tx.productImport.updateMany({
+          where: { id: importId, tenantId, status: "running" },
+          data: { heartbeatAt: new Date() },
+        });
+        return result;
+      },
+      { timeout: 120_000, maxWait: 60_000 },
+    );
+  }
+
   private async writeProducts(
     tenantId: string,
     importId: string,
@@ -1193,84 +1323,103 @@ export class ProductImportService {
 
     for (let i = 0; i < planned.length; i += PRODUCT_BATCH) {
       const chunk = planned.slice(i, i + PRODUCT_BATCH);
-      await this.prisma.$transaction(
-        async (tx) => {
-          for (const item of chunk) {
-            try {
-              if (item.match) {
-                const candidateId = item.match.candidate.id;
-                const before = await tx.product.findFirst({
-                  where: { id: candidateId, tenantId },
-                  select: { rangeStatus: true },
-                });
-                await tx.product.updateMany({
-                  where: { id: candidateId, tenantId },
-                  data: {
-                    // Only fill gaps: an existing catalog record's own data is better than a
-                    // spreadsheet's, so the import never overwrites what is already there.
-                    ...(item.row.barcode ? { barcode: item.row.barcode } : {}),
-                    ...(item.row.brandName
-                      ? { brandName: item.row.brandName }
-                      : {}),
-                    ...(item.row.packSize
-                      ? { packSize: item.row.packSize }
-                      : {}),
-                    ...(item.row.reorderLevel != null
-                      ? { reorderLevel: item.row.reorderLevel }
-                      : {}),
-                    // The pharmacy is telling us it sells this — that is the point of the file.
-                    rangeStatus: "RANGED",
-                    ...(before?.rangeStatus === "REFERENCE"
-                      ? { rangedAt: new Date() }
-                      : {}),
-                  },
-                });
-                if (before?.rangeStatus === "REFERENCE") ranged += 1;
-                productIdByRow.set(item.row.rowNumber, candidateId);
-                updated += 1;
-              } else {
-                const sku = uniqueSku(item.row, usedSkus);
-                const product = await tx.product.create({
-                  data: {
-                    tenantId,
-                    sku,
-                    name: item.row.name,
-                    barcode: item.row.barcode,
-                    brandName: item.row.brandName,
-                    genericName: item.row.genericName,
-                    manufacturer: item.row.manufacturer,
-                    dosageForm: item.row.dosageForm,
-                    strength: item.row.strength,
-                    unit: item.row.unit,
-                    packSize: item.row.packSize,
-                    registrationNo: item.row.registrationNo,
-                    reorderLevel: item.row.reorderLevel ?? 0,
-                    // No registry match: a retail item until someone says otherwise. Compliance
-                    // flags are never invented here — an unmatched row has no evidence for them.
-                    source: "CSV_IMPORT",
-                    rangeStatus: "RANGED",
-                    rangedAt: new Date(),
-                    importId,
-                  },
-                  select: { id: true },
-                });
-                productIdByRow.set(item.row.rowNumber, product.id);
-                created += 1;
-              }
-            } catch (err) {
-              issues.push({
-                rowNumber: item.row.rowNumber,
-                name: item.row.name,
-                message:
-                  err instanceof Error
-                    ? err.message
-                    : "Could not save this product.",
+      await this.inImportTransaction(tenantId, importId, async (tx) => {
+        for (const item of chunk) {
+          await tx.$executeRaw`SAVEPOINT import_row`;
+          try {
+            if (item.match) {
+              const candidateId = item.match.candidate.id;
+              const before = await tx.product.findFirst({
+                where: { id: candidateId, tenantId },
+                select: {
+                  rangeStatus: true,
+                  barcode: true,
+                  brandName: true,
+                  packSize: true,
+                },
               });
+              if (!before)
+                throw new NotFoundException("Matched product no longer exists");
+              await tx.product.updateMany({
+                where: { id: candidateId, tenantId },
+                data: {
+                  // Only fill gaps: an existing catalog record's own data is better than a
+                  // spreadsheet's, so the import never overwrites what is already there.
+                  ...(item.row.barcode && !before.barcode
+                    ? { barcode: item.row.barcode }
+                    : {}),
+                  ...(item.row.brandName && !before.brandName
+                    ? { brandName: item.row.brandName }
+                    : {}),
+                  ...(item.row.packSize && !before.packSize
+                    ? { packSize: item.row.packSize }
+                    : {}),
+                  ...(item.row.reorderLevel != null
+                    ? { reorderLevel: item.row.reorderLevel }
+                    : {}),
+                  // The pharmacy is telling us it sells this — that is the point of the file.
+                  rangeStatus: "RANGED",
+                  ...(before?.rangeStatus === "REFERENCE"
+                    ? { rangedAt: new Date() }
+                    : {}),
+                },
+              });
+              if (before?.rangeStatus === "REFERENCE") ranged += 1;
+              productIdByRow.set(item.row.rowNumber, candidateId);
+              updated += 1;
+            } else {
+              const sku = uniqueSku(item.row, usedSkus);
+              const product = await tx.product.create({
+                data: {
+                  tenantId,
+                  sku,
+                  name: item.row.name,
+                  barcode: item.row.barcode,
+                  brandName: item.row.brandName,
+                  genericName: item.row.genericName,
+                  manufacturer: item.row.manufacturer,
+                  dosageForm: item.row.dosageForm,
+                  strength: item.row.strength,
+                  unit: item.row.unit,
+                  packSize: item.row.packSize,
+                  registrationNo: item.row.registrationNo,
+                  reorderLevel: item.row.reorderLevel ?? 0,
+                  // No registry match: a retail item until someone says otherwise. Compliance
+                  // flags are never invented here — an unmatched row has no evidence for them.
+                  source: "CSV_IMPORT",
+                  rangeStatus: "RANGED",
+                  rangedAt: new Date(),
+                  importId,
+                },
+                select: { id: true },
+              });
+              productIdByRow.set(item.row.rowNumber, product.id);
+              created += 1;
             }
+          } catch (err) {
+            await tx.$executeRaw`ROLLBACK TO SAVEPOINT import_row`;
+            issues.push({
+              rowNumber: item.row.rowNumber,
+              name: item.row.name,
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "Could not save this product.",
+            });
           }
-        },
-        { timeout: 120_000, maxWait: 60_000 },
-      );
+        }
+        await tx.productImport.updateMany({
+          where: { id: importId, tenantId },
+          data: {
+            productsCreated: created,
+            productsUpdated: updated,
+            productsRanged: ranged,
+            rowsProcessed: processed + chunk.length,
+            rowsFailed: new Set(issues.map((issue) => issue.rowNumber)).size,
+            errorReport: issues as unknown as Prisma.InputJsonValue,
+          },
+        });
+      });
       processed += chunk.length;
       onProgress(processed, created, updated);
     }
@@ -1300,77 +1449,85 @@ export class ProductImportService {
 
     for (let i = 0; i < withStock.length; i += PRODUCT_BATCH) {
       const chunk = withStock.slice(i, i + PRODUCT_BATCH);
-      await this.prisma.$transaction(
-        async (tx) => {
-          for (const item of chunk) {
-            const productId = productIdByRow.get(item.row.rowNumber);
-            if (!productId) continue;
-            try {
-              const batchNo = item.row.batchNo?.trim() || "OPENING";
-              const expiry = item.row.expiryDate ?? EXPIRY_PLACEHOLDER;
-              const needsExpiryReview = item.row.expiryDate == null;
+      await this.inImportTransaction(tenantId, importId, async (tx) => {
+        for (const item of chunk) {
+          const productId = productIdByRow.get(item.row.rowNumber);
+          if (!productId) continue;
+          await tx.$executeRaw`SAVEPOINT import_row`;
+          try {
+            const batchNo = item.row.batchNo?.trim() || "OPENING";
+            const expiry = item.row.expiryDate ?? EXPIRY_PLACEHOLDER;
+            const needsExpiryReview = item.row.expiryDate == null;
 
-              const existing = await tx.batch.findFirst({
-                where: { tenantId, branchId, productId, batchNo },
-                select: { id: true },
-              });
-              if (existing) {
-                issues.push({
-                  rowNumber: item.row.rowNumber,
-                  name: item.row.name,
-                  message: `Batch "${batchNo}" already exists at this branch for this product — stock not posted.`,
-                });
-                continue;
-              }
-
-              const batch = await tx.batch.create({
-                data: {
-                  tenantId,
-                  branchId,
-                  productId,
-                  batchNo,
-                  expiryDate: expiry,
-                  costPrice: new Prisma.Decimal(item.row.costPrice ?? 0),
-                  sellingPrice: new Prisma.Decimal(item.row.sellingPrice ?? 0),
-                  needsExpiryReview,
-                },
-                select: { id: true },
-              });
-
-              await tx.stockLedger.create({
-                data: {
-                  tenantId,
-                  branchId,
-                  productId,
-                  batchId: batch.id,
-                  movementType: StockMovementType.opening_stock,
-                  qtyDelta: item.row.qty!,
-                  // referenceId is what makes undo possible — it is how the ledger rows,
-                  // and through them the batches, are traced back to this import.
-                  referenceType: "product_import",
-                  referenceId: importId,
-                  reason: "Opening stock import",
-                  createdBy: userId,
-                },
-              });
-
-              batchesCreated += 1;
-              unitsPosted += item.row.qty!;
-              if (needsExpiryReview) expiryReviewCount += 1;
-            } catch (err) {
+            const existing = await tx.batch.findFirst({
+              where: { tenantId, branchId, productId, batchNo },
+              select: { id: true },
+            });
+            if (existing) {
               issues.push({
                 rowNumber: item.row.rowNumber,
                 name: item.row.name,
-                message:
-                  err instanceof Error
-                    ? err.message
-                    : "Could not post opening stock.",
+                message: `Batch "${batchNo}" already exists at this branch for this product — stock not posted.`,
               });
+              continue;
             }
+
+            const batch = await tx.batch.create({
+              data: {
+                tenantId,
+                branchId,
+                productId,
+                batchNo,
+                expiryDate: expiry,
+                costPrice: new Prisma.Decimal(item.row.costPrice ?? 0),
+                sellingPrice: new Prisma.Decimal(item.row.sellingPrice ?? 0),
+                needsExpiryReview,
+              },
+              select: { id: true },
+            });
+
+            await tx.stockLedger.create({
+              data: {
+                tenantId,
+                branchId,
+                productId,
+                batchId: batch.id,
+                movementType: StockMovementType.opening_stock,
+                qtyDelta: item.row.qty!,
+                // referenceId is what makes undo possible — it is how the ledger rows,
+                // and through them the batches, are traced back to this import.
+                referenceType: "product_import",
+                referenceId: importId,
+                reason: "Opening stock import",
+                createdBy: userId,
+              },
+            });
+
+            batchesCreated += 1;
+            unitsPosted += item.row.qty!;
+            if (needsExpiryReview) expiryReviewCount += 1;
+          } catch (err) {
+            await tx.$executeRaw`ROLLBACK TO SAVEPOINT import_row`;
+            issues.push({
+              rowNumber: item.row.rowNumber,
+              name: item.row.name,
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "Could not post opening stock.",
+            });
           }
-        },
-        { timeout: 120_000, maxWait: 60_000 },
-      );
+        }
+        await tx.productImport.updateMany({
+          where: { id: importId, tenantId },
+          data: {
+            batchesCreated,
+            unitsPosted,
+            expiryReviewCount,
+            errorReport: issues as unknown as Prisma.InputJsonValue,
+          },
+        });
+      });
       processed += chunk.length;
       onProgress(processed);
     }
