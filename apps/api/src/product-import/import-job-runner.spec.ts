@@ -1,3 +1,4 @@
+import { tenantTransactionStorage } from "../prisma/tenant-transaction.store";
 import type { PrismaService } from "../prisma/prisma.service";
 import { ImportJobRunner, INTERRUPTED_MESSAGE } from "./import-job-runner";
 
@@ -69,14 +70,12 @@ describe("ImportJobRunner", () => {
   it("returns the durable completion result after a restart", async () => {
     const result = { importId: "imp-result", productsCreated: 2 };
     const prisma = makePrisma({
-      findFirst: jest
-        .fn()
-        .mockResolvedValue({
-          id: "imp-result",
-          status: "completed",
-          result,
-          phase: "done",
-        }),
+      findFirst: jest.fn().mockResolvedValue({
+        id: "imp-result",
+        status: "completed",
+        result,
+        phase: "done",
+      }),
     });
     expect(
       (await new ImportJobRunner(prisma).getProgress("t1", "imp-result"))
@@ -93,6 +92,29 @@ describe("ImportJobRunner", () => {
     runner.start("stopped", "t1", "stopped", work);
     await new Promise((resolve) => setImmediate(resolve));
     expect(work).not.toHaveBeenCalled();
+    runner.onModuleDestroy();
+  });
+
+  it("runs failure handling outside the request transaction too", async () => {
+    const scopes: unknown[] = [];
+    const prisma = makePrisma({
+      updateMany: jest.fn(async () => {
+        scopes.push(tenantTransactionStorage.getStore());
+        return { count: 1 };
+      }),
+    });
+    const runner = new ImportJobRunner(prisma);
+    tenantTransactionStorage.run(
+      { tenantId: "t1", client: {} as never },
+      () => {
+        runner.start("detached", "t1", "detached", async () => {
+          throw new Error("interrupted");
+        });
+      },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(scopes.length).toBeGreaterThan(1);
+    expect(scopes.every((scope) => scope === undefined)).toBe(true);
     runner.onModuleDestroy();
   });
 

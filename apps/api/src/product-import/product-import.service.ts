@@ -227,6 +227,8 @@ export class ProductImportService {
     categoryChoices: ImportCategoryChoices,
     idempotencyKeyRaw: string | undefined,
   ): Promise<{ jobId: string; importId: string }> {
+    if (!file?.buffer?.length)
+      throw new BadRequestException("Upload a CSV or Excel file.");
     const fingerprint = createHash("sha256")
       .update(file.buffer)
       .update(

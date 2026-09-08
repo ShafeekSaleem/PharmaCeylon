@@ -122,47 +122,47 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
     };
 
     // Background work must not inherit the HTTP request's soon-to-close RLS transaction.
-    void tenantTransactionStorage
-      .exit(async () => {
+    tenantTransactionStorage.exit(() => {
+      void (async () => {
         await this.markRunning(importId, tenantId);
         this.startHeartbeat(jobId, tenantId, importId);
         await work(ctx);
-      })
-      .catch(async (err: unknown) => {
-        const message = err instanceof Error ? err.message : "Import failed";
-        this.logger.error(`Import ${importId} failed: ${message}`);
-        patchImportJob(jobId, {
-          status: "failed",
-          phase: "failed",
-          error: message,
+      })()
+        .catch(async (err: unknown) => {
+          const message = err instanceof Error ? err.message : "Import failed";
+          this.logger.error(`Import ${importId} failed: ${message}`);
+          patchImportJob(jobId, {
+            status: "failed",
+            phase: "failed",
+            error: message,
+          });
+          await this.prisma.productImport
+            .updateMany({
+              where: { id: importId, tenantId, status: "running" },
+              data: {
+                status: "failed",
+                error: message,
+                completedAt: new Date(),
+                heartbeatAt: null,
+              },
+            })
+            .catch(() => undefined);
+        })
+        .finally(() => {
+          this.stopHeartbeat(jobId);
+          void this.prisma.productImport
+            .updateMany({
+              where: { id: importId, tenantId, status: "running" },
+              data: { heartbeatAt: null },
+            })
+            .catch(() => undefined);
         });
-        await this.prisma.productImport
-          .updateMany({
-            where: { id: importId, tenantId, status: "running" },
-            data: {
-              status: "failed",
-              error: message,
-              completedAt: new Date(),
-              heartbeatAt: null,
-            },
-          })
-          .catch(() => undefined);
-      })
-      .finally(() => {
-        this.stopHeartbeat(jobId);
-        void this.prisma.productImport
-          .updateMany({
-            where: { id: importId, tenantId, status: "running" },
-            data: { heartbeatAt: null },
-          })
-          .catch(() => undefined);
-      });
+    });
   }
 
   /**
-   * Progress for a job, from memory when this instance is running it and from the database
-   * otherwise. The database fallback is what makes the progress poll survive both a restart
-   * and a load balancer sending the poll to a different instance than the upload.
+   * Read durable state on every poll so a stale in-memory snapshot cannot hide a stopped job.
+   * Completion results survive restarts and load balancing between API instances.
    */
   async getProgress(
     tenantId: string,
