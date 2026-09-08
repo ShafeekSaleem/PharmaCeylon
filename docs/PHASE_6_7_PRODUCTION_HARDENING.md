@@ -30,7 +30,7 @@ npm run build -w api
 npm run build -w web
 ```
 
-The additive migration is `20260907190000_import_recovery`. No reseed or database reset is required. Stop application workers before rolling back the application to a version that does not understand the new recovery rules; retain the added columns.
+The additive migrations are `20260907190000_import_recovery` and `20260908060000_stage_catalog_import_policies`. The latter completes the existing disabled tenant-policy inventory for the three newer catalog/import tables without activating RLS. No reseed or database reset is required. Stop application workers before rolling back the application to a version that does not understand the new recovery rules; retain the added columns.
 
 `npm run test:import-recovery -w api` requires a separate disposable migrated database and `PHASE67_DB_TEST_ACK=ephemeral-database`. Never point this test at your working pharmacy database.
 
