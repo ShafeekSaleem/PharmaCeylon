@@ -26,7 +26,11 @@ const pool = new pg.Pool({
 });
 const audit = new AuditService(prisma);
 const runner = new ImportJobRunner(prisma);
+// Stands in for CategoryTaxonomyService. It has to answer every call the import path makes:
+// a missing one throws inside the job and fails the import for the wrong reason, which reads
+// here as a recovery assertion failing rather than as a broken stub.
 const taxonomy = {
+  ensureCommercialTemplate: async () => {},
   assignMissingPrimaryCommercial: async () => 0,
   applyDeterministicMedicineClassification: async () => ({ reclassified: 0 }),
 };
@@ -187,10 +191,20 @@ try {
   const writer = await pool.connect();
   try {
     await writer.query("BEGIN");
+    // reference_type/reference_id are NOT NULL, and they are also what the undo guard reads:
+    // anything other than this import's own product_import rows counts as stock having moved.
     await writer.query(
-      `INSERT INTO stock_ledger(id, tenant_id, branch_id, product_id, batch_id, movement_type, qty_delta, created_by)
-      VALUES ($1,$2,$3,$4,$5,'adjustment_in',1,$6)`,
-      [randomUUID(), tenantId, branchId, batch.productId, batch.id, userId],
+      `INSERT INTO stock_ledger(id, tenant_id, branch_id, product_id, batch_id, movement_type, qty_delta, reference_type, reference_id, created_by)
+      VALUES ($1,$2,$3,$4,$5,'adjustment_in',1,'adjustment',$6,$7)`,
+      [
+        randomUUID(),
+        tenantId,
+        branchId,
+        batch.productId,
+        batch.id,
+        randomUUID(),
+        userId,
+      ],
     );
     let settled = false;
     const undo = service.undo(tenantId, userId, one.importId).then(

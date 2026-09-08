@@ -40,9 +40,9 @@ it("confirms a flagged batch through the date form and refreshes inventory", asy
   fireEvent.change(screen.getByLabelText(/Actual expiry date/), {
     target: { value: "2027-06-30" },
   });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Confirm expiry", exact: true }),
-  );
+  // A plain string `name` is already matched in full, so this picks the dialog's own
+  // "Confirm expiry" and not the row's "Confirm expiry for batch B1".
+  fireEvent.click(screen.getByRole("button", { name: "Confirm expiry" }));
   await waitFor(() => expect(onChanged).toHaveBeenCalled());
   expect(apiJson).toHaveBeenCalledWith(
     "/inventory/batches/batch/confirm-expiry",
