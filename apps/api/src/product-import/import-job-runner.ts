@@ -5,6 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
+import { tenantTransactionStorage } from "../prisma/tenant-transaction.store";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   createImportJob,
@@ -52,8 +53,8 @@ const PROGRESS_FLUSH_MS = 2_000;
 
 export const INTERRUPTED_MESSAGE =
   "Interrupted before it finished (the server restarted or the process stopped). " +
-  "Any products and stock already created were kept — check the product list, then re-run the " +
-  "import for whatever is missing.";
+  "Any products and stock already created were kept. Review Recent imports and undo the " +
+  "untouched import before uploading again; if stock has moved, reconcile only missing rows.";
 
 /** What the running import calls to report progress. */
 export type ImportJobContext = {
@@ -110,8 +111,6 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
   ): void {
     createImportJob(jobId, tenantId, importId);
     patchImportJob(jobId, { status: "running", phase: "starting" });
-    void this.markRunning(importId, tenantId);
-    this.startHeartbeat(jobId, tenantId, importId);
 
     const ctx: ImportJobContext = {
       jobId,
@@ -122,7 +121,13 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
       },
     };
 
-    void work(ctx)
+    // Background work must not inherit the HTTP request's soon-to-close RLS transaction.
+    void tenantTransactionStorage
+      .exit(async () => {
+        await this.markRunning(importId, tenantId);
+        this.startHeartbeat(jobId, tenantId, importId);
+        await work(ctx);
+      })
       .catch(async (err: unknown) => {
         const message = err instanceof Error ? err.message : "Import failed";
         this.logger.error(`Import ${importId} failed: ${message}`);
@@ -133,7 +138,7 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
         });
         await this.prisma.productImport
           .updateMany({
-            where: { id: importId, tenantId },
+            where: { id: importId, tenantId, status: "running" },
             data: {
               status: "failed",
               error: message,
@@ -147,7 +152,7 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
         this.stopHeartbeat(jobId);
         void this.prisma.productImport
           .updateMany({
-            where: { id: importId, tenantId },
+            where: { id: importId, tenantId, status: "running" },
             data: { heartbeatAt: null },
           })
           .catch(() => undefined);
@@ -163,11 +168,6 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
     tenantId: string,
     jobId: string,
   ): Promise<ImportJobProgress> {
-    const inMemory = getImportJob(jobId);
-    if (inMemory && inMemory.tenantId === tenantId) {
-      return toImportJobProgress(inMemory);
-    }
-
     // `jobId` and `importId` are the same value by construction (see `startImport`), so a job
     // this process never saw is still findable by its import row.
     const row = await this.prisma.productImport.findFirst({
@@ -183,6 +183,7 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
         batchesCreated: true,
         rowsFailed: true,
         error: true,
+        result: true,
       },
     });
     if (!row) throw new NotFoundException("Import job not found.");
@@ -204,6 +205,7 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
       batchesCreated: row.batchesCreated,
       errorCount: row.rowsFailed,
       error: row.error ?? undefined,
+      result: row.result ? (row.result as unknown as ImportResult) : undefined,
     };
   }
 
@@ -259,12 +261,11 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
   }
 
   private async markRunning(importId: string, tenantId: string): Promise<void> {
-    await this.prisma.productImport
-      .updateMany({
-        where: { id: importId, tenantId },
-        data: { status: "running", phase: "starting", heartbeatAt: new Date() },
-      })
-      .catch(() => undefined);
+    const claimed = await this.prisma.productImport.updateMany({
+      where: { id: importId, tenantId, status: "running" },
+      data: { phase: "starting", heartbeatAt: new Date() },
+    });
+    if (claimed.count !== 1) throw new Error("Import is no longer running");
   }
 
   private startHeartbeat(
@@ -306,7 +307,7 @@ export class ImportJobRunner implements OnModuleInit, OnModuleDestroy {
 
     void this.prisma.productImport
       .updateMany({
-        where: { id: importId, tenantId },
+        where: { id: importId, tenantId, status: "running" },
         data: {
           ...(patch.phase !== undefined
             ? { phase: patch.phase.slice(0, 32) }

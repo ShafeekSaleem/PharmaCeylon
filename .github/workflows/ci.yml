@@ -62,6 +62,9 @@ jobs:
           JWT_ACCESS_SECRET: ci-access-secret
           JWT_REFRESH_SECRET: ci-refresh-secret
 
+      - name: Web component tests
+        run: npm test -w web -- --runInBand
+
       - name: PostgreSQL RLS proof
         run: npm run test:rls-poc -w api
 
@@ -78,6 +81,11 @@ jobs:
 
       - name: Build API
         run: npm run build -w api
+
+      - name: PostgreSQL import recovery and concurrency
+        run: npm run test:import-recovery -w api
+        env:
+          PHASE67_DB_TEST_ACK: ephemeral-database
 
       - name: Build web
         run: npm run build -w web

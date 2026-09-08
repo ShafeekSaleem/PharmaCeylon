@@ -75,7 +75,10 @@ const MOVEMENT_CATEGORY_TYPES: Record<
   Exclude<MovementCategory, "all">,
   StockMovementType[]
 > = {
-  adjustments: [StockMovementType.adjustment_in, StockMovementType.adjustment_out],
+  adjustments: [
+    StockMovementType.adjustment_in,
+    StockMovementType.adjustment_out,
+  ],
   sales: [
     StockMovementType.sale_out,
     StockMovementType.sale_void_in,
@@ -97,7 +100,11 @@ export type SummaryPeriod =
   | "this_quarter"
   | "this_year";
 
-function resolveSummaryPeriod(period: SummaryPeriod): { from: Date; to: Date; label: string } {
+function resolveSummaryPeriod(period: SummaryPeriod): {
+  from: Date;
+  to: Date;
+  label: string;
+} {
   const now = new Date();
   const to = new Date(now);
   to.setHours(23, 59, 59, 999);
@@ -113,11 +120,22 @@ function resolveSummaryPeriod(period: SummaryPeriod): { from: Date; to: Date; la
       return { from, to, label: "Last 30 days" };
     case "last_month": {
       const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      const end = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
       return {
         from: start,
         to: end,
-        label: start.toLocaleString(undefined, { month: "long", year: "numeric" }),
+        label: start.toLocaleString(undefined, {
+          month: "long",
+          year: "numeric",
+        }),
       };
     }
     case "this_quarter": {
@@ -135,7 +153,10 @@ function resolveSummaryPeriod(period: SummaryPeriod): { from: Date; to: Date; la
       return {
         from: start,
         to,
-        label: start.toLocaleString(undefined, { month: "long", year: "numeric" }),
+        label: start.toLocaleString(undefined, {
+          month: "long",
+          year: "numeric",
+        }),
       };
     }
   }
@@ -149,7 +170,11 @@ export class InventoryService {
     private readonly stock: StockBalanceService,
   ) {}
 
-  async listBatches(tenantId: string, branchId: string, query: BatchListQuery = {}) {
+  async listBatches(
+    tenantId: string,
+    branchId: string,
+    query: BatchListQuery = {},
+  ) {
     const includeZero = query.includeZero !== false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -192,7 +217,9 @@ export class InventoryService {
         ...(query.productId ? { productId: query.productId } : {}),
         ...expiryWhere,
         ...(query.needsExpiryReview ? { needsExpiryReview: true } : {}),
-        ...(query.quarantined != null ? { isQuarantined: query.quarantined } : {}),
+        ...(query.quarantined != null
+          ? { isQuarantined: query.quarantined }
+          : {}),
         ...(query.controlled === "controlled"
           ? { product: { isControlled: true } }
           : query.controlled === "regular"
@@ -250,12 +277,15 @@ export class InventoryService {
       }
     }
 
-    const windowDays = nearWindowDays ?? configuredWindow?.expiryWarningDays ?? 30;
+    const windowDays =
+      nearWindowDays ?? configuredWindow?.expiryWarningDays ?? 30;
     const mapped = batches.map((b) => {
       const qtyOnHand = qtyMap.get(b.id) ?? 0;
       const exp = new Date(b.expiryDate);
       exp.setHours(0, 0, 0, 0);
-      const daysToExpiry = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      const daysToExpiry = Math.ceil(
+        (exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+      );
       const expired = daysToExpiry < 0;
       const nearExpiry = !expired && daysToExpiry <= windowDays;
       const imageUrl =
@@ -280,7 +310,9 @@ export class InventoryService {
         quarantinedAt: b.quarantinedAt?.toISOString() ?? null,
         quarantineReason: b.quarantineReason,
         needsExpiryReview: b.needsExpiryReview,
-        supplier: b.supplier ? { id: b.supplier.id, name: b.supplier.name } : null,
+        supplier: b.supplier
+          ? { id: b.supplier.id, name: b.supplier.name }
+          : null,
         product: {
           id: b.product.id,
           sku: b.product.sku,
@@ -312,6 +344,55 @@ export class InventoryService {
     });
   }
 
+  async confirmBatchExpiry(
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    batchId: string,
+    value: string,
+  ) {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      Number.isNaN(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== value
+    ) {
+      throw new BadRequestException(
+        "Enter the actual expiry date printed on the batch",
+      );
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const batch = await tx.batch.findFirst({
+        where: { id: batchId, tenantId, branchId },
+      });
+      if (!batch) throw new NotFoundException("Batch not found");
+      const updated = await tx.batch.updateMany({
+        where: { id: batchId, tenantId, branchId, needsExpiryReview: true },
+        data: { expiryDate: date, needsExpiryReview: false },
+      });
+      if (updated.count !== 1)
+        throw new BadRequestException(
+          "This batch has already been reviewed. Refresh the list.",
+        );
+      await tx.auditEvent.create({
+        data: {
+          tenantId,
+          branchId,
+          actorUserId: userId,
+          eventName: "batch.expiry_confirmed",
+          entityName: "batch",
+          entityId: batchId,
+          payload: {
+            expiryDate: value,
+            previousExpiryDate: batch.expiryDate.toISOString(),
+            productId: batch.productId,
+          },
+        },
+      });
+      return { id: batchId, expiryDate: value, needsExpiryReview: false };
+    });
+  }
+
   async quarantineBatch(
     tenantId: string,
     branchId: string,
@@ -320,7 +401,8 @@ export class InventoryService {
     reason: string,
   ) {
     const trimmed = reason.trim();
-    if (!trimmed) throw new BadRequestException("Quarantine reason is required");
+    if (!trimmed)
+      throw new BadRequestException("Quarantine reason is required");
 
     const batch = await this.prisma.batch.findFirst({
       where: { id: batchId, tenantId, branchId },
@@ -476,7 +558,11 @@ export class InventoryService {
     };
   }
 
-  async stockByProduct(tenantId: string, branchId: string, query: StockListQuery = {}) {
+  async stockByProduct(
+    tenantId: string,
+    branchId: string,
+    query: StockListQuery = {},
+  ) {
     const skip = Math.max(0, query.skip ?? 0);
     const take = Math.min(Math.max(1, query.take ?? 50), 200);
 
@@ -485,10 +571,13 @@ export class InventoryService {
       where: { tenantId, branchId },
       _sum: { qtyDelta: true },
     });
-    const qtyByProduct = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+    const qtyByProduct = new Map(
+      grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]),
+    );
 
     const q = query.q?.trim() ?? "";
-    const statusFilter = query.status && query.status !== "all" ? query.status : null;
+    const statusFilter =
+      query.status && query.status !== "all" ? query.status : null;
 
     const productWhere: Prisma.ProductWhereInput = {
       tenantId,
@@ -496,7 +585,9 @@ export class InventoryService {
       // Default to the shop's own range so a 15,000-row registry import doesn't flood the
       // picker. Callers opt into the full catalog explicitly; receiving stock against a
       // reference product promotes it (see ensureProductsRanged).
-      ...(query.rangeStatus === "all" ? {} : { rangeStatus: "RANGED" as const }),
+      ...(query.rangeStatus === "all"
+        ? {}
+        : { rangeStatus: "RANGED" as const }),
     };
 
     if (query.productId) {
@@ -512,7 +603,8 @@ export class InventoryService {
     if (query.controlled === "controlled") productWhere.isControlled = true;
     if (query.controlled === "regular") productWhere.isControlled = false;
     if (query.brands?.length) productWhere.brandName = { in: query.brands };
-    if (query.dosageForms?.length) productWhere.dosageForm = { in: query.dosageForms };
+    if (query.dosageForms?.length)
+      productWhere.dosageForm = { in: query.dosageForms };
     if (query.categoryIds?.length) {
       // "Category" filter is commercial-only — the web filter dropdown is fed exclusively
       // from COMMERCIAL categories, so this is enforced here too rather than assumed.
@@ -524,7 +616,10 @@ export class InventoryService {
         query.categoryIds,
       );
       productWhere.categoryMaps = {
-        some: { categoryId: { in: expandedCategoryIds }, dimension: "COMMERCIAL" },
+        some: {
+          categoryId: { in: expandedCategoryIds },
+          dimension: "COMMERCIAL",
+        },
       };
     }
     if (query.tagIds?.length) {
@@ -561,11 +656,16 @@ export class InventoryService {
       orderBy: { name: "asc" },
     });
 
-    const batches = await this.listBatches(tenantId, branchId, { includeZero: false });
+    const batches = await this.listBatches(tenantId, branchId, {
+      includeZero: false,
+    });
     const batchCountByProduct = new Map<string, number>();
     const nearExpiryByProduct = new Map<string, number>();
     for (const b of batches) {
-      batchCountByProduct.set(b.productId, (batchCountByProduct.get(b.productId) ?? 0) + 1);
+      batchCountByProduct.set(
+        b.productId,
+        (batchCountByProduct.get(b.productId) ?? 0) + 1,
+      );
       if (b.nearExpiry) {
         nearExpiryByProduct.set(
           b.productId,
@@ -574,7 +674,10 @@ export class InventoryService {
       }
     }
 
-    const batchFilter = query.batchFilter && query.batchFilter !== "all" ? query.batchFilter : null;
+    const batchFilter =
+      query.batchFilter && query.batchFilter !== "all"
+        ? query.batchFilter
+        : null;
 
     const matched: Array<{
       product: (typeof products)[number];
@@ -593,7 +696,13 @@ export class InventoryService {
       if (batchFilter === "expiring" && nearExpiryBatchCount <= 0) continue;
       if (batchFilter === "with_batches" && batchCount <= 0) continue;
       if (batchFilter === "no_batches" && batchCount > 0) continue;
-      matched.push({ product, qtyOnHand, stockStatus, batchCount, nearExpiryBatchCount });
+      matched.push({
+        product,
+        qtyOnHand,
+        stockStatus,
+        batchCount,
+        nearExpiryBatchCount,
+      });
     }
 
     const total = matched.length;
@@ -691,7 +800,9 @@ export class InventoryService {
       this.listBatches(tenantId, branchId, { includeZero: false }),
     ]);
 
-    const qtyByProduct = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+    const qtyByProduct = new Map(
+      grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]),
+    );
 
     let totalUnits = 0;
     let skuCount = 0;
@@ -790,28 +901,40 @@ export class InventoryService {
     roles: RoleName[],
     dto: StockAdjustmentDto,
   ) {
-    if (dto.movementType !== "adjustment_in" && dto.movementType !== "adjustment_out") {
+    if (
+      dto.movementType !== "adjustment_in" &&
+      dto.movementType !== "adjustment_out"
+    ) {
       throw new BadRequestException("Invalid movement type for adjustment");
     }
 
-    const isManager = roles.includes(RoleName.owner) || roles.includes(RoleName.manager);
+    const isManager =
+      roles.includes(RoleName.owner) || roles.includes(RoleName.manager);
     const isClerk = roles.includes(RoleName.inventory_clerk);
 
     if (dto.movementType === "adjustment_out" && !isManager) {
-      throw new ForbiddenException("Only manager or owner may post stock decreases");
+      throw new ForbiddenException(
+        "Only manager or owner may post stock decreases",
+      );
     }
     if (dto.movementType === "adjustment_in" && !isManager && !isClerk) {
       throw new ForbiddenException("Insufficient role for stock increase");
     }
 
     if (dto.newBatch && dto.movementType !== "adjustment_in") {
-      throw new BadRequestException("New batches can only be created with stock increases");
+      throw new BadRequestException(
+        "New batches can only be created with stock increases",
+      );
     }
     if (!dto.batchId && !dto.newBatch) {
-      throw new BadRequestException("Select an existing batch or provide new batch details");
+      throw new BadRequestException(
+        "Select an existing batch or provide new batch details",
+      );
     }
     if (dto.batchId && dto.newBatch) {
-      throw new BadRequestException("Provide either an existing batch or new batch details, not both");
+      throw new BadRequestException(
+        "Provide either an existing batch or new batch details, not both",
+      );
     }
 
     const product = await this.prisma.product.findFirst({
@@ -832,7 +955,9 @@ export class InventoryService {
           throw new BadRequestException("Invalid expiry date");
         }
         if (dto.newBatch.supplierId) {
-          const supplier = await tx.supplier.findFirst({ where: { id: dto.newBatch.supplierId, tenantId } });
+          const supplier = await tx.supplier.findFirst({
+            where: { id: dto.newBatch.supplierId, tenantId },
+          });
           if (!supplier) throw new BadRequestException("Invalid supplier");
         }
         const created = await tx.batch.create({
@@ -852,7 +977,8 @@ export class InventoryService {
         const batch = await tx.batch.findFirst({
           where: { id: batchId!, tenantId, branchId, productId: dto.productId },
         });
-        if (!batch) throw new BadRequestException("Batch does not match product/branch");
+        if (!batch)
+          throw new BadRequestException("Batch does not match product/branch");
       }
 
       if (dto.movementType === "adjustment_out") {
@@ -862,7 +988,9 @@ export class InventoryService {
         });
         const available = availableAgg._sum.qtyDelta ?? 0;
         if (available < dto.qty) {
-          throw new BadRequestException("Insufficient stock for adjustment out");
+          throw new BadRequestException(
+            "Insufficient stock for adjustment out",
+          );
         }
       }
 
@@ -910,10 +1038,19 @@ export class InventoryService {
     return { ok: true, referenceId, batchId: result.batchId };
   }
 
-  async customerReturn(tenantId: string, branchId: string, userId: string, dto: CustomerReturnDto) {
-    await assertSaleReturnableLines(this.prisma, tenantId, branchId, dto.saleId, [
-      { productId: dto.productId, batchId: dto.batchId, qty: dto.qty },
-    ]);
+  async customerReturn(
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    dto: CustomerReturnDto,
+  ) {
+    await assertSaleReturnableLines(
+      this.prisma,
+      tenantId,
+      branchId,
+      dto.saleId,
+      [{ productId: dto.productId, batchId: dto.batchId, qty: dto.qty }],
+    );
 
     const sale = await this.prisma.sale.findFirst({
       where: { id: dto.saleId, tenantId, branchId },
@@ -921,8 +1058,11 @@ export class InventoryService {
     });
     if (!sale) throw new BadRequestException("Sale not found for this branch");
 
-    const line = sale.items.find((i) => i.batchId === dto.batchId && i.productId === dto.productId);
-    if (!line) throw new BadRequestException("Batch/product not on the referenced sale");
+    const line = sale.items.find(
+      (i) => i.batchId === dto.batchId && i.productId === dto.productId,
+    );
+    if (!line)
+      throw new BadRequestException("Batch/product not on the referenced sale");
 
     const batch = await this.prisma.batch.findFirst({
       where: { id: dto.batchId, tenantId, branchId, productId: dto.productId },
@@ -952,13 +1092,23 @@ export class InventoryService {
       eventName: "inventory.customer_return",
       entityName: "product",
       entityId: dto.productId,
-      payload: { saleId: dto.saleId, qty: dto.qty, batchId: dto.batchId, referenceId },
+      payload: {
+        saleId: dto.saleId,
+        qty: dto.qty,
+        batchId: dto.batchId,
+        referenceId,
+      },
     });
 
     return { ok: true, referenceId };
   }
 
-  async supplierReturn(tenantId: string, branchId: string, userId: string, dto: SupplierReturnDto) {
+  async supplierReturn(
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    dto: SupplierReturnDto,
+  ) {
     const batch = await this.prisma.batch.findFirst({
       where: { id: dto.batchId, tenantId, branchId, productId: dto.productId },
     });

@@ -12,7 +12,10 @@ import {
 } from "@prisma/client";
 import { nextTenantDocumentNumber } from "../common/document-sequence.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
-import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
+import {
+  isPrismaUniqueFieldError,
+  normalizeIdempotencyKey,
+} from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { CreateTransferDto } from "./dto/create-transfer.dto";
@@ -69,7 +72,9 @@ export class TransfersService {
     if (Number.isNaN(d.getTime())) {
       throw new BadRequestException("Invalid expectedOn date");
     }
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    return new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+    );
   }
 
   /** Hold stock for an approved transfer (negative delta). */
@@ -85,8 +90,14 @@ export class TransfersService {
   ) {
     const { tenantId, branchId, userId, transferId, lines } = params;
     for (const line of lines) {
-      if (!line.batchId) throw new BadRequestException("Missing batch on transfer line");
-      const available = await qtyForBatchTx(tx, tenantId, branchId, line.batchId);
+      if (!line.batchId)
+        throw new BadRequestException("Missing batch on transfer line");
+      const available = await qtyForBatchTx(
+        tx,
+        tenantId,
+        branchId,
+        line.batchId,
+      );
       if (available < line.qty) {
         const label = line.id ? `line ${line.id}` : "product line";
         throw new BadRequestException(
@@ -122,7 +133,8 @@ export class TransfersService {
   ) {
     const { tenantId, branchId, userId, transferId, lines } = params;
     for (const line of lines) {
-      if (!line.batchId) throw new BadRequestException("Missing batch on transfer line");
+      if (!line.batchId)
+        throw new BadRequestException("Missing batch on transfer line");
       await tx.stockLedger.create({
         data: {
           tenantId,
@@ -181,17 +193,26 @@ export class TransfersService {
 
     return rows.map((row) => {
       const totalQty = row.items.reduce((sum, item) => sum + item.qty, 0);
-      const itemReceivedQty = row.items.reduce((sum, item) => sum + item.receivedQty, 0);
+      const itemReceivedQty = row.items.reduce(
+        (sum, item) => sum + item.receivedQty,
+        0,
+      );
       const movement = movementByTransfer.get(row.id) ?? {
         dispatchedQty: 0,
         receivedQty: 0,
       };
       let receivedQty = Math.max(itemReceivedQty, movement.receivedQty);
-      if (row.status === TransferStatus.received && receivedQty === 0 && totalQty > 0) {
+      if (
+        row.status === TransferStatus.received &&
+        receivedQty === 0 &&
+        totalQty > 0
+      ) {
         receivedQty = totalQty;
       }
       const receivedPercent =
-        totalQty > 0 ? Math.min(100, Math.round((receivedQty / totalQty) * 100)) : 0;
+        totalQty > 0
+          ? Math.min(100, Math.round((receivedQty / totalQty) * 100))
+          : 0;
 
       return {
         ...row,
@@ -211,7 +232,9 @@ export class TransfersService {
     dto: CreateTransferDto,
   ) {
     if (dto.toBranchId === fromBranchId) {
-      throw new BadRequestException("Destination branch must differ from origin");
+      throw new BadRequestException(
+        "Destination branch must differ from origin",
+      );
     }
     const toBranch = await this.prisma.branch.findFirst({
       where: { id: dto.toBranchId, tenantId, isActive: true },
@@ -220,12 +243,16 @@ export class TransfersService {
 
     /** Owner/manager at the source branch skip pending approval. */
     const autoApprove = this.isOwnerOrManager(rolesAtFromBranch);
-    const status = autoApprove ? TransferStatus.approved : TransferStatus.requested;
+    const status = autoApprove
+      ? TransferStatus.approved
+      : TransferStatus.requested;
 
     const transfer = await this.prisma.$transaction(async (tx) => {
       for (const line of dto.items) {
         if (!line.batchId) {
-          throw new BadRequestException("batchId is required for each transfer line");
+          throw new BadRequestException(
+            "batchId is required for each transfer line",
+          );
         }
         const batch = await tx.batch.findFirst({
           where: {
@@ -235,14 +262,20 @@ export class TransfersService {
             productId: line.productId,
           },
         });
-        if (!batch) throw new BadRequestException("Invalid batch on transfer line");
+        if (!batch)
+          throw new BadRequestException("Invalid batch on transfer line");
         if (batch.isQuarantined) {
           throw new BadRequestException(
             `Batch ${batch.batchNo} is quarantined and cannot be transferred`,
           );
         }
 
-        const available = await qtyForBatchTx(tx, tenantId, fromBranchId, line.batchId);
+        const available = await qtyForBatchTx(
+          tx,
+          tenantId,
+          fromBranchId,
+          line.batchId,
+        );
         if (available < line.qty) {
           throw new BadRequestException(
             `Insufficient stock on batch for product line (need ${line.qty}, have ${available})`,
@@ -250,7 +283,12 @@ export class TransfersService {
         }
       }
 
-      const transferNumber = await nextTenantDocumentNumber(tx, tenantId, "transfer", "TR-");
+      const transferNumber = await nextTenantDocumentNumber(
+        tx,
+        tenantId,
+        "transfer",
+        "TR-",
+      );
 
       const created = await tx.transfer.create({
         data: {
@@ -293,7 +331,9 @@ export class TransfersService {
       tenantId,
       branchId: fromBranchId,
       actorUserId: userId,
-      eventName: autoApprove ? "transfer.created_and_approved" : "transfer.created",
+      eventName: autoApprove
+        ? "transfer.created_and_approved"
+        : "transfer.created",
       entityName: "transfer",
       entityId: transfer.id,
       payload: { status, autoApprove, transferNumber: transfer.transferNumber },
@@ -351,11 +391,13 @@ export class TransfersService {
       if (!t) throw new NotFoundException("Transfer not found");
 
       for (const line of t.items) {
-        if (!line.batchId) throw new BadRequestException("Missing batch on transfer line");
+        if (!line.batchId)
+          throw new BadRequestException("Missing batch on transfer line");
         const batch = await tx.batch.findFirst({
           where: { id: line.batchId, tenantId, branchId: fromBranchId },
         });
-        if (!batch) throw new BadRequestException("Invalid batch on transfer line");
+        if (!batch)
+          throw new BadRequestException("Invalid batch on transfer line");
         if (batch.isQuarantined) {
           throw new BadRequestException(
             `Batch ${batch.batchNo} is quarantined and cannot be transferred`,
@@ -405,7 +447,9 @@ export class TransfersService {
       data: { status: TransferStatus.rejected, approvedBy: userId },
     });
     if (claimed.count !== 1) {
-      throw new BadRequestException("Only pending transfers at this source branch can be rejected");
+      throw new BadRequestException(
+        "Only pending transfers at this source branch can be rejected",
+      );
     }
 
     await this.audit.log({
@@ -539,7 +583,8 @@ export class TransfersService {
         if (!t) throw new NotFoundException("Transfer not found");
 
         for (const line of t.items) {
-          if (!line.batchId) throw new BadRequestException("Missing batch on transfer line");
+          if (!line.batchId)
+            throw new BadRequestException("Missing batch on transfer line");
 
           /** Release hold first so available reflects true on-hand before transfer_out. */
           await tx.stockLedger.create({
@@ -556,9 +601,16 @@ export class TransfersService {
             },
           });
 
-          const available = await qtyForBatchTx(tx, tenantId, fromBranchId, line.batchId);
+          const available = await qtyForBatchTx(
+            tx,
+            tenantId,
+            fromBranchId,
+            line.batchId,
+          );
           if (available < line.qty) {
-            throw new BadRequestException(`Insufficient stock to ship line ${line.id}`);
+            throw new BadRequestException(
+              `Insufficient stock to ship line ${line.id}`,
+            );
           }
 
           await tx.stockLedger.create({
@@ -640,7 +692,10 @@ export class TransfersService {
     const receivePlan = new Map<string, number>();
     if (dto.lines?.length) {
       for (const line of dto.lines) {
-        receivePlan.set(line.transferItemId, (receivePlan.get(line.transferItemId) ?? 0) + line.qty);
+        receivePlan.set(
+          line.transferItemId,
+          (receivePlan.get(line.transferItemId) ?? 0) + line.qty,
+        );
       }
     }
 
@@ -652,7 +707,10 @@ export class TransfersService {
             tenantId,
             toBranchId,
             status: {
-              in: [TransferStatus.in_transit, TransferStatus.partially_received],
+              in: [
+                TransferStatus.in_transit,
+                TransferStatus.partially_received,
+              ],
             },
           },
           include: { items: true },
@@ -671,7 +729,9 @@ export class TransfersService {
         }
 
         if (receivePlan.size === 0) {
-          throw new BadRequestException("Nothing left to receive on this transfer");
+          throw new BadRequestException(
+            "Nothing left to receive on this transfer",
+          );
         }
 
         let anyReceived = false;
@@ -685,7 +745,8 @@ export class TransfersService {
           if (!line) {
             throw new BadRequestException(`Unknown transfer line ${itemId}`);
           }
-          if (!line.batchId) throw new BadRequestException("Missing batch on transfer line");
+          if (!line.batchId)
+            throw new BadRequestException("Missing batch on transfer line");
 
           const remaining = line.qty - line.receivedQty;
           if (qtyToReceive > remaining) {
@@ -699,14 +760,21 @@ export class TransfersService {
             data: { receivedQty: line.receivedQty + qtyToReceive },
           });
           if (bumped.count !== 1) {
-            throw new BadRequestException("Receive conflict — refresh and try again");
+            throw new BadRequestException(
+              "Receive conflict — refresh and try again",
+            );
           }
           anyReceived = true;
 
           const sourceBatch = await tx.batch.findFirst({
             where: { id: line.batchId, tenantId, branchId: t.fromBranchId },
           });
-          if (!sourceBatch) throw new BadRequestException("Source batch missing");
+          if (!sourceBatch)
+            throw new BadRequestException("Source batch missing");
+          if (sourceBatch.needsExpiryReview)
+            throw new BadRequestException(
+              "Confirm the source batch expiry before receiving this transfer",
+            );
 
           /** Reuse destination batch with the same batch number (FEFO / recall continuity). */
           let destBatch = await tx.batch.findFirst({
@@ -747,7 +815,9 @@ export class TransfersService {
         }
 
         if (!anyReceived) {
-          throw new BadRequestException("Nothing left to receive on this transfer");
+          throw new BadRequestException(
+            "Nothing left to receive on this transfer",
+          );
         }
 
         const refreshed = await tx.transferItem.findMany({
@@ -761,7 +831,10 @@ export class TransfersService {
             tenantId,
             toBranchId,
             status: {
-              in: [TransferStatus.in_transit, TransferStatus.partially_received],
+              in: [
+                TransferStatus.in_transit,
+                TransferStatus.partially_received,
+              ],
             },
           },
           data: {
@@ -772,7 +845,9 @@ export class TransfersService {
           },
         });
         if (statusClaimed.count !== 1) {
-          throw new BadRequestException("Transfer receipt conflict — refresh and try again");
+          throw new BadRequestException(
+            "Transfer receipt conflict — refresh and try again",
+          );
         }
 
         if (idemKey) {

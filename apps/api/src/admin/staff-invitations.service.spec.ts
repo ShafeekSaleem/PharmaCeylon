@@ -38,16 +38,31 @@ describe("StaffInvitationsService", () => {
       userBranchRole: { upsert: jest.fn().mockResolvedValue({}) },
       notificationPreference: { upsert: jest.fn().mockResolvedValue({}) },
     };
-    prisma.$transaction = jest.fn((callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
-    const email = { sendStaffInvitation: jest.fn().mockResolvedValue(undefined) };
-    const auth = { issueTenantSession: jest.fn().mockResolvedValue({ user: { id: userId } }) };
+    prisma.$transaction = jest.fn(
+      (callback: (tx: unknown) => Promise<unknown>) => callback(prisma),
+    );
+    const email = {
+      sendStaffInvitation: jest.fn().mockResolvedValue(undefined),
+    };
+    const auth = {
+      verifyAccountPassword: jest.fn(async (_user, password) => {
+        if (!(await bcrypt.compare(password, "hash")))
+          throw new UnauthorizedException("Invalid credentials");
+      }),
+      issueTenantSession: jest.fn().mockResolvedValue({ user: { id: userId } }),
+    };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     return {
       prisma,
       email,
       auth,
       audit,
-      service: new StaffInvitationsService(prisma, email as never, auth as never, audit as never),
+      service: new StaffInvitationsService(
+        prisma,
+        email as never,
+        auth as never,
+        audit as never,
+      ),
     };
   }
 
@@ -61,26 +76,30 @@ describe("StaffInvitationsService", () => {
     revokedAt: null,
     tenant: { displayName: "Royal Pharmacy", isActive: true },
     invitedBy: { fullName: "Asha Perera" },
-    roles: [{
-      branchId,
-      role: RoleName.cashier,
-      roleId: "role-cashier",
-      branch: { name: "Main Branch", isActive: true },
-      roleRef: { name: "Cashier" },
-    }],
+    roles: [
+      {
+        branchId,
+        role: RoleName.cashier,
+        roleId: "role-cashier",
+        branch: { name: "Main Branch", isActive: true },
+        roleRef: { name: "Cashier" },
+      },
+    ],
   });
 
   it("creates an expiring, hashed invitation and sends the raw link by email", async () => {
     const { service, prisma, email } = makeService();
-    prisma.staffInvitation.create.mockImplementation(({ data }: any) => Promise.resolve({
-      id: "invite-1",
-      email: data.email,
-      fullName: data.fullName,
-      expiresAt: data.expiresAt,
-      tokenHash: data.tokenHash,
-      tenant: { displayName: "Royal Pharmacy" },
-      invitedBy: { fullName: "Asha Perera" },
-    }));
+    prisma.staffInvitation.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: "invite-1",
+        email: data.email,
+        fullName: data.fullName,
+        expiresAt: data.expiresAt,
+        tokenHash: data.tokenHash,
+        tenant: { displayName: "Royal Pharmacy" },
+        invitedBy: { fullName: "Asha Perera" },
+      }),
+    );
 
     await service.create(tenantId, actorId, true, {
       email: "Cashier@Example.com",
@@ -99,36 +118,70 @@ describe("StaffInvitationsService", () => {
   it("rejects an assignment whose branch is outside the inviter's tenant", async () => {
     const { service, prisma } = makeService();
     prisma.branch.findMany.mockResolvedValue([]);
-    await expect(service.create(tenantId, actorId, true, {
-      email: "cashier@example.com",
-      fullName: "Kamal Silva",
-      assignments: [{ branchId, role: RoleName.cashier }],
-    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.create(tenantId, actorId, true, {
+        email: "cashier@example.com",
+        fullName: "Kamal Silva",
+        assignments: [{ branchId, role: RoleName.cashier }],
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("accepts an invitation for an existing identity and issues a session in the invited tenant", async () => {
     const { service, prisma, auth } = makeService();
     prisma.staffInvitation.findUnique.mockResolvedValue(usableInvitation());
-    prisma.appUser.findUnique.mockResolvedValue({ id: userId, passwordHash: "hash", isActive: true });
+    prisma.appUser.findUnique.mockResolvedValue({
+      id: userId,
+      passwordHash: "hash",
+      isActive: true,
+    });
     mockedBcrypt.compare.mockResolvedValue(true as never);
 
-    await service.accept("a-valid-invitation-token-value", { password: "secret123" });
+    await service.accept("a-valid-invitation-token-value", {
+      password: "secret123",
+    });
 
-    expect(prisma.tenantMembership.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId_userId: { tenantId, userId } },
-    }));
+    expect(prisma.tenantMembership.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId_userId: { tenantId, userId } },
+      }),
+    );
     expect(prisma.userBranchRole.upsert).toHaveBeenCalled();
     expect(auth.issueTenantSession).toHaveBeenCalledWith(userId, tenantId, {});
+  });
+
+  it("does not consume an invitation or grant membership when shared account verification rejects a lockout", async () => {
+    const { service, prisma, auth } = makeService();
+    prisma.staffInvitation.findUnique.mockResolvedValue(usableInvitation());
+    prisma.appUser.findUnique.mockResolvedValue({
+      id: userId,
+      passwordHash: "hash",
+      isActive: true,
+    });
+    auth.verifyAccountPassword.mockRejectedValue(
+      new UnauthorizedException("Account temporarily locked"),
+    );
+    await expect(
+      service.accept("a-valid-invitation-token-value", { password: "correct" }),
+    ).rejects.toThrow(/temporarily locked/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(auth.issueTenantSession).not.toHaveBeenCalled();
   });
 
   it("does not attach access when an existing account password is wrong", async () => {
     const { service, prisma } = makeService();
     prisma.staffInvitation.findUnique.mockResolvedValue(usableInvitation());
-    prisma.appUser.findUnique.mockResolvedValue({ id: userId, passwordHash: "hash", isActive: true });
+    prisma.appUser.findUnique.mockResolvedValue({
+      id: userId,
+      passwordHash: "hash",
+      isActive: true,
+    });
     mockedBcrypt.compare.mockResolvedValue(false as never);
 
     await expect(
-      service.accept("a-valid-invitation-token-value", { password: "wrongpass" }),
+      service.accept("a-valid-invitation-token-value", {
+        password: "wrongpass",
+      }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });

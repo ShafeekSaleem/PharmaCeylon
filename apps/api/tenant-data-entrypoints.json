@@ -104,6 +104,11 @@
       "path": "src/prisma/prisma.service.ts",
       "mode": "runtime-root",
       "reason": "The single Nest runtime client; authenticated domain access is routed through the tenant transaction proxy."
+    },
+    {
+      "path": "scripts/test-import-recovery.mjs",
+      "mode": "ephemeral-database-test",
+      "reason": "Requires explicit disposable-database acknowledgement; writes and deletes only fixtures in a freshly generated test tenant to verify real import/undo transactions."
     }
   ],
   "backgroundWorkers": [],
@@ -132,6 +137,11 @@
       "path": "src/purchasing/purchasing.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks a purchase order by id, tenant_id, and branch_id with bound parameters."
+    },
+    {
+      "path": "src/product-import/product-import.service.ts",
+      "mode": "tenant-filtered-locks-and-savepoints",
+      "reason": "Parameterized tenant-scoped import/product/batch locks serialize undo with worker writes and foreign-key stock writers; savepoints isolate individual import row failures."
     }
   ]
 }

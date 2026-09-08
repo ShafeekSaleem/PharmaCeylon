@@ -4,11 +4,22 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { PaymentMethod, Prisma, RoleName, SaleStatus, StockMovementType, GoodsReturnStatus, GoodsReturnType } from "@prisma/client";
+import {
+  PaymentMethod,
+  Prisma,
+  RoleName,
+  SaleStatus,
+  StockMovementType,
+  GoodsReturnStatus,
+  GoodsReturnType,
+} from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { nextDocumentNumber } from "../common/document-sequence.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
-import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
+import {
+  isPrismaUniqueFieldError,
+  normalizeIdempotencyKey,
+} from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { TaxService } from "../pricing/tax.service";
@@ -56,12 +67,19 @@ function d(s: string): Prisma.Decimal {
 /** UTC calendar date at 00:00:00.000Z for "today". */
 function startOfTodayUtc(): Date {
   const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
 }
 
-function isBatchExpired(expiryDate: Date, todayUtc = startOfTodayUtc()): boolean {
+function isBatchExpired(
+  expiryDate: Date,
+  todayUtc = startOfTodayUtc(),
+): boolean {
   const exp = new Date(expiryDate);
-  const expUtc = new Date(Date.UTC(exp.getUTCFullYear(), exp.getUTCMonth(), exp.getUTCDate()));
+  const expUtc = new Date(
+    Date.UTC(exp.getUTCFullYear(), exp.getUTCMonth(), exp.getUTCDate()),
+  );
   return expUtc < todayUtc;
 }
 
@@ -73,7 +91,14 @@ async function nextInvoiceNo(
 ): Promise<string> {
   const now = new Date();
   const period = `${String(now.getUTCFullYear()).slice(2)}${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  return nextDocumentNumber(tx, tenantId, branchId, "sale", `INV-${period}-`, 6);
+  return nextDocumentNumber(
+    tx,
+    tenantId,
+    branchId,
+    "sale",
+    `INV-${period}-`,
+    6,
+  );
 }
 
 type BranchRoleEntry = { branchId: string; role: RoleName };
@@ -107,9 +132,14 @@ export class SalesService {
     private readonly setupReadiness: SetupReadinessService,
   ) {}
 
-  private branchEffectiveRoles(branchRoles: BranchRoleEntry[], branchId: string): RoleName[] {
+  private branchEffectiveRoles(
+    branchRoles: BranchRoleEntry[],
+    branchId: string,
+  ): RoleName[] {
     const ownerAnywhere = branchRoles.some((b) => b.role === RoleName.owner);
-    const atBranch = branchRoles.filter((b) => b.branchId === branchId).map((b) => b.role);
+    const atBranch = branchRoles
+      .filter((b) => b.branchId === branchId)
+      .map((b) => b.role);
     if (ownerAnywhere) {
       return [...new Set([...atBranch, RoleName.owner])];
     }
@@ -135,7 +165,9 @@ export class SalesService {
     prescriptionId: string | undefined;
     pharmacistApproval: CheckoutDto["pharmacistApproval"];
   }): Promise<string | null> {
-    const needsRx = input.products.filter((p) => p.requiresPrescription || p.isControlled);
+    const needsRx = input.products.filter(
+      (p) => p.requiresPrescription || p.isControlled,
+    );
     const controlled = input.products.filter((p) => p.isControlled);
 
     if (needsRx.length > 0 && !input.prescriptionId) {
@@ -151,10 +183,15 @@ export class SalesService {
     }
 
     const roles = this.branchEffectiveRoles(input.branchRoles, input.branchId);
-    const selfCanDispense = roles.some((r) => SalesService.CONTROLLED_SALE_ROLES.includes(r));
+    const selfCanDispense = roles.some((r) =>
+      SalesService.CONTROLLED_SALE_ROLES.includes(r),
+    );
     if (selfCanDispense) return input.userId;
 
-    if (!input.pharmacistApproval?.approverUserId || !input.pharmacistApproval.pin) {
+    if (
+      !input.pharmacistApproval?.approverUserId ||
+      !input.pharmacistApproval.pin
+    ) {
       throw new ForbiddenException(
         "Controlled medicines need pharmacist approval. Ask a pharmacist to enter their till PIN, or park this sale for handoff.",
       );
@@ -175,7 +212,11 @@ export class SalesService {
     dto: CheckoutDto,
     grandTotal: Prisma.Decimal,
   ): {
-    payments: Array<{ method: PaymentMethod; amount: Prisma.Decimal; reference: string | null }>;
+    payments: Array<{
+      method: PaymentMethod;
+      amount: Prisma.Decimal;
+      reference: string | null;
+    }>;
     amountPaid: Prisma.Decimal;
     changeDue: Prisma.Decimal;
   } {
@@ -191,12 +232,21 @@ export class SalesService {
     const payments = provided.map((p) => {
       const amount = d(p.amount);
       if (amount.lte(0)) {
-        throw new BadRequestException("Each payment amount must be greater than zero");
+        throw new BadRequestException(
+          "Each payment amount must be greater than zero",
+        );
       }
-      return { method: p.method, amount, reference: p.reference?.trim() || null };
+      return {
+        method: p.method,
+        amount,
+        reference: p.reference?.trim() || null,
+      };
     });
 
-    const amountPaid = payments.reduce((acc, p) => acc.add(p.amount), new Prisma.Decimal(0));
+    const amountPaid = payments.reduce(
+      (acc, p) => acc.add(p.amount),
+      new Prisma.Decimal(0),
+    );
     if (amountPaid.lt(grandTotal)) {
       throw new BadRequestException(
         `Tendered ${amountPaid.toFixed(2)} is short of the ${grandTotal.toFixed(2)} due`,
@@ -207,7 +257,9 @@ export class SalesService {
       .filter((p) => p.method !== "cash")
       .reduce((acc, p) => acc.add(p.amount), new Prisma.Decimal(0));
     if (nonCash.gt(grandTotal)) {
-      throw new BadRequestException("Card and wallet tenders cannot exceed the amount due");
+      throw new BadRequestException(
+        "Card and wallet tenders cannot exceed the amount due",
+      );
     }
 
     return { payments, amountPaid, changeDue: amountPaid.sub(grandTotal) };
@@ -251,21 +303,29 @@ export class SalesService {
       select: { posRequireCustomer: true, posMaxDiscountPercent: true },
     });
     if (checkoutPolicy?.posRequireCustomer && !dto.customerId) {
-      throw new BadRequestException("Select a customer before completing this sale");
+      throw new BadRequestException(
+        "Select a customer before completing this sale",
+      );
     }
     const effectiveRoles = this.branchEffectiveRoles(branchRoles, branchId);
     const mayOverrideDiscount = effectiveRoles.some(
       (role) => role === RoleName.owner || role === RoleName.manager,
     );
-    const maximumDiscountPercent = Number(checkoutPolicy?.posMaxDiscountPercent ?? 10);
+    const maximumDiscountPercent = Number(
+      checkoutPolicy?.posMaxDiscountPercent ?? 10,
+    );
     if (!mayOverrideDiscount) {
       for (const item of dto.items) {
         const gross = d(item.unitPrice).mul(item.qty);
         const discount = d(item.discountAmount ?? "0");
         if (discount.lt(0) || discount.gt(gross)) {
-          throw new BadRequestException("Line discount must be between zero and the line subtotal");
+          throw new BadRequestException(
+            "Line discount must be between zero and the line subtotal",
+          );
         }
-        const discountPercent = gross.isZero() ? 0 : discount.div(gross).mul(100).toNumber();
+        const discountPercent = gross.isZero()
+          ? 0
+          : discount.div(gross).mul(100).toNumber();
         if (discountPercent > maximumDiscountPercent) {
           throw new ForbiddenException(
             `Discount exceeds the ${maximumDiscountPercent}% limit and requires a manager`,
@@ -309,9 +369,15 @@ export class SalesService {
           customerId: true,
         },
       });
-      if (!prescription) throw new BadRequestException("Prescription not found at this branch");
-      if (prescription.validUntil && prescription.validUntil < startOfTodayUtc()) {
-        throw new BadRequestException("Prescription has expired and cannot be dispensed");
+      if (!prescription)
+        throw new BadRequestException("Prescription not found at this branch");
+      if (
+        prescription.validUntil &&
+        prescription.validUntil < startOfTodayUtc()
+      ) {
+        throw new BadRequestException(
+          "Prescription has expired and cannot be dispensed",
+        );
       }
       // Hard block only when both sides are registered customers and disagree.
       if (
@@ -380,7 +446,10 @@ export class SalesService {
                 })
               : null;
 
-          if (!batch && (item.batchId == null || String(item.batchId).trim() === "")) {
+          if (
+            !batch &&
+            (item.batchId == null || String(item.batchId).trim() === "")
+          ) {
             // FEFO: earliest expiry among non-expired, non-quarantined batches with enough qty
             const candidates = await tx.batch.findMany({
               where: {
@@ -388,12 +457,18 @@ export class SalesService {
                 branchId,
                 productId: item.productId,
                 isQuarantined: false,
+                needsExpiryReview: false,
                 expiryDate: { gte: todayUtc },
               },
               orderBy: { expiryDate: "asc" },
             });
             for (const candidate of candidates) {
-              const available = await qtyForBatchTx(tx, tenantId, branchId, candidate.id);
+              const available = await qtyForBatchTx(
+                tx,
+                tenantId,
+                branchId,
+                candidate.id,
+              );
               if (available >= item.qty) {
                 batch = candidate;
                 break;
@@ -410,15 +485,30 @@ export class SalesService {
             throw new BadRequestException("Invalid batch for checkout line");
           }
 
+          if (batch.needsExpiryReview) {
+            throw new BadRequestException(
+              "Confirm the actual expiry date in Inventory before selling this batch",
+            );
+          }
+
           if (batch.isQuarantined) {
-            throw new BadRequestException("Batch is quarantined and cannot be sold");
+            throw new BadRequestException(
+              "Batch is quarantined and cannot be sold",
+            );
           }
 
           if (isBatchExpired(batch.expiryDate, todayUtc)) {
-            throw new BadRequestException(`Cannot sell expired batch ${batch.batchNo}`);
+            throw new BadRequestException(
+              `Cannot sell expired batch ${batch.batchNo}`,
+            );
           }
 
-          const available = await qtyForBatchTx(tx, tenantId, branchId, batch.id);
+          const available = await qtyForBatchTx(
+            tx,
+            tenantId,
+            branchId,
+            batch.id,
+          );
           if (available < item.qty) {
             const name = productNames.get(item.productId) ?? "product";
             throw new BadRequestException(
@@ -429,7 +519,9 @@ export class SalesService {
           const unitPrice = d(item.unitPrice);
           const discountAmount = d(item.discountAmount ?? "0");
           const taxAmount =
-            item.taxAmount !== undefined && item.taxAmount !== null && String(item.taxAmount).trim() !== ""
+            item.taxAmount !== undefined &&
+            item.taxAmount !== null &&
+            String(item.taxAmount).trim() !== ""
               ? d(item.taxAmount as string)
               : this.tax.computeLineVatExclusiveAtRate(
                   effectiveVatRatePercent,
@@ -451,10 +543,22 @@ export class SalesService {
           });
         }
 
-        const subtotal = lines.reduce((acc, l) => acc.add(l.unitPrice.mul(l.qty)), new Prisma.Decimal(0));
-        const discountTotal = lines.reduce((acc, l) => acc.add(l.discountAmount), new Prisma.Decimal(0));
-        const taxTotal = lines.reduce((acc, l) => acc.add(l.taxAmount), new Prisma.Decimal(0));
-        const grandTotal = lines.reduce((acc, l) => acc.add(l.lineTotal), new Prisma.Decimal(0));
+        const subtotal = lines.reduce(
+          (acc, l) => acc.add(l.unitPrice.mul(l.qty)),
+          new Prisma.Decimal(0),
+        );
+        const discountTotal = lines.reduce(
+          (acc, l) => acc.add(l.discountAmount),
+          new Prisma.Decimal(0),
+        );
+        const taxTotal = lines.reduce(
+          (acc, l) => acc.add(l.taxAmount),
+          new Prisma.Decimal(0),
+        );
+        const grandTotal = lines.reduce(
+          (acc, l) => acc.add(l.lineTotal),
+          new Prisma.Decimal(0),
+        );
         const tender = this.resolvePayments(dto, grandTotal);
 
         let invoiceNo = await nextInvoiceNo(tx, tenantId, branchId);
@@ -544,7 +648,9 @@ export class SalesService {
             throw e;
           }
         }
-        throw new BadRequestException("Could not allocate a unique invoice number");
+        throw new BadRequestException(
+          "Could not allocate a unique invoice number",
+        );
       });
 
       await this.audit.log({
@@ -621,7 +727,9 @@ export class SalesService {
     const roles = this.branchEffectiveRoles(branchRoles, branchId);
     const can = roles.some((r) => SalesService.VOID_ROLES.includes(r));
     if (!can) {
-      throw new ForbiddenException("Only owner, manager, or pharmacist may void a sale");
+      throw new ForbiddenException(
+        "Only owner, manager, or pharmacist may void a sale",
+      );
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -631,10 +739,17 @@ export class SalesService {
       });
       if (!sale) throw new NotFoundException("Sale not found");
       if (sale.status !== SaleStatus.posted) {
-        throw new BadRequestException("Only posted sales with no prior returns can be voided");
+        throw new BadRequestException(
+          "Only posted sales with no prior returns can be voided",
+        );
       }
 
-      const { lines } = await getSaleReturnableByLine(tx, tenantId, branchId, saleId);
+      const { lines } = await getSaleReturnableByLine(
+        tx,
+        tenantId,
+        branchId,
+        saleId,
+      );
       for (const line of sale.items) {
         const key = saleLineKey(line.productId, line.batchId);
         const rem = lines.get(key);
@@ -706,7 +821,11 @@ export class SalesService {
       const sale = await tx.sale.findFirst({
         where: { id: saleId, tenantId, branchId },
         include: {
-          items: { include: { product: { select: { id: true, isControlled: true, name: true } } } },
+          items: {
+            include: {
+              product: { select: { id: true, isControlled: true, name: true } },
+            },
+          },
           customer: { select: { fullName: true } },
         },
       });
@@ -715,14 +834,18 @@ export class SalesService {
         sale.status !== SaleStatus.posted &&
         sale.status !== SaleStatus.partially_refunded
       ) {
-        throw new BadRequestException("Only posted or partially refunded sales can be refunded");
+        throw new BadRequestException(
+          "Only posted or partially refunded sales can be refunded",
+        );
       }
 
       const needsControlledGate =
         Boolean(sale.prescriptionId) ||
         sale.items.some((i) => i.product.isControlled);
       if (needsControlledGate) {
-        const elevated = roles.some((r) => SalesService.CONTROLLED_SALE_ROLES.includes(r));
+        const elevated = roles.some((r) =>
+          SalesService.CONTROLLED_SALE_ROLES.includes(r),
+        );
         if (!elevated) {
           throw new ForbiddenException(
             "Controlled or prescription-linked sales require a pharmacist, manager, or owner to refund",
@@ -730,10 +853,19 @@ export class SalesService {
         }
       }
 
-      const { lines } = await getSaleReturnableByLine(tx, tenantId, branchId, saleId);
+      const { lines } = await getSaleReturnableByLine(
+        tx,
+        tenantId,
+        branchId,
+        saleId,
+      );
 
-      const requested: { productId: string; batchId: string; qty: number; unitPrice: Prisma.Decimal }[] =
-        [];
+      const requested: {
+        productId: string;
+        batchId: string;
+        qty: number;
+        unitPrice: Prisma.Decimal;
+      }[] = [];
 
       if (dto.items?.length) {
         for (const item of dto.items) {
@@ -771,7 +903,9 @@ export class SalesService {
       }
 
       if (requested.length === 0) {
-        throw new BadRequestException("Nothing remains returnable on this sale");
+        throw new BadRequestException(
+          "Nothing remains returnable on this sale",
+        );
       }
 
       const remainingBefore = totalRemainingQty(lines);
@@ -791,7 +925,11 @@ export class SalesService {
         }
       }
 
-      const returnNumber = await this.nextPosReturnNumber(tx, tenantId, branchId);
+      const returnNumber = await this.nextPosReturnNumber(
+        tx,
+        tenantId,
+        branchId,
+      );
       const created = await tx.goodsReturn.create({
         data: {
           tenantId,
@@ -914,7 +1052,12 @@ export class SalesService {
     });
     if (!sale) throw new NotFoundException("Sale not found");
 
-    const { lines } = await getSaleReturnableByLine(this.prisma, tenantId, branchId, saleId);
+    const { lines } = await getSaleReturnableByLine(
+      this.prisma,
+      tenantId,
+      branchId,
+      saleId,
+    );
     const requiresPharmacist =
       Boolean(sale.prescriptionId) ||
       sale.items.some((i) => i.product.isControlled);
@@ -1002,7 +1145,12 @@ export class SalesService {
    * Prefers posted sales (refundable) but still surfaces voided/refunded so cashiers
    * can see why a bill cannot be refunded again.
    */
-  async searchInvoices(tenantId: string, branchId: string, q: string, take = 12) {
+  async searchInvoices(
+    tenantId: string,
+    branchId: string,
+    q: string,
+    take = 12,
+  ) {
     const term = q.trim();
     if (term.length < 1) return [];
 
@@ -1014,7 +1162,11 @@ export class SalesService {
         branchId,
         OR: [
           { invoiceNo: { contains: term, mode: "insensitive" } },
-          { customer: { is: { fullName: { contains: term, mode: "insensitive" } } } },
+          {
+            customer: {
+              is: { fullName: { contains: term, mode: "insensitive" } },
+            },
+          },
           { customer: { is: { phone: { contains: term } } } },
         ],
       },

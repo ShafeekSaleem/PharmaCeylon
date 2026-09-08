@@ -183,6 +183,10 @@ export type ImportResult = {
   batchesCreated: number;
   unitsPosted: number;
   rowsFailed: number;
+  rowsPartiallyImported: number;
+  rowsWithIssues: number;
+  issueCount: number;
+  issuesTruncated: boolean;
   expiryReviewCount: number;
   issues: ImportRowIssue[];
   categorizedFromFile: number;
@@ -193,6 +197,7 @@ export type ImportResult = {
    * link to exactly this upload's leftovers rather than the whole backlog.
    */
   catalogTasks: {
+    unavailable?: boolean;
     total: number;
     needsCategory: number;
     nmraMatch: number;

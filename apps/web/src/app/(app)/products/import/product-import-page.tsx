@@ -457,7 +457,7 @@ export function ProductImportPage() {
             <Stat label="New products" value={io.preview.create} tone="good" />
             <Stat label="Matched to existing" value={io.preview.update} />
             <Stat
-              label="Rows skipped"
+              label="Rows not imported"
               value={io.preview.skip}
               tone={io.preview.skip ? "warn" : undefined}
             />
@@ -703,7 +703,7 @@ export function ProductImportPage() {
             />
             {io.result.rowsFailed > 0 && (
               <Stat
-                label="Rows skipped"
+                label="Rows not imported"
                 value={io.result.rowsFailed}
                 tone="warn"
               />
@@ -737,6 +737,27 @@ export function ProductImportPage() {
             counts are stamped with this import's id, so "Review catalog tasks" opens the queue
             filtered to exactly this upload's leftovers rather than the whole backlog.
           */}
+          {io.result.rowsPartiallyImported > 0 && (
+            <Alert variant="warning">
+              {io.result.rowsPartiallyImported} rows have saved products but
+              incomplete stock. Review the error report before retrying these
+              rows.
+            </Alert>
+          )}
+          {io.result.issuesTruncated && (
+            <p role="status">
+              Showing the first 500 issues out of {io.result.issueCount}.
+              Download the error report for the complete list.
+            </p>
+          )}
+          {io.result.catalogTasks.unavailable && (
+            <p role="status">
+              Products and stock were saved. Catalog review could not be
+              refreshed.{" "}
+              <Link href="/products/manage">Open Catalog Management</Link> to
+              refresh the work queue.
+            </p>
+          )}
           {io.result.catalogTasks.total > 0 && (
             <div className={css.resultTaskNote}>
               <IconClipboardList size={16} aria-hidden />
@@ -790,7 +811,7 @@ export function ProductImportPage() {
 
           <footer className={css.cardFoot} data-fab-avoid>
             <div className={css.footLeft}>
-              {io.result.rowsFailed > 0 && (
+              {(io.result.rowsWithIssues ?? io.result.rowsFailed) > 0 && (
                 <button
                   type="button"
                   className={css.secondaryBtn}
@@ -874,7 +895,14 @@ export function ProductImportPage() {
                     {h.status === "undone" ? (
                       <span className={css.dim}>Undone</span>
                     ) : h.status === "failed" ? (
-                      <span className={css.failedTag}>Failed</span>
+                      <span className={css.failedTag}>
+                        {h.productsCreated +
+                          h.productsUpdated +
+                          h.batchesCreated >
+                        0
+                          ? "Stopped · partial results saved"
+                          : "Stopped"}
+                      </span>
                     ) : (
                       <>
                         {h.productsCreated} created · {h.productsUpdated}{" "}

@@ -313,6 +313,8 @@ model ProductImport {
   expiryReviewCount Int @default(0) @map("expiry_review_count")
 
   /// Rows that could not be imported, in the shape the downloadable error CSV needs.
+  result      Json?
+  requestFingerprint String? @map("request_fingerprint") @db.VarChar(64)
   errorReport Json?   @map("error_report")
   error       String?
 

@@ -32,7 +32,9 @@ function BatchesContent() {
   const productId = searchParams.get("productId");
   const controlledParam = searchParams.get("controlled");
   const controlled =
-    controlledParam === "controlled" || controlledParam === "regular" ? controlledParam : null;
+    controlledParam === "controlled" || controlledParam === "regular"
+      ? controlledParam
+      : null;
   const nearExpiryParam = searchParams.get("nearExpiryDays");
   const nearExpiryDays = (() => {
     if (!nearExpiryParam) return null;
@@ -65,7 +67,9 @@ function BatchesContent() {
     productId: productId ?? "",
     batchId: searchParams.get("batchId") ?? "",
   });
-  const [adjustmentSuccess, setAdjustmentSuccess] = useState<string | null>(null);
+  const [adjustmentSuccess, setAdjustmentSuccess] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (searchParams.get("openAdjustment") !== "1") return;
@@ -165,10 +169,12 @@ function BatchesContent() {
     () => ({
       total: scopedRows.length,
       units: scopedRows.reduce((sum, batch) => sum + batch.qtyOnHand, 0),
-      near: scopedRows.filter((batch) => batch.nearExpiry && !batch.expired).length,
-      expired: scopedRows.filter((batch) => batch.expired).length,
-      expiredOpen: scopedRows.filter((batch) => batch.expired && !batch.isQuarantined)
+      near: scopedRows.filter((batch) => batch.nearExpiry && !batch.expired)
         .length,
+      expired: scopedRows.filter((batch) => batch.expired).length,
+      expiredOpen: scopedRows.filter(
+        (batch) => batch.expired && !batch.isQuarantined,
+      ).length,
       healthy: scopedRows.filter((batch) => !batch.expired && !batch.nearExpiry)
         .length,
       zero: includeZero
@@ -203,7 +209,9 @@ function BatchesContent() {
       await batches.reload();
     } catch (err) {
       setQuarantineError(true);
-      setQuarantineMsg(err instanceof Error ? err.message : "Quarantine failed");
+      setQuarantineMsg(
+        err instanceof Error ? err.message : "Quarantine failed",
+      );
     } finally {
       setQuarantineBusy(false);
     }
@@ -240,7 +248,9 @@ function BatchesContent() {
     ]
       .map((line) => line.map(escapeCsv).join(","))
       .join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
     const link = document.createElement("a");
     link.href = url;
     link.download = `inventory-batches-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -288,14 +298,16 @@ function BatchesContent() {
 
       {needsExpiryReview && (
         <Alert variant="info">
-          Showing <strong>{rows.length}</strong> batch{rows.length === 1 ? "" : "es"} imported
-          without an expiry date. They carry a far-future placeholder, so they stay out of
-          expiry alerts and are picked last when selling — edit each one to enter the real
-          date.{" "}
+          Showing <strong>{rows.length}</strong> batch
+          {rows.length === 1 ? "" : "es"} imported without an expiry date. They
+          cannot be sold until reviewed. Use Confirm actual expiry on each row
+          to enter the date printed on the physical batch.{" "}
           <Link href="/inventory/batches">Show all batches</Link>
         </Alert>
       )}
-      {adjustmentSuccess && <Alert variant="success">{adjustmentSuccess}</Alert>}
+      {adjustmentSuccess && (
+        <Alert variant="success">{adjustmentSuccess}</Alert>
+      )}
 
       {!batches.hasBranch && (
         <div className={css.branchNotice}>
@@ -304,12 +316,15 @@ function BatchesContent() {
       )}
 
       {quarantineMsg && (
-        <Alert variant={quarantineError ? "error" : "info"}>{quarantineMsg}</Alert>
+        <Alert variant={quarantineError ? "error" : "info"}>
+          {quarantineMsg}
+        </Alert>
       )}
 
       {batches.hasBranch && (
         <div className={css.batchKpiRow}>
-          <StatCard size="sm"
+          <StatCard
+            size="sm"
             title="Active batches"
             value={summary.total}
             subtitle={`${summary.units} units on hand`}
@@ -318,7 +333,8 @@ function BatchesContent() {
             active={expiryFilter === "all"}
             onClick={() => setExpiryFilter("all")}
           />
-          <StatCard size="sm"
+          <StatCard
+            size="sm"
             title="Healthy expiry"
             value={summary.healthy}
             subtitle="Outside 30 days"
@@ -327,7 +343,8 @@ function BatchesContent() {
             active={expiryFilter === "ok"}
             onClick={() => setExpiryFilter("ok")}
           />
-          <StatCard size="sm"
+          <StatCard
+            size="sm"
             title="Expiring soon"
             value={summary.near}
             subtitle="Within 30 days"
@@ -336,7 +353,8 @@ function BatchesContent() {
             active={expiryFilter === "near"}
             onClick={() => setExpiryFilter("near")}
           />
-          <StatCard size="sm"
+          <StatCard
+            size="sm"
             title="Expired"
             value={summary.expired}
             subtitle={
@@ -349,10 +367,13 @@ function BatchesContent() {
             active={expiryFilter === "expired"}
             onClick={() => setExpiryFilter("expired")}
           />
-          <StatCard size="sm"
+          <StatCard
+            size="sm"
             title="Zero quantity"
             value={summary.zero ?? "—"}
-            subtitle={includeZero ? "Included in this view" : "Currently hidden"}
+            subtitle={
+              includeZero ? "Included in this view" : "Currently hidden"
+            }
             icon={<IconPackage size={16} />}
             iconTone="info"
             active={includeZero}
@@ -383,7 +404,9 @@ function BatchesContent() {
           ]}
           onChange={(value) => setExpiryFilter(value as ExpiryFilter)}
         />
-        <label className={`${css.zeroToggle} ${includeZero ? css.zeroToggleActive : ""}`}>
+        <label
+          className={`${css.zeroToggle} ${includeZero ? css.zeroToggleActive : ""}`}
+        >
           <input
             type="checkbox"
             checked={includeZero}

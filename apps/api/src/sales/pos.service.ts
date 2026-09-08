@@ -48,11 +48,17 @@ export type PosProduct = {
   commercialDepartmentId: string | null;
 };
 
-export type PosDepartment = { id: string; name: string; canonicalKey: string | null };
+export type PosDepartment = {
+  id: string;
+  name: string;
+  canonicalKey: string | null;
+};
 
 function startOfTodayUtc(): Date {
   const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
 }
 
 function daysBetweenUtc(from: Date, to: Date): number {
@@ -93,6 +99,7 @@ export class PosService {
         tenantId,
         branchId,
         isQuarantined: false,
+        needsExpiryReview: false,
         expiryDate: { gte: todayUtc },
         product: { isActive: true },
       },
@@ -165,8 +172,12 @@ export class PosService {
       }),
     ]);
 
-    const unitsByProduct = new Map(units30d.map((r) => [r.productId, r._sum.qty ?? 0]));
-    const linesByProduct = new Map(lines90d.map((r) => [r.productId, r._count._all]));
+    const unitsByProduct = new Map(
+      units30d.map((r) => [r.productId, r._sum.qty ?? 0]),
+    );
+    const linesByProduct = new Map(
+      lines90d.map((r) => [r.productId, r._count._all]),
+    );
 
     const byProduct = new Map<string, PosProduct>();
     for (const batch of batches) {
@@ -175,7 +186,11 @@ export class PosService {
 
       const expiry = new Date(batch.expiryDate);
       const expiryUtc = new Date(
-        Date.UTC(expiry.getUTCFullYear(), expiry.getUTCMonth(), expiry.getUTCDate()),
+        Date.UTC(
+          expiry.getUTCFullYear(),
+          expiry.getUTCMonth(),
+          expiry.getUTCDate(),
+        ),
       );
       const daysToExpiry = daysBetweenUtc(todayUtc, expiryUtc);
 
@@ -224,9 +239,17 @@ export class PosService {
 
     const productIds = [...byProduct.keys()];
     const [commercialByProduct, departments] = await Promise.all([
-      this.categoryTaxonomy.primaryCommercialCategoryByProductIds(tenantId, productIds),
+      this.categoryTaxonomy.primaryCommercialCategoryByProductIds(
+        tenantId,
+        productIds,
+      ),
       this.prisma.productCategory.findMany({
-        where: { tenantId, dimension: "COMMERCIAL", isActive: true, parentCategoryId: null },
+        where: {
+          tenantId,
+          dimension: "COMMERCIAL",
+          isActive: true,
+          parentCategoryId: null,
+        },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         select: { id: true, name: true, canonicalKey: true },
       }),
@@ -247,7 +270,9 @@ export class PosService {
         // Standard template is Department -> Category (2 levels), so the immediate parent is
         // the department; a tenant-added 3rd level (Subcategory) would need a full ancestry
         // walk to reach the department — acceptable simplification for POS browsing chips.
-        commercialDepartmentId: commercial ? (commercial.parentCategoryId ?? commercial.id) : null,
+        commercialDepartmentId: commercial
+          ? (commercial.parentCategoryId ?? commercial.id)
+          : null,
       };
     });
     products.sort((a, b) => a.name.localeCompare(b.name));
