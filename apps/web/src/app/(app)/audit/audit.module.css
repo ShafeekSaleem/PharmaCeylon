@@ -130,13 +130,13 @@
 }
 
 .evBlue {
-  background: color-mix(in srgb, #2563eb 12%, transparent);
-  color: #2563eb;
+  background: color-mix(in srgb, var(--pc-tone-blue) 12%, transparent);
+  color: var(--pc-tone-blue);
 }
 
 .evAmber {
-  background: color-mix(in srgb, #d97706 14%, transparent);
-  color: #d97706;
+  background: color-mix(in srgb, var(--pc-tone-warning) 14%, transparent);
+  color: var(--pc-tone-warning);
 }
 
 .evRed {

@@ -90,8 +90,8 @@ export function MarginDistributionChart({ bands, formatRevenue, targetPosition, 
              bounding box has zero width — the default objectBoundingBox gradient units would be
              silently ignored by the SVG spec for a zero-area shape, leaving the line unpainted. */}
           <linearGradient id={`marginTargetGrad-${gradientId}`} gradientUnits="userSpaceOnUse" x1="0" y1={padT} x2="0" y2={padT + innerH}>
-            <stop offset="0%" stopColor="#dc2626" />
-            <stop offset="100%" stopColor="#f97316" />
+            <stop offset="0%" stopColor="var(--pc-tone-danger)" />
+            <stop offset="100%" stopColor="var(--pc-tone-orange-soft)" />
           </linearGradient>
         </defs>
 
@@ -179,7 +179,7 @@ export function MarginDistributionChart({ bands, formatRevenue, targetPosition, 
         </span>
         {targetPosition != null ? (
           <span>
-            <i className={css.legendSwatch} style={{ background: "linear-gradient(90deg, #dc2626, #f97316)" }} /> {targetLabel}
+            <i className={css.legendSwatch} style={{ background: "linear-gradient(90deg, var(--pc-tone-danger), var(--pc-tone-orange-soft))" }} /> {targetLabel}
           </span>
         ) : null}
       </div>

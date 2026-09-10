@@ -64,7 +64,7 @@ function NetSparkline({ points }: { points: number[] }) {
   const padY = 3;
   const step = w / (points.length - 1);
   const overallDirection = points[points.length - 1]! - points[0]!;
-  const color = overallDirection > 0 ? "#0d9488" : overallDirection < 0 ? "#f0653e" : "var(--pc-muted-fg)";
+  const color = overallDirection > 0 ? "var(--pc-primary)" : overallDirection < 0 ? "#f0653e" : "var(--pc-muted-fg)";
   const coords = points.map((p, i) => [i * step, h - padY - ((p - min) / range) * (h - padY * 2)] as const);
   const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const [lastX, lastY] = coords[coords.length - 1]!;

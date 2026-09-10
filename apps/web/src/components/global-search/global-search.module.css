@@ -152,7 +152,7 @@
   background: color-mix(in srgb, var(--pc-secondary-cyan) 12%, transparent);
 }
 .icon_customer {
-  color: #7c3aed;
+  color: var(--pc-tone-violet);
   background: rgba(124, 58, 237, 0.12);
 }
 .icon_supplier {
@@ -164,7 +164,7 @@
   background: color-mix(in srgb, var(--pc-accent-navy) 12%, transparent);
 }
 .icon_transfer {
-  color: #0284c7;
+  color: var(--pc-tone-info);
   background: rgba(2, 132, 199, 0.12);
 }
 .icon_stocktake {

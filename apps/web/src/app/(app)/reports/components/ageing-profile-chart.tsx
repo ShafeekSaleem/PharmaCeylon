@@ -9,10 +9,10 @@ export type AgeingProfileBucket = { key: AgeBucketKey; label: string; value: num
  *  one consistent color language for "how old is this stock". */
 export const AGE_BUCKET_COLORS: Record<AgeBucketKey, string> = {
   "0-30": "var(--pc-primary)",
-  "31-60": "#22c55e",
+  "31-60": "var(--pc-tone-mint)",
   "61-90": "#eab308",
-  "91-180": "#ea580c",
-  "180+": "#dc2626",
+  "91-180": "var(--pc-tone-orange)",
+  "180+": "var(--pc-tone-danger)",
 };
 
 type Props = {

@@ -10,7 +10,7 @@ type Props = {
   height?: number;
 };
 
-const INBOUND_COLOR = "#0d9488";
+const INBOUND_COLOR = "var(--pc-primary)";
 const OUTBOUND_COLOR = "#f0653e";
 /** Beyond this many buckets, axis labels start overlapping — thin them out rather than truncate. */
 const MAX_LABELS = 12;

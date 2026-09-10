@@ -72,7 +72,7 @@ export function MarginVsTarget({ actualPct, targetPct, emptyState }: Props) {
       <div className={css.gaugeSvgWrap}>
         <svg viewBox="0 0 220 130" role="img" aria-label="Gross margin vs target" className={css.gaugeSvg}>
           <path d={ringPath(R_OUTER, R_INNER, START_ANGLE, START_ANGLE + SWEEP_DEG)} className={css.gaugeTrack} />
-          <path d={ringPath(R_OUTER, R_INNER, START_ANGLE, actualEndAngle)} fill={met ? "var(--pc-primary)" : "#ea580c"} />
+          <path d={ringPath(R_OUTER, R_INNER, START_ANGLE, actualEndAngle)} fill={met ? "var(--pc-primary)" : "var(--pc-tone-orange)"} />
         </svg>
         <div className={css.gaugeCenter}>
           <strong>{actualPct.toFixed(1)}%</strong>

@@ -14,15 +14,15 @@ type Props = {
 
 /** Green → amber → red-orange for a 0..1 exposure position — "low is good" here (unlike the
  *  margin heatmap's teal-is-good scale), so this deliberately uses the app's success green
- *  instead. The hot end is a red-orange blend (#e33f19) rather than pure red, matching the same
+ *  instead. The hot end is a red-orange blend (var(--pc-tone-orange-strong)) rather than pure red, matching the same
  *  endpoint used across the Near Expiry page's other gradients (days-left color, this legend). */
 function exposureColor(t: number): string {
   if (t >= 0.5) {
     const local = Math.round(((t - 0.5) / 0.5) * 100);
-    return `color-mix(in srgb, #e33f19 ${local}%, #ea580c)`;
+    return `color-mix(in srgb, var(--pc-tone-orange-strong) ${local}%, var(--pc-tone-orange))`;
   }
   const local = Math.round((t / 0.5) * 100);
-  return `color-mix(in srgb, #ea580c ${local}%, #16a34a)`;
+  return `color-mix(in srgb, var(--pc-tone-orange) ${local}%, var(--pc-tone-success))`;
 }
 
 function exposureBackground(t: number): string {

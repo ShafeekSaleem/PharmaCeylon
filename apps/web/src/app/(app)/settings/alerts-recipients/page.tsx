@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { PageHeader, ActionButton, ToggleSwitch, StatusBadge } from "@/components/ui";
+import { PageHeader, ActionButton, ToggleSwitch } from "@/components/ui";
 import { IconMail } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
@@ -103,15 +103,6 @@ export default function AlertsRecipientsPage() {
               disabled
               label="Email digest"
             />
-          </div>
-          <div className={css.rowItem}>
-            <div>
-              <div className={css.rowLabel}>
-                SMS alerts <StatusBadge status="soon" label="Coming soon" variant="muted" />
-              </div>
-              <div className={css.rowHint}>Text message alerts for critical stock events.</div>
-            </div>
-            <ToggleSwitch checked={false} disabled onChange={() => {}} label="SMS alerts (coming soon)" />
           </div>
 
           <p className={css.subLabel}>Email digest recipients <PendingBadge /></p>

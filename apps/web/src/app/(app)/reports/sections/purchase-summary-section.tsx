@@ -198,8 +198,8 @@ export function PurchaseSummarySection({ scope, isOwner, days, onExportData }: P
               <MultiLineChart
                 labels={trendLabels}
                 series={[
-                  { key: "ordered", label: "Ordered", color: "#0284c7", values: orderedSeries },
-                  { key: "received", label: "Received", color: "#16a34a", values: receivedSeries },
+                  { key: "ordered", label: "Ordered", color: "var(--pc-tone-info)", values: orderedSeries },
+                  { key: "received", label: "Received", color: "var(--pc-tone-success)", values: receivedSeries },
                 ]}
                 formatValue={formatCompactMoney}
                 tooltipFormat={formatMoney}

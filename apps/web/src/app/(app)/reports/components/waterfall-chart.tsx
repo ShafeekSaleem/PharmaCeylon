@@ -102,7 +102,7 @@ export function WaterfallChart({ steps, formatValue, height = 220 }: Props) {
           const barTop = Math.min(y1, y2);
           const barH = Math.max(2, Math.abs(y2 - y1));
           const isHover = hoverKey === b.key;
-          const color = b.tone === "deduction" ? "#dc2626" : b.tone === "addition" ? "#16a34a" : "var(--pc-primary)";
+          const color = b.tone === "deduction" ? "var(--pc-tone-danger)" : b.tone === "addition" ? "var(--pc-tone-success)" : "var(--pc-primary)";
           return (
             <g key={b.key}>
               {i > 0 ? (

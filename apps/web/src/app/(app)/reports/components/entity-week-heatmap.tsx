@@ -22,16 +22,16 @@ type Props = {
 };
 
 /** Theme-consistent 3-stop heat color (teal → orange → red-orange) for a 0..1 position, reusing
- *  the same accent pair (`#ea580c`/`#e33f19`) this report suite already uses for its danger
+ *  the same accent pair (`var(--pc-tone-orange)`/`var(--pc-tone-orange-strong)`) this report suite already uses for its danger
  *  gradient, anchored at the primary teal for the strong end instead of an arbitrary green/red
  *  scale. The hot end is a red-orange blend rather than pure red, matching Near Expiry's gradients. */
 function heatColor(t: number): string {
   if (t >= 0.5) {
     const local = Math.round(((t - 0.5) / 0.5) * 100);
-    return `color-mix(in srgb, var(--pc-primary) ${local}%, #ea580c)`;
+    return `color-mix(in srgb, var(--pc-primary) ${local}%, var(--pc-tone-orange))`;
   }
   const local = Math.round((t / 0.5) * 100);
-  return `color-mix(in srgb, #ea580c ${local}%, #e33f19)`;
+  return `color-mix(in srgb, var(--pc-tone-orange) ${local}%, var(--pc-tone-orange-strong))`;
 }
 
 /** Blends the hue with the card surface — intensity scales with distance from the midpoint so

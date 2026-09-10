@@ -256,7 +256,7 @@
 .scopeswitch button,
 .segmented button {
   border: none;
-  background: #fff;
+  background: var(--pc-card-bg);
   color: var(--pc-muted-fg);
   font-family: inherit;
   font-size: 0.77rem;
@@ -328,7 +328,7 @@
   right: 0;
   z-index: 20;
   min-width: 11rem;
-  background: #fff;
+  background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
@@ -363,6 +363,19 @@
 
 .exportMenu .soonTag {
   margin-left: 0.5rem;
+}
+
+/* Each export row names what it produces and where it opens, so nobody has to
+   guess whether "CSV" is the thing they can hand to an accountant. */
+.exportMenu button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.exportHint {
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
 }
 
 /* ── Section scaffolding ── */
@@ -724,7 +737,7 @@
 
 .chip {
   border: 1px solid var(--pc-border);
-  background: #fff;
+  background: var(--pc-card-bg);
   color: var(--pc-muted-fg);
   font-family: inherit;
   font-size: 0.78rem;
@@ -773,7 +786,7 @@
   width: 100%;
   margin-top: 0.6rem;
   border: 1px solid var(--pc-border);
-  background: #fff;
+  background: var(--pc-card-bg);
   color: var(--pc-foreground);
   font-family: inherit;
   font-size: 0.82rem;
@@ -1185,7 +1198,7 @@
 }
 
 .barfillDanger {
-  background: linear-gradient(135deg, #dc2626, #f97316);
+  background: linear-gradient(135deg, var(--pc-tone-danger), var(--pc-tone-orange-soft));
 }
 
 .barvalue {
@@ -1204,8 +1217,8 @@
   color: var(--pc-muted-fg);
 }
 
-.deltaUp { color: #15803d !important; }
-.deltaDown { color: #b91c1c !important; }
+.deltaUp { color: var(--pc-tone-success-strong) !important; }
+.deltaDown { color: var(--pc-tone-danger-strong) !important; }
 
 .barlistCompact {
   display: flex;
@@ -1409,7 +1422,7 @@ button.treemapTile:hover {
 }
 
 .inlineBarFillDanger {
-  background: linear-gradient(90deg, #dc2626, #f97316);
+  background: linear-gradient(90deg, var(--pc-tone-danger), var(--pc-tone-orange-soft));
 }
 
 /* ── Summary bars (Overview Profitability Summary) ── */
@@ -1458,18 +1471,18 @@ button.treemapTile:hover {
 }
 
 .severityCard.critical {
-  border-color: color-mix(in srgb, #dc2626 30%, var(--pc-border));
-  background: color-mix(in srgb, #dc2626 4%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-danger) 30%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-danger) 4%, var(--pc-card-bg));
 }
 
 .severityCard.watch {
-  border-color: color-mix(in srgb, #ea580c 26%, var(--pc-border));
-  background: color-mix(in srgb, #ea580c 4%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-orange) 26%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-orange) 4%, var(--pc-card-bg));
 }
 
 .severityCard.notice {
-  border-color: color-mix(in srgb, #ca8a04 22%, var(--pc-border));
-  background: color-mix(in srgb, #ca8a04 3%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-gold) 22%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-gold) 3%, var(--pc-card-bg));
 }
 
 .severityTop {
@@ -1535,13 +1548,13 @@ button.treemapTile:hover {
 }
 
 .actionPill.watch {
-  background: #ea580c;
+  background: var(--pc-tone-orange);
   color: #fff;
 }
 
 .actionPill.notice {
-  background: color-mix(in srgb, #ca8a04 18%, #fff);
-  color: #92620a;
+  background: color-mix(in srgb, var(--pc-tone-gold) 18%, var(--pc-card-bg));
+  color: var(--pc-tone-gold-strong);
 }
 
 .severityCta {
@@ -1549,7 +1562,7 @@ button.treemapTile:hover {
   align-self: flex-end;
   border: 1px solid var(--pc-destructive);
   color: var(--pc-destructive);
-  background: #fff;
+  background: var(--pc-card-bg);
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 600;
@@ -1580,9 +1593,9 @@ button.treemapTile:hover {
   border: 1px solid var(--pc-border);
 }
 
-.ageingCard.tint0 { background: color-mix(in srgb, #ca8a04 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, #ca8a04 22%, var(--pc-border)); }
-.ageingCard.tint1 { background: color-mix(in srgb, #ea580c 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, #ea580c 22%, var(--pc-border)); }
-.ageingCard.tint2 { background: color-mix(in srgb, #dc2626 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, #dc2626 22%, var(--pc-border)); }
+.ageingCard.tint0 { background: color-mix(in srgb, var(--pc-tone-gold) 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, var(--pc-tone-gold) 22%, var(--pc-border)); }
+.ageingCard.tint1 { background: color-mix(in srgb, var(--pc-tone-orange) 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, var(--pc-tone-orange) 22%, var(--pc-border)); }
+.ageingCard.tint2 { background: color-mix(in srgb, var(--pc-tone-danger) 6%, var(--pc-card-bg)); border-color: color-mix(in srgb, var(--pc-tone-danger) 22%, var(--pc-border)); }
 
 .ageingLeft {
   display: flex;
@@ -1661,30 +1674,30 @@ button.treemapTile:hover {
   vertical-align: middle;
 }
 
-.badge2.dispose { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
-.badge2.transfer { background: color-mix(in srgb, var(--pc-primary) 14%, #fff); color: var(--pc-primary-hover); }
-.badge2.priority { background: color-mix(in srgb, #ea580c 15%, #fff); color: #c2410c; }
-.badge2.markdown { background: color-mix(in srgb, #ea580c 15%, #fff); color: #c2410c; }
-.badge2.discount { background: color-mix(in srgb, #ea580c 15%, #fff); color: #c2410c; }
-.badge2.promote { background: color-mix(in srgb, #16a34a 14%, #fff); color: #15803d; }
-.badge2.review { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
+.badge2.dispose { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
+.badge2.transfer { background: color-mix(in srgb, var(--pc-primary) 14%, var(--pc-card-bg)); color: var(--pc-primary-hover); }
+.badge2.priority { background: color-mix(in srgb, var(--pc-tone-orange) 15%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.badge2.markdown { background: color-mix(in srgb, var(--pc-tone-orange) 15%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.badge2.discount { background: color-mix(in srgb, var(--pc-tone-orange) 15%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.badge2.promote { background: color-mix(in srgb, var(--pc-tone-success) 14%, var(--pc-card-bg)); color: var(--pc-tone-success-strong); }
+.badge2.review { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
 .badge2.monitor { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
-.badge2.return { background: color-mix(in srgb, #7c3aed 14%, #fff); color: #6d28d9; }
+.badge2.return { background: color-mix(in srgb, var(--pc-tone-violet) 14%, var(--pc-card-bg)); color: var(--pc-tone-violet-strong); }
 .badge2.discontinue { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
-.badge2.healthy { background: color-mix(in srgb, #16a34a 14%, #fff); color: #15803d; }
-.badge2.lowCover { background: color-mix(in srgb, #ea580c 15%, #fff); color: #c2410c; }
-.badge2.overstocked { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
-.badge2.slowMoving { background: color-mix(in srgb, #f97316 15%, #fff); color: #c2410c; }
-.badge2.watch { background: color-mix(in srgb, #ea580c 15%, #fff); color: #c2410c; }
-.badge2.atRisk { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
-.badge2.deadSlow { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
-.badge2.reorderRisk { background: color-mix(in srgb, #ea580c 15%, #fff); color: #c2410c; }
+.badge2.healthy { background: color-mix(in srgb, var(--pc-tone-success) 14%, var(--pc-card-bg)); color: var(--pc-tone-success-strong); }
+.badge2.lowCover { background: color-mix(in srgb, var(--pc-tone-orange) 15%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.badge2.overstocked { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
+.badge2.slowMoving { background: color-mix(in srgb, var(--pc-tone-orange-soft) 15%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.badge2.watch { background: color-mix(in srgb, var(--pc-tone-orange) 15%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.badge2.atRisk { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
+.badge2.deadSlow { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
+.badge2.reorderRisk { background: color-mix(in srgb, var(--pc-tone-orange) 15%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
 
 /* ── Opportunity / insight callout (Margin Opportunities) ── */
 
 .opportunityCallout {
-  background: color-mix(in srgb, #ca8a04 10%, #fff);
-  border: 1px solid color-mix(in srgb, #ca8a04 28%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-gold) 10%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-gold) 28%, var(--pc-border));
   border-radius: var(--pc-radius-sm);
   padding: 0.55rem 0.65rem;
   margin-bottom: 0.6rem;
@@ -1696,7 +1709,7 @@ button.treemapTile:hover {
   gap: 0.35rem;
   font-size: 0.78rem;
   font-weight: 650;
-  color: #854d0e;
+  color: var(--pc-tone-gold-strong);
   margin-bottom: 0.2rem;
 }
 
@@ -1798,9 +1811,9 @@ button.treemapTile:hover {
 }
 
 .actionIconSq.primary { background: var(--pc-primary-soft); color: var(--pc-primary); }
-.actionIconSq.warning { background: color-mix(in srgb, #ea580c 14%, #fff); color: #c2410c; }
-.actionIconSq.danger { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
-.actionIconSq.purple { background: color-mix(in srgb, #7c3aed 12%, #fff); color: #6d28d9; }
+.actionIconSq.warning { background: color-mix(in srgb, var(--pc-tone-orange) 14%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.actionIconSq.danger { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
+.actionIconSq.purple { background: color-mix(in srgb, var(--pc-tone-violet) 12%, var(--pc-card-bg)); color: var(--pc-tone-violet-strong); }
 .actionIconSq.muted { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
 
 .actionBody {
@@ -1859,9 +1872,9 @@ button.treemapTile:hover {
 }
 
 .actionCta.primary { background: var(--pc-primary-soft); color: var(--pc-primary); }
-.actionCta.warning { background: color-mix(in srgb, #ea580c 14%, #fff); color: #c2410c; }
-.actionCta.danger { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
-.actionCta.purple { background: color-mix(in srgb, #7c3aed 14%, #fff); color: #6d28d9; }
+.actionCta.warning { background: color-mix(in srgb, var(--pc-tone-orange) 14%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.actionCta.danger { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
+.actionCta.purple { background: color-mix(in srgb, var(--pc-tone-violet) 14%, var(--pc-card-bg)); color: var(--pc-tone-violet-strong); }
 .actionCta.muted { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
 
 .actionCount small {
@@ -1928,9 +1941,9 @@ button.treemapTile:hover {
 }
 
 .insightCountPill.primary { background: var(--pc-primary-soft); color: var(--pc-primary); }
-.insightCountPill.warning { background: color-mix(in srgb, #ea580c 14%, #fff); color: #c2410c; }
-.insightCountPill.danger { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
-.insightCountPill.purple { background: color-mix(in srgb, #7c3aed 14%, #fff); color: #6d28d9; }
+.insightCountPill.warning { background: color-mix(in srgb, var(--pc-tone-orange) 14%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.insightCountPill.danger { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
+.insightCountPill.purple { background: color-mix(in srgb, var(--pc-tone-violet) 14%, var(--pc-card-bg)); color: var(--pc-tone-violet-strong); }
 .insightCountPill.muted { background: var(--pc-muted-bg); color: var(--pc-muted-fg); }
 
 .chipRow2 {
@@ -2054,7 +2067,7 @@ button.treemapTile:hover {
   width: 100%;
   margin-top: 0.75rem;
   border: 1px solid var(--pc-border);
-  background: #fff;
+  background: var(--pc-card-bg);
   color: var(--pc-primary);
   font-family: inherit;
   font-size: 0.83rem;
@@ -2108,7 +2121,7 @@ button.treemapTile:hover {
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
   padding: 0.3rem 0.55rem;
-  background: #fff;
+  background: var(--pc-card-bg);
   min-width: 200px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -2147,7 +2160,7 @@ button.treemapTile:hover {
   right: 0;
   z-index: 20;
   min-width: 13rem;
-  background: #fff;
+  background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
@@ -2174,7 +2187,7 @@ button.treemapTile:hover {
   align-items: center;
   gap: 0.4rem;
   border: 1px solid var(--pc-border);
-  background: #fff;
+  background: var(--pc-card-bg);
   color: var(--pc-foreground);
   font-family: inherit;
   font-size: 0.82rem;
@@ -2234,27 +2247,27 @@ button.treemapTile:hover {
 }
 
 .toggleChipAmber {
-  background: color-mix(in srgb, #d97706 14%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #d97706 32%, var(--pc-border));
-  color: #b45309;
+  background: color-mix(in srgb, var(--pc-tone-warning) 14%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-warning) 32%, var(--pc-border));
+  color: var(--pc-tone-warning-strong);
 }
 
 .toggleChipRose {
-  background: color-mix(in srgb, #e11d48 11%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #e11d48 26%, var(--pc-border));
-  color: #be123c;
+  background: color-mix(in srgb, var(--pc-tone-rose) 11%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-rose) 26%, var(--pc-border));
+  color: var(--pc-tone-rose-strong);
 }
 
 .toggleChipSky {
-  background: color-mix(in srgb, #0284c7 13%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #0284c7 28%, var(--pc-border));
-  color: #0369a1;
+  background: color-mix(in srgb, var(--pc-tone-info) 13%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-info) 28%, var(--pc-border));
+  color: var(--pc-tone-info-strong);
 }
 
 .toggleChipSlate {
-  background: color-mix(in srgb, #64748b 12%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #64748b 28%, var(--pc-border));
-  color: #475569;
+  background: color-mix(in srgb, var(--pc-muted-fg) 12%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-muted-fg) 28%, var(--pc-border));
+  color: var(--pc-muted-fg);
 }
 
 .toggleChipRow {
@@ -2436,7 +2449,7 @@ button.treemapTile:hover {
   right: 0;
   z-index: 30;
   min-width: 10rem;
-  background: #fff;
+  background: var(--pc-card-bg);
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
@@ -3062,23 +3075,23 @@ table.rt tbody tr:hover td {
 }
 
 .goalMessageSuccess {
-  background: color-mix(in srgb, #16a34a 10%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #16a34a 28%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-success) 10%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-success) 28%, var(--pc-border));
 }
 
 .goalMessageSuccess .goalMessageIcon,
 .goalMessageSuccess b {
-  color: #16a34a;
+  color: var(--pc-tone-success);
 }
 
 .goalMessageWarning {
-  background: color-mix(in srgb, #ea580c 10%, var(--pc-card-bg));
-  border-color: color-mix(in srgb, #ea580c 28%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-orange) 10%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-orange) 28%, var(--pc-border));
 }
 
 .goalMessageWarning .goalMessageIcon,
 .goalMessageWarning b {
-  color: #ea580c;
+  color: var(--pc-tone-orange);
 }
 
 .goalActionRow {
@@ -3111,24 +3124,24 @@ table.rt tbody tr:hover td {
   margin-bottom: 0.6rem;
   padding: 0.55rem 0.8rem;
   border-radius: var(--pc-radius-sm, 8px);
-  border: 1px solid color-mix(in srgb, #dc2626 30%, var(--pc-border));
-  background: color-mix(in srgb, #dc2626 6%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-danger) 30%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-danger) 6%, var(--pc-card-bg));
   color: var(--pc-foreground);
   font-size: 0.82rem;
 }
 
 .networkAlertPositive {
-  border-color: color-mix(in srgb, #16a34a 30%, var(--pc-border));
-  background: color-mix(in srgb, #16a34a 6%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-success) 30%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-success) 6%, var(--pc-card-bg));
 }
 
 .networkAlertIcon {
   flex-shrink: 0;
-  color: #b91c1c;
+  color: var(--pc-tone-danger-strong);
 }
 
 .networkAlertPositive .networkAlertIcon {
-  color: #15803d;
+  color: var(--pc-tone-success-strong);
 }
 
 .networkAlertBody {
@@ -3138,9 +3151,9 @@ table.rt tbody tr:hover td {
 
 .networkAlertCta {
   flex-shrink: 0;
-  border: 1px solid color-mix(in srgb, #dc2626 40%, var(--pc-border));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-danger) 40%, var(--pc-border));
   background: var(--pc-card-bg);
-  color: #b91c1c;
+  color: var(--pc-tone-danger-strong);
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 650;
@@ -3151,16 +3164,16 @@ table.rt tbody tr:hover td {
 }
 
 .networkAlertCta:hover {
-  background: color-mix(in srgb, #dc2626 10%, var(--pc-card-bg));
+  background: color-mix(in srgb, var(--pc-tone-danger) 10%, var(--pc-card-bg));
 }
 
 .networkAlertPositive .networkAlertCta {
-  border-color: color-mix(in srgb, #16a34a 40%, var(--pc-border));
-  color: #15803d;
+  border-color: color-mix(in srgb, var(--pc-tone-success) 40%, var(--pc-border));
+  color: var(--pc-tone-success-strong);
 }
 
 .networkAlertPositive .networkAlertCta:hover {
-  background: color-mix(in srgb, #16a34a 10%, var(--pc-card-bg));
+  background: color-mix(in srgb, var(--pc-tone-success) 10%, var(--pc-card-bg));
 }
 
 /* ── Sales Trend by Branch header controls (View / Daily-Weekly / Compare 2) ── */
@@ -3262,7 +3275,7 @@ table.rt tbody tr:hover td {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: #dc2626;
+  background: var(--pc-tone-danger);
 }
 
 /* ── Performance Map (bubble/quadrant chart) ── */
@@ -3415,8 +3428,8 @@ table.rt tbody tr:hover td {
 }
 
 .shiftRowBest {
-  border-color: color-mix(in srgb, #16a34a 40%, var(--pc-border));
-  background: color-mix(in srgb, #16a34a 5%, var(--pc-card-bg));
+  border-color: color-mix(in srgb, var(--pc-tone-success) 40%, var(--pc-border));
+  background: color-mix(in srgb, var(--pc-tone-success) 5%, var(--pc-card-bg));
 }
 
 .shiftInfo {
@@ -3438,18 +3451,18 @@ table.rt tbody tr:hover td {
 }
 
 .shiftIconWrap.amber {
-  background: color-mix(in srgb, #f59e0b 16%, var(--pc-card-bg));
-  color: #b45309;
+  background: color-mix(in srgb, var(--pc-tone-amber) 16%, var(--pc-card-bg));
+  color: var(--pc-tone-warning-strong);
 }
 
 .shiftIconWrap.green {
-  background: color-mix(in srgb, #16a34a 14%, var(--pc-card-bg));
-  color: #15803d;
+  background: color-mix(in srgb, var(--pc-tone-success) 14%, var(--pc-card-bg));
+  color: var(--pc-tone-success-strong);
 }
 
 .shiftIconWrap.indigo {
-  background: color-mix(in srgb, #4f46e5 14%, var(--pc-card-bg));
-  color: #4338ca;
+  background: color-mix(in srgb, var(--pc-tone-indigo) 14%, var(--pc-card-bg));
+  color: var(--pc-tone-indigo-strong);
 }
 
 .shiftInfoText {
@@ -3474,8 +3487,8 @@ table.rt tbody tr:hover td {
   align-items: center;
   font-size: 0.66rem;
   font-weight: 700;
-  color: #15803d;
-  background: color-mix(in srgb, #16a34a 16%, #fff);
+  color: var(--pc-tone-success-strong);
+  background: color-mix(in srgb, var(--pc-tone-success) 16%, var(--pc-card-bg));
   padding: 0.08rem 0.4rem;
   border-radius: 999px;
   white-space: nowrap;
@@ -3723,7 +3736,7 @@ table.rt tbody tr:hover td {
 }
 
 .benchmarkStemDown {
-  background: color-mix(in srgb, #ea580c 50%, transparent);
+  background: color-mix(in srgb, var(--pc-tone-orange) 50%, transparent);
 }
 
 .benchmarkDot {
@@ -3749,8 +3762,8 @@ table.rt tbody tr:hover td {
 }
 
 .benchmarkDotDown {
-  background: #ea580c;
-  color: #ea580c;
+  background: var(--pc-tone-orange);
+  color: var(--pc-tone-orange);
 }
 
 .benchmarkDotActive {
@@ -3771,7 +3784,7 @@ table.rt tbody tr:hover td {
 /* ── Inventory Summary: Inventory Share vs Sales Share dumbbell (reuses .benchmark* layout above) ── */
 
 .dumbbellSwatchInventory {
-  background: #0284c7;
+  background: var(--pc-tone-info);
 }
 
 .dumbbellSwatchSales {
@@ -3810,8 +3823,8 @@ table.rt tbody tr:hover td {
 }
 
 .dumbbellDotInventory {
-  background: #0284c7;
-  color: #0284c7;
+  background: var(--pc-tone-info);
+  color: var(--pc-tone-info);
 }
 
 .dumbbellDotSales {
@@ -4232,9 +4245,9 @@ table.rt tbody tr:hover td {
 }
 
 .oppQuadrant_primary { background: var(--pc-primary-soft); }
-.oppQuadrant_info { background: color-mix(in srgb, #0891b2 8%, var(--pc-card-bg)); }
-.oppQuadrant_warning { background: color-mix(in srgb, #ea580c 6%, var(--pc-card-bg)); }
-.oppQuadrant_danger { background: color-mix(in srgb, #dc2626 6%, var(--pc-card-bg)); }
+.oppQuadrant_info { background: color-mix(in srgb, var(--pc-secondary-cyan) 8%, var(--pc-card-bg)); }
+.oppQuadrant_warning { background: color-mix(in srgb, var(--pc-tone-orange) 6%, var(--pc-card-bg)); }
+.oppQuadrant_danger { background: color-mix(in srgb, var(--pc-tone-danger) 6%, var(--pc-card-bg)); }
 
 .oppQuadrantHead {
   display: flex;
@@ -4253,10 +4266,10 @@ table.rt tbody tr:hover td {
   flex-shrink: 0;
 }
 
-.oppQuadrantIcon_primary { background: color-mix(in srgb, var(--pc-primary) 18%, #fff); color: var(--pc-primary); }
-.oppQuadrantIcon_info { background: color-mix(in srgb, #0891b2 16%, #fff); color: #0e7490; }
-.oppQuadrantIcon_warning { background: color-mix(in srgb, #ea580c 16%, #fff); color: #c2410c; }
-.oppQuadrantIcon_danger { background: color-mix(in srgb, #dc2626 16%, #fff); color: #b91c1c; }
+.oppQuadrantIcon_primary { background: color-mix(in srgb, var(--pc-primary) 18%, var(--pc-card-bg)); color: var(--pc-primary); }
+.oppQuadrantIcon_info { background: color-mix(in srgb, var(--pc-secondary-cyan) 16%, var(--pc-card-bg)); color: var(--pc-secondary-cyan-hover); }
+.oppQuadrantIcon_warning { background: color-mix(in srgb, var(--pc-tone-orange) 16%, var(--pc-card-bg)); color: var(--pc-tone-orange-strong); }
+.oppQuadrantIcon_danger { background: color-mix(in srgb, var(--pc-tone-danger) 16%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
 
 .oppQuadrantTitle {
   font-size: 0.78rem;
@@ -4308,9 +4321,9 @@ button.oppTag:hover {
 }
 
 .oppTag_primary { color: var(--pc-primary); border-color: color-mix(in srgb, var(--pc-primary) 40%, var(--pc-border)); }
-.oppTag_info { color: #0e7490; border-color: color-mix(in srgb, #0891b2 40%, var(--pc-border)); }
-.oppTag_warning { color: #c2410c; border-color: color-mix(in srgb, #ea580c 40%, var(--pc-border)); }
-.oppTag_danger { color: #b91c1c; border-color: color-mix(in srgb, #dc2626 40%, var(--pc-border)); }
+.oppTag_info { color: var(--pc-secondary-cyan-hover); border-color: color-mix(in srgb, var(--pc-secondary-cyan) 40%, var(--pc-border)); }
+.oppTag_warning { color: var(--pc-tone-orange-strong); border-color: color-mix(in srgb, var(--pc-tone-orange) 40%, var(--pc-border)); }
+.oppTag_danger { color: var(--pc-tone-danger-strong); border-color: color-mix(in srgb, var(--pc-tone-danger) 40%, var(--pc-border)); }
 
 .oppTagActive {
   box-shadow: 0 0 0 1px currentColor;
@@ -4438,7 +4451,7 @@ button.oppTag:hover {
   width: 8rem;
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e33f19, #ea580c, var(--pc-primary));
+  background: linear-gradient(90deg, var(--pc-tone-orange-strong), var(--pc-tone-orange), var(--pc-primary));
 }
 
 /* ── Near Expiry: calendar heatmap's own legend bar (green = low exposure, unlike the margin
@@ -4448,7 +4461,7 @@ button.oppTag:hover {
   width: 8rem;
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #16a34a, #ea580c, #e33f19);
+  background: linear-gradient(90deg, var(--pc-tone-success), var(--pc-tone-orange), var(--pc-tone-orange-strong));
 }
 
 .expBucketLabel {
@@ -4737,15 +4750,15 @@ button.matrixQuad:hover {
   font-variant-numeric: tabular-nums;
 }
 
-.matrixQuad.recoverFast { background: color-mix(in srgb, #16a34a 6%, var(--pc-card-bg)); }
-.matrixQuad.investigate { background: color-mix(in srgb, #dc2626 5%, var(--pc-card-bg)); }
-.matrixQuad.monitor { background: color-mix(in srgb, #2563eb 5%, var(--pc-card-bg)); }
-.matrixQuad.liquidate { background: color-mix(in srgb, #ea580c 6%, var(--pc-card-bg)); }
+.matrixQuad.recoverFast { background: color-mix(in srgb, var(--pc-tone-success) 6%, var(--pc-card-bg)); }
+.matrixQuad.investigate { background: color-mix(in srgb, var(--pc-tone-danger) 5%, var(--pc-card-bg)); }
+.matrixQuad.monitor { background: color-mix(in srgb, var(--pc-tone-blue) 5%, var(--pc-card-bg)); }
+.matrixQuad.liquidate { background: color-mix(in srgb, var(--pc-tone-orange) 6%, var(--pc-card-bg)); }
 
-.matrixQuadIcon.recoverFast { background: color-mix(in srgb, #16a34a 16%, #fff); color: #15803d; }
-.matrixQuadIcon.investigate { background: color-mix(in srgb, #dc2626 14%, #fff); color: #b91c1c; }
-.matrixQuadIcon.monitor { background: color-mix(in srgb, #2563eb 14%, #fff); color: #1d4ed8; }
-.matrixQuadIcon.liquidate { background: color-mix(in srgb, #ea580c 15%, #fff); color: #b45309; }
+.matrixQuadIcon.recoverFast { background: color-mix(in srgb, var(--pc-tone-success) 16%, var(--pc-card-bg)); color: var(--pc-tone-success-strong); }
+.matrixQuadIcon.investigate { background: color-mix(in srgb, var(--pc-tone-danger) 14%, var(--pc-card-bg)); color: var(--pc-tone-danger-strong); }
+.matrixQuadIcon.monitor { background: color-mix(in srgb, var(--pc-tone-blue) 14%, var(--pc-card-bg)); color: var(--pc-tone-blue-strong); }
+.matrixQuadIcon.liquidate { background: color-mix(in srgb, var(--pc-tone-orange) 15%, var(--pc-card-bg)); color: var(--pc-tone-warning-strong); }
 
 @media (max-width: 700px) {
   .matrixOuter {

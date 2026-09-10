@@ -146,6 +146,11 @@ export function FilterBar({
         </button>
         {exportOpen ? (
           <div className={css.exportMenu}>
+            {/* "Excel" and "PDF report" used to sit here as permanently disabled
+                rows. Both capabilities already exist under other names — CSV
+                opens natively in Excel, and Print produces a PDF through the
+                browser's own save dialog — so the menu now says so instead of
+                advertising two features that were never going to be built. */}
             <button
               type="button"
               disabled={!onExportCsv || exportDisabled}
@@ -155,12 +160,17 @@ export function FilterBar({
               }}
             >
               CSV data
+              <span className={css.exportHint}>Opens in Excel or Sheets</span>
             </button>
-            <button type="button" disabled>
-              Excel <span className={css.soonTag}>Soon</span>
-            </button>
-            <button type="button" disabled>
-              PDF report <span className={css.soonTag}>Soon</span>
+            <button
+              type="button"
+              onClick={() => {
+                setExportOpen(false);
+                onPrint();
+              }}
+            >
+              PDF or print
+              <span className={css.exportHint}>Save as PDF from the print dialog</span>
             </button>
           </div>
         ) : null}

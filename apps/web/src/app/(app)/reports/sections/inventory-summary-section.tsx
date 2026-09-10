@@ -83,7 +83,7 @@ function Sparkline({ points, direction }: { points: number[]; direction: "up" | 
   const h = 24;
   const padY = 3;
   const step = w / (points.length - 1);
-  const color = direction === "up" ? "#16a34a" : direction === "down" ? "#dc2626" : "var(--pc-muted-fg)";
+  const color = direction === "up" ? "var(--pc-tone-success)" : direction === "down" ? "var(--pc-tone-danger)" : "var(--pc-muted-fg)";
   const coords = points.map((p, i) => [i * step, h - padY - ((p - min) / range) * (h - padY * 2)] as const);
   const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const [lastX, lastY] = coords[coords.length - 1]!;

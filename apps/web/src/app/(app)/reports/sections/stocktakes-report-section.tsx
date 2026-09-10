@@ -176,7 +176,7 @@ export function StocktakesReportSection({ scope, isOwner, days, onExportData }: 
             ) : (
               <MultiLineChart
                 labels={trendSeries.labels}
-                series={[{ key: "accuracy", label: "Accuracy", color: "#16a34a", values: trendSeries.values }]}
+                series={[{ key: "accuracy", label: "Accuracy", color: "var(--pc-tone-success)", values: trendSeries.values }]}
                 formatValue={(n) => `${n.toFixed(0)}%`}
               />
             )}

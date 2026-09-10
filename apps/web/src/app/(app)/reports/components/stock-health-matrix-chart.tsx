@@ -32,11 +32,11 @@ type Props = {
 };
 
 const ZONE_COLOR: Record<HealthMatrixZone, string> = {
-  deadSlow: "#dc2626",
-  reorderRisk: "#ea580c",
-  overstocked: "#f59e0b",
-  monitor: "#0284c7",
-  healthy: "#16a34a",
+  deadSlow: "var(--pc-tone-danger)",
+  reorderRisk: "var(--pc-tone-orange)",
+  overstocked: "var(--pc-tone-amber)",
+  monitor: "var(--pc-tone-info)",
+  healthy: "var(--pc-tone-success)",
 };
 
 const ZONE_LABEL: Record<HealthMatrixZone, string> = {

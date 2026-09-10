@@ -9,7 +9,7 @@
       rgba(255, 255, 255, 0.18),
       transparent 34%
     ),
-    linear-gradient(155deg, #0f766e 0%, #087f83 48%, #0e7490 100%);
+    linear-gradient(155deg, var(--pc-primary-hover) 0%, var(--pc-primary-hover) 48%, var(--pc-secondary-cyan-hover) 100%);
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -85,7 +85,7 @@
   box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.1);
 }
 .panel li.complete > span {
-  background: #fff;
+  background: var(--pc-card-bg);
   color: var(--pc-primary);
   border-color: #fff;
 }

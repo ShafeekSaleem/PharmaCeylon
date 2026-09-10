@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ActionButton, PageHeader } from "@/components/ui";
-import { IconCheck, IconSparkles } from "@/components/icons";
+import { IconCheck, IconMoon, IconSparkles, IconSun } from "@/components/icons";
 import { useAuth } from "@/lib/use-auth";
 import {
   applyAppearancePrefs,
@@ -12,13 +12,20 @@ import {
   type AccentColor,
   type Density,
   type FontSize,
+  type Theme,
 } from "@/lib/appearance";
 import css from "../settings.module.css";
 
+const THEME_CHOICES: { value: Theme; label: string; icon: React.ReactNode }[] = [
+  { value: "system", label: "System", icon: <IconSparkles size={14} /> },
+  { value: "light", label: "Light", icon: <IconSun size={14} /> },
+  { value: "dark", label: "Dark", icon: <IconMoon size={14} /> },
+];
+
 const ACCENT_SWATCHES: { value: AccentColor; color: string }[] = [
-  { value: "teal", color: "#0d9488" },
-  { value: "cyan", color: "#0891b2" },
-  { value: "navy", color: "#1e40af" },
+  { value: "teal", color: "var(--pc-primary)" },
+  { value: "cyan", color: "var(--pc-secondary-cyan)" },
+  { value: "navy", color: "var(--pc-accent-navy)" },
 ];
 
 export default function AppearancePage() {
@@ -62,6 +69,26 @@ export default function AppearancePage() {
             </h2>
           </div>
         </div>
+
+        <p className={css.subLabel}>Theme</p>
+        <div className={css.pillRow}>
+          {THEME_CHOICES.map((choice) => (
+            <button
+              key={choice.value}
+              type="button"
+              aria-pressed={prefs.theme === choice.value}
+              className={`${css.pill}${prefs.theme === choice.value ? ` ${css.pillSelected}` : ""}`}
+              onClick={() => update({ theme: choice.value })}
+              disabled={!ready}
+            >
+              {choice.icon}
+              {choice.label}
+            </button>
+          ))}
+        </div>
+        <p className={css.rowHint}>
+          System follows your device setting and changes with it.
+        </p>
 
         <p className={css.subLabel}>Accent color</p>
         <div className={css.swatchRow}>

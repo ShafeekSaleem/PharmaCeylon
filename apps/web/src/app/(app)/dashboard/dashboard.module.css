@@ -1370,7 +1370,7 @@ a.alertItem:hover {
 }
 
 .chartLegendSwatch_quiet {
-  background: color-mix(in srgb, var(--pc-primary) 30%, #fff);
+  background: color-mix(in srgb, var(--pc-primary) 30%, var(--pc-card-bg));
 }
 
 .chartLegendSwatch_busy {
@@ -3038,7 +3038,7 @@ a.alertItem:hover {
 
 .healthSignalIcon_warning {
   color: var(--pc-alert-warning-icon);
-  background: var(--pc-alert-warning-bg, color-mix(in srgb, #f59e0b 14%, transparent));
+  background: var(--pc-alert-warning-bg, color-mix(in srgb, var(--pc-tone-amber) 14%, transparent));
 }
 
 .healthSignalIcon_success {
@@ -3177,7 +3177,7 @@ a.alertItem:hover {
 .healthActionBtn_warning {
   color: var(--pc-alert-warning-text);
   border-color: color-mix(in srgb, var(--pc-alert-warning-icon) 40%, transparent);
-  background: var(--pc-alert-warning-bg, color-mix(in srgb, #f59e0b 12%, var(--pc-card-bg)));
+  background: var(--pc-alert-warning-bg, color-mix(in srgb, var(--pc-tone-amber) 12%, var(--pc-card-bg)));
 }
 
 .healthActionBtn_warning:hover {
@@ -4033,7 +4033,7 @@ a.alertItem:hover {
 }
 
 .compSeg_soft {
-  background: color-mix(in srgb, var(--pc-primary) 32%, #fff);
+  background: color-mix(in srgb, var(--pc-primary) 32%, var(--pc-card-bg));
   color: var(--pc-foreground);
 }
 
@@ -4050,7 +4050,7 @@ a.alertItem:hover {
 }
 
 .compSwatch_soft {
-  background: color-mix(in srgb, var(--pc-primary) 32%, #fff);
+  background: color-mix(in srgb, var(--pc-primary) 32%, var(--pc-card-bg));
 }
 
 .compSwatch_strong {

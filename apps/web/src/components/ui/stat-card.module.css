@@ -91,8 +91,8 @@
 }
 
 .icon_warning {
-  background: color-mix(in srgb, #ea580c 12%, transparent);
-  color: #ea580c;
+  background: color-mix(in srgb, var(--pc-tone-orange) 12%, transparent);
+  color: var(--pc-tone-orange);
 }
 
 .icon_danger {
@@ -101,8 +101,8 @@
 }
 
 .icon_info {
-  background: color-mix(in srgb, #0284c7 12%, transparent);
-  color: #0284c7;
+  background: color-mix(in srgb, var(--pc-tone-info) 12%, transparent);
+  color: var(--pc-tone-info);
 }
 
 .title {
@@ -206,23 +206,23 @@
 }
 
 .trend_positive {
-  color: #15803d;
-  background: color-mix(in srgb, #22c55e 16%, #fff);
+  color: var(--pc-tone-success-strong);
+  background: color-mix(in srgb, var(--pc-tone-mint) 16%, var(--pc-card-bg));
 }
 
 .trend_warning {
-  color: #c2410c;
-  background: color-mix(in srgb, #f97316 16%, #fff);
+  color: var(--pc-tone-orange-strong);
+  background: color-mix(in srgb, var(--pc-tone-orange-soft) 16%, var(--pc-card-bg));
 }
 
 .trend_danger {
-  color: var(--health-urgent, #c2410c);
-  background: var(--health-urgent-soft, color-mix(in srgb, #f97316 16%, #fff));
+  color: var(--health-urgent, var(--pc-tone-orange-strong));
+  background: var(--health-urgent-soft, color-mix(in srgb, var(--pc-tone-orange-soft) 16%, var(--pc-card-bg)));
 }
 
 .trend_neutral {
   color: var(--pc-muted-fg);
-  background: color-mix(in srgb, var(--pc-muted-fg) 10%, #fff);
+  background: color-mix(in srgb, var(--pc-muted-fg) 10%, var(--pc-card-bg));
 }
 
 /* Portal dropdown — teal-themed */

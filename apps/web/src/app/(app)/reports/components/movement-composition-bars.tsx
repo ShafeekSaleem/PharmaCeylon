@@ -8,8 +8,8 @@ type Props = {
   rows: CompositionRow[];
 };
 
-const INBOUND_PALETTE = ["#0d9488", "#14b8a6", "#5eead4", "#99f6e4"];
-const OUTBOUND_PALETTE = ["#dc2626", "#ea580c", "#f97316", "#fdba74"];
+const INBOUND_PALETTE = ["var(--pc-primary)", "#14b8a6", "#5eead4", "#99f6e4"];
+const OUTBOUND_PALETTE = ["var(--pc-tone-danger)", "var(--pc-tone-orange)", "var(--pc-tone-orange-soft)", "#fdba74"];
 
 function DirectionBar({ title, rows, palette }: { title: string; rows: CompositionRow[]; palette: string[] }) {
   const total = rows.reduce((s, r) => s + r.units, 0);

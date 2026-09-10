@@ -4,10 +4,10 @@
   width: max-content;
   max-width: min(240px, calc(100vw - 24px));
   padding: 0.4rem 0.55rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--pc-tone-neutral-line);
   border-radius: 6px;
-  background: #fff;
-  color: #111827;
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
   font-size: 0.72rem;
   font-weight: 500;
@@ -24,7 +24,7 @@
   content: "";
   position: absolute;
   border: 5px solid transparent;
-  filter: drop-shadow(0 1px 0 #d1d5db);
+  filter: drop-shadow(0 1px 0 var(--pc-tone-neutral-line));
 }
 
 .top::after {
@@ -39,7 +39,7 @@
   left: var(--tooltip-arrow-offset, 50%);
   transform: translateX(-50%);
   border-bottom-color: #fff;
-  filter: drop-shadow(0 -1px 0 #d1d5db);
+  filter: drop-shadow(0 -1px 0 var(--pc-tone-neutral-line));
 }
 
 .right::after {
@@ -47,7 +47,7 @@
   top: var(--tooltip-arrow-offset, 50%);
   transform: translateY(-50%);
   border-right-color: #fff;
-  filter: drop-shadow(-1px 0 0 #d1d5db);
+  filter: drop-shadow(-1px 0 0 var(--pc-tone-neutral-line));
 }
 
 .left::after {
@@ -55,5 +55,5 @@
   top: var(--tooltip-arrow-offset, 50%);
   transform: translateY(-50%);
   border-left-color: #fff;
-  filter: drop-shadow(1px 0 0 #d1d5db);
+  filter: drop-shadow(1px 0 0 var(--pc-tone-neutral-line));
 }

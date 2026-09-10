@@ -147,9 +147,9 @@
 }
 
 .navItemActive {
-  border: 1px solid #d1d5db;
-  background: #fff;
-  color: #111827;
+  border: 1px solid var(--pc-tone-neutral-line);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
 }
 
 .navItemActive:hover {

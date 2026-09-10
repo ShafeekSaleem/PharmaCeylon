@@ -68,10 +68,10 @@ function daysLeftColor(daysLeft: number): string {
   const t = 1 - Math.max(0, Math.min(1, daysLeft / DAYS_LEFT_GRADIENT_MAX));
   if (t >= 0.5) {
     const local = Math.round(((t - 0.5) / 0.5) * 100);
-    return `color-mix(in srgb, #e33f19 ${local}%, #ea580c)`;
+    return `color-mix(in srgb, var(--pc-tone-orange-strong) ${local}%, var(--pc-tone-orange))`;
   }
   const local = Math.round((t / 0.5) * 100);
-  return `color-mix(in srgb, #ea580c ${local}%, #16a34a)`;
+  return `color-mix(in srgb, var(--pc-tone-orange) ${local}%, var(--pc-tone-success))`;
 }
 const REC_BADGE: Record<ExpiryRecommendation, string> = {
   dispose: "dispose",

@@ -25,15 +25,15 @@
 }
 
 .typeTagCustomer {
-  color: #1d4ed8;
-  background: color-mix(in srgb, #3b82f6 12%, var(--pc-card-bg));
-  border: 1px solid color-mix(in srgb, #3b82f6 28%, var(--pc-border));
+  color: var(--pc-tone-blue-strong);
+  background: color-mix(in srgb, var(--pc-tone-blue-soft) 12%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-blue-soft) 28%, var(--pc-border));
 }
 
 .typeTagSupplier {
-  color: #15803d;
-  background: color-mix(in srgb, #22c55e 12%, var(--pc-card-bg));
-  border: 1px solid color-mix(in srgb, #22c55e 28%, var(--pc-border));
+  color: var(--pc-tone-success-strong);
+  background: color-mix(in srgb, var(--pc-tone-mint) 12%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-mint) 28%, var(--pc-border));
 }
 
 .partyCell {

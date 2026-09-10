@@ -41,15 +41,15 @@ const DEFAULT_VISUAL: CategoryVisual = {
  * invent a page-local variant; import `getCategoryVisual`/`CategoryBadge` from here instead.
  */
 const CATEGORY_VISUALS: Record<string, CategoryVisual> = {
-  MEDICINES: { Icon: IconPill, bg: "color-mix(in srgb, #16a34a 16%, #fff)", fg: "#15803d" },
+  MEDICINES: { Icon: IconPill, bg: "color-mix(in srgb, var(--pc-tone-success) 16%, #fff)", fg: "var(--pc-tone-success-strong)" },
   VITAMINS_SUPPLEMENTS: { Icon: IconLeaf, bg: "color-mix(in srgb, var(--pc-secondary-cyan) 16%, #fff)", fg: "var(--pc-secondary-cyan)" },
   BABY_CARE: { Icon: IconBaby, bg: "color-mix(in srgb, #ec4899 16%, #fff)", fg: "#db2777" },
-  PERSONAL_CARE: { Icon: IconSparkles, bg: "color-mix(in srgb, #7c3aed 14%, #fff)", fg: "#6d28d9" },
+  PERSONAL_CARE: { Icon: IconSparkles, bg: "color-mix(in srgb, var(--pc-tone-violet) 14%, #fff)", fg: "var(--pc-tone-violet-strong)" },
   BEAUTY_SKIN_CARE: { Icon: IconDroplet, bg: "color-mix(in srgb, #c026d3 15%, #fff)", fg: "#a21caf" },
-  MEDICAL_DEVICES: { Icon: IconStethoscope, bg: "color-mix(in srgb, #2563eb 14%, #fff)", fg: "#1d4ed8" },
-  FIRST_AID: { Icon: IconFirstAid, bg: "color-mix(in srgb, #dc2626 13%, #fff)", fg: "#b91c1c" },
-  NUTRITION_WELLNESS: { Icon: IconActivity, bg: "color-mix(in srgb, #059669 15%, #fff)", fg: "#047857" },
-  FOOD_BEVERAGE: { Icon: IconCoffee, bg: "color-mix(in srgb, #d97706 15%, #fff)", fg: "#b45309" },
+  MEDICAL_DEVICES: { Icon: IconStethoscope, bg: "color-mix(in srgb, var(--pc-tone-blue) 14%, #fff)", fg: "var(--pc-tone-blue-strong)" },
+  FIRST_AID: { Icon: IconFirstAid, bg: "color-mix(in srgb, var(--pc-tone-danger) 13%, #fff)", fg: "var(--pc-tone-danger-strong)" },
+  NUTRITION_WELLNESS: { Icon: IconActivity, bg: "color-mix(in srgb, var(--pc-tone-emerald) 15%, #fff)", fg: "var(--pc-tone-emerald-strong)" },
+  FOOD_BEVERAGE: { Icon: IconCoffee, bg: "color-mix(in srgb, var(--pc-tone-warning) 15%, #fff)", fg: "var(--pc-tone-warning-strong)" },
   HOUSEHOLD_CONVENIENCE: { Icon: IconHome, bg: "var(--pc-muted-bg)", fg: "var(--pc-muted-fg)" },
   OTHER: DEFAULT_VISUAL,
 };

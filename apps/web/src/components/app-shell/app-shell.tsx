@@ -97,20 +97,6 @@ const NAV_GROUPS: NavGroup[] = [
         roles: POS_ROLES,
         permission: "sales.pos_use",
       },
-      {
-        href: "/customers",
-        label: "Customers",
-        icon: <IconUser size={18} />,
-        roles: POS_ROLES,
-        permission: "customers.view",
-      },
-      {
-        href: "/prescriptions",
-        label: "Prescriptions",
-        icon: <IconFileText size={18} />,
-        roles: POS_ROLES,
-        permission: "prescriptions.view",
-      },
     ],
   },
   {
@@ -126,6 +112,28 @@ const NAV_GROUPS: NavGroup[] = [
         icon: <IconPackage size={18} />,
         roles: CATALOG_ROLES,
         permission: ["products.view", "catalog.view"],
+      },
+    ],
+  },
+  {
+    // Customer and prescription records are looked up deliberately, not part of
+    // the till flow — so they get their own home rather than sitting under Main
+    // beside Dashboard and POS.
+    label: "Dispensary",
+    items: [
+      {
+        href: "/customers",
+        label: "Customers",
+        icon: <IconUser size={18} />,
+        roles: POS_ROLES,
+        permission: "customers.view",
+      },
+      {
+        href: "/prescriptions",
+        label: "Prescriptions",
+        icon: <IconFileText size={18} />,
+        roles: POS_ROLES,
+        permission: "prescriptions.view",
       },
     ],
   },

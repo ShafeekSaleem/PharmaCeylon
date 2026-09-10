@@ -1217,8 +1217,8 @@
 
 .controlledFieldBadgeYes {
   color: #fff;
-  background: #f59e0b;
-  border-color: #f59e0b;
+  background: var(--pc-tone-amber);
+  border-color: var(--pc-tone-amber);
 }
 
 .sectionActionBtn {
@@ -1259,8 +1259,8 @@
   gap: 0.28rem;
   padding: 0.28rem 0.45rem;
   border-radius: var(--pc-radius-sm);
-  background: color-mix(in srgb, #f59e0b 14%, var(--pc-card-bg));
-  border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
+  background: color-mix(in srgb, var(--pc-tone-amber) 14%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-amber) 40%, transparent);
   color: var(--pc-foreground);
   font-size: 0.75rem;
   line-height: 1.35;
@@ -1269,7 +1269,7 @@
 .nextExpiryBadge svg {
   flex-shrink: 0;
   margin-top: 0.1rem;
-  color: #d97706;
+  color: var(--pc-tone-warning);
 }
 
 .layout {

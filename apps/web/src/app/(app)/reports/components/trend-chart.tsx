@@ -121,8 +121,8 @@ export function TrendChart({
           <svg viewBox={`0 0 ${VB_W} ${height}`} preserveAspectRatio="none" style={{ display: "block", width: "100%", height }}>
             <defs>
               <linearGradient id="reportsTrendGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#0d9488" stopOpacity="0.3" />
-                <stop offset="100%" stopColor="#0d9488" stopOpacity="0.02" />
+                <stop offset="0%" stopColor="var(--pc-primary)" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="var(--pc-primary)" stopOpacity="0.02" />
               </linearGradient>
             </defs>
             {GRID_FRACTIONS.map((f) => {
@@ -131,14 +131,14 @@ export function TrendChart({
             })}
             <path d={areaPath} fill="url(#reportsTrendGrad)" stroke="none" />
             {hasPrevious ? <path d={prevPath} className={css.previousLine} /> : null}
-            <path d={linePath} fill="none" stroke="#0d9488" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+            <path d={linePath} fill="none" stroke="var(--pc-primary)" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
             {coords.map((c, i) => (
               <circle
                 key={points[i]!.date}
                 cx={c.x}
                 cy={c.y}
                 r={hoverIdx === i ? 4.5 : 3}
-                fill="#0d9488"
+                fill="var(--pc-primary)"
                 opacity={hoverIdx == null || hoverIdx === i ? 1 : 0.45}
               />
             ))}
@@ -172,7 +172,7 @@ export function TrendChart({
       {hasPrevious ? (
         <div className={css.chartLegend}>
           <span>
-            <i className={css.legendSwatch} style={{ background: "#0d9488" }} />
+            <i className={css.legendSwatch} style={{ background: "var(--pc-primary)" }} />
             {currentLabel}
           </span>
           <span>

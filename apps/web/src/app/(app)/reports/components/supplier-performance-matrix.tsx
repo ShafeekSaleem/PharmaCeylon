@@ -19,10 +19,10 @@ type Props = {
 };
 
 const GRADE_COLOR: Record<SupplierMatrixPoint["grade"], string> = {
-  preferred: "#16a34a",
-  good: "#0284c7",
-  monitor: "#ea580c",
-  review: "#dc2626",
+  preferred: "var(--pc-tone-success)",
+  good: "var(--pc-tone-info)",
+  monitor: "var(--pc-tone-orange)",
+  review: "var(--pc-tone-danger)",
 };
 const GRADE_LABEL: Record<SupplierMatrixPoint["grade"], string> = {
   preferred: "Preferred",

@@ -67,8 +67,8 @@ export function ReturnsDiscountsSection({ scope, isOwner, days, onNavigate, onEx
     const returnPoints = current.trend.map((t) => ({ label: formatDateShort(t.date), date: t.date, value: t.returnValue }));
     const discountPoints = current.trend.map((t) => ({ label: formatDateShort(t.date), date: t.date, value: t.discountAmount }));
     return [
-      { key: "returns", label: "Return Value", color: "#dc2626", values: bucketTrend(returnPoints, granularity).map((p) => p.value) },
-      { key: "discounts", label: "Discount Amount", color: "#ea580c", values: bucketTrend(discountPoints, granularity).map((p) => p.value) },
+      { key: "returns", label: "Return Value", color: "var(--pc-tone-danger)", values: bucketTrend(returnPoints, granularity).map((p) => p.value) },
+      { key: "discounts", label: "Discount Amount", color: "var(--pc-tone-orange)", values: bucketTrend(discountPoints, granularity).map((p) => p.value) },
     ];
   }, [current, granularity]);
   const trendLabels = current ? bucketTrend(current.trend.map((t) => ({ label: formatDateShort(t.date), date: t.date, value: 0 })), granularity).map((p) => p.label) : [];

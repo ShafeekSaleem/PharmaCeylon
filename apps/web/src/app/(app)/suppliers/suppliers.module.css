@@ -69,33 +69,33 @@
 
 /* Soft semantic tints aligned with catalog chips (teal/sky/amber/rose/slate — no violet) */
 .typeDistributor {
-  color: #0369a1;
-  background: color-mix(in srgb, #0284c7 13%, var(--pc-card-bg));
-  border: 1px solid color-mix(in srgb, #0284c7 28%, var(--pc-border));
+  color: var(--pc-tone-info-strong);
+  background: color-mix(in srgb, var(--pc-tone-info) 13%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-info) 28%, var(--pc-border));
 }
 
 .typeImporter {
-  color: #be123c;
-  background: color-mix(in srgb, #e11d48 11%, var(--pc-card-bg));
-  border: 1px solid color-mix(in srgb, #e11d48 26%, var(--pc-border));
+  color: var(--pc-tone-rose-strong);
+  background: color-mix(in srgb, var(--pc-tone-rose) 11%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-rose) 26%, var(--pc-border));
 }
 
 .typeManufacturer {
-  color: #b45309;
-  background: color-mix(in srgb, #d97706 14%, var(--pc-card-bg));
-  border: 1px solid color-mix(in srgb, #d97706 32%, var(--pc-border));
+  color: var(--pc-tone-warning-strong);
+  background: color-mix(in srgb, var(--pc-tone-warning) 14%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-tone-warning) 32%, var(--pc-border));
 }
 
 .typeWholesaler {
-  color: color-mix(in srgb, var(--pc-primary) 85%, #0f172a);
+  color: color-mix(in srgb, var(--pc-primary) 85%, var(--pc-foreground));
   background: color-mix(in srgb, var(--pc-primary) 14%, var(--pc-card-bg));
   border: 1px solid color-mix(in srgb, var(--pc-primary) 28%, var(--pc-border));
 }
 
 .typeOther {
-  color: #475569;
-  background: color-mix(in srgb, #64748b 12%, var(--pc-card-bg));
-  border: 1px solid color-mix(in srgb, #64748b 28%, var(--pc-border));
+  color: var(--pc-muted-fg);
+  background: color-mix(in srgb, var(--pc-muted-fg) 12%, var(--pc-card-bg));
+  border: 1px solid color-mix(in srgb, var(--pc-muted-fg) 28%, var(--pc-border));
 }
 
 .outstandingCell {

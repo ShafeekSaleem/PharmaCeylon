@@ -13,18 +13,18 @@ const CATEGORY_MIX_PALETTE = [
   "var(--pc-primary)",
   "var(--pc-secondary-cyan)",
   "var(--pc-accent-navy)",
-  "#7c3aed", // purple — matches the "Highest Margin" insight tone
-  "#ea580c", // orange — matches the "Opportunity"/warning insight tone
-  "#dc2626", // red — matches the "At Risk"/danger insight tone
+  "var(--pc-tone-violet)", // purple — matches the "Highest Margin" insight tone
+  "var(--pc-tone-orange)", // orange — matches the "Opportunity"/warning insight tone
+  "var(--pc-tone-danger)", // red — matches the "At Risk"/danger insight tone
   "color-mix(in srgb, var(--pc-secondary-cyan) 55%, var(--pc-muted-fg))",
   "color-mix(in srgb, var(--pc-accent-navy) 50%, var(--pc-primary))",
   // Extra blends so a 13-way breakdown (e.g. Near Expiry's Medicines sub-categories) still gets
   // a distinct color per entry instead of repeating from index 8 onward.
-  "color-mix(in srgb, #7c3aed 55%, var(--pc-primary))",
-  "color-mix(in srgb, #ea580c 55%, var(--pc-accent-navy))",
-  "color-mix(in srgb, #dc2626 45%, var(--pc-secondary-cyan))",
-  "color-mix(in srgb, var(--pc-primary) 45%, #7c3aed)",
-  "color-mix(in srgb, var(--pc-accent-navy) 45%, #dc2626)",
+  "color-mix(in srgb, var(--pc-tone-violet) 55%, var(--pc-primary))",
+  "color-mix(in srgb, var(--pc-tone-orange) 55%, var(--pc-accent-navy))",
+  "color-mix(in srgb, var(--pc-tone-danger) 45%, var(--pc-secondary-cyan))",
+  "color-mix(in srgb, var(--pc-primary) 45%, var(--pc-tone-violet))",
+  "color-mix(in srgb, var(--pc-accent-navy) 45%, var(--pc-tone-danger))",
 ];
 
 export const CATEGORY_MIX_OTHERS_COLOR = "var(--pc-muted-fg)";
@@ -47,10 +47,10 @@ export function categoryMixColor(index: number): string {
 const TREEMAP_TONE_PALETTE = [
   "color-mix(in srgb, var(--pc-primary) 92%, #fff)",
   "color-mix(in srgb, var(--pc-secondary-cyan) 88%, #fff)",
-  "color-mix(in srgb, #16a34a 85%, #fff)",
+  "color-mix(in srgb, var(--pc-tone-success) 85%, #fff)",
   "color-mix(in srgb, var(--pc-primary) 70%, #fff)",
   "color-mix(in srgb, var(--pc-secondary-cyan) 68%, #fff)",
-  "color-mix(in srgb, #16a34a 65%, #fff)",
+  "color-mix(in srgb, var(--pc-tone-success) 65%, #fff)",
 ];
 
 export function categoryMixColorLight(index: number): string {

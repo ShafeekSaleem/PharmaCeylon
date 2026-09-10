@@ -76,7 +76,223 @@
   --pc-overlay-scrim: rgba(15, 23, 42, 0.32);
   --pc-overlay-gutter: color-mix(in srgb, #0f172a 32%, var(--pc-page-bg));
 
+  /* Semantic tone scale — status pills, chart series, severity stripes.
+     Separate from the alert tokens above (which are whole-surface bg/border/text
+     triples) because these are single ink colours applied to text, marks and
+     rules. Every one has a dark counterpart below; a component that reaches for
+     a raw hex instead stays light-on-dark and is the bug this scale exists to
+     prevent. */
+  --pc-tone-danger: #dc2626;
+  --pc-tone-danger-strong: #b91c1c;
+  --pc-tone-rose: #e11d48;
+  --pc-tone-rose-strong: #be123c;
+  --pc-tone-orange: #ea580c;
+  --pc-tone-orange-strong: #c2410c;
+  --pc-tone-orange-soft: #f97316;
+  --pc-tone-warning: #d97706;
+  --pc-tone-warning-strong: #b45309;
+  --pc-tone-amber: #f59e0b;
+  --pc-tone-gold: #ca8a04;
+  --pc-tone-gold-strong: #854d0e;
+  --pc-tone-success: #16a34a;
+  --pc-tone-success-strong: #15803d;
+  --pc-tone-emerald: #059669;
+  --pc-tone-emerald-strong: #047857;
+  --pc-tone-mint: #22c55e;
+  --pc-tone-info: #0284c7;
+  --pc-tone-info-strong: #0369a1;
+  --pc-tone-blue: #2563eb;
+  --pc-tone-blue-soft: #3b82f6;
+  --pc-tone-blue-strong: #1d4ed8;
+  --pc-tone-violet: #7c3aed;
+  --pc-tone-violet-strong: #6d28d9;
+  --pc-tone-indigo: #4f46e5;
+  --pc-tone-indigo-strong: #4338ca;
+  --pc-tone-neutral-line: #d1d5db;
+
   color-scheme: light;
+}
+
+/*
+ * Dark theme.
+ *
+ * Three viewer states, not two: an explicit choice stamps `data-theme` on <html>,
+ * and the default "System" setting stamps nothing — there, only the media query
+ * separates light from dark. So the dark palette is declared twice: once behind
+ * `prefers-color-scheme` guarded by `:not([data-theme="light"])` so an explicit
+ * Light choice still beats a dark OS, and once behind `[data-theme="dark"]` so
+ * the toggle wins in the other direction.
+ *
+ * Only tokens are redefined here. Any component colour that bypasses the token
+ * layer and hardcodes a hex stays light-on-dark — that is the whole reason the
+ * raw literals across the CSS modules had to be migrated alongside this.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pc-background: #0b1220;
+    --pc-page-bg: #0b1220;
+    --pc-card-bg: #131c2e;
+    --pc-foreground: #e6edf7;
+    --pc-muted-bg: #1b2639;
+    --pc-muted-fg: #94a3b8;
+    --pc-border: rgba(255, 255, 255, 0.12);
+    --pc-input-bg: #0f1829;
+
+    /* Lifted so the accent keeps its contrast on a dark ground — the light
+       teal is too dark against #0b1220 to read as an action. */
+    --pc-primary: #2dd4bf;
+    --pc-primary-hover: #5eead4;
+    --pc-primary-soft: rgba(45, 212, 191, 0.16);
+    --pc-secondary-cyan: #22d3ee;
+    --pc-secondary-cyan-hover: #67e8f9;
+    --pc-accent-navy: #60a5fa;
+    --pc-ring: #2dd4bf;
+    --pc-focus-ring: rgba(45, 212, 191, 0.35);
+
+    --pc-destructive: #f87171;
+    --pc-destructive-soft: rgba(248, 113, 113, 0.14);
+    --pc-focus-ring-destructive: rgba(248, 113, 113, 0.25);
+
+    --pc-gradient-main: linear-gradient(135deg, #0f766e 0%, #0e7490 100%);
+    --pc-gradient-hover: linear-gradient(135deg, #115e59 0%, #155e75 100%);
+
+    --pc-shadow-card: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
+    --pc-hover-overlay: rgba(255, 255, 255, 0.06);
+
+    /* Teal is bright enough on dark that black text reads better than white. */
+    --pc-btn-primary-text: #04201c;
+
+    --pc-alert-error-bg: #2a1416;
+    --pc-alert-error-border: #7f1d1d;
+    --pc-alert-error-text: #fca5a5;
+    --pc-alert-error-icon: #f87171;
+    --pc-alert-warning-bg: #2a1f0e;
+    --pc-alert-warning-border: #78350f;
+    --pc-alert-warning-text: #fcd34d;
+    --pc-alert-warning-icon: #fbbf24;
+    --pc-alert-info-bg: #0d2630;
+    --pc-alert-info-border: #155e75;
+    --pc-alert-info-text: #7dd3fc;
+    --pc-alert-info-icon: var(--pc-secondary-cyan);
+    --pc-alert-success-bg: #0d2620;
+    --pc-alert-success-border: #14532d;
+    --pc-alert-success-text: #6ee7b7;
+    --pc-alert-success-icon: #34d399;
+
+    --pc-overlay-scrim: rgba(0, 0, 0, 0.6);
+    --pc-overlay-gutter: color-mix(in srgb, #000000 60%, var(--pc-page-bg));
+
+    --pc-tone-danger: #f87171;
+    --pc-tone-danger-strong: #fca5a5;
+    --pc-tone-rose: #fb7185;
+    --pc-tone-rose-strong: #fda4af;
+    --pc-tone-orange: #fb923c;
+    --pc-tone-orange-strong: #fdba74;
+    --pc-tone-orange-soft: #fdba74;
+    --pc-tone-warning: #fbbf24;
+    --pc-tone-warning-strong: #fcd34d;
+    --pc-tone-amber: #fbbf24;
+    --pc-tone-gold: #facc15;
+    --pc-tone-gold-strong: #fde047;
+    --pc-tone-success: #34d399;
+    --pc-tone-success-strong: #6ee7b7;
+    --pc-tone-emerald: #34d399;
+    --pc-tone-emerald-strong: #6ee7b7;
+    --pc-tone-mint: #4ade80;
+    --pc-tone-info: #38bdf8;
+    --pc-tone-info-strong: #7dd3fc;
+    --pc-tone-blue: #60a5fa;
+    --pc-tone-blue-soft: #93c5fd;
+    --pc-tone-blue-strong: #93c5fd;
+    --pc-tone-violet: #a78bfa;
+    --pc-tone-violet-strong: #c4b5fd;
+    --pc-tone-indigo: #818cf8;
+    --pc-tone-indigo-strong: #a5b4fc;
+    --pc-tone-neutral-line: rgba(255, 255, 255, 0.16);
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --pc-background: #0b1220;
+  --pc-page-bg: #0b1220;
+  --pc-card-bg: #131c2e;
+  --pc-foreground: #e6edf7;
+  --pc-muted-bg: #1b2639;
+  --pc-muted-fg: #94a3b8;
+  --pc-border: rgba(255, 255, 255, 0.12);
+  --pc-input-bg: #0f1829;
+
+  --pc-primary: #2dd4bf;
+  --pc-primary-hover: #5eead4;
+  --pc-primary-soft: rgba(45, 212, 191, 0.16);
+  --pc-secondary-cyan: #22d3ee;
+  --pc-secondary-cyan-hover: #67e8f9;
+  --pc-accent-navy: #60a5fa;
+  --pc-ring: #2dd4bf;
+  --pc-focus-ring: rgba(45, 212, 191, 0.35);
+
+  --pc-destructive: #f87171;
+  --pc-destructive-soft: rgba(248, 113, 113, 0.14);
+  --pc-focus-ring-destructive: rgba(248, 113, 113, 0.25);
+
+  --pc-gradient-main: linear-gradient(135deg, #0f766e 0%, #0e7490 100%);
+  --pc-gradient-hover: linear-gradient(135deg, #115e59 0%, #155e75 100%);
+
+  --pc-shadow-card: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
+  --pc-hover-overlay: rgba(255, 255, 255, 0.06);
+  --pc-btn-primary-text: #04201c;
+
+  --pc-alert-error-bg: #2a1416;
+  --pc-alert-error-border: #7f1d1d;
+  --pc-alert-error-text: #fca5a5;
+  --pc-alert-error-icon: #f87171;
+  --pc-alert-warning-bg: #2a1f0e;
+  --pc-alert-warning-border: #78350f;
+  --pc-alert-warning-text: #fcd34d;
+  --pc-alert-warning-icon: #fbbf24;
+  --pc-alert-info-bg: #0d2630;
+  --pc-alert-info-border: #155e75;
+  --pc-alert-info-text: #7dd3fc;
+  --pc-alert-info-icon: var(--pc-secondary-cyan);
+  --pc-alert-success-bg: #0d2620;
+  --pc-alert-success-border: #14532d;
+  --pc-alert-success-text: #6ee7b7;
+  --pc-alert-success-icon: #34d399;
+
+  --pc-overlay-scrim: rgba(0, 0, 0, 0.6);
+  --pc-overlay-gutter: color-mix(in srgb, #000000 60%, var(--pc-page-bg));
+
+  --pc-tone-danger: #f87171;
+  --pc-tone-danger-strong: #fca5a5;
+  --pc-tone-rose: #fb7185;
+  --pc-tone-rose-strong: #fda4af;
+  --pc-tone-orange: #fb923c;
+  --pc-tone-orange-strong: #fdba74;
+  --pc-tone-orange-soft: #fdba74;
+  --pc-tone-warning: #fbbf24;
+  --pc-tone-warning-strong: #fcd34d;
+  --pc-tone-amber: #fbbf24;
+  --pc-tone-gold: #facc15;
+  --pc-tone-gold-strong: #fde047;
+  --pc-tone-success: #34d399;
+  --pc-tone-success-strong: #6ee7b7;
+  --pc-tone-emerald: #34d399;
+  --pc-tone-emerald-strong: #6ee7b7;
+  --pc-tone-mint: #4ade80;
+  --pc-tone-info: #38bdf8;
+  --pc-tone-info-strong: #7dd3fc;
+  --pc-tone-blue: #60a5fa;
+  --pc-tone-blue-soft: #93c5fd;
+  --pc-tone-blue-strong: #93c5fd;
+  --pc-tone-violet: #a78bfa;
+  --pc-tone-violet-strong: #c4b5fd;
+  --pc-tone-indigo: #818cf8;
+  --pc-tone-indigo-strong: #a5b4fc;
+  --pc-tone-neutral-line: rgba(255, 255, 255, 0.16);
+
+  color-scheme: dark;
 }
 
 *,

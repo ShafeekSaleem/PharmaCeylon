@@ -16,9 +16,9 @@ type Props = {
 };
 
 const SEGMENT_COLOR: Record<ExposureSegmentKey, string> = {
-  recoverable: "#16a34a",
-  highRisk: "#ea580c",
-  writeOff: "#dc2626",
+  recoverable: "var(--pc-tone-success)",
+  highRisk: "var(--pc-tone-orange)",
+  writeOff: "var(--pc-tone-danger)",
 };
 
 /** Splits total expiry exposure into business-action buckets — a single segmented value bar

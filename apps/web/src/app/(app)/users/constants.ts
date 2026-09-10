@@ -20,11 +20,11 @@ export const ROLE_LABELS: Record<RoleName, string> = {
 /** Fixed categorical color per role — identity, not a status signal. */
 export const ROLE_COLORS: Record<RoleName, string> = {
   owner: "#a855f7",
-  manager: "#2563eb",
-  pharmacist: "#0d9488",
-  cashier: "#d97706",
-  inventory_clerk: "#4f46e5",
-  custom: "#0891b2",
+  manager: "var(--pc-tone-blue)",
+  pharmacist: "var(--pc-primary)",
+  cashier: "var(--pc-tone-warning)",
+  inventory_clerk: "var(--pc-tone-indigo)",
+  custom: "var(--pc-secondary-cyan)",
 };
 
 export const ROLE_FILTER_OPTIONS = [

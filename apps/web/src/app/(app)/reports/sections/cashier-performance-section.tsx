@@ -37,7 +37,7 @@ type EnrichedCashier = CashierRow & { revenueN: number; avgBasketN: number; disc
 /** Same palette Branch Sales' own matrix/trend chart use — a cashier reads as one consistent
  *  color across the Cashier Comparison matrix and (were it ever reused elsewhere) any other chart
  *  on this page, the same "one entity, one color" convention the rest of this redesign follows. */
-const CASHIER_PALETTE = ["#0d9488", "#0891b2", "#7c3aed", "#ea580c", "#16a34a", "#c2410c", "#64748b"];
+const CASHIER_PALETTE = ["var(--pc-primary)", "var(--pc-secondary-cyan)", "var(--pc-tone-violet)", "var(--pc-tone-orange)", "var(--pc-tone-success)", "var(--pc-tone-orange-strong)", "var(--pc-muted-fg)"];
 
 const SHIFT_ICONS: Record<string, ReactNode> = {
   morning: <IconSun size={18} />,
@@ -392,7 +392,7 @@ export function CashierPerformanceSection({ scope, isOwner, days, onExportData }
               <p>Transactions × avg. basket — bubble size = revenue</p>
             </div>
           </div>
-          <CashierThroughputMatrix points={matrixPoints} formatValue={formatMoney} colorFor={(id) => colorMap.get(id) ?? "#64748b"} onBubbleClick={toggleCashierFilter} activeId={selectedCashierId} />
+          <CashierThroughputMatrix points={matrixPoints} formatValue={formatMoney} colorFor={(id) => colorMap.get(id) ?? "var(--pc-muted-fg)"} onBubbleClick={toggleCashierFilter} activeId={selectedCashierId} />
         </div>
 
         <ActionsPanel title="Coaching & Monitoring" items={coachingItems} variant="cards" onViewAll={scrollToShiftPerformance} />

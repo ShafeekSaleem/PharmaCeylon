@@ -11,7 +11,7 @@ type Props = {
   activeId?: string | null;
 };
 
-const INBOUND_COLOR = "#0d9488";
+const INBOUND_COLOR = "var(--pc-primary)";
 const OUTBOUND_COLOR = "#f0653e";
 
 /** Butterfly/mirrored bar list — inbound grows left from a shared center column, outbound grows

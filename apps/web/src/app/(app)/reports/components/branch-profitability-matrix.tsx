@@ -27,10 +27,10 @@ type Props = {
 };
 
 const QUADRANT_COLOR: Record<BranchMatrixQuadrant, string> = {
-  topPerformers: "#16a34a",
-  marginAttention: "#dc2626",
-  growthOpportunity: "#0284c7",
-  review: "#64748b",
+  topPerformers: "var(--pc-tone-success)",
+  marginAttention: "var(--pc-tone-danger)",
+  growthOpportunity: "var(--pc-tone-info)",
+  review: "var(--pc-muted-fg)",
 };
 
 const QUADRANT_LABEL: Record<BranchMatrixQuadrant, string> = {

@@ -35,6 +35,7 @@ import {
   demoPricingForProduct,
   demoStockLineForIndex,
 } from "../src/nmra/nmra-normalize";
+import { AUTO_QUARANTINE_EXPIRED_REASON } from "../src/inventory/quarantine.constants";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl?.trim()) {
@@ -727,7 +728,7 @@ async function main() {
     data: {
       isQuarantined: true,
       quarantinedAt: new Date(),
-      quarantineReason: "Expired — auto seed quarantine",
+      quarantineReason: AUTO_QUARANTINE_EXPIRED_REASON,
     },
   });
 
@@ -2286,45 +2287,156 @@ async function main() {
     },
   });
 
-  // Demo account customers (for credit / receivables)
-  const demoCustomerDefs = [
-    { fullName: "Saman Perera", phone: "0771234501" },
-    { fullName: "Nadeesha Fernando", phone: "0771234502" },
-    { fullName: "Kamani Jayasuriya", phone: "0771234503" },
-    { fullName: "Ruwan Silva", phone: "0771234504" },
-    { fullName: "Priya Wickramasinghe", phone: "0771234505" },
-    { fullName: "Ashan Mendis", phone: "0771234506" },
-    { fullName: "Fathima Rizwan", phone: "0771234507" },
-    { fullName: "Dilani Gunasekara", phone: "0771234508" },
-    { fullName: "Heshan Bandara", phone: "0771234509" },
-    { fullName: "Malsha Perera", phone: "0771234510" },
-    { fullName: "Tharindu Jayasinghe", phone: "0771234511" },
-    { fullName: "Ishara Fonseka", phone: "0771234512" },
-    { fullName: "Gayani Silva", phone: "0771234513" },
-    { fullName: "Nimali Ratnayake", phone: "0771234514" },
-    { fullName: "Chaminda Weerasinghe", phone: "0771234515" },
-    { fullName: "Sanduni Perera", phone: "0771234516" },
-    { fullName: "Kasun Abeywardena", phone: "0771234517" },
-    { fullName: "Amaya Dias", phone: "0771234518" },
-    { fullName: "Roshan Fernando", phone: "0771234519" },
-    { fullName: "Shanika Wijesinghe", phone: "0771234520" },
-    { fullName: "Nuwan Kariyawasam", phone: "0771234521" },
-    { fullName: "Lakmini Jayawardena", phone: "0771234522" },
-    { fullName: "Imran Mohamed", phone: "0771234523" },
+  // Demo account customers (credit / receivables, and the Customers page).
+  // Enriched beyond name+phone so the directory, its search and the profile
+  // drawer all have something real to show: emails and addresses to match on,
+  // clinical notes a pharmacist would actually write, and two deactivated
+  // records so the status filter has both sides.
+  const demoCustomerDefs: {
+    fullName: string;
+    phone: string;
+    email?: string;
+    address?: string;
+    notes?: string;
+    isActive?: boolean;
+  }[] = [
+    { fullName: "Saman Perera", phone: "0771234501", email: "saman.perera@gmail.com", address: "42/3 Galle Road, Colombo 03", notes: "Allergic to penicillin — confirm before dispensing antibiotics." },
+    { fullName: "Nadeesha Fernando", phone: "0771234502", email: "nadeesha.f@yahoo.com", address: "18 Temple Lane, Nugegoda", notes: "Prefers generic equivalents where available." },
+    { fullName: "Kamani Jayasuriya", phone: "0771234503", email: "kamani.j@outlook.com", address: "7B Hospital Road, Kalubowila", notes: "Monthly hypertension repeat. Diabetic." },
+    { fullName: "Ruwan Silva", phone: "0771234504", email: "ruwan.silva@gmail.com", address: "115 Highlevel Road, Maharagama" },
+    { fullName: "Priya Wickramasinghe", phone: "0771234505", email: "priya.w@gmail.com", address: "22 Lake Drive, Rajagiriya", notes: "Asthma — salbutamol inhaler on repeat." },
+    { fullName: "Ashan Mendis", phone: "0771234506", email: "ashan.mendis@gmail.com", address: "5 Station Road, Mount Lavinia" },
+    { fullName: "Fathima Rizwan", phone: "0771234507", email: "fathima.r@gmail.com", address: "60 Dematagoda Road, Colombo 09", notes: "Pregnancy — check contraindications." },
+    { fullName: "Dilani Gunasekara", phone: "0771234508", email: "dilani.g@gmail.com", address: "31 Flower Road, Colombo 07" },
+    { fullName: "Heshan Bandara", phone: "0771234509", address: "9 Kandy Road, Kadawatha", notes: "Home delivery preferred." },
+    { fullName: "Malsha Perera", phone: "0771234510", email: "malsha.perera@gmail.com" },
+    { fullName: "Tharindu Jayasinghe", phone: "0771234511", email: "tharindu.j@gmail.com", address: "77 Baseline Road, Colombo 08" },
+    { fullName: "Ishara Fonseka", phone: "0771234512", address: "12 Sea Street, Negombo" },
+    { fullName: "Gayani Silva", phone: "0771234513", email: "gayani.silva@gmail.com", address: "204 Main Street, Galle", notes: "Thyroid medication — 3-month repeat." },
+    { fullName: "Nimali Ratnayake", phone: "0771234514", email: "nimali.r@gmail.com" },
+    { fullName: "Chaminda Weerasinghe", phone: "0771234515", address: "88 Panadura Road, Moratuwa" },
+    { fullName: "Sanduni Perera", phone: "0771234516", email: "sanduni.p@gmail.com", notes: "Paediatric doses — 4-year-old." },
+    { fullName: "Kasun Abeywardena", phone: "0771234517", email: "kasun.a@gmail.com", address: "3 Lotus Road, Colombo 01" },
+    { fullName: "Amaya Dias", phone: "0771234518", address: "45 Hill Street, Kandy" },
+    { fullName: "Roshan Fernando", phone: "0771234519", email: "roshan.f@gmail.com", notes: "Moved abroad — record retired.", isActive: false },
+    { fullName: "Shanika Wijesinghe", phone: "0771234520", notes: "Duplicate of another record — retired.", isActive: false },
+    { fullName: "Nuwan Kariyawasam", phone: "0771234521", email: "nuwan.k@gmail.com", address: "19 Beach Road, Negombo" },
+    { fullName: "Lakmini Jayawardena", phone: "0771234522", email: "lakmini.j@gmail.com", notes: "Cardiac — warfarin. Check interactions." },
+    { fullName: "Imran Mohamed", phone: "0771234523", email: "imran.m@gmail.com", address: "150 Old Moor Street, Colombo 12" },
   ];
   const customerIds: string[] = [];
+  const allCustomerRows: { id: string; fullName: string }[] = [];
   for (const c of demoCustomerDefs) {
     const row = await prisma.customer.upsert({
       where: { tenantId_phone: { tenantId: tenant.id, phone: c.phone } },
-      update: { fullName: c.fullName, isActive: true },
+      update: {
+        fullName: c.fullName,
+        email: c.email ?? null,
+        address: c.address ?? null,
+        notes: c.notes ?? null,
+        isActive: c.isActive ?? true,
+      },
       create: {
         tenantId: tenant.id,
         fullName: c.fullName,
         phone: c.phone,
+        email: c.email ?? null,
+        address: c.address ?? null,
+        notes: c.notes ?? null,
+        isActive: c.isActive ?? true,
       },
     });
-    customerIds.push(row.id);
+    // Only active customers are handed to the sales generator — a retired
+    // record picking up new sales would contradict what the page says about it.
+    if (c.isActive !== false) customerIds.push(row.id);
+    allCustomerRows.push({ id: row.id, fullName: row.fullName });
   }
+
+  // ── Prescriptions ────────────────────────────────────────────────────────
+  // The register had no seed data at all, so /prescriptions rendered empty and
+  // the validity filter could not be exercised. Spread across branches and
+  // deliberately mixed: still-valid, already-expired, and no-expiry (which never
+  // lapses and must show under "valid", not get dropped).
+  const rxBranches = [
+    { id: mainBranch.id, prefix: "RX-MAIN" },
+    { id: secondBranch.id, prefix: "RX-BR2" },
+    { id: galleBranch.id, prefix: "RX-GAL" },
+    { id: negomboBranch.id, prefix: "RX-NEG" },
+  ];
+  const rxDoctors = [
+    { name: "A. Wijeratne", reg: "SLMC-18422" },
+    { name: "M. Silva", reg: "SLMC-20913" },
+    { name: "P. Kumarasinghe", reg: "SLMC-17004" },
+    { name: "N. de Alwis", reg: null },
+    { name: "R. Perera", reg: "SLMC-22187" },
+    { name: "S. Gunawardena", reg: "SLMC-19556" },
+  ];
+  const rxNotes = [
+    "Repeat for 3 months.",
+    "Take after meals.",
+    "Review before next refill.",
+    null,
+    "Patient counselled on side effects.",
+    null,
+  ];
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  function utcDay(offsetDays: number): Date {
+    const d = new Date(Date.now() + offsetDays * dayMs);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  }
+
+  let rxCount = 0;
+  for (let i = 0; i < 48; i++) {
+    const branch = rxBranches[i % rxBranches.length]!;
+    const doctor = rxDoctors[i % rxDoctors.length]!;
+    const issuedOffset = -(3 + i * 4);
+
+    // Every third has no expiry at all; of the rest, the older half has lapsed.
+    let validUntil: Date | null;
+    if (i % 3 === 0) {
+      validUntil = null;
+    } else if (i % 3 === 1) {
+      validUntil = utcDay(issuedOffset + 180);
+    } else {
+      validUntil = utcDay(issuedOffset + 30);
+    }
+
+    // Roughly four in five are linked to a registered customer; the rest are
+    // walk-ins who presented a script without an account, which is realistic and
+    // exercises the "Not linked to a customer" row state.
+    const linked = i % 5 !== 4 && allCustomerRows.length > 0;
+    const customer = linked
+      ? allCustomerRows[i % allCustomerRows.length]!
+      : null;
+
+    const rxNumber = `${branch.prefix}-${String(1000 + i)}`;
+    await prisma.prescription.upsert({
+      where: {
+        tenantId_branchId_rxNumber: {
+          tenantId: tenant.id,
+          branchId: branch.id,
+          rxNumber,
+        },
+      },
+      update: {},
+      create: {
+        tenantId: tenant.id,
+        branchId: branch.id,
+        rxNumber,
+        patientName: customer?.fullName ?? `Walk-in patient ${i + 1}`,
+        doctorName: doctor.name,
+        doctorRegNo: doctor.reg,
+        issuedOn: utcDay(issuedOffset),
+        validUntil,
+        notes: rxNotes[i % rxNotes.length] ?? null,
+        customerId: customer?.id ?? null,
+        createdBy: pharmacist.id,
+      },
+    });
+    rxCount++;
+  }
+  console.log(`── Prescriptions: ${rxCount} across ${rxBranches.length} branches ──`);
 
   // Bulk ~90-day multi-branch history for dashboards / analytics (after scenario fixtures).
   const activeSupplierIds = [
@@ -2363,6 +2475,38 @@ async function main() {
     supplierIds: activeSupplierIds,
     customerIds,
   });
+
+  // ── Link a slice of sales to the prescriptions above ─────────────────────
+  // Without this every prescription shows "0 dispensed" and no customer's
+  // purchase history shows an Rx reference, so two things the pages are built
+  // to display would look broken rather than empty. Only matches a sale to a
+  // prescription for the *same* customer and branch — a prescription attached
+  // to someone else's sale would be worse than none.
+  let rxLinked = 0;
+  const seededRx = await prisma.prescription.findMany({
+    where: { tenantId: tenant.id, customerId: { not: null } },
+    select: { id: true, branchId: true, customerId: true, issuedOn: true },
+  });
+  for (const rx of seededRx) {
+    const candidate = await prisma.sale.findFirst({
+      where: {
+        tenantId: tenant.id,
+        branchId: rx.branchId,
+        customerId: rx.customerId,
+        prescriptionId: null,
+        soldAt: { gte: rx.issuedOn },
+      },
+      select: { id: true },
+      orderBy: { soldAt: "asc" },
+    });
+    if (!candidate) continue;
+    await prisma.sale.update({
+      where: { id: candidate.id },
+      data: { prescriptionId: rx.id },
+    });
+    rxLinked++;
+  }
+  console.log(`── Prescriptions: linked to ${rxLinked} sale(s) ──`);
 
   // ── Retail demo catalog (non-Medicines departments) ──────────────────────
   // Must run AFTER seedDemoOps: seedDemoOps moves every product outside its curated Medicines

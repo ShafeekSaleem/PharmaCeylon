@@ -32,7 +32,7 @@
   padding: 0 4px;
   border: 2px solid var(--pc-card-bg);
   border-radius: 999px;
-  background: #dc2626;
+  background: var(--pc-tone-danger);
   color: #fff;
   font-size: 0.58rem;
   font-weight: 750;

@@ -17,6 +17,7 @@ import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, PageHeader, StatCard } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
+import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { AdjustmentModal } from "../components/adjustment-modal";
 import { BatchesTable } from "../components/batches-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
@@ -57,6 +58,7 @@ function BatchesContent() {
   const [quarantineBusy, setQuarantineBusy] = useState(false);
   const [quarantineMsg, setQuarantineMsg] = useState<string | null>(null);
   const [quarantineError, setQuarantineError] = useState(false);
+  const [quarantineConfirmOpen, setQuarantineConfirmOpen] = useState(false);
   const [adjustmentOpen, setAdjustmentOpen] = useState(
     searchParams.get("openAdjustment") === "1",
   );
@@ -186,13 +188,6 @@ function BatchesContent() {
 
   async function quarantineAllExpired() {
     if (!canQuarantineExpired) return;
-    if (
-      !window.confirm(
-        `Quarantine all ${summary.expiredOpen} expired batch(es) that are not already quarantined?`,
-      )
-    ) {
-      return;
-    }
     setQuarantineBusy(true);
     setQuarantineMsg(null);
     setQuarantineError(false);
@@ -214,6 +209,7 @@ function BatchesContent() {
       );
     } finally {
       setQuarantineBusy(false);
+      setQuarantineConfirmOpen(false);
     }
   }
 
@@ -275,7 +271,7 @@ function BatchesContent() {
               <ActionButton
                 icon={<IconAlertTriangle size={16} />}
                 tooltip="Mark all expired non-quarantined batches as quarantined"
-                onClick={() => void quarantineAllExpired()}
+                onClick={() => setQuarantineConfirmOpen(true)}
                 disabled={quarantineBusy}
               >
                 Quarantine expired
@@ -441,6 +437,23 @@ function BatchesContent() {
         onChanged={() => void batches.reload()}
         onAdjust={openAdjustment}
       />
+
+      <ConfirmDialog
+        open={quarantineConfirmOpen}
+        title="Quarantine expired batches"
+        confirmLabel="Quarantine expired"
+        loading={quarantineBusy}
+        onCancel={() => {
+          if (!quarantineBusy) setQuarantineConfirmOpen(false);
+        }}
+        onConfirm={() => void quarantineAllExpired()}
+      >
+        <p>
+          Block <strong>{summary.expiredOpen}</strong> expired batch
+          {summary.expiredOpen === 1 ? "" : "es"} from sale. Batches already
+          quarantined are left untouched.
+        </p>
+      </ConfirmDialog>
 
       <AdjustmentModal
         open={adjustmentOpen}

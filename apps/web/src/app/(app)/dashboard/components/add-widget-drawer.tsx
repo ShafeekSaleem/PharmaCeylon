@@ -39,7 +39,7 @@ const CATEGORY_META: Record<string, { icon: ComponentType<IconProps>; color: str
   Sales: { icon: IconShoppingCart, color: "var(--pc-alert-success-icon)" },
   Dispensing: { icon: IconPill, color: "var(--pc-primary)" },
   Clinical: { icon: IconStethoscope, color: "var(--pc-alert-error-icon)" },
-  Insights: { icon: IconSparkles, color: "#7c3aed" },
+  Insights: { icon: IconSparkles, color: "var(--pc-tone-violet)" },
 };
 const DEFAULT_CATEGORY_META = { icon: IconGrid, color: "var(--pc-primary)" };
 

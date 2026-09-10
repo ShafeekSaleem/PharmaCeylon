@@ -11,6 +11,8 @@ import {
 } from "@/components/icons";
 import { RoleButton, RoleLink } from "@/components/role-access";
 import { DataTable, Modal, FormField, type Column } from "@/components/ui";
+import { Alert } from "@/components/alert";
+import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { apiJson } from "@/lib/auth-client";
 import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
@@ -117,7 +119,6 @@ export function BatchesTable({
   onAdjust,
 }: BatchesTableProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   const [expiryBatch, setExpiryBatch] = useState<BatchRow | null>(null);
   const [expiryDate, setExpiryDate] = useState("");
@@ -143,44 +144,52 @@ export function BatchesTable({
     }
   }
 
-  async function quarantine(row: BatchRow) {
-    const reason = window.prompt(
-      `Quarantine reason for ${row.product.name} / ${row.batchNo}:`,
-      row.expired ? "Expired" : "",
-    );
-    if (reason == null) return;
-    const trimmed = reason.trim();
+  const [quarantineBatch, setQuarantineBatch] = useState<BatchRow | null>(null);
+  const [quarantineReason, setQuarantineReason] = useState("");
+  const [quarantineError, setQuarantineError] = useState<string | null>(null);
+  async function quarantine() {
+    if (!quarantineBatch) return;
+    const trimmed = quarantineReason.trim();
     if (!trimmed) {
-      setActionError("Quarantine reason is required");
+      setQuarantineError("Quarantine reason is required");
       return;
     }
-    setBusyId(row.id);
-    setActionError(null);
+    setBusyId(quarantineBatch.id);
+    setQuarantineError(null);
     try {
-      await apiJson(`/inventory/batches/${row.id}/quarantine`, {
+      await apiJson(`/inventory/batches/${quarantineBatch.id}/quarantine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: trimmed }),
       });
+      setQuarantineBatch(null);
       onChanged?.();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Quarantine failed");
+      setQuarantineError(
+        err instanceof Error ? err.message : "Quarantine failed",
+      );
     } finally {
       setBusyId(null);
     }
   }
 
-  async function release(row: BatchRow) {
-    if (!window.confirm(`Release quarantine on batch ${row.batchNo}?`)) return;
-    setBusyId(row.id);
-    setActionError(null);
+  const [releaseBatch, setReleaseBatch] = useState<BatchRow | null>(null);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
+  async function release() {
+    if (!releaseBatch) return;
+    setBusyId(releaseBatch.id);
+    setReleaseError(null);
     try {
-      await apiJson(`/inventory/batches/${row.id}/release-quarantine`, {
-        method: "POST",
-      });
+      await apiJson(
+        `/inventory/batches/${releaseBatch.id}/release-quarantine`,
+        {
+          method: "POST",
+        },
+      );
+      setReleaseBatch(null);
       onChanged?.();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Release failed");
+      setReleaseError(err instanceof Error ? err.message : "Release failed");
     } finally {
       setBusyId(null);
     }
@@ -330,8 +339,15 @@ export function BatchesTable({
           row={row}
           canWrite={canWrite}
           busyId={busyId}
-          onQuarantine={(r) => void quarantine(r)}
-          onRelease={(r) => void release(r)}
+          onQuarantine={(r) => {
+            setQuarantineBatch(r);
+            setQuarantineReason(r.expired ? "Expired" : "");
+            setQuarantineError(null);
+          }}
+          onRelease={(r) => {
+            setReleaseBatch(r);
+            setReleaseError(null);
+          }}
           onConfirmExpiry={(r) => {
             setExpiryBatch(r);
             setExpiryDate("");
@@ -353,11 +369,6 @@ export function BatchesTable({
 
   return (
     <>
-      {actionError && (
-        <p className={css.tableActionError} role="alert">
-          {actionError}
-        </p>
-      )}
       <Modal
         open={!!expiryBatch}
         onClose={() => setExpiryBatch(null)}
@@ -394,6 +405,58 @@ export function BatchesTable({
           </button>
         </form>
       </Modal>
+      <ConfirmDialog
+        open={!!quarantineBatch}
+        title="Quarantine batch"
+        confirmLabel="Quarantine batch"
+        loading={!!quarantineBatch && busyId === quarantineBatch.id}
+        onCancel={() => {
+          if (!busyId) setQuarantineBatch(null);
+        }}
+        onConfirm={() => void quarantine()}
+      >
+        <p>
+          Block <strong>{quarantineBatch?.product.name}</strong> / batch{" "}
+          <strong>{quarantineBatch?.batchNo}</strong> from sale. The reason is
+          recorded on the batch for the audit log.
+        </p>
+        <FormField
+          label="Quarantine reason"
+          required
+          value={quarantineReason}
+          placeholder="e.g. Expired, damaged packaging, recall"
+          onChange={(event) => setQuarantineReason(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void quarantine();
+            }
+          }}
+        />
+        {quarantineError && <Alert variant="error">{quarantineError}</Alert>}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={!!releaseBatch}
+        title="Release quarantine"
+        confirmLabel="Release batch"
+        variant="primary"
+        loading={!!releaseBatch && busyId === releaseBatch.id}
+        onCancel={() => {
+          if (!busyId) setReleaseBatch(null);
+        }}
+        onConfirm={() => void release()}
+      >
+        <p>
+          Return <strong>{releaseBatch?.product.name}</strong> / batch{" "}
+          <strong>{releaseBatch?.batchNo}</strong> to sellable stock?
+        </p>
+        {releaseBatch?.quarantineReason && (
+          <p className={css.fieldHint}>
+            Quarantined for: {releaseBatch.quarantineReason}
+          </p>
+        )}
+        {releaseError && <Alert variant="error">{releaseError}</Alert>}
+      </ConfirmDialog>
       <DataTable<BatchRow>
         columns={columns}
         data={paged}

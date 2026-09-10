@@ -28,7 +28,7 @@
   width: 0.9rem;
   height: 0.9rem;
   border-radius: 50%;
-  background: #fff;
+  background: var(--pc-card-bg);
   transition: transform 0.15s;
 }
 

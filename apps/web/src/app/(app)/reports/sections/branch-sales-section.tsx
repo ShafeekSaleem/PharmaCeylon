@@ -19,7 +19,7 @@ type Props = { days: number; cityFilter?: string; onNavigate: (c: CategoryKey, r
 
 type TrendView = "all" | "top" | "compare2";
 
-const BRANCH_PALETTE = ["#0d9488", "#0891b2", "#7c3aed", "#ea580c", "#16a34a", "#c2410c", "#64748b"];
+const BRANCH_PALETTE = ["var(--pc-primary)", "var(--pc-secondary-cyan)", "var(--pc-tone-violet)", "var(--pc-tone-orange)", "var(--pc-tone-success)", "var(--pc-tone-orange-strong)", "var(--pc-muted-fg)"];
 
 type BranchEnriched = {
   branchId: string;
@@ -251,7 +251,7 @@ export function BranchSalesSection({ days, cityFilter, onNavigate, onExportData 
     const series: MultiLineSeries[] = selected.map((b) => ({
       key: b.branchId,
       label: b.name,
-      color: colorMap.get(b.branchId) ?? "#64748b",
+      color: colorMap.get(b.branchId) ?? "var(--pc-muted-fg)",
       values: bucketTrend(trendByBranch.get(b.branchId) ?? [], granularity).map((p) => p.value),
     }));
     const hidden = trendView === "all" ? Math.max(0, rankedIds.length - selected.length) : 0;
@@ -321,7 +321,7 @@ export function BranchSalesSection({ days, cityFilter, onNavigate, onExportData 
               <p>Transactions × avg. basket — bubble size = net sales</p>
             </div>
           </div>
-          <BranchSalesMatrix points={matrixPoints} formatValue={formatMoney} colorFor={(id) => colorMap.get(id) ?? "#64748b"} />
+          <BranchSalesMatrix points={matrixPoints} formatValue={formatMoney} colorFor={(id) => colorMap.get(id) ?? "var(--pc-muted-fg)"} />
         </div>
 
         <RankingTableCard
