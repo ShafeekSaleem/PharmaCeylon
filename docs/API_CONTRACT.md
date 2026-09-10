@@ -95,6 +95,27 @@ The app has no shared currency formatter — the rupee symbol is a literal acros
 
 **Widening the list is the last step of multi-currency support, not the first.** Add a `formatCurrency` driven by `Tenant.currency`, remove the hardcoded literals, then extend `SUPPORTED_CURRENCIES` and `CURRENCY_OPTIONS` in the web app. `COUNTRY_OPTIONS` keeps its full list throughout — timezone and phone code are honoured for real; only currency is pinned.
 
+## Customers and prescriptions
+
+Two read paths per entity, deliberately different, because a counter picker and a management page want opposite things.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /customers?q=` | POS picker. Capped at 50, **active only** — the till must never attach a retired profile to a new sale. |
+| `GET /customers/directory` | Customers page. `q`, `status` (`all`/`active`/`inactive`), `page`, `pageSize` (max 100); returns `{ items, total, page, pageSize }` and includes deactivated records. |
+| `GET /customers/:id/profile` | Profile plus purchase and prescription history, and lifetime-value stats. |
+| `PATCH /customers/:id` | Partial update; `customers.manage`. |
+| `GET /prescriptions?q=` | POS picker, branch-scoped, capped at 50. |
+| `GET /prescriptions/register` | Prescriptions page. `q`, `validity` (`all`/`valid`/`expired`), `page`, `pageSize`. |
+
+**Semantics**
+
+- **Customer history spans branches; the prescription register does not.** Someone who fills a prescription at one shop and returns to another is the normal case, so `/:id/profile` is tenant-scoped. `Prescription.rxNumber` is unique per branch, so the register follows the `x-branch-id` header.
+- Lifetime value counts **posted** sales only — a voided or refunded sale is not spend.
+- `validity=valid` includes prescriptions with `validUntil: null`, which never lapse. The cutoff is midnight UTC, so one expiring today still reads as valid.
+- Deactivating a customer (`isActive: false`) hides them from the counter picker and keeps all history; there is no delete.
+- `customers.manage` is separate from `customers.create` so counter staff can register a walk-in without being able to rewrite an existing profile. Defaults to owner, manager and pharmacist.
+
 ## Global search
 
 - **`GET /api/v1/search?q=<term>&limit=5`** searches the active branch and tenant-scoped directories.

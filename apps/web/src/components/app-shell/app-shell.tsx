@@ -97,6 +97,20 @@ const NAV_GROUPS: NavGroup[] = [
         roles: POS_ROLES,
         permission: "sales.pos_use",
       },
+      {
+        href: "/customers",
+        label: "Customers",
+        icon: <IconUser size={18} />,
+        roles: POS_ROLES,
+        permission: "customers.view",
+      },
+      {
+        href: "/prescriptions",
+        label: "Prescriptions",
+        icon: <IconFileText size={18} />,
+        roles: POS_ROLES,
+        permission: "prescriptions.view",
+      },
     ],
   },
   {

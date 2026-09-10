@@ -29,6 +29,29 @@ export class PrescriptionsController {
     });
   }
 
+  @ApiOperation({
+    summary: "Paginated prescription register for the active branch",
+    description:
+      "Unlike the search endpoint, returns a total count and supports validity filtering.",
+  })
+  @RequirePermission("prescriptions.view")
+  @Get("register")
+  list(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("q") q?: string,
+    @Query("validity") validity?: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+  ) {
+    return this.prescriptions.list(user.tenantId, branchId, {
+      q,
+      validity,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
   @RequirePermission("prescriptions.view")
   @Get(":id")
   getOne(

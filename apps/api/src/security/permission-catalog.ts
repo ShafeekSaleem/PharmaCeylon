@@ -189,6 +189,14 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     description: "Create new customer records.",
     defaultRoles: [owner, manager, pharmacist, cashier],
   },
+  {
+    key: "customers.manage",
+    module: "customers",
+    label: "Edit customers",
+    description:
+      "Correct customer details and deactivate records. Separate from adding, so counter staff can register a walk-in without being able to rewrite an existing profile.",
+    defaultRoles: [owner, manager, pharmacist],
+  },
 
   // ── Prescriptions ──
   {

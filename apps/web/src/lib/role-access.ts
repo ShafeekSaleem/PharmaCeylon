@@ -89,6 +89,9 @@ export function rolesForPath(pathname: string): RoleName[] | undefined {
     { prefix: "/returns", roles: RETURNS_ROLES },
     { prefix: "/stocktakes", roles: STOCKTAKE_ROLES },
     { prefix: "/pos", roles: POS_ROLES },
+    // Counter-facing, same audience as the till.
+    { prefix: "/customers", roles: POS_ROLES },
+    { prefix: "/prescriptions", roles: POS_ROLES },
     { prefix: "/catalog", roles: CATALOG_ROLES },
     { prefix: "/products", roles: CATALOG_ROLES },
     { prefix: "/reports", roles: INSIGHTS_ROLES },
