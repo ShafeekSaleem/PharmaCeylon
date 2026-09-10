@@ -1,0 +1,122 @@
+.wrap {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem;
+}
+
+/* Standalone variant for global-error, which replaces the whole document and so
+   has no app shell around it to provide page padding. */
+.wrapStandalone {
+  min-height: 100vh;
+  background: var(--pc-page-bg);
+}
+
+.card {
+  width: 100%;
+  max-width: 32rem;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  box-shadow: var(--pc-shadow-card);
+  padding: 2rem;
+  text-align: center;
+}
+
+.icon {
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 1.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--pc-alert-error-bg);
+  color: var(--pc-alert-error-icon);
+}
+
+.icon svg {
+  width: 1.6rem;
+  height: 1.6rem;
+}
+
+.title {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  text-wrap: balance;
+}
+
+.body {
+  margin: 0 auto 1.5rem;
+  max-width: 40ch;
+  font-size: 0.925rem;
+  line-height: 1.6;
+  color: var(--pc-muted-fg);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+}
+
+.btn {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btnPrimary {
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+}
+
+.btnPrimary:hover {
+  background: var(--pc-primary-hover);
+}
+
+.btnSecondary {
+  background: transparent;
+  border-color: var(--pc-border);
+  color: var(--pc-foreground);
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btnSecondary:hover {
+  background: var(--pc-hover-overlay);
+}
+
+.btn:focus-visible,
+.btnSecondary:focus-visible {
+  outline: 2px solid var(--pc-ring);
+  outline-offset: 2px;
+}
+
+/* The digest is the only thing that connects a user's report to a server log
+   line, so it is selectable and legible rather than hidden away. */
+.digest {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--pc-border);
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+}
+
+.digestCode {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--pc-foreground);
+  background: var(--pc-muted-bg);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  user-select: all;
+}

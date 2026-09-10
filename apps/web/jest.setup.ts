@@ -13,7 +13,13 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver ??= ResizeObserverStub as never;
 
-if (!window.matchMedia) {
+/* Middleware and other server-side modules run under the `node` environment,
+   where there is no `window` or `Element` to patch. Everything below is
+   jsdom-only, so guard it rather than forcing those specs back onto jsdom —
+   `next/server` needs the Fetch globals that jsdom does not provide. */
+const isDom = typeof window !== "undefined";
+
+if (isDom && !window.matchMedia) {
   window.matchMedia = ((query: string) => ({
     matches: false,
     media: query,
@@ -27,4 +33,6 @@ if (!window.matchMedia) {
 }
 
 // jsdom has no layout, so anything that scrolls an element into view would throw.
-Element.prototype.scrollIntoView ??= () => {};
+if (isDom) {
+  Element.prototype.scrollIntoView ??= () => {};
+}

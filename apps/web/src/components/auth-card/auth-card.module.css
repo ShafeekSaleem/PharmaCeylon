@@ -1,0 +1,271 @@
+/* Compact single-column shell for the secondary auth screens (password
+   recovery). The login card is 840×480 with a flex row, because it carries a
+   brand panel beside the form — borrowing it for a one-field page stretches the
+   content across dead space. Same tokens, right proportions. */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  background: var(--pc-page-bg);
+}
+
+.card {
+  width: 100%;
+  max-width: 25rem;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  box-shadow: var(--pc-shadow-card);
+  padding: 2rem 1.75rem 1.75rem;
+}
+
+.mark {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-gradient-main);
+  color: var(--pc-brand-text);
+  display: grid;
+  place-items: center;
+  margin-bottom: 1.1rem;
+}
+
+.title {
+  margin: 0 0 0.3rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--pc-foreground);
+  text-wrap: balance;
+}
+
+.subtitle {
+  margin: 0 0 1.35rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--pc-muted-fg);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.formLoading {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.fieldLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.fieldWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.fieldIcon {
+  position: absolute;
+  left: 0.7rem;
+  color: var(--pc-muted-fg);
+  display: flex;
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  padding: 0.6rem 0.75rem 0.6rem 2.25rem;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--pc-foreground);
+  background: var(--pc-input-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input::placeholder {
+  color: var(--pc-muted-fg);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--pc-primary);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring);
+}
+
+.inputError {
+  border-color: var(--pc-destructive);
+}
+
+.inputError:focus {
+  border-color: var(--pc-destructive);
+  box-shadow: 0 0 0 3px var(--pc-focus-ring-destructive);
+}
+
+/* Trailing control inside the field (password reveal). */
+.togglePw {
+  position: absolute;
+  right: 0.4rem;
+  display: flex;
+  align-items: center;
+  padding: 0.3rem;
+  background: none;
+  border: none;
+  border-radius: var(--pc-radius-sm);
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.togglePw:hover {
+  color: var(--pc-foreground);
+}
+
+.togglePw:focus-visible {
+  outline: 2px solid var(--pc-ring);
+  outline-offset: 1px;
+}
+
+.hasToggle {
+  padding-right: 2.5rem;
+}
+
+/* Unlike login's fixed 4.25rem slot, this collapses when there's nothing to
+   say — a one-field form doesn't need to reserve space for an error that
+   usually never appears. */
+.fieldError {
+  font-size: 0.775rem;
+  color: var(--pc-destructive);
+}
+
+.alertSlot {
+  margin-top: 0.15rem;
+}
+
+.submit {
+  margin-top: 0.35rem;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--pc-btn-primary-text);
+  background: var(--pc-primary);
+  border: none;
+  border-radius: var(--pc-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+}
+
+.submit:focus-visible {
+  outline: 2px solid var(--pc-ring);
+  outline-offset: 2px;
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid color-mix(in srgb, var(--pc-btn-primary-text) 45%, transparent);
+  border-top-color: var(--pc-btn-primary-text);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* A quiet text link, not a second full-width button competing with the real
+   action. */
+.footer {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--pc-border);
+  text-align: center;
+  font-size: 0.825rem;
+  color: var(--pc-muted-fg);
+}
+
+.footerLink {
+  color: var(--pc-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.footerLink:hover {
+  text-decoration: underline;
+}
+
+.footerLink:focus-visible {
+  outline: 2px solid var(--pc-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Confirmation state — the check reads before the words do. */
+.statusMark {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin-bottom: 1.1rem;
+  background: var(--pc-alert-success-bg);
+  color: var(--pc-alert-success-icon);
+}
+
+.statusMarkWarn {
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-icon);
+}
+
+.loadingPage {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--pc-page-bg);
+}
+
+.loadingSpinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 2px solid var(--pc-border);
+  border-top-color: var(--pc-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}

@@ -35,8 +35,13 @@ import {
 } from "./cookies";
 import { ChangePasswordDto } from "./dto/change-password.dto";
 import { LoginDto } from "./dto/login.dto";
+import {
+  ConfirmPasswordResetDto,
+  RequestPasswordResetDto,
+} from "./dto/password-reset.dto";
 import { RefreshTokenDto } from "./dto/refresh-token.dto";
 import { UpdateMyProfileDto } from "./dto/update-my-profile.dto";
+import { PasswordResetService } from "./password-reset.service";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 
 type CookieAwareRequest = Request & {
@@ -49,7 +54,39 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
+    private readonly passwordReset: PasswordResetService,
   ) {}
+
+  /** Unauthenticated. Throttled hard — this endpoint sends mail on demand, so it
+   *  is both a spam vector and the obvious place to probe for valid addresses.
+   *  The response is identical whether or not the account exists. */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("password-reset/request")
+  @HttpCode(HttpStatus.OK)
+  requestPasswordReset(
+    @Body() dto: RequestPasswordResetDto,
+    @Req() req: Request,
+  ) {
+    return this.passwordReset.request(dto, requestMeta(req).ipAddress);
+  }
+
+  /** Validates a link before the reset form renders, so an expired link explains
+   *  itself instead of failing after the person has typed a new password. */
+  @Public()
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get("password-reset/:token")
+  inspectPasswordReset(@Param("token") token: string) {
+    return this.passwordReset.inspect(token);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("password-reset/confirm")
+  @HttpCode(HttpStatus.OK)
+  confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto) {
+    return this.passwordReset.confirm(dto);
+  }
 
   @Public()
   @Throttle({ default: { limit: 20, ttl: 60_000 } })

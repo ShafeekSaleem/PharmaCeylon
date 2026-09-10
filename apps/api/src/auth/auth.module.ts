@@ -9,6 +9,7 @@ import { AuthService } from "./auth.service";
 import { OnboardingDraftService } from "./onboarding-draft.service";
 import { OnboardingSessionGuard } from "./onboarding-session.guard";
 import { OwnerRegistrationService } from "./owner-registration.service";
+import { PasswordResetService } from "./password-reset.service";
 import { SessionStore } from "./session.store";
 import { VerificationEmailService } from "./verification-email.service";
 import { UserContextService } from "./user-context.service";
@@ -28,6 +29,7 @@ import { WorkspaceProvisioningService } from "./workspace-provisioning.service";
     OwnerRegistrationService,
     OnboardingDraftService,
     OnboardingSessionGuard,
+    PasswordResetService,
     SessionStore,
     UserContextService,
     VerificationEmailService,

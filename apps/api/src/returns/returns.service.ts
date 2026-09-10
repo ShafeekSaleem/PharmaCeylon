@@ -13,6 +13,7 @@ import {
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
+import { meetsApprovalThreshold } from "../common/approval-threshold.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
@@ -109,11 +110,47 @@ export class ReturnsService {
     }, new Prisma.Decimal(0));
   }
 
+  /**
+   * Is this return above the tenant's configured approval ceiling?
+   *
+   * Scoped to customer returns because that is exactly what the setting says it
+   * covers ("Customer returns over a threshold — requires manager approval
+   * before a refund is issued"); supplier returns move stock back to a vendor
+   * rather than money to a customer, and are governed by the supplier workflow.
+   */
+  private async requiresThresholdApproval(
+    tenantId: string,
+    type: GoodsReturnType,
+    amount: Prisma.Decimal,
+  ): Promise<boolean> {
+    if (type !== GoodsReturnType.customer) return false;
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { approvalRequiredReturnThreshold: true },
+    });
+    return meetsApprovalThreshold(
+      amount,
+      settings?.approvalRequiredReturnThreshold,
+    );
+  }
+
   private resolveCreateStatus(
     rolesAtBranch: RoleName[],
     submit: boolean | undefined,
     userId: string,
+    /** Above the tenant ceiling the manager auto-approve path is closed off —
+     *  that shortcut is the whole thing the threshold exists to interrupt. */
+    forceApproval = false,
   ): { status: GoodsReturnStatus; approvedBy: string | null; autoApproved: boolean } {
+    if (forceApproval) {
+      return {
+        status: submit
+          ? GoodsReturnStatus.pending_approval
+          : GoodsReturnStatus.draft,
+        approvedBy: null,
+        autoApproved: false,
+      };
+    }
     const isMgr = this.isOwnerOrManager(rolesAtBranch);
     if (isMgr) {
       if (submit === true) {
@@ -309,7 +346,17 @@ export class ReturnsService {
         : { purchaseOrderId: null, goodsReceiptId: null };
 
     const amount = this.lineAmount(dto.items);
-    const resolved = this.resolveCreateStatus(rolesAtBranch, dto.submit, userId);
+    const forceApproval = await this.requiresThresholdApproval(
+      tenantId,
+      dto.type,
+      amount,
+    );
+    const resolved = this.resolveCreateStatus(
+      rolesAtBranch,
+      dto.submit,
+      userId,
+      forceApproval,
+    );
     const { status, approvedBy } = resolved;
     const returnNumber = await this.nextReturnNumber(tenantId, branchId);
 
@@ -487,7 +534,14 @@ export class ReturnsService {
       throw new BadRequestException("Only draft returns can be submitted");
     }
 
-    const isMgr = this.isOwnerOrManager(rolesAtBranch);
+    // Same ceiling as create — otherwise saving a large return as a draft and
+    // submitting it afterwards would be a way around the threshold.
+    const forceApproval = await this.requiresThresholdApproval(
+      tenantId,
+      existing.type,
+      existing.amount,
+    );
+    const isMgr = !forceApproval && this.isOwnerOrManager(rolesAtBranch);
     const nextStatus = isMgr
       ? GoodsReturnStatus.awaiting_logistics
       : GoodsReturnStatus.pending_approval;

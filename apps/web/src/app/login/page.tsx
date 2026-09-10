@@ -47,6 +47,10 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/dashboard";
+  /** Set by the reset flow after a successful password change — confirms the
+   *  change landed, since every session was revoked and the person arrives here
+   *  signed out and could otherwise assume it failed. */
+  const justReset = searchParams.get("reset") === "success";
   const emailId = useId();
   const passwordId = useId();
   const emailRef = useRef<HTMLInputElement>(null);
@@ -132,6 +136,13 @@ function LoginForm() {
           <div className={styles.formColumn}>
             <h1 className={styles.title}>Welcome back</h1>
             <p className={styles.subtitle}>Sign in to continue to your pharmacy workspace.</p>
+            {justReset ? (
+              <div className={styles.errorSlot}>
+                <Alert variant="success">
+                  Your password has been updated. Sign in with your new password.
+                </Alert>
+              </div>
+            ) : null}
             <form
               className={`${styles.form}${loading ? ` ${styles.formLoading}` : ""}`}
               onSubmit={onSubmit}
@@ -208,15 +219,9 @@ function LoginForm() {
                 )}
               </button>
               <div className={styles.forgotWrap}>
-                <button
-                  type="button"
-                  className={styles.forgot}
-                  onClick={(e) => {
-                    e.preventDefault();
-                  }}
-                >
+                <Link className={styles.forgot} href="/forgot-password">
                   Forgot password?
-                </button>
+                </Link>
               </div>
               <div className={styles.accountDivider}><span>or</span></div>
               <div className={styles.newAccount}>

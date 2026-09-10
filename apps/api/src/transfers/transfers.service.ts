@@ -241,8 +241,19 @@ export class TransfersService {
     });
     if (!toBranch) throw new NotFoundException("Destination branch not found");
 
-    /** Owner/manager at the source branch skip pending approval. */
-    const autoApprove = this.isOwnerOrManager(rolesAtFromBranch);
+    // Settings → Approval Rules, "Require approval for branch transfers".
+    // ON (the default): a transfer needs approval, which an owner/manager at the
+    // source branch satisfies themselves — they hold that authority, so the
+    // request is approved on creation and recorded against them.
+    // OFF: the tenant has said transfers need no approval step at all, so any
+    // holder of `transfers.manage` creates one already approved.
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { approvalRequiredForBranchTransfers: true },
+    });
+    const approvalRequired = settings?.approvalRequiredForBranchTransfers ?? true;
+    const autoApprove =
+      !approvalRequired || this.isOwnerOrManager(rolesAtFromBranch);
     const status = autoApprove
       ? TransferStatus.approved
       : TransferStatus.requested;

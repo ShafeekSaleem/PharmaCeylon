@@ -4,6 +4,10 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { PoPriority, PoStatus, Prisma, StockMovementType } from "@prisma/client";
+import {
+  linesValue,
+  meetsApprovalThreshold,
+} from "../common/approval-threshold.util";
 import { nextDocumentNumber } from "../common/document-sequence.util";
 import { assertOneScopedMutation } from "../common/scoped-mutation.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
@@ -108,7 +112,31 @@ export class PurchasingService {
       }
     }
 
-    const status = dto.submitForApproval ? PoStatus.pending_approval : PoStatus.draft;
+    // The tenant's configured ceiling decides, not the caller. `submitForApproval`
+    // only chooses between draft and pending_approval *below* the threshold —
+    // above it, approval is mandatory however the request was framed.
+    const orderValue = linesValue(
+      dto.items.map((i) => ({
+        qty: i.orderedQty,
+        unitAmount: i.unitCost,
+        discountPercent: i.discountPercent ?? 0,
+        taxPercent: i.taxPercent ?? 18,
+      })),
+      dto.shippingCharges?.trim() || 0,
+    );
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { approvalRequiredPurchaseOrderThreshold: true },
+    });
+    const approvalForced = meetsApprovalThreshold(
+      orderValue,
+      settings?.approvalRequiredPurchaseOrderThreshold,
+    );
+
+    const status =
+      approvalForced || dto.submitForApproval
+        ? PoStatus.pending_approval
+        : PoStatus.draft;
     const priority = (dto.priority as PoPriority | undefined) ?? PoPriority.normal;
     const paymentTermsDays = dto.paymentTermsDays ?? supplier.paymentTermsDays ?? 30;
 
@@ -149,7 +177,14 @@ export class PurchasingService {
         eventName: "purchase_order.created",
         entityName: "purchase_order",
         entityId: po.id,
-        payload: { poNumber: po.poNumber, status: po.status },
+        payload: {
+          poNumber: po.poNumber,
+          status: po.status,
+          orderValue: orderValue.toFixed(2),
+          // Records *why* it is awaiting approval — a reviewer can tell a
+          // threshold trip from a voluntary submission.
+          approvalForcedByThreshold: approvalForced,
+        },
       });
       return po;
     });

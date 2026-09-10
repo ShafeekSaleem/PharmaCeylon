@@ -667,9 +667,36 @@ model AppUser {
   invitationsAccepted     StaffInvitation[]        @relation("StaffInvitationAcceptor")
   nmraLinksCreated        ProductNmraLink[]        @relation("ProductNmraLinkActor")
   catalogTasksResolved    CatalogTask[]            @relation("CatalogTaskResolver")
+  passwordResetTokens     PasswordResetToken[]
 
   @@index([tenantId])
   @@map("app_user")
+}
+
+/**
+ * Self-service password recovery. Deliberately NOT tenant-scoped: `AppUser.email`
+ * is globally unique and a person requesting a reset is unauthenticated, so there
+ * is no branch header or tenant context to scope by — the token itself is the
+ * only credential, exactly like `StaffInvitation`.
+ * Only the SHA-256 hash of the token is stored; the raw value exists solely in
+ * the email that was sent. A row is single-use (`usedAt`) and short-lived, and
+ * requesting a new reset invalidates any outstanding ones for that user.
+ */
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  /// Captured for the audit trail — a reset is a security-sensitive event.
+  requestIp String?   @map("request_ip")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("password_reset_token")
 }
 
 /**

@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = new Set(["/login", "/register", "/verify-email"]);
+/**
+ * Reachable without a session. Password recovery belongs here for the obvious
+ * reason: everyone who needs it is locked out, so redirecting to /login first
+ * makes the page unreachable by exactly the people it exists for.
+ */
+const PUBLIC_PATHS = new Set([
+  "/login",
+  "/register",
+  "/verify-email",
+  "/forgot-password",
+]);
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -14,7 +24,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/invite/")) {
+  if (
+    PUBLIC_PATHS.has(pathname) ||
+    pathname.startsWith("/invite/") ||
+    // Token-bearing recovery link — the token is the credential.
+    pathname.startsWith("/reset-password/")
+  ) {
     return NextResponse.next();
   }
 
