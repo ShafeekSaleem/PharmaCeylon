@@ -1,4 +1,5 @@
-import { IsEmail, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { SUPPORTED_CURRENCIES } from "../../common/currency.constants";
 
 /** Tenant code and timezone are intentionally absent — non-editable. */
 export class UpdateTenantProfileDto {
@@ -16,8 +17,9 @@ export class UpdateTenantProfileDto {
   @IsString()
   complianceRegion?: string;
 
+  /** LKR-only until a currency formatter exists — see currency.constants.ts. */
   @IsOptional()
-  @IsString()
+  @IsIn(SUPPORTED_CURRENCIES)
   currency?: string;
 
   @IsOptional()

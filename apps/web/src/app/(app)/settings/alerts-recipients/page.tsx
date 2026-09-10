@@ -6,6 +6,7 @@ import { PageHeader, ActionButton, ToggleSwitch, StatusBadge } from "@/component
 import { IconMail } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
+import { PendingBadge, SettingLabel } from "../components/pending-badge";
 import { fetchTenantSettings, saveAlertsSettings, type TenantSettings } from "../lib/tenant-settings";
 
 const ROLE_TOGGLES: { key: keyof TenantSettings; label: string }[] = [
@@ -93,14 +94,13 @@ export default function AlertsRecipientsPage() {
             <ToggleSwitch checked disabled onChange={() => {}} label="In-app notification bell" />
           </div>
           <div className={css.rowItem}>
-            <div>
-              <div className={css.rowLabel}>Email digest</div>
-              <div className={css.rowHint}>Daily summary sent at 8:00 AM to selected recipients.</div>
-            </div>
+            {/* The old hint promised "Daily summary sent at 8:00 AM" — there is no
+                scheduler in the API, so nothing could ever send it. */}
+            <SettingLabel settingKey="alertEmailDigestEnabled" label="Email digest" />
             <ToggleSwitch
               checked={draft.alertEmailDigestEnabled}
               onChange={(v) => setDraft((d) => (d ? { ...d, alertEmailDigestEnabled: v } : d))}
-              disabled={!canEdit}
+              disabled
               label="Email digest"
             />
           </div>
@@ -114,7 +114,7 @@ export default function AlertsRecipientsPage() {
             <ToggleSwitch checked={false} disabled onChange={() => {}} label="SMS alerts (coming soon)" />
           </div>
 
-          <p className={css.subLabel}>Email digest recipients</p>
+          <p className={css.subLabel}>Email digest recipients <PendingBadge /></p>
           <div className={css.chipRow}>
             {ROLE_TOGGLES.map((r) => {
               const on = Boolean(draft[r.key]);
@@ -124,7 +124,7 @@ export default function AlertsRecipientsPage() {
                   type="button"
                   className={`${css.chip}${on ? ` ${css.chipOn}` : ""}`}
                   onClick={() => canEdit && setDraft((d) => (d ? { ...d, [r.key]: !on } : d))}
-                  disabled={!canEdit}
+                  disabled
                 >
                   {r.label}
                 </button>

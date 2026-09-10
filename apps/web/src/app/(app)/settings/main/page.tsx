@@ -6,6 +6,8 @@ import { PageHeader, ActionButton, FormField, SelectField, ToggleSwitch } from "
 import { IconGrid, IconShoppingCart, IconReceipt } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
+import { SettingLabel } from "../components/pending-badge";
+import { isPendingSetting } from "../lib/pending-settings";
 import {
   fetchTenantSettings,
   saveDashboardSettings,
@@ -119,14 +121,11 @@ function DashboardWidgetsCard({ settings, onSaved, canEdit }: CardProps) {
       {error ? <Alert variant="error">{error}</Alert> : null}
       {rows.map((row) => (
         <div key={row.key} className={css.rowItem}>
-          <div>
-            <div className={css.rowLabel}>{row.label}</div>
-            {row.hint ? <div className={css.rowHint}>{row.hint}</div> : null}
-          </div>
+          <SettingLabel settingKey={row.key} label={row.label} hint={row.hint} />
           <ToggleSwitch
             checked={Boolean(draft[row.key])}
             onChange={(v) => setDraft((d) => ({ ...d, [row.key]: v }))}
-            disabled={!canEdit}
+            disabled={!canEdit || isPendingSetting(row.key)}
             label={row.label}
           />
         </div>
@@ -188,11 +187,11 @@ function PosDefaultsCard({ settings, onSaved, canEdit }: CardProps) {
       {error ? <Alert variant="error">{error}</Alert> : null}
       {toggles.map((row) => (
         <div key={row.key} className={css.rowItem}>
-          <div className={css.rowLabel}>{row.label}</div>
+          <SettingLabel settingKey={row.key} label={row.label} />
           <ToggleSwitch
             checked={Boolean(draft[row.key])}
             onChange={(v) => setDraft((d) => ({ ...d, [row.key]: v }))}
-            disabled={!canEdit}
+            disabled={!canEdit || isPendingSetting(row.key)}
             label={row.label}
           />
         </div>
@@ -300,11 +299,11 @@ function ReceiptCard({ settings, onSaved, canEdit }: CardProps) {
       </div>
       {toggles.map((row) => (
         <div key={row.key} className={css.rowItem}>
-          <div className={css.rowLabel}>{row.label}</div>
+          <SettingLabel settingKey={row.key} label={row.label} />
           <ToggleSwitch
             checked={Boolean(draft[row.key])}
             onChange={(v) => setDraft((d) => ({ ...d, [row.key]: v }))}
-            disabled={!canEdit}
+            disabled={!canEdit || isPendingSetting(row.key)}
             label={row.label}
           />
         </div>

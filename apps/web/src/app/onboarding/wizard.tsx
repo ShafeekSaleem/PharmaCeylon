@@ -28,6 +28,7 @@ import { SelectField } from "@/components/ui/select-field";
 import {
   COUNTRY_OPTIONS,
   CURRENCY_OPTIONS,
+  DEFAULT_CURRENCY,
   DATE_FORMAT_OPTIONS,
   PHONE_CODE_OPTIONS,
   PROVINCE_OPTIONS,
@@ -396,7 +397,10 @@ function PharmacyForm({
     const defaults = countryDefaults(value);
     patch({
       country: value,
-      currency: defaults.currency,
+      // Timezone and phone code follow the country; currency does not. The app
+      // can only render LKR correctly today (see CURRENCY_OPTIONS), so picking
+      // India must not silently set INR on the tenant.
+      currency: DEFAULT_CURRENCY,
       timezone: defaults.timezone,
       businessPhoneCountryCode: defaults.phoneCode,
       branchCountry: value,
@@ -451,9 +455,11 @@ function PharmacyForm({
           />
           <SelectField
             label="Currency"
-            value={draft.currency ?? "LKR"}
+            value={draft.currency ?? DEFAULT_CURRENCY}
             onChange={(value) => update("currency", value)}
             options={CURRENCY_OPTIONS}
+            hint="Additional currencies are coming; LKR is the only one available today."
+            disabled
             required
           />
         </div>
@@ -947,7 +953,7 @@ function ContextPanel({ step, draft }: { step: Step; draft: OnboardingDraft }) {
         <dl>
           <div>
             <dt>Currency</dt>
-            <dd>{draft.currency ?? "LKR"}</dd>
+            <dd>{draft.currency ?? DEFAULT_CURRENCY}</dd>
           </div>
           <div>
             <dt>Time zone</dt>
@@ -973,7 +979,7 @@ function ContextPanel({ step, draft }: { step: Step; draft: OnboardingDraft }) {
           <i />
           <b>SAMPLE RECEIPT</b>
           <small>Your purchased items will appear here</small>
-          <p>Currency: {draft.currency ?? "LKR"}</p>
+          <p>Currency: {draft.currency ?? DEFAULT_CURRENCY}</p>
           <p>Date: {draft.dateFormat ?? "DD/MM/YYYY"}</p>
           <strong>Thank you for visiting.</strong>
         </div>

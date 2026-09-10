@@ -22,6 +22,7 @@ import { invalidateProfitabilityTargetCache } from "@/app/(app)/reports/lib/use-
 import { RolePageGuard } from "@/components/role-access";
 import { ADMIN_ROLES } from "@/lib/role-access";
 import css from "../settings.module.css";
+import { SettingLabel, pendingFieldProps } from "../components/pending-badge";
 import {
   fetchTenantSettings,
   saveProductDisplaySettings,
@@ -158,7 +159,7 @@ function ProductDisplayCard({ settings, onSaved, canEdit }: CardProps) {
           label="Default product view"
           value={draft.defaultProductView}
           onChange={(v) => setDraft((d) => ({ ...d, defaultProductView: v }))}
-          disabled={!canEdit}
+          {...pendingFieldProps("defaultProductView", { disabled: !canEdit })}
           options={[
             { value: "grid", label: "Grid" },
             { value: "list", label: "List" },
@@ -166,15 +167,16 @@ function ProductDisplayCard({ settings, onSaved, canEdit }: CardProps) {
         />
       </div>
       <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-        <div className={css.rowLabel}>
-          Show controlled-substance badge in product lists
-        </div>
+        <SettingLabel
+          settingKey="showControlledBadgeInLists"
+          label="Show controlled-substance badge in product lists"
+        />
         <ToggleSwitch
           checked={draft.showControlledBadgeInLists}
           onChange={(v) =>
             setDraft((d) => ({ ...d, showControlledBadgeInLists: v }))
           }
-          disabled={!canEdit}
+          disabled
           label="Show controlled-substance badge in product lists"
         />
       </div>
@@ -360,7 +362,7 @@ function TaxConfigurationCard({ settings, onSaved, canEdit }: CardProps) {
           label="Tax calculation method"
           value={draft.vatCalculationMethod}
           onChange={(v) => setDraft((d) => ({ ...d, vatCalculationMethod: v }))}
-          disabled={!canEdit}
+          {...pendingFieldProps("vatCalculationMethod", { disabled: !canEdit })}
           options={[
             { value: "exclusive", label: "Exclusive — added on top of price" },
             { value: "inclusive", label: "Inclusive — already in price" },
@@ -368,15 +370,16 @@ function TaxConfigurationCard({ settings, onSaved, canEdit }: CardProps) {
         />
       </div>
       <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-        <div className={css.rowLabel}>
-          Show tax breakdown on receipts and invoices
-        </div>
+        <SettingLabel
+          settingKey="showTaxBreakdownOnDocuments"
+          label="Show tax breakdown on receipts and invoices"
+        />
         <ToggleSwitch
           checked={draft.showTaxBreakdownOnDocuments}
           onChange={(v) =>
             setDraft((d) => ({ ...d, showTaxBreakdownOnDocuments: v }))
           }
-          disabled={!canEdit}
+          disabled
           label="Show tax breakdown on receipts and invoices"
         />
       </div>

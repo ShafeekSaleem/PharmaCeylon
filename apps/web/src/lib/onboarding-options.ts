@@ -69,16 +69,25 @@ export const COUNTRY_OPTIONS: CountryChoice[] = [
   },
 ];
 
+/**
+ * Currency is LKR-only for now.
+ *
+ * The app has no shared currency formatter — roughly forty screens, receipts and
+ * reports write the rupee symbol as a literal. Offering INR/AED/GBP here meant a
+ * tenant could pick a currency and then be shown, and print, rupees everywhere:
+ * the one combination that produces genuinely wrong documents.
+ *
+ * `COUNTRY_OPTIONS` deliberately keeps its full list — timezone and phone code
+ * are honoured for real — but `countryDefaults()` no longer changes currency.
+ * Restore the other entries here once a `formatCurrency` helper driven by
+ * `Tenant.currency` exists and those literals are gone.
+ */
 export const CURRENCY_OPTIONS: ChoiceOption[] = [
   { value: "LKR", label: "LKR — Sri Lankan Rupee" },
-  { value: "INR", label: "INR — Indian Rupee" },
-  { value: "AED", label: "AED — UAE Dirham" },
-  { value: "SGD", label: "SGD — Singapore Dollar" },
-  { value: "GBP", label: "GBP — British Pound" },
-  { value: "AUD", label: "AUD — Australian Dollar" },
-  { value: "CAD", label: "CAD — Canadian Dollar" },
-  { value: "USD", label: "USD — US Dollar" },
 ];
+
+/** The only currency the app can render correctly today. */
+export const DEFAULT_CURRENCY = "LKR";
 
 export const TIMEZONE_OPTIONS: ChoiceOption[] = [
   { value: "Asia/Colombo", label: "Asia/Colombo (UTC+05:30)" },

@@ -6,6 +6,7 @@ import { PageHeader, ActionButton, SelectField, ToggleSwitch } from "@/component
 import { IconBarChart } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
+import { SettingLabel, pendingFieldProps } from "../components/pending-badge";
 import { fetchTenantSettings, saveInsightsSettings, type TenantSettings } from "../lib/tenant-settings";
 
 export default function InsightsReportsPage() {
@@ -76,7 +77,7 @@ export default function InsightsReportsPage() {
               label="Default report period"
               value={draft.defaultReportPeriod}
               onChange={(v) => setDraft((d) => (d ? { ...d, defaultReportPeriod: v } : d))}
-              disabled={!canEdit}
+              {...pendingFieldProps("defaultReportPeriod", { disabled: !canEdit })}
               options={[
                 { value: "this_month", label: "This month" },
                 { value: "last_30_days", label: "Last 30 days" },
@@ -85,20 +86,23 @@ export default function InsightsReportsPage() {
             />
           </div>
           <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-            <div className={css.rowLabel}>Show footfall analytics on Reports</div>
+            <SettingLabel settingKey="showFootfallAnalytics" label="Show footfall analytics on Reports" />
             <ToggleSwitch
               checked={draft.showFootfallAnalytics}
               onChange={(v) => setDraft((d) => (d ? { ...d, showFootfallAnalytics: v } : d))}
-              disabled={!canEdit}
+              disabled
               label="Show footfall analytics on Reports"
             />
           </div>
           <div className={css.rowItem}>
-            <div className={css.rowLabel}>Send weekly summary email to owner &amp; manager</div>
+            <SettingLabel
+              settingKey="weeklySummaryEmailEnabled"
+              label="Send weekly summary email to owner & manager"
+            />
             <ToggleSwitch
               checked={draft.weeklySummaryEmailEnabled}
               onChange={(v) => setDraft((d) => (d ? { ...d, weeklySummaryEmailEnabled: v } : d))}
-              disabled={!canEdit}
+              disabled
               label="Send weekly summary email to owner & manager"
             />
           </div>

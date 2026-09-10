@@ -13,6 +13,7 @@ import {
   Min,
 } from "class-validator";
 import { ONBOARDING_DEPARTMENT_GROUPS } from "../../catalog/commercial-category-template";
+import { SUPPORTED_CURRENCIES } from "../../common/currency.constants";
 
 /** Valid values for `sellsDepartments` — the labels the wizard shows. */
 const ONBOARDING_DEPARTMENT_LABELS = ONBOARDING_DEPARTMENT_GROUPS.map((g) => g.label);
@@ -23,7 +24,8 @@ export class SaveOnboardingDraftDto {
   @IsOptional() @IsString() @MaxLength(120) businessName?: string;
   @IsOptional() @IsString() @MaxLength(160) legalName?: string;
   @IsOptional() @IsString() @MaxLength(2) country?: string;
-  @IsOptional() @IsString() @MaxLength(3) currency?: string;
+  /** LKR-only until a currency formatter exists — see currency.constants.ts. */
+  @IsOptional() @IsIn(SUPPORTED_CURRENCIES) currency?: string;
   @IsOptional() @IsString() @MaxLength(64) timezone?: string;
   @IsOptional() @IsEmail() @MaxLength(160) businessEmail?: string;
   @IsOptional() @IsString() @MaxLength(6) businessPhoneCountryCode?: string;

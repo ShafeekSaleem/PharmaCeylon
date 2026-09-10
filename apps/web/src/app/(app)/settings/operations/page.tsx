@@ -6,6 +6,8 @@ import { PageHeader, ActionButton, FormField, SelectField, ToggleSwitch } from "
 import { IconBox, IconClipboardList, IconTruck, IconClipboard } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
+import { SettingLabel, pendingFieldProps } from "../components/pending-badge";
+import { isPendingSetting } from "../lib/pending-settings";
 import {
   fetchTenantSettings,
   saveInventorySettings,
@@ -136,7 +138,7 @@ function InventoryCard({ settings, onSaved, canEdit }: CardProps) {
           label="Default stock view"
           value={draft.defaultStockView}
           onChange={(v) => setDraft((d) => ({ ...d, defaultStockView: v }))}
-          disabled={!canEdit}
+          {...pendingFieldProps("defaultStockView", { disabled: !canEdit })}
           options={[
             { value: "batch", label: "Batch-level" },
             { value: "summary", label: "Summary" },
@@ -146,8 +148,7 @@ function InventoryCard({ settings, onSaved, canEdit }: CardProps) {
           label="Stock picking method"
           value={draft.stockPickingMethod}
           onChange={(v) => setDraft((d) => ({ ...d, stockPickingMethod: v }))}
-          disabled={!canEdit}
-          hint="Which batch POS and dispensing pick from first."
+          {...pendingFieldProps("stockPickingMethod", { disabled: !canEdit, hint: "Which batch POS and dispensing pick from first." })}
           options={[
             { value: "fefo", label: "FEFO — First Expiry, First Out" },
             { value: "fifo", label: "FIFO — First In, First Out" },
@@ -156,11 +157,11 @@ function InventoryCard({ settings, onSaved, canEdit }: CardProps) {
       </div>
       {toggles.map((row) => (
         <div key={row.key} className={css.rowItem}>
-          <div className={css.rowLabel}>{row.label}</div>
+          <SettingLabel settingKey={row.key} label={row.label} />
           <ToggleSwitch
             checked={Boolean(draft[row.key])}
             onChange={(v) => setDraft((d) => ({ ...d, [row.key]: v }))}
-            disabled={!canEdit}
+            disabled={!canEdit || isPendingSetting(row.key)}
             label={row.label}
           />
         </div>
@@ -228,7 +229,7 @@ function PurchasingCard({ settings, onSaved, canEdit }: CardProps) {
           label="PO number prefix"
           value={draft.poNumberPrefix}
           onChange={(e) => setDraft((d) => ({ ...d, poNumberPrefix: e.target.value }))}
-          disabled={!canEdit}
+          {...pendingFieldProps("poNumberPrefix", { disabled: !canEdit })}
         />
         <FormField
           label="Default supplier payment terms (days)"
@@ -238,7 +239,7 @@ function PurchasingCard({ settings, onSaved, canEdit }: CardProps) {
           onChange={(e) =>
             setDraft((d) => ({ ...d, defaultSupplierPaymentTermsDays: Number(e.target.value) }))
           }
-          disabled={!canEdit}
+          {...pendingFieldProps("defaultSupplierPaymentTermsDays", { disabled: !canEdit })}
         />
       </div>
       {canEdit ? (
@@ -292,15 +293,18 @@ function TransfersReturnsCard({ settings, onSaved, canEdit }: CardProps) {
           min={0}
           value={draft.defaultReturnWindowDays}
           onChange={(e) => setDraft((d) => ({ ...d, defaultReturnWindowDays: Number(e.target.value) }))}
-          disabled={!canEdit}
+          {...pendingFieldProps("defaultReturnWindowDays", { disabled: !canEdit })}
         />
       </div>
       <div className={css.rowItem} style={{ marginTop: "0.5rem" }}>
-        <div className={css.rowLabel}>Require a reason note on every stock transfer</div>
+        <SettingLabel
+          settingKey="requireTransferReasonNote"
+          label="Require a reason note on every stock transfer"
+        />
         <ToggleSwitch
           checked={draft.requireTransferReasonNote}
           onChange={(v) => setDraft((d) => ({ ...d, requireTransferReasonNote: v }))}
-          disabled={!canEdit}
+          disabled
           label="Require a reason note on every stock transfer"
         />
       </div>
@@ -353,7 +357,7 @@ function StocktakeCard({ settings, onSaved, canEdit }: CardProps) {
           label="Default count method"
           value={draft.stocktakeDefaultCountMethod}
           onChange={(v) => setDraft((d) => ({ ...d, stocktakeDefaultCountMethod: v }))}
-          disabled={!canEdit}
+          {...pendingFieldProps("stocktakeDefaultCountMethod", { disabled: !canEdit })}
           options={[
             { value: "full", label: "Full count" },
             { value: "cycle", label: "Cycle count" },
@@ -369,7 +373,7 @@ function StocktakeCard({ settings, onSaved, canEdit }: CardProps) {
           onChange={(e) =>
             setDraft((d) => ({ ...d, stocktakeVarianceTolerancePercent: Number(e.target.value) }))
           }
-          disabled={!canEdit}
+          {...pendingFieldProps("stocktakeVarianceTolerancePercent", { disabled: !canEdit })}
         />
       </div>
       {canEdit ? (
