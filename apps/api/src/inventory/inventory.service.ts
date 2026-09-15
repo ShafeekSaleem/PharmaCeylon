@@ -12,6 +12,7 @@ import { ensureProductsRanged } from "../products/product-range.util";
 import { expandCommercialCategoryIds } from "../products/product-query.util";
 import { reorderGap, resolveStockStatus } from "../products/stock-qty.util";
 import { assertSaleReturnableLines } from "../sales/sale-returnable";
+import { AUTO_QUARANTINE_EXPIRED_REASON } from "./quarantine.constants";
 import { StockBalanceService } from "./stock-balance.service";
 import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
 import { CustomerReturnDto } from "./dto/customer-return.dto";
@@ -54,6 +55,13 @@ export type BatchListQuery = {
    */
   needsExpiryReview?: boolean;
   controlled?: "all" | "controlled" | "regular";
+  /**
+   * Same default as the stock overview: "RANGED" keeps the imported NMRA registry out of the
+   * batch list, "all" is the explicit escape hatch. Stock arriving on a reference product
+   * promotes it (see ensureProductsRanged), so a ranged-only list still shows every lot the
+   * pharmacy actually received.
+   */
+  rangeStatus?: "RANGED" | "all";
 };
 
 export type MovementCategory =
@@ -220,11 +228,16 @@ export class InventoryService {
         ...(query.quarantined != null
           ? { isQuarantined: query.quarantined }
           : {}),
-        ...(query.controlled === "controlled"
-          ? { product: { isControlled: true } }
-          : query.controlled === "regular"
-            ? { product: { isControlled: false } }
-            : {}),
+        product: {
+          ...(query.controlled === "controlled"
+            ? { isControlled: true }
+            : query.controlled === "regular"
+              ? { isControlled: false }
+              : {}),
+          ...(query.rangeStatus === "all"
+            ? {}
+            : { rangeStatus: "RANGED" as const }),
+        },
       },
       select: {
         id: true,
@@ -518,7 +531,7 @@ export class InventoryService {
     }
 
     const now = new Date();
-    const reason = "Auto-quarantined: expired";
+    const reason = AUTO_QUARANTINE_EXPIRED_REASON;
 
     await this.prisma.$transaction(async (tx) => {
       for (const batch of candidates) {

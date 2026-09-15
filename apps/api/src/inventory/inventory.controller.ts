@@ -60,6 +60,7 @@ export class InventoryController {
     @Query("expired") expired?: string,
     @Query("needsExpiryReview") needsExpiryReview?: string,
     @Query("controlled") controlled?: string,
+    @Query("rangeStatus") rangeStatus?: string,
   ) {
     return this.inventory.listBatches(user.tenantId, branchId, {
       productId: productId || undefined,
@@ -80,6 +81,7 @@ export class InventoryController {
           : controlled === "regular"
             ? "regular"
             : undefined,
+      rangeStatus: rangeStatus === "all" ? "all" : "RANGED",
     });
   }
 

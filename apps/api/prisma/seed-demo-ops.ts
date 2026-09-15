@@ -297,8 +297,14 @@ export async function seedDemoOps(
     if (!productMeta.has(p.sku)) productMeta.set(p.sku, p);
   }
 
+  // "Sellable" is the shop's range, not the register. This used to read `isActive: true`,
+  // which was the right question back when that one boolean also meant "do we sell this" —
+  // after the split it matches all 15,000 imported NMRA rows, so the ops seed handed stock,
+  // purchase orders and sales to products the demo pharmacy never carried. Stock arriving on
+  // a product ranges it (ensureProductsRanged), so stocking a REFERENCE row here produced
+  // data the app itself would never create.
   const sellableProducts = await prisma.product.findMany({
-    where: { tenantId, isActive: true },
+    where: { tenantId, isActive: true, rangeStatus: "RANGED" },
     select: {
       id: true,
       sku: true,
