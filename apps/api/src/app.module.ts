@@ -5,6 +5,7 @@ import { ThrottlerModule } from "@nestjs/throttler";
 import { AdminModule } from "./admin/admin.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { AuditModule } from "./audit/audit.module";
+import { StockModule } from "./inventory/stock/stock.module";
 import { AuthModule } from "./auth/auth.module";
 import { CatalogModule } from "./catalog/catalog.module";
 import { CatalogTaskModule } from "./catalog-tasks/catalog-task.module";
@@ -47,6 +48,7 @@ import { SetupModule } from "./setup/setup.module";
     SecurityModule,
     PricingModule,
     AuditModule,
+    StockModule,
     AuthModule,
     TenantModule,
     ProductsModule,

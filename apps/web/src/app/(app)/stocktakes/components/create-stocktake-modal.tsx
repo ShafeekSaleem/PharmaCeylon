@@ -9,12 +9,11 @@ import { useAuth } from "@/lib/use-auth";
 import css from "../../purchasing/purchasing.module.css";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
 import {
-  MOVEMENT_MODE_OPTIONS,
   DEFAULT_NEAR_EXPIRY_DAYS,
   NEAR_EXPIRY_PRESETS,
   SCOPE_OPTIONS,
 } from "../constants";
-import type { StocktakeMovementMode, StocktakeScope, StocktakeUserRef } from "../types";
+import type { StocktakeScope, StocktakeUserRef } from "../types";
 import scss from "../stocktakes.module.css";
 
 type Props = {
@@ -41,8 +40,6 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
   const [seedLines, setSeedLines] = useState(true);
   const [blindCount, setBlindCount] = useState(false);
   const [scope, setScope] = useState<StocktakeScope>("full");
-  const [movementMode, setMovementMode] =
-    useState<StocktakeMovementMode>("continue_and_reconcile");
   const [nearExpiryDays, setNearExpiryDays] = useState(DEFAULT_NEAR_EXPIRY_DAYS);
   const [scheduledFor, setScheduledFor] = useState("");
   const [expectedCompletionAt, setExpectedCompletionAt] = useState("");
@@ -65,7 +62,6 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
     setSeedLines(true);
     setBlindCount(false);
     setScope("full");
-    setMovementMode("continue_and_reconcile");
     setNearExpiryDays(DEFAULT_NEAR_EXPIRY_DAYS);
     setScheduledFor("");
     setExpectedCompletionAt("");
@@ -169,7 +165,7 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
         seedLines: scope === "custom" ? false : seedLines,
         scope,
         blindCount,
-        movementMode,
+        movementMode: "continue_and_reconcile",
         scheduledFor: scheduledIso,
         expectedCompletionAt: expectedIso,
         reviewerId: reviewerId || null,
@@ -379,16 +375,12 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
             </div>
 
             <div className={css.field} style={{ marginTop: "0.85rem" }}>
-              <PurchasingSelect
-                label="Movement handling"
-                value={movementMode}
-                options={MOVEMENT_MODE_OPTIONS}
-                onChange={(value) => setMovementMode(value as StocktakeMovementMode)}
-                disabled={saving}
-              />
+              <span className={css.fieldLabel}>Movement handling</span>
+              {/* "Freeze stock transactions" used to be offered here, but nothing ever stopped a
+                  sale or receipt during the count, so the option is gone until it is enforced. */}
               <p className={css.fieldHint}>
-                Freeze blocks stock movements for this branch while counting; continue
-                reconciles movements that happen during the count.
+                Sales, receipts and transfers carry on while you count. Anything that moves after the
+                count starts is reconciled automatically at review.
               </p>
             </div>
 

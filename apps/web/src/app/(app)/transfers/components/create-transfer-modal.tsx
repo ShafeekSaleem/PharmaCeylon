@@ -43,7 +43,7 @@ function isCompleteLine(line: CreateTransferLine, batches: Map<string, BatchRow>
   const batch = batches.get(line.batchId);
   const qty = Number(line.qty);
   if (!batch || !Number.isInteger(qty) || qty < 1) return false;
-  return qty <= batch.qtyOnHand;
+  return qty <= batch.availableQty;
 }
 
 export function CreateTransferModal({ open, onClose, onCreated }: Props) {
@@ -108,11 +108,11 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
       lines.filter((l) => l.key !== currentKey && l.batchId).map((l) => l.batchId),
     );
     return batches
-      .filter((b) => b.qtyOnHand > 0 && !usedElsewhere.has(b.id))
+      .filter((b) => b.availableQty > 0 && !usedElsewhere.has(b.id))
       .map((b) => ({
         value: b.id,
         label: `${b.product.sku} — ${b.product.name}`,
-        meta: `${b.batchNo} · ${b.qtyOnHand} on hand · exp ${formatDate(b.expiryDate)}`,
+        meta: `${b.batchNo} · ${b.availableQty} available · exp ${formatDate(b.expiryDate)}`,
       }));
   }
 
@@ -146,8 +146,8 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
 
       if (!line.batchId) errs.batchId = "Select a batch";
       if (!Number.isInteger(qty) || qty < 1) errs.qty = "Enter a valid quantity";
-      else if (batch && qty > batch.qtyOnHand) {
-        errs.qty = `Max ${batch.qtyOnHand} on hand`;
+      else if (batch && qty > batch.availableQty) {
+        errs.qty = `Only ${batch.availableQty} available`;
       }
 
       if (Object.keys(errs).length > 0) lineErrors[line.key] = errs;
@@ -173,8 +173,8 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
           if (batch) {
             next.productId = batch.productId;
             const qty = Number(next.qty);
-            if (!Number.isFinite(qty) || qty > batch.qtyOnHand) {
-              next.qty = String(Math.min(batch.qtyOnHand, Math.max(1, qty || 1)));
+            if (!Number.isFinite(qty) || qty > batch.availableQty) {
+              next.qty = String(Math.min(batch.availableQty, Math.max(1, qty || 1)));
             }
           }
         }
@@ -351,7 +351,7 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
                 <th>Batch / product</th>
                 <th>Batch no.</th>
                 <th>Expiry</th>
-                <th>On hand</th>
+                <th>Available</th>
                 <th>Qty</th>
                 <th />
               </tr>
@@ -385,12 +385,12 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
                     <td className={css.muted}>
                       {batch ? formatDate(batch.expiryDate) : "—"}
                     </td>
-                    <td>{batch ? batch.qtyOnHand : "—"}</td>
+                    <td>{batch ? batch.availableQty : "—"}</td>
                     <td style={{ width: 88 }}>
                       <input
                         type="number"
                         min={1}
-                        max={batch?.qtyOnHand}
+                        max={batch?.availableQty}
                         step={1}
                         className={`${css.input} ${lineErr?.qty ? css.inputError : ""}`}
                         value={line.qty}

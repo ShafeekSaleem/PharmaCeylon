@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
+import { AccessService } from "../security/access.service";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
@@ -10,19 +10,10 @@ import { TransfersService } from "./transfers.service";
 
 @Controller("transfers")
 export class TransfersController {
-  constructor(private readonly transfers: TransfersService) {}
-
-  /** Roles at the active branch; owners are treated as having owner at every branch. */
-  private rolesAtBranch(user: RequestUser, branchId: string): RoleName[] {
-    const hasOwner = user.branchRoles.some((entry) => entry.role === RoleName.owner);
-    const atBranch = user.branchRoles
-      .filter((entry) => entry.branchId === branchId)
-      .map((entry) => entry.role);
-    if (hasOwner) {
-      return [...new Set([...atBranch, RoleName.owner])];
-    }
-    return [...new Set(atBranch)];
-  }
+  constructor(
+    private readonly transfers: TransfersService,
+    private readonly access: AccessService,
+  ) {}
 
   @RequirePermission("transfers.view")
   @Get()
@@ -42,34 +33,24 @@ export class TransfersController {
 
   @RequirePermission("transfers.manage")
   @Post()
-  create(
+  async create(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() fromBranchId: string,
     @Body() dto: CreateTransferDto,
   ) {
-    return this.transfers.create(
-      user.tenantId,
-      fromBranchId,
-      user.userId,
-      this.rolesAtBranch(user, fromBranchId),
-      dto,
-    );
+    const access = await this.access.resolve(user, fromBranchId);
+    return this.transfers.create(user.tenantId, fromBranchId, access, dto);
   }
 
   @RequirePermission("transfers.approve")
   @Post(":id/approve")
-  approve(
+  async approve(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() fromBranchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.transfers.approve(
-      user.tenantId,
-      fromBranchId,
-      user.userId,
-      id,
-      this.rolesAtBranch(user, fromBranchId),
-    );
+    const access = await this.access.resolve(user, fromBranchId);
+    return this.transfers.approve(user.tenantId, fromBranchId, access, id);
   }
 
   @RequirePermission("transfers.approve")
@@ -79,29 +60,18 @@ export class TransfersController {
     @RequireBranchId() fromBranchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.transfers.reject(
-      user.tenantId,
-      fromBranchId,
-      user.userId,
-      id,
-      this.rolesAtBranch(user, fromBranchId),
-    );
+    return this.transfers.reject(user.tenantId, fromBranchId, user.userId, id);
   }
 
   @RequirePermission("transfers.manage")
   @Post(":id/cancel")
-  cancel(
+  async cancel(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() fromBranchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.transfers.cancel(
-      user.tenantId,
-      fromBranchId,
-      user.userId,
-      id,
-      this.rolesAtBranch(user, fromBranchId),
-    );
+    const access = await this.access.resolve(user, fromBranchId);
+    return this.transfers.cancel(user.tenantId, fromBranchId, access, id);
   }
 
   @RequirePermission("transfers.manage")

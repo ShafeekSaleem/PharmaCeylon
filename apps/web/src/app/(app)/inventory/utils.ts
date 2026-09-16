@@ -1,26 +1,4 @@
-import type { AuthUser } from "@/lib/auth-types";
-import { ADJUST_OUT_ROLES, WRITE_ROLES, type StockStatus } from "./types";
-
-export function hasInventoryWriteAccess(
-  user: AuthUser | null,
-  branchId?: string | null,
-): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => WRITE_ROLES.has(br.role));
-}
-
-export function canAdjustOut(user: AuthUser | null, branchId?: string | null): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => ADJUST_OUT_ROLES.has(br.role));
-}
+import type { MovementRow, QuarantineReasonCode, StockStatus } from "./types";
 
 export function stockStatusLabel(status: StockStatus | null | undefined): string {
   if (status === "out") return "Out of stock";
@@ -33,6 +11,13 @@ export function formatMoney(value: string | number | null | undefined): string {
   const n = typeof value === "number" ? value : Number(value ?? 0);
   if (Number.isNaN(n)) return "—";
   return `LKR ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Short money figure for tight spaces: "LKR 14.5M". */
+export function formatCompactMoney(value: string | number | null | undefined): string {
+  const n = typeof value === "number" ? value : Number(value ?? 0);
+  if (Number.isNaN(n)) return "—";
+  return `LKR ${new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n)}`;
 }
 
 /** Compact cost → sell line for batch tables. */
@@ -78,4 +63,34 @@ export function formatRelativeTime(iso: string | null | undefined): string {
   if (days === 1) return "Yesterday";
   if (days < 7) return `${days}d ago`;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export const QUARANTINE_REASON_OPTIONS: { value: QuarantineReasonCode; label: string }[] = [
+  { value: "damaged", label: "Damaged" },
+  { value: "expired", label: "Expired" },
+  { value: "recall", label: "Recall" },
+  { value: "inspection", label: "Awaiting inspection" },
+  { value: "other", label: "Other" },
+];
+
+export function quarantineReasonLabel(code: string | null | undefined): string | null {
+  return QUARANTINE_REASON_OPTIONS.find((option) => option.value === code)?.label ?? null;
+}
+
+/** Where a movement's source document lives in the app, when it has a page to open. */
+export function movementSourceHref(row: Pick<MovementRow, "referenceType" | "referenceId">): string | null {
+  switch (row.referenceType) {
+    case "transfer":
+      return `/transfers?transfer=${row.referenceId}`;
+    case "stocktake":
+      return `/stocktakes/${row.referenceId}`;
+    case "goods_return":
+      return `/returns?return=${row.referenceId}`;
+    default:
+      return null;
+  }
+}
+
+export function formatUnits(qty: number): string {
+  return `${qty.toLocaleString()} ${Math.abs(qty) === 1 ? "unit" : "units"}`;
 }

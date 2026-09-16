@@ -6,7 +6,6 @@ import {
 } from "@nestjs/common";
 import {
   Prisma,
-  RoleName,
   StockMovementType,
   StocktakeCondition,
   StocktakeCountStatus,
@@ -18,6 +17,8 @@ import { randomUUID } from "crypto";
 import { nextDocumentNumber } from "../common/document-sequence.util";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { StockService } from "../inventory/stock/stock.service";
+import { assertMayApprove, type ActorAccess } from "../security/access.service";
 import { CreateStocktakeDto } from "./dto/create-stocktake.dto";
 import { UpsertStocktakeLinesDto } from "./dto/upsert-stocktake-lines.dto";
 import {
@@ -28,12 +29,15 @@ import {
   UpdateStocktakeDto,
 } from "./dto/update-stocktake.dto";
 
-const WRITE_ROLES = new Set<RoleName>([
-  RoleName.owner,
-  RoleName.manager,
-  RoleName.inventory_clerk,
-]);
-const REVIEW_ROLES = new Set<RoleName>([RoleName.owner, RoleName.manager]);
+/** Ledger rows that never change on hand: quarantine pairs, and the old reservation entries. */
+const NON_PHYSICAL_MOVEMENTS: StockMovementType[] = [
+  StockMovementType.stocktake_in,
+  StockMovementType.stocktake_out,
+  StockMovementType.quarantine_hold,
+  StockMovementType.quarantine_release,
+  StockMovementType.transfer_reserve_out,
+  StockMovementType.transfer_reserve_release,
+];
 const BLIND_RESTRICTED_STATUSES: StocktakeStatus[] = [
   StocktakeStatus.draft,
   StocktakeStatus.scheduled,
@@ -133,17 +137,18 @@ type MovementSummary = {
   refs: MovementRef[];
 };
 
-async function qtyForBatchTx(
+/** On hand per batch from the running totals — what a counter should find on the shelf. */
+async function onHandByBatch(
   tx: Prisma.TransactionClient,
   tenantId: string,
-  branchId: string,
-  batchId: string,
-): Promise<number> {
-  const agg = await tx.stockLedger.aggregate({
-    where: { tenantId, branchId, batchId },
-    _sum: { qtyDelta: true },
+  batchIds: string[],
+): Promise<Map<string, number>> {
+  if (batchIds.length === 0) return new Map();
+  const rows = await tx.batchStock.findMany({
+    where: { tenantId, batchId: { in: batchIds } },
+    select: { batchId: true, onHandQty: true },
   });
-  return agg._sum.qtyDelta ?? 0;
+  return new Map(rows.map((row) => [row.batchId, row.onHandQty]));
 }
 
 function utcToday(): Date {
@@ -155,9 +160,9 @@ function toIso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
 }
 
-function roleFlags(roles: RoleName[]): RoleFlags {
-  const canWrite = roles.some((role) => WRITE_ROLES.has(role));
-  const canReview = roles.some((role) => REVIEW_ROLES.has(role));
+function roleFlags(access: ActorAccess): RoleFlags {
+  const canWrite = access.has("stocktakes.use");
+  const canReview = access.has("stocktakes.review");
   return {
     canWrite,
     canReview,
@@ -172,11 +177,12 @@ export class StocktakesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly stock: StockService,
   ) {}
 
-  private assertReviewer(roles: RoleName[]) {
-    if (!roles.some((role) => REVIEW_ROLES.has(role))) {
-      throw new ForbiddenException("Only owner or manager may review this stocktake");
+  private assertReviewer(access: ActorAccess) {
+    if (!access.has("stocktakes.review")) {
+      throw new ForbiddenException("Your role can't review stocktakes");
     }
   }
 
@@ -223,7 +229,7 @@ export class StocktakesService {
     if (dto.batchIds?.length) {
       where.id = { in: dto.batchIds };
     } else if (scope === StocktakeScope.quarantined) {
-      where.isQuarantined = true;
+      where.stock = { is: { quarantinedQty: { gt: 0 } } };
     } else if (scope === StocktakeScope.near_expiry) {
       where.expiryDate = { lte: nearCutoff };
     }
@@ -237,18 +243,11 @@ export class StocktakesService {
       select: { id: true, productId: true, expiryDate: true },
     });
 
-    const batchIds = batches.map((b) => b.id);
-    const qtyMap = new Map<string, number>();
-    if (batchIds.length > 0) {
-      const grouped = await tx.stockLedger.groupBy({
-        by: ["batchId"],
-        where: { tenantId, branchId, batchId: { in: batchIds } },
-        _sum: { qtyDelta: true },
-      });
-      for (const group of grouped) {
-        if (group.batchId) qtyMap.set(group.batchId, group._sum.qtyDelta ?? 0);
-      }
-    }
+    const qtyMap = await onHandByBatch(
+      tx,
+      tenantId,
+      batches.map((b) => b.id),
+    );
 
     let seed = batches.map((b) => ({
       id: b.id,
@@ -341,21 +340,22 @@ export class StocktakesService {
     return row;
   }
 
-  private async movementMapForRow(row: StocktakeRow): Promise<Map<string, MovementSummary>> {
+  private async movementMapForRow(
+    row: StocktakeRow,
+    client: Prisma.TransactionClient = this.prisma,
+  ): Promise<Map<string, MovementSummary>> {
     const snapshotAt = row.snapshotAt ?? row.frozenAt;
     const result = new Map<string, MovementSummary>();
     if (!snapshotAt || row.lines.length === 0) return result;
 
     const batchIds = [...new Set(row.lines.map((line) => line.batchId))];
-    const entries = await this.prisma.stockLedger.findMany({
+    const entries = await client.stockLedger.findMany({
       where: {
         tenantId: row.tenantId,
         branchId: row.branchId,
         batchId: { in: batchIds },
         occurredAt: { gt: snapshotAt },
-        movementType: {
-          notIn: [StockMovementType.stocktake_in, StockMovementType.stocktake_out],
-        },
+        movementType: { notIn: NON_PHYSICAL_MOVEMENTS },
       },
       select: {
         id: true,
@@ -587,26 +587,32 @@ export class StocktakesService {
     };
   }
 
-  async list(tenantId: string, branchId: string, roles: RoleName[]) {
+  async list(tenantId: string, branchId: string, access: ActorAccess) {
     const rows = await this.prisma.stocktake.findMany({
       where: { tenantId, branchId },
       include: STOCKTAKE_INCLUDE,
       orderBy: [{ scheduledFor: "asc" }, { createdAt: "desc" }],
     });
-    const flags = roleFlags(roles);
+    const flags = roleFlags(access);
     return Promise.all(rows.map((row) => this.mapRow(row, flags)));
   }
 
-  async getOne(tenantId: string, branchId: string, id: string, roles: RoleName[]) {
+  async getOne(tenantId: string, branchId: string, id: string, access: ActorAccess) {
     const row = await this.loadOneRow(tenantId, branchId, id);
-    return this.mapRow(row, roleFlags(roles), true);
+    return this.mapRow(row, roleFlags(access), true);
   }
 
-  async create(tenantId: string, branchId: string, userId: string, dto: CreateStocktakeDto, roles: RoleName[]) {
-    if (!roleFlags(roles).canWrite) {
+  async create(tenantId: string, branchId: string, userId: string, dto: CreateStocktakeDto, access: ActorAccess) {
+    if (!roleFlags(access).canWrite) {
       throw new ForbiddenException("You do not have permission to create stocktakes");
     }
 
+    if (dto.movementMode === "freeze_transactions") {
+      // Offered once and stored, but nothing ever stopped sales or receipts during the count.
+      throw new BadRequestException(
+        "Freezing sales during a stocktake isn't available yet. Counts reconcile against movements made while counting.",
+      );
+    }
     const seedLines = dto.seedLines !== false;
     const scope = dto.scope ?? StocktakeScope.full;
     const blindCount = dto.blindCount === true;
@@ -627,7 +633,7 @@ export class StocktakesService {
           status: scheduledFor ? StocktakeStatus.scheduled : StocktakeStatus.draft,
           scope,
           blindCount,
-          movementMode: dto.movementMode ?? "continue_and_reconcile",
+          movementMode: "continue_and_reconcile",
           nearExpiryDays,
           title: dto.title?.trim() || null,
           areaLabel: dto.areaLabel?.trim() || null,
@@ -674,7 +680,7 @@ export class StocktakesService {
       },
     });
 
-    return this.getOne(tenantId, branchId, created.id, roles);
+    return this.getOne(tenantId, branchId, created.id, access);
   }
 
   async updateHeader(
@@ -683,9 +689,9 @@ export class StocktakesService {
     userId: string,
     id: string,
     dto: UpdateStocktakeDto,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    if (!roleFlags(roles).canWrite) {
+    if (!roleFlags(access).canWrite) {
       throw new ForbiddenException("You do not have permission to update stocktakes");
     }
     const row = await this.loadOneRow(tenantId, branchId, id);
@@ -731,7 +737,7 @@ export class StocktakesService {
       payload: { fields: Object.keys(dto) },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async addLines(
@@ -740,9 +746,9 @@ export class StocktakesService {
     userId: string,
     id: string,
     dto: AddStocktakeLinesDto,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    if (!roleFlags(roles).canWrite) {
+    if (!roleFlags(access).canWrite) {
       throw new ForbiddenException("You do not have permission to add stocktake lines");
     }
     const row = await this.loadOneRow(tenantId, branchId, id);
@@ -753,7 +759,7 @@ export class StocktakesService {
     const existing = new Set(row.lines.map((line) => line.batchId));
     const uniqueIds = [...new Set(dto.batchIds)].filter((batchId) => !existing.has(batchId));
     if (uniqueIds.length === 0) {
-      return this.getOne(tenantId, branchId, id, roles);
+      return this.getOne(tenantId, branchId, id, access);
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -765,8 +771,13 @@ export class StocktakesService {
         throw new BadRequestException("One or more batches are invalid for this branch");
       }
 
+      const onHand = await onHandByBatch(
+        tx,
+        tenantId,
+        batches.map((batch) => batch.id),
+      );
       for (const batch of batches) {
-        const systemQty = await qtyForBatchTx(tx, tenantId, branchId, batch.id);
+        const systemQty = onHand.get(batch.id) ?? 0;
         const line = await tx.stocktakeLine.create({
           data: {
             tenantId,
@@ -801,7 +812,7 @@ export class StocktakesService {
       payload: { added: uniqueIds.length },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async removeLines(
@@ -810,9 +821,9 @@ export class StocktakesService {
     userId: string,
     id: string,
     dto: RemoveStocktakeLinesDto,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    if (!roleFlags(roles).canWrite) {
+    if (!roleFlags(access).canWrite) {
       throw new ForbiddenException("You do not have permission to remove stocktake lines");
     }
     const row = await this.loadOneRow(tenantId, branchId, id);
@@ -834,7 +845,7 @@ export class StocktakesService {
       payload: { removed: dto.batchIds.length },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async upsertLines(
@@ -843,9 +854,9 @@ export class StocktakesService {
     userId: string,
     id: string,
     dto: UpsertStocktakeLinesDto,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    if (!roleFlags(roles).canWrite) {
+    if (!roleFlags(access).canWrite) {
       throw new ForbiddenException("You do not have permission to count stocktake lines");
     }
     const row = await this.loadOneRow(tenantId, branchId, id);
@@ -904,7 +915,7 @@ export class StocktakesService {
       payload: { lineCount: dto.lines.length },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async schedule(
@@ -912,9 +923,9 @@ export class StocktakesService {
     branchId: string,
     userId: string,
     id: string,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    if (!roleFlags(roles).canWrite) {
+    if (!roleFlags(access).canWrite) {
       throw new ForbiddenException("You do not have permission to schedule stocktakes");
     }
     const row = await this.loadOneRow(tenantId, branchId, id);
@@ -940,7 +951,7 @@ export class StocktakesService {
       payload: { scheduledFor: row.scheduledFor?.toISOString() ?? null },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async start(
@@ -948,9 +959,9 @@ export class StocktakesService {
     branchId: string,
     userId: string,
     id: string,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    if (!roleFlags(roles).canWrite) {
+    if (!roleFlags(access).canWrite) {
       throw new ForbiddenException("You do not have permission to start stocktakes");
     }
     const row = await this.loadOneRow(tenantId, branchId, id);
@@ -963,8 +974,13 @@ export class StocktakesService {
 
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
+      const onHand = await onHandByBatch(
+        tx,
+        tenantId,
+        row.lines.map((line) => line.batchId),
+      );
       for (const line of row.lines) {
-        const systemQty = await qtyForBatchTx(tx, tenantId, branchId, line.batchId);
+        const systemQty = onHand.get(line.batchId) ?? 0;
         await tx.stocktakeLine.update({
           where: { id: line.id, tenantId },
           data: {
@@ -1013,7 +1029,7 @@ export class StocktakesService {
       payload: { snapshotAt: now.toISOString() },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async submit(
@@ -1021,9 +1037,9 @@ export class StocktakesService {
     branchId: string,
     userId: string,
     id: string,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    if (!roleFlags(roles).canWrite) {
+    if (!roleFlags(access).canWrite) {
       throw new ForbiddenException("You do not have permission to submit stocktakes");
     }
     const row = await this.loadOneRow(tenantId, branchId, id);
@@ -1053,7 +1069,7 @@ export class StocktakesService {
       entityId: id,
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async startReview(
@@ -1061,9 +1077,9 @@ export class StocktakesService {
     branchId: string,
     userId: string,
     id: string,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    this.assertReviewer(roles);
+    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
     if (row.status !== StocktakeStatus.submitted) {
       throw new BadRequestException("Only submitted stocktakes can enter review");
@@ -1087,7 +1103,7 @@ export class StocktakesService {
       entityId: id,
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async reviewLines(
@@ -1096,9 +1112,9 @@ export class StocktakesService {
     userId: string,
     id: string,
     dto: ReviewStocktakeLinesDto,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    this.assertReviewer(roles);
+    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
     if (!REVIEWABLE_LINE_STATUSES.includes(row.status)) {
       throw new BadRequestException("Review details can only be edited during review or approval");
@@ -1133,7 +1149,7 @@ export class StocktakesService {
       payload: { lineCount: dto.lines.length },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async requestRecount(
@@ -1142,9 +1158,9 @@ export class StocktakesService {
     userId: string,
     id: string,
     dto: RequestRecountDto,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    this.assertReviewer(roles);
+    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
     if (row.status !== StocktakeStatus.under_review) {
       throw new BadRequestException("Recounts can only be requested during review");
@@ -1176,7 +1192,7 @@ export class StocktakesService {
       payload: { lineIds: dto.lineIds, note: dto.note?.trim() || null },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async approve(
@@ -1184,9 +1200,9 @@ export class StocktakesService {
     branchId: string,
     userId: string,
     id: string,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    this.assertReviewer(roles);
+    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
     if (row.status !== StocktakeStatus.under_review) {
       throw new BadRequestException("Only stocktakes under review can be approved");
@@ -1214,16 +1230,27 @@ export class StocktakesService {
       );
     }
 
+    // Whoever did the count is asking for it to be approved: the stocktake's creator and
+    // everyone who entered a count.
+    const counters = new Set<string>([row.countedBy]);
+    for (const line of row.lines) {
+      for (const entry of line.countEntries) counters.add(entry.counter.id);
+    }
+    assertMayApprove(access, [...counters], "stocktake count");
+
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      await tx.stocktake.update({
-        where: { id, tenantId, branchId },
+      const claimed = await tx.stocktake.updateMany({
+        where: { id, tenantId, branchId, status: StocktakeStatus.under_review },
         data: {
           status: StocktakeStatus.approved,
           approvedBy: userId,
           approvedAt: now,
         },
       });
+      if (claimed.count !== 1) {
+        throw new BadRequestException("This stocktake is no longer under review — refresh to see its status");
+      }
       await tx.stocktakeLine.updateMany({
         where: { stocktakeId: id, tenantId },
         data: {
@@ -1243,7 +1270,7 @@ export class StocktakesService {
       entityId: id,
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async post(
@@ -1251,21 +1278,39 @@ export class StocktakesService {
     branchId: string,
     userId: string,
     id: string,
-    roles: RoleName[],
+    access: ActorAccess,
   ) {
-    this.assertReviewer(roles);
+    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
+    if (row.status === StocktakeStatus.posted || row.status === StocktakeStatus.completed) {
+      // A double-click or a retried request: the first one posted, so report that result.
+      return this.getOne(tenantId, branchId, id, access);
+    }
     if (row.status !== StocktakeStatus.approved) {
       throw new BadRequestException("Only approved stocktakes can be posted");
     }
 
-    const movementMap = await this.movementMapForRow(row);
     const snapshotByLineId = new Map(row.snapshotLines.map((snapshot) => [snapshot.lineId, snapshot.snapshotQty]));
     const now = new Date();
     const postingId = randomUUID();
     let adjustments = 0;
 
     await this.prisma.$transaction(async (tx) => {
+      // Claim the stocktake first. The status used to be checked outside the transaction and
+      // the update didn't re-check it, so two posts running together both adjusted stock.
+      const claimed = await tx.stocktake.updateMany({
+        where: { id, tenantId, branchId, status: StocktakeStatus.approved },
+        data: { status: StocktakeStatus.posted, postedBy: userId, postedAt: now },
+      });
+      if (claimed.count !== 1) {
+        throw new BadRequestException("This stocktake has already been posted — refresh to see the result");
+      }
+
+      // Lock the counted batches, then read the movements since the snapshot: nothing can
+      // change them between the variance being worked out and the adjustment being written.
+      await this.stock.lockBatches(tx, tenantId, row.lines.map((line) => line.batchId));
+      const movementMap = await this.movementMapForRow(row, tx);
+
       await tx.stocktakePosting.create({
         data: {
           id: postingId,
@@ -1276,6 +1321,9 @@ export class StocktakesService {
           note: "Supervisor-approved stocktake posting",
         },
       });
+
+      const gains: Array<{ productId: string; batchId: string; qty: number; reason: string }> = [];
+      const losses: Array<{ productId: string; batchId: string; qty: number; reason: string }> = [];
 
       for (const line of row.lines) {
         const snapshotQty = snapshotByLineId.get(line.id) ?? line.systemQty;
@@ -1293,22 +1341,13 @@ export class StocktakesService {
 
         if (adjustedVariance === 0) continue;
         adjustments += 1;
-        await tx.stockLedger.create({
-          data: {
-            tenantId,
-            branchId,
-            productId: line.productId,
-            batchId: line.batchId,
-            movementType:
-              adjustedVariance > 0
-                ? StockMovementType.stocktake_in
-                : StockMovementType.stocktake_out,
-            qtyDelta: adjustedVariance,
-            referenceType: "stocktake",
-            referenceId: id,
-            reason: line.reviewResolution?.trim() || line.note?.trim() || `Stocktake ${row.stocktakeNumber}`,
-            createdBy: userId,
-          },
+        const reason =
+          line.reviewResolution?.trim() || line.note?.trim() || `Stocktake ${row.stocktakeNumber}`;
+        (adjustedVariance > 0 ? gains : losses).push({
+          productId: line.productId,
+          batchId: line.batchId,
+          qty: Math.abs(adjustedVariance),
+          reason,
         });
         await tx.stocktakePostingLine.create({
           data: {
@@ -1327,37 +1366,50 @@ export class StocktakesService {
         });
       }
 
-      await tx.stocktake.update({
-        where: { id, tenantId, branchId },
-        data: {
-          status: StocktakeStatus.posted,
-          postedBy: userId,
-          postedAt: now,
+      const ctx = { tenantId, branchId, userId, referenceType: "stocktake", referenceId: id };
+      await this.stock.receive(
+        tx,
+        ctx,
+        gains.map((gain) => ({ ...gain, movementType: StockMovementType.stocktake_in })),
+      );
+      // The count is the physical truth, so a shortfall posts even if it leaves a transfer's
+      // reservation uncovered — that transfer then refuses to ship and says why.
+      await this.stock.issue(
+        tx,
+        ctx,
+        losses.map((loss) => ({
+          ...loss,
+          movementType: StockMovementType.stocktake_out,
+          from: "sellable_first" as const,
+        })),
+        { allowReservedShortfall: true },
+      );
+
+      await this.audit.log(
+        {
+          tenantId,
+          branchId,
+          actorUserId: userId,
+          eventName: "stocktake.posted",
+          entityName: "stocktake",
+          entityId: id,
+          payload: { adjustments },
         },
-      });
+        tx,
+      );
     });
 
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: userId,
-      eventName: "stocktake.posted",
-      entityName: "stocktake",
-      entityId: id,
-      payload: { adjustments },
-    });
-
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async complete(
     tenantId: string,
     branchId: string,
     userId: string,
-    roles: RoleName[],
+    access: ActorAccess,
     id: string,
   ) {
-    this.assertReviewer(roles);
+    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
     if (row.status !== StocktakeStatus.posted) {
       throw new BadRequestException("Only posted stocktakes can be completed");
@@ -1381,17 +1433,17 @@ export class StocktakesService {
       entityId: id,
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 
   async cancel(
     tenantId: string,
     branchId: string,
     userId: string,
-    roles: RoleName[],
+    access: ActorAccess,
     id: string,
   ) {
-    this.assertReviewer(roles);
+    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
     if (!CANCELLABLE_STATUSES.includes(row.status)) {
       throw new BadRequestException("Only open stocktakes can be cancelled");
@@ -1412,6 +1464,6 @@ export class StocktakesService {
       payload: { previousStatus: row.status },
     });
 
-    return this.getOne(tenantId, branchId, id, roles);
+    return this.getOne(tenantId, branchId, id, access);
   }
 }

@@ -102,6 +102,13 @@ export class TenantSettingsController {
     return this.settings.updateAlerts(user.tenantId, user.userId, dto);
   }
 
+  /** Roles to choose from for "may approve their own requests" (Settings → Approval Rules). */
+  @RequirePermission("tenant.management")
+  @Get("approval-roles")
+  approvalRoles(@CurrentUser() user: RequestUser) {
+    return this.settings.approvalRoleOptions(user.tenantId);
+  }
+
   @RequirePermission("tenant.management")
   @Patch("approvals")
   updateApprovals(@CurrentUser() user: RequestUser, @Body() dto: UpdateApprovalsSettingsDto) {

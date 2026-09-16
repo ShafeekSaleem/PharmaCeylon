@@ -13,6 +13,7 @@ import {
   IconLock,
   IconSparkles,
   IconBell,
+  IconCheckCircle,
 } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
@@ -63,6 +64,15 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Security & Access",
     items: [
       { href: "/settings/password-login", label: "Password & Login", icon: <IconLock size={16} /> },
+      // Removed with the rest of "Alerts & Approvals" while its settings did nothing. The
+      // thresholds are enforced by the API now, and who may approve their own requests is set
+      // here, so the page is back — on its own, not with the still-unenforced alert settings.
+      {
+        href: "/settings/approval-rules",
+        label: "Approval Rules",
+        icon: <IconCheckCircle size={16} />,
+        adminOnly: true,
+      },
     ],
   },
   {

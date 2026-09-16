@@ -23,6 +23,7 @@ describe("SalesService.refundSale", () => {
   let audit: AuditService;
   let tax: TaxService;
   let service: SalesService;
+  let stock: { receive: jest.Mock; issue: jest.Mock };
   let txState: {
     goodsReturnCreate: jest.Mock;
     stockLedgerCreate: jest.Mock;
@@ -32,6 +33,7 @@ describe("SalesService.refundSale", () => {
   };
 
   beforeEach(() => {
+    stock = { receive: jest.fn(), issue: jest.fn() };
     txState = {
       goodsReturnCreate: jest.fn().mockResolvedValue({
         id: "gr-1",
@@ -114,6 +116,7 @@ describe("SalesService.refundSale", () => {
       tax,
       pharmacistApproval as never,
       { assertCanSell: jest.fn().mockResolvedValue(undefined) } as never,
+      stock as never,
     );
   });
 
@@ -131,14 +134,17 @@ describe("SalesService.refundSale", () => {
     expect(grData.status).toBe(GoodsReturnStatus.completed);
     expect(grData.saleId).toBe(saleId);
 
-    expect(txState.stockLedgerCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
+    // Returned units go back through the stock service, like every other stock change.
+    expect(stock.receive).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ referenceType: "goods_return", referenceId: "gr-1" }),
+      [
+        expect.objectContaining({
           movementType: StockMovementType.customer_return_in,
-          referenceType: "goods_return",
-          qtyDelta: 4,
+          batchId,
+          qty: 4,
         }),
-      }),
+      ],
     );
 
     expect(txState.salePaymentCreate).toHaveBeenCalledWith(

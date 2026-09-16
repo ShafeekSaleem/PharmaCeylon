@@ -14,7 +14,9 @@ import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
-import { ensureProductsRanged } from "../products/product-range.util";
+import { businessToday, dateKeyToUtc, safeTimeZone } from "../common/business-date.util";
+import { StockService } from "../inventory/stock/stock.service";
+import { assertMayApprove, type ActorAccess } from "../security/access.service";
 import { createInvoiceFromGoodsReceipt } from "../suppliers/suppliers.service";
 import { CreatePurchaseOrderDto } from "./dto/create-purchase-order.dto";
 import { ReceiveGoodsDto } from "./dto/receive-goods.dto";
@@ -22,6 +24,14 @@ import { UpdatePurchaseOrderDto } from "./dto/update-purchase-order.dto";
 
 function decimal(value: string | number): Prisma.Decimal {
   return new Prisma.Decimal(value);
+}
+
+function parseDateOnly(value: string, label: string): Date {
+  try {
+    return dateKeyToUtc(value.slice(0, 10));
+  } catch {
+    throw new BadRequestException(`${label} must be a valid date`);
+  }
 }
 
 function assertNoDuplicateProductIds(productIds: string[], label: string) {
@@ -39,7 +49,32 @@ export class PurchasingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly stock: StockService,
   ) {}
+
+  /**
+   * Move a PO from one of `from` to `to`, only if it is still in one of `from` when the write
+   * lands. Reading the status and then updating by id let a cancel and an approval both
+   * "succeed" on the same order, and let a cancelled order be issued afterwards.
+   */
+  private async transition(
+    tenantId: string,
+    branchId: string,
+    id: string,
+    from: PoStatus[],
+    to: PoStatus,
+    conflictMessage: string,
+  ) {
+    const mutation = await this.prisma.purchaseOrder.updateMany({
+      where: { id, tenantId, branchId, status: { in: from } },
+      data: { status: to },
+    });
+    if (mutation.count !== 1) {
+      const exists = await this.prisma.purchaseOrder.count({ where: { id, tenantId, branchId } });
+      if (exists === 0) assertOneScopedMutation(mutation, "Purchase order");
+      throw new BadRequestException(conflictMessage);
+    }
+  }
 
   private async nextPoNumber(tx: Prisma.TransactionClient, tenantId: string, branchId: string) {
     return nextDocumentNumber(tx, tenantId, branchId, "po", "PO-");
@@ -75,7 +110,32 @@ export class PurchasingService {
       },
     });
     if (!po) throw new NotFoundException("Purchase order not found");
-    return po;
+
+    // What this branch last paid and charged for each product — the receiving form offers
+    // these as starting values instead of inventing a price from the order's unit cost.
+    const lastBatches = await this.prisma.batch.findMany({
+      where: {
+        tenantId,
+        branchId,
+        productId: { in: po.items.map((item) => item.productId) },
+      },
+      orderBy: { receivedAt: "desc" },
+      distinct: ["productId"],
+      select: { productId: true, costPrice: true, sellingPrice: true },
+    });
+    const lastByProduct = new Map(lastBatches.map((b) => [b.productId, b]));
+    return {
+      ...po,
+      items: po.items.map((item) => {
+        const last = lastByProduct.get(item.productId);
+        return {
+          ...item,
+          lastBatchPrices: last
+            ? { costPrice: last.costPrice.toString(), sellingPrice: last.sellingPrice.toString() }
+            : null,
+        };
+      }),
+    };
   }
 
   async createPurchaseOrder(
@@ -202,11 +262,16 @@ export class PurchasingService {
     ) {
       throw new BadRequestException("Cannot cancel a PO that already has receipts");
     }
-    const mutation = await this.prisma.purchaseOrder.updateMany({
-      where: { id, tenantId, branchId },
-      data: { status: PoStatus.cancelled },
-    });
-    assertOneScopedMutation(mutation, "Purchase order");
+    // Receiving locks the PO row and moves it to partially_received, so a delivery posted
+    // while this cancel waits leaves nothing matching and the cancel is refused.
+    await this.transition(
+      tenantId,
+      branchId,
+      id,
+      [PoStatus.draft, PoStatus.pending_approval, PoStatus.issued],
+      PoStatus.cancelled,
+      "This purchase order changed while you were cancelling it — refresh and try again",
+    );
     const updated = { ...po, status: PoStatus.cancelled };
     await this.audit.log({
       tenantId,
@@ -261,7 +326,15 @@ export class PurchasingService {
     }
 
     const mutation = await this.prisma.purchaseOrder.updateMany({
-      where: { id, tenantId, branchId },
+      where: {
+        id,
+        tenantId,
+        branchId,
+        // Header fields limited to open orders stay limited if the order moved on meanwhile.
+        status: isOpenHeader
+          ? { in: [PoStatus.draft, PoStatus.pending_approval] }
+          : { in: [PoStatus.issued, PoStatus.partially_received] },
+      },
       data: {
         ...(dto.expectedOn !== undefined
           ? { expectedOn: dto.expectedOn ? new Date(dto.expectedOn) : null }
@@ -279,7 +352,11 @@ export class PurchasingService {
           : {}),
       },
     });
-    assertOneScopedMutation(mutation, "Purchase order");
+    if (mutation.count !== 1) {
+      throw new BadRequestException(
+        "This purchase order changed while you were editing it — refresh and try again",
+      );
+    }
     const updated = await this.getPurchaseOrder(tenantId, branchId, id);
 
     await this.audit.log({
@@ -371,6 +448,29 @@ export class PurchasingService {
       }
     }
 
+    // Batch number and expiry are what recalls, FEFO picking and expiry alerts all run on, so
+    // they must be what is printed on the pack — never a value the form made up.
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    const today = businessToday(safeTimeZone(tenant?.timezone));
+    const receivedOn = parseDateOnly(dto.receivedOn, "Received date");
+    if (receivedOn > today) {
+      throw new BadRequestException("The received date can't be in the future");
+    }
+    for (const line of dto.lines) {
+      if (!line.batchNo.trim()) {
+        throw new BadRequestException("Enter the batch number printed on each product received");
+      }
+      const expiry = parseDateOnly(line.expiryDate, "Expiry date");
+      if (expiry <= receivedOn) {
+        throw new BadRequestException(
+          `Batch ${line.batchNo.trim()} expires on ${line.expiryDate.slice(0, 10)}, on or before the day it was received. Check the date on the pack — expired stock can't be received into sellable inventory.`,
+        );
+      }
+    }
+
     try {
       return await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`
@@ -444,18 +544,17 @@ export class PurchasingService {
             branchId,
             purchaseOrderId: locked.id,
             grnNumber,
-            receivedOn: new Date(dto.receivedOn),
+            receivedOn,
             receivedBy: userId,
           },
         });
 
         let receiptValue = new Prisma.Decimal(0);
+        const stockLines: Array<{ productId: string; batchId: string; qty: number }> = [];
 
         for (const line of dto.lines) {
           const batchNo = line.batchNo.trim();
-          if (!batchNo) {
-            throw new BadRequestException("Batch number is required for each received line");
-          }
+          const expiryDate = parseDateOnly(line.expiryDate, "Expiry date");
 
           let batch = await tx.batch.findUnique({
             where: {
@@ -470,7 +569,7 @@ export class PurchasingService {
 
           if (batch) {
             const existingExpiry = batch.expiryDate.toISOString().slice(0, 10);
-            const incomingExpiry = new Date(line.expiryDate).toISOString().slice(0, 10);
+            const incomingExpiry = expiryDate.toISOString().slice(0, 10);
             if (existingExpiry !== incomingExpiry) {
               throw new BadRequestException(
                 `Batch ${batchNo} already exists with expiry ${existingExpiry}. Use that expiry, or enter a different batch number.`,
@@ -483,9 +582,10 @@ export class PurchasingService {
                 branchId,
                 productId: line.productId,
                 batchNo,
-                expiryDate: new Date(line.expiryDate),
+                expiryDate,
                 costPrice: decimal(line.costPrice),
                 sellingPrice: decimal(line.sellingPrice),
+                supplierId: locked.supplierId,
               },
             });
           }
@@ -500,32 +600,26 @@ export class PurchasingService {
             },
           });
 
-          receiptValue = receiptValue.plus(
-            decimal(line.costPrice).mul(line.receivedQty),
-          );
-
-          await tx.stockLedger.create({
-            data: {
-              tenantId,
-              branchId,
-              productId: line.productId,
-              batchId: batch.id,
-              movementType: StockMovementType.purchase_in,
-              qtyDelta: line.receivedQty,
-              referenceType: "goods_receipt",
-              referenceId: gr.id,
-              reason: `${locked.poNumber} / ${grnNumber}`,
-              createdBy: userId,
-            },
-          });
+          receiptValue = receiptValue.plus(decimal(line.costPrice).mul(line.receivedQty));
+          stockLines.push({ productId: line.productId, batchId: batch.id, qty: line.receivedQty });
         }
 
-        // Receiving goods is the pharmacy committing to a line — promote anything still
-        // sitting in the reference catalog so stock never lands on an un-ranged product.
-        await ensureProductsRanged(
+        // One posting for the whole delivery: the stock service locks every batch at once, adds
+        // the units, and ranges any product still sitting in the reference catalog.
+        await this.stock.receive(
           tx,
-          tenantId,
-          dto.lines.map((line) => line.productId),
+          {
+            tenantId,
+            branchId,
+            userId,
+            referenceType: "goods_receipt",
+            referenceId: gr.id,
+          },
+          stockLines.map((line) => ({
+            ...line,
+            movementType: StockMovementType.purchase_in,
+            reason: `${locked.poNumber} / ${grnNumber}`,
+          })),
         );
 
         const termsDays =
@@ -544,7 +638,7 @@ export class PurchasingService {
           supplierId: locked.supplierId,
           goodsReceiptId: gr.id,
           grnNumber,
-          invoiceDate: new Date(dto.receivedOn),
+          invoiceDate: receivedOn,
           paymentTermsDays: termsDays,
           totalAmount: receiptValue,
         });
@@ -578,15 +672,18 @@ export class PurchasingService {
           data: { status: newStatus },
         });
 
-        await this.audit.log({
-          tenantId,
-          branchId,
-          actorUserId: userId,
-          eventName: "goods_receipt.posted",
-          entityName: "goods_receipt",
-          entityId: gr.id,
-          payload: { grnNumber, purchaseOrderId: locked.id },
-        });
+        await this.audit.log(
+          {
+            tenantId,
+            branchId,
+            actorUserId: userId,
+            eventName: "goods_receipt.posted",
+            entityName: "goods_receipt",
+            entityId: gr.id,
+            payload: { grnNumber, purchaseOrderId: locked.id },
+          },
+          tx,
+        );
 
         if (idemKey) {
           await tx.idempotencyRecord.create({
@@ -638,18 +735,20 @@ export class PurchasingService {
     const po = await this.getPurchaseOrder(tenantId, branchId, id);
     if (po.status === PoStatus.pending_approval) {
       throw new BadRequestException(
-        "Pending approval POs must be approved by an owner or manager",
+        "This order is waiting for approval — an approver has to approve it before it is issued",
       );
     }
     if (po.status !== PoStatus.draft) {
       throw new BadRequestException("Only draft POs can be issued");
     }
-    const mutation = await this.prisma.purchaseOrder.updateMany({
-      where: { id, tenantId, branchId },
-      data: { status: PoStatus.issued },
-    });
-    assertOneScopedMutation(mutation, "Purchase order");
-    const updated = { ...po, status: PoStatus.issued };
+    await this.transition(
+      tenantId,
+      branchId,
+      id,
+      [PoStatus.draft],
+      PoStatus.issued,
+      "This purchase order changed while you were issuing it — refresh and try again",
+    );
     await this.audit.log({
       tenantId,
       branchId,
@@ -658,44 +757,58 @@ export class PurchasingService {
       entityName: "purchase_order",
       entityId: id,
     });
-    return updated;
+    return { ...po, status: PoStatus.issued };
   }
 
-  /** Approve a pending_approval PO → issued. Owner/manager only (enforced by controller). */
-  async approvePurchaseOrder(tenantId: string, branchId: string, userId: string, id: string) {
+  /**
+   * Approve a pending_approval PO → issued. The route requires `purchasing.approve`; whether
+   * the person who raised the order may approve it is the tenant's self-approval setting.
+   */
+  async approvePurchaseOrder(
+    tenantId: string,
+    branchId: string,
+    access: ActorAccess,
+    id: string,
+  ) {
     const po = await this.getPurchaseOrder(tenantId, branchId, id);
     if (po.status !== PoStatus.pending_approval) {
       throw new BadRequestException("Only pending approval POs can be approved");
     }
-    const mutation = await this.prisma.purchaseOrder.updateMany({
-      where: { id, tenantId, branchId },
-      data: { status: PoStatus.issued },
-    });
-    assertOneScopedMutation(mutation, "Purchase order");
-    const updated = { ...po, status: PoStatus.issued };
+    assertMayApprove(access, [po.createdBy], "purchase order");
+    await this.transition(
+      tenantId,
+      branchId,
+      id,
+      [PoStatus.pending_approval],
+      PoStatus.issued,
+      "This purchase order is no longer waiting for approval — refresh to see its status",
+    );
     await this.audit.log({
       tenantId,
       branchId,
-      actorUserId: userId,
+      actorUserId: access.userId,
       eventName: "purchase_order.approved",
       entityName: "purchase_order",
       entityId: id,
+      payload: { selfApproved: po.createdBy === access.userId },
     });
-    return updated;
+    return { ...po, status: PoStatus.issued };
   }
 
-  /** Reject a pending_approval PO → cancelled. Owner/manager only (enforced by controller). */
+  /** Reject a pending_approval PO → cancelled. Requires `purchasing.approve` (controller). */
   async rejectPurchaseOrder(tenantId: string, branchId: string, userId: string, id: string) {
     const po = await this.getPurchaseOrder(tenantId, branchId, id);
     if (po.status !== PoStatus.pending_approval) {
       throw new BadRequestException("Only pending approval POs can be rejected");
     }
-    const mutation = await this.prisma.purchaseOrder.updateMany({
-      where: { id, tenantId, branchId },
-      data: { status: PoStatus.cancelled },
-    });
-    assertOneScopedMutation(mutation, "Purchase order");
-    const updated = { ...po, status: PoStatus.cancelled };
+    await this.transition(
+      tenantId,
+      branchId,
+      id,
+      [PoStatus.pending_approval],
+      PoStatus.cancelled,
+      "This purchase order is no longer waiting for approval — refresh to see its status",
+    );
     await this.audit.log({
       tenantId,
       branchId,
@@ -704,21 +817,23 @@ export class PurchasingService {
       entityName: "purchase_order",
       entityId: id,
     });
-    return updated;
+    return { ...po, status: PoStatus.cancelled };
   }
 
-  /** Short-close a partially_received PO → short_closed. Owner/manager only. */
+  /** Short-close a partially_received PO → short_closed. Requires `purchasing.approve`. */
   async shortClosePurchaseOrder(tenantId: string, branchId: string, userId: string, id: string) {
     const po = await this.getPurchaseOrder(tenantId, branchId, id);
     if (po.status !== PoStatus.partially_received) {
       throw new BadRequestException("Only partially received POs can be short-closed");
     }
-    const mutation = await this.prisma.purchaseOrder.updateMany({
-      where: { id, tenantId, branchId },
-      data: { status: PoStatus.short_closed },
-    });
-    assertOneScopedMutation(mutation, "Purchase order");
-    const updated = { ...po, status: PoStatus.short_closed };
+    await this.transition(
+      tenantId,
+      branchId,
+      id,
+      [PoStatus.partially_received],
+      PoStatus.short_closed,
+      "This purchase order changed while you were closing it — refresh and try again",
+    );
     await this.audit.log({
       tenantId,
       branchId,
@@ -727,6 +842,6 @@ export class PurchasingService {
       entityName: "purchase_order",
       entityId: id,
     });
-    return updated;
+    return { ...po, status: PoStatus.short_closed };
   }
 }

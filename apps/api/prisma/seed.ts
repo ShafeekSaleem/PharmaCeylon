@@ -25,6 +25,7 @@ import {
   dec,
   seedReceiveStock,
   seedSale,
+  syncSeedStock,
 } from "./seed-helpers";
 import { seedDemoOps } from "./seed-demo-ops";
 import { DEMO_STOCK_REG_NOS, seedNmraCatalog } from "./seed-nmra";
@@ -58,6 +59,7 @@ async function clearOperationalData(tenantId: string) {
   await prisma.supplierInvoice.deleteMany({ where: { tenantId } });
   await prisma.goodsReceipt.deleteMany({ where: { tenantId } });
   await prisma.stocktake.deleteMany({ where: { tenantId } });
+  await prisma.stockReservation.deleteMany({ where: { tenantId } });
   await prisma.stockLedger.deleteMany({ where: { tenantId } });
   await prisma.transfer.deleteMany({ where: { tenantId } });
   await prisma.batch.deleteMany({ where: { tenantId } });
@@ -2809,6 +2811,7 @@ async function main() {
     where: { tenantId: tenant.id, isActive: true },
   });
 
+  await syncSeedStock(prisma, tenant.id);
   await ensureRbacSeed(prisma);
 
   console.log("\n=== PharmaCeylon demo seed complete ===\n");

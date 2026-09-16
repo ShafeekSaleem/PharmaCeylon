@@ -1549,3 +1549,226 @@
 
 .confirmExpiryButton { margin-top: 16px; padding: 10px 16px; border: 0; border-radius: 8px; background: var(--primary, var(--pc-primary)); color: white; cursor: pointer; }
 .confirmExpiryButton:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Stock foundation: on hand / available / held ─────────────────────────── */
+
+.dialogFields {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.qtyStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.qtyPrimary {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.qtySecondary {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.heldChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.heldChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.heldChipQuarantine {
+  border-color: var(--pc-alert-warning-border);
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+}
+
+.heldChipReserved {
+  border-color: var(--pc-alert-info-border);
+  background: var(--pc-alert-info-bg);
+  color: var(--pc-alert-info-text);
+}
+
+.heldChipExpired {
+  border-color: var(--pc-alert-error-border);
+  background: var(--pc-alert-error-bg);
+  color: var(--pc-alert-error-text);
+}
+
+.rowTitleButton {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--pc-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowTitleButton:hover,
+.rowTitleButton:focus-visible {
+  color: var(--pc-primary);
+  text-decoration: underline;
+}
+
+.rowTitleButton:focus-visible {
+  outline: 2px solid var(--pc-focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Product stock sheet ──────────────────────────────────────────────────── */
+
+.sheetHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.sheetTotals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.sheetTotal {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+}
+
+.sheetTotalLabel {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+}
+
+.sheetTotalValue {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.sheetTotalPrimary .sheetTotalValue {
+  color: var(--pc-primary);
+}
+
+.sheetSection {
+  margin-bottom: 1.1rem;
+}
+
+.sheetSectionTitle {
+  margin: 0 0 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.sheetList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+}
+
+.sheetListRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+  border-top: 1px solid var(--pc-border);
+  background: var(--pc-card-bg);
+}
+
+.sheetListRow:first-child {
+  border-top: none;
+}
+
+.sheetListMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.sheetListAside {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.sheetEmpty {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.sheetFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.sheetFooterLinks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-right: auto;
+}
+
+.sheetFooterLink {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  text-decoration: none;
+}
+
+.sheetFooterLink:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 520px) {
+  .sheetTotals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+

@@ -38,9 +38,13 @@ npm run prisma:seed -w api
 | API + web together | From **repo root**: `npm run dev` (Turbo runs both `apps/api` and `apps/web`) |
 | API only | `npm run dev -w api` |
 | Web only | `npm run dev -w web` (use together with API, or use root `npm run dev`) |
-| API typecheck | `npm run lint -w api` |
+| API typecheck | `npm run lint -w api` (also checks tenant scoping and that only `StockService` writes stock) |
 | API tests | `npm run test -w api` |
+| API integration tests (DB-backed) | `npm run test:integration -w api` — needs PostgreSQL; creates and migrates `<your database>_it`, never touches your own data |
+| Stock totals check | `npm run reconcile:stock -w api` — read-only; exits 1 if `batch_stock` disagrees with the ledger |
 | Web lint | `npm run lint -w web` |
+
+> After pulling the stock-foundation migration, run `npm run prisma:migrate -w api` (or `prisma migrate deploy`). It backfills batch totals and reservations from your existing data; `npm run reconcile:stock -w api` should then pass. Re-seeding also works.
 
 ### Windows and `next build`
 

@@ -1,3 +1,4 @@
+import { StockService } from "../inventory/stock/stock.service";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
@@ -64,6 +65,7 @@ describe("SalesService controlled checkout authority", () => {
       tax,
       pharmacistApproval as unknown as PharmacistApprovalService,
       { assertCanSell: jest.fn().mockResolvedValue(undefined) } as never,
+      new StockService(),
     );
   });
 

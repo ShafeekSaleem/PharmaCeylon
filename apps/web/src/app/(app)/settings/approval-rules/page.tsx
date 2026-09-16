@@ -3,14 +3,25 @@
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
 import { PageHeader, ActionButton, FormField, ToggleSwitch } from "@/components/ui";
-import { IconCheckCircle, IconLock } from "@/components/icons";
+import { IconCheckCircle, IconLock, IconUsers } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
 import {
+  fetchApprovalRoles,
   fetchTenantSettings,
   saveApprovalsSettings,
+  type ApprovalRoleOption,
   type TenantSettings,
 } from "../lib/tenant-settings";
+
+/** Shown if the role list can't be loaded, so the setting still reads sensibly. */
+const BUILT_IN_ROLES: ApprovalRoleOption[] = [
+  { key: "owner", name: "Owner", isSystem: true },
+  { key: "manager", name: "Manager", isSystem: true },
+  { key: "pharmacist", name: "Pharmacist", isSystem: true },
+  { key: "inventory_clerk", name: "Inventory Clerk", isSystem: true },
+  { key: "cashier", name: "Cashier", isSystem: true },
+];
 
 const DEFAULT_PO_THRESHOLD = 50000;
 const DEFAULT_RETURN_THRESHOLD = 5000;
@@ -20,6 +31,8 @@ export default function ApprovalRulesPage() {
   const canEdit = permissionKeys.includes("tenant.management");
 
   const [draft, setDraft] = useState<TenantSettings | null>(null);
+  const [roles, setRoles] = useState<ApprovalRoleOption[]>(BUILT_IN_ROLES);
+  const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +49,13 @@ export default function ApprovalRulesPage() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    fetchApprovalRoles()
+      .then((rows) => {
+        if (!cancelled && rows.length > 0) setRoles(rows);
+      })
+      .catch(() => {
+        // Read-only viewers can't list roles; the built-in list is enough to show the setting.
+      });
     return () => {
       cancelled = true;
     };
@@ -44,14 +64,17 @@ export default function ApprovalRulesPage() {
   async function handleSave() {
     if (!draft) return;
     setError(null);
+    setSaved(false);
     setSaving(true);
     try {
       const updated = await saveApprovalsSettings({
         approvalRequiredPurchaseOrderThreshold: draft.approvalRequiredPurchaseOrderThreshold,
         approvalRequiredForBranchTransfers: draft.approvalRequiredForBranchTransfers,
         approvalRequiredReturnThreshold: draft.approvalRequiredReturnThreshold,
+        selfApprovalRoleKeys: draft.selfApprovalRoleKeys,
       });
       setDraft(updated);
+      setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -63,9 +86,10 @@ export default function ApprovalRulesPage() {
     <div>
       <PageHeader
         title="Approval Rules"
-        description="Choose which workflows require manager or owner sign-off before they complete."
+        description="Choose which requests need a second person's approval, and who may approve their own."
       />
       {error ? <Alert variant="error">{error}</Alert> : null}
+      {saved ? <Alert variant="success">Approval rules saved.</Alert> : null}
 
       {loading || !draft ? (
         <p className={css.rowHint}>Loading…</p>
@@ -94,7 +118,9 @@ export default function ApprovalRulesPage() {
           <div className={css.rowItem}>
             <div style={{ flex: 1 }}>
               <div className={css.rowLabel}>Purchase orders over a threshold</div>
-              <div className={css.rowHint}>Requires manager or owner approval before the PO is sent to the supplier.</div>
+              <div className={css.rowHint}>
+                Orders at or above this value wait for someone who can approve purchase orders before they are issued.
+              </div>
               {draft.approvalRequiredPurchaseOrderThreshold != null ? (
                 <div style={{ marginTop: "0.5rem", maxWidth: 220 }}>
                   <FormField
@@ -133,7 +159,7 @@ export default function ApprovalRulesPage() {
             <div>
               <div className={css.rowLabel}>Branch stock transfers</div>
               <div className={css.rowHint}>
-                Requires the receiving branch&apos;s manager to confirm before stock ships.
+                Transfers wait for someone who can approve transfers at the sending branch before stock is reserved and shipped.
               </div>
             </div>
             <ToggleSwitch
@@ -149,7 +175,9 @@ export default function ApprovalRulesPage() {
           <div className={css.rowItem}>
             <div style={{ flex: 1 }}>
               <div className={css.rowLabel}>Customer returns over a threshold</div>
-              <div className={css.rowHint}>Requires manager approval before a refund is issued.</div>
+              <div className={css.rowHint}>
+                Returns at or above this value wait for someone who can approve returns.
+              </div>
               {draft.approvalRequiredReturnThreshold != null ? (
                 <div style={{ marginTop: "0.5rem", maxWidth: 220 }}>
                   <FormField
@@ -179,6 +207,65 @@ export default function ApprovalRulesPage() {
             />
           </div>
 
+        </div>
+      )}
+
+      {!loading && draft ? (
+        <div className={css.card} style={{ marginTop: "1rem" }}>
+          <div className={css.cardHead}>
+            <div>
+              <h2 className={css.cardTitle}>
+                <IconUsers size={16} /> Approving your own requests
+              </h2>
+              <p className={css.cardDesc}>
+                When someone raises a request that needs approval — a purchase order over the limit, a
+                transfer, a return, a stocktake count — can they approve it themselves? Roles switched on
+                here can. Everyone else needs a second person who holds the approve permission.
+              </p>
+            </div>
+          </div>
+
+          {roles.map((role) => {
+            const on = draft.selfApprovalRoleKeys.includes(role.key);
+            return (
+              <div key={role.key} className={css.rowItem}>
+                <div>
+                  <div className={css.rowLabel}>{role.name}</div>
+                  <div className={css.rowHint}>
+                    {on
+                      ? "May approve requests they raised"
+                      : "Needs someone else to approve their requests"}
+                    {role.isSystem ? "" : " · Custom role"}
+                  </div>
+                </div>
+                <ToggleSwitch
+                  checked={on}
+                  onChange={(value) =>
+                    setDraft((d) =>
+                      d
+                        ? {
+                            ...d,
+                            selfApprovalRoleKeys: value
+                              ? [...new Set([...d.selfApprovalRoleKeys, role.key])]
+                              : d.selfApprovalRoleKeys.filter((key) => key !== role.key),
+                          }
+                        : d,
+                    )
+                  }
+                  disabled={!canEdit}
+                  label={`${role.name} may approve their own requests`}
+                />
+              </div>
+            );
+          })}
+
+          {draft.selfApprovalRoleKeys.length === 0 ? (
+            <Alert variant="warning">
+              Nobody can approve their own requests. If one person runs this pharmacy alone, their orders
+              and transfers will wait with no one to approve them.
+            </Alert>
+          ) : null}
+
           {canEdit ? (
             <div className={css.saveRow}>
               <ActionButton onClick={handleSave} disabled={saving}>
@@ -187,7 +274,7 @@ export default function ApprovalRulesPage() {
             </div>
           ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

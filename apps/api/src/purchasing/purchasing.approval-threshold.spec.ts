@@ -53,7 +53,7 @@ describe("PurchasingService — purchase order approval threshold", () => {
       ),
     };
     audit = { log: jest.fn() } as unknown as AuditService;
-    service = new PurchasingService(prisma as never, audit);
+    service = new PurchasingService(prisma as never, audit, {} as never);
   });
 
   const create = (dto: Partial<CreatePurchaseOrderDto> = {}) =>

@@ -1,9 +1,11 @@
+import { StockService } from "../inventory/stock/stock.service";
 import { SalesService } from "./sales.service";
 
 describe("unreviewed expiry sale safety", () => {
   function setup(batch: unknown) {
     const prisma: any = {
       tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
+      tenant: { findUnique: jest.fn().mockResolvedValue({ timezone: "Asia/Colombo" }) },
       product: {
         findMany: jest
           .fn()
@@ -30,6 +32,7 @@ describe("unreviewed expiry sale safety", () => {
       { getVatRatePercent: () => 0 } as never,
       {} as never,
       { assertCanSell: async () => {} } as never,
+      new StockService(),
     );
     return { service, prisma };
   }

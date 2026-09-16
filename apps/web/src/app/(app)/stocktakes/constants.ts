@@ -61,17 +61,6 @@ export const LINE_FILTER_OPTIONS: {
 export const DEFAULT_NEAR_EXPIRY_DAYS = 90;
 export const NEAR_EXPIRY_PRESETS = [30, 60, 90, 180] as const;
 
-export const MOVEMENT_MODE_OPTIONS = [
-  {
-    value: "continue_and_reconcile",
-    label: "Continue operations and reconcile movements",
-  },
-  {
-    value: "freeze_transactions",
-    label: "Freeze stock transactions",
-  },
-] as const;
-
 export const CONDITION_OPTIONS = [
   { value: "saleable", label: "Saleable" },
   { value: "damaged", label: "Damaged" },

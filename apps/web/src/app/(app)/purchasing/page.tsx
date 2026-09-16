@@ -25,6 +25,7 @@ import {
   ActionButton,
   ActiveFilterBanner,
   DataTable,
+  DateRangeField,
   PageHeader,
   StatCard,
   StatusBadge,
@@ -639,38 +640,13 @@ function PurchasingContent() {
                 }
                 onChange={(value) => setBranchId(value)}
               />
-              <div
-                className={`${css.dateRange}${dateFrom || dateTo ? ` ${css.dateRangeFilled}` : ""}`}
-                role="group"
-                aria-label="Created date range"
-              >
-                <span className={css.dateRangeIcon} aria-hidden>
-                  <IconCalendar size={14} />
-                </span>
-                <div className={css.dateRangeFields}>
-                  <label className={css.dateRangeField}>
-                    <span className={css.dateRangeLabel}>From</span>
-                    <input
-                      type="date"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                      aria-label="Created from"
-                    />
-                  </label>
-                  <span className={css.dateRangeSep} aria-hidden>
-                    →
-                  </span>
-                  <label className={css.dateRangeField}>
-                    <span className={css.dateRangeLabel}>To</span>
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      aria-label="Created to"
-                    />
-                  </label>
-                </div>
-              </div>
+              <DateRangeField
+                label="Created date range"
+                from={dateFrom}
+                to={dateTo}
+                onFromChange={setDateFrom}
+                onToChange={setDateTo}
+              />
               <button
                 type="button"
                 className={`${css.periodChip}${isThisMonthPreset ? ` ${css.periodChipActive}` : ""}`}

@@ -8,7 +8,6 @@ import {
   GoodsReturnStatus,
   GoodsReturnType,
   Prisma,
-  RoleName,
   StockMovementType,
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -17,6 +16,8 @@ import { meetsApprovalThreshold } from "../common/approval-threshold.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
+import { StockService } from "../inventory/stock/stock.service";
+import { assertMayApprove, type ActorAccess } from "../security/access.service";
 import { assertSaleReturnableLines } from "../sales/sale-returnable";
 import { CreateReturnDto, ReturnLineDto } from "./dto/create-return.dto";
 import { UpdateReturnDto } from "./dto/update-return.dto";
@@ -43,10 +44,15 @@ export class ReturnsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly stock: StockService,
   ) {}
 
-  private isOwnerOrManager(roles: RoleName[]): boolean {
-    return roles.includes(RoleName.owner) || roles.includes(RoleName.manager);
+  /**
+   * May this person's submission count as its own approval? Only if they hold
+   * `returns.approve` and their role is allowed to approve its own requests.
+   */
+  private approvesOwn(access: ActorAccess): boolean {
+    return access.has("returns.approve") && access.canSelfApprove;
   }
 
   private async nextReturnNumber(tenantId: string, branchId: string): Promise<string> {
@@ -135,7 +141,7 @@ export class ReturnsService {
   }
 
   private resolveCreateStatus(
-    rolesAtBranch: RoleName[],
+    access: ActorAccess,
     submit: boolean | undefined,
     userId: string,
     /** Above the tenant ceiling the manager auto-approve path is closed off —
@@ -151,8 +157,7 @@ export class ReturnsService {
         autoApproved: false,
       };
     }
-    const isMgr = this.isOwnerOrManager(rolesAtBranch);
-    if (isMgr) {
+    if (this.approvesOwn(access)) {
       if (submit === true) {
         return {
           status: GoodsReturnStatus.awaiting_logistics,
@@ -313,10 +318,10 @@ export class ReturnsService {
   async create(
     tenantId: string,
     branchId: string,
-    userId: string,
-    rolesAtBranch: RoleName[],
+    access: ActorAccess,
     dto: CreateReturnDto,
   ) {
+    const userId = access.userId;
     this.validateTypeFields(dto.type, dto);
     await this.validateBatches(tenantId, branchId, dto.items);
 
@@ -352,7 +357,7 @@ export class ReturnsService {
       amount,
     );
     const resolved = this.resolveCreateStatus(
-      rolesAtBranch,
+      access,
       dto.submit,
       userId,
       forceApproval,
@@ -525,10 +530,10 @@ export class ReturnsService {
   async submit(
     tenantId: string,
     branchId: string,
-    userId: string,
+    access: ActorAccess,
     id: string,
-    rolesAtBranch: RoleName[],
   ) {
+    const userId = access.userId;
     const existing = await this.getOne(tenantId, branchId, id);
     if (existing.status !== GoodsReturnStatus.draft) {
       throw new BadRequestException("Only draft returns can be submitted");
@@ -541,7 +546,7 @@ export class ReturnsService {
       existing.type,
       existing.amount,
     );
-    const isMgr = !forceApproval && this.isOwnerOrManager(rolesAtBranch);
+    const isMgr = !forceApproval && this.approvesOwn(access);
     const nextStatus = isMgr
       ? GoodsReturnStatus.awaiting_logistics
       : GoodsReturnStatus.pending_approval;
@@ -578,13 +583,12 @@ export class ReturnsService {
   async approve(
     tenantId: string,
     branchId: string,
-    userId: string,
+    access: ActorAccess,
     id: string,
-    rolesAtBranch: RoleName[],
   ) {
-    if (!this.isOwnerOrManager(rolesAtBranch)) {
-      throw new ForbiddenException("Insufficient role to approve return");
-    }
+    const userId = access.userId;
+    const existing = await this.getOne(tenantId, branchId, id);
+    assertMayApprove(access, [existing.requestedBy], "return");
 
     const claimed = await this.prisma.goodsReturn.updateMany({
       where: {
@@ -619,11 +623,7 @@ export class ReturnsService {
     branchId: string,
     userId: string,
     id: string,
-    rolesAtBranch: RoleName[],
   ) {
-    if (!this.isOwnerOrManager(rolesAtBranch)) {
-      throw new ForbiddenException("Insufficient role to reject return");
-    }
 
     const claimed = await this.prisma.goodsReturn.updateMany({
       where: {
@@ -656,10 +656,10 @@ export class ReturnsService {
   async markLogistics(
     tenantId: string,
     branchId: string,
-    userId: string,
+    access: ActorAccess,
     id: string,
-    rolesAtBranch: RoleName[],
   ) {
+    const userId = access.userId;
     const claimed = await this.prisma.goodsReturn.updateMany({
       where: {
         id,
@@ -683,7 +683,7 @@ export class ReturnsService {
       eventName: "return.mark_logistics",
       entityName: "goods_return",
       entityId: id,
-      payload: { roles: rolesAtBranch },
+      payload: { roles: access.roleKeys },
     });
 
     return this.getOne(tenantId, branchId, id);
@@ -773,47 +773,39 @@ export class ReturnsService {
           if (!line.batchId) {
             throw new BadRequestException("batchId is required on all items to complete a return");
           }
-
-          if (row.type === GoodsReturnType.supplier) {
-            const agg = await tx.stockLedger.aggregate({
-              where: { tenantId, branchId, batchId: line.batchId },
-              _sum: { qtyDelta: true },
-            });
-            const available = agg._sum.qtyDelta ?? 0;
-            if (available < line.qty) {
-              throw new BadRequestException(
-                `Insufficient stock for supplier return line (need ${line.qty}, have ${available})`,
-              );
-            }
-
-            await tx.stockLedger.create({
-              data: {
-                tenantId,
-                branchId,
-                productId: line.productId,
-                batchId: line.batchId,
-                movementType: StockMovementType.supplier_return_out,
-                qtyDelta: -line.qty,
-                referenceType: "goods_return",
-                referenceId: row.id,
-                createdBy: userId,
-              },
-            });
-          } else {
-            await tx.stockLedger.create({
-              data: {
-                tenantId,
-                branchId,
-                productId: line.productId,
-                batchId: line.batchId,
-                movementType: StockMovementType.customer_return_in,
-                qtyDelta: line.qty,
-                referenceType: "goods_return",
-                referenceId: row.id,
-                createdBy: userId,
-              },
-            });
-          }
+        }
+        const stockCtx = {
+          tenantId,
+          branchId,
+          userId,
+          referenceType: "goods_return",
+          referenceId: row.id,
+        };
+        if (row.type === GoodsReturnType.supplier) {
+          // Stock going back to a supplier is usually the stock already held back — expired,
+          // damaged, recalled — so quarantined units are sent before sellable ones.
+          await this.stock.issue(
+            tx,
+            stockCtx,
+            row.items.map((line) => ({
+              productId: line.productId,
+              batchId: line.batchId!,
+              qty: line.qty,
+              movementType: StockMovementType.supplier_return_out,
+              from: "quarantine_first" as const,
+            })),
+          );
+        } else {
+          await this.stock.receive(
+            tx,
+            stockCtx,
+            row.items.map((line) => ({
+              productId: line.productId,
+              batchId: line.batchId!,
+              qty: line.qty,
+              movementType: StockMovementType.customer_return_in,
+            })),
+          );
         }
 
         if (idemKey) {
@@ -850,10 +842,10 @@ export class ReturnsService {
   async cancel(
     tenantId: string,
     branchId: string,
-    userId: string,
+    access: ActorAccess,
     id: string,
-    rolesAtBranch: RoleName[],
   ) {
+    const userId = access.userId;
     const existing = await this.getOne(tenantId, branchId, id);
     if (
       existing.status !== GoodsReturnStatus.draft &&
@@ -865,8 +857,10 @@ export class ReturnsService {
     }
 
     const isRequester = existing.requestedBy === userId;
-    if (!isRequester && !this.isOwnerOrManager(rolesAtBranch)) {
-      throw new ForbiddenException("Insufficient role to cancel return");
+    if (!isRequester && !access.has("returns.approve")) {
+      throw new ForbiddenException(
+        "Only the person who raised this return, or an approver, can cancel it",
+      );
     }
 
     const claimed = await this.prisma.goodsReturn.updateMany({

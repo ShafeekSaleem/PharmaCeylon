@@ -35,6 +35,31 @@
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* ── Sheet: full-height panel on the right edge ── */
+.overlaySheet {
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
+}
+
+.sheet {
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: var(--pc-radius-md) 0 0 var(--pc-radius-md);
+  animation: slideInRight 0.2s ease;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@media (max-width: 640px) {
+  .sheet {
+    border-radius: 0;
+  }
+}
+
 .sm { width: 100%; max-width: 400px; }
 .md { width: 100%; max-width: 560px; }
 .lg { width: 100%; max-width: 720px; }

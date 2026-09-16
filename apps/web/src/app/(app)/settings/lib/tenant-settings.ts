@@ -66,6 +66,8 @@ export type TenantSettings = {
   approvalRequiredPurchaseOrderThreshold: number | null;
   approvalRequiredForBranchTransfers: boolean;
   approvalRequiredReturnThreshold: number | null;
+  /** Role keys whose holders may approve requests they raised themselves. */
+  selfApprovalRoleKeys: string[];
 
   defaultReportPeriod: string;
   showFootfallAnalytics: boolean;
@@ -102,6 +104,13 @@ export const saveTransfersReturnsSettings = (dto: Partial<TenantSettings>) =>
   patch("transfers-returns", dto);
 export const saveStocktakeSettings = (dto: Partial<TenantSettings>) => patch("stocktake", dto);
 export const saveAlertsSettings = (dto: Partial<TenantSettings>) => patch("alerts", dto);
+export type ApprovalRoleOption = { key: string; name: string; isSystem: boolean };
+
+/** Every role in the tenant, for choosing who may approve their own requests. */
+export function fetchApprovalRoles(): Promise<ApprovalRoleOption[]> {
+  return apiJson<ApprovalRoleOption[]>("/tenant/settings/approval-roles");
+}
+
 export const saveApprovalsSettings = (dto: Partial<TenantSettings>) => patch("approvals", dto);
 export const saveInsightsSettings = (dto: Partial<TenantSettings>) => patch("insights", dto);
 export const saveSecuritySettings = (dto: Partial<TenantSettings>) => patch("security", dto);

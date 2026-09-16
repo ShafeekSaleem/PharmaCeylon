@@ -106,6 +106,9 @@ enum StockMovementType {
   supplier_return_out
   transfer_out
   transfer_in
+  /// Historical only. Reservations used to be written as ledger movements, which took reserved
+  /// units off "on hand" while they were still on the shelf. They now live in
+  /// `StockReservation`; these two values stay so old rows keep their meaning.
   transfer_reserve_out
   transfer_reserve_release
   adjustment_in
@@ -120,6 +123,20 @@ enum StockMovementType {
   quarantine_release
   stocktake_in
   stocktake_out
+}
+
+/// Which pile a ledger row moves units in or out of. On hand is the sum of every row regardless
+/// of bucket; quarantined is the sum of `quarantine` rows. Quarantining is therefore a pair of
+/// rows that nets to zero on hand — the units never left the branch, they stopped being sellable.
+enum StockBucket {
+  sellable
+  quarantine
+}
+
+enum StockReservationStatus {
+  active
+  released
+  consumed
 }
 
 enum StocktakeStatus {
@@ -583,6 +600,11 @@ model TenantSettings {
   approvalRequiredPurchaseOrderThreshold Decimal? @map("approval_required_po_threshold") @db.Decimal(14, 2)
   approvalRequiredForBranchTransfers     Boolean  @default(true) @map("approval_required_for_branch_transfers")
   approvalRequiredReturnThreshold        Decimal? @map("approval_required_return_threshold") @db.Decimal(14, 2)
+  /// Role keys (`Role.key`: a built-in RoleName or a custom role's slug) whose holders may approve
+  /// a request they raised themselves. Everyone else needs a second person with the approve
+  /// permission. Owners and managers by default: a small pharmacy's senior staff shouldn't be
+  /// blocked, while a clerk's own stock write-off or transfer still gets a second pair of eyes.
+  selfApprovalRoleKeys                   String[] @default(["owner", "manager"]) @map("self_approval_role_keys")
 
   // ── Insights & reports ──
   defaultReportPeriod       String  @default("this_month") @map("default_report_period")
@@ -1359,7 +1381,11 @@ model Batch {
   expiryDate        DateTime  @map("expiry_date") @db.Date
   costPrice         Decimal   @map("cost_price") @db.Decimal(12, 2)
   sellingPrice      Decimal   @map("selling_price") @db.Decimal(12, 2)
+  /// Derived by `StockService`: true when every unit on hand is in quarantine, i.e. the whole
+  /// batch is held (a recall, an expired lot). Part of a batch can be quarantined without this
+  /// flag — sale and transfer checks read `BatchStock` quantities, not this.
   isQuarantined     Boolean   @default(false) @map("is_quarantined")
+  /// When units were last moved into quarantine, and why. Cleared once nothing is held.
   quarantinedAt     DateTime? @map("quarantined_at")
   quarantineReason  String?   @map("quarantine_reason") @db.VarChar(512)
   /// Direct supplier reference, set at batch-creation time (goods receipt: from the PO's
@@ -1389,6 +1415,8 @@ model Batch {
   returnItems            GoodsReturnItem[]
   stocktakeLines         StocktakeLine[]
   stocktakeSnapshotLines StocktakeSnapshotLine[]
+  stock                  BatchStock?
+  reservations           StockReservation[]
 
   @@unique([tenantId, branchId, productId, batchNo])
   @@index([tenantId, branchId, productId])
@@ -1638,9 +1666,13 @@ model StockLedger {
   batchId       String?           @map("batch_id") @db.Uuid
   movementType  StockMovementType @map("movement_type")
   qtyDelta      Int               @map("qty_delta")
+  bucket        StockBucket       @default(sellable)
   referenceType String            @map("reference_type")
   referenceId   String            @map("reference_id") @db.Uuid
   reason        String?           @db.VarChar(512)
+  /// Machine-readable reason for exceptional movements (quarantine, write-off), alongside the
+  /// free-text `reason` a person typed. See `inventory/stock/stock-reasons.ts`.
+  reasonCode    String?           @map("reason_code") @db.VarChar(32)
   occurredAt    DateTime          @default(now()) @map("occurred_at")
   createdBy     String?           @map("created_by") @db.Uuid
   createdAt     DateTime          @default(now()) @map("created_at")
@@ -1651,7 +1683,59 @@ model StockLedger {
   actor   AppUser? @relation("StockLedgerActor", fields: [createdBy], references: [id])
 
   @@index([tenantId, branchId, productId, occurredAt(sort: Desc)])
+  @@index([tenantId, branchId, batchId])
+  @@index([tenantId, branchId, occurredAt(sort: Desc)])
+  @@index([tenantId, referenceType, referenceId])
   @@map("stock_ledger")
+}
+
+/// Running quantities for one batch, kept by `StockService` in the same transaction as every
+/// ledger write. The ledger stays the permanent record and this is a projection of it: summing
+/// the whole ledger on every stock check was both slow and, with no lock, unsafe under
+/// concurrent sales. `scripts/reconcile-stock.mjs` proves the two still agree.
+model BatchStock {
+  batchId        String   @id @map("batch_id") @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  productId      String   @map("product_id") @db.Uuid
+  /// Physically at the branch: sellable plus quarantined. Sum of every ledger row for the batch.
+  onHandQty      Int      @default(0) @map("on_hand_qty")
+  /// Held back from sale and transfer. Sum of the batch's `quarantine` bucket rows.
+  quarantinedQty Int      @default(0) @map("quarantined_qty")
+  /// Set aside for approved documents (transfers). Sum of active `StockReservation` rows.
+  reservedQty    Int      @default(0) @map("reserved_qty")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  batch Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, branchId, productId])
+  @@map("batch_stock")
+}
+
+/// Stock promised to a document that has not moved yet — an approved transfer waiting to ship.
+/// Reserved units are still on hand, so they are counted by a stocktake and valued in stock,
+/// but they are no longer available to sell or promise twice.
+model StockReservation {
+  id           String                 @id @default(uuid()) @db.Uuid
+  tenantId     String                 @map("tenant_id") @db.Uuid
+  branchId     String                 @map("branch_id") @db.Uuid
+  productId    String                 @map("product_id") @db.Uuid
+  batchId      String                 @map("batch_id") @db.Uuid
+  qty          Int
+  sourceType   String                 @map("source_type") @db.VarChar(32)
+  sourceId     String                 @map("source_id") @db.Uuid
+  sourceLineId String?                @map("source_line_id") @db.Uuid
+  status       StockReservationStatus @default(active)
+  createdBy    String?                @map("created_by") @db.Uuid
+  createdAt    DateTime               @default(now()) @map("created_at")
+  releasedAt   DateTime?              @map("released_at")
+  consumedAt   DateTime?              @map("consumed_at")
+
+  batch Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, branchId, batchId, status])
+  @@index([tenantId, sourceType, sourceId])
+  @@map("stock_reservation")
 }
 
 model Transfer {
@@ -1949,6 +2033,8 @@ model AuditEvent {
   branch Branch?  @relation(fields: [branchId], references: [id])
   actor  AppUser? @relation("AuditActor", fields: [actorUserId], references: [id])
 
+  @@index([tenantId, entityName, entityId, createdAt])
+  @@index([tenantId, createdAt(sort: Desc)])
   @@map("audit_event")
 }
 

@@ -16,8 +16,11 @@ export function useInventoryBatches(opts: {
    * only way to find them after a migration import.
    */
   needsExpiryReview?: boolean | null;
+  /** When true, only batches holding quarantined units. */
+  quarantined?: boolean | null;
   includeZero?: boolean;
   controlled?: "controlled" | "regular" | null;
+  /** Batch number, product name or SKU — matched by the API. */
   q?: string;
 }) {
   const { branchId } = useAuth();
@@ -42,22 +45,12 @@ export function useInventoryBatches(opts: {
       }
       if (opts.expired === true) params.set("expired", "true");
       if (opts.needsExpiryReview === true) params.set("needsExpiryReview", "true");
+      if (opts.quarantined === true) params.set("quarantined", "true");
       if (opts.includeZero === false) params.set("includeZero", "false");
       if (opts.controlled) params.set("controlled", opts.controlled);
+      if (opts.q?.trim()) params.set("q", opts.q.trim());
       const qs = params.toString();
-      let data = await apiJson<BatchRow[]>(
-        `/inventory/batches${qs ? `?${qs}` : ""}`,
-      );
-      const q = opts.q?.trim().toLowerCase() ?? "";
-      if (q) {
-        data = data.filter(
-          (b) =>
-            b.batchNo.toLowerCase().includes(q) ||
-            b.product.sku.toLowerCase().includes(q) ||
-            b.product.name.toLowerCase().includes(q),
-        );
-      }
-      setRows(data);
+      setRows(await apiJson<BatchRow[]>(`/inventory/batches${qs ? `?${qs}` : ""}`));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load batches");
       setRows([]);
@@ -70,6 +63,7 @@ export function useInventoryBatches(opts: {
     opts.nearExpiryDays,
     opts.expired,
     opts.needsExpiryReview,
+    opts.quarantined,
     opts.includeZero,
     opts.controlled,
     opts.q,

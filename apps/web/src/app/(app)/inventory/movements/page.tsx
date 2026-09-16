@@ -1,61 +1,66 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { IconPlus } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
-import { RoleButton } from "@/components/role-access";
-import { ActionButton, PageHeader } from "@/components/ui";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
-import { useAuth } from "@/lib/use-auth";
+import {
+  ActionButton,
+  ActiveFilterBanner,
+  DateRangeField,
+  PageHeader,
+  type FilterPill,
+} from "@/components/ui";
 import { AdjustmentModal } from "../components/adjustment-modal";
-import { MovementsTable } from "../components/movements-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
-import { useInventoryMovements } from "../hooks/use-inventory-movements";
+import { InventorySubnav } from "../components/inventory-subnav";
+import { MovementsTable } from "../components/movements-table";
+import { useInventoryAccess } from "../hooks/use-inventory-access";
+import { useInventoryMovements, useMovementActors } from "../hooks/use-inventory-movements";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
 import type { MovementCategory } from "../types";
-import { hasInventoryWriteAccess } from "../utils";
-import { InventorySubnav } from "../components/inventory-subnav";
 
 const PAGE_SIZE = 15;
 
-const CATEGORY_OPTIONS = [
+const CATEGORY_OPTIONS: { value: MovementCategory; label: string }[] = [
   { value: "all", label: "All types" },
-  { value: "adjustments", label: "Adjustments" },
-  { value: "sales", label: "Sales" },
-  { value: "purchases", label: "Purchases" },
+  { value: "sales", label: "Sales, voids & refunds" },
+  { value: "purchases", label: "Goods received" },
   { value: "transfers", label: "Transfers" },
   { value: "returns", label: "Returns" },
-] as const;
+  { value: "adjustments", label: "Adjustments" },
+  { value: "stocktakes", label: "Stocktakes" },
+  { value: "quarantine", label: "Quarantine & release" },
+  { value: "opening", label: "Opening stock" },
+];
 
 function MovementsContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, branchId } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user, branchId);
+  const access = useInventoryAccess();
+  const canAdjust = access.canAdjustIn || access.canWriteOff;
+
   const productId = searchParams.get("productId");
-  const initialCategory = (searchParams.get("category") as MovementCategory | null) ?? "all";
-  const [category, setCategory] = useState<MovementCategory>(
-    CATEGORY_OPTIONS.some((o) => o.value === initialCategory) ? initialCategory : "all",
-  );
+  const batchId = searchParams.get("batchId");
+  const category = ((): MovementCategory => {
+    const value = searchParams.get("category");
+    return CATEGORY_OPTIONS.some((o) => o.value === value) ? (value as MovementCategory) : "all";
+  })();
+  const userId = searchParams.get("userId");
+  const from = searchParams.get("from");
+  const to = searchParams.get("to");
+
   const [page, setPage] = useState(1);
   const [productSearch, setProductSearch] = useState("");
   const [debouncedProductSearch, setDebouncedProductSearch] = useState("");
-  const stock = useInventoryStock({
-    q: debouncedProductSearch,
-    page: 1,
-    pageSize: 50,
-  });
-  const selectedStock = useInventoryStock({
-    productId: productId || null,
-    page: 1,
-    pageSize: 1,
-  });
+  const stock = useInventoryStock({ q: debouncedProductSearch, page: 1, pageSize: 50 });
+  const selectedStock = useInventoryStock({ productId: productId || null, page: 1, pageSize: 1 });
+  const actors = useMovementActors();
   const [adjustmentOpen, setAdjustmentOpen] = useState(false);
-  const [adjustmentSuccess, setAdjustmentSuccess] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedProductSearch(productSearch), 250);
@@ -63,28 +68,19 @@ function MovementsContent() {
   }, [productSearch]);
 
   useEffect(() => {
-    if (!adjustmentSuccess) return;
-    const t = setTimeout(() => setAdjustmentSuccess(null), 6000);
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 6000);
     return () => clearTimeout(t);
-  }, [adjustmentSuccess]);
+  }, [notice]);
 
-  const setProductFilter = useCallback(
-    (id: string) => {
+  /** Filters live in the URL, so a filtered history can be shared or bookmarked. */
+  const setParam = useCallback(
+    (updates: Record<string, string | null>) => {
       const next = new URLSearchParams(searchParams.toString());
-      if (id) next.set("productId", id);
-      else next.delete("productId");
-      const qs = next.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname);
-    },
-    [pathname, router, searchParams],
-  );
-
-  const setCategoryFilter = useCallback(
-    (value: MovementCategory) => {
-      setCategory(value);
-      const next = new URLSearchParams(searchParams.toString());
-      if (value && value !== "all") next.set("category", value);
-      else next.delete("category");
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) next.set(key, value);
+        else next.delete(key);
+      }
       const qs = next.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname);
     },
@@ -93,19 +89,46 @@ function MovementsContent() {
 
   useEffect(() => {
     setPage(1);
-  }, [productId, category]);
+  }, [productId, batchId, category, userId, from, to]);
 
   const movements = useInventoryMovements({
     productId,
+    batchId,
     category,
+    userId,
+    from,
+    to,
     skip: (page - 1) * PAGE_SIZE,
     take: PAGE_SIZE,
   });
 
-  const emptyDescription =
-    category === "adjustments"
-      ? undefined
-      : "Try another product or movement type filter";
+  const productOptions = useMemo(
+    () => [
+      ...new Map(
+        [...selectedStock.rows, ...stock.rows].map((row) => [
+          row.productId,
+          { value: row.productId, label: `${row.product.sku} — ${row.product.name}` },
+        ]),
+      ).values(),
+    ],
+    [selectedStock.rows, stock.rows],
+  );
+  const productName = selectedStock.rows.find((row) => row.productId === productId)?.product.name;
+  const batchNo = movements.rows.find((row) => row.batchId === batchId)?.batchNo;
+
+  const filtersActive = Boolean(productId || batchId || category !== "all" || userId || from || to);
+  const pills: FilterPill[] = [
+    ...(productId ? [{ key: "product", label: `Product: ${productName ?? "Selected"}` }] : []),
+    ...(batchId ? [{ key: "batch", label: `Batch: ${batchNo ?? "Selected"}` }] : []),
+    ...(category !== "all"
+      ? [{ key: "type", label: CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? category }]
+      : []),
+    ...(userId
+      ? [{ key: "user", label: `User: ${actors.find((a) => a.id === userId)?.fullName ?? "Selected"}` }]
+      : []),
+    ...(from ? [{ key: "from", label: `From ${from}` }] : []),
+    ...(to ? [{ key: "to", label: `To ${to}` }] : []),
+  ];
 
   return (
     <>
@@ -114,12 +137,12 @@ function MovementsContent() {
       <PageHeader
         subtitleOnly
         floatingActions
-        description="Full ledger of stock changes at this branch — sales, receipts, transfers, adjustments, and returns."
+        description="Every stock change at this branch — sales, receipts, transfers, returns, stocktakes, adjustments and quarantine."
         actions={
-          canWrite ? (
+          canAdjust ? (
             <ActionButton
               icon={<IconPlus size={16} />}
-              tooltip="Post a stock quantity correction"
+              tooltip="Add stock or write stock off on a batch"
               onClick={() => setAdjustmentOpen(true)}
             >
               New adjustment
@@ -130,15 +153,11 @@ function MovementsContent() {
 
       <InventorySubnav />
 
-      {adjustmentSuccess && <Alert variant="success">{adjustmentSuccess}</Alert>}
+      {notice && <Alert variant="success">{notice}</Alert>}
 
       {!movements.hasBranch && (
-        <div className={css.branchNotice}>
-          Select a branch in the header to view movement history.
-        </div>
+        <div className={css.branchNotice}>Select a branch in the header to view movement history.</div>
       )}
-
-      {movements.error && <Alert variant="error">{movements.error}</Alert>}
 
       {movements.hasBranch && (
         <>
@@ -149,21 +168,11 @@ function MovementsContent() {
                 value={productId ?? ""}
                 placeholder="All products"
                 allowDeselect
-                options={[
-                  ...new Map(
-                    [...selectedStock.rows, ...stock.rows].map((row) => [
-                      row.productId,
-                      {
-                        value: row.productId,
-                        label: `${row.product.sku} — ${row.product.name}`,
-                      },
-                    ]),
-                  ).values(),
-                ]}
+                options={productOptions}
                 searchable
                 searchPlaceholder="Search by product or SKU…"
                 onSearchChange={setProductSearch}
-                onChange={setProductFilter}
+                onChange={(id) => setParam({ productId: id || null, batchId: null })}
                 disabled={stock.loading && selectedStock.loading}
               />
             </div>
@@ -171,10 +180,44 @@ function MovementsContent() {
               label="Movement type"
               value={category}
               options={CATEGORY_OPTIONS}
-              onChange={(value) => setCategoryFilter(value as MovementCategory)}
-              disabled={movements.loading}
+              onChange={(value) => setParam({ category: value === "all" ? null : value })}
+            />
+            <InventoryFilterSelect
+              label="User"
+              value={userId ?? ""}
+              placeholder="Anyone"
+              allowDeselect
+              options={actors.map((actor) => ({ value: actor.id, label: actor.fullName }))}
+              onChange={(value) => setParam({ userId: value || null })}
+            />
+            <DateRangeField
+              label="Movement dates"
+              size="lg"
+              from={from ?? ""}
+              to={to ?? ""}
+              onFromChange={(value) => setParam({ from: value || null })}
+              onToChange={(value) => setParam({ to: value || null })}
             />
           </div>
+
+          {movements.error && (
+            <Alert variant="error">
+              {movements.error}{" "}
+              <button type="button" className={css.rowTitleButton} onClick={() => movements.reload()}>
+                Try again
+              </button>
+            </Alert>
+          )}
+
+          <ActiveFilterBanner
+            active={filtersActive}
+            summary={`Filtered movements · ${movements.total} result${movements.total === 1 ? "" : "s"}`}
+            pills={pills}
+            onClear={() =>
+              setParam({ productId: null, batchId: null, category: null, userId: null, from: null, to: null })
+            }
+            clearTooltip="Show every movement at this branch"
+          />
 
           {!movements.loading && movements.total > 0 && (
             <div className={css.movementSummary} aria-label="Movement totals for current filters">
@@ -185,8 +228,7 @@ function MovementsContent() {
                 <span className={css.movementSummaryIn}>+{movements.summary.unitsIn}</span> units in
               </span>
               <span>
-                <span className={css.movementSummaryOut}>−{movements.summary.unitsOut}</span> units
-                out
+                <span className={css.movementSummaryOut}>−{movements.summary.unitsOut}</span> units out
               </span>
               <span>
                 Net{" "}
@@ -202,46 +244,26 @@ function MovementsContent() {
                 </span>{" "}
                 units
               </span>
+              {!movements.balanceAvailable && (productId || batchId) && (
+                <span className={css.productMeta}>
+                  Clear the type, user and date filters to see the running balance.
+                </span>
+              )}
             </div>
           )}
 
-          {category === "adjustments" &&
-          !movements.loading &&
-          movements.rows.length === 0 ? (
-            <div className={css.empty}>
-              <p>No stock movements match your filters.</p>
-              <p>
-                <RoleButton
-                  roles={INVENTORY_WRITE_ROLES}
-                  permissions={["inventory.manage"]}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    color: "var(--pc-primary)",
-                    cursor: "pointer",
-                    font: "inherit",
-                    textDecoration: "underline",
-                  }}
-                  onClick={() => setAdjustmentOpen(true)}
-                >
-                  Post a new adjustment
-                </RoleButton>{" "}
-                to see it appear here.
-              </p>
-            </div>
-          ) : (
-            <MovementsTable
-              rows={movements.rows}
-              total={movements.total}
-              loading={movements.loading}
-              page={page}
-              pageSize={PAGE_SIZE}
-              productId={productId}
-              onPageChange={setPage}
-              emptyDescription={emptyDescription}
-            />
-          )}
+          <MovementsTable
+            rows={movements.rows}
+            total={movements.total}
+            loading={movements.loading}
+            page={page}
+            pageSize={PAGE_SIZE}
+            showProduct={!productId}
+            showBalance={movements.balanceAvailable}
+            onPageChange={setPage}
+            emptyTitle={filtersActive ? "No stock movements match your filters" : "No stock has moved at this branch yet"}
+            emptyDescription={filtersActive ? "Try another product, type, user or date range" : undefined}
+          />
         </>
       )}
 
@@ -249,9 +271,10 @@ function MovementsContent() {
         open={adjustmentOpen}
         onClose={() => setAdjustmentOpen(false)}
         initialProductId={productId ?? ""}
+        initialBatchId={batchId ?? ""}
         onSuccess={(message) => {
-          setAdjustmentSuccess(message);
-          void movements.reload();
+          setNotice(message);
+          movements.reload();
         }}
       />
     </>

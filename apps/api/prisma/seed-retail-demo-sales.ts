@@ -27,7 +27,7 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
-import { daysAgo, seedSale } from "./seed-helpers";
+import { daysAgo, seedSale, syncSeedStock } from "./seed-helpers";
 import { DEMO_PRODUCTS, DEPARTMENT_SALES_PROFILE, departmentKeyOf } from "./seed-retail-demo-products";
 
 /** Matches seed-demo-ops.ts' HISTORY_DAYS so both halves of the demo cover the same overall
@@ -104,6 +104,7 @@ export async function seedRetailDemoSales(prisma: PrismaClient, tenantId: string
     }
   }
 
+  await syncSeedStock(prisma, tenantId);
   console.log(`[${tenantCode}] retail demo sales: ${created} sales created, ${skipped} already existed`);
 }
 

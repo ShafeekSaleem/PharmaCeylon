@@ -82,6 +82,49 @@ Configured in Settings → Approval Rules and stored on `TenantSettings`. **The 
 - Return thresholds cover **customer** returns only, matching the setting's own wording; supplier returns follow the supplier workflow.
 - `purchase_order.created` audit payloads carry `orderValue` and `approvalForcedByThreshold`, so a reviewer can tell a threshold trip from a voluntary submission.
 
+### Approving your own requests
+
+`TenantSettings.selfApprovalRoleKeys` (Settings → Approval Rules; `PATCH /tenant/settings/approvals`, role list from `GET /tenant/settings/approval-roles`) lists the `Role.key`s whose holders may approve a document they raised. Default `["owner", "manager"]`. Unknown keys are rejected with **400**.
+
+| Document | "Raised by" | Where it's checked |
+| --- | --- | --- |
+| Purchase order | `createdBy` | `POST /purchasing/purchase-orders/:id/approve` |
+| Transfer | `requestedBy` | `POST /transfers/:id/approve`; also decides whether a new transfer is approved on creation |
+| Return | `requestedBy` | `POST /returns/:id/approve`; also decides the submit/create auto-approve |
+| Stocktake | creator and everyone who entered a count | `POST /stocktakes/:id/approve` |
+
+Approving your own request without the setting returns **403** ("You raised this …"). Approving someone else's needs only the approve permission. Self-approvals are marked `selfApproved: true` in the audit payload.
+
+## Inventory and stock quantities
+
+Stock changes only through the stock service, under a row lock; every endpoint that moves stock refuses a change that would take more than is available (**400**, "Only N available on batch …").
+
+| Field | Meaning |
+| --- | --- |
+| `qtyOnHand` | Every unit physically at the branch, held or not |
+| `quarantinedQty` | Held back from sale and transfer |
+| `reservedQty` | Promised to an approved transfer that hasn't shipped |
+| `availableQty` | Can be sold or transferred now: on hand − quarantined − reserved, and `0` for expired or unconfirmed-expiry batches |
+
+Stock status (`ok` / `low` / `out`) is computed from **available**.
+
+| Endpoint | Permission | Notes |
+| --- | --- | --- |
+| `GET /inventory/stock-by-product` | `inventory.view` | Adds `availableQty`, `quarantinedQty`, `reservedQty`, `expiredQty`, `expiredBatchCount`, `expiryReviewBatchCount`. New query: `attention=expired\|near_expiry\|quarantined\|reserved\|expiry_review`, `sort=name\|available\|onHand`, `dir=asc\|desc`. |
+| `GET /inventory/batches` | `inventory.view` | Per-batch quantities as above; `q` searches batch no / product / SKU. `costPrice` is **null** without `inventory.view_cost`. |
+| `GET /inventory/products/:productId/stock` | `inventory.view` | Totals, batches, reservations, incoming transfers, open PO quantity, other branches (branches the caller works at; owners see all), recent movements. |
+| `GET /inventory/summary` | `inventory.view` | Adds `availableUnits`, `quarantinedUnits`, `reservedUnits`, `expiredUnits`, `expiryReview`, `incomingTransfers`. `stockValue` is **null** without `inventory.view_cost`. |
+| `GET /inventory/movements` | `inventory.view` | Filters `productId`, `batchId`, `category` (adds `stocktakes`, `opening`, `quarantine`), `userId`, `from`/`to` (tenant-local dates), `referenceType`/`referenceId`. Quarantine moves appear once with `qtyDelta: 0` and a signed `quarantineDelta`; legacy reservation rows are hidden. `balanceAvailable` says whether before/after balances are meaningful (one product or batch, no other filters). |
+| `GET /inventory/movement-actors` | `inventory.view` | Users who moved stock at the branch in the last year. |
+| `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | Body `{ qty?, reasonCode: expired\|damaged\|recall\|inspection\|other, reason? }`. `qty` defaults to everything not already held or reserved; `reason` required for `other`. |
+| `POST /inventory/batches/:id/release-quarantine` | `inventory.release_quarantine` | Body `{ qty?, reason? }`. Refused for expired batches. |
+| `POST /inventory/quarantine-expired` | `inventory.manage_bulk` | Holds every sellable unit on expired batches. Returns `{ quarantined, units, batchIds }`. |
+| `POST /inventory/adjustments` | `inventory.manage` (increase) / `inventory.write_off` (decrease) | Decreases require `reason`; `fromQuarantine: true` writes off held units. |
+
+`POST /inventory/customer-returns` and `POST /inventory/supplier-returns` (which answered 410) have been removed, with the `inventory.customer_returns` permission. Use POS refunds and `POST /returns`.
+
+**Goods receipt** (`POST /purchasing/purchase-orders/receive`) now refuses a received date in the future and any line whose expiry is on or before the received date. Auto-created supplier invoice numbers include the branch code (`SINV-<BRANCH>-<seq>`) so each branch's first delivery no longer collides.
+
 ## Pricing / tax (Sri Lanka–oriented, configurable)
 
 - **`PRICING_VAT_RATE_PERCENT`**: default `0`. When a checkout line omits `taxAmount`, VAT is computed as **exclusive** on `(unitPrice × qty − discountAmount)`, rounded half-up to 2 decimal places.

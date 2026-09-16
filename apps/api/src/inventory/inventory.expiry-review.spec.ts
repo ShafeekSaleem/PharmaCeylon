@@ -1,3 +1,4 @@
+import { AuditService } from "../audit/audit.service";
 import { InventoryService } from "./inventory.service";
 
 describe("confirm imported expiry", () => {
@@ -17,7 +18,12 @@ describe("confirm imported expiry", () => {
     prisma.$transaction = (fn: any) => fn(prisma);
     return {
       prisma,
-      service: new InventoryService(prisma, {} as never, {} as never),
+      service: new InventoryService(
+        prisma,
+        new AuditService(prisma),
+        {} as never,
+        {} as never,
+      ),
     };
   }
   it("saves the actual date and audit event scoped to the branch", async () => {

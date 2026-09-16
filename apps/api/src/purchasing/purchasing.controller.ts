@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
+import { AccessService } from "../security/access.service";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
@@ -10,7 +11,10 @@ import { PurchasingService } from "./purchasing.service";
 
 @Controller("purchasing")
 export class PurchasingController {
-  constructor(private readonly purchasing: PurchasingService) {}
+  constructor(
+    private readonly purchasing: PurchasingService,
+    private readonly access: AccessService,
+  ) {}
 
   @RequirePermission("purchasing.view")
   @Get("purchase-orders")
@@ -53,12 +57,13 @@ export class PurchasingController {
 
   @RequirePermission("purchasing.approve")
   @Post("purchase-orders/:id/approve")
-  approve(
+  async approve(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.purchasing.approvePurchaseOrder(user.tenantId, branchId, user.userId, id);
+    const access = await this.access.resolve(user, branchId);
+    return this.purchasing.approvePurchaseOrder(user.tenantId, branchId, access, id);
   }
 
   @RequirePermission("purchasing.approve")

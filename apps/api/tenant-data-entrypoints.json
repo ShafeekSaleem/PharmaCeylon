@@ -109,6 +109,11 @@
       "path": "scripts/test-import-recovery.mjs",
       "mode": "ephemeral-database-test",
       "reason": "Requires explicit disposable-database acknowledgement; writes and deletes only fixtures in a freshly generated test tenant to verify real import/undo transactions."
+    },
+    {
+      "path": "scripts/reconcile-stock.mjs",
+      "mode": "controlled-admin",
+      "reason": "Read-only reconciliation of batch_stock against stock_ledger and stock_reservation, optionally filtered by a bound tenant id."
     }
   ],
   "backgroundWorkers": [],
@@ -142,6 +147,21 @@
       "path": "src/product-import/product-import.service.ts",
       "mode": "tenant-filtered-locks-and-savepoints",
       "reason": "Parameterized tenant-scoped import/product/batch locks serialize undo with worker writes and foreign-key stock writers; savepoints isolate individual import row failures."
+    },
+    {
+      "path": "src/inventory/stock/stock.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks batch rows by tenant_id and a bound id array (FOR UPDATE, id order) before every stock change."
+    },
+    {
+      "path": "src/inventory/stock/stock-read.service.ts",
+      "mode": "tenant-filtered-aggregate",
+      "reason": "Read-only grouped stock totals over batch_stock joined to batch, filtered by bound tenant_id and branch_id (or a bound branch id list)."
+    },
+    {
+      "path": "src/inventory/stock/stock-projection.ts",
+      "mode": "tenant-filtered-maintenance",
+      "reason": "Seed/reconciliation helpers that rebuild or compare batch_stock for one bound tenant_id; the mismatch check may scan all tenants only from maintenance scripts."
     }
   ]
 }

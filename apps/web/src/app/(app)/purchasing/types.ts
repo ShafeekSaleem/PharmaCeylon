@@ -40,6 +40,8 @@ export type PurchaseOrderItem = {
   discountPercent?: string | number;
   taxPercent?: string | number;
   product: PoProductRef;
+  /** What this branch last paid and charged for the product — the receiving form's starting price. */
+  lastBatchPrices?: { costPrice: string; sellingPrice: string } | null;
 };
 
 export type PoReceiptSummary = {

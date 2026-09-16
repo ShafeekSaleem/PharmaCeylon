@@ -59,7 +59,10 @@ export function ManagerInventoryHealthWidget({ data }: { data: DashboardData }) 
                 : `${attentionCount} signal${attentionCount === 1 ? "" : "s"} need attention · This branch`}
             </span>
             <span className={css.healthTopValue}>
-              Stock value: <strong>{loading ? "…" : inventory ? formatMoney(inventory.stockValue) : "—"}</strong>
+              Stock value:{" "}
+              <strong>
+                {loading ? "…" : inventory?.stockValue != null ? formatMoney(inventory.stockValue) : "—"}
+              </strong>
             </span>
           </div>
         </div>

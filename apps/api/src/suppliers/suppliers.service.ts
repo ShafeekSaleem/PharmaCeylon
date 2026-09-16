@@ -652,8 +652,15 @@ export class SuppliersService {
     const paidAmount = invoice.paidAmount.plus(amount);
     const status = invoiceStatusFromAmounts(invoice.totalAmount, paidAmount);
 
-    const updated = await this.prisma.supplierInvoice.update({
-      where: { id: invoice.id, tenantId },
+    // The paid amount we read is part of the write: two people recording a payment on the same
+    // invoice at once could otherwise both pass the balance check and overpay it.
+    const claimed = await this.prisma.supplierInvoice.updateMany({
+      where: {
+        id: invoice.id,
+        tenantId,
+        paidAmount: invoice.paidAmount,
+        status: { in: [SupplierInvoiceStatus.open, SupplierInvoiceStatus.partial] },
+      },
       data: {
         paidAmount,
         status,
@@ -664,18 +671,23 @@ export class SuppliersService {
           : {}),
       },
     });
+    if (claimed.count !== 1) {
+      throw new ConflictException(
+        "Another payment was recorded on this invoice just now — refresh to see the new balance",
+      );
+    }
 
     await this.audit.log({
       tenantId,
-      branchId: updated.branchId ?? undefined,
+      branchId: invoice.branchId ?? undefined,
       actorUserId: userId,
       eventName: "supplier_invoice.payment",
       entityName: "supplier_invoice",
-      entityId: updated.id,
+      entityId: invoice.id,
       payload: { amount: money(amount), paidAmount: money(paidAmount), status },
     });
 
-    return this.getById(tenantId, updated.supplierId);
+    return this.getById(tenantId, invoice.supplierId);
   }
 }
 
@@ -700,38 +712,54 @@ export async function createInvoiceFromGoodsReceipt(
   if (params.totalAmount.lte(0)) return null;
 
   const dueDate = addDays(startOfUtcDay(params.invoiceDate), params.paymentTermsDays);
-  const baseNumber = `SINV-${params.grnNumber.replace(/^GRN-/, "")}`;
-  const candidates = [baseNumber, `${baseNumber}-${params.goodsReceiptId.slice(0, 8)}`];
+  const invoiceNumber = await availableInvoiceNumber(tx, params);
 
-  for (const invoiceNumber of candidates) {
-    try {
-      return await tx.supplierInvoice.create({
-        data: {
-          tenantId: params.tenantId,
-          supplierId: params.supplierId,
-          branchId: params.branchId,
-          goodsReceiptId: params.goodsReceiptId,
-          invoiceNumber,
-          invoiceDate: startOfUtcDay(params.invoiceDate),
-          dueDate,
-          totalAmount: params.totalAmount,
-          paidAmount: decimal(0),
-          status: SupplierInvoiceStatus.open,
-          notes: `Auto-created from ${params.grnNumber}`,
-        },
-      });
-    } catch (e) {
-      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) {
-        throw e;
-      }
-      const byGrn = await tx.supplierInvoice.findUnique({
-        where: { goodsReceiptId: params.goodsReceiptId },
-      });
-      if (byGrn) return byGrn;
-    }
-  }
-
-  return tx.supplierInvoice.findUnique({
-    where: { goodsReceiptId: params.goodsReceiptId },
+  return tx.supplierInvoice.create({
+    data: {
+      tenantId: params.tenantId,
+      supplierId: params.supplierId,
+      branchId: params.branchId,
+      goodsReceiptId: params.goodsReceiptId,
+      invoiceNumber,
+      invoiceDate: startOfUtcDay(params.invoiceDate),
+      dueDate,
+      totalAmount: params.totalAmount,
+      paidAmount: decimal(0),
+      status: SupplierInvoiceStatus.open,
+      notes: `Auto-created from ${params.grnNumber}`,
+    },
   });
+}
+
+/**
+ * Pick an invoice number nobody in the tenant uses yet, *before* inserting.
+ *
+ * GRN numbers restart per branch, so the old `SINV-<grn>` scheme gave every branch's first
+ * delivery the same invoice number. The duplicate insert was caught and retried — but inside
+ * the receipt's transaction, which Postgres had already aborted, so the retry failed too and
+ * the second branch simply couldn't receive goods. Checking first means no insert is ever
+ * expected to fail. The branch code keeps numbers readable and distinct across branches.
+ */
+async function availableInvoiceNumber(
+  tx: Prisma.TransactionClient,
+  params: { tenantId: string; branchId: string; goodsReceiptId: string; grnNumber: string },
+): Promise<string> {
+  const branch = await tx.branch.findFirst({
+    where: { id: params.branchId, tenantId: params.tenantId },
+    select: { code: true },
+  });
+  const sequence = params.grnNumber.replace(/^GRN-/, "");
+  const base = branch?.code ? `SINV-${branch.code}-${sequence}` : `SINV-${sequence}`;
+  const candidates = [
+    base,
+    `${base}-${params.goodsReceiptId.slice(0, 8).toUpperCase()}`,
+    `SINV-${params.goodsReceiptId.toUpperCase()}`,
+  ];
+  const taken = await tx.supplierInvoice.findMany({
+    where: { tenantId: params.tenantId, invoiceNumber: { in: candidates } },
+    select: { invoiceNumber: true },
+  });
+  const takenSet = new Set(taken.map((row) => row.invoiceNumber));
+  // The last candidate embeds the whole receipt id, which is unique, so one is always free.
+  return candidates.find((candidate) => !takenSet.has(candidate)) ?? candidates[2]!;
 }

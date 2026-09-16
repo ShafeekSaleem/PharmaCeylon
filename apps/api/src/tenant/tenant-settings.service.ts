@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { NotificationCategory, Prisma, TenantSettings } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
@@ -153,8 +153,37 @@ export class TenantSettingsService {
     return this.patchDomain(tenantId, actorUserId, "tenant_settings.alerts_updated", dto);
   }
 
-  updateApprovals(tenantId: string, actorUserId: string, dto: UpdateApprovalsSettingsDto) {
+  async updateApprovals(tenantId: string, actorUserId: string, dto: UpdateApprovalsSettingsDto) {
+    if (dto.selfApprovalRoleKeys !== undefined) {
+      const keys = [...new Set(dto.selfApprovalRoleKeys.map((key) => key.trim()).filter(Boolean))];
+      const roles = await this.prisma.role.findMany({
+        where: { tenantId, key: { in: keys } },
+        select: { key: true },
+      });
+      const known = new Set(roles.map((role) => role.key));
+      const unknown = keys.filter((key) => !known.has(key));
+      if (unknown.length > 0) {
+        throw new BadRequestException(`Unknown role: ${unknown.join(", ")}`);
+      }
+      dto = { ...dto, selfApprovalRoleKeys: keys };
+    }
     return this.patchDomain(tenantId, actorUserId, "tenant_settings.approvals_updated", dto);
+  }
+
+  /** Every role in the tenant, for choosing who may approve their own requests. */
+  async approvalRoleOptions(tenantId: string) {
+    const roles = await this.prisma.role.findMany({
+      where: { tenantId },
+      select: { key: true, name: true, isSystem: true },
+      orderBy: [{ isSystem: "desc" }, { name: "asc" }],
+    });
+    const builtInOrder = ["owner", "manager", "pharmacist", "inventory_clerk", "cashier"];
+    return roles.sort((a, b) => {
+      const ai = builtInOrder.indexOf(a.key);
+      const bi = builtInOrder.indexOf(b.key);
+      if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      return a.name.localeCompare(b.name);
+    });
   }
 
   updateInsights(tenantId: string, actorUserId: string, dto: UpdateInsightsSettingsDto) {

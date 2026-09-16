@@ -4,15 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { RoleAccessDenied } from "@/components/role-access";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { apiJson } from "@/lib/auth-client";
-import { useAuth } from "@/lib/use-auth";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { ProductStockBadge } from "../../products/components/product-stock-badge";
+import { useInventoryAccess } from "../hooks/use-inventory-access";
 import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
-import { canAdjustOut, hasInventoryWriteAccess } from "../utils";
 import { InventoryFilterSelect } from "./inventory-filter-select";
 
 type MovementType = "adjustment_in" | "adjustment_out";
@@ -74,13 +72,16 @@ function AdjustmentModalContent({
   initialBatchId: string;
   onSuccess?: (message: string) => void;
 }) {
-  const { user, branchId } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user, branchId);
-  const allowOut = canAdjustOut(user, branchId);
+  const access = useInventoryAccess();
+  const allowIn = access.canAdjustIn;
+  const allowOut = access.canWriteOff;
+  const canWrite = allowIn || allowOut;
 
   const [movementType, setMovementType] = useState<MovementType>(
-    allowOut ? "adjustment_out" : "adjustment_in",
+    allowIn ? "adjustment_in" : "adjustment_out",
   );
+  /** Write-off only: take the units out of quarantine (disposing of expired or damaged stock). */
+  const [fromQuarantine, setFromQuarantine] = useState(false);
   const [productId, setProductId] = useState(initialProductId);
   const [batchId, setBatchId] = useState(initialBatchId);
   const [useNewBatch, setUseNewBatch] = useState(false);
@@ -121,10 +122,14 @@ function AdjustmentModalContent({
   });
 
   useEffect(() => {
-    if (!allowOut && movementType === "adjustment_out") {
-      setMovementType("adjustment_in");
-    }
-  }, [allowOut, movementType]);
+    if (!access.ready) return;
+    if (!allowOut && movementType === "adjustment_out") setMovementType("adjustment_in");
+    if (!allowIn && movementType === "adjustment_in" && allowOut) setMovementType("adjustment_out");
+  }, [access.ready, allowIn, allowOut, movementType]);
+
+  useEffect(() => {
+    if (movementType === "adjustment_in") setFromQuarantine(false);
+  }, [movementType]);
 
   useEffect(() => {
     if (!productId) {
@@ -167,7 +172,7 @@ function AdjustmentModalContent({
     for (const row of [...selectedStock.rows, ...stock.rows]) {
       map.set(row.productId, {
         value: row.productId,
-        label: `${row.product.sku} — ${row.product.name} (${row.qtyOnHand} on hand)`,
+        label: `${row.product.sku} — ${row.product.name} (${row.availableQty} available of ${row.qtyOnHand})`,
       });
     }
     return [...map.values()];
@@ -189,13 +194,21 @@ function AdjustmentModalContent({
     Number(newBatch.sellingPrice) >= 0 &&
     newBatch.sellingPrice !== "";
 
+  // A write-off takes from what isn't held or reserved — or, when disposing of quarantined
+  // stock, from what is held. Expiry doesn't matter here: writing off expired units is the point.
   const available =
-    movementType === "adjustment_out" ? (selectedBatch?.qtyOnHand ?? 0) : null;
+    movementType === "adjustment_out" && selectedBatch
+      ? fromQuarantine
+        ? selectedBatch.quarantinedQty
+        : Math.max(0, selectedBatch.qtyOnHand - selectedBatch.quarantinedQty - selectedBatch.reservedQty)
+      : null;
+  const reasonRequired = movementType === "adjustment_out";
 
   const canSubmit =
-    canWrite &&
+    (movementType === "adjustment_in" ? allowIn : allowOut) &&
     !!productId &&
     qty >= 1 &&
+    (!reasonRequired || reason.trim().length > 0) &&
     (isOpeningStock
       ? newBatchValid
       : !!batchId &&
@@ -210,6 +223,7 @@ function AdjustmentModalContent({
         movementType,
         qty,
         reason: reason.trim() || undefined,
+        ...(movementType === "adjustment_out" && fromQuarantine ? { fromQuarantine: true } : {}),
       };
       if (isOpeningStock) {
         body.newBatch = {
@@ -232,7 +246,7 @@ function AdjustmentModalContent({
         ? `Opened stock with ${qty} unit${qty === 1 ? "" : "s"} on new batch ${newBatch.batchNo.trim()}.`
         : movementType === "adjustment_in"
           ? `Added ${qty} unit${qty === 1 ? "" : "s"} to stock.`
-          : `Removed ${qty} unit${qty === 1 ? "" : "s"} from stock.`;
+          : `Wrote off ${qty} unit${qty === 1 ? "" : "s"}${fromQuarantine ? " from quarantine" : ""}.`;
 
       setConfirmOpen(false);
       onSuccess?.(message);
@@ -244,10 +258,10 @@ function AdjustmentModalContent({
     }
   };
 
-  if (!canWrite) {
+  if (access.ready && !canWrite) {
     return (
       <Modal open onClose={onClose} title="New stock adjustment" size="sm">
-        <RoleAccessDenied allowedRoles={INVENTORY_WRITE_ROLES} />
+        <RoleAccessDenied description="Your role can't add or write off stock. Ask a manager to grant “Manage inventory” or “Write off stock”." />
       </Modal>
     );
   }
@@ -260,7 +274,7 @@ function AdjustmentModalContent({
           if (!saving) onClose();
         }}
         title="New stock adjustment"
-        description="Increase or decrease on-hand stock by batch. Decreases require manager or owner approval."
+        description="Add stock to a batch, or write stock off. Write-offs need a reason and the Write off stock permission."
         size="xl"
         canDismiss={!saving}
         footer={
@@ -304,8 +318,13 @@ function AdjustmentModalContent({
                   className={`${css.segmentBtn}${
                     movementType === "adjustment_in" ? ` ${css.segmentBtnIncreaseActive}` : ""
                   }`}
-                  onClick={() => setMovementType("adjustment_in")}
-                  data-tooltip="Add stock (found stock, opening, or positive correction)"
+                  onClick={() => allowIn && setMovementType("adjustment_in")}
+                  disabled={!allowIn}
+                  data-tooltip={
+                    allowIn
+                      ? "Add stock (found stock, opening, or positive correction)"
+                      : "Your role can't add stock"
+                  }
                 >
                   Increase (+)
                 </button>
@@ -313,8 +332,8 @@ function AdjustmentModalContent({
                   className={css.segmentBtnWrap}
                   data-tooltip={
                     !allowOut
-                      ? "Only a manager or owner may decrease stock"
-                      : "Remove stock (damage, loss, expiry, or negative correction)"
+                      ? "Your role can't write off stock"
+                      : "Write stock off (damage, loss, expiry, or negative correction)"
                   }
                 >
                   <button
@@ -331,8 +350,19 @@ function AdjustmentModalContent({
               </div>
               {!allowOut && (
                 <span className={css.fieldHint}>
-                  Your role can only post stock increases. Decreases need a manager or owner.
+                  Your role can add stock but not write it off. Ask someone with “Write off stock” to
+                  post decreases.
                 </span>
+              )}
+              {movementType === "adjustment_out" && (
+                <label className={css.referenceToggle}>
+                  <input
+                    type="checkbox"
+                    checked={fromQuarantine}
+                    onChange={(e) => setFromQuarantine(e.target.checked)}
+                  />
+                  <span>Write off quarantined units (disposing of expired or damaged stock)</span>
+                </label>
               )}
             </div>
 
@@ -451,9 +481,9 @@ function AdjustmentModalContent({
                     allowDeselect
                     options={batches.rows.map((batch) => ({
                       value: batch.id,
-                      label: `${batch.batchNo} · ${batch.qtyOnHand} units · exp ${new Date(
-                        batch.expiryDate,
-                      ).toLocaleDateString()}`,
+                      label: `${batch.batchNo} · ${batch.qtyOnHand} on hand${
+                        batch.quarantinedQty > 0 ? ` (${batch.quarantinedQty} held)` : ""
+                      } · exp ${new Date(batch.expiryDate).toLocaleDateString()}`,
                     }))}
                     searchable
                     searchPlaceholder="Search batches…"
@@ -462,8 +492,10 @@ function AdjustmentModalContent({
                   />
                   {selectedProduct && (
                     <span className={css.fieldHint}>
-                      Product on hand: {selectedProduct.qtyOnHand}
-                      {selectedBatch ? ` · Batch on hand: ${selectedBatch.qtyOnHand}` : ""}
+                      Product: {selectedProduct.availableQty} available of {selectedProduct.qtyOnHand} on hand
+                      {selectedBatch
+                        ? ` · Batch: ${selectedBatch.qtyOnHand} on hand, ${selectedBatch.quarantinedQty} held, ${selectedBatch.reservedQty} reserved`
+                        : ""}
                       {!batchId
                         ? " · Choose a batch so quantity stays tied to FEFO tracking."
                         : ""}
@@ -531,13 +563,16 @@ function AdjustmentModalContent({
                   onChange={(e) => setQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
                 />
                 {available != null && (
-                  <span className={css.fieldHint}>Available on selected batch: {available}</span>
+                  <span className={css.fieldHint}>
+                    {fromQuarantine ? "Quarantined" : "Not held or reserved"} on this batch: {available}
+                  </span>
                 )}
               </div>
 
               <div className={`${css.field} ${css.fullWidth}`}>
                 <label className={css.fieldLabel} htmlFor="adj-modal-reason">
-                  Reason <span className={css.fieldHint}>(recommended)</span>
+                  Reason{" "}
+                  <span className={css.fieldHint}>{reasonRequired ? "(required)" : "(recommended)"}</span>
                 </label>
                 <textarea
                   id="adj-modal-reason"
@@ -547,7 +582,9 @@ function AdjustmentModalContent({
                   onChange={(e) => setReason(e.target.value)}
                 />
                 <span className={css.fieldHint}>
-                  A clear reason helps audit reviews — still optional but strongly recommended.
+                  {reasonRequired
+                    ? "Say why the units are being written off — it is recorded on the movement for audit."
+                    : "A clear reason helps audit reviews."}
                 </span>
               </div>
             </div>
@@ -563,7 +600,7 @@ function AdjustmentModalContent({
                     <span>{selectedProduct.product.sku}</span>
                   </div>
                   <ProductStockBadge
-                    qtyOnHand={selectedProduct.qtyOnHand}
+                    qtyOnHand={selectedProduct.availableQty}
                     stockStatus={selectedProduct.stockStatus}
                     variant="inline"
                   />
@@ -577,7 +614,9 @@ function AdjustmentModalContent({
                     <div className={css.adjustmentBatchSummary}>
                       <span>Batch</span>
                       <strong>{selectedBatch.batchNo}</strong>
-                      <span>{selectedBatch.qtyOnHand} units available</span>
+                      <span>
+                        {selectedBatch.qtyOnHand} on hand · {selectedBatch.availableQty} sellable now
+                      </span>
                     </div>
                   ) : null}
                 </div>
@@ -592,7 +631,8 @@ function AdjustmentModalContent({
               <h3 className={css.sideCardTitle}>Adjustment guidance</h3>
               <ul className={css.guidanceList}>
                 <li>Use Increase for found stock, opening stock, or positive cycle-count corrections.</li>
-                <li>Use Decrease for damage, loss, expiry, or negative corrections.</li>
+                <li>Use Decrease for damage, loss, expiry, or negative corrections — a reason is required.</li>
+                <li>To dispose of expired or damaged stock, quarantine it first, then write it off from quarantine.</li>
                 <li>
                   Prefer an existing batch when available so FEFO and expiry stay accurate.
                 </li>
@@ -616,8 +656,9 @@ function AdjustmentModalContent({
       >
         {error && <Alert variant="error">{error}</Alert>}
         <p>
-          {movementType === "adjustment_in" ? "Increase" : "Decrease"} stock by{" "}
-          <strong>{qty}</strong> for{" "}
+          {movementType === "adjustment_in" ? "Add" : "Write off"} <strong>{qty}</strong>{" "}
+          {qty === 1 ? "unit" : "units"}
+          {movementType === "adjustment_in" ? " to " : fromQuarantine ? " of quarantined " : " of "}
           <strong>{selectedProduct?.product.name ?? "product"}</strong>
           {isOpeningStock ? (
             <>

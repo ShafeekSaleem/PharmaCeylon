@@ -43,6 +43,11 @@ npm run prisma:seed -w api       # seed demo tenant/users/data
 
 Run a single API test: `npm run test -w api -- src/sales/pos.service.spec.ts` (or `cd apps/api && npx jest <path>`). Tests are colocated as `*.spec.ts` next to the source they cover.
 
+```bash
+npm run test:integration -w api  # DB-backed tests (row locks, concurrency); builds <db>_it next to DATABASE_URL
+npm run reconcile:stock -w api    # read-only: batch_stock totals vs stock ledger + reservations
+```
+
 **Windows:** web is pinned to Next 15.3.2 because newer 15.4.x+ patch releases fail `next build` on Windows (prerendering `/404`). Don't bump Next without checking that issue is fixed, or build on Linux/WSL/CI instead.
 
 ## Architecture
@@ -92,6 +97,43 @@ Leaving the range is **not** a free toggle — see `products/range-transition.ut
 register-derived product with no stock and no history may go back to `REFERENCE`; anything the
 shop created itself is deactivated instead, because the reference catalog _is_ the NMRA
 register and local records don't belong in it. Nothing holding stock moves at all.
+
+### Stock: one writer, four quantities
+
+`StockService` (`apps/api/src/inventory/stock/stock.service.ts`) is the **only** code allowed
+to change stock. It locks the batch rows involved (`SELECT … FOR UPDATE`, id order), checks the
+change against the batch's running totals, appends `stock_ledger` rows and moves the totals in
+`batch_stock` — all inside the caller's transaction. Before it existed, sales, receipts,
+transfers, returns, stocktakes and adjustments each summed the ledger and inserted with no lock,
+so two tills could sell the last unit. `npm run lint -w api` runs `scripts/check-stock-writes.mjs`,
+which fails if a ledger / `batch_stock` / `stock_reservation` write appears anywhere else. New
+stock paths call `stock.receive`, `stock.issue`, `stock.quarantine`, `stock.release`,
+`stock.reserve` / `releaseReservations` / `consumeReservations` — resolve or create the batches
+first, then post once per document so every batch is locked in a single ordered statement.
+
+Per batch:
+
+- **On hand** = every ledger row (sellable + quarantined). Still `SUM(qty_delta)`, so reports
+  that read the ledger keep working.
+- **Quarantined** = rows in the `quarantine` bucket. Quarantining moves units between buckets
+  (a `quarantine_hold` pair that nets to zero on hand) and can take part of a batch.
+  `Batch.isQuarantined` now means "every unit is held".
+- **Reserved** = active `StockReservation` rows (approved transfers). Reservations are **not**
+  ledger rows any more — the old `transfer_reserve_*` movements took promised units off on hand
+  while they sat on the shelf, which inflated stock after a stocktake.
+- **Available** = on hand − quarantined − reserved, and zero for expired or
+  `needsExpiryReview` batches when selling or transferring. Stock status (low / out) reads
+  available, not on hand.
+
+"Today" and expiry use the tenant's timezone (`common/business-date.util.ts`), not the server's.
+`scripts/reconcile-stock.mjs` checks `batch_stock` against the ledger; bulk writers that bypass
+the service (the demo seeds) call `syncSeedStock` afterwards. DB-backed tests for all of this
+live in `apps/api/test/integration` (`npm run test:integration -w api`, needs Postgres).
+
+Approvals: decisions that depend on *who* raised a document go through `AccessService`
+(`security/access.service.ts`) — permissions at the branch plus the tenant's
+`selfApprovalRoleKeys` setting (owners and managers by default). Never branch on `RoleName` in a
+service for authority; use `access.has(...)` and `assertMayApprove(...)`.
 
 ### Catalog Management (`/products/manage`)
 

@@ -7,7 +7,7 @@ import {
   Patch,
   Post,
 } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
+import { AccessService } from "../security/access.service";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
@@ -25,38 +25,30 @@ import { StocktakesService } from "./stocktakes.service";
 
 @Controller("stocktakes")
 export class StocktakesController {
-  constructor(private readonly stocktakes: StocktakesService) {}
-
-  private rolesAtBranch(user: RequestUser, branchId: string): RoleName[] {
-    const hasOwner = user.branchRoles.some((entry) => entry.role === RoleName.owner);
-    const atBranch = user.branchRoles
-      .filter((entry) => entry.branchId === branchId)
-      .map((entry) => entry.role);
-    if (hasOwner) {
-      return [...new Set([...atBranch, RoleName.owner])];
-    }
-    return [...new Set(atBranch)];
-  }
+  constructor(
+    private readonly stocktakes: StocktakesService,
+    private readonly access: AccessService,
+  ) {}
 
   @RequirePermission("stocktakes.use")
   @Get()
-  list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
-    return this.stocktakes.list(user.tenantId, branchId, this.rolesAtBranch(user, branchId));
+  async list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.stocktakes.list(user.tenantId, branchId, await this.access.resolve(user, branchId));
   }
 
   @RequirePermission("stocktakes.use")
   @Get(":id")
-  getOne(
+  async getOne(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.stocktakes.getOne(user.tenantId, branchId, id, this.rolesAtBranch(user, branchId));
+    return this.stocktakes.getOne(user.tenantId, branchId, id, await this.access.resolve(user, branchId));
   }
 
   @RequirePermission("stocktakes.use")
   @Post()
-  create(
+  async create(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Body() dto: CreateStocktakeDto,
@@ -66,13 +58,13 @@ export class StocktakesController {
       branchId,
       user.userId,
       dto,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.use")
   @Patch(":id")
-  updateHeader(
+  async updateHeader(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -84,13 +76,13 @@ export class StocktakesController {
       user.userId,
       id,
       dto,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.use")
   @Patch(":id/lines")
-  upsertLines(
+  async upsertLines(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -102,13 +94,13 @@ export class StocktakesController {
       user.userId,
       id,
       dto,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.use")
   @Post(":id/lines/add")
-  addLines(
+  async addLines(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -120,13 +112,13 @@ export class StocktakesController {
       user.userId,
       id,
       dto,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.use")
   @Post(":id/lines/remove")
-  removeLines(
+  async removeLines(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -138,13 +130,13 @@ export class StocktakesController {
       user.userId,
       id,
       dto,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.use")
   @Post(":id/schedule")
-  schedule(
+  async schedule(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -154,13 +146,13 @@ export class StocktakesController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.use")
   @Post(":id/start")
-  start(
+  async start(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -170,13 +162,13 @@ export class StocktakesController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.use")
   @Post(":id/submit")
-  submit(
+  async submit(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -186,13 +178,13 @@ export class StocktakesController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.review")
   @Post(":id/review/start")
-  startReview(
+  async startReview(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -202,13 +194,13 @@ export class StocktakesController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.review")
   @Patch(":id/review-lines")
-  reviewLines(
+  async reviewLines(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -220,13 +212,13 @@ export class StocktakesController {
       user.userId,
       id,
       dto,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.review")
   @Post(":id/request-recount")
-  requestRecount(
+  async requestRecount(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -238,13 +230,13 @@ export class StocktakesController {
       user.userId,
       id,
       dto,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.review")
   @Post(":id/approve")
-  approve(
+  async approve(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -254,13 +246,13 @@ export class StocktakesController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.review")
   @Post(":id/post")
-  post(
+  async post(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -270,13 +262,13 @@ export class StocktakesController {
       branchId,
       user.userId,
       id,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
     );
   }
 
   @RequirePermission("stocktakes.review")
   @Post(":id/complete")
-  complete(
+  async complete(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -285,14 +277,14 @@ export class StocktakesController {
       user.tenantId,
       branchId,
       user.userId,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
       id,
     );
   }
 
   @RequirePermission("stocktakes.review")
   @Post(":id/cancel")
-  cancel(
+  async cancel(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
@@ -301,7 +293,7 @@ export class StocktakesController {
       user.tenantId,
       branchId,
       user.userId,
-      this.rolesAtBranch(user, branchId),
+      await this.access.resolve(user, branchId),
       id,
     );
   }

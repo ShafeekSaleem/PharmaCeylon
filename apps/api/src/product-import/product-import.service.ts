@@ -9,6 +9,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma, StockMovementType } from "@prisma/client";
 import { tenantTransactionStorage } from "../prisma/tenant-transaction.store";
 import { PrismaService } from "../prisma/prisma.service";
+import { StockService } from "../inventory/stock/stock.service";
 import { AuditService } from "../audit/audit.service";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { UNCLASSIFIED_MEDICINES_CANONICAL_KEY } from "../catalog/commercial-category-template";
@@ -117,6 +118,7 @@ export class ProductImportService {
     private readonly categoryTaxonomy: CategoryTaxonomyService,
     private readonly runner: ImportJobRunner,
     private readonly catalogTasks: CatalogTaskService,
+    private readonly stock: StockService,
   ) {}
 
   // ── Step 1: read the file, propose a mapping ────────────────────────────
@@ -1486,22 +1488,27 @@ export class ProductImportService {
               select: { id: true },
             });
 
-            await tx.stockLedger.create({
-              data: {
+            // referenceId is what makes undo possible — it is how the ledger rows,
+            // and through them the batches, are traced back to this import.
+            await this.stock.receive(
+              tx,
+              {
                 tenantId,
                 branchId,
-                productId,
-                batchId: batch.id,
-                movementType: StockMovementType.opening_stock,
-                qtyDelta: item.row.qty!,
-                // referenceId is what makes undo possible — it is how the ledger rows,
-                // and through them the batches, are traced back to this import.
+                userId,
                 referenceType: "product_import",
                 referenceId: importId,
-                reason: "Opening stock import",
-                createdBy: userId,
               },
-            });
+              [
+                {
+                  productId,
+                  batchId: batch.id,
+                  qty: item.row.qty!,
+                  movementType: StockMovementType.opening_stock,
+                  reason: "Opening stock import",
+                },
+              ],
+            );
 
             batchesCreated += 1;
             unitsPosted += item.row.qty!;

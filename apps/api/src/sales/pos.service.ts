@@ -3,6 +3,7 @@ import { SaleStatus } from "@prisma/client";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { TaxService } from "../pricing/tax.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { businessToday, safeTimeZone } from "../common/business-date.util";
 
 const TOP_PRODUCTS_WINDOW_DAYS = 30;
 const FREQUENT_ITEMS_WINDOW_DAYS = 90;
@@ -54,13 +55,6 @@ export type PosDepartment = {
   canonicalKey: string | null;
 };
 
-function startOfTodayUtc(): Date {
-  const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-  );
-}
-
 function daysBetweenUtc(from: Date, to: Date): number {
   return Math.ceil((to.getTime() - from.getTime()) / 86_400_000);
 }
@@ -86,7 +80,11 @@ export class PosService {
   ) {}
 
   async catalog(tenantId: string, branchId: string) {
-    const todayUtc = startOfTodayUtc();
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    const todayUtc = businessToday(safeTimeZone(tenant?.timezone));
 
     const tenantSettings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
@@ -98,13 +96,14 @@ export class PosService {
       where: {
         tenantId,
         branchId,
-        isQuarantined: false,
         needsExpiryReview: false,
         expiryDate: { gte: todayUtc },
         product: { isActive: true },
+        stock: { is: { onHandQty: { gt: 0 } } },
       },
       select: {
         id: true,
+        stock: { select: { onHandQty: true, quarantinedQty: true, reservedQty: true } },
         batchNo: true,
         expiryDate: true,
         sellingPrice: true,
@@ -132,18 +131,13 @@ export class PosService {
       orderBy: { expiryDate: "asc" },
     });
 
-    const batchIds = batches.map((b) => b.id);
-    const qtyByBatch = new Map<string, number>();
-    if (batchIds.length > 0) {
-      const grouped = await this.prisma.stockLedger.groupBy({
-        by: ["batchId"],
-        where: { tenantId, branchId, batchId: { in: batchIds } },
-        _sum: { qtyDelta: true },
-      });
-      for (const row of grouped) {
-        if (row.batchId) qtyByBatch.set(row.batchId, row._sum.qtyDelta ?? 0);
-      }
-    }
+    // Sellable now: on hand less anything quarantined or promised to a transfer.
+    const qtyByBatch = new Map<string, number>(
+      batches.map((b) => [
+        b.id,
+        b.stock ? b.stock.onHandQty - b.stock.quarantinedQty - b.stock.reservedQty : 0,
+      ]),
+    );
 
     const [units30d, lines90d] = await Promise.all([
       this.prisma.saleItem.groupBy({

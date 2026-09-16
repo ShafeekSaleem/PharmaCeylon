@@ -9,7 +9,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "check:tenant-scope": "node scripts/check-tenant-scoped-mutations.mjs && node scripts/check-tenant-data-entrypoints.mjs",
-    "lint": "npm run check:tenant-scope && tsc -p tsconfig.json --noEmit",
+    "check:stock-writes": "node scripts/check-stock-writes.mjs",
+    "lint": "npm run check:tenant-scope && npm run check:stock-writes && tsc -p tsconfig.json --noEmit",
     "test": "jest",
     "test:rls-poc": "node scripts/test-rls-poc.mjs",
     "test:rls-canary": "node scripts/test-rls-canary-policies.mjs",
@@ -19,6 +20,7 @@
     "rls:canary:status": "node scripts/manage-rls-canary.mjs status",
     "rls:canary:enable": "node scripts/manage-rls-canary.mjs enable",
     "rls:canary:disable": "node scripts/manage-rls-canary.mjs disable",
+    "test:integration": "jest --config jest.integration.config.js --runInBand",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "prisma:generate": "prisma generate",
@@ -26,7 +28,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "prisma:studio": "prisma studio",
-    "test:import-recovery": "node scripts/test-import-recovery.mjs"
+    "test:import-recovery": "node scripts/test-import-recovery.mjs",
+    "reconcile:stock": "node scripts/reconcile-stock.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.12",

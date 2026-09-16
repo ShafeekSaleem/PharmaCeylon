@@ -306,15 +306,6 @@ export function todayIsoDate(): string {
   return `${y}-${m}-${day}`;
 }
 
-export function defaultExpiryIso(monthsAhead = 18): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() + monthsAhead);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 export function startOfMonthIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;

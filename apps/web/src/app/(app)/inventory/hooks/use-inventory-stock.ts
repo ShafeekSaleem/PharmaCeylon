@@ -8,6 +8,7 @@ import type { InventoryCatalogFilters } from "../components/inventory-filter-pan
 import type {
   InventorySummary,
   StockListResponse,
+  StockAttention,
   StockRow,
   StockStatusFilter,
   SummaryPeriod,
@@ -21,6 +22,10 @@ export type InventoryStockQuery = {
   productId?: string | null;
   controlled?: "all" | "controlled" | "regular";
   batchFilter?: "all" | "expiring" | "with_batches" | "no_batches";
+  /** One of the "needs attention" buckets, e.g. products with expired or quarantined stock. */
+  attention?: StockAttention | null;
+  sort?: "name" | "onHand" | "available";
+  dir?: "asc" | "desc";
   catalogFilters?: InventoryCatalogFilters;
   ledgerOnly?: boolean;
   /** Include reference-catalog products the pharmacy has not ranged yet. */
@@ -37,9 +42,12 @@ export function useInventoryStock(query: InventoryStockQuery = {}) {
     productId = null,
     controlled = "all",
     batchFilter = "all",
+    attention = null,
+    sort = "name",
+    dir = "asc",
     catalogFilters,
     ledgerOnly = false,
-  includeReference = false,
+    includeReference = false,
   } = query;
 
   const [rows, setRows] = useState<StockRow[]>([]);
@@ -71,6 +79,9 @@ export function useInventoryStock(query: InventoryStockQuery = {}) {
       if (productId) params.set("productId", productId);
       if (controlled !== "all") params.set("controlled", controlled);
       if (batchFilter !== "all") params.set("batchFilter", batchFilter);
+      if (attention) params.set("attention", attention);
+      if (sort !== "name") params.set("sort", sort);
+      if (dir !== "asc") params.set("dir", dir);
       if (categoryKey) params.set("categoryIds", categoryKey);
       if (brandKey) params.set("brands", brandKey);
       if (tagKey) params.set("tagIds", tagKey);
@@ -103,6 +114,9 @@ export function useInventoryStock(query: InventoryStockQuery = {}) {
     productId,
     controlled,
     batchFilter,
+    attention,
+    sort,
+    dir,
     categoryKey,
     brandKey,
     tagKey,

@@ -4,12 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import {
-  Prisma,
-  RoleName,
-  StockMovementType,
-  TransferStatus,
-} from "@prisma/client";
+import { Prisma, StockMovementType, TransferStatus } from "@prisma/client";
 import { nextTenantDocumentNumber } from "../common/document-sequence.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import {
@@ -18,6 +13,9 @@ import {
 } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { StockService } from "../inventory/stock/stock.service";
+import { TRANSFER_RESERVATION_SOURCE } from "../inventory/stock/stock-reasons";
+import { assertMayApprove, type ActorAccess } from "../security/access.service";
 import { CreateTransferDto } from "./dto/create-transfer.dto";
 import { ReceiveTransferDto } from "./dto/receive-transfer.dto";
 
@@ -36,23 +34,17 @@ const TRANSFER_LIST_INCLUDE = {
 } as const;
 
 type TransferLineForStock = {
-  id?: string;
+  id: string;
   productId: string;
   batchId: string | null;
   qty: number;
 };
 
-async function qtyForBatchTx(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  branchId: string,
-  batchId: string,
-): Promise<number> {
-  const agg = await tx.stockLedger.aggregate({
-    where: { tenantId, branchId, batchId },
-    _sum: { qtyDelta: true },
+function stockLines(lines: TransferLineForStock[]) {
+  return lines.map((line) => {
+    if (!line.batchId) throw new BadRequestException("Missing batch on transfer line");
+    return { productId: line.productId, batchId: line.batchId, qty: line.qty, sourceLineId: line.id };
   });
-  return agg._sum.qtyDelta ?? 0;
 }
 
 @Injectable()
@@ -60,11 +52,8 @@ export class TransfersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly stock: StockService,
   ) {}
-
-  private isOwnerOrManager(roles: RoleName[]): boolean {
-    return roles.includes(RoleName.owner) || roles.includes(RoleName.manager);
-  }
 
   private dateOnly(iso: string | null | undefined): Date | null {
     if (!iso?.trim()) return null;
@@ -72,13 +61,14 @@ export class TransfersService {
     if (Number.isNaN(d.getTime())) {
       throw new BadRequestException("Invalid expectedOn date");
     }
-    return new Date(
-      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
-    );
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   }
 
-  /** Hold stock for an approved transfer (negative delta). */
-  private async postReserveOut(
+  /**
+   * Hold stock for an approved transfer. A reservation, not a ledger movement: the units are
+   * still on the shelf (and in a stocktake's count) until the transfer actually ships.
+   */
+  private async reserve(
     tx: Prisma.TransactionClient,
     params: {
       tenantId: string;
@@ -88,67 +78,27 @@ export class TransfersService {
       lines: TransferLineForStock[];
     },
   ) {
-    const { tenantId, branchId, userId, transferId, lines } = params;
-    for (const line of lines) {
-      if (!line.batchId)
-        throw new BadRequestException("Missing batch on transfer line");
-      const available = await qtyForBatchTx(
-        tx,
-        tenantId,
-        branchId,
-        line.batchId,
+    const batchIds = params.lines.map((line) => line.batchId).filter((id): id is string => !!id);
+    const held = await tx.batch.findMany({
+      where: { tenantId: params.tenantId, id: { in: batchIds }, isQuarantined: true },
+      select: { batchNo: true },
+    });
+    if (held.length > 0) {
+      throw new BadRequestException(
+        `Batch ${held[0]!.batchNo} is quarantined and cannot be transferred`,
       );
-      if (available < line.qty) {
-        const label = line.id ? `line ${line.id}` : "product line";
-        throw new BadRequestException(
-          `Insufficient stock to reserve ${label} (need ${line.qty}, have ${available})`,
-        );
-      }
-      await tx.stockLedger.create({
-        data: {
-          tenantId,
-          branchId,
-          productId: line.productId,
-          batchId: line.batchId,
-          movementType: StockMovementType.transfer_reserve_out,
-          qtyDelta: -line.qty,
-          referenceType: "transfer",
-          referenceId: transferId,
-          createdBy: userId,
-        },
-      });
     }
-  }
-
-  /** Reverse a prior transfer reserve (positive delta). */
-  private async postReserveRelease(
-    tx: Prisma.TransactionClient,
-    params: {
-      tenantId: string;
-      branchId: string;
-      userId: string;
-      transferId: string;
-      lines: TransferLineForStock[];
-    },
-  ) {
-    const { tenantId, branchId, userId, transferId, lines } = params;
-    for (const line of lines) {
-      if (!line.batchId)
-        throw new BadRequestException("Missing batch on transfer line");
-      await tx.stockLedger.create({
-        data: {
-          tenantId,
-          branchId,
-          productId: line.productId,
-          batchId: line.batchId,
-          movementType: StockMovementType.transfer_reserve_release,
-          qtyDelta: line.qty,
-          referenceType: "transfer",
-          referenceId: transferId,
-          createdBy: userId,
-        },
-      });
-    }
+    await this.stock.reserve(
+      tx,
+      {
+        tenantId: params.tenantId,
+        branchId: params.branchId,
+        userId: params.userId,
+        sourceType: TRANSFER_RESERVATION_SOURCE,
+        sourceId: params.transferId,
+      },
+      stockLines(params.lines),
+    );
   }
 
   private async enrichRows(
@@ -169,14 +119,12 @@ export class TransfersService {
         tenantId,
         referenceType: "transfer",
         referenceId: { in: transferIds },
+        movementType: { in: [StockMovementType.transfer_out, StockMovementType.transfer_in] },
       },
       _sum: { qtyDelta: true },
     });
 
-    const movementByTransfer = new Map<
-      string,
-      { dispatchedQty: number; receivedQty: number }
-    >();
+    const movementByTransfer = new Map<string, { dispatchedQty: number; receivedQty: number }>();
     for (const entry of ledger) {
       const current = movementByTransfer.get(entry.referenceId) ?? {
         dispatchedQty: 0,
@@ -193,26 +141,14 @@ export class TransfersService {
 
     return rows.map((row) => {
       const totalQty = row.items.reduce((sum, item) => sum + item.qty, 0);
-      const itemReceivedQty = row.items.reduce(
-        (sum, item) => sum + item.receivedQty,
-        0,
-      );
-      const movement = movementByTransfer.get(row.id) ?? {
-        dispatchedQty: 0,
-        receivedQty: 0,
-      };
+      const itemReceivedQty = row.items.reduce((sum, item) => sum + item.receivedQty, 0);
+      const movement = movementByTransfer.get(row.id) ?? { dispatchedQty: 0, receivedQty: 0 };
       let receivedQty = Math.max(itemReceivedQty, movement.receivedQty);
-      if (
-        row.status === TransferStatus.received &&
-        receivedQty === 0 &&
-        totalQty > 0
-      ) {
+      if (row.status === TransferStatus.received && receivedQty === 0 && totalQty > 0) {
         receivedQty = totalQty;
       }
       const receivedPercent =
-        totalQty > 0
-          ? Math.min(100, Math.round((receivedQty / totalQty) * 100))
-          : 0;
+        totalQty > 0 ? Math.min(100, Math.round((receivedQty / totalQty) * 100)) : 0;
 
       return {
         ...row,
@@ -227,14 +163,12 @@ export class TransfersService {
   async create(
     tenantId: string,
     fromBranchId: string,
-    userId: string,
-    rolesAtFromBranch: RoleName[],
+    access: ActorAccess,
     dto: CreateTransferDto,
   ) {
+    const userId = access.userId;
     if (dto.toBranchId === fromBranchId) {
-      throw new BadRequestException(
-        "Destination branch must differ from origin",
-      );
+      throw new BadRequestException("Destination branch must differ from origin");
     }
     const toBranch = await this.prisma.branch.findFirst({
       where: { id: dto.toBranchId, tenantId, isActive: true },
@@ -242,64 +176,56 @@ export class TransfersService {
     if (!toBranch) throw new NotFoundException("Destination branch not found");
 
     // Settings → Approval Rules, "Require approval for branch transfers".
-    // ON (the default): a transfer needs approval, which an owner/manager at the
-    // source branch satisfies themselves — they hold that authority, so the
-    // request is approved on creation and recorded against them.
-    // OFF: the tenant has said transfers need no approval step at all, so any
-    // holder of `transfers.manage` creates one already approved.
+    // ON (the default): the transfer waits for someone holding `transfers.approve` — unless the
+    //   requester holds it too and their role may approve its own requests (Settings → Approval
+    //   Rules → self-approval), in which case it is approved on creation and recorded as theirs.
+    // OFF: the tenant has said transfers need no approval step at all, so any holder of
+    //   `transfers.manage` creates one already approved.
     const settings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
       select: { approvalRequiredForBranchTransfers: true },
     });
     const approvalRequired = settings?.approvalRequiredForBranchTransfers ?? true;
     const autoApprove =
-      !approvalRequired || this.isOwnerOrManager(rolesAtFromBranch);
-    const status = autoApprove
-      ? TransferStatus.approved
-      : TransferStatus.requested;
+      !approvalRequired || (access.has("transfers.approve") && access.canSelfApprove);
+    const status = autoApprove ? TransferStatus.approved : TransferStatus.requested;
 
     const transfer = await this.prisma.$transaction(async (tx) => {
       for (const line of dto.items) {
         if (!line.batchId) {
-          throw new BadRequestException(
-            "batchId is required for each transfer line",
-          );
+          throw new BadRequestException("batchId is required for each transfer line");
         }
-        const batch = await tx.batch.findFirst({
-          where: {
-            id: line.batchId,
-            tenantId,
-            branchId: fromBranchId,
-            productId: line.productId,
-          },
-        });
-        if (!batch)
+      }
+      const batchIds = dto.items.map((line) => line.batchId!);
+      const batches = await tx.batch.findMany({
+        where: { tenantId, branchId: fromBranchId, id: { in: batchIds } },
+        select: { id: true, productId: true, batchNo: true, isQuarantined: true },
+      });
+      const batchById = new Map(batches.map((b) => [b.id, b]));
+      const requested = new Map<string, number>();
+      for (const line of dto.items) {
+        const batch = batchById.get(line.batchId!);
+        if (!batch || batch.productId !== line.productId) {
           throw new BadRequestException("Invalid batch on transfer line");
+        }
         if (batch.isQuarantined) {
           throw new BadRequestException(
             `Batch ${batch.batchNo} is quarantined and cannot be transferred`,
           );
         }
-
-        const available = await qtyForBatchTx(
-          tx,
-          tenantId,
-          fromBranchId,
-          line.batchId,
-        );
-        if (available < line.qty) {
+        requested.set(batch.id, (requested.get(batch.id) ?? 0) + line.qty);
+      }
+      const balances = await this.stock.balances(tx, tenantId, batchIds);
+      for (const [batchId, qty] of requested) {
+        const available = balances.get(batchId)?.available ?? 0;
+        if (available < qty) {
           throw new BadRequestException(
-            `Insufficient stock on batch for product line (need ${line.qty}, have ${available})`,
+            `Only ${Math.max(0, available)} available on batch ${batchById.get(batchId)!.batchNo} (${qty} requested)`,
           );
         }
       }
 
-      const transferNumber = await nextTenantDocumentNumber(
-        tx,
-        tenantId,
-        "transfer",
-        "TR-",
-      );
+      const transferNumber = await nextTenantDocumentNumber(tx, tenantId, "transfer", "TR-");
 
       const created = await tx.transfer.create({
         data: {
@@ -326,7 +252,7 @@ export class TransfersService {
       });
 
       if (autoApprove) {
-        await this.postReserveOut(tx, {
+        await this.reserve(tx, {
           tenantId,
           branchId: fromBranchId,
           userId,
@@ -335,19 +261,20 @@ export class TransfersService {
         });
       }
 
-      return created;
-    });
+      await this.audit.log(
+        {
+          tenantId,
+          branchId: fromBranchId,
+          actorUserId: userId,
+          eventName: autoApprove ? "transfer.created_and_approved" : "transfer.created",
+          entityName: "transfer",
+          entityId: created.id,
+          payload: { status, autoApprove, transferNumber: created.transferNumber },
+        },
+        tx,
+      );
 
-    await this.audit.log({
-      tenantId,
-      branchId: fromBranchId,
-      actorUserId: userId,
-      eventName: autoApprove
-        ? "transfer.created_and_approved"
-        : "transfer.created",
-      entityName: "transfer",
-      entityId: transfer.id,
-      payload: { status, autoApprove, transferNumber: transfer.transferNumber },
+      return created;
     });
 
     const [enriched] = await this.enrichRows(tenantId, [transfer]);
@@ -371,15 +298,18 @@ export class TransfersService {
   async approve(
     tenantId: string,
     fromBranchId: string,
-    userId: string,
+    access: ActorAccess,
     transferId: string,
-    rolesAtBranch: RoleName[],
   ) {
-    if (!this.isOwnerOrManager(rolesAtBranch)) {
-      throw new ForbiddenException("Insufficient role to approve transfer");
-    }
-
+    const userId = access.userId;
     await this.prisma.$transaction(async (tx) => {
+      const pending = await tx.transfer.findFirst({
+        where: { id: transferId, tenantId, fromBranchId },
+        select: { requestedBy: true },
+      });
+      if (!pending) throw new NotFoundException("Transfer not found");
+      assertMayApprove(access, [pending.requestedBy], "transfer");
+
       const claimed = await tx.transfer.updateMany({
         where: {
           id: transferId,
@@ -390,9 +320,7 @@ export class TransfersService {
         data: { status: TransferStatus.approved, approvedBy: userId },
       });
       if (claimed.count !== 1) {
-        throw new BadRequestException(
-          "Transfer is not awaiting approval at this source branch",
-        );
+        throw new BadRequestException("Transfer is not awaiting approval at this source branch");
       }
 
       const t = await tx.transfer.findFirst({
@@ -401,53 +329,32 @@ export class TransfersService {
       });
       if (!t) throw new NotFoundException("Transfer not found");
 
-      for (const line of t.items) {
-        if (!line.batchId)
-          throw new BadRequestException("Missing batch on transfer line");
-        const batch = await tx.batch.findFirst({
-          where: { id: line.batchId, tenantId, branchId: fromBranchId },
-        });
-        if (!batch)
-          throw new BadRequestException("Invalid batch on transfer line");
-        if (batch.isQuarantined) {
-          throw new BadRequestException(
-            `Batch ${batch.batchNo} is quarantined and cannot be transferred`,
-          );
-        }
-      }
-
-      await this.postReserveOut(tx, {
+      await this.reserve(tx, {
         tenantId,
         branchId: fromBranchId,
         userId,
         transferId: t.id,
         lines: t.items,
       });
-    });
 
-    await this.audit.log({
-      tenantId,
-      branchId: fromBranchId,
-      actorUserId: userId,
-      eventName: "transfer.approved",
-      entityName: "transfer",
-      entityId: transferId,
+      await this.audit.log(
+        {
+          tenantId,
+          branchId: fromBranchId,
+          actorUserId: userId,
+          eventName: "transfer.approved",
+          entityName: "transfer",
+          entityId: transferId,
+          payload: { selfApproved: pending.requestedBy === userId },
+        },
+        tx,
+      );
     });
 
     return this.getOne(tenantId, fromBranchId, transferId);
   }
 
-  async reject(
-    tenantId: string,
-    fromBranchId: string,
-    userId: string,
-    transferId: string,
-    rolesAtBranch: RoleName[],
-  ) {
-    if (!this.isOwnerOrManager(rolesAtBranch)) {
-      throw new ForbiddenException("Insufficient role to reject transfer");
-    }
-
+  async reject(tenantId: string, fromBranchId: string, userId: string, transferId: string) {
     const claimed = await this.prisma.transfer.updateMany({
       where: {
         id: transferId,
@@ -458,9 +365,7 @@ export class TransfersService {
       data: { status: TransferStatus.rejected, approvedBy: userId },
     });
     if (claimed.count !== 1) {
-      throw new BadRequestException(
-        "Only pending transfers at this source branch can be rejected",
-      );
+      throw new BadRequestException("Only pending transfers at this source branch can be rejected");
     }
 
     await this.audit.log({
@@ -478,40 +383,34 @@ export class TransfersService {
   async cancel(
     tenantId: string,
     fromBranchId: string,
-    userId: string,
+    access: ActorAccess,
     transferId: string,
-    rolesAtBranch: RoleName[],
   ) {
+    const userId = access.userId;
     const t = await this.prisma.transfer.findFirst({
       where: { id: transferId, tenantId, fromBranchId },
-      include: TRANSFER_LIST_INCLUDE,
+      select: { status: true, requestedBy: true },
     });
     if (!t) throw new NotFoundException("Transfer not found");
 
-    if (
-      t.status !== TransferStatus.requested &&
-      t.status !== TransferStatus.approved
-    ) {
+    if (t.status !== TransferStatus.requested && t.status !== TransferStatus.approved) {
       throw new BadRequestException(
         "Only pending or approved (not yet shipped) transfers can be cancelled",
       );
     }
 
     const isRequester = t.requestedBy === userId;
-    if (!isRequester && !this.isOwnerOrManager(rolesAtBranch)) {
-      throw new ForbiddenException("Insufficient role to cancel transfer");
+    if (!isRequester && !access.has("transfers.approve")) {
+      throw new ForbiddenException(
+        "Only the person who requested this transfer, or an approver, can cancel it",
+      );
     }
 
     const priorStatus = t.status;
 
     await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.transfer.updateMany({
-        where: {
-          id: transferId,
-          tenantId,
-          fromBranchId,
-          status: priorStatus,
-        },
+        where: { id: transferId, tenantId, fromBranchId, status: priorStatus },
         data: { status: TransferStatus.cancelled },
       });
       if (claimed.count !== 1) {
@@ -519,23 +418,20 @@ export class TransfersService {
       }
 
       if (priorStatus === TransferStatus.approved) {
-        await this.postReserveRelease(tx, {
+        await this.stock.releaseReservations(tx, tenantId, TRANSFER_RESERVATION_SOURCE, transferId);
+      }
+
+      await this.audit.log(
+        {
           tenantId,
           branchId: fromBranchId,
-          userId,
-          transferId,
-          lines: t.items,
-        });
-      }
-    });
-
-    await this.audit.log({
-      tenantId,
-      branchId: fromBranchId,
-      actorUserId: userId,
-      eventName: "transfer.cancelled",
-      entityName: "transfer",
-      entityId: transferId,
+          actorUserId: userId,
+          eventName: "transfer.cancelled",
+          entityName: "transfer",
+          entityId: transferId,
+        },
+        tx,
+      );
     });
 
     return this.getOne(tenantId, fromBranchId, transferId);
@@ -562,9 +458,7 @@ export class TransfersService {
       });
       if (row) {
         if (row.resourceId !== transferId) {
-          throw new BadRequestException(
-            "Idempotency-Key already used for a different transfer",
-          );
+          throw new BadRequestException("Idempotency-Key already used for a different transfer");
         }
         return this.getOne(tenantId, fromBranchId, transferId);
       }
@@ -593,51 +487,26 @@ export class TransfersService {
         });
         if (!t) throw new NotFoundException("Transfer not found");
 
-        for (const line of t.items) {
-          if (!line.batchId)
-            throw new BadRequestException("Missing batch on transfer line");
-
-          /** Release hold first so available reflects true on-hand before transfer_out. */
-          await tx.stockLedger.create({
-            data: {
-              tenantId,
-              branchId: fromBranchId,
-              productId: line.productId,
-              batchId: line.batchId,
-              movementType: StockMovementType.transfer_reserve_release,
-              qtyDelta: line.qty,
-              referenceType: "transfer",
-              referenceId: t.id,
-              createdBy: userId,
-            },
-          });
-
-          const available = await qtyForBatchTx(
-            tx,
+        // The promise becomes the movement: the reservation is consumed and the same units
+        // leave the branch, in one transaction.
+        await this.stock.consumeReservations(tx, tenantId, TRANSFER_RESERVATION_SOURCE, t.id);
+        await this.stock.issue(
+          tx,
+          {
             tenantId,
-            fromBranchId,
-            line.batchId,
-          );
-          if (available < line.qty) {
-            throw new BadRequestException(
-              `Insufficient stock to ship line ${line.id}`,
-            );
-          }
-
-          await tx.stockLedger.create({
-            data: {
-              tenantId,
-              branchId: fromBranchId,
-              productId: line.productId,
-              batchId: line.batchId,
-              movementType: StockMovementType.transfer_out,
-              qtyDelta: -line.qty,
-              referenceType: "transfer",
-              referenceId: t.id,
-              createdBy: userId,
-            },
-          });
-        }
+            branchId: fromBranchId,
+            userId,
+            referenceType: "transfer",
+            referenceId: t.id,
+          },
+          stockLines(t.items).map((line) => ({
+            productId: line.productId,
+            batchId: line.batchId,
+            qty: line.qty,
+            movementType: StockMovementType.transfer_out,
+            from: "sellable" as const,
+          })),
+        );
 
         if (idemKey) {
           await tx.idempotencyRecord.create({
@@ -650,6 +519,18 @@ export class TransfersService {
             },
           });
         }
+
+        await this.audit.log(
+          {
+            tenantId,
+            branchId: fromBranchId,
+            actorUserId: userId,
+            eventName: "transfer.shipped",
+            entityName: "transfer",
+            entityId: transferId,
+          },
+          tx,
+        );
       });
     } catch (e) {
       if (idemKey && isPrismaUniqueFieldError(e, "idempotency")) {
@@ -657,15 +538,6 @@ export class TransfersService {
       }
       throw e;
     }
-
-    await this.audit.log({
-      tenantId,
-      branchId: fromBranchId,
-      actorUserId: userId,
-      eventName: "transfer.shipped",
-      entityName: "transfer",
-      entityId: transferId,
-    });
 
     return this.getOne(tenantId, fromBranchId, transferId);
   }
@@ -692,9 +564,7 @@ export class TransfersService {
       });
       if (row) {
         if (row.resourceId !== transferId) {
-          throw new BadRequestException(
-            "Idempotency-Key already used for a different transfer",
-          );
+          throw new BadRequestException("Idempotency-Key already used for a different transfer");
         }
         return this.getOne(tenantId, toBranchId, transferId);
       }
@@ -717,12 +587,7 @@ export class TransfersService {
             id: transferId,
             tenantId,
             toBranchId,
-            status: {
-              in: [
-                TransferStatus.in_transit,
-                TransferStatus.partially_received,
-              ],
-            },
+            status: { in: [TransferStatus.in_transit, TransferStatus.partially_received] },
           },
           include: { items: true },
         });
@@ -740,24 +605,19 @@ export class TransfersService {
         }
 
         if (receivePlan.size === 0) {
-          throw new BadRequestException(
-            "Nothing left to receive on this transfer",
-          );
+          throw new BadRequestException("Nothing left to receive on this transfer");
         }
 
-        let anyReceived = false;
+        const arrivals: Array<{ productId: string; batchId: string; qty: number }> = [];
 
         for (const [itemId, qtyToReceive] of receivePlan) {
           if (qtyToReceive <= 0) continue;
 
-          const line = await tx.transferItem.findFirst({
-            where: { id: itemId, transferId: t.id, tenantId },
-          });
+          const line = t.items.find((item) => item.id === itemId);
           if (!line) {
             throw new BadRequestException(`Unknown transfer line ${itemId}`);
           }
-          if (!line.batchId)
-            throw new BadRequestException("Missing batch on transfer line");
+          if (!line.batchId) throw new BadRequestException("Missing batch on transfer line");
 
           const remaining = line.qty - line.receivedQty;
           if (qtyToReceive > remaining) {
@@ -771,17 +631,13 @@ export class TransfersService {
             data: { receivedQty: line.receivedQty + qtyToReceive },
           });
           if (bumped.count !== 1) {
-            throw new BadRequestException(
-              "Receive conflict — refresh and try again",
-            );
+            throw new BadRequestException("Receive conflict — refresh and try again");
           }
-          anyReceived = true;
 
           const sourceBatch = await tx.batch.findFirst({
             where: { id: line.batchId, tenantId, branchId: t.fromBranchId },
           });
-          if (!sourceBatch)
-            throw new BadRequestException("Source batch missing");
+          if (!sourceBatch) throw new BadRequestException("Source batch missing");
           if (sourceBatch.needsExpiryReview)
             throw new BadRequestException(
               "Confirm the source batch expiry before receiving this transfer",
@@ -806,30 +662,31 @@ export class TransfersService {
                 expiryDate: sourceBatch.expiryDate,
                 costPrice: sourceBatch.costPrice,
                 sellingPrice: sourceBatch.sellingPrice,
+                supplierId: sourceBatch.supplierId,
               },
             });
           }
-
-          await tx.stockLedger.create({
-            data: {
-              tenantId,
-              branchId: toBranchId,
-              productId: line.productId,
-              batchId: destBatch.id,
-              movementType: StockMovementType.transfer_in,
-              qtyDelta: qtyToReceive,
-              referenceType: "transfer",
-              referenceId: t.id,
-              createdBy: userId,
-            },
-          });
+          arrivals.push({ productId: line.productId, batchId: destBatch.id, qty: qtyToReceive });
         }
 
-        if (!anyReceived) {
-          throw new BadRequestException(
-            "Nothing left to receive on this transfer",
-          );
+        if (arrivals.length === 0) {
+          throw new BadRequestException("Nothing left to receive on this transfer");
         }
+
+        await this.stock.receive(
+          tx,
+          {
+            tenantId,
+            branchId: toBranchId,
+            userId,
+            referenceType: "transfer",
+            referenceId: t.id,
+          },
+          arrivals.map((arrival) => ({
+            ...arrival,
+            movementType: StockMovementType.transfer_in,
+          })),
+        );
 
         const refreshed = await tx.transferItem.findMany({
           where: { transferId: t.id, tenantId },
@@ -841,24 +698,15 @@ export class TransfersService {
             id: t.id,
             tenantId,
             toBranchId,
-            status: {
-              in: [
-                TransferStatus.in_transit,
-                TransferStatus.partially_received,
-              ],
-            },
+            status: { in: [TransferStatus.in_transit, TransferStatus.partially_received] },
           },
           data: {
-            status: fullyReceived
-              ? TransferStatus.received
-              : TransferStatus.partially_received,
+            status: fullyReceived ? TransferStatus.received : TransferStatus.partially_received,
             receivedBy: userId,
           },
         });
         if (statusClaimed.count !== 1) {
-          throw new BadRequestException(
-            "Transfer receipt conflict — refresh and try again",
-          );
+          throw new BadRequestException("Transfer receipt conflict — refresh and try again");
         }
 
         if (idemKey) {
@@ -872,6 +720,24 @@ export class TransfersService {
             },
           });
         }
+
+        await this.audit.log(
+          {
+            tenantId,
+            branchId: toBranchId,
+            actorUserId: userId,
+            eventName: "transfer.received",
+            entityName: "transfer",
+            entityId: transferId,
+            payload: {
+              lines: [...receivePlan.entries()].map(([transferItemId, qty]) => ({
+                transferItemId,
+                qty,
+              })),
+            },
+          },
+          tx,
+        );
       });
     } catch (e) {
       if (idemKey && isPrismaUniqueFieldError(e, "idempotency")) {
@@ -879,21 +745,6 @@ export class TransfersService {
       }
       throw e;
     }
-
-    await this.audit.log({
-      tenantId,
-      branchId: toBranchId,
-      actorUserId: userId,
-      eventName: "transfer.received",
-      entityName: "transfer",
-      entityId: transferId,
-      payload: {
-        lines: [...receivePlan.entries()].map(([transferItemId, qty]) => ({
-          transferItemId,
-          qty,
-        })),
-      },
-    });
 
     return this.getOne(tenantId, toBranchId, transferId);
   }

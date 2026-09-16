@@ -2,34 +2,50 @@ import {
   Body,
   Controller,
   Get,
-  GoneException,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
 } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
+import { AccessService } from "../security/access.service";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { ConfirmBatchExpiryDto } from "./dto/confirm-batch-expiry.dto";
-import { CustomerReturnDto } from "./dto/customer-return.dto";
-import { QuarantineBatchDto } from "./dto/quarantine-batch.dto";
+import { QuarantineBatchDto, ReleaseQuarantineDto } from "./dto/quarantine-batch.dto";
 import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
-import { SupplierReturnDto } from "./dto/supplier-return.dto";
 import {
   InventoryService,
+  MOVEMENT_CATEGORY_TYPES,
   type MovementCategory,
+  type StockAttention,
   type SummaryPeriod,
 } from "./inventory.service";
 
-const RETURNS_DEPRECATED =
-  "Use POST /returns instead. This endpoint is deprecated.";
+const ATTENTION = new Set<StockAttention>([
+  "expired",
+  "near_expiry",
+  "quarantined",
+  "reserved",
+  "expiry_review",
+]);
+
+function tristate(value?: string): boolean | undefined {
+  return value === "true" ? true : value === "false" ? false : undefined;
+}
 
 @Controller("inventory")
 export class InventoryController {
-  constructor(private readonly inventory: InventoryService) {}
+  constructor(
+    private readonly inventory: InventoryService,
+    private readonly access: AccessService,
+  ) {}
+
+  private async canViewCost(user: RequestUser, branchId: string) {
+    return (await this.access.resolve(user, branchId)).has("inventory.view_cost");
+  }
 
   @RequirePermission("inventory.manage")
   @Post("batches/:id/confirm-expiry")
@@ -50,7 +66,7 @@ export class InventoryController {
 
   @RequirePermission("inventory.view")
   @Get("batches")
-  batches(
+  async batches(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Query("productId") productId?: string,
@@ -61,40 +77,40 @@ export class InventoryController {
     @Query("needsExpiryReview") needsExpiryReview?: string,
     @Query("controlled") controlled?: string,
     @Query("rangeStatus") rangeStatus?: string,
+    @Query("q") q?: string,
   ) {
-    return this.inventory.listBatches(user.tenantId, branchId, {
-      productId: productId || undefined,
-      nearExpiryDays: nearExpiryDays ? Number(nearExpiryDays) : undefined,
-      includeZero: includeZero === "false" ? false : true,
-      quarantined:
-        quarantined === "true"
-          ? true
-          : quarantined === "false"
-            ? false
-            : undefined,
-      expired:
-        expired === "true" ? true : expired === "false" ? false : undefined,
-      needsExpiryReview: needsExpiryReview === "true" ? true : undefined,
-      controlled:
-        controlled === "controlled"
-          ? "controlled"
-          : controlled === "regular"
-            ? "regular"
-            : undefined,
-      rangeStatus: rangeStatus === "all" ? "all" : "RANGED",
-    });
+    return this.inventory.listBatches(
+      user.tenantId,
+      branchId,
+      {
+        productId: productId || undefined,
+        nearExpiryDays: nearExpiryDays ? Number(nearExpiryDays) : undefined,
+        includeZero: includeZero === "false" ? false : true,
+        quarantined: tristate(quarantined),
+        expired: tristate(expired),
+        needsExpiryReview: needsExpiryReview === "true" ? true : undefined,
+        controlled:
+          controlled === "controlled"
+            ? "controlled"
+            : controlled === "regular"
+              ? "regular"
+              : undefined,
+        rangeStatus: rangeStatus === "all" ? "all" : "RANGED",
+        q: q || undefined,
+      },
+      { canViewCost: await this.canViewCost(user, branchId) },
+    );
   }
 
   @RequirePermission("inventory.view")
   @Get("batches/expired")
-  expiredBatches(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-  ) {
-    return this.inventory.listExpiredBatches(user.tenantId, branchId);
+  async expiredBatches(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.inventory.listExpiredBatches(user.tenantId, branchId, {
+      canViewCost: await this.canViewCost(user, branchId),
+    });
   }
 
-  @RequirePermission("inventory.manage")
+  @RequirePermission("inventory.quarantine")
   @Post("batches/:id/quarantine")
   quarantine(
     @CurrentUser() user: RequestUser,
@@ -102,41 +118,24 @@ export class InventoryController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: QuarantineBatchDto,
   ) {
-    return this.inventory.quarantineBatch(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      dto.reason,
-    );
+    return this.inventory.quarantineBatch(user.tenantId, branchId, user.userId, id, dto);
   }
 
-  @RequirePermission("inventory.manage")
+  @RequirePermission("inventory.release_quarantine")
   @Post("batches/:id/release-quarantine")
   releaseQuarantine(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ReleaseQuarantineDto,
   ) {
-    return this.inventory.releaseQuarantine(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-    );
+    return this.inventory.releaseQuarantine(user.tenantId, branchId, user.userId, id, dto ?? {});
   }
 
   @RequirePermission("inventory.manage_bulk")
   @Post("quarantine-expired")
-  quarantineExpired(
-    @CurrentUser() user: RequestUser,
-    @RequireBranchId() branchId: string,
-  ) {
-    return this.inventory.quarantineExpired(
-      user.tenantId,
-      branchId,
-      user.userId,
-    );
+  quarantineExpired(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.inventory.quarantineExpired(user.tenantId, branchId, user.userId);
   }
 
   @RequirePermission("inventory.view")
@@ -152,12 +151,15 @@ export class InventoryController {
     @Query("controlled") controlled?: "all" | "controlled" | "regular",
     @Query("batchFilter")
     batchFilter?: "all" | "expiring" | "with_batches" | "no_batches",
+    @Query("attention") attention?: string,
     @Query("categoryIds") categoryIds?: string,
     @Query("brands") brands?: string,
     @Query("tagIds") tagIds?: string,
     @Query("dosageForms") dosageForms?: string,
     @Query("ledgerOnly") ledgerOnly?: string,
     @Query("rangeStatus") rangeStatus?: string,
+    @Query("sort") sort?: string,
+    @Query("dir") dir?: string,
   ) {
     const split = (value?: string) =>
       value
@@ -172,18 +174,41 @@ export class InventoryController {
       productId,
       controlled: controlled ?? "all",
       batchFilter: batchFilter ?? "all",
+      attention: ATTENTION.has(attention as StockAttention)
+        ? (attention as StockAttention)
+        : undefined,
       categoryIds: split(categoryIds),
       brands: split(brands),
       tagIds: split(tagIds),
       dosageForms: split(dosageForms),
       ledgerOnly: ledgerOnly === "1" || ledgerOnly === "true",
       rangeStatus: rangeStatus === "all" ? "all" : "RANGED",
+      sort: sort === "onHand" || sort === "available" ? sort : "name",
+      dir: dir === "desc" ? "desc" : "asc",
+    });
+  }
+
+  @RequirePermission("inventory.view")
+  @Get("products/:productId/stock")
+  async productStock(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("productId", ParseUUIDPipe) productId: string,
+  ) {
+    const access = await this.access.resolve(user, branchId);
+    const isOwner = user.branchRoles.some((entry) => entry.role === RoleName.owner);
+    return this.inventory.productStock(user.tenantId, branchId, productId, {
+      canViewCost: access.has("inventory.view_cost"),
+      // Other branches' stock is shown only where the user works too; owners see every branch.
+      accessibleBranchIds: isOwner
+        ? "all"
+        : [...new Set(user.branchRoles.map((entry) => entry.branchId))],
     });
   }
 
   @RequirePermission("inventory.view")
   @Get("summary")
-  summary(
+  async summary(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Query("period") period?: string,
@@ -197,10 +222,10 @@ export class InventoryController {
       "this_year",
     ]);
     const key: SummaryPeriod =
-      period && allowed.has(period as SummaryPeriod)
-        ? (period as SummaryPeriod)
-        : "this_month";
-    return this.inventory.summary(user.tenantId, branchId, key);
+      period && allowed.has(period as SummaryPeriod) ? (period as SummaryPeriod) : "this_month";
+    return this.inventory.summary(user.tenantId, branchId, key, {
+      canViewCost: await this.canViewCost(user, branchId),
+    });
   }
 
   @RequirePermission("inventory.view")
@@ -209,68 +234,49 @@ export class InventoryController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Query("productId") productId?: string,
+    @Query("batchId") batchId?: string,
     @Query("category") category?: string,
+    @Query("userId") userId?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("referenceType") referenceType?: string,
+    @Query("referenceId") referenceId?: string,
     @Query("skip") skip?: string,
     @Query("take") take?: string,
   ) {
-    const allowed = new Set<MovementCategory>([
-      "all",
-      "adjustments",
-      "sales",
-      "purchases",
-      "transfers",
-      "returns",
-    ]);
     const cat: MovementCategory =
-      category && allowed.has(category as MovementCategory)
+      category && (category === "all" || category in MOVEMENT_CATEGORY_TYPES)
         ? (category as MovementCategory)
         : "all";
     return this.inventory.listMovements(user.tenantId, branchId, {
       productId: productId || undefined,
+      batchId: batchId || undefined,
       category: cat,
+      userId: userId || undefined,
+      from: from || undefined,
+      to: to || undefined,
+      referenceType: referenceType || undefined,
+      referenceId: referenceId || undefined,
       skip: skip ? Number(skip) : undefined,
       take: take ? Number(take) : undefined,
     });
   }
 
-  @RequirePermission("inventory.manage")
+  @RequirePermission("inventory.view")
+  @Get("movement-actors")
+  movementActors(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.inventory.movementActors(user.tenantId, branchId);
+  }
+
+  /** Increases need `inventory.manage`, decreases `inventory.write_off` — checked per request. */
+  @RequirePermission("inventory.manage", "inventory.write_off")
   @Post("adjustments")
-  adjustment(
+  async adjustment(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Body() dto: StockAdjustmentDto,
   ) {
-    const roles = user.branchRoles
-      .filter((b) => b.branchId === branchId)
-      .map((b) => b.role);
-    const ownerBypass = user.branchRoles.some((b) => b.role === RoleName.owner);
-    const effectiveRoles = ownerBypass ? [...roles, RoleName.owner] : roles;
-    return this.inventory.adjustment(
-      user.tenantId,
-      branchId,
-      user.userId,
-      effectiveRoles,
-      dto,
-    );
-  }
-
-  @RequirePermission("inventory.customer_returns")
-  @Post("customer-returns")
-  customerReturn(
-    @CurrentUser() _user: RequestUser,
-    @RequireBranchId() _branchId: string,
-    @Body() _dto: CustomerReturnDto,
-  ) {
-    throw new GoneException(RETURNS_DEPRECATED);
-  }
-
-  @RequirePermission("inventory.manage")
-  @Post("supplier-returns")
-  supplierReturn(
-    @CurrentUser() _user: RequestUser,
-    @RequireBranchId() _branchId: string,
-    @Body() _dto: SupplierReturnDto,
-  ) {
-    throw new GoneException(RETURNS_DEPRECATED);
+    const access = await this.access.resolve(user, branchId);
+    return this.inventory.adjustment(user.tenantId, branchId, access, dto);
   }
 }

@@ -1,4 +1,16 @@
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from "class-validator";
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from "class-validator";
 
 /**
  * One minimal DTO per TenantSettings domain, each validating only the fields its own
@@ -89,6 +101,16 @@ export class UpdateApprovalsSettingsDto {
   @IsOptional() @IsNumber() @Min(0) approvalRequiredPurchaseOrderThreshold?: number | null;
   @IsOptional() @IsBoolean() approvalRequiredForBranchTransfers?: boolean;
   @IsOptional() @IsNumber() @Min(0) approvalRequiredReturnThreshold?: number | null;
+  /**
+   * `Role.key`s whose holders may approve requests they raised themselves. Validated against
+   * the tenant's roles in the service. An empty list means nobody self-approves.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  selfApprovalRoleKeys?: string[];
 }
 
 export class UpdateInsightsSettingsDto {

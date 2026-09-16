@@ -1,5 +1,6 @@
 import { Type } from "class-transformer";
 import {
+  IsBoolean,
   IsDateString,
   IsIn,
   IsInt,
@@ -62,8 +63,17 @@ export class StockAdjustmentDto {
   @Min(1)
   qty!: number;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(512)
+  /**
+   * Required for a decrease: a write-off with no recorded reason is exactly the entry an audit
+   * can't explain. Optional for an increase.
+   */
+  @ValidateIf((o: StockAdjustmentDto) => o.movementType === "adjustment_out" || o.reason !== undefined)
+  @IsString({ message: "Enter a reason for the write-off" })
+  @MaxLength(512, { message: "Keep the reason under 512 characters" })
   reason?: string;
+
+  /** Decrease only: write the units off from quarantine (expired or damaged stock being disposed of). */
+  @IsOptional()
+  @IsBoolean()
+  fromQuarantine?: boolean;
 }

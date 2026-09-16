@@ -19,7 +19,6 @@ import {
   canReceive,
   canReject,
   canShortClose,
-  defaultExpiryIso,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -123,16 +122,19 @@ export function PoDetailModal({
         .map((item): ReceiveLineForm | null => {
           const remaining = remainingQtyForProduct(detail, item.productId);
           if (remaining <= 0) return null;
-          const sellGuess = (Number(item.unitCost) * 1.35).toFixed(2);
           return {
             productId: item.productId,
             productLabel: `${item.product.sku} — ${item.product.name}`,
             remainingQty: remaining,
             receivedQty: String(remaining),
-            batchNo: `${detail.poNumber.replace(/[^A-Z0-9]/gi, "").slice(-6)}-${item.product.sku.slice(-4)}-${Date.now().toString(36).slice(-4)}`,
-            expiryDate: defaultExpiryIso(18),
+            // Batch number and expiry are what recalls and expiry alerts run on, so they start
+            // empty: the person receiving copies them from the pack, never a generated value.
+            batchNo: "",
+            expiryDate: "",
             costPrice: Number(item.unitCost).toFixed(2),
-            sellingPrice: sellGuess,
+            sellingPrice: item.lastBatchPrices?.sellingPrice
+              ? Number(item.lastBatchPrices.sellingPrice).toFixed(2)
+              : "",
             include: true,
           };
         })
@@ -154,12 +156,15 @@ export function PoDetailModal({
       (l) =>
         l.batchNo.trim() &&
         l.expiryDate &&
+        l.expiryDate > receivedOn &&
         Number(l.receivedQty) >= 1 &&
         Number(l.receivedQty) <= l.remainingQty &&
+        l.costPrice !== "" &&
         Number(l.costPrice) >= 0 &&
+        l.sellingPrice !== "" &&
         Number(l.sellingPrice) >= 0,
     );
-  }, [receiveLines]);
+  }, [receiveLines, receivedOn]);
 
   async function completeAndReturnToList() {
     onChanged();
@@ -711,6 +716,9 @@ export function PoDetailModal({
                           <label className={css.fieldLabel}>Batch no.</label>
                           <input
                             className={css.input}
+                            placeholder="As printed on the pack"
+                            required
+                            aria-invalid={!line.batchNo.trim()}
                             value={line.batchNo}
                             onChange={(e) =>
                               setReceiveLines((prev) =>
@@ -729,6 +737,9 @@ export function PoDetailModal({
                           <input
                             type="date"
                             className={css.input}
+                            required
+                            min={receivedOn}
+                            aria-invalid={!!line.expiryDate && line.expiryDate <= receivedOn}
                             value={line.expiryDate}
                             onChange={(e) =>
                               setReceiveLines((prev) =>
@@ -741,6 +752,11 @@ export function PoDetailModal({
                             }
                             disabled={busy}
                           />
+                          {line.expiryDate && line.expiryDate <= receivedOn && (
+                            <span className={css.fieldHint} role="alert">
+                              Expires on or before the received date — check the pack.
+                            </span>
+                          )}
                         </div>
                         <div className={css.field}>
                           <label className={css.fieldLabel}>Cost price</label>
@@ -781,6 +797,11 @@ export function PoDetailModal({
                             }
                             disabled={busy}
                           />
+                          <span className={css.fieldHint}>
+                            {detail?.items.find((item) => item.productId === line.productId)?.lastBatchPrices
+                              ? "Last selling price at this branch"
+                              : "No earlier batch — enter the selling price"}
+                          </span>
                         </div>
                       </div>
                     )}

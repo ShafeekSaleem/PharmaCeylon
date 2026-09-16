@@ -125,6 +125,13 @@ export function formatMovementType(type: string): string {
     adjustment_out: "Adjustment out",
     sale_void_in: "Sale void",
     sale_refund_in: "Sale refund",
+    opening_stock: "Opening stock",
+    stocktake_in: "Stocktake gain",
+    stocktake_out: "Stocktake loss",
+    quarantine_hold: "Quarantined",
+    quarantine_release: "Released from quarantine",
+    transfer_reserve_out: "Reserved (legacy)",
+    transfer_reserve_release: "Reservation released (legacy)",
   };
   if (labels[type]) return labels[type];
   return type

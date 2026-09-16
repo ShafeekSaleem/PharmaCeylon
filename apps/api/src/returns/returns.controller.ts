@@ -8,7 +8,7 @@ import {
   Patch,
   Post,
 } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
+import { AccessService } from "../security/access.service";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
@@ -19,19 +19,10 @@ import { ReturnsService } from "./returns.service";
 
 @Controller("returns")
 export class ReturnsController {
-  constructor(private readonly returns: ReturnsService) {}
-
-  /** Roles at the active branch; owners are treated as having owner at every branch. */
-  private rolesAtBranch(user: RequestUser, branchId: string): RoleName[] {
-    const hasOwner = user.branchRoles.some((entry) => entry.role === RoleName.owner);
-    const atBranch = user.branchRoles
-      .filter((entry) => entry.branchId === branchId)
-      .map((entry) => entry.role);
-    if (hasOwner) {
-      return [...new Set([...atBranch, RoleName.owner])];
-    }
-    return [...new Set(atBranch)];
-  }
+  constructor(
+    private readonly returns: ReturnsService,
+    private readonly access: AccessService,
+  ) {}
 
   @RequirePermission("returns.view")
   @Get()
@@ -51,18 +42,13 @@ export class ReturnsController {
 
   @RequirePermission("returns.create")
   @Post()
-  create(
+  async create(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Body() dto: CreateReturnDto,
   ) {
-    return this.returns.create(
-      user.tenantId,
-      branchId,
-      user.userId,
-      this.rolesAtBranch(user, branchId),
-      dto,
-    );
+    const access = await this.access.resolve(user, branchId);
+    return this.returns.create(user.tenantId, branchId, access, dto);
   }
 
   @RequirePermission("returns.process")
@@ -78,34 +64,24 @@ export class ReturnsController {
 
   @RequirePermission("returns.process")
   @Post(":id/submit")
-  submit(
+  async submit(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.returns.submit(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      this.rolesAtBranch(user, branchId),
-    );
+    const access = await this.access.resolve(user, branchId);
+    return this.returns.submit(user.tenantId, branchId, access, id);
   }
 
   @RequirePermission("returns.approve")
   @Post(":id/approve")
-  approve(
+  async approve(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.returns.approve(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      this.rolesAtBranch(user, branchId),
-    );
+    const access = await this.access.resolve(user, branchId);
+    return this.returns.approve(user.tenantId, branchId, access, id);
   }
 
   @RequirePermission("returns.approve")
@@ -115,29 +91,18 @@ export class ReturnsController {
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.returns.reject(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      this.rolesAtBranch(user, branchId),
-    );
+    return this.returns.reject(user.tenantId, branchId, user.userId, id);
   }
 
   @RequirePermission("returns.process")
   @Post(":id/mark-logistics")
-  markLogistics(
+  async markLogistics(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.returns.markLogistics(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      this.rolesAtBranch(user, branchId),
-    );
+    const access = await this.access.resolve(user, branchId);
+    return this.returns.markLogistics(user.tenantId, branchId, access, id);
   }
 
   @RequirePermission("returns.process")
@@ -159,17 +124,12 @@ export class ReturnsController {
 
   @RequirePermission("returns.process")
   @Post(":id/cancel")
-  cancel(
+  async cancel(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.returns.cancel(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      this.rolesAtBranch(user, branchId),
-    );
+    const access = await this.access.resolve(user, branchId);
+    return this.returns.cancel(user.tenantId, branchId, access, id);
   }
 }

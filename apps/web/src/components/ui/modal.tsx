@@ -18,6 +18,12 @@ export type ModalProps = {
   canDismiss?: boolean;
   /** Raise overlay above another open modal (nested confirms). */
   elevated?: boolean;
+  /**
+   * `sheet` slides in from the right edge at full height — for reviewing a record next to the
+   * list it came from (a product's stock, a document's details) without losing your place.
+   * Same focus trap, Esc and scroll lock as the centred dialog.
+   */
+  variant?: "dialog" | "sheet";
 };
 
 export function Modal({
@@ -32,6 +38,7 @@ export function Modal({
   closeOnEsc = true,
   canDismiss = true,
   elevated = false,
+  variant = "dialog",
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -118,12 +125,14 @@ export function Modal({
 
   return (
     <div
-      className={`${styles.overlay}${elevated ? ` ${styles.overlayElevated}` : ""}`}
+      className={`${styles.overlay}${elevated ? ` ${styles.overlayElevated}` : ""}${
+        variant === "sheet" ? ` ${styles.overlaySheet}` : ""
+      }`}
       onClick={handleBackdrop}
     >
       <div
         ref={dialogRef}
-        className={`${styles.dialog} ${sizeCls}`}
+        className={`${styles.dialog} ${sizeCls}${variant === "sheet" ? ` ${styles.sheet}` : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

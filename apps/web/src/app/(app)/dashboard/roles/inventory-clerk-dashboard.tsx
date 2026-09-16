@@ -90,13 +90,21 @@ export function InventoryClerkDashboard({ data, catalog, layout }: Props) {
 
   return (
     <>
+      {/* Stock value needs "View cost and stock value"; without it the API leaves the figure out,
+          so the band shows what the clerk can act on instead of a misleading LKR 0.00. */}
       <HeroBand
-        label="Stock Value"
-        value={inventory ? formatMoney(inventory.stockValue) : "—"}
+        label={inventory?.stockValue != null ? "Stock Value" : "Available units"}
+        value={
+          inventory
+            ? inventory.stockValue != null
+              ? formatMoney(inventory.stockValue)
+              : inventory.availableUnits.toLocaleString()
+            : "—"
+        }
         scope={inventory ? `${inventory.totalUnits.toLocaleString()} units on hand` : undefined}
-        sparkline={valueTrend?.sparkline}
+        sparkline={inventory?.stockValue != null ? valueTrend?.sparkline : undefined}
         trend={
-          valueTrend
+          valueTrend && inventory?.stockValue != null
             ? {
                 label: `${formatMoney(Math.abs(valueTrend.netValueTotal))} this week`,
                 direction: valueTrend.netValueTotal >= 0 ? "up" : "down",

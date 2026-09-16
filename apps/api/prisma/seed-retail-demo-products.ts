@@ -15,7 +15,7 @@ import { randomUUID } from "crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { CategoryTaxonomyOps } from "../src/catalog/category-taxonomy.util";
-import { seedReceiveStock, daysFromNow } from "./seed-helpers";
+import { seedReceiveStock, daysFromNow, syncSeedStock } from "./seed-helpers";
 
 type DemoProduct = {
   sku: string;
@@ -264,6 +264,8 @@ export async function seedRetailDemoProducts(prisma: PrismaClient, tenantId: str
       }
     }
   }
+
+  await syncSeedStock(prisma, tenantId);
 
   console.log(
     `[${tenantCode}] retail demo catalog: ${created} products created (${DEMO_PRODUCTS.length - created} already existed), ` +

@@ -1,111 +1,91 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import {
-  IconActivity,
-  IconAlertTriangle,
-  IconCalendar,
-  IconEye,
-  IconPackage,
-} from "@/components/icons";
-import { RoleButton, RoleLink } from "@/components/role-access";
-import { DataTable, Modal, FormField, type Column } from "@/components/ui";
+import { IconAlertTriangle, IconCalendar, IconPackage } from "@/components/icons";
 import { Alert } from "@/components/alert";
-import { ConfirmDialog } from "../../products/components/confirm-dialog";
+import {
+  DataTable,
+  FormField,
+  Modal,
+  RowMenu,
+  type Column,
+  type RowMenuAction,
+} from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { PAGE_SIZE } from "../constants";
+import type { InventoryAccess } from "../hooks/use-inventory-access";
 import css from "../inventory.module.css";
 import type { BatchRow } from "../types";
-import { daysLabel, formatCostToSell, formatExpiry } from "../utils";
+import { daysLabel, formatExpiry, formatMoney, formatUnits } from "../utils";
+import {
+  QuarantineDialog,
+  quarantineTargetFromBatch,
+  ReleaseDialog,
+  type QuarantineTarget,
+} from "./quarantine-dialogs";
 
 type BatchesTableProps = {
   rows: BatchRow[];
   loading: boolean;
   page: number;
-  canWrite: boolean;
+  access: Pick<
+    InventoryAccess,
+    "canAdjustIn" | "canWriteOff" | "canQuarantine" | "canRelease" | "canViewCost"
+  >;
   onPageChange: (page: number) => void;
-  onChanged?: () => void;
+  /** Called after a change on a batch, with a sentence describing what happened. */
+  onChanged?: (message?: string) => void;
   onAdjust: (row: BatchRow) => void;
+  /** Opens the product's stock sheet. */
+  onOpenProduct?: (productId: string) => void;
 };
 
-function RowActions({
-  row,
-  canWrite,
-  busyId,
-  onQuarantine,
-  onRelease,
-  onConfirmExpiry,
-  onAdjust,
+/** Held and promised units, shown only when there are any. */
+export function HeldChips({
+  quarantined,
+  reserved,
+  expired = 0,
+  hideWhenEmpty = false,
 }: {
-  row: BatchRow;
-  canWrite: boolean;
-  busyId: string | null;
-  onQuarantine: (row: BatchRow) => void;
-  onRelease: (row: BatchRow) => void;
-  onConfirmExpiry: (row: BatchRow) => void;
-  onAdjust: (row: BatchRow) => void;
+  quarantined: number;
+  reserved: number;
+  expired?: number;
+  /** In a list line (the stock sheet) an empty dash is noise; in a table cell it marks "none". */
+  hideWhenEmpty?: boolean;
 }) {
-  const busy = busyId === row.id;
+  if (quarantined <= 0 && reserved <= 0 && expired <= 0) {
+    return hideWhenEmpty ? null : <span className={css.productMeta}>—</span>;
+  }
   return (
-    <div className={css.actionsCell}>
-      <RoleLink
-        href={`/products/${row.productId}`}
-        className={`${css.actionIcon} ${css.actionIconView}`}
-        aria-label={`View ${row.product.name}`}
-        data-tooltip="View product"
-      >
-        <IconEye size={17} />
-      </RoleLink>
-      <RoleButton
-        roles={INVENTORY_WRITE_ROLES}
-        permissions={["inventory.manage"]}
-        className={`${css.actionIcon} ${css.actionIconAdjust}`}
-        aria-label={`Adjust ${row.product.name}, batch ${row.batchNo}`}
-        data-tooltip="Adjust this batch"
-        onClick={() => onAdjust(row)}
-      >
-        <IconActivity size={17} />
-      </RoleButton>
-      {canWrite && row.needsExpiryReview && (
-        <button
-          type="button"
-          className={css.actionIcon}
-          disabled={busy}
-          onClick={() => onConfirmExpiry(row)}
-          aria-label={`Confirm expiry for batch ${row.batchNo}`}
-          data-tooltip="Confirm actual expiry"
+    <span className={css.heldChips}>
+      {expired > 0 && (
+        <span
+          className={`${css.heldChip} ${css.heldChipExpired}`}
+          data-tooltip="Past expiry and still sellable — quarantine or write these off"
         >
-          <IconCalendar size={17} />
-        </button>
+          {expired} expired
+        </span>
       )}
-      {canWrite && !row.isQuarantined && (
-        <button
-          type="button"
-          className={`${css.actionIcon} ${css.actionIconQuarantine}`}
-          onClick={() => onQuarantine(row)}
-          disabled={busy}
-          aria-label={`Quarantine batch ${row.batchNo}`}
-          data-tooltip="Quarantine batch"
+      {quarantined > 0 && (
+        <span
+          className={`${css.heldChip} ${css.heldChipQuarantine}`}
+          data-tooltip="Held back from sale and transfer"
         >
-          <IconAlertTriangle size={17} />
-        </button>
+          {quarantined} quarantined
+        </span>
       )}
-      {canWrite && row.isQuarantined && (
-        <button
-          type="button"
-          className={`${css.actionIcon} ${css.actionIconRelease}`}
-          onClick={() => onRelease(row)}
-          disabled={busy}
-          aria-label={`Release quarantine on batch ${row.batchNo}`}
-          data-tooltip="Release quarantine"
+      {reserved > 0 && (
+        <span
+          className={`${css.heldChip} ${css.heldChipReserved}`}
+          data-tooltip="Promised to an approved transfer that hasn't shipped"
         >
-          <IconPackage size={17} />
-        </button>
+          {reserved} reserved
+        </span>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -113,19 +93,23 @@ export function BatchesTable({
   rows,
   loading,
   page,
-  canWrite,
+  access,
   onPageChange,
   onChanged,
   onAdjust,
+  onOpenProduct,
 }: BatchesTableProps) {
-  const [busyId, setBusyId] = useState<string | null>(null);
-
+  const router = useRouter();
   const [expiryBatch, setExpiryBatch] = useState<BatchRow | null>(null);
   const [expiryDate, setExpiryDate] = useState("");
   const [expiryError, setExpiryError] = useState<string | null>(null);
+  const [expiryBusy, setExpiryBusy] = useState(false);
+  const [quarantineTarget, setQuarantineTarget] = useState<QuarantineTarget | null>(null);
+  const [releaseTarget, setReleaseTarget] = useState<QuarantineTarget | null>(null);
+
   async function confirmExpiry() {
     if (!expiryBatch || !expiryDate) return;
-    setBusyId(expiryBatch.id);
+    setExpiryBusy(true);
     setExpiryError(null);
     try {
       await apiJson(`/inventory/batches/${expiryBatch.id}/confirm-expiry`, {
@@ -134,68 +118,60 @@ export function BatchesTable({
         body: JSON.stringify({ expiryDate }),
       });
       setExpiryBatch(null);
-      onChanged?.();
+      onChanged?.(`Expiry date confirmed for batch ${expiryBatch.batchNo}.`);
     } catch (err) {
-      setExpiryError(
-        err instanceof Error ? err.message : "Unable to confirm expiry",
-      );
+      setExpiryError(err instanceof Error ? err.message : "Unable to confirm expiry");
     } finally {
-      setBusyId(null);
-    }
-  }
-
-  const [quarantineBatch, setQuarantineBatch] = useState<BatchRow | null>(null);
-  const [quarantineReason, setQuarantineReason] = useState("");
-  const [quarantineError, setQuarantineError] = useState<string | null>(null);
-  async function quarantine() {
-    if (!quarantineBatch) return;
-    const trimmed = quarantineReason.trim();
-    if (!trimmed) {
-      setQuarantineError("Quarantine reason is required");
-      return;
-    }
-    setBusyId(quarantineBatch.id);
-    setQuarantineError(null);
-    try {
-      await apiJson(`/inventory/batches/${quarantineBatch.id}/quarantine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: trimmed }),
-      });
-      setQuarantineBatch(null);
-      onChanged?.();
-    } catch (err) {
-      setQuarantineError(
-        err instanceof Error ? err.message : "Quarantine failed",
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  const [releaseBatch, setReleaseBatch] = useState<BatchRow | null>(null);
-  const [releaseError, setReleaseError] = useState<string | null>(null);
-  async function release() {
-    if (!releaseBatch) return;
-    setBusyId(releaseBatch.id);
-    setReleaseError(null);
-    try {
-      await apiJson(
-        `/inventory/batches/${releaseBatch.id}/release-quarantine`,
-        {
-          method: "POST",
-        },
-      );
-      setReleaseBatch(null);
-      onChanged?.();
-    } catch (err) {
-      setReleaseError(err instanceof Error ? err.message : "Release failed");
-    } finally {
-      setBusyId(null);
+      setExpiryBusy(false);
     }
   }
 
   const columns: Column<BatchRow>[] = useMemo(() => {
+    const menuFor = (row: BatchRow): RowMenuAction[] => {
+      const holdable = Math.max(0, row.qtyOnHand - row.quarantinedQty - row.reservedQty);
+      const actions: RowMenuAction[] = [];
+      if (onOpenProduct) {
+        actions.push({ label: "Stock details", onClick: () => onOpenProduct(row.productId) });
+      }
+      actions.push({
+        label: "Movement history",
+        onClick: () => {
+          router.push(`/inventory/movements?batchId=${row.id}&productId=${row.productId}`);
+        },
+      });
+      if (access.canAdjustIn || access.canWriteOff) {
+        actions.push({ label: "Adjust stock", onClick: () => onAdjust(row) });
+      }
+      if (access.canAdjustIn && row.needsExpiryReview) {
+        actions.push({
+          label: "Confirm expiry date",
+          onClick: () => {
+            setExpiryBatch(row);
+            setExpiryDate("");
+            setExpiryError(null);
+          },
+        });
+      }
+      if (access.canQuarantine) {
+        actions.push({
+          label: "Quarantine units",
+          separated: true,
+          disabled: holdable <= 0,
+          hint: holdable <= 0 ? "Nothing left to hold on this batch" : undefined,
+          onClick: () => setQuarantineTarget(quarantineTargetFromBatch(row)),
+        });
+      }
+      if (access.canRelease && row.quarantinedQty > 0) {
+        actions.push({
+          label: "Release from quarantine",
+          disabled: row.expired,
+          hint: row.expired ? "Expired stock can't go back on sale" : undefined,
+          onClick: () => setReleaseTarget(quarantineTargetFromBatch(row)),
+        });
+      }
+      return actions;
+    };
+
     const cols: Column<BatchRow>[] = [
       {
         key: "product",
@@ -211,12 +187,19 @@ export function BatchesTable({
               className={css.thumb}
             />
             <div>
-              <Link
-                href={`/products/${row.productId}`}
-                className={css.productName}
-              >
-                {row.product.name}
-              </Link>
+              {onOpenProduct ? (
+                <button
+                  type="button"
+                  className={css.rowTitleButton}
+                  onClick={() => onOpenProduct(row.productId)}
+                >
+                  {row.product.name}
+                </button>
+              ) : (
+                <Link href={`/products/${row.productId}`} className={css.productName}>
+                  {row.product.name}
+                </Link>
+              )}
               <div className={css.productMeta}>{row.product.sku}</div>
             </div>
           </div>
@@ -231,11 +214,8 @@ export function BatchesTable({
           <div className={css.batchCell}>
             <span className={css.batchNumber}>{row.batchNo}</span>
             {row.isQuarantined && (
-              <span
-                className={css.quarantineBadge}
-                data-tooltip={row.quarantineReason ?? "Quarantined"}
-              >
-                Quarantined
+              <span className={css.quarantineBadge} data-tooltip={row.quarantineReason ?? "Quarantined"}>
+                All held
               </span>
             )}
           </div>
@@ -252,7 +232,7 @@ export function BatchesTable({
           row.needsExpiryReview ? (
             <span
               className={`${css.expiryBadge} ${css.expiryBadgeUnset}`}
-              data-tooltip="Imported without an expiry date — edit the batch to set the real one"
+              data-tooltip="Imported without an expiry date — confirm the real one before selling"
             >
               <IconCalendar size={11} />
               <span>No expiry date</span>
@@ -267,11 +247,7 @@ export function BatchesTable({
                     : css.expiryBadgeOk
               }`}
             >
-              {row.expired || row.nearExpiry ? (
-                <IconAlertTriangle size={11} />
-              ) : (
-                <IconCalendar size={11} />
-              )}
+              {row.expired || row.nearExpiry ? <IconAlertTriangle size={11} /> : <IconCalendar size={11} />}
               <span>
                 {formatExpiry(row.expiryDate)} - {daysLabel(row.daysToExpiry)}
               </span>
@@ -279,100 +255,85 @@ export function BatchesTable({
           ),
       },
       {
-        key: "qty",
-        header: "On hand",
-        width: "90px",
+        key: "available",
+        header: "Available",
+        width: "110px",
         align: "right",
-        getValue: (row) => row.qtyOnHand,
+        getValue: (row) => row.availableQty,
         render: (row) => (
-          <span
-            className={`${css.batchQty} ${
-              row.qtyOnHand > 0 ? css.batchQtyAvailable : css.batchQtyEmpty
-            }`}
-          >
-            {row.qtyOnHand} {row.qtyOnHand === 1 ? "unit" : "units"}
+          <span className={css.qtyStack}>
+            <span className={css.qtyPrimary}>{row.availableQty.toLocaleString()}</span>
+            <span className={css.qtySecondary}>of {formatUnits(row.qtyOnHand)} on hand</span>
           </span>
         ),
       },
       {
+        key: "held",
+        header: "Held",
+        width: "170px",
+        render: (row) => (
+          <HeldChips
+            quarantined={row.quarantinedQty}
+            reserved={row.reservedQty}
+            expired={
+              row.expired ? Math.max(0, row.qtyOnHand - row.quarantinedQty - row.reservedQty) : 0
+            }
+          />
+        ),
+      },
+      {
         key: "pricing",
-        header: "Cost → Sell",
-        width: "210px",
-        getValue: (row) => Number(row.costPrice),
-        render: (row) => {
-          const { cost, sell } = formatCostToSell(
-            row.costPrice,
-            row.sellingPrice,
-          );
-          return (
+        header: access.canViewCost ? "Cost → Sell" : "Selling price",
+        width: access.canViewCost ? "200px" : "120px",
+        getValue: (row) => Number(row.sellingPrice),
+        render: (row) =>
+          access.canViewCost && row.costPrice != null ? (
             <div className={css.priceCell}>
-              <span>{cost}</span>
+              <span>{formatMoney(row.costPrice)}</span>
               <span className={css.priceArrow}>→</span>
-              <strong>{sell}</strong>
+              <strong>{formatMoney(row.sellingPrice)}</strong>
             </div>
-          );
-        },
+          ) : (
+            <div className={css.priceCell}>
+              <strong>{formatMoney(row.sellingPrice)}</strong>
+            </div>
+          ),
       },
       {
         key: "supplier",
         header: "Supplier",
-        width: "150px",
+        width: "140px",
         getValue: (row) => row.supplier?.name ?? "",
-        render: (row) =>
-          row.supplier ? (
-            <span className={css.productMeta} data-tooltip={row.supplier.name}>
-              {row.supplier.name}
-            </span>
-          ) : (
-            <span className={css.productMeta}>—</span>
-          ),
+        render: (row) => (
+          <span className={css.productMeta} data-tooltip={row.supplier?.name}>
+            {row.supplier?.name ?? "—"}
+          </span>
+        ),
+      },
+      {
+        key: "actions",
+        header: "",
+        width: "56px",
+        align: "right",
+        render: (row) => (
+          <RowMenu label={`batch ${row.batchNo}`} actions={menuFor(row)} />
+        ),
       },
     ];
-
-    cols.push({
-      key: "actions",
-      header: "Actions",
-      width: canWrite ? "160px" : "96px",
-      align: "right",
-      render: (row) => (
-        <RowActions
-          row={row}
-          canWrite={canWrite}
-          busyId={busyId}
-          onQuarantine={(r) => {
-            setQuarantineBatch(r);
-            setQuarantineReason(r.expired ? "Expired" : "");
-            setQuarantineError(null);
-          }}
-          onRelease={(r) => {
-            setReleaseBatch(r);
-            setReleaseError(null);
-          }}
-          onConfirmExpiry={(r) => {
-            setExpiryBatch(r);
-            setExpiryDate("");
-            setExpiryError(null);
-          }}
-          onAdjust={onAdjust}
-        />
-      ),
-    });
-
     return cols;
-  }, [canWrite, busyId, onAdjust]);
+  }, [access, onAdjust, onOpenProduct, router]);
 
-  const pageSize = PAGE_SIZE;
   const paged = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [rows, page, pageSize]);
+    const start = (page - 1) * PAGE_SIZE;
+    return rows.slice(start, start + PAGE_SIZE);
+  }, [rows, page]);
 
   return (
     <>
       <Modal
         open={!!expiryBatch}
         onClose={() => setExpiryBatch(null)}
-        canDismiss={!busyId}
+        canDismiss={!expiryBusy}
         title="Confirm batch expiry"
         size="sm"
         description={`${expiryBatch?.product.name ?? ""} · ${expiryBatch?.batchNo ?? ""}`}
@@ -391,79 +352,39 @@ export function BatchesTable({
             onChange={(event) => setExpiryDate(event.target.value)}
             hint="Read the date from the physical batch. An expired batch will remain blocked from sales."
           />
-          {expiryError && (
-            <p role="alert" className={css.tableActionError}>
-              {expiryError}
-            </p>
-          )}
+          {expiryError && <Alert variant="error">{expiryError}</Alert>}
           <button
             type="submit"
             className={css.confirmExpiryButton}
-            disabled={!expiryDate || !!busyId}
+            disabled={!expiryDate || expiryBusy}
           >
-            {busyId ? "Saving…" : "Confirm expiry"}
+            {expiryBusy ? "Saving…" : "Confirm expiry"}
           </button>
         </form>
       </Modal>
-      <ConfirmDialog
-        open={!!quarantineBatch}
-        title="Quarantine batch"
-        confirmLabel="Quarantine batch"
-        loading={!!quarantineBatch && busyId === quarantineBatch.id}
-        onCancel={() => {
-          if (!busyId) setQuarantineBatch(null);
+      <QuarantineDialog
+        target={quarantineTarget}
+        onClose={() => setQuarantineTarget(null)}
+        onDone={(message) => {
+          setQuarantineTarget(null);
+          onChanged?.(message);
         }}
-        onConfirm={() => void quarantine()}
-      >
-        <p>
-          Block <strong>{quarantineBatch?.product.name}</strong> / batch{" "}
-          <strong>{quarantineBatch?.batchNo}</strong> from sale. The reason is
-          recorded on the batch for the audit log.
-        </p>
-        <FormField
-          label="Quarantine reason"
-          required
-          value={quarantineReason}
-          placeholder="e.g. Expired, damaged packaging, recall"
-          onChange={(event) => setQuarantineReason(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void quarantine();
-            }
-          }}
-        />
-        {quarantineError && <Alert variant="error">{quarantineError}</Alert>}
-      </ConfirmDialog>
-      <ConfirmDialog
-        open={!!releaseBatch}
-        title="Release quarantine"
-        confirmLabel="Release batch"
-        variant="primary"
-        loading={!!releaseBatch && busyId === releaseBatch.id}
-        onCancel={() => {
-          if (!busyId) setReleaseBatch(null);
+      />
+      <ReleaseDialog
+        target={releaseTarget}
+        onClose={() => setReleaseTarget(null)}
+        onDone={(message) => {
+          setReleaseTarget(null);
+          onChanged?.(message);
         }}
-        onConfirm={() => void release()}
-      >
-        <p>
-          Return <strong>{releaseBatch?.product.name}</strong> / batch{" "}
-          <strong>{releaseBatch?.batchNo}</strong> to sellable stock?
-        </p>
-        {releaseBatch?.quarantineReason && (
-          <p className={css.fieldHint}>
-            Quarantined for: {releaseBatch.quarantineReason}
-          </p>
-        )}
-        {releaseError && <Alert variant="error">{releaseError}</Alert>}
-      </ConfirmDialog>
+      />
       <DataTable<BatchRow>
         columns={columns}
         data={paged}
         rowKey={(r) => r.id}
         loading={loading}
         page={page}
-        pageSize={pageSize}
+        pageSize={PAGE_SIZE}
         total={rows.length}
         onPageChange={onPageChange}
         emptyTitle="No batches match your filters"

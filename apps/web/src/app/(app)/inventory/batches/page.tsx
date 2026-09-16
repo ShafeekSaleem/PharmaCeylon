@@ -9,6 +9,7 @@ import {
   IconCalendar,
   IconCheck,
   IconDownload,
+  IconLock,
   IconPackage,
   IconPlus,
   IconSearch,
@@ -16,16 +17,19 @@ import {
 import { ProductContextBanner } from "@/components/product-context-banner";
 import { ActionButton, PageHeader, StatCard } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
-import { useAuth } from "@/lib/use-auth";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { AdjustmentModal } from "../components/adjustment-modal";
 import { BatchesTable } from "../components/batches-table";
 import { InventoryFilterSelect } from "../components/inventory-filter-select";
+import { InventorySubnav } from "../components/inventory-subnav";
+import { ProductStockSheet } from "../components/product-stock-sheet";
+import { useInventoryAccess } from "../hooks/use-inventory-access";
 import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import css from "../inventory.module.css";
 import type { BatchRow, ExpiryFilter } from "../types";
-import { canAdjustOut, hasInventoryWriteAccess } from "../utils";
-import { InventorySubnav } from "../components/inventory-subnav";
+import { formatUnits } from "../utils";
+
+type HoldFilter = "all" | "quarantined";
 
 function BatchesContent() {
   const router = useRouter();
@@ -33,18 +37,15 @@ function BatchesContent() {
   const productId = searchParams.get("productId");
   const controlledParam = searchParams.get("controlled");
   const controlled =
-    controlledParam === "controlled" || controlledParam === "regular"
-      ? controlledParam
-      : null;
+    controlledParam === "controlled" || controlledParam === "regular" ? controlledParam : null;
   const nearExpiryParam = searchParams.get("nearExpiryDays");
   const nearExpiryDays = (() => {
     if (!nearExpiryParam) return null;
     const n = Number(nearExpiryParam);
     return Number.isFinite(n) && n > 0 ? n : null;
   })();
-  const { user, branchId } = useAuth();
-  const canWrite = hasInventoryWriteAccess(user, branchId);
-  const canQuarantineExpired = canAdjustOut(user, branchId);
+  const access = useInventoryAccess();
+  const canAdjust = access.canAdjustIn || access.canWriteOff;
 
   const [search, setSearch] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -54,24 +55,19 @@ function BatchesContent() {
     if (searchParams.get("expired") === "1") return "expired";
     return "all";
   });
+  const [holdFilter, setHoldFilter] = useState<HoldFilter>(
+    searchParams.get("quarantined") === "1" ? "quarantined" : "all",
+  );
   const [includeZero, setIncludeZero] = useState(false);
   const [quarantineBusy, setQuarantineBusy] = useState(false);
-  const [quarantineMsg, setQuarantineMsg] = useState<string | null>(null);
-  const [quarantineError, setQuarantineError] = useState(false);
   const [quarantineConfirmOpen, setQuarantineConfirmOpen] = useState(false);
-  const [adjustmentOpen, setAdjustmentOpen] = useState(
-    searchParams.get("openAdjustment") === "1",
-  );
-  const [adjustmentContext, setAdjustmentContext] = useState<{
-    productId: string;
-    batchId: string;
-  }>({
+  const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [adjustmentOpen, setAdjustmentOpen] = useState(searchParams.get("openAdjustment") === "1");
+  const [adjustmentContext, setAdjustmentContext] = useState<{ productId: string; batchId: string }>({
     productId: productId ?? "",
     batchId: searchParams.get("batchId") ?? "",
   });
-  const [adjustmentSuccess, setAdjustmentSuccess] = useState<string | null>(
-    null,
-  );
+  const [sheetProductId, setSheetProductId] = useState<string | null>(null);
 
   useEffect(() => {
     if (searchParams.get("openAdjustment") !== "1") return;
@@ -84,16 +80,13 @@ function BatchesContent() {
   }, []);
 
   useEffect(() => {
-    if (!adjustmentSuccess) return;
-    const t = setTimeout(() => setAdjustmentSuccess(null), 6000);
+    if (!notice || notice.tone === "error") return;
+    const t = setTimeout(() => setNotice(null), 6000);
     return () => clearTimeout(t);
-  }, [adjustmentSuccess]);
+  }, [notice]);
 
-  function openAdjustment(row?: BatchRow) {
-    setAdjustmentContext({
-      productId: row?.productId ?? productId ?? "",
-      batchId: row?.id ?? "",
-    });
+  function openAdjustment(row?: { productId: string; id?: string }) {
+    setAdjustmentContext({ productId: row?.productId ?? productId ?? "", batchId: row?.id ?? "" });
     setAdjustmentOpen(true);
   }
 
@@ -104,7 +97,7 @@ function BatchesContent() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedQ, expiryFilter, includeZero, productId, nearExpiryDays]);
+  }, [debouncedQ, expiryFilter, holdFilter, includeZero, productId, nearExpiryDays]);
 
   // Keep the URL in sync when filters change so deep-links (e.g. from dashboard) stay accurate.
   useEffect(() => {
@@ -119,94 +112,78 @@ function BatchesContent() {
       next.delete("nearExpiryDays");
       next.delete("expired");
     }
+    if (holdFilter === "quarantined") next.set("quarantined", "1");
+    else next.delete("quarantined");
     const qs = next.toString();
     const target = qs ? `/inventory/batches?${qs}` : "/inventory/batches";
     const current = searchParams.toString()
       ? `/inventory/batches?${searchParams.toString()}`
       : "/inventory/batches";
-    if (target !== current) {
-      router.replace(target);
-    }
+    if (target !== current) router.replace(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expiryFilter]);
+  }, [expiryFilter, holdFilter]);
 
-  const expiredParam = searchParams.get("expired") === "1";
   // Deep-linked from the product importer's "review them now".
   const needsExpiryReview = searchParams.get("needsExpiryReview") === "true";
 
   const batches = useInventoryBatches({
     productId,
-    nearExpiryDays: expiryFilter === "near" ? (nearExpiryDays ?? 30) : null,
-    expired: expiryFilter === "expired" || expiredParam ? true : null,
     needsExpiryReview: needsExpiryReview ? true : null,
+    quarantined: holdFilter === "quarantined" ? true : null,
     includeZero,
     controlled,
     q: debouncedQ,
   });
 
   const scopedRows = useMemo(
-    () =>
-      includeZero
-        ? batches.rows
-        : batches.rows.filter((batch) => batch.qtyOnHand > 0),
+    () => (includeZero ? batches.rows : batches.rows.filter((batch) => batch.qtyOnHand > 0)),
     [batches.rows, includeZero],
   );
 
   const rows = useMemo(() => {
-    let list = scopedRows;
-    // The placeholder date makes these look "healthy" to every expiry bucket, so the
-    // client-side filters below would quietly drop them from their own view.
-    if (needsExpiryReview) return list;
-    if (expiryFilter === "near") {
-      list = list.filter((b) => b.nearExpiry && !b.expired);
-    } else if (expiryFilter === "expired") {
-      list = list.filter((b) => b.expired);
-    } else if (expiryFilter === "ok") {
-      list = list.filter((b) => !b.expired && !b.nearExpiry);
-    }
-    return list;
+    // The placeholder date makes these look "healthy" to every expiry bucket, so the filters
+    // below would quietly drop them from their own view.
+    if (needsExpiryReview) return scopedRows;
+    if (expiryFilter === "near") return scopedRows.filter((b) => b.nearExpiry && !b.expired);
+    if (expiryFilter === "expired") return scopedRows.filter((b) => b.expired);
+    if (expiryFilter === "ok") return scopedRows.filter((b) => !b.expired && !b.nearExpiry);
+    return scopedRows;
   }, [scopedRows, expiryFilter, needsExpiryReview]);
 
+  const holdable = (b: BatchRow) => Math.max(0, b.qtyOnHand - b.quarantinedQty - b.reservedQty);
   const summary = useMemo(
     () => ({
       total: scopedRows.length,
       units: scopedRows.reduce((sum, batch) => sum + batch.qtyOnHand, 0),
-      near: scopedRows.filter((batch) => batch.nearExpiry && !batch.expired)
-        .length,
+      near: scopedRows.filter((batch) => batch.nearExpiry && !batch.expired).length,
       expired: scopedRows.filter((batch) => batch.expired).length,
-      expiredOpen: scopedRows.filter(
-        (batch) => batch.expired && !batch.isQuarantined,
-      ).length,
-      healthy: scopedRows.filter((batch) => !batch.expired && !batch.nearExpiry)
-        .length,
-      zero: includeZero
-        ? batches.rows.filter((batch) => batch.qtyOnHand === 0).length
-        : null,
+      expiredOpen: scopedRows.filter((batch) => batch.expired && holdable(batch) > 0).length,
+      healthy: scopedRows.filter((batch) => !batch.expired && !batch.nearExpiry).length,
+      quarantinedBatches: scopedRows.filter((batch) => batch.quarantinedQty > 0).length,
+      quarantinedUnits: scopedRows.reduce((sum, batch) => sum + batch.quarantinedQty, 0),
     }),
-    [scopedRows, batches.rows, includeZero],
+    [scopedRows],
   );
 
   async function quarantineAllExpired() {
-    if (!canQuarantineExpired) return;
     setQuarantineBusy(true);
-    setQuarantineMsg(null);
-    setQuarantineError(false);
     try {
-      const result = await apiJson<{ quarantined: number }>(
+      const result = await apiJson<{ quarantined: number; units: number }>(
         "/inventory/quarantine-expired",
         { method: "POST" },
       );
-      setQuarantineMsg(
-        result.quarantined === 0
-          ? "No expired batches needed quarantine."
-          : `Quarantined ${result.quarantined} expired batch${result.quarantined === 1 ? "" : "es"}.`,
-      );
+      setNotice({
+        tone: "success",
+        text:
+          result.quarantined === 0
+            ? "No expired stock needed quarantining."
+            : `Quarantined ${formatUnits(result.units)} across ${result.quarantined} expired batch${
+                result.quarantined === 1 ? "" : "es"
+              }.`,
+      });
       await batches.reload();
     } catch (err) {
-      setQuarantineError(true);
-      setQuarantineMsg(
-        err instanceof Error ? err.message : "Quarantine failed",
-      );
+      setNotice({ tone: "error", text: err instanceof Error ? err.message : "Quarantine failed" });
     } finally {
       setQuarantineBusy(false);
       setQuarantineConfirmOpen(false);
@@ -218,35 +195,38 @@ function BatchesContent() {
       const text = String(value);
       return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
     };
+    const header = [
+      "Product",
+      "SKU",
+      "Batch",
+      "Expiry",
+      "On hand",
+      "Available",
+      "Quarantined",
+      "Reserved",
+      ...(access.canViewCost ? ["Cost"] : []),
+      "Selling price",
+      "Quarantine reason",
+    ];
     const csv = [
-      [
-        "Product",
-        "SKU",
-        "Batch",
-        "Expiry",
-        "On hand",
-        "Cost",
-        "Selling price",
-        "Quarantined",
-        "Quarantine reason",
-      ],
+      header,
       ...rows.map((batch) => [
         batch.product.name,
         batch.product.sku,
         batch.batchNo,
-        batch.expiryDate,
+        batch.expiryDate.slice(0, 10),
         batch.qtyOnHand,
-        batch.costPrice,
+        batch.availableQty,
+        batch.quarantinedQty,
+        batch.reservedQty,
+        ...(access.canViewCost ? [batch.costPrice ?? ""] : []),
         batch.sellingPrice,
-        batch.isQuarantined ? "yes" : "no",
         batch.quarantineReason ?? "",
       ]),
     ]
       .map((line) => line.map(escapeCsv).join(","))
       .join("\n");
-    const url = URL.createObjectURL(
-      new Blob([csv], { type: "text/csv;charset=utf-8" }),
-    );
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = `inventory-batches-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -262,25 +242,25 @@ function BatchesContent() {
         floatingActions
         description={
           controlled === "controlled"
-            ? "Batch-level stock ordered by expiry (FEFO). Showing controlled substances only. Quarantine expired or unsafe lots."
-            : "Batch-level stock ordered by expiry (FEFO). Quarantine expired or unsafe lots."
+            ? "Batch-level stock ordered by expiry (FEFO). Showing controlled substances only."
+            : "Batch-level stock ordered by expiry (FEFO). Quarantine damaged, recalled or expired units."
         }
         actions={
           <>
-            {canQuarantineExpired && summary.expiredOpen > 0 ? (
+            {access.canQuarantineAllExpired && summary.expiredOpen > 0 ? (
               <ActionButton
                 icon={<IconAlertTriangle size={16} />}
-                tooltip="Mark all expired non-quarantined batches as quarantined"
+                tooltip="Hold every expired unit that is still sellable"
                 onClick={() => setQuarantineConfirmOpen(true)}
                 disabled={quarantineBusy}
               >
                 Quarantine expired
               </ActionButton>
             ) : null}
-            {canWrite ? (
+            {canAdjust ? (
               <ActionButton
                 icon={<IconPlus size={16} />}
-                tooltip="Post a stock quantity correction"
+                tooltip="Add stock or write stock off on a batch"
                 onClick={() => openAdjustment()}
               >
                 New adjustment
@@ -294,16 +274,12 @@ function BatchesContent() {
 
       {needsExpiryReview && (
         <Alert variant="info">
-          Showing <strong>{rows.length}</strong> batch
-          {rows.length === 1 ? "" : "es"} imported without an expiry date. They
-          cannot be sold until reviewed. Use Confirm actual expiry on each row
-          to enter the date printed on the physical batch.{" "}
-          <Link href="/inventory/batches">Show all batches</Link>
+          Showing <strong>{rows.length}</strong> batch{rows.length === 1 ? "" : "es"} imported without an
+          expiry date. They cannot be sold until reviewed. Use <em>Confirm expiry date</em> in each row&apos;s
+          menu to enter the date printed on the pack. <Link href="/inventory/batches">Show all batches</Link>
         </Alert>
       )}
-      {adjustmentSuccess && (
-        <Alert variant="success">{adjustmentSuccess}</Alert>
-      )}
+      {notice && <Alert variant={notice.tone}>{notice.text}</Alert>}
 
       {!batches.hasBranch && (
         <div className={css.branchNotice}>
@@ -311,29 +287,26 @@ function BatchesContent() {
         </div>
       )}
 
-      {quarantineMsg && (
-        <Alert variant={quarantineError ? "error" : "info"}>
-          {quarantineMsg}
-        </Alert>
-      )}
-
       {batches.hasBranch && (
         <div className={css.batchKpiRow}>
           <StatCard
             size="sm"
-            title="Active batches"
+            title="Batches with stock"
             value={summary.total}
-            subtitle={`${summary.units} units on hand`}
+            subtitle={`${formatUnits(summary.units)} on hand`}
             icon={<IconPackage size={16} />}
             iconTone="primary"
-            active={expiryFilter === "all"}
-            onClick={() => setExpiryFilter("all")}
+            active={expiryFilter === "all" && holdFilter === "all"}
+            onClick={() => {
+              setExpiryFilter("all");
+              setHoldFilter("all");
+            }}
           />
           <StatCard
             size="sm"
             title="Healthy expiry"
             value={summary.healthy}
-            subtitle="Outside 30 days"
+            subtitle="Outside the warning window"
             icon={<IconCheck size={16} />}
             iconTone="success"
             active={expiryFilter === "ok"}
@@ -343,7 +316,7 @@ function BatchesContent() {
             size="sm"
             title="Expiring soon"
             value={summary.near}
-            subtitle="Within 30 days"
+            subtitle="Inside the warning window"
             icon={<IconCalendar size={16} />}
             iconTone="warning"
             active={expiryFilter === "near"}
@@ -353,11 +326,7 @@ function BatchesContent() {
             size="sm"
             title="Expired"
             value={summary.expired}
-            subtitle={
-              summary.expiredOpen > 0
-                ? `${summary.expiredOpen} not quarantined`
-                : "Requires attention"
-            }
+            subtitle={summary.expiredOpen > 0 ? `${summary.expiredOpen} still sellable` : "All held"}
             icon={<IconAlertTriangle size={16} />}
             iconTone="danger"
             active={expiryFilter === "expired"}
@@ -365,15 +334,13 @@ function BatchesContent() {
           />
           <StatCard
             size="sm"
-            title="Zero quantity"
-            value={summary.zero ?? "—"}
-            subtitle={
-              includeZero ? "Included in this view" : "Currently hidden"
-            }
-            icon={<IconPackage size={16} />}
+            title="Quarantined"
+            value={summary.quarantinedBatches}
+            subtitle={`${formatUnits(summary.quarantinedUnits)} held`}
+            icon={<IconLock size={16} />}
             iconTone="info"
-            active={includeZero}
-            onClick={() => setIncludeZero((current) => !current)}
+            active={holdFilter === "quarantined"}
+            onClick={() => setHoldFilter((current) => (current === "quarantined" ? "all" : "quarantined"))}
           />
         </div>
       )}
@@ -385,6 +352,7 @@ function BatchesContent() {
             type="search"
             className={css.searchInput}
             placeholder="Search batch no, SKU, product…"
+            aria-label="Search batches"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -394,53 +362,63 @@ function BatchesContent() {
           value={expiryFilter}
           options={[
             { value: "all", label: "All expiry" },
-            { value: "near", label: "Near expiry (≤30d)" },
+            { value: "near", label: "Expiring soon" },
             { value: "expired", label: "Expired" },
             { value: "ok", label: "Healthy expiry" },
           ]}
           onChange={(value) => setExpiryFilter(value as ExpiryFilter)}
         />
-        <label
-          className={`${css.zeroToggle} ${includeZero ? css.zeroToggleActive : ""}`}
-        >
-          <input
-            type="checkbox"
-            checked={includeZero}
-            onChange={(e) => setIncludeZero(e.target.checked)}
-          />
-          Show zero-qty batches
+        <InventoryFilterSelect
+          label="Holding"
+          value={holdFilter}
+          options={[
+            { value: "all", label: "All batches" },
+            { value: "quarantined", label: "Has quarantined units" },
+          ]}
+          onChange={(value) => setHoldFilter(value as HoldFilter)}
+        />
+        <label className={`${css.zeroToggle} ${includeZero ? css.zeroToggleActive : ""}`}>
+          <input type="checkbox" checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)} />
+          Show empty batches
         </label>
         <button
           type="button"
           className={css.exportButton}
           onClick={exportRows}
           disabled={rows.length === 0}
-          data-tooltip={
-            rows.length === 0
-              ? "Nothing to export for the current filters"
-              : "Download filtered batches as CSV"
-          }
+          data-tooltip={rows.length === 0 ? "Nothing to export for the current filters" : "Download filtered batches as CSV"}
         >
           <IconDownload size={15} />
           Export
         </button>
       </div>
 
-      {batches.error && <Alert variant="error">{batches.error}</Alert>}
+      {batches.error && (
+        <Alert variant="error">
+          {batches.error}{" "}
+          <button type="button" className={css.rowTitleButton} onClick={() => void batches.reload()}>
+            Try again
+          </button>
+        </Alert>
+      )}
 
       <BatchesTable
         rows={rows}
         loading={batches.loading}
         page={page}
-        canWrite={canWrite}
+        access={access}
         onPageChange={setPage}
-        onChanged={() => void batches.reload()}
+        onChanged={(message) => {
+          if (message) setNotice({ tone: "success", text: message });
+          void batches.reload();
+        }}
         onAdjust={openAdjustment}
+        onOpenProduct={setSheetProductId}
       />
 
       <ConfirmDialog
         open={quarantineConfirmOpen}
-        title="Quarantine expired batches"
+        title="Quarantine expired stock"
         confirmLabel="Quarantine expired"
         loading={quarantineBusy}
         onCancel={() => {
@@ -449,11 +427,22 @@ function BatchesContent() {
         onConfirm={() => void quarantineAllExpired()}
       >
         <p>
-          Block <strong>{summary.expiredOpen}</strong> expired batch
-          {summary.expiredOpen === 1 ? "" : "es"} from sale. Batches already
-          quarantined are left untouched.
+          Hold every sellable unit on <strong>{summary.expiredOpen}</strong> expired batch
+          {summary.expiredOpen === 1 ? "" : "es"} at this branch. Units already quarantined, or reserved for a
+          transfer, are left as they are.
         </p>
       </ConfirmDialog>
+
+      <ProductStockSheet
+        productId={sheetProductId}
+        access={access}
+        onClose={() => setSheetProductId(null)}
+        onAdjust={(pid, batchId) => openAdjustment({ productId: pid, id: batchId })}
+        onChanged={(message) => {
+          setNotice({ tone: "success", text: message });
+          void batches.reload();
+        }}
+      />
 
       <AdjustmentModal
         open={adjustmentOpen}
@@ -461,7 +450,7 @@ function BatchesContent() {
         initialProductId={adjustmentContext.productId}
         initialBatchId={adjustmentContext.batchId}
         onSuccess={(message) => {
-          setAdjustmentSuccess(message);
+          setNotice({ tone: "success", text: message });
           void batches.reload();
         }}
       />

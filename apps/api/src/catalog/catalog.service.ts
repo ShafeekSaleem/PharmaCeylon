@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { businessToday, safeTimeZone } from "../common/business-date.util";
 import {
   buildProductWhere,
   type ProductFilterQuery,
@@ -22,11 +23,6 @@ export type CatalogSearchQuery = ProductFilterQuery & {
 
 const RANK_CANDIDATE_CAP = 1500;
 
-function utcToday(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
 @Injectable()
 export class CatalogService {
   constructor(private readonly prisma: PrismaService) {}
@@ -43,17 +39,23 @@ export class CatalogService {
       return { qtyByProduct, sellPriceByProduct, costPriceByProduct };
     }
 
-    const today = utcToday();
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    const today = businessToday(safeTimeZone(tenant?.timezone));
     const batches = await this.prisma.batch.findMany({
       where: {
         tenantId,
         branchId,
         productId: { in: productIds },
-        isQuarantined: false,
+        needsExpiryReview: false,
         expiryDate: { gte: today },
+        stock: { is: { onHandQty: { gt: 0 } } },
       },
       select: {
         id: true,
+        stock: { select: { onHandQty: true, quarantinedQty: true, reservedQty: true } },
         productId: true,
         sellingPrice: true,
         costPrice: true,
@@ -62,18 +64,14 @@ export class CatalogService {
       orderBy: { expiryDate: "asc" },
     });
 
-    const batchIds = batches.map((b) => b.id);
-    const qtyByBatch = new Map<string, number>();
-    if (batchIds.length > 0) {
-      const grouped = await this.prisma.stockLedger.groupBy({
-        by: ["batchId"],
-        where: { tenantId, branchId, batchId: { in: batchIds } },
-        _sum: { qtyDelta: true },
-      });
-      for (const g of grouped) {
-        if (g.batchId) qtyByBatch.set(g.batchId, g._sum.qtyDelta ?? 0);
-      }
-    }
+    const qtyByBatch = new Map<string, number>(
+      batches.map((b) => [
+        b.id,
+        b.stock
+          ? Math.max(0, b.stock.onHandQty - b.stock.quarantinedQty - b.stock.reservedQty)
+          : 0,
+      ]),
+    );
 
     for (const b of batches) {
       const q = qtyByBatch.get(b.id) ?? 0;

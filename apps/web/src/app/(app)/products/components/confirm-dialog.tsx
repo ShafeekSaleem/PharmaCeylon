@@ -12,6 +12,8 @@ type Props = {
   cancelLabel?: string;
   variant?: "danger" | "primary";
   loading?: boolean;
+  /** Keep the confirm button unavailable until the dialog's own fields are valid. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -25,6 +27,7 @@ export function ConfirmDialog({
   cancelLabel = "Cancel",
   variant = "danger",
   loading = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: Props) {
@@ -46,6 +49,7 @@ export function ConfirmDialog({
             variant={variant === "danger" ? "danger" : "primary"}
             onClick={onConfirm}
             loading={loading}
+            disabled={confirmDisabled}
           >
             {confirmLabel}
           </ModalButton>

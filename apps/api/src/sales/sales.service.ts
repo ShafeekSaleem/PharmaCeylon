@@ -22,6 +22,8 @@ import {
 } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { businessToday, safeTimeZone } from "../common/business-date.util";
+import { StockService } from "../inventory/stock/stock.service";
 import { TaxService } from "../pricing/tax.service";
 import { CheckoutDto } from "./dto/checkout.dto";
 import { RefundSaleDto } from "./dto/refund-sale.dto";
@@ -47,19 +49,6 @@ const SALE_INCLUDE = {
   dispenser: { select: { id: true, fullName: true } },
 } satisfies Prisma.SaleInclude;
 
-async function qtyForBatchTx(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  branchId: string,
-  batchId: string,
-): Promise<number> {
-  const agg = await tx.stockLedger.aggregate({
-    where: { tenantId, branchId, batchId },
-    _sum: { qtyDelta: true },
-  });
-  return agg._sum.qtyDelta ?? 0;
-}
-
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
 }
@@ -72,10 +61,7 @@ function startOfTodayUtc(): Date {
   );
 }
 
-function isBatchExpired(
-  expiryDate: Date,
-  todayUtc = startOfTodayUtc(),
-): boolean {
+function isBatchExpired(expiryDate: Date, todayUtc: Date): boolean {
   const exp = new Date(expiryDate);
   const expUtc = new Date(
     Date.UTC(exp.getUTCFullYear(), exp.getUTCMonth(), exp.getUTCDate()),
@@ -130,6 +116,7 @@ export class SalesService {
     private readonly tax: TaxService,
     private readonly pharmacistApproval: PharmacistApprovalService,
     private readonly setupReadiness: SetupReadinessService,
+    private readonly stock: StockService,
   ) {}
 
   private branchEffectiveRoles(
@@ -420,7 +407,13 @@ export class SalesService {
           lineTotal: Prisma.Decimal;
         }> = [];
 
-        const todayUtc = startOfTodayUtc();
+        // The pharmacy's calendar day, not the server's: a batch expiring today in Colombo must
+        // stop selling at Colombo midnight, not five and a half hours later.
+        const tenant = await tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: { timezone: true },
+        });
+        const todayUtc = businessToday(safeTimeZone(tenant?.timezone));
 
         // Resolved once per checkout, not per line — TenantSettings.vatRatePercent overrides
         // the env-configured PRICING_VAT_RATE_PERCENT default when a tenant has set one.
@@ -433,24 +426,18 @@ export class SalesService {
             ? Number(tenantVatSettings.vatRatePercent)
             : this.tax.getVatRatePercent();
 
-        for (const item of dto.items) {
-          let batch =
-            item.batchId != null && String(item.batchId).trim() !== ""
-              ? await tx.batch.findFirst({
-                  where: {
-                    id: item.batchId,
-                    tenantId,
-                    branchId,
-                    productId: item.productId,
-                  },
-                })
-              : null;
+        type BatchRow = NonNullable<Awaited<ReturnType<typeof tx.batch.findFirst>>>;
+        const picks: Array<{
+          item: (typeof dto.items)[number];
+          batch: BatchRow | null;
+          candidates: BatchRow[];
+        }> = [];
 
-          if (
-            !batch &&
-            (item.batchId == null || String(item.batchId).trim() === "")
-          ) {
-            // FEFO: earliest expiry among non-expired, non-quarantined batches with enough qty
+        for (const item of dto.items) {
+          const explicit = item.batchId != null && String(item.batchId).trim() !== "";
+          if (!explicit) {
+            // FEFO: non-expired, confirmed-expiry batches, earliest first. Quantities are
+            // checked below, under the batch locks.
             const candidates = await tx.batch.findMany({
               where: {
                 tenantId,
@@ -462,59 +449,64 @@ export class SalesService {
               },
               orderBy: { expiryDate: "asc" },
             });
-            for (const candidate of candidates) {
-              const available = await qtyForBatchTx(
-                tx,
-                tenantId,
-                branchId,
-                candidate.id,
-              );
-              if (available >= item.qty) {
-                batch = candidate;
-                break;
-              }
-            }
-            if (!batch) {
-              throw new BadRequestException(
-                "No sellable batch with sufficient quantity (FEFO auto-pick)",
-              );
-            }
+            picks.push({ item, batch: null, candidates });
+            continue;
           }
 
+          const batch = await tx.batch.findFirst({
+            where: {
+              id: item.batchId!,
+              tenantId,
+              branchId,
+              productId: item.productId,
+            },
+          });
           if (!batch) {
             throw new BadRequestException("Invalid batch for checkout line");
           }
-
           if (batch.needsExpiryReview) {
             throw new BadRequestException(
               "Confirm the actual expiry date in Inventory before selling this batch",
             );
           }
-
           if (batch.isQuarantined) {
-            throw new BadRequestException(
-              "Batch is quarantined and cannot be sold",
-            );
+            throw new BadRequestException("Batch is quarantined and cannot be sold");
           }
-
           if (isBatchExpired(batch.expiryDate, todayUtc)) {
+            throw new BadRequestException(`Cannot sell expired batch ${batch.batchNo}`);
+          }
+          picks.push({ item, batch, candidates: [] });
+        }
+
+        // Lock every batch this sale could take from before reading a single quantity: two
+        // tills selling the last unit now queue here instead of both succeeding.
+        const lockIds = picks.flatMap((pick) =>
+          pick.batch ? [pick.batch.id] : pick.candidates.map((c) => c.id),
+        );
+        await this.stock.lockBatches(tx, tenantId, lockIds);
+        const balances = await this.stock.balances(tx, tenantId, lockIds);
+        const allocated = new Map<string, number>();
+        const availableFor = (batchId: string) =>
+          (balances.get(batchId)?.available ?? 0) - (allocated.get(batchId) ?? 0);
+
+        for (const pick of picks) {
+          const item = pick.item;
+          const batch =
+            pick.batch ?? pick.candidates.find((c) => availableFor(c.id) >= item.qty) ?? null;
+          if (!batch) {
             throw new BadRequestException(
-              `Cannot sell expired batch ${batch.batchNo}`,
+              "No sellable batch with sufficient quantity (FEFO auto-pick)",
             );
           }
 
-          const available = await qtyForBatchTx(
-            tx,
-            tenantId,
-            branchId,
-            batch.id,
-          );
+          const available = availableFor(batch.id);
           if (available < item.qty) {
             const name = productNames.get(item.productId) ?? "product";
             throw new BadRequestException(
-              `Insufficient stock for ${name} batch ${batch.batchNo}: ${available} available, ${item.qty} requested`,
+              `Insufficient stock for ${name} batch ${batch.batchNo}: ${Math.max(0, available)} available, ${item.qty} requested`,
             );
           }
+          allocated.set(batch.id, (allocated.get(batch.id) ?? 0) + item.qty);
 
           const unitPrice = d(item.unitPrice);
           const discountAmount = d(item.discountAmount ?? "0");
@@ -605,21 +597,23 @@ export class SalesService {
               include: SALE_INCLUDE,
             });
 
-            for (const l of lines) {
-              await tx.stockLedger.create({
-                data: {
-                  tenantId,
-                  branchId,
-                  productId: l.productId,
-                  batchId: l.batchId,
-                  movementType: StockMovementType.sale_out,
-                  qtyDelta: -l.qty,
-                  referenceType: "sale",
-                  referenceId: sale.id,
-                  createdBy: userId,
-                },
-              });
-            }
+            await this.stock.issue(
+              tx,
+              {
+                tenantId,
+                branchId,
+                userId,
+                referenceType: "sale",
+                referenceId: sale.id,
+              },
+              lines.map((l) => ({
+                productId: l.productId,
+                batchId: l.batchId,
+                qty: l.qty,
+                movementType: StockMovementType.sale_out,
+                from: "sellable" as const,
+              })),
+            );
 
             if (dto.heldSaleId) {
               await tx.heldSale.deleteMany({
@@ -760,21 +754,16 @@ export class SalesService {
         }
       }
 
-      for (const line of sale.items) {
-        await tx.stockLedger.create({
-          data: {
-            tenantId,
-            branchId,
-            productId: line.productId,
-            batchId: line.batchId,
-            movementType: StockMovementType.sale_void_in,
-            qtyDelta: line.qty,
-            referenceType: "sale_void",
-            referenceId: sale.id,
-            createdBy: userId,
-          },
-        });
-      }
+      await this.stock.receive(
+        tx,
+        { tenantId, branchId, userId, referenceType: "sale_void", referenceId: sale.id },
+        sale.items.map((line) => ({
+          productId: line.productId,
+          batchId: line.batchId,
+          qty: line.qty,
+          movementType: StockMovementType.sale_void_in,
+        })),
+      );
 
       await tx.sale.update({
         where: { id: saleId, tenantId, branchId },
@@ -958,21 +947,16 @@ export class SalesService {
       });
       goodsReturnId = created.id;
 
-      for (const line of requested) {
-        await tx.stockLedger.create({
-          data: {
-            tenantId,
-            branchId,
-            productId: line.productId,
-            batchId: line.batchId,
-            movementType: StockMovementType.customer_return_in,
-            qtyDelta: line.qty,
-            referenceType: "goods_return",
-            referenceId: created.id,
-            createdBy: userId,
-          },
-        });
-      }
+      await this.stock.receive(
+        tx,
+        { tenantId, branchId, userId, referenceType: "goods_return", referenceId: created.id },
+        requested.map((line) => ({
+          productId: line.productId,
+          batchId: line.batchId,
+          qty: line.qty,
+          movementType: StockMovementType.customer_return_in,
+        })),
+      );
 
       await tx.salePayment.create({
         data: {

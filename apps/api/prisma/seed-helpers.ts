@@ -1,5 +1,9 @@
 import { Prisma, StockMovementType } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
+import {
+  convertLegacyStockState,
+  rebuildBatchStock,
+} from "../src/inventory/stock/stock-projection";
 
 export function dec(value: number | string | Prisma.Decimal): Prisma.Decimal {
   return value instanceof Prisma.Decimal ? value : new Prisma.Decimal(value);
@@ -169,4 +173,15 @@ export async function seedSale(
   }
 
   return sale;
+}
+
+/**
+ * Seeds write the ledger in bulk, without `StockService`, so the running totals it would have
+ * kept are rebuilt here once the writing is done. Also converts seed rows written the old way
+ * (reservation ledger rows, whole-batch quarantine flags) into reservations and quarantined
+ * quantities. Call after the last stock write for a tenant.
+ */
+export async function syncSeedStock(prisma: PrismaClient, tenantId: string): Promise<void> {
+  await convertLegacyStockState(prisma, tenantId);
+  await rebuildBatchStock(prisma, tenantId);
 }

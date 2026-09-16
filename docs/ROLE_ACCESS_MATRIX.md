@@ -35,6 +35,36 @@ Tenants may also create **custom roles** (see `docs/API_CONTRACT.md` and the Use
 >
 > **view** = page is visible (nav shown) but write operations (create/edit/delete) are restricted at the page and API level.
 
+## Inventory actions (built-in defaults)
+
+The Inventory page is visible to every role holding `inventory.view` (all five built-in roles). What each can *do* there:
+
+| Action | Permission | owner | manager | pharmacist | cashier | inventory_clerk |
+| --- | --- | --- | --- | --- | --- | --- |
+| See stock, batches, movements | `inventory.view` | yes | yes | yes | yes | yes |
+| See batch cost and stock value | `inventory.view_cost` | yes | yes | — | — | — |
+| Add stock / confirm imported expiry | `inventory.manage` | yes | yes | — | — | yes |
+| Write off stock (any decrease) | `inventory.write_off` | yes | yes | — | — | — |
+| Quarantine units | `inventory.quarantine` | yes | yes | yes | — | yes |
+| Release from quarantine | `inventory.release_quarantine` | yes | yes | yes | — | — |
+| Quarantine all expired stock | `inventory.manage_bulk` | yes | yes | — | — | — |
+
+- **Cost is withheld by the API, not only hidden.** Cashiers and pharmacists see selling prices but not cost or stock valuation. Purchasing screens still show unit costs to anyone with `purchasing.view`; aligning those is part of the Purchasing module.
+- **Releasing is a quality decision**, so it sits with pharmacists and managers rather than the clerk who may have held the stock. Expired stock can't be released at all.
+- **Write-offs moved from a hardcoded owner/manager check to `inventory.write_off`**, so a tenant can grant it to a custom role. The migration gave the new quarantine and release grants to any custom role that already had `inventory.manage`, so nobody lost an ability they had.
+
+## Approving your own requests
+
+Holding an approve permission (`purchasing.approve`, `transfers.approve`, `returns.approve`, `stocktakes.review`) lets someone approve *other people's* requests. Whether they may approve requests **they raised** is the tenant's choice in Settings → Approval Rules:
+
+| Role | Default |
+| --- | --- |
+| Owner | may approve own |
+| Manager | may approve own |
+| Pharmacist, inventory clerk, cashier, custom roles | need a second approver |
+
+A small pharmacy run by its owner is never blocked; a clerk's transfer, return or stocktake count still gets a second pair of eyes. Owners can switch any role on or off, including custom roles.
+
 ## Role Groups (code constants)
 
 These are the named groups used in `app-shell.tsx` for nav-level visibility:

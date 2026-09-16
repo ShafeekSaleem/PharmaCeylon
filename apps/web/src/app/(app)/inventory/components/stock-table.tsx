@@ -1,63 +1,33 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo } from "react";
-import {
-  IconAlertTriangle,
-  IconActivity,
-  IconEye,
-  IconPackage,
-} from "@/components/icons";
-import { RoleButton, RoleLink } from "@/components/role-access";
-import { DataTable, type Column } from "@/components/ui";
-import { INVENTORY_WRITE_ROLES } from "@/lib/role-access";
+import { IconAlertTriangle, IconPackage } from "@/components/icons";
+import { DataTable, RowMenu, type Column, type SortDir } from "@/components/ui";
 import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
 import { ProductStockBadge } from "../../products/components/product-stock-badge";
 import { PAGE_SIZE } from "../constants";
 import css from "../inventory.module.css";
 import type { StockRow } from "../types";
 import { formatRelativeTime } from "../utils";
+import { HeldChips } from "./batches-table";
 
-function RowActions({ row, onAdjust }: { row: StockRow; onAdjust: (row: StockRow) => void }) {
-  return (
-    <div className={css.actionsCell}>
-      <RoleLink
-        href={`/products/${row.productId}`}
-        className={`${css.actionIcon} ${css.actionIconView}`}
-        aria-label={`View ${row.product.name}`}
-        data-tooltip="View product"
-      >
-        <IconEye size={17} />
-      </RoleLink>
-      <RoleLink
-        href={`/inventory/batches?productId=${row.productId}`}
-        className={`${css.actionIcon} ${css.actionIconBatches}`}
-        aria-label={`View batches for ${row.product.name}`}
-        data-tooltip="View batches"
-      >
-        <IconPackage size={16} />
-      </RoleLink>
-      <RoleButton
-        roles={INVENTORY_WRITE_ROLES}
-        permissions={["inventory.manage"]}
-        className={`${css.actionIcon} ${css.actionIconAdjust}`}
-        aria-label={`Adjust stock for ${row.product.name}`}
-        data-tooltip="Adjust stock"
-        onClick={() => onAdjust(row)}
-      >
-        <IconActivity size={17} />
-      </RoleButton>
-    </div>
-  );
-}
+export type StockSortKey = "name" | "available" | "onHand";
 
 type StockTableProps = {
   rows: StockRow[];
   loading: boolean;
   page: number;
   total: number;
+  sortKey: StockSortKey;
+  sortDir: SortDir;
+  canAdjust: boolean;
+  onSort: (key: StockSortKey, dir: SortDir | null) => void;
   onPageChange: (page: number) => void;
+  onOpen: (row: StockRow) => void;
   onAdjust: (row: StockRow) => void;
+  emptyTitle?: string;
+  emptyDescription?: string;
 };
 
 export function StockTable({
@@ -65,15 +35,24 @@ export function StockTable({
   loading,
   page,
   total,
+  sortKey,
+  sortDir,
+  canAdjust,
+  onSort,
   onPageChange,
+  onOpen,
   onAdjust,
+  emptyTitle = "No stock rows match this view",
+  emptyDescription = "Try another filter or search",
 }: StockTableProps) {
+  const router = useRouter();
+
   const columns: Column<StockRow>[] = useMemo(
     () => [
       {
-        key: "product",
+        key: "name",
         header: "Product",
-        getValue: (row) => row.product.name,
+        sortable: true,
         render: (row) => (
           <div className={css.productCell}>
             <img
@@ -83,9 +62,16 @@ export function StockTable({
               className={css.thumb}
             />
             <div>
-              <Link href={`/products/${row.productId}`} className={css.productName}>
+              <button
+                type="button"
+                className={css.rowTitleButton}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpen(row);
+                }}
+              >
                 {row.product.name}
-              </Link>
+              </button>
               <div className={css.productMeta}>
                 {row.product.sku}
                 {row.product.barcode ? ` · ${row.product.barcode}` : ""}
@@ -99,14 +85,14 @@ export function StockTable({
         ),
       },
       {
-        key: "stock",
-        header: "Stock",
-        width: "190px",
-        getValue: (row) => row.qtyOnHand,
+        key: "available",
+        header: "Available",
+        sortable: true,
+        width: "170px",
         render: (row) => (
           <div className={css.stockCell}>
             <ProductStockBadge
-              qtyOnHand={row.qtyOnHand}
+              qtyOnHand={row.availableQty}
               stockStatus={row.stockStatus}
               reorderGap={row.reorderGap}
               reorderLevel={row.product.reorderLevel}
@@ -116,58 +102,93 @@ export function StockTable({
         ),
       },
       {
+        key: "onHand",
+        header: "On hand",
+        sortable: true,
+        width: "96px",
+        align: "right",
+        render: (row) => (
+          <span className={css.qtyStack}>
+            <span className={css.qtyPrimary}>{row.qtyOnHand.toLocaleString()}</span>
+          </span>
+        ),
+      },
+      {
+        key: "held",
+        header: "Held",
+        width: "180px",
+        render: (row) => (
+          <HeldChips
+            quarantined={row.quarantinedQty}
+            reserved={row.reservedQty}
+            expired={row.expiredQty}
+          />
+        ),
+      },
+      {
         key: "batches",
         header: "Batches",
         width: "150px",
-        getValue: (row) => row.batchCount,
         render: (row) => (
-          <Link
-            href={`/inventory/batches?productId=${row.productId}`}
+          <span
             className={`${css.batchBadge} ${
-              row.nearExpiryBatchCount > 0
+              row.expiredBatchCount > 0 || row.nearExpiryBatchCount > 0
                 ? css.batchBadgeWarning
                 : row.batchCount > 0
                   ? css.batchBadgeOk
                   : css.batchBadgeEmpty
             }`}
-            aria-label={`View batches for ${row.product.name}`}
-            data-tooltip={
-              row.nearExpiryBatchCount > 0
-                ? "View batches · some near expiry"
-                : row.batchCount > 0
-                  ? "View product batches"
-                  : "No batches yet — open batches view"
-            }
           >
-            {row.nearExpiryBatchCount > 0 && <IconAlertTriangle size={11} />}
+            {(row.expiredBatchCount > 0 || row.nearExpiryBatchCount > 0) && (
+              <IconAlertTriangle size={11} />
+            )}
             <span>
               {row.batchCount === 0
                 ? "No batches"
                 : `${row.batchCount} ${row.batchCount === 1 ? "batch" : "batches"}${
-                    row.nearExpiryBatchCount > 0
-                      ? ` - ${row.nearExpiryBatchCount} expiring`
-                      : ""
+                    row.expiredBatchCount > 0
+                      ? ` · ${row.expiredBatchCount} expired`
+                      : row.nearExpiryBatchCount > 0
+                        ? ` · ${row.nearExpiryBatchCount} expiring`
+                        : ""
                   }`}
             </span>
-          </Link>
+          </span>
         ),
       },
       {
         key: "lastMovement",
         header: "Last movement",
-        width: "130px",
-        getValue: (row) => row.lastMovementAt ?? "",
+        width: "120px",
         render: (row) => <>{formatRelativeTime(row.lastMovementAt)}</>,
       },
       {
         key: "actions",
-        header: "Actions",
-        width: "116px",
+        header: "",
+        width: "56px",
         align: "right",
-        render: (row) => <RowActions row={row} onAdjust={onAdjust} />,
+        render: (row) => (
+          <RowMenu
+            label={row.product.name}
+            actions={[
+              { label: "Stock details", onClick: () => onOpen(row) },
+              {
+                label: "Batches",
+                onClick: () => router.push(`/inventory/batches?productId=${row.productId}`),
+              },
+              {
+                label: "Movement history",
+                onClick: () => router.push(`/inventory/movements?productId=${row.productId}`),
+              },
+              ...(canAdjust
+                ? [{ label: "Adjust stock", onClick: () => onAdjust(row), separated: true }]
+                : []),
+            ]}
+          />
+        ),
       },
     ],
-    [onAdjust],
+    [canAdjust, onAdjust, onOpen, router],
   );
 
   return (
@@ -180,8 +201,12 @@ export function StockTable({
       pageSize={PAGE_SIZE}
       total={total}
       onPageChange={onPageChange}
-      emptyTitle="No stock rows match this view"
-      emptyDescription="Try another filter or search"
+      sortKey={sortKey === "name" && sortDir === "asc" ? undefined : sortKey}
+      sortDir={sortDir}
+      onSort={(key, dir) => onSort(key as StockSortKey, dir)}
+      onRowClick={onOpen}
+      emptyTitle={emptyTitle}
+      emptyDescription={emptyDescription}
       emptyIcon={<IconPackage size={48} />}
       compact
       className={css.stockOverviewTable}
@@ -189,3 +214,4 @@ export function StockTable({
     />
   );
 }
+
