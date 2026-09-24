@@ -184,4 +184,103 @@ export async function seedSale(
 export async function syncSeedStock(prisma: PrismaClient, tenantId: string): Promise<void> {
   await convertLegacyStockState(prisma, tenantId);
   await rebuildBatchStock(prisma, tenantId);
+  await syncSupplierPrices(prisma, tenantId);
+  await syncSupplierLedger(prisma, tenantId);
+}
+
+/**
+ * Seeds write supplier invoices with a paid amount and nothing else, the way the old code did.
+ * The ledger derives `paidAmount` from payments, so this gives every seeded invoice what the
+ * migration gives an existing pharmacy: the supplier's-or-placeholder source, its delivery link
+ * and lines, and a payment for whatever is marked paid. Idempotent.
+ */
+export async function syncSupplierLedger(prisma: PrismaClient, tenantId: string): Promise<void> {
+  // An invoice with no delivery behind it was entered from a supplier's document.
+  await prisma.$executeRaw`
+    UPDATE supplier_invoice SET source = 'supplier'
+    WHERE tenant_id = ${tenantId}::uuid AND source = 'system' AND goods_receipt_id IS NULL
+  `;
+  await prisma.$executeRaw`
+    UPDATE supplier_invoice SET subtotal_amount = total_amount
+    WHERE tenant_id = ${tenantId}::uuid AND subtotal_amount = 0
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO supplier_invoice_receipt (id, tenant_id, invoice_id, goods_receipt_id, created_at)
+    SELECT gen_random_uuid(), si.tenant_id, si.id, si.goods_receipt_id, si.created_at
+    FROM supplier_invoice si
+    WHERE si.tenant_id = ${tenantId}::uuid AND si.goods_receipt_id IS NOT NULL
+    ON CONFLICT DO NOTHING
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO supplier_invoice_line (id, tenant_id, invoice_id, product_id, qty, unit_cost, line_total, created_at)
+    SELECT gen_random_uuid(), si.tenant_id, si.id, gri.product_id,
+           gri.received_qty + gri.rejected_qty,
+           COALESCE(gri.unit_cost, b.cost_price),
+           COALESCE(gri.unit_cost, b.cost_price) * (gri.received_qty + gri.rejected_qty),
+           si.created_at
+    FROM supplier_invoice si
+    JOIN goods_receipt_item gri ON gri.goods_receipt_id = si.goods_receipt_id
+    JOIN batch b ON b.id = gri.batch_id
+    WHERE si.tenant_id = ${tenantId}::uuid
+      AND si.goods_receipt_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM supplier_invoice_line l WHERE l.invoice_id = si.id)
+  `;
+  // Whatever is marked paid but has no payment behind it gets one, dated when it was last
+  // touched. Numbered separately so demo payments are recognisable.
+  await prisma.$executeRaw`
+    WITH gaps AS (
+      SELECT si.id, si.tenant_id, si.supplier_id, si.branch_id, si.updated_at,
+             si.paid_amount - COALESCE(SUM(a.amount), 0) AS missing,
+             row_number() OVER (ORDER BY si.updated_at, si.id)
+               + (SELECT count(*) FROM supplier_payment p
+                  WHERE p.tenant_id = ${tenantId}::uuid AND p.payment_no LIKE 'PAY-SEED-%') AS seq
+      FROM supplier_invoice si
+      LEFT JOIN supplier_payment_allocation a ON a.invoice_id = si.id
+      WHERE si.tenant_id = ${tenantId}::uuid
+      GROUP BY si.id
+      HAVING si.paid_amount - COALESCE(SUM(a.amount), 0) > 0
+    ), payer AS (
+      SELECT id FROM app_user WHERE tenant_id = ${tenantId}::uuid ORDER BY created_at LIMIT 1
+    ), created AS (
+      INSERT INTO supplier_payment (id, tenant_id, supplier_id, branch_id, payment_no, paid_on,
+                                    amount, method, notes, created_by, created_at)
+      SELECT gen_random_uuid(), g.tenant_id, g.supplier_id, g.branch_id,
+             'PAY-SEED-' || lpad(g.seq::text, 5, '0'), g.updated_at::date, g.missing,
+             'bank_transfer', 'Demo payment', (SELECT id FROM payer), g.updated_at
+      FROM gaps g
+      WHERE EXISTS (SELECT 1 FROM payer)
+      ON CONFLICT (tenant_id, payment_no) DO NOTHING
+      RETURNING id, payment_no
+    )
+    INSERT INTO supplier_payment_allocation (id, tenant_id, payment_id, invoice_id, amount, created_at)
+    SELECT gen_random_uuid(), g.tenant_id, c.id, g.id, g.missing, now()
+    FROM created c
+    JOIN gaps g ON 'PAY-SEED-' || lpad(g.seq::text, 5, '0') = c.payment_no
+  `;
+}
+
+/**
+ * Build each supplier's price list from what the seeded batches say they were paid, the same
+ * way the migration does for an existing pharmacy. Without it a freshly seeded demo has a
+ * price-list screen with nothing in it, which is not what any real tenant sees after upgrading.
+ */
+export async function syncSupplierPrices(prisma: PrismaClient, tenantId: string): Promise<void> {
+  await prisma.$executeRaw`
+    INSERT INTO supplier_product_price (
+      id, tenant_id, supplier_id, product_id, units_per_pack,
+      unit_cost, last_unit_cost, last_purchased_at, created_at, updated_at
+    )
+    SELECT gen_random_uuid(), b.tenant_id, b.supplier_id, b.product_id,
+           GREATEST(COALESCE(p.units_per_pack, 1), 1),
+           b.cost_price, b.cost_price, b.received_at, now(), now()
+    FROM (
+      SELECT DISTINCT ON (t.tenant_id, t.supplier_id, t.product_id)
+        t.tenant_id, t.supplier_id, t.product_id, t.cost_price, t.received_at
+      FROM batch t
+      WHERE t.tenant_id = ${tenantId}::uuid AND t.supplier_id IS NOT NULL
+      ORDER BY t.tenant_id, t.supplier_id, t.product_id, t.received_at DESC
+    ) b
+    JOIN product p ON p.id = b.product_id
+    ON CONFLICT (tenant_id, supplier_id, product_id) DO NOTHING
+  `;
 }

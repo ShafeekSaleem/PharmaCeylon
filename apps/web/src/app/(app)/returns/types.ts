@@ -61,6 +61,14 @@ export type ReturnListItem = {
   id: string;
   returnNumber: string;
   type: GoodsReturnType;
+  /** Raised when a supplier return completes: what the supplier owes back for these goods. */
+  debitNote?: {
+    id: string;
+    debitNo: string;
+    amount: string;
+    appliedAmount: string;
+    status: "open" | "settled" | "voided";
+  } | null;
   status: GoodsReturnStatus;
   customerName: string | null;
   reason: string | null;

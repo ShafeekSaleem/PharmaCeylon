@@ -203,6 +203,10 @@ function PurchasingCard({ settings, onSaved, canEdit }: CardProps) {
       const updated = await savePurchasingSettings({
         poNumberPrefix: draft.poNumberPrefix,
         defaultSupplierPaymentTermsDays: Number(draft.defaultSupplierPaymentTermsDays),
+        goodsReceiptOverTolerancePercent: Number(draft.goodsReceiptOverTolerancePercent),
+        purchasePriceVarianceTolerancePercent: Number(
+          draft.purchasePriceVarianceTolerancePercent,
+        ),
       });
       onSaved(updated);
       setDraft(updated);
@@ -240,6 +244,36 @@ function PurchasingCard({ settings, onSaved, canEdit }: CardProps) {
             setDraft((d) => ({ ...d, defaultSupplierPaymentTermsDays: Number(e.target.value) }))
           }
           {...pendingFieldProps("defaultSupplierPaymentTermsDays", { disabled: !canEdit })}
+        />
+        <FormField
+          label="Accept over-delivery up to (%)"
+          type="number"
+          min={0}
+          max={100}
+          value={draft.goodsReceiptOverTolerancePercent}
+          onChange={(e) =>
+            setDraft((d) => ({
+              ...d,
+              goodsReceiptOverTolerancePercent: Number(e.target.value),
+            }))
+          }
+          hint="Suppliers round up to a carton. Above this, booking the extra in needs someone who approves purchase orders. 0 means every over-delivery needs approval."
+          {...pendingFieldProps("goodsReceiptOverTolerancePercent", { disabled: !canEdit })}
+        />
+        <FormField
+          label="Accept price increases up to (%)"
+          type="number"
+          min={0}
+          max={100}
+          value={draft.purchasePriceVarianceTolerancePercent}
+          onChange={(e) =>
+            setDraft((d) => ({
+              ...d,
+              purchasePriceVarianceTolerancePercent: Number(e.target.value),
+            }))
+          }
+          hint="When a delivery is billed above the price the order agreed. Above this, booking it in needs someone who approves purchase orders. A price drop never needs approval."
+          {...pendingFieldProps("purchasePriceVarianceTolerancePercent", { disabled: !canEdit })}
         />
       </div>
       {canEdit ? (

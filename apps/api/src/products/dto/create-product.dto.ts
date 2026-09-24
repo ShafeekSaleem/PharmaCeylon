@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from "class-validator";
@@ -81,6 +82,19 @@ export class CreateProductDto extends ProductRelationsDto {
   @IsString()
   @MaxLength(256)
   packType?: string | null;
+
+  /** Units in one purchasing pack — what buying and receiving do their arithmetic with. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100000)
+  unitsPerPack?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  packLabel?: string | null;
 
   @IsOptional()
   @IsString()

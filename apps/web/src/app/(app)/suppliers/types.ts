@@ -29,6 +29,13 @@ export type SupplierListItem = {
   contactName: string | null;
   leadTimeDays: number;
   paymentTermsDays: number;
+  /** What an invoice shows and a payment needs. Only on the detail response. */
+  addressLine?: string | null;
+  city?: string | null;
+  taxRegistrationNo?: string | null;
+  bankName?: string | null;
+  bankAccountName?: string | null;
+  bankAccountNo?: string | null;
   outstanding: number;
   overdueAmount: number;
   dueLabel: string | null;

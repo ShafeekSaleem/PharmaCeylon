@@ -7,7 +7,8 @@ import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiJson, fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { setBranchId as persistBranchId } from "@/lib/auth-session";
 import { useAuth } from "@/lib/use-auth";
-import { useProductOptions, useSuppliers } from "../hooks/use-suppliers";
+import { useProductOptions, useSuppliers, useSupplierPrices } from "../hooks/use-suppliers";
+import { usePurchasingAccess } from "../hooks/use-purchasing-access";
 import css from "../purchasing.module.css";
 import {
   DEFAULT_TAX_PERCENT,
@@ -16,7 +17,7 @@ import {
   type CreatePoLine,
   type PoPriority,
 } from "../types";
-import { formatMoney, lineMoneyParts, poTotals, todayIsoDate } from "../utils";
+import { formatMoney, lineMoneyParts, poLineUnits, poTotals, todayIsoDate } from "../utils";
 import { PurchasingSelect } from "./purchasing-select";
 
 type Props = {
@@ -45,7 +46,11 @@ function newLine(productId = ""): CreatePoLine {
   return {
     key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     productId,
+    orderMode: "units",
+    orderedPacks: "1",
     orderedQty: "1",
+    unitsPerPack: 1,
+    packLabel: null,
     unitCost: "",
     discountPercent: "0",
     taxPercent: DEFAULT_TAX_PERCENT,
@@ -57,12 +62,13 @@ function isBlankLine(line: CreatePoLine): boolean {
     !line.productId &&
     !line.unitCost.trim() &&
     (line.orderedQty.trim() === "" || line.orderedQty.trim() === "1") &&
+    (line.orderedPacks.trim() === "" || line.orderedPacks.trim() === "1") &&
     (line.discountPercent.trim() === "" || line.discountPercent.trim() === "0")
   );
 }
 
 function isCompleteLine(line: CreatePoLine): boolean {
-  const qty = Number(line.orderedQty);
+  const qty = poLineUnits(line);
   const cost = Number(line.unitCost);
   const discount = Number(line.discountPercent);
   const tax = Number(line.taxPercent);
@@ -86,6 +92,7 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
   const { branchId, setBranchId } = useAuth();
   const suppliers = useSuppliers();
   const products = useProductOptions();
+  const access = usePurchasingAccess();
   const [branches, setBranches] = useState<TenantBranch[]>([]);
   const [supplierId, setSupplierId] = useState("");
   const [selectedBranchId, setSelectedBranchId] = useState("");
@@ -154,6 +161,43 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
 
   const productById = useMemo(() => new Map(products.rows.map((p) => [p.id, p])), [products.rows]);
 
+  const prices = useSupplierPrices(supplierId || null, open && access.canViewCost);
+  const priceByProduct = useMemo(
+    () => new Map(prices.rows.map((row) => [row.productId, row])),
+    [prices.rows],
+  );
+
+  /**
+   * Choosing a product settles three things at once: the pack it is bought in, whether the
+   * quantity box counts packs or units, and what this supplier charges. Leaving any of them to
+   * the buyer is how a line ends up ordering 20 tablets at last year's price.
+   */
+  function applyProductToLine(key: string, productId: string) {
+    const product = productId ? productById.get(productId) : null;
+    const price = productId ? priceByProduct.get(productId) : null;
+    const unitsPerPack = Math.max(price?.unitsPerPack ?? product?.unitsPerPack ?? 1, 1);
+    setLines((prev) =>
+      prev.map((line) =>
+        line.key === key
+          ? {
+              ...line,
+              productId,
+              unitsPerPack,
+              packLabel: product?.packLabel ?? null,
+              orderMode: unitsPerPack > 1 ? "packs" : "units",
+              ...(price
+                ? {
+                    unitCost: price.unitCost,
+                    costFromPriceList: true,
+                    discountPercent: String(price.discountPercent ?? 0),
+                  }
+                : { costFromPriceList: false }),
+            }
+          : line,
+      ),
+    );
+  }
+
   function productOptionsForLine(lineKey: string) {
     const taken = new Set(
       lines.filter((l) => l.key !== lineKey && l.productId).map((l) => l.productId),
@@ -186,8 +230,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
       if (isBlankLine(line)) continue;
       const errs: LineFieldErrors = {};
       if (!line.productId) errs.productId = "Required";
-      const qty = Number(line.orderedQty);
-      if (!line.orderedQty.trim() || !Number.isInteger(qty) || qty < 1) {
+      const qty = poLineUnits(line);
+      const typed = line.orderMode === "packs" ? line.orderedPacks : line.orderedQty;
+      if (!typed.trim() || !Number.isInteger(qty) || qty < 1) {
         errs.orderedQty = "≥ 1";
       }
       const cost = Number(line.unitCost);
@@ -247,7 +292,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
           submitForApproval,
           items: completeLines.map((l) => ({
             productId: l.productId,
-            orderedQty: Number(l.orderedQty),
+            ...(l.orderMode === "packs"
+              ? { orderedPacks: Number(l.orderedPacks), unitsPerPack: l.unitsPerPack }
+              : { orderedQty: Number(l.orderedQty) }),
             unitCost: Number(l.unitCost).toFixed(2),
             discountPercent: Number(l.discountPercent || 0),
             taxPercent: Number(l.taxPercent || DEFAULT_TAX_PERCENT),
@@ -480,7 +527,7 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                 const parts =
                   isCompleteLine(line) || (line.productId && line.unitCost)
                     ? lineMoneyParts({
-                        orderedQty: Number(line.orderedQty) || 0,
+                        orderedQty: poLineUnits(line),
                         unitCost: line.unitCost,
                         discountPercent: line.discountPercent,
                         taxPercent: line.taxPercent,
@@ -500,7 +547,7 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         placeholder={products.loading ? "Loading…" : "Select product…"}
                         searchPlaceholder="Search SKU or name…"
                         onChange={(value) => {
-                          updateLine(line.key, { productId: value });
+                          applyProductToLine(line.key, value);
                           clearLineError(line.key, "productId");
                         }}
                         disabled={products.loading || saving}
@@ -509,20 +556,51 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                       />
                     </td>
                     <td className={css.skuCell}>{product?.sku ?? "—"}</td>
-                    <td style={{ width: 80 }}>
+                    <td style={{ width: 140 }}>
+                      {line.unitsPerPack > 1 && (
+                        <div className={css.countModeToggle} role="group" aria-label="Order in">
+                          {(["packs", "units"] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              className={`${css.countModeBtn}${line.orderMode === mode ? ` ${css.countModeBtnActive}` : ""}`}
+                              aria-pressed={line.orderMode === mode}
+                              onClick={() => updateLine(line.key, { orderMode: mode })}
+                              disabled={saving}
+                            >
+                              {mode === "packs" ? "Packs" : "Units"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <input
                         type="number"
                         min={1}
                         step={1}
                         className={`${css.input} ${lineErr?.orderedQty ? css.inputError : ""}`}
-                        value={line.orderedQty}
+                        value={line.orderMode === "packs" ? line.orderedPacks : line.orderedQty}
                         onChange={(e) => {
-                          updateLine(line.key, { orderedQty: e.target.value });
+                          updateLine(
+                            line.key,
+                            line.orderMode === "packs"
+                              ? { orderedPacks: e.target.value }
+                              : { orderedQty: e.target.value },
+                          );
                           clearLineError(line.key, "orderedQty");
                         }}
                         disabled={saving}
-                        aria-label={`Quantity line ${index + 1}`}
+                        aria-label={
+                          line.orderMode === "packs"
+                            ? `Packs line ${index + 1}`
+                            : `Quantity line ${index + 1}`
+                        }
                       />
+                      {line.orderMode === "packs" && line.unitsPerPack > 1 && (
+                        <div className={css.packHint}>
+                          {line.packLabel ?? `Pack of ${line.unitsPerPack}`} ={" "}
+                          {poLineUnits(line).toLocaleString()} units in total
+                        </div>
+                      )}
                       {lineErr?.orderedQty && (
                         <span className={css.fieldError}>{lineErr.orderedQty}</span>
                       )}
@@ -542,9 +620,11 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         placeholder="0.00"
                         aria-label={`Unit cost line ${index + 1}`}
                       />
-                      {lineErr?.unitCost && (
+                      {lineErr?.unitCost ? (
                         <span className={css.fieldError}>{lineErr.unitCost}</span>
-                      )}
+                      ) : line.costFromPriceList ? (
+                        <div className={css.packHint}>From price list</div>
+                      ) : null}
                     </td>
                     <td style={{ width: 90 }}>
                       <input

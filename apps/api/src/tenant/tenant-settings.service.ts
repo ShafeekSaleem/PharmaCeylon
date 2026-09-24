@@ -207,6 +207,8 @@ function serializeSettings(settings: TenantSettings) {
     posMaxDiscountPercent: Number(settings.posMaxDiscountPercent),
     vatRatePercent: settings.vatRatePercent == null ? null : Number(settings.vatRatePercent),
     stocktakeVarianceTolerancePercent: Number(settings.stocktakeVarianceTolerancePercent),
+    goodsReceiptOverTolerancePercent: Number(settings.goodsReceiptOverTolerancePercent),
+    purchasePriceVarianceTolerancePercent: Number(settings.purchasePriceVarianceTolerancePercent),
     approvalRequiredPurchaseOrderThreshold:
       settings.approvalRequiredPurchaseOrderThreshold == null
         ? null

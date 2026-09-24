@@ -6,8 +6,9 @@ import {
   saveApprovalsSettings,
 } from "../lib/tenant-settings";
 
+let grantedKeys = ["tenant.management", "tenant.approval_rules"];
 jest.mock("@/lib/permissions", () => ({
-  usePermissions: () => ({ permissionKeys: ["tenant.management"], loading: false, hasLoadedOnce: true }),
+  usePermissions: () => ({ permissionKeys: grantedKeys, loading: false, hasLoadedOnce: true }),
 }));
 jest.mock("../lib/tenant-settings", () => ({
   fetchTenantSettings: jest.fn(),
@@ -23,6 +24,7 @@ const settings = {
 };
 
 beforeEach(() => {
+  grantedKeys = ["tenant.management", "tenant.approval_rules"];
   (fetchTenantSettings as jest.Mock).mockResolvedValue(settings);
   (fetchApprovalRoles as jest.Mock).mockResolvedValue([
     { key: "owner", name: "Owner", isSystem: true },
@@ -60,4 +62,14 @@ it("warns when no role may self-approve", async () => {
   fireEvent.click(await screen.findByRole("switch", { name: "Owner may approve their own requests" }));
   fireEvent.click(screen.getByRole("switch", { name: "Manager may approve their own requests" }));
   expect(screen.getByText(/Nobody can approve their own requests/)).toBeInTheDocument();
+});
+
+it("leaves the rule read-only for a manager, who is the one it holds to a second approver", async () => {
+  grantedKeys = ["tenant.management"];
+  render(<ApprovalRulesPage />);
+  expect(
+    await screen.findByRole("switch", { name: "Manager may approve their own requests" }),
+  ).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+  expect(screen.getByText(/Only the owner can change this/)).toBeInTheDocument();
 });

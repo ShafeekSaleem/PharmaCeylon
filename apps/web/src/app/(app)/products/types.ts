@@ -72,6 +72,9 @@ export type Product = {
   unit: string | null;
   packSize: string | null;
   packType: string | null;
+  /** Units in one purchasing pack; 1 when the pharmacy buys singles. */
+  unitsPerPack: number;
+  packLabel: string | null;
   storage: string | null;
   shelfLife: string | null;
   taxCategory: string | null;
@@ -251,6 +254,8 @@ export type ProductForm = {
   unit: string;
   packSize: string;
   packType: string;
+  unitsPerPack: string;
+  packLabel: string;
   storage: string;
   shelfLife: string;
   taxCategory: string;

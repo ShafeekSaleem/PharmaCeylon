@@ -447,6 +447,24 @@ export async function seedNmraCatalog(
     await prisma.product.update({ where: { id }, data: { reorderLevel: level } });
   }
 
+  // A pharmacy buys cartons and sells strips, so some demo products need a real pack to buy in
+  // — otherwise Purchasing looks like a system where everything is sold one at a time.
+  const demoPacks: Record<string, { unitsPerPack: number; packLabel: string }> = {
+    "PCL-0001": { unitsPerPack: 100, packLabel: "Box of 100 (10 x 10)" },
+    "PCL-0002": { unitsPerPack: 100, packLabel: "Box of 100 (10 x 10)" },
+    "PCL-0003": { unitsPerPack: 50, packLabel: "Box of 50" },
+    "PCL-0004": { unitsPerPack: 24, packLabel: "Carton of 24" },
+    "PCL-0005": { unitsPerPack: 24, packLabel: "Carton of 24" },
+    "PCL-0010": { unitsPerPack: 12, packLabel: "Carton of 12" },
+    "PCL-0012": { unitsPerPack: 10, packLabel: "Box of 10" },
+    "PCL-0020": { unitsPerPack: 6, packLabel: "Pack of 6" },
+  };
+  for (const [demoKey, pack] of Object.entries(demoPacks)) {
+    const id = productBySku.get(demoKey);
+    if (!id) continue;
+    await prisma.product.update({ where: { id }, data: pack });
+  }
+
   const pclRegs = new Set(Object.values(DEMO_STOCK_REG_NOS));
   let demoIdx = 0;
   for (const regNo of demoStockRegNos) {

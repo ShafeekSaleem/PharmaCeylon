@@ -9,6 +9,8 @@ import {
 } from "@prisma/client";
 import { resolveStockStatus } from "../products/stock-qty.util";
 import { PrismaService } from "../prisma/prisma.service";
+import { StockReadService } from "../inventory/stock/stock-read.service";
+import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { UpsertBranchMonthlyTargetDto } from "./dto/upsert-branch-monthly-target.dto";
 
 function monthKey(d = new Date()): string {
@@ -88,7 +90,10 @@ function mixWindow(
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stockRead: StockReadService,
+  ) {}
 
   /** Validate optional branch scope; omit → tenant-wide. */
   private async resolveOptionalBranch(
@@ -105,8 +110,13 @@ export class AnalyticsService {
   }
 
   /**
-   * Rule-based v1: products where on-hand qty is at or below reorderLevel.
-   * Suggested reorder = max(reorderLevel * 2 - onHand, reorderLevel).
+   * Rule-based v1: products whose available stock, plus anything already on order, is at or
+   * below the reorder level.
+   *
+   * It used to sum the whole stock ledger, which counted quarantined and expired units as
+   * sellable and — worse — ignored open purchase orders, so it recommended reordering stock
+   * arriving the next morning. Available and on-order both come in now; Purchasing's own
+   * suggestions endpoint groups the same numbers by supplier.
    */
   async reorderRecommendations(tenantId: string, branchId: string) {
     const products = await this.prisma.product.findMany({
@@ -119,19 +129,55 @@ export class AnalyticsService {
         reorderLevel: true,
       },
     });
+    if (products.length === 0) {
+      return { branchId, generatedAt: new Date().toISOString(), items: [] };
+    }
 
-    const grouped = await this.prisma.stockLedger.groupBy({
-      by: ["productId"],
-      where: { tenantId, branchId },
-      _sum: { qtyDelta: true },
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
     });
-    const qtyMap = new Map(grouped.map((g) => [g.productId, g._sum.qtyDelta ?? 0]));
+    const today = businessToday(safeTimeZone(tenant?.timezone));
+    const totals = await this.stockRead.productTotals({
+      tenantId,
+      branchId,
+      today,
+      nearExpiryCutoff: today,
+      productIds: products.map((p) => p.id),
+    });
+
+    const openItems = await this.prisma.purchaseOrderItem.findMany({
+      where: {
+        tenantId,
+        purchaseOrder: {
+          branchId,
+          status: {
+            in: [
+              PoStatus.draft,
+              PoStatus.pending_approval,
+              PoStatus.issued,
+              PoStatus.partially_received,
+            ],
+          },
+        },
+      },
+      select: { productId: true, orderedQty: true, receivedQty: true },
+    });
+    const onOrder = new Map<string, number>();
+    for (const item of openItems) {
+      const outstanding = Math.max(item.orderedQty - item.receivedQty, 0);
+      if (outstanding > 0) {
+        onOrder.set(item.productId, (onOrder.get(item.productId) ?? 0) + outstanding);
+      }
+    }
 
     const recs: Array<{
       productId: string;
       sku: string;
       name: string;
       onHand: number;
+      available: number;
+      onOrderQty: number;
       reorderLevel: number;
       suggestedQty: number;
       confidence: number;
@@ -139,23 +185,29 @@ export class AnalyticsService {
     }> = [];
 
     for (const p of products) {
-      const onHand = qtyMap.get(p.id) ?? 0;
-      if (onHand > p.reorderLevel) continue;
+      const stock = totals.get(p.id);
+      const available = stock?.available ?? 0;
+      const ordered = onOrder.get(p.id) ?? 0;
+      const covered = available + ordered;
+      if (covered > p.reorderLevel) continue;
       const target = Math.max(p.reorderLevel * 2, p.reorderLevel + 1);
-      const suggestedQty = Math.max(target - onHand, p.reorderLevel);
+      const suggestedQty = Math.max(target - covered, 0);
+      if (suggestedQty <= 0) continue;
       const confidence =
         p.reorderLevel > 0
-          ? Math.min(1, (p.reorderLevel - onHand) / p.reorderLevel + 0.3)
+          ? Math.min(1, (p.reorderLevel - covered) / p.reorderLevel + 0.3)
           : 0.4;
       recs.push({
         productId: p.id,
         sku: p.sku,
         name: p.name,
-        onHand,
+        onHand: stock?.onHand ?? 0,
+        available,
+        onOrderQty: ordered,
         reorderLevel: p.reorderLevel,
         suggestedQty,
         confidence: Number(confidence.toFixed(2)),
-        reason: "below_or_at_reorder_level",
+        reason: ordered > 0 ? "short_despite_open_order" : "below_or_at_reorder_level",
       });
     }
 

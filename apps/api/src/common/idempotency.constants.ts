@@ -5,6 +5,7 @@ export const IDEMPOTENCY_SCOPE = {
   transferShip: "transfer_ship",
   transferReceive: "transfer_receive",
   returnComplete: "return_complete",
+  supplierPayment: "supplier_payment",
   productImport: "product_import",
 } as const;
 

@@ -46,6 +46,8 @@ npm run prisma:seed -w api
 
 > After pulling the stock-foundation migration, run `npm run prisma:migrate -w api` (or `prisma migrate deploy`). It backfills batch totals and reservations from your existing data; `npm run reconcile:stock -w api` should then pass. Re-seeding also works.
 
+> The purchasing-packs migration is additive: every product starts at 1 unit per pack (set a real pack on the product), and each supplier's price list is seeded from the last cost paid on their batches, so it is useful immediately rather than empty.
+
 ### Windows and `next build`
 
 Some Next.js **15.4.5+** patch releases fail `next build` on **Windows** while prerendering internal `/404` (`useContext` null; see [vercel/next.js#82366](https://github.com/vercel/next.js/issues/82366)). The web app is pinned to **Next 15.3.2** so `next build` succeeds on Windows. That line may be behind security patches—**watch [Next.js security advisories](https://nextjs.org/blog)** and bump to the first release that fixes both the advisory and the Windows prerender bug (or build the web app on **Linux / CI / WSL** with a newer Next).

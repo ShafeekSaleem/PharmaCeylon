@@ -11,6 +11,7 @@ import {
   Req,
   StreamableFile,
 } from "@nestjs/common";
+import { AccessService } from "../security/access.service";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import {
@@ -32,6 +33,7 @@ export class ProductsController {
   constructor(
     private readonly products: ProductsService,
     private readonly organize: ProductOrganizeService,
+    private readonly access: AccessService,
   ) {}
 
   @RequirePermission("products.view")
@@ -224,12 +226,15 @@ export class ProductsController {
 
   @RequirePermission("products.view")
   @Get(":id/detail")
-  detail(
+  async detail(
     @CurrentUser() user: RequestUser,
     @Req() req: AuthenticatedRequest,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.products.getDetail(user.tenantId, req.branchId, id);
+    const access = await this.access.resolve(user, req.branchId);
+    return this.products.getDetail(user.tenantId, req.branchId, id, {
+      canViewCost: access.has("inventory.view_cost"),
+    });
   }
 
   @RequirePermission("products.view")

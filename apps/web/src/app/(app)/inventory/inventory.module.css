@@ -32,49 +32,6 @@
    section-switching pattern across the app instead of two. Rendered by each page directly
    below its own description, and pulled up against it, so Inventory and Products put their
    section nav and their stat tiles in the same place. */
-.subnav {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
-  margin-top: -0.75rem;
-  /* Products applies part of this pull on its stats section; here it all sits on the nav,
-     so the two pages land their tiles at the same height. */
-  margin-bottom: -0.5rem;
-  border-bottom: 1px solid var(--pc-border);
-}
-
-.subnavLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.32rem 0.85rem;
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  color: var(--pc-muted-fg);
-  font-size: 0.85rem;
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: color 0.12s, border-color 0.12s;
-}
-
-.subnavLink:hover {
-  color: var(--pc-foreground);
-}
-
-.subnavLink:focus-visible {
-  outline: 2px solid var(--pc-primary);
-  outline-offset: -2px;
-  border-radius: var(--pc-radius-sm);
-}
-
-.subnavLinkActive {
-  color: var(--pc-primary);
-  border-bottom-color: var(--pc-primary);
-  font-weight: 600;
-}
-
 .toolbar {
   display: flex;
   flex-wrap: wrap;

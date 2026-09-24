@@ -70,6 +70,14 @@ export type ReceiveLine = {
   reasonCode?: string | null;
 };
 
+export type QuarantineLine = {
+  productId: string;
+  batchId: string;
+  qty: number;
+  reasonCode: QuarantineReasonCode;
+  reason?: string | null;
+};
+
 export type ReservationLine = {
   productId: string;
   batchId: string;
@@ -347,24 +355,43 @@ export class StockService {
     await this.post(tx, ctx, movements, opts);
   }
 
-  /** Move available units into quarantine. On hand does not change. */
+  /**
+   * Move available units into quarantine. On hand does not change.
+   *
+   * `referenceType` defaults to a plain batch hold; a caller holding units as part of another
+   * document — a delivery that arrived damaged, say — passes its own type so the movement links
+   * back to that document rather than to nothing.
+   */
   async quarantine(
     tx: Tx,
-    ctx: Omit<StockPostContext, "referenceType" | "referenceId"> & { referenceId: string },
-    line: { productId: string; batchId: string; qty: number; reasonCode: QuarantineReasonCode; reason?: string | null },
+    ctx: Omit<StockPostContext, "referenceType" | "referenceId"> & {
+      referenceId: string;
+      referenceType?: string;
+    },
+    lines: QuarantineLine | readonly QuarantineLine[],
   ): Promise<void> {
-    const qty = this.positive(line.qty);
-    const base = {
-      productId: line.productId,
-      batchId: line.batchId,
-      movementType: StockMovementType.quarantine_hold,
-      reason: line.reason,
-      reasonCode: line.reasonCode,
-    };
-    await this.post(tx, { ...ctx, referenceType: QUARANTINE_REFERENCE_TYPE }, [
-      { ...base, qtyDelta: -qty, bucket: StockBucket.sellable },
-      { ...base, qtyDelta: qty, bucket: StockBucket.quarantine },
-    ]);
+    const list = Array.isArray(lines) ? lines : [lines as QuarantineLine];
+    if (list.length === 0) return;
+    const movements: StockMovementInput[] = [];
+    for (const line of list) {
+      const qty = this.positive(line.qty);
+      const base = {
+        productId: line.productId,
+        batchId: line.batchId,
+        movementType: StockMovementType.quarantine_hold,
+        reason: line.reason,
+        reasonCode: line.reasonCode,
+      };
+      movements.push(
+        { ...base, qtyDelta: -qty, bucket: StockBucket.sellable },
+        { ...base, qtyDelta: qty, bucket: StockBucket.quarantine },
+      );
+    }
+    await this.post(
+      tx,
+      { ...ctx, referenceType: ctx.referenceType ?? QUARANTINE_REFERENCE_TYPE },
+      movements,
+    );
   }
 
   /** Return quarantined units to sellable stock. On hand does not change. */

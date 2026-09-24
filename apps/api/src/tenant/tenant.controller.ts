@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Req } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
+import { AccessService } from "../security/access.service";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import {
   AuthenticatedRequest,
@@ -21,6 +22,7 @@ export class TenantController {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
     private readonly tenantService: TenantService,
+    private readonly access: AccessService,
   ) {}
 
   @Get("context")
@@ -106,15 +108,20 @@ export class TenantController {
    */
   @Get("my-permissions")
   async myPermissions(@CurrentUser() user: RequestUser, @Req() req: AuthenticatedRequest) {
+    // Whether this person may approve what they raised themselves is a tenant rule, not a
+    // permission, but the page needs it for the same reason it needs the keys: so an approve
+    // button that would be refused is disabled with the reason on it, rather than failing
+    // after the click.
+    const access = await this.access.resolve(user, req.branchId);
     const hasOwnerRole = user.branchRoles.some((entry) => entry.role === RoleName.owner);
     if (hasOwnerRole) {
-      return { permissionKeys: PERMISSION_KEYS };
+      return { permissionKeys: PERMISSION_KEYS, canSelfApprove: access.canSelfApprove };
     }
     const candidates = req.branchId
       ? user.branchRoles.filter((entry) => entry.branchId === req.branchId)
       : user.branchRoles;
     const granted = await this.permissions.resolveGrantedKeys(candidates);
-    return { permissionKeys: [...granted] };
+    return { permissionKeys: [...granted], canSelfApprove: access.canSelfApprove };
   }
 
   /** Settings → General → Tenant Profile. Open read (any authenticated user); only

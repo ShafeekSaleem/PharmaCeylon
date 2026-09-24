@@ -457,7 +457,13 @@ export class ProductsService {
     return { ...mapped, sameNameCount };
   }
 
-  async getDetail(tenantId: string, branchId: string | undefined, id: string) {
+  async getDetail(
+    tenantId: string,
+    branchId: string | undefined,
+    id: string,
+    opts: { canViewCost?: boolean } = {},
+  ) {
+    const canViewCost = opts.canViewCost !== false;
     const product = await this.getById(tenantId, id);
 
     let qtyOnHand: number | null = null;
@@ -503,11 +509,13 @@ export class ProductsService {
       if (extras.batches.length) {
         const selling = extras.batches.map((b) => Number(b.sellingPrice));
         const cost = extras.batches.map((b) => Number(b.costPrice));
+        // What a product sells for is everyone's business; what it cost — and so the margin the
+        // page works out from the pair — is not. Withheld here rather than hidden on the page.
         pricing = {
           minSellingPrice: String(Math.min(...selling)),
           maxSellingPrice: String(Math.max(...selling)),
-          minCostPrice: String(Math.min(...cost)),
-          maxCostPrice: String(Math.max(...cost)),
+          minCostPrice: canViewCost ? String(Math.min(...cost)) : null,
+          maxCostPrice: canViewCost ? String(Math.max(...cost)) : null,
           batchCount: extras.batches.length,
         };
       }
@@ -609,6 +617,8 @@ export class ProductsService {
           unit: dto.unit?.trim() || null,
           packSize: dto.packSize?.trim() || null,
           packType: dto.packType?.trim() || null,
+          unitsPerPack: dto.unitsPerPack ?? 1,
+          packLabel: dto.packLabel?.trim() || null,
           storage: dto.storage?.trim() || null,
           shelfLife: dto.shelfLife?.trim() || null,
           taxCategory: dto.taxCategory?.trim() || null,
@@ -694,6 +704,10 @@ export class ProductsService {
           : {}),
         ...(dto.packType !== undefined
           ? { packType: dto.packType?.trim() || null }
+          : {}),
+        ...(dto.unitsPerPack !== undefined ? { unitsPerPack: dto.unitsPerPack } : {}),
+        ...(dto.packLabel !== undefined
+          ? { packLabel: dto.packLabel?.trim() || null }
           : {}),
         ...(dto.storage !== undefined
           ? { storage: dto.storage?.trim() || null }

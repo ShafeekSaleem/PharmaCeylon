@@ -414,7 +414,7 @@
   margin-top: 0.9rem;
 }
 
-/* ── Layout / subnav (Staff | Roles & permissions) ── */
+/* ── Layout ── */
 
 .page {
   display: flex;
@@ -429,34 +429,3 @@
   gap: 1rem;
 }
 
-.subnav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 10px);
-  background: var(--pc-card-bg);
-}
-
-.subnavLink {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.5rem 0.9rem;
-  border-radius: var(--pc-radius-sm);
-  color: var(--pc-muted-fg);
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: background 0.15s, color 0.15s;
-}
-
-.subnavLink:hover {
-  color: var(--pc-foreground);
-  background: var(--pc-muted-bg);
-}
-
-.subnavLinkActive {
-  color: var(--pc-primary);
-  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
-}

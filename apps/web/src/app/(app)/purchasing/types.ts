@@ -36,7 +36,18 @@ export type PurchaseOrderItem = {
   id: string;
   productId: string;
   orderedQty: number;
-  unitCost: string;
+  /** Null when the caller may not see costs (`purchasing.view_cost`). */
+  unitCost: string | null;
+  packCost?: string | null;
+  /** Packs as ordered; null when the line was entered in units. */
+  orderedPacks?: number | null;
+  unitsPerPack?: number;
+  /** Good units booked in so far. Free and rejected units are reported separately. */
+  receivedQty?: number;
+  freeQty?: number;
+  rejectedQty?: number;
+  outstandingQty?: number;
+  outstandingPacks?: number | null;
   discountPercent?: string | number;
   taxPercent?: string | number;
   product: PoProductRef;
@@ -70,6 +81,10 @@ export type GoodsReceiptItem = {
   productId: string;
   batchId: string;
   receivedQty: number;
+  freeQty?: number;
+  rejectedQty?: number;
+  packs?: number | null;
+  unitCost?: string | null;
   product: PoProductRef;
   batch: {
     id: string;
@@ -78,6 +93,66 @@ export type GoodsReceiptItem = {
     costPrice: string;
     sellingPrice: string;
   };
+};
+
+/** A row on the Deliveries tab. */
+export type DeliveryRow = {
+  id: string;
+  grnNumber: string;
+  receivedOn: string;
+  createdAt: string;
+  purchaseOrder: { id: string; poNumber: string; status: PoStatus };
+  supplier: { id: string; code: string; name: string };
+  receivedBy: { id: string; fullName: string } | null;
+  invoice: { id: string; invoiceNumber: string; status: string } | null;
+  lineCount: number;
+  paidUnits: number;
+  freeUnits: number;
+  rejectedUnits: number;
+  /** Null when the caller may not see costs. */
+  value: string | null;
+  items: Array<{
+    id: string;
+    product: PoProductRef;
+    batch: { id: string; batchNo: string; expiryDate: string };
+    receivedQty: number;
+    freeQty: number;
+    rejectedQty: number;
+    packs: number | null;
+    unitCost: string | null;
+    orderedUnitCost: string | null;
+    /** How far the billed price moved from the agreed one; positive means dearer. */
+    variancePercent: number | null;
+  }>;
+};
+
+/** One supplier's worth of suggested reordering. */
+export type ReorderSuggestionItem = {
+  productId: string;
+  sku: string;
+  name: string;
+  available: number;
+  onOrderQty: number;
+  plannedQty: number;
+  reorderLevel: number;
+  suggestedQty: number;
+  suggestedPacks: number | null;
+  unitsPerPack: number;
+  packLabel: string | null;
+  unitCost: string | null;
+  supplierSku: string | null;
+  reason: string;
+};
+
+export type ReorderSuggestions = {
+  branchId: string;
+  generatedAt: string;
+  suppliers: Array<{
+    supplier: { id: string; code: string; name: string; leadTimeDays: number };
+    items: ReorderSuggestionItem[];
+    estimatedValue: string | null;
+  }>;
+  unassigned: ReorderSuggestionItem[];
 };
 
 export type GoodsReceipt = {
@@ -96,27 +171,71 @@ export type PurchaseOrderDetail = Omit<PurchaseOrderListItem, "supplier" | "good
 export type CreatePoLine = {
   key: string;
   productId: string;
+  /** What the buyer is typing in: packs of `unitsPerPack`, or loose units. */
+  orderMode: "packs" | "units";
+  orderedPacks: string;
   orderedQty: string;
+  unitsPerPack: number;
+  packLabel: string | null;
   unitCost: string;
   discountPercent: string;
   taxPercent: string;
+  /** Set when the supplier's price list filled the cost in, so the form can say so. */
+  costFromPriceList?: boolean;
 };
 
 export type ReceiveLineForm = {
   productId: string;
   productLabel: string;
   remainingQty: number;
+  unitsPerPack: number;
+  packLabel: string | null;
+  /** How the storekeeper is counting this line at the door. */
+  countMode: "packs" | "units";
+  packs: string;
   receivedQty: string;
+  freeQty: string;
+  rejectedQty: string;
+  rejectedReason: string;
   batchNo: string;
   expiryDate: string;
+  /** What the order agreed this unit would cost — null when the caller may not see costs. */
+  orderedCostPrice: string | null;
   costPrice: string;
   sellingPrice: string;
   include: boolean;
 };
 
-export type PoStatusFilter = "all" | "overdue" | "receivable" | PoStatus;
+/** The server asking whether to accept being billed above the agreed price. */
+export type PriceRise = {
+  productId: string;
+  product: string;
+  orderedUnitCost: string;
+  billedUnitCost: string;
+  variancePercent: number;
+};
 
-export const WRITE_ROLES = new Set(["owner", "manager", "inventory_clerk"]);
+/** The server asking which expiry is right for a batch number it already knows. */
+export type ExpiryConflict = {
+  productId: string;
+  product: string;
+  batchNo: string;
+  existingExpiry: string;
+  enteredExpiry: string;
+  /** True only for an imported placeholder expiry nobody has confirmed yet. */
+  canCorrect: boolean;
+};
+
+/** The server asking what to do about a batch already in stock at another cost. */
+export type CostConflict = {
+  productId: string;
+  product: string;
+  batchNo: string;
+  existingCost: string;
+  incomingCost: string;
+};
+
+export type PoStatusFilter = "all" | "overdue" | "receivable" | PoStatus;
 
 export const PAGE_SIZE = 10;
 

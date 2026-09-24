@@ -23,6 +23,7 @@ import {
   ActionButton,
   ActiveFilterBanner,
   DataTable,
+  DateRangeField,
   PageHeader,
   StatCard,
   StatusBadge,
@@ -603,38 +604,13 @@ function TransfersContent() {
                 options={branchOptions}
                 onChange={setToBranchFilter}
               />
-              <div
-                className={`${layoutCss.dateRange}${dateFrom || dateTo ? ` ${layoutCss.dateRangeFilled}` : ""}`}
-                role="group"
-                aria-label="Created date range"
-              >
-                <span className={layoutCss.dateRangeIcon} aria-hidden>
-                  <IconCalendar size={14} />
-                </span>
-                <div className={layoutCss.dateRangeFields}>
-                  <label className={layoutCss.dateRangeField}>
-                    <span className={layoutCss.dateRangeLabel}>From</span>
-                    <input
-                      type="date"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                      aria-label="Created from"
-                    />
-                  </label>
-                  <span className={layoutCss.dateRangeSep} aria-hidden>
-                    →
-                  </span>
-                  <label className={layoutCss.dateRangeField}>
-                    <span className={layoutCss.dateRangeLabel}>To</span>
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      aria-label="Created to"
-                    />
-                  </label>
-                </div>
-              </div>
+              <DateRangeField
+                label="Created date range"
+                from={dateFrom}
+                to={dateTo}
+                onFromChange={setDateFrom}
+                onToChange={setDateTo}
+              />
               <button
                 type="button"
                 className={`${layoutCss.periodChip}${isThisMonthPreset ? ` ${layoutCss.periodChipActive}` : ""}`}

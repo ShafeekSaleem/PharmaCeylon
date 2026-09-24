@@ -37,6 +37,9 @@ export type ProductOption = {
   sku: string;
   name: string;
   isActive: boolean;
+  /** Units in one purchasing pack; 1 when the pharmacy buys singles. */
+  unitsPerPack?: number;
+  packLabel?: string | null;
 };
 
 export function useProductOptions() {
@@ -62,6 +65,72 @@ export function useProductOptions() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return { rows, loading, error, reload };
+}
+
+export type SupplierPriceRow = {
+  id: string;
+  product: { id: string; sku: string; name: string; unitsPerPack: number; packLabel: string | null };
+  supplierSku: string | null;
+  unitsPerPack: number;
+  packCost: string | null;
+  unitCost: string;
+  discountPercent: number;
+  lastUnitCost: string | null;
+  lastPurchasedAt: string | null;
+  /** Set when the last cost paid differs from the agreed one — a price that has crept. */
+  priceDrift: string | null;
+  notes: string | null;
+  updatedAt: string;
+};
+
+/**
+ * One supplier's agreed prices, keyed by product.
+ *
+ * Order lines used to start from the last batch cost, which is whatever some branch paid on
+ * some day, possibly to a different supplier. Prefilling from the supplier's own list is both
+ * more accurate and visible — the line says where the number came from.
+ */
+export type SupplierPricePrefill = {
+  productId: string;
+  unitCost: string;
+  unitsPerPack: number;
+  discountPercent: number;
+};
+
+export function useSupplierPrices(supplierId: string | null, enabled = true) {
+  const [rows, setRows] = useState<SupplierPricePrefill[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    if (!supplierId || !enabled) {
+      setRows([]);
+      setError(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      setRows(
+        await apiJson<SupplierPricePrefill[]>(
+          `/purchasing/supplier-prices?supplierId=${encodeURIComponent(supplierId)}`,
+        ),
+      );
+    } catch (err) {
+      // A price list is a convenience; someone without the cost permission simply types the
+      // cost instead, so a failure here must never block the order.
+      setError(err instanceof Error ? err.message : "Failed to load supplier prices");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [supplierId, enabled]);
 
   useEffect(() => {
     void reload();

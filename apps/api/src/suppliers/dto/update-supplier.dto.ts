@@ -61,4 +61,30 @@ export class UpdateSupplierDto {
   @Type(() => Boolean)
   @IsBoolean()
   isActive?: boolean;
+
+  // What an invoice needs to show and a payment needs to reach them.
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  addressLine?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  city?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  taxRegistrationNo?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  bankName?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  bankAccountName?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  bankAccountNo?: string | null;
 }

@@ -29,6 +29,9 @@ const DEFAULT_RETURN_THRESHOLD = 5000;
 export default function ApprovalRulesPage() {
   const { permissionKeys } = usePermissions();
   const canEdit = permissionKeys.includes("tenant.management");
+  // Thresholds are an ordinary setting; deciding who may approve their own requests is the rule
+  // that holds a manager to a second approver, so it is the owner's to change.
+  const canEditSelfApproval = permissionKeys.includes("tenant.approval_rules");
 
   const [draft, setDraft] = useState<TenantSettings | null>(null);
   const [roles, setRoles] = useState<ApprovalRoleOption[]>(BUILT_IN_ROLES);
@@ -222,6 +225,12 @@ export default function ApprovalRulesPage() {
                 transfer, a return, a stocktake count — can they approve it themselves? Roles switched on
                 here can. Everyone else needs a second person who holds the approve permission.
               </p>
+              {canEdit && !canEditSelfApproval ? (
+                <p className={css.cardDesc}>
+                  Only the owner can change this — the rule decides who is held to a second
+                  approver, so it isn&apos;t one a manager sets for themselves.
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -252,7 +261,7 @@ export default function ApprovalRulesPage() {
                         : d,
                     )
                   }
-                  disabled={!canEdit}
+                  disabled={!canEditSelfApproval}
                   label={`${role.name} may approve their own requests`}
                 />
               </div>
@@ -266,7 +275,7 @@ export default function ApprovalRulesPage() {
             </Alert>
           ) : null}
 
-          {canEdit ? (
+          {canEditSelfApproval ? (
             <div className={css.saveRow}>
               <ActionButton onClick={handleSave} disabled={saving}>
                 {saving ? "Saving…" : "Save changes"}

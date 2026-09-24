@@ -230,6 +230,9 @@ for (const g of NAV_GROUPS) {
     PAGE_TITLES[item.href] = item.label;
   }
 }
+PAGE_TITLES["/purchasing/deliveries"] = "Deliveries";
+PAGE_TITLES["/purchasing/invoices"] = "Invoices";
+PAGE_TITLES["/purchasing/supplier-returns"] = "Supplier returns";
 PAGE_TITLES["/inventory/batches"] = "Batch stock";
 PAGE_TITLES["/inventory/adjustments"] = "Stock adjustments";
 PAGE_TITLES["/inventory/movements"] = "Stock movements";

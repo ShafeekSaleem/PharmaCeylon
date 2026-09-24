@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 
-/** Atomically allocate the next document number for a tenant+branch+docType. */
+/**
+ * Atomically allocate the next document number for a tenant+branch+docType.
+ *
+ * One statement, because two of them are a race: reading "does a counter exist" and then
+ * creating it let a branch's very first two documents — its first two deliveries, say — both
+ * find nothing and both insert, so one transaction died on a unique violation with an error
+ * nobody could act on. `ON CONFLICT DO UPDATE` creates or increments in a single write, and the
+ * row lock it takes makes the second caller wait rather than collide.
+ */
 export async function nextDocumentNumber(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -10,33 +18,19 @@ export async function nextDocumentNumber(
   prefix: string,
   pad = 5,
 ): Promise<string> {
-  const existing = await tx.documentSequence.findUnique({
-    where: {
-      tenantId_branchId_docType: { tenantId, branchId, docType },
-    },
-  });
-
-  let value: number;
-  if (!existing) {
-    await tx.documentSequence.create({
-      data: {
-        id: randomUUID(),
-        tenantId,
-        branchId,
-        docType,
-        nextValue: 2,
-      },
-    });
-    value = 1;
-  } else {
-    const updated = await tx.documentSequence.update({
-      where: { id: existing.id, tenantId, branchId },
-      data: { nextValue: { increment: 1 } },
-    });
-    value = updated.nextValue - 1;
+  const rows = await tx.$queryRaw<Array<{ next_value: number }>>`
+    INSERT INTO document_sequence (id, tenant_id, branch_id, doc_type, next_value, updated_at)
+    VALUES (${randomUUID()}::uuid, ${tenantId}::uuid, ${branchId}::uuid, ${docType}, 2, now())
+    ON CONFLICT (tenant_id, branch_id, doc_type)
+    DO UPDATE SET next_value = document_sequence.next_value + 1, updated_at = now()
+    RETURNING next_value
+  `;
+  const nextValue = rows[0]?.next_value;
+  if (!nextValue) {
+    throw new Error(`Could not allocate a ${docType} number`);
   }
-
-  return `${prefix}${String(value).padStart(pad, "0")}`;
+  // The row now holds the *following* number, so the one just claimed is one below it.
+  return `${prefix}${String(nextValue - 1).padStart(pad, "0")}`;
 }
 
 /**

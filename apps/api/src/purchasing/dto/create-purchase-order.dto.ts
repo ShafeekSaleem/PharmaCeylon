@@ -26,14 +26,40 @@ export class PurchaseOrderItemInputDto {
   @IsUUID()
   productId!: string;
 
+  /**
+   * Units to order. Optional when `orderedPacks` is given — the server multiplies out, so a
+   * client never has to send a total it computed itself.
+   */
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  orderedQty!: number;
+  orderedQty?: number;
 
-  /** Decimal string e.g. "12.50" */
+  /** Packs to order. Takes precedence over `orderedQty` when both are sent. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  orderedPacks?: number;
+
+  /** Units in one pack for this line; defaults to the product's own pack. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100000)
+  unitsPerPack?: number;
+
+  /** Decimal string. Cost of one pack; the unit cost is derived from it. */
+  @IsOptional()
   @IsString()
-  unitCost!: string;
+  packCost?: string;
+
+  /** Decimal string e.g. "12.50". Optional when `packCost` is given. */
+  @IsOptional()
+  @IsString()
+  unitCost?: string;
 
   @IsOptional()
   @Type(() => Number)

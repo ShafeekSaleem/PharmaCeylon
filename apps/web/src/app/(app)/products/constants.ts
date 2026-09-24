@@ -32,6 +32,8 @@ export const INITIAL_FORM = {
   strength: "",
   unit: "",
   packSize: "",
+  unitsPerPack: "1",
+  packLabel: "",
   packType: "",
   storage: "",
   shelfLife: "",
