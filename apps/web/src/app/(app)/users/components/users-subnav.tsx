@@ -1,35 +1,12 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import css from "../users.module.css";
+import { PageSubnav, type PageSubnavTab } from "@/components/ui";
 
-const TABS = [
-  { href: "/users", label: "Staff", match: (p: string) => p === "/users" },
-  {
-    href: "/users/roles",
-    label: "Roles & permissions",
-    match: (p: string) => p.startsWith("/users/roles"),
-  },
-] as const;
+const TABS: PageSubnavTab[] = [
+  { href: "/users", label: "Staff", match: (p) => p === "/users" },
+  { href: "/users/roles", label: "Roles & permissions" },
+];
 
 export function UsersSubnav() {
-  const pathname = usePathname();
-
-  return (
-    <nav className={css.subnav} aria-label="Users sections">
-      {TABS.map((tab) => {
-        const active = tab.match(pathname);
-        return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            className={`${css.subnavLink}${active ? ` ${css.subnavLinkActive}` : ""}`}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+  return <PageSubnav label="Users sections" tabs={TABS} />;
 }

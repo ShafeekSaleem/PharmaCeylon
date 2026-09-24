@@ -135,6 +135,68 @@ Approvals: decisions that depend on *who* raised a document go through `AccessSe
 `selfApprovalRoleKeys` setting (owners and managers by default). Never branch on `RoleName` in a
 service for authority; use `access.has(...)` and `assertMayApprove(...)`.
 
+### Buying in packs, selling in units
+
+A pharmacy buys cartons and sells tablets, so `Product.unitsPerPack` (with `packLabel` for
+display) is the number buying and receiving do their arithmetic with. It is **not**
+`Product.packSize`, which is the NMRA register's descriptive text ("10x10 tablets") and cannot
+be divided by. Stock is only ever counted in units: packs exist at the edge where a person types
+a number, and `purchasing/pack-math.ts` is the only place the conversion happens.
+
+A purchase order line stores both sides — `orderedPacks`, `unitsPerPack` and `packCost`
+alongside `orderedQty` and `unitCost` — with the pack **snapshotted**, so re-packing a product
+next year cannot restate what was agreed. Lines also carry running `receivedQty` / `freeQty` /
+`rejectedQty`, so "what is still outstanding" is a column rather than a re-sum of every prior
+delivery.
+
+Receiving (`purchasing.service.ts`) posts one delivery at a time through `StockService`:
+
+- **Free goods** arrive at no charge and pull the batch's effective cost down
+  (`effectiveUnitCost`) — the pharmacy paid for 10 and owns 11.
+- **Damaged units** are received and then quarantined in the same posting, referenced to the
+  GRN, so they are visible stock awaiting a supplier credit rather than a silent write-off.
+- **Over-delivery** is allowed up to `TenantSettings.goodsReceiptOverTolerancePercent`; beyond
+  that it needs `purchasing.approve` plus an explicit `acceptOverDelivery`.
+- **A price above the one the order agreed** is allowed up to
+  `purchasePriceVarianceTolerancePercent`; beyond it, `purchasing.approve` plus
+  `acceptPriceVariance`, optionally with `updateSupplierPrice` to move the supplier's agreed
+  price too. A price *drop* never needs approval. Both prices are kept on the delivery line
+  (`orderedUnitCost` and `unitCost`), because the order is the evidence the price moved and
+  must never be rewritten to match the bill.
+- **A batch already in stock at another cost** refuses with a `COST_CONFLICT` body until the
+  receiver chooses `keep_existing` or `update_cost`. Both refusals are questions, not dead ends:
+  the web surfaces them as prompts via `ApiError.code` (`lib/api-error.ts`).
+
+`SupplierProductPrice` is the price list an order line starts from. Receiving writes
+`lastUnitCost` / `lastPurchasedAt` beside the agreed `unitCost`, so a creeping price is visible
+instead of absorbed. Costs everywhere in Purchasing are withheld by the API without
+`purchasing.view_cost`, and booking a delivery in needs `purchasing.receive` rather than
+`purchasing.manage`.
+
+### What the pharmacy owes its suppliers
+
+`purchasing/ledger/` is the supplier money model. Three rules hold it together:
+
+- **An invoice is the supplier's document.** A delivery creates a `source = system` placeholder
+  (lines = what arrived and was billed, damaged included, free excluded) so the money is visible
+  as owed straight away. Recording the supplier's real invoice against that delivery voids the
+  placeholder and moves anything already paid against it onto the real invoice. Invoice numbers
+  are unique per supplier, and one invoice may cover several deliveries
+  (`SupplierInvoiceReceipt`).
+- **`paidAmount` is derived, never added to.** It is written only by
+  `refreshInvoiceSettlement`, from `SupplierPaymentAllocation` rows whose payment is not voided
+  plus `SupplierDebitAllocation` rows whose debit note is not voided. Payments lock the invoice
+  rows they settle (`FOR UPDATE`, id order) and must place their whole amount; a voided payment
+  keeps its row. The supplier page's "Record payment" goes through the same ledger.
+- **Returns owe money back.** Completing a supplier return raises a `SupplierDebitNote` in the
+  same transaction (`raiseDebitNoteForReturn`), valued at the return lines or the batch cost,
+  and it is applied against invoices like a payment.
+
+The three-way match (`supplier-ledger.math.ts` → `threeWayMatch`) compares ordered, received
+and billed per product and prices the difference, so an invoice for goods that never arrived is
+visible before it is paid. Money has its own permissions — `purchasing.invoice` and
+`suppliers.pay`, owners and managers by default — separate from buying and receiving stock.
+
 ### Catalog Management (`/products/manage`)
 
 Products has two tabs — My products and Reference catalog. Everything else about the catalog

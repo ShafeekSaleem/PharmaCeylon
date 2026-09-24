@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma, SupplierInvoiceStatus } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { createInvoiceFromGoodsReceipt, SuppliersService } from "./suppliers.service";
@@ -45,49 +45,94 @@ describe("SuppliersService tenant isolation", () => {
 });
 
 describe("supplier invoice payments", () => {
-  function makeService(updateCount: number) {
+  /**
+   * A payment from the supplier page is a real ledger payment now, allocated to one invoice.
+   * Concurrency is a row lock (exercised against Postgres in the integration suite); these pin
+   * what gets written and what is refused.
+   */
+  function makeService(locked: { status: SupplierInvoiceStatus; paid: number }) {
+    const created: unknown[] = [];
+    const invoice = {
+      id: "inv-1",
+      tenantId: "t1",
+      supplierId: "s1",
+      branchId: "b1",
+      invoiceNumber: "INV-9",
+      status: locked.status,
+      totalAmount: new Prisma.Decimal(1000),
+      paidAmount: new Prisma.Decimal(locked.paid),
+      notes: null,
+    };
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ next_value: 2 }]),
+      branch: { findFirst: jest.fn().mockResolvedValue({ id: "b1" }) },
+      supplierInvoice: {
+        findFirst: jest.fn().mockResolvedValue(invoice),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      supplierPayment: {
+        create: jest.fn(async ({ data }: { data: unknown }) => {
+          created.push(data);
+          return { id: "pay-1", ...(data as object) };
+        }),
+      },
+      supplierPaymentAllocation: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amount: new Prisma.Decimal(1000) } }),
+      },
+      supplierDebitAllocation: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
+      },
+    };
     const prisma = {
       supplierInvoice: {
-        findFirst: jest.fn().mockResolvedValue({
-          id: "inv-1",
-          tenantId: "t1",
-          supplierId: "s1",
-          branchId: "b1",
-          status: SupplierInvoiceStatus.open,
-          totalAmount: new Prisma.Decimal(1000),
-          paidAmount: new Prisma.Decimal(400),
-          notes: null,
-        }),
-        updateMany: jest.fn().mockResolvedValue({ count: updateCount }),
+        findFirst: jest.fn().mockResolvedValue({ ...invoice, status: SupplierInvoiceStatus.partial }),
       },
+      $transaction: jest.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
     };
     const audit = { log: jest.fn() } as unknown as AuditService;
     const service = new SuppliersService(prisma as never, audit);
     jest.spyOn(service, "getById").mockResolvedValue({ id: "s1" } as never);
-    return { service, prisma, audit };
+    return { service, tx, audit, created };
   }
 
-  it("writes the payment only if the paid amount is still what was checked", async () => {
-    const { service, prisma } = makeService(1);
+  it("records a ledger payment allocated to the invoice, and re-derives what is paid", async () => {
+    const { service, tx, created } = makeService({ status: SupplierInvoiceStatus.partial, paid: 400 });
     await service.recordPayment("t1", "u1", "inv-1", { amount: 600 });
-    expect(prisma.supplierInvoice.updateMany).toHaveBeenCalledWith(
+
+    expect(created).toHaveLength(1);
+    expect(created[0]).toEqual(
       expect.objectContaining({
-        where: expect.objectContaining({
-          id: "inv-1",
-          tenantId: "t1",
-          paidAmount: new Prisma.Decimal(400),
+        supplierId: "s1",
+        amount: new Prisma.Decimal(600),
+        allocations: { create: [expect.objectContaining({ invoiceId: "inv-1" })] },
+      }),
+    );
+    // paidAmount is written from the ledger's sum, not by adding to the old figure.
+    expect(tx.supplierInvoice.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          paidAmount: new Prisma.Decimal(1000),
+          status: SupplierInvoiceStatus.paid,
         }),
-        data: expect.objectContaining({ status: SupplierInvoiceStatus.paid }),
       }),
     );
   });
 
-  it("refuses a payment that raced another one instead of overpaying", async () => {
-    const { service, audit } = makeService(0);
-    await expect(
-      service.recordPayment("t1", "u1", "inv-1", { amount: 600 }),
-    ).rejects.toBeInstanceOf(ConflictException);
+  it("refuses more than is left to pay, and writes nothing", async () => {
+    const { service, created, audit } = makeService({ status: SupplierInvoiceStatus.partial, paid: 400 });
+    await expect(service.recordPayment("t1", "u1", "inv-1", { amount: 700 })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(created).toHaveLength(0);
     expect(audit.log as jest.Mock).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the invoice was settled while this payment was being entered", async () => {
+    const { service, created } = makeService({ status: SupplierInvoiceStatus.paid, paid: 1000 });
+    await expect(service.recordPayment("t1", "u1", "inv-1", { amount: 100 })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(created).toHaveLength(0);
   });
 });
 
@@ -100,6 +145,7 @@ describe("auto-created supplier invoices", () => {
         create: jest.fn(async ({ data }: { data: { invoiceNumber: string } }) => data),
       },
       branch: { findFirst: jest.fn().mockResolvedValue({ code: "GALLE" }) },
+      goodsReceiptItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
   }
   const params = {

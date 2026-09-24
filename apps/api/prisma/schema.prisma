@@ -330,10 +330,10 @@ model ProductImport {
   expiryReviewCount Int @default(0) @map("expiry_review_count")
 
   /// Rows that could not be imported, in the shape the downloadable error CSV needs.
-  result      Json?
+  result             Json?
   requestFingerprint String? @map("request_fingerprint") @db.VarChar(64)
-  errorReport Json?   @map("error_report")
-  error       String?
+  errorReport        Json?   @map("error_report")
+  error              String?
 
   /// Live progress, mirrored from the job runner so any API instance (or a page reloaded
   /// after a restart) can answer "how far did it get" without the originating process.
@@ -471,26 +471,28 @@ model Branch {
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 
-  tenant            Tenant                      @relation(fields: [tenantId], references: [id])
-  userBranchRoles   UserBranchRole[]
-  invitationRoles   StaffInvitationBranchRole[]
-  batches           Batch[]
-  purchaseOrders    PurchaseOrder[]
-  goodsReceipts     GoodsReceipt[]
-  sales             Sale[]
-  ledgerEntries     StockLedger[]
-  transfersFrom     Transfer[]                  @relation("TransferFromBranch")
-  transfersTo       Transfer[]                  @relation("TransferToBranch")
-  goodsReturns      GoodsReturn[]
-  stocktakes        Stocktake[]
-  documentSequences DocumentSequence[]
-  supplierInvoices  SupplierInvoice[]
-  auditEvents       AuditEvent[]
-  prescriptions     Prescription[]
-  heldSales         HeldSale[]
-  monthlyTargets    BranchMonthlyTarget[]
-  notifications     Notification[]
-  productImports    ProductImport[]
+  tenant             Tenant                      @relation(fields: [tenantId], references: [id])
+  userBranchRoles    UserBranchRole[]
+  invitationRoles    StaffInvitationBranchRole[]
+  batches            Batch[]
+  purchaseOrders     PurchaseOrder[]
+  goodsReceipts      GoodsReceipt[]
+  supplierPayments   SupplierPayment[]
+  supplierDebitNotes SupplierDebitNote[]
+  sales              Sale[]
+  ledgerEntries      StockLedger[]
+  transfersFrom      Transfer[]                  @relation("TransferFromBranch")
+  transfersTo        Transfer[]                  @relation("TransferToBranch")
+  goodsReturns       GoodsReturn[]
+  stocktakes         Stocktake[]
+  documentSequences  DocumentSequence[]
+  supplierInvoices   SupplierInvoice[]
+  auditEvents        AuditEvent[]
+  prescriptions      Prescription[]
+  heldSales          HeldSale[]
+  monthlyTargets     BranchMonthlyTarget[]
+  notifications      Notification[]
+  productImports     ProductImport[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -577,9 +579,19 @@ model TenantSettings {
   allowNegativeStock               Boolean @default(false) @map("allow_negative_stock")
 
   // ── Purchasing defaults (Settings → Modules → Operations) ──
-  poNumberPrefix                  String  @default("PO-") @map("po_number_prefix")
-  defaultSupplierPaymentTermsDays Int     @default(30) @map("default_supplier_payment_terms_days")
-  autoReceiveOnInvoiceMatch       Boolean @default(false) @map("auto_receive_on_invoice_match")
+  poNumberPrefix                   String  @default("PO-") @map("po_number_prefix")
+  defaultSupplierPaymentTermsDays  Int     @default(30) @map("default_supplier_payment_terms_days")
+  autoReceiveOnInvoiceMatch        Boolean @default(false) @map("auto_receive_on_invoice_match")
+  /// How much more than the ordered quantity a delivery may contain before an approver has to
+  /// accept it. 0 means an over-delivery always needs approval. Suppliers do round up to a
+  /// carton, and refusing outright left the goods un-bookable and the shelf stocked with units
+  /// the system denied existed.
+  goodsReceiptOverTolerancePercent Decimal @default(0) @map("goods_receipt_over_tolerance_percent") @db.Decimal(5, 2)
+
+  /// How much dearer than the agreed price a delivery may be before an approver has to accept
+  /// it. 0 means every price rise is someone's decision. A price *drop* never needs approval —
+  /// nobody disputes paying less — but it is recorded just the same.
+  purchasePriceVarianceTolerancePercent Decimal @default(0) @map("purchase_price_variance_tolerance_percent") @db.Decimal(5, 2)
 
   // ── Transfers & returns defaults (Settings → Modules → Operations) ──
   defaultReturnWindowDays   Int     @default(14) @map("default_return_window_days")
@@ -650,46 +662,48 @@ model AppUser {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
-  userBranchRoles         UserBranchRole[]
-  sessions                Session[]
-  purchaseOrdersCreated   PurchaseOrder[]          @relation("PurchaseOrderCreator")
-  goodsReceiptsReceived   GoodsReceipt[]           @relation("GoodsReceiptReceiver")
-  sales                   Sale[]                   @relation("SaleSeller")
-  salesDispensed          Sale[]                   @relation("SaleDispenser")
-  ledgerEntriesCreated    StockLedger[]            @relation("StockLedgerActor")
-  transfersRequested      Transfer[]               @relation("TransferRequester")
-  transfersApproved       Transfer[]               @relation("TransferApprover")
-  transfersReceived       Transfer[]               @relation("TransferReceiver")
-  goodsReturnsRequested   GoodsReturn[]            @relation("GoodsReturnRequester")
-  goodsReturnsApproved    GoodsReturn[]            @relation("GoodsReturnApprover")
-  goodsReturnsProcessed   GoodsReturn[]            @relation("GoodsReturnProcessor")
-  stocktakesCounted       Stocktake[]              @relation("StocktakeCounter")
-  stocktakesAssigned      StocktakeAssignment[]
-  branchTargetsManaged    BranchMonthlyTarget[]    @relation("BranchTargetManager")
-  branchTargetsCreated    BranchMonthlyTarget[]    @relation("BranchTargetCreator")
-  stocktakesReviewed      Stocktake[]              @relation("StocktakeReviewer")
-  stocktakesApproved      Stocktake[]              @relation("StocktakeApprover")
-  stocktakesPosted        Stocktake[]              @relation("StocktakePoster")
-  stocktakesCompleted     Stocktake[]              @relation("StocktakeCompleter")
-  stocktakeCountEntries   StocktakeCountEntry[]
-  stocktakePostings       StocktakePosting[]
-  productImports          ProductImport[]          @relation("ProductImportActor")
-  stocktakeLineReviews    StocktakeLine[]          @relation("StocktakeLineReviewer")
-  stocktakeLineApprovals  StocktakeLine[]          @relation("StocktakeLineApprover")
-  stocktakePostingLines   StocktakePostingLine[]
-  auditEvents             AuditEvent[]             @relation("AuditActor")
-  prescriptionsCreated    Prescription[]           @relation("PrescriptionCreator")
-  heldSales               HeldSale[]               @relation("HeldSaleHolder")
-  notifications           Notification[]
-  notificationPreferences NotificationPreference[]
-  dashboardLayouts        DashboardLayout[]
-  tenantMemberships       TenantMembership[]
-  invitationsSent         StaffInvitation[]        @relation("StaffInvitationInviter")
-  invitationsAccepted     StaffInvitation[]        @relation("StaffInvitationAcceptor")
-  nmraLinksCreated        ProductNmraLink[]        @relation("ProductNmraLinkActor")
-  catalogTasksResolved    CatalogTask[]            @relation("CatalogTaskResolver")
-  passwordResetTokens     PasswordResetToken[]
+  tenant                   Tenant                   @relation(fields: [tenantId], references: [id])
+  userBranchRoles          UserBranchRole[]
+  sessions                 Session[]
+  purchaseOrdersCreated    PurchaseOrder[]          @relation("PurchaseOrderCreator")
+  goodsReceiptsReceived    GoodsReceipt[]           @relation("GoodsReceiptReceiver")
+  supplierPaymentsMade     SupplierPayment[]        @relation("SupplierPaymentCreator")
+  supplierDebitNotesRaised SupplierDebitNote[]      @relation("SupplierDebitNoteCreator")
+  sales                    Sale[]                   @relation("SaleSeller")
+  salesDispensed           Sale[]                   @relation("SaleDispenser")
+  ledgerEntriesCreated     StockLedger[]            @relation("StockLedgerActor")
+  transfersRequested       Transfer[]               @relation("TransferRequester")
+  transfersApproved        Transfer[]               @relation("TransferApprover")
+  transfersReceived        Transfer[]               @relation("TransferReceiver")
+  goodsReturnsRequested    GoodsReturn[]            @relation("GoodsReturnRequester")
+  goodsReturnsApproved     GoodsReturn[]            @relation("GoodsReturnApprover")
+  goodsReturnsProcessed    GoodsReturn[]            @relation("GoodsReturnProcessor")
+  stocktakesCounted        Stocktake[]              @relation("StocktakeCounter")
+  stocktakesAssigned       StocktakeAssignment[]
+  branchTargetsManaged     BranchMonthlyTarget[]    @relation("BranchTargetManager")
+  branchTargetsCreated     BranchMonthlyTarget[]    @relation("BranchTargetCreator")
+  stocktakesReviewed       Stocktake[]              @relation("StocktakeReviewer")
+  stocktakesApproved       Stocktake[]              @relation("StocktakeApprover")
+  stocktakesPosted         Stocktake[]              @relation("StocktakePoster")
+  stocktakesCompleted      Stocktake[]              @relation("StocktakeCompleter")
+  stocktakeCountEntries    StocktakeCountEntry[]
+  stocktakePostings        StocktakePosting[]
+  productImports           ProductImport[]          @relation("ProductImportActor")
+  stocktakeLineReviews     StocktakeLine[]          @relation("StocktakeLineReviewer")
+  stocktakeLineApprovals   StocktakeLine[]          @relation("StocktakeLineApprover")
+  stocktakePostingLines    StocktakePostingLine[]
+  auditEvents              AuditEvent[]             @relation("AuditActor")
+  prescriptionsCreated     Prescription[]           @relation("PrescriptionCreator")
+  heldSales                HeldSale[]               @relation("HeldSaleHolder")
+  notifications            Notification[]
+  notificationPreferences  NotificationPreference[]
+  dashboardLayouts         DashboardLayout[]
+  tenantMemberships        TenantMembership[]
+  invitationsSent          StaffInvitation[]        @relation("StaffInvitationInviter")
+  invitationsAccepted      StaffInvitation[]        @relation("StaffInvitationAcceptor")
+  nmraLinksCreated         ProductNmraLink[]        @relation("ProductNmraLinkActor")
+  catalogTasksResolved     CatalogTask[]            @relation("CatalogTaskResolver")
+  passwordResetTokens      PasswordResetToken[]
 
   @@index([tenantId])
   @@map("app_user")
@@ -976,26 +990,36 @@ model RolePermission {
 }
 
 model Supplier {
-  id               String         @id @default(uuid()) @db.Uuid
-  tenantId         String         @map("tenant_id") @db.Uuid
-  code             String
-  name             String
-  type             SupplierType   @default(distributor)
-  status           SupplierStatus @default(active)
-  phone            String?
-  email            String?
-  contactName      String?        @map("contact_name")
-  leadTimeDays     Int            @default(2) @map("lead_time_days")
-  paymentTermsDays Int            @default(30) @map("payment_terms_days")
-  isActive         Boolean        @default(true) @map("is_active")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
+  id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  code              String
+  name              String
+  type              SupplierType   @default(distributor)
+  status            SupplierStatus @default(active)
+  phone             String?
+  email             String?
+  contactName       String?        @map("contact_name")
+  leadTimeDays      Int            @default(2) @map("lead_time_days")
+  paymentTermsDays  Int            @default(30) @map("payment_terms_days")
+  addressLine       String?        @map("address_line")
+  city              String?
+  /// VAT / TIN registration, as it must appear on an invoice.
+  taxRegistrationNo String?        @map("tax_registration_no")
+  bankName          String?        @map("bank_name")
+  bankAccountName   String?        @map("bank_account_name")
+  bankAccountNo     String?        @map("bank_account_no")
+  isActive          Boolean        @default(true) @map("is_active")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
 
-  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id])
   purchaseOrders PurchaseOrder[]
   goodsReturns   GoodsReturn[]
   invoices       SupplierInvoice[]
   batches        Batch[]
+  productPrices  SupplierProductPrice[]
+  payments       SupplierPayment[]
+  debitNotes     SupplierDebitNote[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -1008,14 +1032,28 @@ model SupplierInvoice {
   tenantId       String                @map("tenant_id") @db.Uuid
   supplierId     String                @map("supplier_id") @db.Uuid
   branchId       String?               @map("branch_id") @db.Uuid
+  /// Our reference. For a delivery the system booked in, an `SINV-…` placeholder; for a real
+  /// invoice, the supplier's own number, which is what a dispute is argued over.
   invoiceNumber  String                @map("invoice_number")
+  /// Where this row came from: `system` is a delivery awaiting a real invoice, `supplier` is a
+  /// document someone typed in from the page they were sent.
+  source         SupplierInvoiceSource @default(system)
+  /// Kept for the deliveries the system invoiced one-to-one before invoices could span several.
+  /// New rows link through `receipts`.
   goodsReceiptId String?               @unique @map("goods_receipt_id") @db.Uuid
   invoiceDate    DateTime              @map("invoice_date") @db.Date
   dueDate        DateTime              @map("due_date") @db.Date
+  /// Money as the supplier states it: goods, then what they added.
+  subtotalAmount Decimal               @default(0) @map("subtotal_amount") @db.Decimal(14, 2)
+  taxAmount      Decimal               @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  shippingAmount Decimal               @default(0) @map("shipping_amount") @db.Decimal(14, 2)
   totalAmount    Decimal               @map("total_amount") @db.Decimal(14, 2)
+  /// Derived: the sum of payment allocations plus debit notes applied. Kept on the row because
+  /// every list needs it, and written only inside the transaction that changes an allocation.
   paidAmount     Decimal               @default(0) @map("paid_amount") @db.Decimal(14, 2)
   status         SupplierInvoiceStatus @default(open)
   notes          String?
+  createdBy      String?               @map("created_by") @db.Uuid
   createdAt      DateTime              @default(now()) @map("created_at")
   updatedAt      DateTime              @updatedAt @map("updated_at")
 
@@ -1024,11 +1062,218 @@ model SupplierInvoice {
   branch       Branch?       @relation(fields: [branchId], references: [id])
   goodsReceipt GoodsReceipt? @relation(fields: [goodsReceiptId], references: [id])
 
-  @@unique([tenantId, invoiceNumber])
+  lines        SupplierInvoiceLine[]
+  receipts     SupplierInvoiceReceipt[]
+  paymentParts SupplierPaymentAllocation[]
+  debitParts   SupplierDebitAllocation[]
+
+  /// Per supplier: two suppliers can both print "INV-1001", and neither is wrong.
+  @@unique([tenantId, supplierId, invoiceNumber])
   @@index([tenantId, supplierId])
   @@index([tenantId, status])
   @@index([tenantId, dueDate])
   @@map("supplier_invoice")
+}
+
+/// Where an invoice row came from. A delivery the system booked in creates a `system` row —
+/// a placeholder for money owed that nobody has been billed for yet — and it stays that way
+/// until a real invoice arrives and is matched to it.
+enum SupplierInvoiceSource {
+  system
+  supplier
+}
+
+/// How money reached a supplier. Not the POS tenders: nobody pays a wholesaler by mobile
+/// wallet at a till, and the common ways — transfer and cheque — never happen at one.
+enum SupplierPaymentMethod {
+  bank_transfer
+  cheque
+  cash
+  card
+  other
+}
+
+enum SupplierDebitNoteStatus {
+  open
+  settled
+  voided
+}
+
+/// One line of the supplier's invoice, as printed on it.
+///
+/// Kept separate from the delivery it matches: what was billed and what arrived are two claims
+/// about the same goods, and a three-way match is only possible while both are held.
+model SupplierInvoiceLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  invoiceId       String   @map("invoice_id") @db.Uuid
+  productId       String?  @map("product_id") @db.Uuid
+  /// What the supplier called it, when it is not a product we recognise.
+  description     String?
+  qty             Int
+  unitCost        Decimal  @map("unit_cost") @db.Decimal(12, 2)
+  discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxPercent      Decimal  @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  lineTotal       Decimal  @map("line_total") @db.Decimal(14, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  invoice SupplierInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product?        @relation(fields: [productId], references: [id])
+
+  @@index([tenantId, invoiceId])
+  @@map("supplier_invoice_line")
+}
+
+/// Which deliveries an invoice covers. Many-to-many on purpose: wholesalers bill several
+/// deliveries on one invoice, and occasionally split one delivery across two.
+model SupplierInvoiceReceipt {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  invoiceId      String   @map("invoice_id") @db.Uuid
+  goodsReceiptId String   @map("goods_receipt_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  invoice      SupplierInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  goodsReceipt GoodsReceipt    @relation(fields: [goodsReceiptId], references: [id])
+
+  @@unique([invoiceId, goodsReceiptId])
+  @@index([tenantId, goodsReceiptId])
+  @@map("supplier_invoice_receipt")
+}
+
+/// Money actually sent to a supplier.
+///
+/// Payment used to be a number added to an invoice's `paidAmount` with a note appended to a
+/// free-text field: no date, no method, no reference, and no way to see what was paid last
+/// month or to correct a mistake. A payment is its own record now, allocated across the
+/// invoices it settles.
+model SupplierPayment {
+  id         String                @id @default(uuid()) @db.Uuid
+  tenantId   String                @map("tenant_id") @db.Uuid
+  supplierId String                @map("supplier_id") @db.Uuid
+  branchId   String?               @map("branch_id") @db.Uuid
+  paymentNo  String                @map("payment_no")
+  paidOn     DateTime              @map("paid_on") @db.Date
+  amount     Decimal               @db.Decimal(14, 2)
+  method     SupplierPaymentMethod @default(bank_transfer)
+  /// Cheque number, transfer reference, receipt number.
+  reference  String?
+  notes      String?
+  /// Set when the payment is reversed; the row stays, because money that moved is history.
+  voidedAt   DateTime?             @map("voided_at")
+  voidedBy   String?               @map("voided_by") @db.Uuid
+  createdBy  String                @map("created_by") @db.Uuid
+  createdAt  DateTime              @default(now()) @map("created_at")
+
+  supplier    Supplier                    @relation(fields: [supplierId], references: [id])
+  branch      Branch?                     @relation(fields: [branchId], references: [id])
+  creator     AppUser                     @relation("SupplierPaymentCreator", fields: [createdBy], references: [id])
+  allocations SupplierPaymentAllocation[]
+
+  @@unique([tenantId, paymentNo])
+  @@index([tenantId, supplierId])
+  @@index([tenantId, paidOn(sort: Desc)])
+  @@map("supplier_payment")
+}
+
+/// How much of one payment settles one invoice.
+model SupplierPaymentAllocation {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  paymentId String   @map("payment_id") @db.Uuid
+  invoiceId String   @map("invoice_id") @db.Uuid
+  amount    Decimal  @db.Decimal(14, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  payment SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice SupplierInvoice @relation(fields: [invoiceId], references: [id])
+
+  @@unique([paymentId, invoiceId])
+  @@index([tenantId, invoiceId])
+  @@map("supplier_payment_allocation")
+}
+
+/// What the pharmacy claims back after returning goods — a debit note against the supplier.
+///
+/// Returning stock used to reduce what was on the shelf and nothing else, so the money stayed
+/// owed. A debit note is raised when a supplier return completes and is allocated against that
+/// supplier's invoices like a payment.
+model SupplierDebitNote {
+  id            String                  @id @default(uuid()) @db.Uuid
+  tenantId      String                  @map("tenant_id") @db.Uuid
+  supplierId    String                  @map("supplier_id") @db.Uuid
+  branchId      String                  @map("branch_id") @db.Uuid
+  debitNo       String                  @map("debit_no")
+  goodsReturnId String?                 @unique @map("goods_return_id") @db.Uuid
+  issuedOn      DateTime                @map("issued_on") @db.Date
+  amount        Decimal                 @db.Decimal(14, 2)
+  /// How much of it has been set against invoices.
+  appliedAmount Decimal                 @default(0) @map("applied_amount") @db.Decimal(14, 2)
+  status        SupplierDebitNoteStatus @default(open)
+  reason        String?
+  notes         String?
+  createdBy     String                  @map("created_by") @db.Uuid
+  createdAt     DateTime                @default(now()) @map("created_at")
+  updatedAt     DateTime                @updatedAt @map("updated_at")
+
+  supplier    Supplier                  @relation(fields: [supplierId], references: [id])
+  branch      Branch                    @relation(fields: [branchId], references: [id])
+  goodsReturn GoodsReturn?              @relation(fields: [goodsReturnId], references: [id])
+  creator     AppUser                   @relation("SupplierDebitNoteCreator", fields: [createdBy], references: [id])
+  allocations SupplierDebitAllocation[]
+
+  @@unique([tenantId, debitNo])
+  @@index([tenantId, supplierId, status])
+  @@map("supplier_debit_note")
+}
+
+model SupplierDebitAllocation {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  debitNoteId String   @map("debit_note_id") @db.Uuid
+  invoiceId   String   @map("invoice_id") @db.Uuid
+  amount      Decimal  @db.Decimal(14, 2)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  debitNote SupplierDebitNote @relation(fields: [debitNoteId], references: [id], onDelete: Cascade)
+  invoice   SupplierInvoice   @relation(fields: [invoiceId], references: [id])
+
+  @@unique([debitNoteId, invoiceId])
+  @@index([tenantId, invoiceId])
+  @@map("supplier_debit_allocation")
+}
+
+/// What a given supplier charges for a given product — the price list a buyer would otherwise
+/// have to remember. Purchase order lines start from this instead of from the last batch cost,
+/// which is whatever was paid at some other branch on some other day, possibly to someone else.
+/// Receiving refreshes `lastUnitCost` / `lastPurchasedAt` so the list stays honest without
+/// anyone maintaining it, while the agreed `unitCost` only changes when a person changes it.
+model SupplierProductPrice {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  supplierId      String    @map("supplier_id") @db.Uuid
+  productId       String    @map("product_id") @db.Uuid
+  /// The supplier's own code for the product, as printed on their invoices.
+  supplierSku     String?   @map("supplier_sku")
+  /// Pack the supplier sells in, which need not match the product's default pack.
+  unitsPerPack    Int       @default(1) @map("units_per_pack")
+  packCost        Decimal?  @map("pack_cost") @db.Decimal(12, 2)
+  unitCost        Decimal   @map("unit_cost") @db.Decimal(12, 2)
+  discountPercent Decimal   @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  /// Last cost actually paid, written by goods receipt. Shown next to the agreed cost so a
+  /// creeping price is visible.
+  lastUnitCost    Decimal?  @map("last_unit_cost") @db.Decimal(12, 2)
+  lastPurchasedAt DateTime? @map("last_purchased_at")
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, supplierId, productId])
+  @@index([tenantId, productId])
+  @@map("supplier_product_price")
 }
 
 model Product {
@@ -1046,6 +1291,13 @@ model Product {
   packSize              String?            @map("pack_size")
   /// NMRA pack type (blister, vial, bottle, etc.).
   packType              String?            @map("pack_type")
+  /// How many sellable units come in one purchasing pack — the number buying and receiving do
+  /// their arithmetic with. Distinct from `packSize`, which is the register's descriptive text
+  /// ("10x10 tablets") and cannot be calculated with. 1 means the pharmacy buys singles.
+  unitsPerPack          Int                @default(1) @map("units_per_pack")
+  /// What to call one pack on an order ("Box of 24", "Carton"). Cosmetic; `unitsPerPack` is
+  /// what the maths uses.
+  packLabel             String?            @map("pack_label")
   storage               String?
   shelfLife             String?            @map("shelf_life")
   taxCategory           String?            @map("tax_category")
@@ -1095,6 +1347,8 @@ model Product {
   batches                Batch[]
   purchaseItems          PurchaseOrderItem[]
   receiptItems           GoodsReceiptItem[]
+  supplierPrices         SupplierProductPrice[]
+  invoiceLines           SupplierInvoiceLine[]
   saleItems              SaleItem[]
   ledgerEntries          StockLedger[]
   transferItems          TransferItem[]
@@ -1462,8 +1716,23 @@ model PurchaseOrderItem {
   tenantId        String   @map("tenant_id") @db.Uuid
   purchaseOrderId String   @map("purchase_order_id") @db.Uuid
   productId       String   @map("product_id") @db.Uuid
+  /// Always units, whatever the buyer typed — stock is only ever counted in units.
   orderedQty      Int      @map("ordered_qty")
   unitCost        Decimal  @map("unit_cost") @db.Decimal(12, 2)
+  /// Packs the buyer asked for, when the line was entered in packs. Null for a unit line.
+  orderedPacks    Int?     @map("ordered_packs")
+  /// Units per pack as agreed on this order, snapshotted: editing the product later must not
+  /// silently restate what was ordered or what the supplier is owed.
+  unitsPerPack    Int      @default(1) @map("units_per_pack")
+  /// Agreed price of one pack. `unitCost` is always populated and derived from it.
+  packCost        Decimal? @map("pack_cost") @db.Decimal(12, 2)
+  /// Running totals maintained by goods receipts, so "what is still outstanding" is a column
+  /// read rather than a re-sum of every prior delivery. `receivedQty` is good units only:
+  /// free units are a bonus and rejected ones still owe a replacement, so neither fulfils the
+  /// order.
+  receivedQty     Int      @default(0) @map("received_qty")
+  freeQty         Int      @default(0) @map("free_qty")
+  rejectedQty     Int      @default(0) @map("rejected_qty")
   discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(5, 2)
   taxPercent      Decimal  @default(18) @map("tax_percent") @db.Decimal(5, 2)
   createdAt       DateTime @default(now()) @map("created_at")
@@ -1476,14 +1745,16 @@ model PurchaseOrderItem {
 }
 
 model GoodsReceipt {
-  id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  branchId        String   @map("branch_id") @db.Uuid
-  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
-  grnNumber       String   @map("grn_number")
-  receivedOn      DateTime @map("received_on") @db.Date
-  receivedBy      String   @map("received_by") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at")
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  branchId             String   @map("branch_id") @db.Uuid
+  purchaseOrderId      String   @map("purchase_order_id") @db.Uuid
+  grnNumber            String   @map("grn_number")
+  /// The supplier's own delivery note number, as printed — what a dispute is argued over.
+  supplierDeliveryNote String?  @map("supplier_delivery_note") @db.VarChar(64)
+  receivedOn           DateTime @map("received_on") @db.Date
+  receivedBy           String   @map("received_by") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at")
 
   branch        Branch        @relation(fields: [branchId], references: [id])
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
@@ -1492,19 +1763,38 @@ model GoodsReceipt {
   items           GoodsReceiptItem[]
   goodsReturns    GoodsReturn[]
   supplierInvoice SupplierInvoice?
+  invoiceLinks    SupplierInvoiceReceipt[]
 
   @@unique([tenantId, branchId, grnNumber])
   @@map("goods_receipt")
 }
 
 model GoodsReceiptItem {
-  id             String   @id @default(uuid()) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  goodsReceiptId String   @map("goods_receipt_id") @db.Uuid
-  productId      String   @map("product_id") @db.Uuid
-  batchId        String   @map("batch_id") @db.Uuid
-  receivedQty    Int      @map("received_qty")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  goodsReceiptId  String   @map("goods_receipt_id") @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  batchId         String   @map("batch_id") @db.Uuid
+  /// Good units billed for. Every quantity here is units; `packs` only records how they were
+  /// counted at the door.
+  receivedQty     Int      @map("received_qty")
+  /// Bonus units the supplier sent at no charge ("buy 10 get 1 free"). They go on the shelf
+  /// with the paid ones and pull the batch's effective cost per unit down.
+  freeQty         Int      @default(0) @map("free_qty")
+  /// Units that arrived damaged or otherwise unacceptable. They are received — they are
+  /// physically here — but posted straight into quarantine so they can be seen and returned,
+  /// never quietly dropped. They do not fulfil the ordered quantity.
+  rejectedQty     Int      @default(0) @map("rejected_qty")
+  /// Packs counted at the door, when receiving was done in packs. Null when counted in units.
+  packs           Int?
+  /// Cost per good unit on this delivery, as billed. The batch carries the effective cost
+  /// (this spread over the free units too); this is what the supplier actually charged.
+  unitCost        Decimal? @map("unit_cost") @db.Decimal(12, 2)
+  /// What the order said this unit would cost, copied here when the delivery was booked. Keeping
+  /// both sides on the delivery is what makes "we were charged more than we agreed" answerable
+  /// months later, without reading the order back.
+  orderedUnitCost Decimal? @map("ordered_unit_cost") @db.Decimal(12, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
 
   goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
   product      Product      @relation(fields: [productId], references: [id])
@@ -1813,7 +2103,8 @@ model GoodsReturn {
   approver      AppUser?       @relation("GoodsReturnApprover", fields: [approvedBy], references: [id])
   processor     AppUser?       @relation("GoodsReturnProcessor", fields: [processedBy], references: [id])
 
-  items GoodsReturnItem[]
+  items     GoodsReturnItem[]
+  debitNote SupplierDebitNote?
 
   @@unique([tenantId, branchId, returnNumber])
   @@index([tenantId, branchId, status])

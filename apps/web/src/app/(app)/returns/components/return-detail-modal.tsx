@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
 import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
@@ -45,7 +46,7 @@ export function ReturnDetailModal({
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const { permissionKeys } = usePermissions();
+  const { permissionKeys, canSelfApprove } = usePermissions();
 
   useEffect(() => {
     setBusy(false);
@@ -70,6 +71,8 @@ export function ReturnDetailModal({
     canWrite &&
     canCancel(returnItem.status) &&
     canCancelReturn(user, returnItem, branchId, permissionKeys);
+  // Approving is theirs to do, but not on a return they raised: say so on the button.
+  const ownRequestBlocked = !canSelfApprove && returnItem.requestedBy === user?.id;
 
   const logisticsLabel =
     returnItem.type === "customer" ? "Mark pickup" : "Mark dispatch";
@@ -140,13 +143,21 @@ export function ReturnDetailModal({
             </ModalButton>
           )}
           {showApprove && (
-            <ModalButton
-              variant="primary"
-              onClick={() => void runAction("approve")}
-              disabled={busy}
+            <span
+              data-tooltip={
+                ownRequestBlocked
+                  ? "You raised this return, and your role can't approve its own requests. Ask another approver."
+                  : undefined
+              }
             >
-              Approve
-            </ModalButton>
+              <ModalButton
+                variant="primary"
+                onClick={() => void runAction("approve")}
+                disabled={busy || ownRequestBlocked}
+              >
+                Approve
+              </ModalButton>
+            </span>
           )}
           {showComplete && (
             <ModalButton
@@ -240,6 +251,15 @@ export function ReturnDetailModal({
           <div className={rcss.detailField}>
             <span className={rcss.detailLabel}>Goods receipt</span>
             <span className={rcss.detailValue}>{returnItem.goodsReceipt.grnNumber}</span>
+          </div>
+        ) : null}
+        {returnItem.debitNote ? (
+          <div className={rcss.detailField}>
+            <span className={rcss.detailLabel}>Debit note</span>
+            <span className={rcss.detailValue}>
+              <Link href="/purchasing/invoices">{returnItem.debitNote.debitNo}</Link> ·{" "}
+              {formatMoney(returnItem.debitNote.amount)} · {returnItem.debitNote.status === "settled" ? "applied to invoices" : returnItem.debitNote.status}
+            </span>
           </div>
         ) : null}
         <div className={rcss.detailField}>

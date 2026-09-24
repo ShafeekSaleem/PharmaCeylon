@@ -15,7 +15,8 @@ import {
   IconSearch,
 } from "@/components/icons";
 import { ProductContextBanner } from "@/components/product-context-banner";
-import { ActionButton, PageHeader, StatCard } from "@/components/ui";
+import { ActionButton, ActiveFilterBanner, PageHeader, StatCard } from "@/components/ui";
+import type { FilterPill } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { AdjustmentModal } from "../components/adjustment-modal";
@@ -85,6 +86,28 @@ function BatchesContent() {
     return () => clearTimeout(t);
   }, [notice]);
 
+  function clearFilters() {
+    setSearch("");
+    setDebouncedQ("");
+    setExpiryFilter("all");
+    setHoldFilter("all");
+    setIncludeZero(false);
+    setPage(1);
+    const next = new URLSearchParams(searchParams.toString());
+    for (const key of [
+      "productId",
+      "expiry",
+      "quarantined",
+      "needsExpiryReview",
+      "controlled",
+      "nearExpiryDays",
+    ]) {
+      next.delete(key);
+    }
+    const qs = next.toString();
+    router.replace(qs ? `/inventory/batches?${qs}` : "/inventory/batches");
+  }
+
   function openAdjustment(row?: { productId: string; id?: string }) {
     setAdjustmentContext({ productId: row?.productId ?? productId ?? "", batchId: row?.id ?? "" });
     setAdjustmentOpen(true);
@@ -149,6 +172,45 @@ function BatchesContent() {
     if (expiryFilter === "ok") return scopedRows.filter((b) => !b.expired && !b.nearExpiry);
     return scopedRows;
   }, [scopedRows, expiryFilter, needsExpiryReview]);
+
+  // What the list is narrowed to right now, named the way every other list page names it.
+  const filteredProductName = productId
+    ? (batches.rows.find((row) => row.productId === productId)?.product.name ?? "Selected")
+    : null;
+  const filtersActive = Boolean(
+    productId ||
+      controlled ||
+      needsExpiryReview ||
+      nearExpiryDays ||
+      debouncedQ ||
+      includeZero ||
+      expiryFilter !== "all" ||
+      holdFilter !== "all",
+  );
+  const filterPills: FilterPill[] = [
+    ...(filteredProductName ? [{ key: "product", label: `Product: ${filteredProductName}` }] : []),
+    ...(debouncedQ ? [{ key: "q", label: `Search: ${debouncedQ}` }] : []),
+    ...(expiryFilter !== "all"
+      ? [
+          {
+            key: "expiry",
+            label:
+              expiryFilter === "near"
+                ? "Expiring soon"
+                : expiryFilter === "expired"
+                  ? "Expired"
+                  : "Healthy expiry",
+          },
+        ]
+      : []),
+    ...(holdFilter !== "all" ? [{ key: "hold", label: "Quarantined" }] : []),
+    ...(needsExpiryReview ? [{ key: "review", label: "Expiry needs confirming" }] : []),
+    ...(controlled
+      ? [{ key: "controlled", label: controlled === "controlled" ? "Controlled" : "Regular" }]
+      : []),
+    ...(nearExpiryDays ? [{ key: "window", label: `Within ${nearExpiryDays} days` }] : []),
+    ...(includeZero ? [{ key: "empty", label: "Including empty batches" }] : []),
+  ];
 
   const holdable = (b: BatchRow) => Math.max(0, b.qtyOnHand - b.quarantinedQty - b.reservedQty);
   const summary = useMemo(
@@ -401,6 +463,14 @@ function BatchesContent() {
           </button>
         </Alert>
       )}
+
+      <ActiveFilterBanner
+        active={filtersActive}
+        summary={`Filtered batches · ${rows.length} result${rows.length === 1 ? "" : "s"}`}
+        pills={filterPills}
+        onClear={clearFilters}
+        clearTooltip="Show every batch at this branch"
+      />
 
       <BatchesTable
         rows={rows}

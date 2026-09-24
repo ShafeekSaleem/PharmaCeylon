@@ -1277,3 +1277,195 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── "What to order" suggestions, and the pack/free/damaged bits of receiving ── */
+
+.suggestGroup {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-card-bg);
+  margin-bottom: 0.85rem;
+  overflow: hidden;
+}
+
+.suggestHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--pc-border);
+  background: color-mix(in srgb, var(--pc-muted-bg) 55%, var(--pc-card-bg));
+}
+
+.suggestSupplier {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.15rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.suggestTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.suggestTable thead th {
+  text-align: left;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-muted-fg);
+  border-bottom: 1px solid var(--pc-border);
+  white-space: nowrap;
+}
+
+.suggestTable tbody td {
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--pc-border);
+  vertical-align: top;
+  color: var(--pc-foreground);
+}
+
+.suggestTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.rowMuted td {
+  opacity: 0.5;
+}
+
+.cellStrong {
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.plainList {
+  margin: 0;
+  padding: 0.6rem 0.9rem 0.8rem 1.6rem;
+  font-size: 0.8rem;
+}
+
+.plainList li + li {
+  margin-top: 0.3rem;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
+  color: var(--pc-muted-fg);
+  text-align: center;
+}
+
+.emptyState p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* Receiving: how a line is counted, and what else came in the box. */
+
+.countModeToggle {
+  display: inline-flex;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+}
+
+.countModeBtn {
+  padding: 0.25rem 0.55rem;
+  border: none;
+  background: var(--pc-card-bg);
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+  cursor: pointer;
+}
+
+.countModeBtn + .countModeBtn {
+  border-left: 1px solid var(--pc-border);
+}
+
+.countModeBtnActive {
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text, #fff);
+}
+
+.packHint {
+  margin-top: 0.2rem;
+  font-size: 0.7rem;
+  color: var(--pc-muted-fg);
+}
+
+.extrasRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--pc-border);
+}
+
+@media (max-width: 640px) {
+  .extrasRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.conflictRow {
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--pc-border);
+}
+
+.conflictRow:first-of-type {
+  border-top: none;
+}
+
+/* A button that opens something, styled as the link it behaves like (delivery → its detail). */
+.linkLikeButton {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 550;
+  color: var(--pc-primary);
+  cursor: pointer;
+}
+
+.linkLikeButton:hover {
+  text-decoration: underline;
+}
+
+/* A price that has moved against you: worth noticing, not an error — the delivery is real. */
+/* A value with a short note under it — the note sits on its own line instead of running into
+   the value, which is what an inline element does inside a table cell. */
+.stackedCell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  line-height: 1.35;
+}
+
+.fieldWarning {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--pc-alert-warning-icon, var(--pc-foreground));
+}

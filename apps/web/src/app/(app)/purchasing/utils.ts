@@ -1,6 +1,4 @@
-import type { AuthUser } from "@/lib/auth-types";
 import {
-  WRITE_ROLES,
   type CreatePoLine,
   type PoStatus,
   type PurchaseOrderDetail,
@@ -68,18 +66,6 @@ export function isDateInSummaryPeriod(
   return d >= from && d <= to;
 }
 
-export function hasPurchasingWriteAccess(
-  user: AuthUser | null,
-  branchId?: string | null,
-): boolean {
-  if (!user) return false;
-  if (user.branchRoles.some((br) => br.role === "owner")) return true;
-  const scoped = branchId
-    ? user.branchRoles.filter((br) => br.branchId === branchId)
-    : user.branchRoles;
-  return scoped.some((br) => WRITE_ROLES.has(br.role));
-}
-
 export function formatPoStatus(status: PoStatus | string): string {
   return status.replace(/_/g, " ");
 }
@@ -126,14 +112,19 @@ export function poLineCount(items: { orderedQty: number }[]): number {
   return items.reduce((sum, i) => sum + i.orderedQty, 0);
 }
 
+/**
+ * `unitCost` is null for a caller without `purchasing.view_cost` — the API withholds it rather
+ * than the page hiding it — so every money helper treats a missing cost as zero and the totals
+ * simply come out empty for them.
+ */
 export function lineMoneyParts(input: {
   orderedQty: number;
-  unitCost: string | number;
+  unitCost: string | number | null;
   discountPercent?: string | number;
   taxPercent?: string | number;
 }) {
   const qty = Number(input.orderedQty) || 0;
-  const unitCost = Number(input.unitCost) || 0;
+  const unitCost = Number(input.unitCost ?? 0) || 0;
   const discountPercent = Number(input.discountPercent ?? 0) || 0;
   const taxPercent = Number(input.taxPercent ?? 0) || 0;
   const base = qty * unitCost;
@@ -146,7 +137,7 @@ export function lineMoneyParts(input: {
 export function poEstimatedValue(
   items: {
     orderedQty: number;
-    unitCost: string | number;
+    unitCost: string | number | null;
     discountPercent?: string | number;
     taxPercent?: string | number;
   }[],
@@ -154,6 +145,22 @@ export function poEstimatedValue(
 ): number {
   const lines = items.reduce((sum, i) => sum + lineMoneyParts(i).total, 0);
   return lines + (Number(shippingCharges) || 0);
+}
+
+/**
+ * Units on a line, whichever way the quantity was entered.
+ *
+ * A form line being typed in packs still carries a stale "1" in its units box, so anything that
+ * reads `orderedQty` directly prices the order as one unit — which is how the footer came to
+ * disagree with the line total sitting right above it. Server lines are already in units.
+ */
+export function poLineUnits(item: CreatePoLine | PurchaseOrderItem): number {
+  if ("orderMode" in item && item.orderMode === "packs") {
+    const packs = Number(item.orderedPacks);
+    if (!Number.isFinite(packs)) return 0;
+    return Math.floor(packs) * Math.max(item.unitsPerPack ?? 1, 1);
+  }
+  return Number(item.orderedQty) || 0;
 }
 
 export function poTotals(
@@ -164,12 +171,8 @@ export function poTotals(
   let discountTotal = 0;
   let taxTotal = 0;
   for (const item of items) {
-    const qty =
-      "orderedQty" in item && typeof item.orderedQty === "string"
-        ? Number(item.orderedQty)
-        : Number(item.orderedQty);
     const parts = lineMoneyParts({
-      orderedQty: qty,
+      orderedQty: poLineUnits(item),
       unitCost: item.unitCost,
       discountPercent: item.discountPercent,
       taxPercent: item.taxPercent,
@@ -221,11 +224,20 @@ export function receivedQtyByProduct(detail: PurchaseOrderDetail): Map<string, n
   return map;
 }
 
+/**
+ * What is still owed on a line.
+ *
+ * The line itself carries this now — the server keeps a running received total and is the one
+ * enforcing it when a delivery is booked — so re-summing the receipts here would be a second
+ * opinion that can disagree. The sum stays as a fallback for a payload from an older API.
+ */
 export function remainingQtyForProduct(
   detail: PurchaseOrderDetail,
   productId: string,
 ): number {
-  const ordered = detail.items.find((i) => i.productId === productId)?.orderedQty ?? 0;
+  const item = detail.items.find((i) => i.productId === productId);
+  if (item?.outstandingQty !== undefined) return Math.max(0, item.outstandingQty);
+  const ordered = item?.orderedQty ?? 0;
   const received = receivedQtyByProduct(detail).get(productId) ?? 0;
   return Math.max(0, ordered - received);
 }

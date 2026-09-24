@@ -6,17 +6,27 @@ import {
 } from "@nestjs/common";
 import {
   Prisma,
+  SupplierInvoiceSource,
   SupplierInvoiceStatus,
+  SupplierPaymentMethod,
   SupplierStatus,
   SupplierType,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { assertOneScopedMutation } from "../common/scoped-mutation.util";
 import { AuditService } from "../audit/audit.service";
+import { nextTenantDocumentNumber } from "../common/document-sequence.util";
+import { refreshInvoiceSettlement } from "../purchasing/ledger/supplier-ledger.service";
 import { CreateSupplierDto } from "./dto/create-supplier.dto";
 import { UpdateSupplierDto } from "./dto/update-supplier.dto";
 import { CreateSupplierInvoiceDto } from "./dto/create-supplier-invoice.dto";
 import { RecordSupplierPaymentDto } from "./dto/record-supplier-payment.dto";
+import { UpsertSupplierPriceDto } from "./dto/supplier-product-price.dto";
+import {
+  normalizeUnitsPerPack,
+  packCostFromUnit,
+  unitCostFromPack,
+} from "../purchasing/pack-math";
 
 function decimal(value: string | number): Prisma.Decimal {
   return new Prisma.Decimal(value);
@@ -475,6 +485,12 @@ export class SuppliersService {
       phone: row.phone,
       email: row.email,
       contactName: row.contactName,
+      addressLine: row.addressLine,
+      city: row.city,
+      taxRegistrationNo: row.taxRegistrationNo,
+      bankName: row.bankName,
+      bankAccountName: row.bankAccountName,
+      bankAccountNo: row.bankAccountNo,
       leadTimeDays: row.leadTimeDays,
       paymentTermsDays: row.paymentTermsDays,
       outstanding,
@@ -507,6 +523,12 @@ export class SuppliersService {
           phone: dto.phone?.trim() || null,
           email: dto.email?.trim() || null,
           contactName: dto.contactName?.trim() || null,
+          addressLine: dto.addressLine?.trim() || null,
+          city: dto.city?.trim() || null,
+          taxRegistrationNo: dto.taxRegistrationNo?.trim() || null,
+          bankName: dto.bankName?.trim() || null,
+          bankAccountName: dto.bankAccountName?.trim() || null,
+          bankAccountNo: dto.bankAccountNo?.trim() || null,
           leadTimeDays: dto.leadTimeDays ?? 2,
           paymentTermsDays: dto.paymentTermsDays ?? 30,
         },
@@ -550,6 +572,12 @@ export class SuppliersService {
         ...(dto.contactName !== undefined
           ? { contactName: dto.contactName?.trim() || null }
           : {}),
+        ...(dto.addressLine !== undefined ? { addressLine: dto.addressLine?.trim() || null } : {}),
+        ...(dto.city !== undefined ? { city: dto.city?.trim() || null } : {}),
+        ...(dto.taxRegistrationNo !== undefined ? { taxRegistrationNo: dto.taxRegistrationNo?.trim() || null } : {}),
+        ...(dto.bankName !== undefined ? { bankName: dto.bankName?.trim() || null } : {}),
+        ...(dto.bankAccountName !== undefined ? { bankAccountName: dto.bankAccountName?.trim() || null } : {}),
+        ...(dto.bankAccountNo !== undefined ? { bankAccountNo: dto.bankAccountNo?.trim() || null } : {}),
         ...(dto.leadTimeDays !== undefined ? { leadTimeDays: dto.leadTimeDays } : {}),
         ...(dto.paymentTermsDays !== undefined
           ? { paymentTermsDays: dto.paymentTermsDays }
@@ -565,6 +593,157 @@ export class SuppliersService {
       entityId: id,
     });
     return this.getById(tenantId, id);
+  }
+
+  /**
+   * What this supplier charges, product by product.
+   *
+   * Purchase order lines used to start from "the last batch cost", which is whatever some
+   * branch paid on some day, possibly to a different supplier entirely. A price list makes the
+   * agreed price explicit, and receiving keeps `lastUnitCost` beside it so a creeping price is
+   * visible rather than absorbed.
+   */
+  async listPrices(tenantId: string, supplierId: string, q?: string) {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: supplierId, tenantId },
+      select: { id: true },
+    });
+    if (!supplier) throw new NotFoundException("Supplier not found");
+
+    const search = q?.trim();
+    const rows = await this.prisma.supplierProductPrice.findMany({
+      where: {
+        tenantId,
+        supplierId,
+        ...(search
+          ? {
+              product: {
+                OR: [
+                  { name: { contains: search, mode: "insensitive" } },
+                  { sku: { contains: search, mode: "insensitive" } },
+                ],
+              },
+            }
+          : {}),
+      },
+      include: {
+        product: {
+          select: { id: true, sku: true, name: true, unitsPerPack: true, packLabel: true },
+        },
+      },
+      orderBy: { product: { name: "asc" } },
+      take: 500,
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      product: row.product,
+      supplierSku: row.supplierSku,
+      unitsPerPack: row.unitsPerPack,
+      packCost: row.packCost?.toFixed(2) ?? null,
+      unitCost: row.unitCost.toFixed(2),
+      discountPercent: Number(row.discountPercent),
+      lastUnitCost: row.lastUnitCost?.toFixed(2) ?? null,
+      lastPurchasedAt: row.lastPurchasedAt?.toISOString() ?? null,
+      // A price that has drifted since it was agreed is the thing a buyer wants to spot.
+      priceDrift:
+        row.lastUnitCost && !row.lastUnitCost.equals(row.unitCost)
+          ? row.lastUnitCost.minus(row.unitCost).toFixed(2)
+          : null,
+      notes: row.notes,
+      updatedAt: row.updatedAt.toISOString(),
+    }));
+  }
+
+  async upsertPrice(
+    tenantId: string,
+    userId: string,
+    supplierId: string,
+    dto: UpsertSupplierPriceDto,
+  ) {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: supplierId, tenantId },
+      select: { id: true },
+    });
+    if (!supplier) throw new NotFoundException("Supplier not found");
+
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, tenantId },
+      select: { id: true, unitsPerPack: true },
+    });
+    if (!product) throw new BadRequestException("Product not found");
+
+    const unitsPerPack = normalizeUnitsPerPack(dto.unitsPerPack ?? product.unitsPerPack);
+    const packCost = dto.packCost?.trim() ? decimal(dto.packCost) : null;
+    const unitCost = dto.unitCost?.trim()
+      ? decimal(dto.unitCost)
+      : packCost
+        ? unitCostFromPack(packCost, unitsPerPack)
+        : null;
+    if (!unitCost) {
+      throw new BadRequestException("Enter a cost per pack or per unit");
+    }
+    if (unitCost.lte(0)) {
+      throw new BadRequestException("Cost must be more than zero");
+    }
+
+    const row = await this.prisma.supplierProductPrice.upsert({
+      where: {
+        tenantId_supplierId_productId: { tenantId, supplierId, productId: dto.productId },
+      },
+      create: {
+        tenantId,
+        supplierId,
+        productId: dto.productId,
+        supplierSku: dto.supplierSku?.trim() || null,
+        unitsPerPack,
+        packCost: packCost ?? packCostFromUnit(unitCost, unitsPerPack),
+        unitCost,
+        discountPercent: decimal(dto.discountPercent ?? 0),
+        notes: dto.notes?.trim() || null,
+      },
+      update: {
+        supplierSku: dto.supplierSku?.trim() || null,
+        unitsPerPack,
+        packCost: packCost ?? packCostFromUnit(unitCost, unitsPerPack),
+        unitCost,
+        ...(dto.discountPercent !== undefined
+          ? { discountPercent: decimal(dto.discountPercent) }
+          : {}),
+        ...(dto.notes !== undefined ? { notes: dto.notes?.trim() || null } : {}),
+      },
+    });
+
+    await this.audit.log({
+      tenantId,
+      actorUserId: userId,
+      eventName: "supplier_price.set",
+      entityName: "supplier_product_price",
+      entityId: row.id,
+      payload: {
+        supplierId,
+        productId: dto.productId,
+        unitCost: row.unitCost.toFixed(2),
+        unitsPerPack,
+      },
+    });
+    return this.listPrices(tenantId, supplierId);
+  }
+
+  async deletePrice(tenantId: string, userId: string, supplierId: string, productId: string) {
+    const deleted = await this.prisma.supplierProductPrice.deleteMany({
+      where: { tenantId, supplierId, productId },
+    });
+    if (deleted.count === 0) throw new NotFoundException("Price not found");
+    await this.audit.log({
+      tenantId,
+      actorUserId: userId,
+      eventName: "supplier_price.removed",
+      entityName: "supplier_product_price",
+      entityId: `${supplierId}:${productId}`,
+      payload: { supplierId, productId },
+    });
+    return this.listPrices(tenantId, supplierId);
   }
 
   async createInvoice(
@@ -598,12 +777,15 @@ export class SuppliersService {
           supplierId,
           branchId: dto.branchId ?? null,
           invoiceNumber: dto.invoiceNumber.trim(),
+          source: SupplierInvoiceSource.supplier,
           invoiceDate,
           dueDate,
+          subtotalAmount: decimal(dto.totalAmount),
           totalAmount: decimal(dto.totalAmount),
           paidAmount: decimal(0),
           status: SupplierInvoiceStatus.open,
           notes: dto.notes?.trim() || null,
+          createdBy: userId,
         },
       });
       await this.audit.log({
@@ -618,12 +800,20 @@ export class SuppliersService {
       return this.getById(tenantId, supplierId);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-        throw new ConflictException("Invoice number must be unique within the tenant");
+        throw new ConflictException("This supplier's invoice number has already been recorded");
       }
       throw e;
     }
   }
 
+  /**
+   * Pay one invoice from the supplier's own page.
+   *
+   * This used to add to the invoice's `paidAmount` and append a note — no record of the payment
+   * itself survived. It now records a real payment in the ledger with a single allocation, so it
+   * shows in the payment history, can be voided, and `paidAmount` is re-derived from the ledger
+   * like everywhere else. The row lock replaces the old compare-and-swap on `paidAmount`.
+   */
   async recordPayment(
     tenantId: string,
     userId: string,
@@ -642,49 +832,60 @@ export class SuppliersService {
     }
 
     const amount = decimal(dto.amount);
-    const balance = invoice.totalAmount.minus(invoice.paidAmount);
-    if (amount.gt(balance)) {
-      throw new BadRequestException(
-        `Payment exceeds outstanding balance (${money(balance)})`,
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id FROM supplier_invoice
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${invoiceId}::uuid
+        FOR UPDATE
+      `;
+      const locked = await tx.supplierInvoice.findFirst({ where: { id: invoiceId, tenantId } });
+      if (
+        !locked ||
+        (locked.status !== SupplierInvoiceStatus.open &&
+          locked.status !== SupplierInvoiceStatus.partial)
+      ) {
+        throw new ConflictException(
+          "This invoice changed while you were paying it — refresh to see the new balance",
+        );
+      }
+      const balance = locked.totalAmount.minus(locked.paidAmount);
+      if (amount.gt(balance)) {
+        throw new BadRequestException(`Payment exceeds outstanding balance (${money(balance)})`);
+      }
+
+      const paymentNo = await nextTenantDocumentNumber(tx, tenantId, "supplier_payment", "PAY-");
+      const payment = await tx.supplierPayment.create({
+        data: {
+          tenantId,
+          supplierId: locked.supplierId,
+          branchId: locked.branchId,
+          paymentNo,
+          paidOn: startOfUtcDay(),
+          amount,
+          method: SupplierPaymentMethod.other,
+          notes: dto.notes?.trim() || null,
+          createdBy: userId,
+          allocations: { create: [{ tenantId, invoiceId, amount }] },
+        },
+      });
+      await refreshInvoiceSettlement(tx, tenantId, [invoiceId]);
+      await this.audit.log(
+        {
+          tenantId,
+          branchId: locked.branchId ?? undefined,
+          actorUserId: userId,
+          eventName: "supplier_payment.recorded",
+          entityName: "supplier_payment",
+          entityId: payment.id,
+          payload: {
+            paymentNo,
+            supplierId: locked.supplierId,
+            amount: money(amount),
+            invoiceNumber: locked.invoiceNumber,
+          },
+        },
+        tx,
       );
-    }
-
-    const paidAmount = invoice.paidAmount.plus(amount);
-    const status = invoiceStatusFromAmounts(invoice.totalAmount, paidAmount);
-
-    // The paid amount we read is part of the write: two people recording a payment on the same
-    // invoice at once could otherwise both pass the balance check and overpay it.
-    const claimed = await this.prisma.supplierInvoice.updateMany({
-      where: {
-        id: invoice.id,
-        tenantId,
-        paidAmount: invoice.paidAmount,
-        status: { in: [SupplierInvoiceStatus.open, SupplierInvoiceStatus.partial] },
-      },
-      data: {
-        paidAmount,
-        status,
-        ...(dto.notes?.trim()
-          ? {
-              notes: [invoice.notes, dto.notes.trim()].filter(Boolean).join(" | "),
-            }
-          : {}),
-      },
-    });
-    if (claimed.count !== 1) {
-      throw new ConflictException(
-        "Another payment was recorded on this invoice just now — refresh to see the new balance",
-      );
-    }
-
-    await this.audit.log({
-      tenantId,
-      branchId: invoice.branchId ?? undefined,
-      actorUserId: userId,
-      eventName: "supplier_invoice.payment",
-      entityName: "supplier_invoice",
-      entityId: invoice.id,
-      payload: { amount: money(amount), paidAmount: money(paidAmount), status },
     });
 
     return this.getById(tenantId, invoice.supplierId);
@@ -714,6 +915,14 @@ export async function createInvoiceFromGoodsReceipt(
   const dueDate = addDays(startOfUtcDay(params.invoiceDate), params.paymentTermsDays);
   const invoiceNumber = await availableInvoiceNumber(tx, params);
 
+  // The lines are what the delivery contained and was charged for — damaged units included
+  // (billed, awaiting a debit note), free units not (nobody was charged for them). When the
+  // supplier's real invoice arrives it is matched against exactly these.
+  const items = await tx.goodsReceiptItem.findMany({
+    where: { tenantId: params.tenantId, goodsReceiptId: params.goodsReceiptId },
+    include: { batch: { select: { costPrice: true } } },
+  });
+
   return tx.supplierInvoice.create({
     data: {
       tenantId: params.tenantId,
@@ -721,12 +930,34 @@ export async function createInvoiceFromGoodsReceipt(
       branchId: params.branchId,
       goodsReceiptId: params.goodsReceiptId,
       invoiceNumber,
+      // A placeholder for money owed that nobody has been billed for yet. It is replaced, not
+      // edited, when the supplier's own invoice is recorded against this delivery.
+      source: SupplierInvoiceSource.system,
       invoiceDate: startOfUtcDay(params.invoiceDate),
       dueDate,
+      subtotalAmount: params.totalAmount,
       totalAmount: params.totalAmount,
       paidAmount: decimal(0),
       status: SupplierInvoiceStatus.open,
-      notes: `Auto-created from ${params.grnNumber}`,
+      notes: `Awaiting the supplier's invoice for ${params.grnNumber}`,
+      receipts: {
+        create: [{ tenantId: params.tenantId, goodsReceiptId: params.goodsReceiptId }],
+      },
+      lines: {
+        create: items
+          .filter((item) => item.receivedQty + item.rejectedQty > 0)
+          .map((item) => {
+            const unitCost = item.unitCost ?? item.batch.costPrice;
+            const qty = item.receivedQty + item.rejectedQty;
+            return {
+              tenantId: params.tenantId,
+              productId: item.productId,
+              qty,
+              unitCost,
+              lineTotal: unitCost.mul(qty).toDecimalPlaces(2),
+            };
+          }),
+      },
     },
   });
 }

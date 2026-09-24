@@ -1,5 +1,5 @@
 import { getApiBaseUrl } from "./api-base";
-import { parseApiError } from "./api-error";
+import { ApiError, parseApiError, parseApiErrorBody } from "./api-error";
 import type { AuthResponse, AuthUser } from "./auth-types";
 import { clearSession, getBranchId, persistUser, readCsrfToken } from "./auth-session";
 
@@ -20,6 +20,15 @@ let refreshInFlight: Promise<boolean> | null = null;
  */
 function buildHeaders(method: string, init: RequestInit): Headers {
   const headers = new Headers(init.headers);
+
+  // A JSON string body has to say so. Without the header Nest's parser leaves `req.body` empty,
+  // and the request comes back as a validation failure on every field ("supplierId must be a
+  // UUID, items must be an array") for a payload that was perfectly fine — a confusing enough
+  // error that it is worth removing the chance to forget. Uploads pass FormData or a Blob,
+  // which set their own content type, so only a string is assumed to be JSON.
+  if (typeof init.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const branch = getBranchId();
   if (branch) {
@@ -208,7 +217,11 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   const res = await apiFetch(path, init);
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(parseApiError(text, `Request failed (${res.status})`));
+    throw new ApiError(
+      parseApiError(text, `Request failed (${res.status})`),
+      res.status,
+      parseApiErrorBody(text),
+    );
   }
   if (!text.trim()) {
     return {} as T;

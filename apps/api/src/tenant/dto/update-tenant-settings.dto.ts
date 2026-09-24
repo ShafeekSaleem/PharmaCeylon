@@ -76,6 +76,10 @@ export class UpdatePurchasingSettingsDto {
   @IsOptional() @IsString() poNumberPrefix?: string;
   @IsOptional() @IsInt() @Min(0) defaultSupplierPaymentTermsDays?: number;
   @IsOptional() @IsBoolean() autoReceiveOnInvoiceMatch?: boolean;
+  /** How much over the ordered quantity a delivery may carry before an approver must accept it. */
+  @IsOptional() @IsNumber() @Min(0) @Max(100) goodsReceiptOverTolerancePercent?: number;
+  /** How much dearer than the agreed price a delivery may be before an approver must accept it. */
+  @IsOptional() @IsNumber() @Min(0) @Max(100) purchasePriceVarianceTolerancePercent?: number;
 }
 
 export class UpdateTransfersReturnsSettingsDto {

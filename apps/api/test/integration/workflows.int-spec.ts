@@ -203,14 +203,14 @@ describe("Operations workflows against PostgreSQL", () => {
 
   describe("goods receiving", () => {
     it("receives the first delivery at a second branch (auto invoice numbers no longer collide)", async () => {
-      const purchasing = new PurchasingService(prisma as never, audit, stock);
+      const purchasing = new PurchasingService(prisma as never, audit, stock, new StockReadService(prisma as never));
       for (const branchId of [fx.mainBranchId, fx.otherBranchId]) {
         const po = await purchasing.createPurchaseOrder(fx.tenantId, branchId, fx.managerId, {
           supplierId: fx.supplierId,
           items: [{ productId: fx.productId, orderedQty: 10, unitCost: "10.00", taxPercent: 0 }],
         });
         await purchasing.issuePurchaseOrder(fx.tenantId, branchId, fx.managerId, po.id);
-        const receipt = await purchasing.receiveGoods(fx.tenantId, branchId, fx.clerkId, {
+        const receipt = await purchasing.receiveGoods(fx.tenantId, branchId, fx.clerkId, actor(fx.clerkId, ["purchasing.receive"]), {
           purchaseOrderId: po.id,
           receivedOn: daysFromToday(0).toISOString().slice(0, 10),
           lines: [
@@ -237,14 +237,14 @@ describe("Operations workflows against PostgreSQL", () => {
     });
 
     it("refuses a delivery line whose expiry is not after the received date", async () => {
-      const purchasing = new PurchasingService(prisma as never, audit, stock);
+      const purchasing = new PurchasingService(prisma as never, audit, stock, new StockReadService(prisma as never));
       const po = await purchasing.createPurchaseOrder(fx.tenantId, fx.mainBranchId, fx.managerId, {
         supplierId: fx.supplierId,
         items: [{ productId: fx.productId, orderedQty: 1, unitCost: "5.00", taxPercent: 0 }],
       });
       await purchasing.issuePurchaseOrder(fx.tenantId, fx.mainBranchId, fx.managerId, po.id);
       await expect(
-        purchasing.receiveGoods(fx.tenantId, fx.mainBranchId, fx.clerkId, {
+        purchasing.receiveGoods(fx.tenantId, fx.mainBranchId, fx.clerkId, actor(fx.clerkId, ["purchasing.receive"]), {
           purchaseOrderId: po.id,
           receivedOn: daysFromToday(0).toISOString().slice(0, 10),
           lines: [

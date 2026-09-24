@@ -361,8 +361,35 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     key: "purchasing.manage",
     module: "purchasing",
     label: "Manage purchase orders",
-    description: "Create, issue, edit, and receive purchase orders.",
+    description: "Create, issue and edit purchase orders.",
     defaultRoles: [owner, manager, inventory_clerk],
+    dependencies: ["purchasing.view"],
+  },
+  {
+    key: "purchasing.receive",
+    module: "purchasing",
+    label: "Receive deliveries",
+    description:
+      "Book goods in against a purchase order, including free goods and damaged units.",
+    defaultRoles: [owner, manager, inventory_clerk],
+    dependencies: ["purchasing.view"],
+  },
+  {
+    key: "purchasing.invoice",
+    module: "purchasing",
+    label: "Record supplier invoices",
+    description:
+      "Enter the supplier's own invoice, match it to deliveries, raise and void debit notes.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["purchasing.view"],
+  },
+  {
+    key: "purchasing.view_cost",
+    module: "purchasing",
+    label: "View purchase costs",
+    description: "Unit costs, order values and supplier price lists in Purchasing.",
+    defaultRoles: [owner, manager, inventory_clerk, pharmacist],
     dependencies: ["purchasing.view"],
   },
   {
@@ -493,6 +520,26 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     defaultRoles: [owner, manager, inventory_clerk],
     dependencies: ["suppliers.view"],
   },
+  {
+    key: "suppliers.pay",
+    module: "suppliers",
+    label: "Record supplier payments",
+    description:
+      "Record money paid to a supplier, allocate it across their invoices, and apply debit notes.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["suppliers.view"],
+  },
+  {
+    key: "suppliers.manage_prices",
+    module: "suppliers",
+    label: "Agree supplier prices",
+    description:
+      "See and change a supplier's price list. Agreeing what a supplier charges is a commercial decision, so it is separate from managing the supplier record.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["suppliers.view"],
+  },
 
   // ── Tenant / branches ──
   {
@@ -525,6 +572,15 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     module: "tenant",
     label: "Edit tenant profile",
     description: "Change the tenant's legal identity, compliance, and operating defaults.",
+    defaultRoles: [owner],
+    riskLevel: "sensitive",
+  },
+  {
+    key: "tenant.approval_rules",
+    module: "tenant",
+    label: "Change who may approve their own requests",
+    description:
+      "Decide which roles may approve requests they raised themselves (Settings → Approval Rules). Owner-only by default: a manager who can grant it to their own role is not being held to it.",
     defaultRoles: [owner],
     riskLevel: "sensitive",
   },

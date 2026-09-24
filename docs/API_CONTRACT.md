@@ -49,6 +49,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 | Transfer ship    | `transfer_ship`    | `POST /api/v1/transfers/:id/ship`                 |
 | Transfer receive | `transfer_receive` | `POST /api/v1/transfers/:id/receive`              |
 | Product import   | `product_import`   | `POST /api/v1/products/import/confirm`            |
+| Supplier payment | `supplier_payment` | `POST /api/v1/purchasing/payments`                |
 
 **Semantics**
 
@@ -124,6 +125,56 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 `POST /inventory/customer-returns` and `POST /inventory/supplier-returns` (which answered 410) have been removed, with the `inventory.customer_returns` permission. Use POS refunds and `POST /returns`.
 
 **Goods receipt** (`POST /purchasing/purchase-orders/receive`) now refuses a received date in the future and any line whose expiry is on or before the received date. Auto-created supplier invoice numbers include the branch code (`SINV-<BRANCH>-<seq>`) so each branch's first delivery no longer collides.
+
+## Purchasing: packs, deliveries and prices
+
+Quantities on the wire are always **units**; packs are a way of entering them. A purchase order line accepts `orderedPacks` (+ optional `unitsPerPack`) or `orderedQty`, and `packCost` or `unitCost`. Packs win when both are sent, and the pack used is stored on the line so a later product edit can't restate the order. Omitting the cost falls back to the supplier's price list, then to a **400** naming the product.
+
+| Endpoint | Permission | Notes |
+| --- | --- | --- |
+| `GET /purchasing/purchase-orders` | `purchasing.view` | `unitCost`, `packCost` and `shippingCharges` are **null** without `purchasing.view_cost`. |
+| `GET /purchasing/purchase-orders/:id` | `purchasing.view` | Lines add `orderedPacks`, `unitsPerPack`, `packCost`, `receivedQty`, `freeQty`, `rejectedQty`, `outstandingQty`, `outstandingPacks`. |
+| `GET /purchasing/deliveries` | `purchasing.view` | Goods receipts for the branch, newest first. Query `supplierId`, `from`, `to`, `q`. Per-delivery `paidUnits`, `freeUnits`, `rejectedUnits`, and `value` (null without `purchasing.view_cost`). |
+| `GET /purchasing/reorder-suggestions` | `purchasing.manage` | Products at or below their reorder level after subtracting **available** stock and everything already on order, grouped by the cheapest active supplier who lists them. `unassigned` holds those no supplier prices. |
+| `POST /purchasing/purchase-orders/receive` | `purchasing.receive` | Lines accept `packs`/`receivedQty`, `freeQty`, `rejectedQty` (+ `rejectedReason`, required), `packCost`/`costPrice`, `sellingPrice`, `onCostConflict`. Body accepts `supplierDeliveryNote`, `acceptOverDelivery`, `acceptPriceVariance`, `updateSupplierPrice`. |
+| `GET /purchasing/supplier-prices` | `purchasing.view_cost` | Compact price map (`productId`, `unitCost`, `unitsPerPack`, `discountPercent`) for prefilling order lines. |
+| `GET /purchasing/batch-lookup` | `purchasing.receive` or `inventory.view` | `productId` + `batchNo` → whether that batch is already on the shelf here, with its expiry, units on hand and whether its expiry is still unconfirmed. Cost is withheld without `purchasing.view_cost`. |
+| `GET /suppliers/:id/prices` | `suppliers.manage_prices` | The supplier's price list with `lastUnitCost` and `priceDrift` beside the agreed cost. |
+| `PUT /suppliers/:id/prices` | `suppliers.manage_prices` | Upsert one product's price (`packCost` or `unitCost` required). |
+| `DELETE /suppliers/:id/prices/:productId` | `suppliers.manage_prices` | Removes one product from the list. |
+
+Two refusals from receiving carry a machine-readable `code` so a client can ask the user instead of failing:
+
+| `code` | Status | Body | Meaning |
+| --- | --- | --- | --- |
+| `OVER_DELIVERY` | 400 | `overDeliveries[]` | More arrived than is outstanding, beyond `goodsReceiptOverTolerancePercent`. Retry with `acceptOverDelivery: true` as a caller holding `purchasing.approve`. |
+| `EXPIRY_CONFLICT` | 400 | `expiryConflicts[]` | The batch number is on file with a different expiry. Retry with `onExpiryConflict: "use_existing"` per line, or `"correct_existing"` — which is accepted only for a batch still awaiting expiry review, and only from a caller holding `inventory.manage`. |
+| `PO_NOT_OPEN` | 400 | `status` | The order is no longer open for receiving (fully received, short-closed, cancelled, not yet issued). Re-read the order. |
+| `PRICE_VARIANCE` | 400 | `priceRises[]` | Billed above the agreed price by more than `purchasePriceVarianceTolerancePercent`. Retry with `acceptPriceVariance: true` (and optionally `updateSupplierPrice: true`) as a caller holding `purchasing.approve`. A price drop never triggers this. |
+| `COST_CONFLICT` | 400 | `costConflicts[]` | A batch is already in stock at a different cost. Retry with `onCostConflict: "keep_existing" \| "update_cost"` per line. |
+
+## Supplier invoices, payments and debit notes
+
+| Endpoint | Permission | Notes |
+| --- | --- | --- |
+| `GET /purchasing/payables` | `purchasing.invoice` or `suppliers.pay` | Branch totals: `outstanding`, `overdue`, `awaitingInvoice` (+ count of deliveries still on a placeholder), `openCredits`. |
+| `GET /purchasing/invoices` | `purchasing.invoice` or `suppliers.pay` | Query `supplierId`, `status` (`outstanding`, `overdue`, or an invoice status), `source` (`system` = delivery awaiting invoice), `from`, `to`, `q`. |
+| `GET /purchasing/invoices/:id` | `purchasing.invoice` or `suppliers.pay` | Lines, deliveries, payments, debit notes and `match` — per-product ordered / received / billed with a `status` and `valueAtStake`. |
+| `GET /purchasing/invoices/unbilled-deliveries` | `purchasing.invoice` | `supplierId` → deliveries no real invoice covers yet, with their billable lines. |
+| `POST /purchasing/invoices` | `purchasing.invoice` | The supplier's invoice: `invoiceNumber`, `invoiceDate`, optional `dueDate` (else supplier terms), `receiptIds[]`, `lines[]` (`productId` or `description`, `qty`, `unitCost`), optional `taxAmount`, `shippingAmount`. Voids the placeholders of the linked deliveries and moves their allocations across. **409** if this supplier's number is already recorded. |
+| `POST /purchasing/invoices/:id/void` | `purchasing.invoice` | `{ reason }`. Refused while payments or debit notes are set against it. |
+| `GET /purchasing/payments` | `purchasing.invoice` or `suppliers.pay` | Query `supplierId`, `from`, `to`. |
+| `POST /purchasing/payments` | `suppliers.pay` | `supplierId`, `paidOn`, `amount`, `method` (`bank_transfer`, `cheque`, `cash`, `card`, `other`), optional `reference`, `notes`, `allocations[]`. Without allocations the amount settles the oldest due first; either way the whole amount must land on open invoices (**400** "more than is owed"). Accepts `Idempotency-Key` (scope `supplier_payment`). |
+| `POST /purchasing/payments/:id/void` | `suppliers.pay` | `{ reason }`. The row is kept and marked voided; the invoices it settled go back to owing. |
+| `GET /purchasing/debit-notes` | `purchasing.invoice` or `suppliers.pay` | Raised automatically when a supplier return completes. |
+| `POST /purchasing/debit-notes/:id/apply` | `suppliers.pay` | Optional `allocations[]`; otherwise the oldest open invoices first. A remainder stays open. |
+| `POST /purchasing/debit-notes/:id/void` | `purchasing.invoice` | Refused once any of it has been applied. |
+
+`POST /suppliers/invoices/:id/payments` (the supplier page) now records a ledger payment too, so it appears in the payment history and can be voided. Invoice numbers are unique **per supplier**.
+
+Delivery lines report `orderedUnitCost` beside `unitCost` and a `variancePercent`, so what the price did between agreeing and being billed is answerable later without reading the order back.
+
+All three refusals roll the whole delivery back: no units, no GRN, no invoice. Free units enter stock at no charge and lower the batch's effective cost; rejected units enter stock and are quarantined against the GRN; neither closes the ordered quantity. Receiving also refreshes the supplier's `lastUnitCost` for each line.
 
 ## Pricing / tax (Sri Lanka–oriented, configurable)
 

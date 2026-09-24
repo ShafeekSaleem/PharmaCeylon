@@ -162,6 +162,26 @@
       "path": "src/inventory/stock/stock-projection.ts",
       "mode": "tenant-filtered-maintenance",
       "reason": "Seed/reconciliation helpers that rebuild or compare batch_stock for one bound tenant_id; the mismatch check may scan all tenants only from maintenance scripts."
+    },
+    {
+      "path": "src/common/document-sequence.util.ts",
+      "mode": "tenant-filtered-upsert",
+      "reason": "Single INSERT ... ON CONFLICT DO UPDATE that claims the next document number for a bound tenant_id, branch_id and doc_type; it replaces a read-then-insert pair that raced on a branch's first document."
+    },
+    {
+      "path": "prisma/seed-helpers.ts",
+      "mode": "tenant-filtered-maintenance",
+      "reason": "Seed-only: builds supplier price rows from the seeded batches of one bound tenant_id, mirroring what the migration does for an existing pharmacy."
+    },
+    {
+      "path": "src/purchasing/ledger/supplier-ledger.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks supplier_invoice and supplier_debit_note rows by bound tenant_id and id (FOR UPDATE, id order) before an allocation changes what is settled on them."
+    },
+    {
+      "path": "src/suppliers/suppliers.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one supplier_invoice row by bound tenant_id and id (FOR UPDATE) before recording a payment against it from the supplier page."
     }
   ]
 }

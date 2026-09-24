@@ -34,8 +34,10 @@ import {
 } from "@/components/ui";
 import { fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
-import { hasPermission, usePermissions } from "@/lib/permissions";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
+import { PurchasingSubnav } from "./components/purchasing-subnav";
+import { ReorderSuggestionsModal } from "./components/reorder-suggestions-modal";
+import { usePurchasingAccess } from "./hooks/use-purchasing-access";
 import inventoryCss from "../inventory/inventory.module.css";
 import { CreatePoModal } from "./components/create-po-modal";
 import { PoDetailModal } from "./components/po-detail-modal";
@@ -49,7 +51,6 @@ import {
   displayPoStatus,
   formatDate,
   formatMoney,
-  hasPurchasingWriteAccess,
   isDateInSummaryPeriod,
   isPoOverdue,
   parseDateOnlyLocal,
@@ -78,10 +79,10 @@ function PurchasingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, branchId, setBranchId } = useAuth();
-  const { permissionKeys } = usePermissions();
-  const canWrite = hasPurchasingWriteAccess(user, branchId);
-  const canCancel = hasPermission(permissionKeys, ["purchasing.approve"]);
-  const canApprove = hasPermission(permissionKeys, ["purchasing.approve"]);
+  const access = usePurchasingAccess();
+  const canWrite = access.canManage;
+  const canCancel = access.canApprove;
+  const canApprove = access.canApprove;
   const orders = usePurchaseOrders();
 
   const productId = searchParams.get("productId");
@@ -96,6 +97,7 @@ function PurchasingContent() {
   const [page, setPage] = useState(1);
   const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>("this_month");
   const [createOpen, setCreateOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailStartInEdit, setDetailStartInEdit] = useState(false);
   const [branches, setBranches] = useState<TenantBranch[]>([]);
@@ -534,12 +536,24 @@ function PurchasingContent() {
         description="Create purchase orders, issue them to suppliers, receive goods into batch stock, and track procurement status."
         actions={
           canWrite ? (
-            <ActionButton icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
-              New purchase order
-            </ActionButton>
+            <>
+              <button
+                type="button"
+                className={css.actionBtn}
+                onClick={() => setSuggestOpen(true)}
+              >
+                <IconClipboardList size={15} />
+                What to order
+              </button>
+              <ActionButton icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
+                New purchase order
+              </ActionButton>
+            </>
           ) : null
         }
       />
+
+      <PurchasingSubnav />
 
       {!orders.hasBranch && (
         <div className={css.branchNotice}>
@@ -837,6 +851,16 @@ function PurchasingContent() {
         </div>
       )}
 
+      <ReorderSuggestionsModal
+        open={suggestOpen}
+        canViewCost={access.canViewCost}
+        onClose={() => setSuggestOpen(false)}
+        onCreated={() => {
+          setSuggestOpen(false);
+          void orders.reload();
+        }}
+      />
+
       <CreatePoModal
         open={createOpen}
         initialProductId={productId}
@@ -852,6 +876,7 @@ function PurchasingContent() {
       <PoDetailModal
         poId={detailId}
         canWrite={canWrite}
+        canReceiveGoods={access.canReceive}
         canCancelPo={canCancel}
         canApprovePo={canApprove}
         startInEdit={detailStartInEdit}

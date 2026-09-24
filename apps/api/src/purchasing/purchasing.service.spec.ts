@@ -18,6 +18,13 @@ describe("PurchasingService", () => {
   let prisma: Record<string, unknown>;
   let audit: AuditService;
   let service: PurchasingService;
+  const access = {
+    userId: "u1",
+    permissions: new Set(["purchasing.receive"]),
+    roleKeys: ["inventory_clerk"],
+    canSelfApprove: false,
+    has: (key: string) => key === "purchasing.receive",
+  } as unknown as ActorAccess;
 
   beforeEach(() => {
     prisma = {
@@ -54,7 +61,7 @@ describe("PurchasingService", () => {
       }),
     };
     audit = { log: jest.fn() } as unknown as AuditService;
-    service = new PurchasingService(prisma as never, audit, {} as never);
+    service = new PurchasingService(prisma as never, audit, {} as never, {} as never);
   });
 
   it("cancelPurchaseOrder rejects when PO already has receipts (partial)", async () => {
@@ -225,7 +232,7 @@ describe("PurchasingService", () => {
       ],
     };
 
-    const res = await service.receiveGoods("t1", "b1", "u1", dto, "idem-key-1");
+    const res = await service.receiveGoods("t1", "b1", "u1", access, dto, "idem-key-1");
     expect(res).toEqual({
       id: "gr-replay",
       purchaseOrderId: "00000000-0000-0000-0000-000000000001",
@@ -259,7 +266,7 @@ describe("PurchasingService", () => {
       ],
     };
 
-    await expect(service.receiveGoods("t1", "b1", "u1", dto, "idem-key-1")).rejects.toBeInstanceOf(
+    await expect(service.receiveGoods("t1", "b1", "u1", access, dto, "idem-key-1")).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });

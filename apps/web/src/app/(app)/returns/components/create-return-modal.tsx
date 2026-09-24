@@ -25,6 +25,8 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  /** Start as, and stay, this kind of return — the Supplier returns tab has no customer case. */
+  lockedType?: GoodsReturnType;
 };
 
 type LineErrors = {
@@ -66,14 +68,14 @@ function isCompleteLine(line: CreateReturnLine): boolean {
   );
 }
 
-export function CreateReturnModal({ open, onClose, onCreated }: Props) {
+export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Props) {
   const { branchId } = useAuth();
   const { permissionKeys } = usePermissions();
   const canAutoSubmit = canApproveReturn(permissionKeys);
   const suppliers = useSuppliers();
   const products = useProductOptions();
 
-  const [type, setType] = useState<GoodsReturnType>("customer");
+  const [type, setType] = useState<GoodsReturnType>(lockedType ?? "customer");
   const [customerName, setCustomerName] = useState("");
   const [saleId, setSaleId] = useState("");
   const [supplierId, setSupplierId] = useState("");
@@ -100,7 +102,7 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    setType("customer");
+    setType(lockedType ?? "customer");
     setCustomerName("");
     setSaleId("");
     setSupplierId("");
@@ -469,7 +471,7 @@ export function CreateReturnModal({ open, onClose, onCreated }: Props) {
       <section className={css.createSection}>
         <h3 className={css.createSectionTitle}>1. Return details</h3>
         <div className={css.createHeaderGrid}>
-          <div className={css.field}>
+          <div className={css.field} hidden={!!lockedType}>
             <span className={css.fieldLabel}>Return type</span>
             <div className={rcss.typeSegmented} role="group" aria-label="Return type">
               <button

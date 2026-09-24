@@ -56,7 +56,11 @@ async function clearOperationalData(tenantId: string) {
   await prisma.branchMonthlyTarget.deleteMany({ where: { tenantId } });
   await prisma.goodsReturn.deleteMany({ where: { tenantId } });
   await prisma.sale.deleteMany({ where: { tenantId } });
+  // Payments and debit notes first: their allocations hold the invoices in place.
+  await prisma.supplierPayment.deleteMany({ where: { tenantId } });
+  await prisma.supplierDebitNote.deleteMany({ where: { tenantId } });
   await prisma.supplierInvoice.deleteMany({ where: { tenantId } });
+  await prisma.supplierProductPrice.deleteMany({ where: { tenantId } });
   await prisma.goodsReceipt.deleteMany({ where: { tenantId } });
   await prisma.stocktake.deleteMany({ where: { tenantId } });
   await prisma.stockReservation.deleteMany({ where: { tenantId } });
@@ -393,6 +397,23 @@ async function main() {
         role: RoleName.cashier,
       })),
     ],
+  });
+
+  // Login resolves the tenant from an active membership, not from the branch roles above, so a
+  // user without one cannot sign in at all. Memberships arrived with staff invitations and that
+  // migration backfilled the users who already existed — the seed never wrote them, which only
+  // shows on a database seeded from empty.
+  await prisma.tenantMembership.createMany({
+    data: [
+      owner.id,
+      manager.id,
+      manager2.id,
+      pharmacist.id,
+      cashier.id,
+      inventoryClerk.id,
+      ...extraCashierIds,
+    ].map((userId) => ({ tenantId: tenant.id, userId })),
+    skipDuplicates: true,
   });
 
   console.log("Seeding NMRA product catalog…");

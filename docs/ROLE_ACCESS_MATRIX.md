@@ -49,9 +49,29 @@ The Inventory page is visible to every role holding `inventory.view` (all five b
 | Release from quarantine | `inventory.release_quarantine` | yes | yes | yes | — | — |
 | Quarantine all expired stock | `inventory.manage_bulk` | yes | yes | — | — | — |
 
-- **Cost is withheld by the API, not only hidden.** Cashiers and pharmacists see selling prices but not cost or stock valuation. Purchasing screens still show unit costs to anyone with `purchasing.view`; aligning those is part of the Purchasing module.
+- **Cost is withheld by the API, not only hidden.** Cashiers and pharmacists see selling prices but not cost or stock valuation. Purchasing has its own cost key, `purchasing.view_cost` (below).
 - **Releasing is a quality decision**, so it sits with pharmacists and managers rather than the clerk who may have held the stock. Expired stock can't be released at all.
 - **Write-offs moved from a hardcoded owner/manager check to `inventory.write_off`**, so a tenant can grant it to a custom role. The migration gave the new quarantine and release grants to any custom role that already had `inventory.manage`, so nobody lost an ability they had.
+
+## Purchasing actions (built-in defaults)
+
+| Action | Permission | owner | manager | pharmacist | cashier | inventory_clerk |
+| --- | --- | --- | --- | --- | --- | --- |
+| See orders and deliveries | `purchasing.view` | yes | yes | yes | — | yes |
+| See unit costs and order values | `purchasing.view_cost` | yes | yes | yes | — | yes |
+| Raise, edit and issue orders | `purchasing.manage` | yes | yes | — | — | yes |
+| Book a delivery in | `purchasing.receive` | yes | yes | — | — | yes |
+| Approve, reject, short-close, cancel | `purchasing.approve` | yes | yes | — | — | — |
+| Accept an over-delivery | `purchasing.approve` | yes | yes | — | — | — |
+| Accept a price above the order | `purchasing.approve` | yes | yes | — | — | — |
+| See and change a supplier price list | `suppliers.manage_prices` | yes | yes | — | — | — |
+| Record supplier invoices, raise / void debit notes | `purchasing.invoice` | yes | yes | — | — | — |
+| Record and void supplier payments, apply debit notes | `suppliers.pay` | yes | yes | — | — | — |
+
+- **Receiving split away from managing orders**, so a storekeeper can book deliveries in without being able to raise or price one. The migration granted `purchasing.receive` to every role that already had `purchasing.manage`, so nobody lost an ability.
+- **Costs are a separate key now.** The defaults match what every role could already see (anyone with `purchasing.view`), but an owner can now take costs away from a role — which was impossible before. Withholding happens in the API: `unitCost`, `packCost`, order values and delivery values come back `null`.
+- **Money is separate from stock.** Recording what a supplier billed and what was paid moved out of `suppliers.manage` (which the clerk holds) into `purchasing.invoice` and `suppliers.pay`. The clerk who books a delivery in never sees payables; the Invoices tab only appears for someone holding either key. Custom roles that already had `suppliers.manage` kept both.
+- **Agreeing what a supplier charges is its own permission.** `suppliers.manage` (which the inventory clerk holds) covers the supplier record; the price list — reading it included — needs `suppliers.manage_prices`, granted to owners and managers. A clerk raising an order still gets lines priced from the list; they just cannot change what the pharmacy has agreed to pay. Custom roles that already held `suppliers.manage` keep the new key, because that was a deliberate choice someone made.
 
 ## Approving your own requests
 

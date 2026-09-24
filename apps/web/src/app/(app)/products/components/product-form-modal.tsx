@@ -284,6 +284,23 @@ export function ProductFormModal({
           disabled={saving}
           placeholder={isMedicine ? "e.g. 30 tablets" : "e.g. 180 ml"}
         />
+        <FormField
+          label="Units per buying pack"
+          type="number"
+          min={1}
+          value={form.unitsPerPack}
+          onChange={(e) => onFieldChange("unitsPerPack", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+          placeholder="1"
+          hint="How many sellable units come in one pack you order. Purchase orders and deliveries count in these."
+        />
+        <FormField
+          label="Name for one pack"
+          value={form.packLabel}
+          onChange={(e) => onFieldChange("packLabel", (e.target as HTMLInputElement).value)}
+          disabled={saving}
+          placeholder="e.g. Box of 24"
+        />
       </div>
 
       <h3 className={css.sectionTitle}>

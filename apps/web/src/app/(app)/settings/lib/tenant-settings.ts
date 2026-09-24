@@ -49,6 +49,10 @@ export type TenantSettings = {
 
   poNumberPrefix: string;
   defaultSupplierPaymentTermsDays: number;
+  /** Percent over the ordered quantity a delivery may carry before an approver must accept it. */
+  goodsReceiptOverTolerancePercent: number;
+  /** Percent above the agreed price a delivery may be billed at before an approver must accept it. */
+  purchasePriceVarianceTolerancePercent: number;
   autoReceiveOnInvoiceMatch: boolean;
 
   defaultReturnWindowDays: number;

@@ -61,7 +61,11 @@ export function PurchasingSelect({
     setMenuStyle({
       position: "fixed",
       left: rect.left,
-      width: Math.max(rect.width, 240),
+      // Grows to fit the longest name rather than being cut to the trigger's width — supplier
+      // names are long, and the shared SelectField's wide menu behaves the same way.
+      width: "max-content",
+      minWidth: Math.max(rect.width, 260),
+      maxWidth: Math.min(420, window.innerWidth - rect.left - 16),
       // Above modal overlays (z-index 100 / 130) without fighting nested dialogs.
       zIndex: 140,
       ...(openUp

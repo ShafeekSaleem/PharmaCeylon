@@ -32,12 +32,15 @@ describe("PurchasingService — purchase order approval threshold", () => {
           .mockResolvedValue({ id: "sup-1", paymentTermsDays: 30 }),
       },
       product: {
-        findMany: jest.fn().mockResolvedValue([{ id: "prod-1" }]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ id: "prod-1", name: "Product 1", unitsPerPack: 1 }]),
       },
+      supplierProductPrice: { findMany: jest.fn().mockResolvedValue([]) },
       tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (fn: (tx: any) => Promise<unknown>) =>
         fn({
-          $queryRaw: jest.fn().mockResolvedValue([{ id: "po-1" }]),
+          $queryRaw: jest.fn().mockResolvedValue([{ id: "po-1", next_value: 2 }]),
           documentSequence: {
             findUnique: jest.fn().mockResolvedValue(null),
             create: jest.fn(),
@@ -53,7 +56,7 @@ describe("PurchasingService — purchase order approval threshold", () => {
       ),
     };
     audit = { log: jest.fn() } as unknown as AuditService;
-    service = new PurchasingService(prisma as never, audit, {} as never);
+    service = new PurchasingService(prisma as never, audit, {} as never, {} as never);
   });
 
   const create = (dto: Partial<CreatePurchaseOrderDto> = {}) =>

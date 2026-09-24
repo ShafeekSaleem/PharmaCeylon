@@ -15,6 +15,7 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   received: "success",
   approved: "success",
   paid: "success",
+  settled: "success",
   open: "info",
   partial: "warning",
   draft: "muted",

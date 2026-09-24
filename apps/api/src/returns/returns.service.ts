@@ -17,6 +17,7 @@ import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
 import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { StockService } from "../inventory/stock/stock.service";
+import { raiseDebitNoteForReturn } from "../purchasing/ledger/supplier-ledger.service";
 import { assertMayApprove, type ActorAccess } from "../security/access.service";
 import { assertSaleReturnableLines } from "../sales/sale-returnable";
 import { CreateReturnDto, ReturnLineDto } from "./dto/create-return.dto";
@@ -37,6 +38,10 @@ const LIST_INCLUDE = {
   approver: { select: { id: true, fullName: true } },
   processor: { select: { id: true, fullName: true } },
   branch: { select: { id: true, code: true, name: true } },
+  // A completed supplier return's claim on the supplier, so the return shows what it is owed.
+  debitNote: {
+    select: { id: true, debitNo: true, amount: true, appliedAmount: true, status: true },
+  },
 } as const;
 
 @Injectable()
@@ -795,6 +800,30 @@ export class ReturnsService {
               from: "quarantine_first" as const,
             })),
           );
+
+          // The goods have gone back, so the money for them is owed back too. Raised here, in
+          // the same transaction, so a completed supplier return can never exist without its
+          // claim — it used to reduce the shelf and leave the supplier's bill untouched.
+          if (row.supplierId) {
+            const batches = await tx.batch.findMany({
+              where: { tenantId, id: { in: row.items.map((line) => line.batchId!) } },
+              select: { id: true, costPrice: true },
+            });
+            const costByBatch = new Map(batches.map((batch) => [batch.id, batch.costPrice]));
+            await raiseDebitNoteForReturn(tx, {
+              tenantId,
+              branchId,
+              userId,
+              goodsReturnId: row.id,
+              supplierId: row.supplierId,
+              reason: row.reason,
+              lines: row.items.map((line) => ({
+                qty: line.qty,
+                unitPrice: line.unitPrice,
+                batchCost: costByBatch.get(line.batchId!) ?? null,
+              })),
+            });
+          }
         } else {
           await this.stock.receive(
             tx,

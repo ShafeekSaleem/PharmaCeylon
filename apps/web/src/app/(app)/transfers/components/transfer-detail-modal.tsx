@@ -6,6 +6,7 @@ import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
 import type { AuthUser } from "@/lib/auth-types";
 import { apiJson } from "@/lib/auth-client";
 import { createIdempotencyKey } from "@/lib/idempotency";
+import { usePermissions } from "@/lib/permissions";
 import layoutCss from "../../purchasing/purchasing.module.css";
 import type { TransferListItem } from "../types";
 import {
@@ -50,6 +51,7 @@ export function TransferDetailModal({
   const idempotencyKeys = useRef<Record<string, string>>({});
   const atSource = !!branchId && transfer?.fromBranchId === branchId;
   const canApproveRole = canApproveTransfer(user, branchId);
+  const { canSelfApprove } = usePermissions();
 
   useEffect(() => {
     setBusy(false);
@@ -88,6 +90,9 @@ export function TransferDetailModal({
   const displayStatus = displayTransferStatus(transfer);
   const showApprove =
     canWrite && atSource && canApproveRole && canApprove(transfer.status);
+  // Their role holds the approve permission, but not for their own requests. Say so on the
+  // button rather than letting them click it and read a refusal afterwards.
+  const ownRequestBlocked = !canSelfApprove && transfer.requestedBy === user?.id;
   const showReject =
     canWrite && atSource && canApproveRole && canReject(transfer.status);
   const showCancel =
@@ -239,13 +244,21 @@ export function TransferDetailModal({
                 </ModalButton>
               )}
               {showApprove && (
-                <ModalButton
-                  variant="primary"
-                  onClick={() => void runAction("approve")}
-                  disabled={busy}
+                <span
+                  data-tooltip={
+                    ownRequestBlocked
+                      ? "You raised this transfer, and your role can't approve its own requests. Ask another approver."
+                      : undefined
+                  }
                 >
-                  Approve
-                </ModalButton>
+                  <ModalButton
+                    variant="primary"
+                    onClick={() => void runAction("approve")}
+                    disabled={busy || ownRequestBlocked}
+                  >
+                    Approve
+                  </ModalButton>
+                </span>
               )}
               {showShip && (
                 <ModalButton

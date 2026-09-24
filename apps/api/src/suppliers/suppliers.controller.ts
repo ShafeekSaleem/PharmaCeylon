@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from "@nestjs/common";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
@@ -15,6 +17,7 @@ import { CreateSupplierDto } from "./dto/create-supplier.dto";
 import { UpdateSupplierDto } from "./dto/update-supplier.dto";
 import { CreateSupplierInvoiceDto } from "./dto/create-supplier-invoice.dto";
 import { RecordSupplierPaymentDto } from "./dto/record-supplier-payment.dto";
+import { UpsertSupplierPriceDto } from "./dto/supplier-product-price.dto";
 import { SuppliersService } from "./suppliers.service";
 
 @Controller("suppliers")
@@ -63,6 +66,41 @@ export class SuppliersController {
     @Body() dto: CreateSupplierInvoiceDto,
   ) {
     return this.suppliers.createInvoice(user.tenantId, user.userId, id, dto);
+  }
+
+  // Agreeing what a supplier charges is a commercial decision, not a stock one, so the whole
+  // price list — reading it included — sits behind its own permission rather than "can manage
+  // suppliers", which a stock clerk holds. Ordering still prices itself correctly for everyone:
+  // the order form asks `purchasing/supplier-prices` for prefill, and the server falls back to
+  // the list when a line arrives with no cost.
+  @RequirePermission("suppliers.manage_prices")
+  @Get(":id/prices")
+  listPrices(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query("q") q?: string,
+  ) {
+    return this.suppliers.listPrices(user.tenantId, id, q);
+  }
+
+  @RequirePermission("suppliers.manage_prices")
+  @Put(":id/prices")
+  upsertPrice(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: UpsertSupplierPriceDto,
+  ) {
+    return this.suppliers.upsertPrice(user.tenantId, user.userId, id, dto);
+  }
+
+  @RequirePermission("suppliers.manage_prices")
+  @Delete(":id/prices/:productId")
+  deletePrice(
+    @CurrentUser() user: RequestUser,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("productId", ParseUUIDPipe) productId: string,
+  ) {
+    return this.suppliers.deletePrice(user.tenantId, user.userId, id, productId);
   }
 
   @RequirePermission("suppliers.view")

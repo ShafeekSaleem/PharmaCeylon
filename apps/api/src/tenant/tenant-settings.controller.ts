@@ -1,7 +1,11 @@
-import { Body, Controller, Get, Patch } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, Patch, Req } from "@nestjs/common";
+import { AccessService } from "../security/access.service";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
-import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import {
+  AuthenticatedRequest,
+  RequestUser,
+} from "../security/interfaces/authenticated-request.interface";
 import { TenantSettingsService } from "./tenant-settings.service";
 import {
   UpdateAlertsSettingsDto,
@@ -27,7 +31,10 @@ import {
  */
 @Controller("tenant/settings")
 export class TenantSettingsController {
-  constructor(private readonly settings: TenantSettingsService) {}
+  constructor(
+    private readonly settings: TenantSettingsService,
+    private readonly access: AccessService,
+  ) {}
 
   /** Open read, like GET /tenant/profitability-target — every authenticated user may need to
    *  read display defaults even if only owner/manager can change them. */
@@ -109,9 +116,26 @@ export class TenantSettingsController {
     return this.settings.approvalRoleOptions(user.tenantId);
   }
 
+  /**
+   * Thresholds are ordinary tenant settings, but who may approve their own requests is the rule
+   * that holds managers to a second pair of eyes — so changing *that* needs its own permission,
+   * which only the owner holds by default.
+   */
   @RequirePermission("tenant.management")
   @Patch("approvals")
-  updateApprovals(@CurrentUser() user: RequestUser, @Body() dto: UpdateApprovalsSettingsDto) {
+  async updateApprovals(
+    @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: UpdateApprovalsSettingsDto,
+  ) {
+    if (dto.selfApprovalRoleKeys !== undefined) {
+      const access = await this.access.resolve(user, req.branchId);
+      if (!access.has("tenant.approval_rules")) {
+        throw new ForbiddenException(
+          "Changing who may approve their own requests is the owner's decision",
+        );
+      }
+    }
     return this.settings.updateApprovals(user.tenantId, user.userId, dto);
   }
 

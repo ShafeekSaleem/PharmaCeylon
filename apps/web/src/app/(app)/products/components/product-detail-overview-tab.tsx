@@ -90,6 +90,14 @@ export function ProductDetailOverviewTab({
           <Field label="Strength" value={product.strength} />
           <Field label="Unit" value={product.unit} />
           <Field label="Pack size" value={product.packSize} />
+          <Field
+            label="Units per buying pack"
+            value={
+              (product.unitsPerPack ?? 1) > 1
+                ? `${product.unitsPerPack}${product.packLabel ? ` · ${product.packLabel}` : ""}`
+                : null
+            }
+          />
           <Field label="Pack type" value={product.packType} />
           <Field label="Storage" value={product.storage} />
           <Field label="Shelf life" value={product.shelfLife} />
