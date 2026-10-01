@@ -25,22 +25,32 @@ is derived from allocations, debit notes raised automatically by supplier return
 three-way match (ordered vs received vs billed). Money has its own permissions,
 `purchasing.invoice` and `suppliers.pay`.
 
-## Module 3 — Transfers & Stocktakes
+**Cost permission (between modules).** `inventory.view_cost` and `purchasing.view_cost` became
+one app-wide `costs.view`; raising an order needs it as well as `purchasing.manage`; a withheld
+figure reads as a dash, never zero.
 
-Both already sit on the Module 1 stock writer and approval rules, so this is workflow and screens.
+**Module 3 — approvals, escalation, dates and phones.**
+- **Approve says why it is unavailable** on every document — purchase orders and stocktakes now
+  carry `selfApprovalBlocked`, computed by the same rule `assertMayApprove` enforces, as transfers
+  and returns already did.
+- **Escalation instead of a dead end.** A receiver stopped by an over-delivery or a price above the
+  order can *Ask an approver*: the people who hold `purchasing.approve` at that branch get a
+  notification that opens the order. Repeats within ten minutes are not re-sent.
+- **One themed calendar** (`DatePicker`) for every date in the app — filters through
+  `DateRangeField`, forms through `FormField` and directly.
+- **Phones.** Every `DataTable` reads as cards below 640px, so nothing scrolls sideways or is cut
+  off; page headers wrap their actions under the description.
+- **The receive form adds up** good, free and damaged units on screen.
 
-- **Approve buttons everywhere else.** Transfers and returns now disable Approve with the reason
-  on it when the viewer raised the document and their role cannot self-approve. Purchase orders
-  and stocktakes still fail after the click — same treatment needed, using `canSelfApprove` from
-  `GET /tenant/my-permissions`.
-- **Escalation instead of a dead end.** A clerk stopped by an over-delivery or a price variance
-  can only fetch someone. They should be able to send the decision to an approver — a "notify a
-  manager" option on the refusal, landing in that person's notifications.
-- **A shared, themed date picker.** Every from/to filter currently falls back to the browser's
-  native calendar, which ignores the app's theme. One shared component, used by every date filter
-  (Purchasing, Inventory, Reports, Transfers, Stocktakes).
-- **Horizontal scrolling at phone width.** Several screens scroll sideways; a pass across the
-  Operations pages with the 400px rule applied.
+## Still to do in Operations
+
+- **Supplier → PO → GRN lineage on a supplier return**, and the supplier detail window rework —
+  both below.
+- **Holding a delivery for approval.** Escalation notifies the approver, but the receiver's typed
+  delivery is not kept: the approver books it in themselves. Keeping a pending delivery for one-
+  click approval is the natural next step if receivers find re-entry a burden.
+- **Stat tiles stack one per row on a phone**, which makes the top of each page long. Two per row
+  would read better; a small, shared change.
 
 ## Module 4 — POS refunds & customer returns
 
