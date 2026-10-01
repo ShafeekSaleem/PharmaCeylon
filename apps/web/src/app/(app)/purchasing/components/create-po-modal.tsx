@@ -3,11 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { IconPlus, IconTrash } from "@/components/icons";
-import { Modal, ModalButton, ModalFooter } from "@/components/ui";
-import { apiJson, fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import { DatePicker, Modal, ModalButton, ModalFooter } from "@/components/ui";
+import {
+  apiJson,
+  fetchTenantBranches,
+  type TenantBranch,
+} from "@/lib/auth-client";
 import { setBranchId as persistBranchId } from "@/lib/auth-session";
 import { useAuth } from "@/lib/use-auth";
-import { useProductOptions, useSuppliers, useSupplierPrices } from "../hooks/use-suppliers";
+import {
+  useProductOptions,
+  useSuppliers,
+  useSupplierPrices,
+} from "../hooks/use-suppliers";
 import { usePurchasingAccess } from "../hooks/use-purchasing-access";
 import css from "../purchasing.module.css";
 import {
@@ -17,7 +25,13 @@ import {
   type CreatePoLine,
   type PoPriority,
 } from "../types";
-import { formatMoney, lineMoneyParts, poLineUnits, poTotals, todayIsoDate } from "../utils";
+import {
+  formatMoney,
+  lineMoneyParts,
+  poLineUnits,
+  poTotals,
+  todayIsoDate,
+} from "../utils";
 import { PurchasingSelect } from "./purchasing-select";
 
 type Props = {
@@ -88,7 +102,12 @@ function isCompleteLine(line: CreatePoLine): boolean {
   );
 }
 
-export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Props) {
+export function CreatePoModal({
+  open,
+  initialProductId,
+  onClose,
+  onCreated,
+}: Props) {
   const { branchId, setBranchId } = useAuth();
   const suppliers = useSuppliers();
   const products = useProductOptions();
@@ -159,9 +178,15 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
     [branches],
   );
 
-  const productById = useMemo(() => new Map(products.rows.map((p) => [p.id, p])), [products.rows]);
+  const productById = useMemo(
+    () => new Map(products.rows.map((p) => [p.id, p])),
+    [products.rows],
+  );
 
-  const prices = useSupplierPrices(supplierId || null, open && access.canViewCost);
+  const prices = useSupplierPrices(
+    supplierId || null,
+    open && access.canViewCost,
+  );
   const priceByProduct = useMemo(
     () => new Map(prices.rows.map((row) => [row.productId, row])),
     [prices.rows],
@@ -175,7 +200,10 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
   function applyProductToLine(key: string, productId: string) {
     const product = productId ? productById.get(productId) : null;
     const price = productId ? priceByProduct.get(productId) : null;
-    const unitsPerPack = Math.max(price?.unitsPerPack ?? product?.unitsPerPack ?? 1, 1);
+    const unitsPerPack = Math.max(
+      price?.unitsPerPack ?? product?.unitsPerPack ?? 1,
+      1,
+    );
     setLines((prev) =>
       prev.map((line) =>
         line.key === key
@@ -200,7 +228,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
 
   function productOptionsForLine(lineKey: string) {
     const taken = new Set(
-      lines.filter((l) => l.key !== lineKey && l.productId).map((l) => l.productId),
+      lines
+        .filter((l) => l.key !== lineKey && l.productId)
+        .map((l) => l.productId),
     );
     return products.rows
       .filter((p) => !taken.has(p.id))
@@ -211,7 +241,10 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
       }));
   }
 
-  const totals = useMemo(() => poTotals(lines.filter(isCompleteLine), shippingCharges), [lines, shippingCharges]);
+  const totals = useMemo(
+    () => poTotals(lines.filter(isCompleteLine), shippingCharges),
+    [lines, shippingCharges],
+  );
 
   function validate(): FieldErrors {
     const next: FieldErrors = { lineErrors: {} };
@@ -231,7 +264,8 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
       const errs: LineFieldErrors = {};
       if (!line.productId) errs.productId = "Required";
       const qty = poLineUnits(line);
-      const typed = line.orderMode === "packs" ? line.orderedPacks : line.orderedQty;
+      const typed =
+        line.orderMode === "packs" ? line.orderedPacks : line.orderedQty;
       if (!typed.trim() || !Number.isInteger(qty) || qty < 1) {
         errs.orderedQty = "≥ 1";
       }
@@ -277,41 +311,51 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
     setSaving(true);
     setError(null);
     try {
-      const created = await apiJson<{ id: string }>("/purchasing/purchase-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          supplierId,
-          expectedOn: expectedOn || null,
-          priority,
-          supplierReference: supplierReference.trim() || null,
-          notes: notes.trim() || null,
-          deliveryInstructions: deliveryInstructions.trim() || null,
-          paymentTermsDays: Number(paymentTermsDays),
-          shippingCharges: Number(shippingCharges || 0).toFixed(2),
-          submitForApproval,
-          items: completeLines.map((l) => ({
-            productId: l.productId,
-            ...(l.orderMode === "packs"
-              ? { orderedPacks: Number(l.orderedPacks), unitsPerPack: l.unitsPerPack }
-              : { orderedQty: Number(l.orderedQty) }),
-            unitCost: Number(l.unitCost).toFixed(2),
-            discountPercent: Number(l.discountPercent || 0),
-            taxPercent: Number(l.taxPercent || DEFAULT_TAX_PERCENT),
-          })),
-        }),
-      });
+      const created = await apiJson<{ id: string }>(
+        "/purchasing/purchase-orders",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            supplierId,
+            expectedOn: expectedOn || null,
+            priority,
+            supplierReference: supplierReference.trim() || null,
+            notes: notes.trim() || null,
+            deliveryInstructions: deliveryInstructions.trim() || null,
+            paymentTermsDays: Number(paymentTermsDays),
+            shippingCharges: Number(shippingCharges || 0).toFixed(2),
+            submitForApproval,
+            items: completeLines.map((l) => ({
+              productId: l.productId,
+              ...(l.orderMode === "packs"
+                ? {
+                    orderedPacks: Number(l.orderedPacks),
+                    unitsPerPack: l.unitsPerPack,
+                  }
+                : { orderedQty: Number(l.orderedQty) }),
+              unitCost: Number(l.unitCost).toFixed(2),
+              discountPercent: Number(l.discountPercent || 0),
+              taxPercent: Number(l.taxPercent || DEFAULT_TAX_PERCENT),
+            })),
+          }),
+        },
+      );
       onCreated(created.id);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create purchase order");
+      setError(
+        err instanceof Error ? err.message : "Failed to create purchase order",
+      );
     } finally {
       setSaving(false);
     }
   }
 
   function updateLine(key: string, patch: Partial<CreatePoLine>) {
-    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+    setLines((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, ...patch } : l)),
+    );
   }
 
   function clearLineError(key: string, field: keyof LineFieldErrors) {
@@ -320,7 +364,10 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
       const { [field]: _removed, ...rest } = prev.lineErrors[key];
       const lineErrors = { ...prev.lineErrors, [key]: rest };
       if (Object.keys(rest).length === 0) delete lineErrors[key];
-      return { ...prev, lineErrors: Object.keys(lineErrors).length ? lineErrors : undefined };
+      return {
+        ...prev,
+        lineErrors: Object.keys(lineErrors).length ? lineErrors : undefined,
+      };
     });
   }
 
@@ -361,9 +408,11 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
           {error}
         </Alert>
       )}
-      {(suppliers.error || (!suppliers.loading && suppliers.rows.length === 0)) && (
+      {(suppliers.error ||
+        (!suppliers.loading && suppliers.rows.length === 0)) && (
         <Alert variant="error" className={css.modalAlert}>
-          {suppliers.error ?? "No active suppliers found. Add a supplier before creating a PO."}
+          {suppliers.error ??
+            "No active suppliers found. Add a supplier before creating a PO."}
         </Alert>
       )}
       {products.error && (
@@ -380,7 +429,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
             required
             value={supplierId}
             options={supplierOptions}
-            placeholder={suppliers.loading ? "Loading suppliers…" : "Select supplier…"}
+            placeholder={
+              suppliers.loading ? "Loading suppliers…" : "Select supplier…"
+            }
             searchPlaceholder="Search by name or code…"
             onChange={(value) => {
               setSupplierId(value);
@@ -403,25 +454,32 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
             <label className={css.fieldLabel} htmlFor="po-expected">
               Expected delivery date<span className={css.requiredMark}>*</span>
             </label>
-            <input
+            <DatePicker
+              variant="field"
               id="po-expected"
-              type="date"
-              className={`${css.input} ${errors.expectedOn ? css.inputError : ""}`}
+              label="Expected delivery"
               value={expectedOn}
-              min={todayIsoDate()}
-              onChange={(e) => {
-                setExpectedOn(e.target.value);
+              onChange={(value) => {
+                setExpectedOn(value);
                 setFieldErrors((prev) => ({ ...prev, expectedOn: undefined }));
               }}
+              min={todayIsoDate()}
               disabled={saving}
+              invalid={!!errors.expectedOn}
+              placeholder="Select a date"
             />
-            {errors.expectedOn && <span className={css.fieldError}>{errors.expectedOn}</span>}
+            {errors.expectedOn && (
+              <span className={css.fieldError}>{errors.expectedOn}</span>
+            )}
           </div>
           <PurchasingSelect
             label="Priority"
             required
             value={priority}
-            options={PRIORITY_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            options={PRIORITY_OPTIONS.map((o) => ({
+              value: o.value,
+              label: o.label,
+            }))}
             onChange={(value) => setPriority(value as PoPriority)}
             disabled={saving}
             error={errors.priority}
@@ -464,10 +522,16 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
             label="Payment terms"
             required
             value={paymentTermsDays}
-            options={PAYMENT_TERMS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            options={PAYMENT_TERMS_OPTIONS.map((o) => ({
+              value: o.value,
+              label: o.label,
+            }))}
             onChange={(value) => {
               setPaymentTermsDays(value);
-              setFieldErrors((prev) => ({ ...prev, paymentTermsDays: undefined }));
+              setFieldErrors((prev) => ({
+                ...prev,
+                paymentTermsDays: undefined,
+              }));
             }}
             disabled={saving}
             error={errors.paymentTermsDays}
@@ -523,7 +587,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
             <tbody>
               {lines.map((line, index) => {
                 const lineErr = errors.lineErrors?.[line.key];
-                const product = line.productId ? productById.get(line.productId) : null;
+                const product = line.productId
+                  ? productById.get(line.productId)
+                  : null;
                 const parts =
                   isCompleteLine(line) || (line.productId && line.unitCost)
                     ? lineMoneyParts({
@@ -544,7 +610,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         required
                         value={line.productId}
                         options={productOptionsForLine(line.key)}
-                        placeholder={products.loading ? "Loading…" : "Select product…"}
+                        placeholder={
+                          products.loading ? "Loading…" : "Select product…"
+                        }
                         searchPlaceholder="Search SKU or name…"
                         onChange={(value) => {
                           applyProductToLine(line.key, value);
@@ -558,14 +626,20 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                     <td className={css.skuCell}>{product?.sku ?? "—"}</td>
                     <td style={{ width: 140 }}>
                       {line.unitsPerPack > 1 && (
-                        <div className={css.countModeToggle} role="group" aria-label="Order in">
+                        <div
+                          className={css.countModeToggle}
+                          role="group"
+                          aria-label="Order in"
+                        >
                           {(["packs", "units"] as const).map((mode) => (
                             <button
                               key={mode}
                               type="button"
                               className={`${css.countModeBtn}${line.orderMode === mode ? ` ${css.countModeBtnActive}` : ""}`}
                               aria-pressed={line.orderMode === mode}
-                              onClick={() => updateLine(line.key, { orderMode: mode })}
+                              onClick={() =>
+                                updateLine(line.key, { orderMode: mode })
+                              }
                               disabled={saving}
                             >
                               {mode === "packs" ? "Packs" : "Units"}
@@ -578,7 +652,11 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         min={1}
                         step={1}
                         className={`${css.input} ${lineErr?.orderedQty ? css.inputError : ""}`}
-                        value={line.orderMode === "packs" ? line.orderedPacks : line.orderedQty}
+                        value={
+                          line.orderMode === "packs"
+                            ? line.orderedPacks
+                            : line.orderedQty
+                        }
                         onChange={(e) => {
                           updateLine(
                             line.key,
@@ -602,7 +680,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         </div>
                       )}
                       {lineErr?.orderedQty && (
-                        <span className={css.fieldError}>{lineErr.orderedQty}</span>
+                        <span className={css.fieldError}>
+                          {lineErr.orderedQty}
+                        </span>
                       )}
                     </td>
                     <td style={{ width: 110 }}>
@@ -621,7 +701,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         aria-label={`Unit cost line ${index + 1}`}
                       />
                       {lineErr?.unitCost ? (
-                        <span className={css.fieldError}>{lineErr.unitCost}</span>
+                        <span className={css.fieldError}>
+                          {lineErr.unitCost}
+                        </span>
                       ) : line.costFromPriceList ? (
                         <div className={css.packHint}>From price list</div>
                       ) : null}
@@ -634,7 +716,11 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         step="0.01"
                         className={css.input}
                         value={line.discountPercent}
-                        onChange={(e) => updateLine(line.key, { discountPercent: e.target.value })}
+                        onChange={(e) =>
+                          updateLine(line.key, {
+                            discountPercent: e.target.value,
+                          })
+                        }
                         disabled={saving}
                         aria-label={`Discount line ${index + 1}`}
                       />
@@ -647,7 +733,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         step="0.01"
                         className={css.input}
                         value={line.taxPercent}
-                        onChange={(e) => updateLine(line.key, { taxPercent: e.target.value })}
+                        onChange={(e) =>
+                          updateLine(line.key, { taxPercent: e.target.value })
+                        }
                         disabled={saving}
                         aria-label={`Tax line ${index + 1}`}
                       />
@@ -661,7 +749,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
                         className={`${css.actionBtn} ${css.actionBtnDanger} ${css.lineRemove}`}
                         onClick={() =>
                           setLines((prev) =>
-                            prev.length <= 1 ? [newLine()] : prev.filter((l) => l.key !== line.key),
+                            prev.length <= 1
+                              ? [newLine()]
+                              : prev.filter((l) => l.key !== line.key),
                           )
                         }
                         disabled={saving}
@@ -678,11 +768,15 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
         </div>
 
         <div className={css.createTotalsBar}>
-          <span className={css.currencyNote}>Currency: LKR — Sri Lankan Rupee</span>
+          <span className={css.currencyNote}>
+            Currency: LKR — Sri Lankan Rupee
+          </span>
           <div className={css.totalsGrid}>
             <div className={css.totalItem}>
               <span className={css.totalLabel}>Subtotal</span>
-              <span className={css.totalValue}>{formatMoney(totals.subtotal)}</span>
+              <span className={css.totalValue}>
+                {formatMoney(totals.subtotal)}
+              </span>
             </div>
             <div className={css.totalItem}>
               <span className={css.totalLabel}>Discount total</span>
@@ -692,7 +786,9 @@ export function CreatePoModal({ open, initialProductId, onClose, onCreated }: Pr
             </div>
             <div className={css.totalItem}>
               <span className={css.totalLabel}>Tax</span>
-              <span className={css.totalValue}>{formatMoney(totals.taxTotal)}</span>
+              <span className={css.totalValue}>
+                {formatMoney(totals.taxTotal)}
+              </span>
             </div>
             <div className={css.totalItem}>
               <span className={css.totalLabel}>Shipping / other</span>

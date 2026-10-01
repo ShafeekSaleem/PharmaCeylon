@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
-import { Modal, ModalButton, ModalFooter, SegmentedTabs } from "@/components/ui";
+import {
+  DatePicker,
+  Modal,
+  ModalButton,
+  ModalFooter,
+  SegmentedTabs,
+} from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { createIdempotencyKey } from "@/lib/idempotency";
 import { useInvoices } from "../hooks/use-ledger";
@@ -34,7 +40,12 @@ type Mode = "oldest" | "choose";
  * Either way the whole amount must land on invoices: a payment set against nothing is the
  * ambiguity this ledger replaced.
  */
-export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props) {
+export function RecordPaymentModal({
+  open,
+  onClose,
+  onRecorded,
+  preset,
+}: Props) {
   const suppliers = useSuppliers();
   const [supplierId, setSupplierId] = useState("");
   const [amount, setAmount] = useState("");
@@ -84,25 +95,37 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
     () => invoices.rows.reduce((sum, row) => sum + Number(row.balance), 0),
     [invoices.rows],
   );
-  const allocated = Object.values(allocations).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  const allocated = Object.values(allocations).reduce(
+    (sum, v) => sum + (Number(v) || 0),
+    0,
+  );
   const amountNumber = Number(amount) || 0;
 
   const allocationProblem =
     mode === "choose"
       ? Math.abs(allocated - amountNumber) > 0.004
         ? `The invoices below add up to ${formatMoney(allocated)}; the payment is ${formatMoney(amountNumber)}.`
-        : invoices.rows.some((row) => (Number(allocations[row.id]) || 0) > Number(row.balance) + 0.004)
+        : invoices.rows.some(
+              (row) =>
+                (Number(allocations[row.id]) || 0) >
+                Number(row.balance) + 0.004,
+            )
           ? "One invoice has more set against it than it has left to pay."
           : null
       : amountNumber > owed + 0.004
         ? `That is more than is owed to this supplier (${formatMoney(owed)}).`
         : null;
 
-  const valid = !!supplierId && amountNumber > 0 && !!paidOn && !allocationProblem;
+  const valid =
+    !!supplierId && amountNumber > 0 && !!paidOn && !allocationProblem;
 
   async function submit() {
     if (!valid) return;
-    if (!idempotency.current) idempotency.current = createIdempotencyKey("supplier-payment", supplierId);
+    if (!idempotency.current)
+      idempotency.current = createIdempotencyKey(
+        "supplier-payment",
+        supplierId,
+      );
     setSaving(true);
     setError(null);
     try {
@@ -120,7 +143,10 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
             ? {
                 allocations: Object.entries(allocations)
                   .filter(([, value]) => Number(value) > 0)
-                  .map(([invoiceId, value]) => ({ invoiceId, amount: Number(value).toFixed(2) })),
+                  .map(([invoiceId, value]) => ({
+                    invoiceId,
+                    amount: Number(value).toFixed(2),
+                  })),
               }
             : {}),
         }),
@@ -128,7 +154,9 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
       idempotency.current = null;
       onRecorded(payment);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record the payment");
+      setError(
+        err instanceof Error ? err.message : "Failed to record the payment",
+      );
     } finally {
       setSaving(false);
     }
@@ -147,7 +175,12 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
           <ModalButton onClick={onClose} disabled={saving}>
             Cancel
           </ModalButton>
-          <ModalButton variant="primary" onClick={() => void submit()} loading={saving} disabled={!valid}>
+          <ModalButton
+            variant="primary"
+            onClick={() => void submit()}
+            loading={saving}
+            disabled={!valid}
+          >
             Record payment
           </ModalButton>
         </ModalFooter>
@@ -161,7 +194,11 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
             label="Supplier"
             required
             value={supplierId}
-            options={suppliers.rows.map((s) => ({ value: s.id, label: s.name, meta: s.code }))}
+            options={suppliers.rows.map((s) => ({
+              value: s.id,
+              label: s.name,
+              meta: s.code,
+            }))}
             placeholder={suppliers.loading ? "Loading…" : "Select supplier…"}
             searchPlaceholder="Search suppliers…"
             onChange={(value) => {
@@ -197,7 +234,10 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
           <PurchasingSelect
             label="Paid by"
             value={method}
-            options={PAYMENT_METHOD_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            options={PAYMENT_METHOD_OPTIONS.map((o) => ({
+              value: o.value,
+              label: o.label,
+            }))}
             onChange={(value) => setMethod(value as SupplierPaymentMethod)}
             disabled={saving}
           />
@@ -206,14 +246,16 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
           <label className={css.fieldLabel} htmlFor="pay-date">
             Paid on
           </label>
-          <input
+          <DatePicker
+            variant="field"
             id="pay-date"
-            type="date"
-            className={css.input}
+            label="Paid on"
             value={paidOn}
+            onChange={(value) => setPaidOn(value)}
             max={todayIsoDate()}
-            onChange={(e) => setPaidOn(e.target.value)}
             disabled={saving}
+            clearable={false}
+            placeholder="Select a date"
           />
         </div>
         <div className={css.field}>
@@ -277,14 +319,20 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
                   {invoices.rows.map((row) => (
                     <tr key={row.id}>
                       <td>
-                        <div className={css.cellStrong}>{row.invoiceNumber}</div>
+                        <div className={css.cellStrong}>
+                          {row.invoiceNumber}
+                        </div>
                         {row.source === "system" ? (
-                          <div className={css.muted}>Delivery awaiting invoice</div>
+                          <div className={css.muted}>
+                            Delivery awaiting invoice
+                          </div>
                         ) : null}
                       </td>
                       <td>
                         {formatDate(row.dueDate)}
-                        {row.overdue ? <div className={css.fieldWarning}>Overdue</div> : null}
+                        {row.overdue ? (
+                          <div className={css.fieldWarning}>Overdue</div>
+                        ) : null}
                       </td>
                       <td>{formatMoney(row.balance)}</td>
                       <td style={{ width: 140 }}>
@@ -297,7 +345,10 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
                           placeholder="0.00"
                           value={allocations[row.id] ?? ""}
                           onChange={(e) =>
-                            setAllocations((prev) => ({ ...prev, [row.id]: e.target.value }))
+                            setAllocations((prev) => ({
+                              ...prev,
+                              [row.id]: e.target.value,
+                            }))
                           }
                           disabled={saving}
                         />
@@ -309,7 +360,11 @@ export function RecordPaymentModal({ open, onClose, onRecorded, preset }: Props)
             </div>
           )}
           {allocationProblem ? (
-            <p className={css.fieldWarning} role="alert" style={{ marginTop: "0.5rem" }}>
+            <p
+              className={css.fieldWarning}
+              role="alert"
+              style={{ marginTop: "0.5rem" }}
+            >
               {allocationProblem}
             </p>
           ) : null}

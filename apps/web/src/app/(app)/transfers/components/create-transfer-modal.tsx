@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { IconPlus, IconTrash } from "@/components/icons";
-import { Modal, ModalButton, ModalFooter } from "@/components/ui";
+import { DatePicker, Modal, ModalButton, ModalFooter } from "@/components/ui";
 import type { BatchRow } from "@/app/(app)/inventory/types";
-import { apiJson, fetchTenantBranches, type TenantBranch } from "@/lib/auth-client";
+import {
+  apiJson,
+  fetchTenantBranches,
+  type TenantBranch,
+} from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
 import css from "../../purchasing/purchasing.module.css";
@@ -39,7 +43,10 @@ function newLine(): CreateTransferLine {
   };
 }
 
-function isCompleteLine(line: CreateTransferLine, batches: Map<string, BatchRow>): boolean {
+function isCompleteLine(
+  line: CreateTransferLine,
+  batches: Map<string, BatchRow>,
+): boolean {
   const batch = batches.get(line.batchId);
   const qty = Number(line.qty);
   if (!batch || !Number.isInteger(qty) || qty < 1) return false;
@@ -66,7 +73,10 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
     [branches, branchId],
   );
 
-  const batchById = useMemo(() => new Map(batches.map((b) => [b.id, b])), [batches]);
+  const batchById = useMemo(
+    () => new Map(batches.map((b) => [b.id, b])),
+    [batches],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -105,7 +115,9 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
 
   function batchOptionsForLine(currentKey: string) {
     const usedElsewhere = new Set(
-      lines.filter((l) => l.key !== currentKey && l.batchId).map((l) => l.batchId),
+      lines
+        .filter((l) => l.key !== currentKey && l.batchId)
+        .map((l) => l.batchId),
     );
     return batches
       .filter((b) => b.availableQty > 0 && !usedElsewhere.has(b.id))
@@ -131,7 +143,8 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
     if (!toBranchId) next.toBranchId = "Select a destination branch";
     if (expectedOn) {
       const min = todayIsoDate();
-      if (expectedOn < min) next.expectedOn = "Expected date cannot be in the past";
+      if (expectedOn < min)
+        next.expectedOn = "Expected date cannot be in the past";
     }
     const lineErrors: Record<string, LineErrors> = {};
     let completeCount = 0;
@@ -145,7 +158,8 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
       const qty = Number(line.qty);
 
       if (!line.batchId) errs.batchId = "Select a batch";
-      if (!Number.isInteger(qty) || qty < 1) errs.qty = "Enter a valid quantity";
+      if (!Number.isInteger(qty) || qty < 1)
+        errs.qty = "Enter a valid quantity";
       else if (batch && qty > batch.availableQty) {
         errs.qty = `Only ${batch.availableQty} available`;
       }
@@ -174,7 +188,9 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
             next.productId = batch.productId;
             const qty = Number(next.qty);
             if (!Number.isFinite(qty) || qty > batch.availableQty) {
-              next.qty = String(Math.min(batch.availableQty, Math.max(1, qty || 1)));
+              next.qty = String(
+                Math.min(batch.availableQty, Math.max(1, qty || 1)),
+              );
             }
           }
         }
@@ -189,7 +205,10 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
       const { [field]: _removed, ...rest } = prev.lineErrors[key];
       const lineErrors = { ...prev.lineErrors, [key]: rest };
       if (Object.keys(rest).length === 0) delete lineErrors[key];
-      return { ...prev, lineErrors: Object.keys(lineErrors).length ? lineErrors : undefined };
+      return {
+        ...prev,
+        lineErrors: Object.keys(lineErrors).length ? lineErrors : undefined,
+      };
     });
   }
 
@@ -197,7 +216,12 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
     setTouched(true);
     const nextErrors = validate();
     setFieldErrors(nextErrors);
-    if (nextErrors.toBranchId || nextErrors.expectedOn || nextErrors.lines || nextErrors.lineErrors) {
+    if (
+      nextErrors.toBranchId ||
+      nextErrors.expectedOn ||
+      nextErrors.lines ||
+      nextErrors.lineErrors
+    ) {
       return;
     }
 
@@ -223,7 +247,9 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
       onCreated();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create transfer");
+      setError(
+        err instanceof Error ? err.message : "Failed to create transfer",
+      );
     } finally {
       setSaving(false);
     }
@@ -274,7 +300,10 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
         <div className={css.createHeaderGrid}>
           <div className={css.field}>
             <span className={css.fieldLabel}>From branch</span>
-            <div className={css.input} style={{ display: "flex", alignItems: "center" }}>
+            <div
+              className={css.input}
+              style={{ display: "flex", alignItems: "center" }}
+            >
               {fromBranch?.name ?? "—"}
             </div>
           </div>
@@ -296,19 +325,23 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
             <label className={css.fieldLabel} htmlFor="transfer-expected">
               Expected delivery
             </label>
-            <input
+            <DatePicker
+              variant="field"
               id="transfer-expected"
-              type="date"
-              className={`${css.input} ${errors.expectedOn ? css.inputError : ""}`}
+              label="Expected delivery"
               value={expectedOn}
-              min={todayIsoDate()}
-              onChange={(e) => {
-                setExpectedOn(e.target.value);
+              onChange={(value) => {
+                setExpectedOn(value);
                 setFieldErrors((prev) => ({ ...prev, expectedOn: undefined }));
               }}
+              min={todayIsoDate()}
               disabled={saving}
+              invalid={!!errors.expectedOn}
+              placeholder="Select a date"
             />
-            {errors.expectedOn && <span className={css.fieldError}>{errors.expectedOn}</span>}
+            {errors.expectedOn && (
+              <span className={css.fieldError}>{errors.expectedOn}</span>
+            )}
           </div>
           <div className={`${css.field} ${css.fullWidth}`}>
             <label className={css.fieldLabel} htmlFor="transfer-notes">
@@ -370,7 +403,9 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
                         required
                         value={line.batchId}
                         options={batchOptionsForLine(line.key)}
-                        placeholder={batchesLoading ? "Loading stock…" : "Select batch…"}
+                        placeholder={
+                          batchesLoading ? "Loading stock…" : "Select batch…"
+                        }
                         searchPlaceholder="Search SKU, name, or batch…"
                         onChange={(value) => {
                           updateLine(line.key, { batchId: value });
@@ -401,7 +436,9 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
                         disabled={saving || !line.batchId}
                         aria-label={`Quantity line ${index + 1}`}
                       />
-                      {lineErr?.qty && <span className={css.fieldError}>{lineErr.qty}</span>}
+                      {lineErr?.qty && (
+                        <span className={css.fieldError}>{lineErr.qty}</span>
+                      )}
                     </td>
                     <td>
                       <button
@@ -409,7 +446,9 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
                         className={`${css.actionBtn} ${css.actionBtnDanger} ${css.lineRemove}`}
                         onClick={() =>
                           setLines((prev) =>
-                            prev.length <= 1 ? [newLine()] : prev.filter((l) => l.key !== line.key),
+                            prev.length <= 1
+                              ? [newLine()]
+                              : prev.filter((l) => l.key !== line.key),
                           )
                         }
                         disabled={saving}
@@ -432,7 +471,8 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
 
         <div className={css.createTotalsBar}>
           <span className={css.currencyNote}>
-            Stock stays at the source until the transfer is approved and dispatched.
+            Stock stays at the source until the transfer is approved and
+            dispatched.
           </span>
           <div className={css.totalsGrid}>
             <div className={css.totalItem}>
@@ -441,7 +481,9 @@ export function CreateTransferModal({ open, onClose, onCreated }: Props) {
             </div>
             <div className={css.totalItem}>
               <span className={css.totalLabel}>Total units</span>
-              <span className={`${css.totalValue} ${css.totalGrand}`}>{totalUnits}</span>
+              <span className={`${css.totalValue} ${css.totalGrand}`}>
+                {totalUnits}
+              </span>
             </div>
           </div>
         </div>

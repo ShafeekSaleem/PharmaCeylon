@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal, ModalButton, ModalFooter } from "@/components/ui";
+import { DatePicker, Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { IconPlus, IconSearch, IconStethoscope } from "@/components/icons";
 import { createPrescription, searchPrescriptions } from "../services/pos-api";
 import type { Customer, Prescription } from "../types";
@@ -46,7 +46,10 @@ export function PosPrescriptionModal({
 
   useEffect(() => {
     if (open) {
-      setForm((f) => ({ ...f, patientName: customer?.fullName ?? f.patientName }));
+      setForm((f) => ({
+        ...f,
+        patientName: customer?.fullName ?? f.patientName,
+      }));
       return;
     }
     setQuery("");
@@ -69,7 +72,11 @@ export function PosPrescriptionModal({
         .then((next) => {
           if (active) setRows(next);
         })
-        .catch((e) => onError(e instanceof Error ? e.message : "Prescription search failed"))
+        .catch((e) =>
+          onError(
+            e instanceof Error ? e.message : "Prescription search failed",
+          ),
+        )
         .finally(() => {
           if (active) setLoading(false);
         });
@@ -81,7 +88,10 @@ export function PosPrescriptionModal({
   }, [open, query, onError]);
 
   async function save() {
-    if (form.patientName.trim().length < 2 || form.doctorName.trim().length < 2) {
+    if (
+      form.patientName.trim().length < 2 ||
+      form.doctorName.trim().length < 2
+    ) {
       onError("Patient and doctor names are required");
       return;
     }
@@ -98,7 +108,9 @@ export function PosPrescriptionModal({
       onSelect(rx);
       onClose();
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Could not record the prescription");
+      onError(
+        e instanceof Error ? e.message : "Could not record the prescription",
+      );
     } finally {
       setSaving(false);
     }
@@ -128,7 +140,11 @@ export function PosPrescriptionModal({
         ) : (
           <ModalFooter>
             <ModalButton onClick={onClose}>Close</ModalButton>
-            <ModalButton variant="primary" onClick={() => setCreating(true)} disabled={!canCreate}>
+            <ModalButton
+              variant="primary"
+              onClick={() => setCreating(true)}
+              disabled={!canCreate}
+            >
               <IconPlus size={14} /> New prescription
             </ModalButton>
           </ModalFooter>
@@ -142,7 +158,9 @@ export function PosPrescriptionModal({
             <input
               className={css.control}
               value={form.patientName}
-              onChange={(e) => setForm((f) => ({ ...f, patientName: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, patientName: e.target.value }))
+              }
             />
           </label>
           <label className={css.field}>
@@ -150,7 +168,9 @@ export function PosPrescriptionModal({
             <input
               className={css.control}
               value={form.doctorName}
-              onChange={(e) => setForm((f) => ({ ...f, doctorName: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, doctorName: e.target.value }))
+              }
             />
           </label>
           <label className={css.field}>
@@ -158,25 +178,31 @@ export function PosPrescriptionModal({
             <input
               className={css.control}
               value={form.doctorRegNo}
-              onChange={(e) => setForm((f) => ({ ...f, doctorRegNo: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, doctorRegNo: e.target.value }))
+              }
             />
           </label>
           <label className={css.field}>
             <span className={css.fieldLabel}>Issued on</span>
-            <input
-              className={css.control}
-              type="date"
+            <DatePicker
+              variant="field"
+              label="Issued on"
               value={form.issuedOn}
-              onChange={(e) => setForm((f) => ({ ...f, issuedOn: e.target.value }))}
+              onChange={(value) => setForm((f) => ({ ...f, issuedOn: value }))}
+              placeholder="Select a date"
             />
           </label>
           <label className={css.field}>
             <span className={css.fieldLabel}>Valid until</span>
-            <input
-              className={css.control}
-              type="date"
+            <DatePicker
+              variant="field"
+              label="Valid until"
               value={form.validUntil}
-              onChange={(e) => setForm((f) => ({ ...f, validUntil: e.target.value }))}
+              onChange={(value) =>
+                setForm((f) => ({ ...f, validUntil: value }))
+              }
+              placeholder="Select a date"
             />
           </label>
           <p className={`${css.fieldHint} ${css.formFull}`}>
@@ -207,8 +233,12 @@ export function PosPrescriptionModal({
                 }}
               >
                 <span className={css.pickerRowBody}>
-                  <span className={css.pickerRowTitle}>Unlink prescription</span>
-                  <span className={css.pickerRowMeta}>Sell as a normal retail sale</span>
+                  <span className={css.pickerRowTitle}>
+                    Unlink prescription
+                  </span>
+                  <span className={css.pickerRowMeta}>
+                    Sell as a normal retail sale
+                  </span>
                 </span>
               </button>
             )}
@@ -217,11 +247,14 @@ export function PosPrescriptionModal({
               <p className={css.pickerEmpty}>Searching…</p>
             ) : rows.length === 0 ? (
               <p className={css.pickerEmpty}>
-                No prescription found. Record a new one to dispense controlled items.
+                No prescription found. Record a new one to dispense controlled
+                items.
               </p>
             ) : (
               rows.map((rx) => {
-                const expired = rx.validUntil ? new Date(rx.validUntil) < new Date() : false;
+                const expired = rx.validUntil
+                  ? new Date(rx.validUntil) < new Date()
+                  : false;
                 return (
                   <button
                     key={rx.id}

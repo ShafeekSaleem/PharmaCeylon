@@ -1,6 +1,7 @@
 "use client";
 
 import { IconCalendar } from "@/components/icons";
+import { DatePicker } from "./date-picker";
 import css from "./date-range-field.module.css";
 
 type Props = {
@@ -20,7 +21,8 @@ type Props = {
  *
  * Purchasing had grown this as a page-local control; Inventory's movement history needed the
  * same thing and started stacking two full form fields instead. One control, both places.
- * The end date can't be set before the start, and the reverse.
+ * The end date can't be set before the start, and the reverse. Each half opens the app's own
+ * themed calendar (`DatePicker`), not the browser's.
  */
 export function DateRangeField({
   label,
@@ -34,7 +36,12 @@ export function DateRangeField({
   const filled = Boolean(from || to);
   return (
     <div
-      className={[css.dateRange, filled ? css.filled : "", size === "lg" ? css.large : "", className ?? ""]
+      className={[
+        css.dateRange,
+        filled ? css.filled : "",
+        size === "lg" ? css.large : "",
+        className ?? "",
+      ]
         .filter(Boolean)
         .join(" ")}
       role="group"
@@ -44,29 +51,33 @@ export function DateRangeField({
         <IconCalendar size={14} />
       </span>
       <div className={css.fields}>
-        <label className={css.field}>
-          <span className={css.fieldLabel}>From</span>
-          <input
-            type="date"
+        <div className={css.field}>
+          <span className={css.fieldLabel} aria-hidden>
+            From
+          </span>
+          <DatePicker
             value={from}
             max={to || undefined}
-            onChange={(e) => onFromChange(e.target.value)}
-            aria-label={`${label}: from`}
+            onChange={onFromChange}
+            label={`${label}: from`}
+            placeholder="Any"
           />
-        </label>
+        </div>
         <span className={css.separator} aria-hidden>
           →
         </span>
-        <label className={css.field}>
-          <span className={css.fieldLabel}>To</span>
-          <input
-            type="date"
+        <div className={css.field}>
+          <span className={css.fieldLabel} aria-hidden>
+            To
+          </span>
+          <DatePicker
             value={to}
             min={from || undefined}
-            onChange={(e) => onToChange(e.target.value)}
-            aria-label={`${label}: to`}
+            onChange={onToChange}
+            label={`${label}: to`}
+            placeholder="Any"
           />
-        </label>
+        </div>
       </div>
     </div>
   );
