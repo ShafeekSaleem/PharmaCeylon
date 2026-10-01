@@ -13,7 +13,19 @@ export type Column<T> = {
   render?: (row: T, index: number) => ReactNode;
   getValue?: (row: T) => string | number | null | undefined;
   align?: "left" | "center" | "right";
+  /**
+   * On a phone each row is a card of label/value pairs, labelled from `header`. Give a plain
+   * label here when the header isn't plain text (an icon, a sort hint) — or leave the column
+   * unlabelled, as an actions column is.
+   */
+  mobileLabel?: string;
 };
+
+/** The label a cell carries into the phone card layout. */
+function cellLabel<T>(col: Column<T>): string | undefined {
+  if (col.mobileLabel !== undefined) return col.mobileLabel || undefined;
+  return typeof col.header === "string" && col.header.trim() ? col.header : undefined;
+}
 
 export type DataTableProps<T> = {
   columns: Column<T>[];
@@ -346,7 +358,7 @@ export function DataTable<T>({
                   </td>
                 )}
                 {columns.map((col) => (
-                  <td key={col.key} style={{ textAlign: col.align }}>
+                  <td key={col.key} style={{ textAlign: col.align }} data-label={cellLabel(col)}>
                     {col.render
                       ? col.render(row, i)
                       : String((row as Record<string, unknown>)[col.key] ?? "—")}

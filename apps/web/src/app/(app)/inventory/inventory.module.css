@@ -1414,7 +1414,10 @@
   }
 }
 
-@media (max-width: 900px) {
+/* Hiding columns only ever made sense while the table was still a table. Below 641px every
+   DataTable becomes cards with every field labelled, so these stop there — on a phone they used
+   to drop Available, the one number a batch row exists to show. */
+@media (min-width: 641px) and (max-width: 900px) {
   .stockOverviewTable th:nth-child(4),
   .stockOverviewTable td:nth-child(4),
   .batchInventoryTable th:nth-child(5),
@@ -1423,7 +1426,7 @@
   }
 }
 
-@media (max-width: 700px) {
+@media (min-width: 641px) and (max-width: 700px) {
   .stockOverviewTable th:nth-child(3),
   .stockOverviewTable td:nth-child(3) {
     display: none;
@@ -1447,21 +1450,6 @@
 
   .batchInventoryTable th:nth-child(6) {
     width: 50px !important;
-  }
-}
-
-@media (max-width: 520px) {
-  .batchInventoryTable th:nth-child(4),
-  .batchInventoryTable td:nth-child(4) {
-    display: none;
-  }
-
-  .stockOverviewTable th:nth-child(2) {
-    width: 160px !important;
-  }
-
-  .stockOverviewTable th:nth-child(5) {
-    width: 108px !important;
   }
 }
 

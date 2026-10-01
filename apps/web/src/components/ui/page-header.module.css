@@ -56,6 +56,16 @@
 }
 
 @media (max-width: 640px) {
+  /* The description takes the whole row and the actions wrap beneath it. Left to share the row,
+     two buttons squeezed the description into a one-word-per-line column. */
+  .left {
+    flex-basis: 100%;
+  }
+
+  .actions {
+    flex-wrap: wrap;
+  }
+
   .floatingActions .left {
     padding-right: 0;
   }
