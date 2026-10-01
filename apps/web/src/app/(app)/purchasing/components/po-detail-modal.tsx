@@ -1043,8 +1043,8 @@ export function PoDetailModal({
                                 htmlFor={`recv-qty-${line.productId}`}
                               >
                                 {line.countMode === "packs"
-                                  ? "Packs received"
-                                  : "Units received"}
+                                  ? "Good packs received"
+                                  : "Good units received"}
                               </label>
                               {line.unitsPerPack > 1 && (
                                 <div
@@ -1328,8 +1328,8 @@ export function PoDetailModal({
                                 disabled={busy}
                               />
                               <span className={css.fieldHint}>
-                                Bonus units at no charge — they lower the cost
-                                per unit.
+                                Extra units at no charge, on top of the good
+                                ones above. They lower the cost per unit.
                               </span>
                             </div>
                             <div className={css.field}>
@@ -1358,7 +1358,8 @@ export function PoDetailModal({
                                 disabled={busy}
                               />
                               <span className={css.fieldHint}>
-                                Received and held in quarantine, not sold.
+                                Arrived broken, on top of the good ones above.
+                                Billed, then held in quarantine for a credit.
                               </span>
                             </div>
                             {Number(line.rejectedQty) > 0 && (
@@ -1392,6 +1393,23 @@ export function PoDetailModal({
                                 />
                               </div>
                             )}
+                            {(Number(line.freeQty) > 0 || Number(line.rejectedQty) > 0) &&
+                              (() => {
+                                // The three counts sit side by side, not inside one another —
+                                // each answers a different question — so say what they add up to.
+                                const good = receivedUnits(line);
+                                const free = Number(line.freeQty) || 0;
+                                const damaged = Number(line.rejectedQty) || 0;
+                                return (
+                                  <p className={css.receiveTally} aria-live="polite">
+                                    <strong>{good + free + damaged} units arrived</strong>
+                                    {" — "}
+                                    {good} good · {free} free · {damaged} damaged.{" "}
+                                    {good + damaged} billed, {good + free} go on the shelf
+                                    {damaged > 0 ? `, ${damaged} held for a credit` : ""}.
+                                  </p>
+                                );
+                              })()}
                           </div>
                         )}
                       </div>

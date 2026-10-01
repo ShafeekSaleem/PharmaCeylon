@@ -1411,6 +1411,19 @@
   color: var(--pc-muted-fg);
 }
 
+/* What a delivery line's three counts add up to — good, free and damaged sit side by side. */
+.receiveTally {
+  grid-column: 1 / -1;
+  margin: 0.15rem 0 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-alert-info-bg);
+  border: 1px solid var(--pc-alert-info-border);
+  color: var(--pc-alert-info-text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .extrasRow {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
