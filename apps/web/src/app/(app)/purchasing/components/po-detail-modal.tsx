@@ -595,14 +595,23 @@ export function PoDetailModal({
                     </ModalButton>
                   )}
                   {canApprovePo && canApprove(detail.status) && (
-                    <ModalButton
-                      variant="primary"
-                      onClick={() => void approve()}
-                      loading={busy}
-                      disabled={busy}
+                    // A disabled button fires no hover, so the reason sits on its wrapper.
+                    <span
+                      data-tooltip={
+                        detail.selfApprovalBlocked
+                          ? "You raised this order, and your role can't approve its own requests. Ask another approver."
+                          : undefined
+                      }
                     >
-                      Approve
-                    </ModalButton>
+                      <ModalButton
+                        variant="primary"
+                        onClick={() => void approve()}
+                        loading={busy}
+                        disabled={busy || detail.selfApprovalBlocked}
+                      >
+                        Approve
+                      </ModalButton>
+                    </span>
                   )}
                   {canReceiveGoods && canReceive(detail.status) && (
                     <ModalButton

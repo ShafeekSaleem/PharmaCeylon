@@ -76,6 +76,8 @@ export type StocktakeCountEntry = {
   isRecount: boolean;
   countedAt: string;
   counter: StocktakeUserRef;
+  /** You took part in this count and your role can't approve its own requests. */
+  selfApprovalBlocked?: boolean;
 };
 
 export type StocktakeMovementRef = {
@@ -165,6 +167,8 @@ export type StocktakeListItem = {
   createdAt: string;
   updatedAt: string;
   counter: StocktakeUserRef;
+  /** You took part in this count and your role can't approve its own requests. */
+  selfApprovalBlocked?: boolean;
   reviewer: StocktakeUserRef | null;
   approver: StocktakeUserRef | null;
   poster: StocktakeUserRef | null;

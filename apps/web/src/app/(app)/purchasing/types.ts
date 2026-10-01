@@ -166,6 +166,8 @@ export type GoodsReceipt = {
 export type PurchaseOrderDetail = Omit<PurchaseOrderListItem, "supplier" | "goodsReceipts"> & {
   supplier: SupplierOption;
   goodsReceipts: GoodsReceipt[];
+  /** You raised this order and your role can't approve its own requests. */
+  selfApprovalBlocked?: boolean;
 };
 
 export type CreatePoLine = {

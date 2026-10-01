@@ -600,7 +600,12 @@ export default function StocktakeDetailPage() {
       onClick: () => void requestRecount(),
     });
     if (canApprovePerm && canApprove(row.status)) {
-      const approveBlocked = reviewApprovalBlockers(row, reviews);
+      const approveBlocked = [
+        ...(row.selfApprovalBlocked
+          ? ["You counted this stocktake, and your role can't approve its own requests. Ask another approver."]
+          : []),
+        ...reviewApprovalBlockers(row, reviews),
+      ];
       primaryActions.push(
         <ActionButton
           key="approve"

@@ -120,9 +120,12 @@ export class PurchasingController {
     @Param("id", ParseUUIDPipe) id: string,
   ) {
     const access = await this.access.resolve(user, branchId);
-    return this.purchasing.getPurchaseOrder(user.tenantId, branchId, id, {
+    const po = await this.purchasing.getPurchaseOrder(user.tenantId, branchId, id, {
       canViewCost: access.has("costs.view"),
     });
+    // The same rule `assertMayApprove` enforces, said up front so the page can disable Approve
+    // with the reason on it instead of letting someone click and read a refusal.
+    return { ...po, selfApprovalBlocked: !access.canSelfApprove && po.createdBy === user.userId };
   }
 
   @RequirePermission("purchasing.manage")
