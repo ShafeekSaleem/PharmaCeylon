@@ -18,6 +18,8 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import { CreatePurchaseOrderDto } from "./dto/create-purchase-order.dto";
 import { ReceiveGoodsDto } from "./dto/receive-goods.dto";
 import { UpdatePurchaseOrderDto } from "./dto/update-purchase-order.dto";
+import { PurchaseApprovalRequestService } from "./approval-request.service";
+import { RequestApprovalDto } from "./dto/request-approval.dto";
 import { PurchasingService } from "./purchasing.service";
 
 @Controller("purchasing")
@@ -25,6 +27,7 @@ export class PurchasingController {
   constructor(
     private readonly purchasing: PurchasingService,
     private readonly access: AccessService,
+    private readonly approvalRequests: PurchaseApprovalRequestService,
   ) {}
 
   /**
@@ -190,6 +193,21 @@ export class PurchasingController {
   ) {
     await this.assertMayPrice(user, branchId);
     return this.purchasing.updatePurchaseOrder(user.tenantId, branchId, user.userId, id, dto);
+  }
+
+  /**
+   * The receiver hit a refusal only an approver can lift — an over-delivery or a dearer price —
+   * and sends it to the people who can, at this branch, rather than going to find one.
+   */
+  @RequirePermission("purchasing.receive")
+  @Post("purchase-orders/:id/request-approval")
+  requestApproval(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: RequestApprovalDto,
+  ) {
+    return this.approvalRequests.request(user.tenantId, branchId, user.userId, id, dto);
   }
 
   // Receiving is its own permission: a storekeeper books deliveries in without being able to

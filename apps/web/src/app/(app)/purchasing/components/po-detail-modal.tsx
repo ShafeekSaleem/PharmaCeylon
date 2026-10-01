@@ -93,6 +93,8 @@ export function PoDetailModal({
   const { detail, loading, error, reload } = usePurchaseOrderDetail(poId);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** What happened when a receiver who can't accept asked an approver to. */
+  const [escalationNotice, setEscalationNotice] = useState<string | null>(null);
   const [receiveMode, setReceiveMode] = useState(false);
   const [receiveLines, setReceiveLines] = useState<ReceiveLineForm[]>([]);
   const [receivedOn, setReceivedOn] = useState(todayIsoDate());
@@ -124,6 +126,7 @@ export function PoDetailModal({
 
   useEffect(() => {
     setActionError(null);
+    setEscalationNotice(null);
     setReceiveMode(false);
     setBusy(false);
     setEditMode(false);
@@ -388,6 +391,34 @@ export function PoDetailModal({
     return Math.round(percent * 10) / 10;
   }
 
+  /**
+   * Send a refusal the receiver can't lift to the people who can, at this branch. Nothing is
+   * booked in: the approver opens the order from their notification and receives it there.
+   */
+  async function askApprover(kind: "over_delivery" | "price_variance", detailText: string) {
+    if (!detail) return;
+    setBusy(true);
+    try {
+      const result = await apiJson<{ notified: number; alreadyAsked: boolean }>(
+        `/purchasing/purchase-orders/${detail.id}/request-approval`,
+        { method: "POST", body: JSON.stringify({ kind, detail: detailText.slice(0, 500) }) },
+      );
+      setOverDeliveryPrompt(null);
+      setPriceRises([]);
+      setEscalationNotice(
+        result.alreadyAsked
+          ? "You've already asked about this order in the last few minutes — the approvers have it."
+          : result.notified > 0
+            ? `Sent to ${result.notified} ${result.notified === 1 ? "person" : "people"} who can approve orders at this branch. Nothing has been booked in yet — they'll accept the delivery from this order.`
+            : "Nobody at this branch can approve purchase orders, so there was no one to send it to. Ask an owner to grant the permission.",
+      );
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Couldn't send the request");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function receive(answer: ReceiveAnswers = {}) {
     if (!detail || !receiveValid) return;
     if (!receiveIdempotency.current || receiveIdempotency.current.poId !== detail.id) {
@@ -634,6 +665,11 @@ export function PoDetailModal({
       {(error || actionError) && (
         <Alert variant="error" className={css.modalAlert}>
           {actionError ?? error}
+        </Alert>
+      )}
+      {escalationNotice && (
+        <Alert variant="info" className={css.modalAlert}>
+          {escalationNotice}
         </Alert>
       )}
 
@@ -1372,15 +1408,18 @@ export function PoDetailModal({
     <ConfirmDialog
       open={overDeliveryPrompt !== null}
       title="More arrived than was ordered"
-      confirmLabel="Accept the extra"
+      confirmLabel={canApprovePo ? "Accept the extra" : "Ask an approver"}
       cancelLabel="Refresh quantities"
       variant="primary"
-      confirmDisabled={!canApprovePo}
       loading={busy || preparingReceive}
       onCancel={() => {
         if (!busy) void refreshQuantities();
       }}
       onConfirm={() => {
+        if (!canApprovePo) {
+          void askApprover("over_delivery", overDeliveryPrompt ?? "");
+          return;
+        }
         setOverDeliveryPrompt(null);
         void receive({ acceptOverDelivery: true });
       }}
@@ -1388,8 +1427,8 @@ export function PoDetailModal({
       <p>{overDeliveryPrompt}</p>
       {!canApprovePo && (
         <p className={css.fieldHint}>
-          Your role can&apos;t accept an over-delivery. Ask someone who approves purchase orders,
-          or receive only what was ordered.
+          Your role can&apos;t accept an over-delivery. Ask an approver sends it to the people who
+          approve purchase orders at this branch — or receive only what was ordered.
         </p>
       )}
     </ConfirmDialog>
@@ -1401,15 +1440,26 @@ export function PoDetailModal({
     <ConfirmDialog
       open={priceRises.length > 0}
       title="This is dearer than the order agreed"
-      confirmLabel="Accept the new price"
+      confirmLabel={canApprovePo ? "Accept the new price" : "Ask an approver"}
       cancelLabel="Go back"
       variant="primary"
-      confirmDisabled={!canApprovePo}
       loading={busy}
       onCancel={() => {
         if (!busy) setPriceRises([]);
       }}
       onConfirm={() => {
+        if (!canApprovePo) {
+          void askApprover(
+            "price_variance",
+            priceRises
+              .map(
+                (rise) =>
+                  `${rise.product}: ordered at ${formatMoney(rise.orderedUnitCost)}, billed at ${formatMoney(rise.billedUnitCost)} (+${rise.variancePercent}%).`,
+              )
+              .join(" "),
+          );
+          return;
+        }
         setPriceRises([]);
         void receive({ acceptPriceVariance: true });
       }}
@@ -1434,8 +1484,8 @@ export function PoDetailModal({
         </label>
       ) : (
         <p className={css.fieldHint}>
-          Your role can&apos;t accept a price increase. Ask someone who approves purchase orders,
-          or enter the price the order agreed.
+          Your role can&apos;t accept a price increase. Ask an approver sends it to the people who
+          approve purchase orders at this branch — or enter the price the order agreed.
         </p>
       )}
     </ConfirmDialog>
