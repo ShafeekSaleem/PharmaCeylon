@@ -13,7 +13,7 @@ export type PosBatch = {
   batchNo: string;
   expiryDate: string;
   sellingPrice: string;
-  costPrice: string;
+  costPrice: string | null;
   qtyOnHand: number;
   daysToExpiry: number;
   nearExpiry: boolean;
@@ -79,7 +79,14 @@ export class PosService {
     private readonly categoryTaxonomy: CategoryTaxonomyService,
   ) {}
 
-  async catalog(tenantId: string, branchId: string) {
+  async catalog(
+    tenantId: string,
+    branchId: string,
+    opts: { canViewCost?: boolean } = {},
+  ) {
+    // A till sells at the selling price; what the pharmacy paid is not part of that job, and
+    // cashiers do not hold `costs.view`.
+    const canViewCost = opts.canViewCost === true;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { timezone: true },
@@ -223,7 +230,7 @@ export class PosService {
         batchNo: batch.batchNo,
         expiryDate: batch.expiryDate.toISOString(),
         sellingPrice: batch.sellingPrice.toFixed(2),
-        costPrice: batch.costPrice.toFixed(2),
+        costPrice: canViewCost ? batch.costPrice.toFixed(2) : null,
         qtyOnHand,
         daysToExpiry,
         nearExpiry: daysToExpiry <= nearExpiryDays,

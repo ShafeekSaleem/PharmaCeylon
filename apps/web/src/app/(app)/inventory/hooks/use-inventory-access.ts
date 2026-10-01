@@ -19,7 +19,7 @@ export function useInventoryAccess() {
     canQuarantine: can("inventory.quarantine"),
     canRelease: can("inventory.release_quarantine"),
     canQuarantineAllExpired: can("inventory.manage_bulk"),
-    canViewCost: can("inventory.view_cost"),
+    canViewCost: can("costs.view"),
   };
 }
 

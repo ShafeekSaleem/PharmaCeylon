@@ -120,6 +120,8 @@ type RoleFlags = {
   canApprove: boolean;
   canPost: boolean;
   canViewExpected: boolean;
+  /** Counting stock says nothing about being allowed to know what it cost. */
+  canViewCost: boolean;
 };
 
 type MovementRef = {
@@ -169,6 +171,7 @@ function roleFlags(access: ActorAccess): RoleFlags {
     canApprove: canReview,
     canPost: canReview,
     canViewExpected: canReview,
+    canViewCost: access.has("costs.view"),
   };
 }
 
@@ -461,9 +464,12 @@ export class StocktakesService {
       varianceUnitsIn: blindRestricted ? null : varianceUnitsIn,
       varianceUnitsOut: blindRestricted ? null : varianceUnitsOut,
       varianceUnitsNet: blindRestricted ? null : varianceUnitsIn - varianceUnitsOut,
-      varianceValueApprox: blindRestricted
-        ? null
-        : Math.round(varianceValueApprox * 100) / 100,
+      // What the variance is worth is a cost figure, so it follows the cost permission — a
+      // count is units, and a clerk counting them is not owed the money behind them.
+      varianceValueApprox:
+        blindRestricted || !flags.canViewCost
+          ? null
+          : Math.round(varianceValueApprox * 100) / 100,
     };
   }
 
@@ -513,7 +519,7 @@ export class StocktakesService {
             batchNo: line.batch.batchNo,
             expiryDate: line.batch.expiryDate.toISOString(),
             isQuarantined: line.batch.isQuarantined,
-            costPrice: Number(line.batch.costPrice),
+            costPrice: flags.canViewCost ? Number(line.batch.costPrice) : null,
           },
           movementRefs: blindRestricted ? [] : movementSummary.refs,
           countEntries: line.countEntries.map((entry) => ({

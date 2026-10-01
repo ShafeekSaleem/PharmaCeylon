@@ -23,7 +23,7 @@ export function usePurchasingAccess() {
     /** Approve, reject, short-close or cancel — and accept an over-delivery. */
     canApprove: can("purchasing.approve"),
     /** See unit costs, order values and supplier price lists. */
-    canViewCost: can("purchasing.view_cost"),
+    canViewCost: can("costs.view"),
     /** Edit supplier records, invoices and payments. */
     canManageSuppliers: can("suppliers.manage"),
     /** See and change what a supplier charges — a commercial decision, not a stock one. */

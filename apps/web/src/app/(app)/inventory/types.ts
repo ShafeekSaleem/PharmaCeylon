@@ -59,7 +59,7 @@ export type BatchRow = {
   batchNo: string;
   expiryDate: string;
   receivedAt: string;
-  /** Null when the viewer lacks `inventory.view_cost` — the API leaves it out. */
+  /** Null when the viewer lacks `costs.view` — the API leaves it out. */
   costPrice: string | null;
   sellingPrice: string;
   productId: string;
@@ -111,7 +111,7 @@ export type InventorySummary = {
   skuCount: number;
   totalUnits: number;
   availableUnits: number;
-  /** Null without `inventory.view_cost`. */
+  /** Null without `costs.view`. */
   stockValue: string | null;
   lowStock: number;
   outOfStock: number;

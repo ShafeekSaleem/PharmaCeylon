@@ -5,7 +5,8 @@ export type ProductDetailBatch = {
   id: string;
   batchNo: string;
   expiryDate: string;
-  costPrice: string;
+  /** Null when the caller may not see cost — never 0, which would read as free stock. */
+  costPrice: string | null;
   sellingPrice: string;
   receivedAt: string;
   qtyOnHand: number;
@@ -51,6 +52,7 @@ export type ProductBranchSummary = {
   nextExpiryDays: number | null;
   nearExpiryBatchCount: number;
   primarySellingPrice: string | null;
+  /** Both null when the caller may not see cost: a margin is a cost figure in disguise. */
   primaryCostPrice: string | null;
   marginPercent: number | null;
   avgMonthlyUsage: number | null;

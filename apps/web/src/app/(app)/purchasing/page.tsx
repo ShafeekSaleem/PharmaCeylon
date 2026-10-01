@@ -80,7 +80,11 @@ function PurchasingContent() {
   const searchParams = useSearchParams();
   const { user, branchId, setBranchId } = useAuth();
   const access = usePurchasingAccess();
-  const canWrite = access.canManage;
+  // An order commits the pharmacy to a price, so raising one takes the cost permission as well
+  // as the purchasing one — the API refuses otherwise, and the button says so rather than
+  // failing on submit.
+  const canWrite = access.canManage && access.canViewCost;
+  const blockedByCost = access.canManage && !access.canViewCost;
   const canCancel = access.canApprove;
   const canApprove = access.canApprove;
   const orders = usePurchaseOrders();
@@ -549,6 +553,12 @@ function PurchasingContent() {
                 New purchase order
               </ActionButton>
             </>
+          ) : blockedByCost ? (
+            <span data-tooltip="An order sets what the pharmacy agrees to pay, so raising one needs permission to see costs. Ask an owner or manager.">
+              <ActionButton icon={<IconPlus size={16} />} disabled>
+                New purchase order
+              </ActionButton>
+            </span>
           ) : null
         }
       />

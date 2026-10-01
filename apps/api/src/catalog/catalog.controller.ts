@@ -5,11 +5,15 @@ import {
   AuthenticatedRequest,
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
+import { AccessService } from "../security/access.service";
 import { CatalogService } from "./catalog.service";
 
 @Controller("catalog")
 export class CatalogController {
-  constructor(private readonly catalog: CatalogService) {}
+  constructor(
+    private readonly catalog: CatalogService,
+    private readonly access: AccessService,
+  ) {}
 
   @RequirePermission("catalog.view")
   @Get("search")
@@ -106,12 +110,15 @@ export class CatalogController {
 
   @RequirePermission("catalog.view")
   @Get("products/:productId")
-  productDetail(
+  async productDetail(
     @CurrentUser() user: RequestUser,
     @Req() req: AuthenticatedRequest,
     @Param("productId", ParseUUIDPipe) productId: string,
   ) {
-    return this.catalog.productDetail(user.tenantId, req.branchId, productId);
+    const access = await this.access.resolve(user, req.branchId);
+    return this.catalog.productDetail(user.tenantId, req.branchId, productId, {
+      canViewCost: access.has("costs.view"),
+    });
   }
 
   @RequirePermission("catalog.view")

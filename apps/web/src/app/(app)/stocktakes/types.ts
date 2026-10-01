@@ -115,7 +115,7 @@ export type StocktakeLine = {
     batchNo: string;
     expiryDate: string;
     isQuarantined: boolean;
-    costPrice: number;
+    costPrice: number | null;
   };
   movementRefs: StocktakeMovementRef[];
   countEntries: StocktakeCountEntry[];

@@ -587,11 +587,21 @@ export class ProductsService {
       stockStatus,
       reorderGap: reorderGapVal,
       branchName: extras.branchName,
-      batches: extras.batches,
+      // Every figure here that is a cost, or is worked out from one, follows the same
+      // permission — the page shows a dash for each, rather than a zero or a margin computed
+      // against nothing.
+      batches: canViewCost
+        ? extras.batches
+        : extras.batches.map((batch) => ({ ...batch, costPrice: null })),
       branchStock: extras.branchStock,
       movements: extras.movements,
       branchSummary: extras.branchSummary
-        ? { ...extras.branchSummary, avgMonthlyUsage: extras.avgMonthlyUsage }
+        ? {
+            ...extras.branchSummary,
+            primaryCostPrice: canViewCost ? extras.branchSummary.primaryCostPrice : null,
+            marginPercent: canViewCost ? extras.branchSummary.marginPercent : null,
+            avgMonthlyUsage: extras.avgMonthlyUsage,
+          }
         : null,
       pricing,
       history,
