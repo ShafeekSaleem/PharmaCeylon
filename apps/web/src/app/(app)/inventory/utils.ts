@@ -7,18 +7,9 @@ export function stockStatusLabel(status: StockStatus | null | undefined): string
   return "—";
 }
 
-export function formatMoney(value: string | number | null | undefined): string {
-  const n = typeof value === "number" ? value : Number(value ?? 0);
-  if (Number.isNaN(n)) return "—";
-  return `LKR ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+import { formatMoney } from "@/lib/money";
 
-/** Short money figure for tight spaces: "LKR 14.5M". */
-export function formatCompactMoney(value: string | number | null | undefined): string {
-  const n = typeof value === "number" ? value : Number(value ?? 0);
-  if (Number.isNaN(n)) return "—";
-  return `LKR ${new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n)}`;
-}
+export { formatMoney, formatCompactMoney } from "@/lib/money";
 
 /** Compact cost → sell line for batch tables. */
 export function formatCostToSell(

@@ -207,7 +207,7 @@ export class PurchasingService {
       },
     });
     if (canViewCost) return rows;
-    // Costs are withheld, not hidden in the page: a role without `purchasing.view_cost` can
+    // Costs are withheld, not hidden in the page: a role without `costs.view` can
     // still track what is on order and when it lands, and never sees what it costs.
     return rows.map((po) => ({
       ...po,

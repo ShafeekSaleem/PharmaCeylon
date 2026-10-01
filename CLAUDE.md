@@ -170,7 +170,7 @@ Receiving (`purchasing.service.ts`) posts one delivery at a time through `StockS
 `SupplierProductPrice` is the price list an order line starts from. Receiving writes
 `lastUnitCost` / `lastPurchasedAt` beside the agreed `unitCost`, so a creeping price is visible
 instead of absorbed. Costs everywhere in Purchasing are withheld by the API without
-`purchasing.view_cost`, and booking a delivery in needs `purchasing.receive` rather than
+`costs.view`, and booking a delivery in needs `purchasing.receive` rather than
 `purchasing.manage`.
 
 ### What the pharmacy owes its suppliers

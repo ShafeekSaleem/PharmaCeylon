@@ -112,9 +112,9 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | Endpoint | Permission | Notes |
 | --- | --- | --- |
 | `GET /inventory/stock-by-product` | `inventory.view` | Adds `availableQty`, `quarantinedQty`, `reservedQty`, `expiredQty`, `expiredBatchCount`, `expiryReviewBatchCount`. New query: `attention=expired\|near_expiry\|quarantined\|reserved\|expiry_review`, `sort=name\|available\|onHand`, `dir=asc\|desc`. |
-| `GET /inventory/batches` | `inventory.view` | Per-batch quantities as above; `q` searches batch no / product / SKU. `costPrice` is **null** without `inventory.view_cost`. |
+| `GET /inventory/batches` | `inventory.view` | Per-batch quantities as above; `q` searches batch no / product / SKU. `costPrice` is **null** without `costs.view`. |
 | `GET /inventory/products/:productId/stock` | `inventory.view` | Totals, batches, reservations, incoming transfers, open PO quantity, other branches (branches the caller works at; owners see all), recent movements. |
-| `GET /inventory/summary` | `inventory.view` | Adds `availableUnits`, `quarantinedUnits`, `reservedUnits`, `expiredUnits`, `expiryReview`, `incomingTransfers`. `stockValue` is **null** without `inventory.view_cost`. |
+| `GET /inventory/summary` | `inventory.view` | Adds `availableUnits`, `quarantinedUnits`, `reservedUnits`, `expiredUnits`, `expiryReview`, `incomingTransfers`. `stockValue` is **null** without `costs.view`. |
 | `GET /inventory/movements` | `inventory.view` | Filters `productId`, `batchId`, `category` (adds `stocktakes`, `opening`, `quarantine`), `userId`, `from`/`to` (tenant-local dates), `referenceType`/`referenceId`. Quarantine moves appear once with `qtyDelta: 0` and a signed `quarantineDelta`; legacy reservation rows are hidden. `balanceAvailable` says whether before/after balances are meaningful (one product or batch, no other filters). |
 | `GET /inventory/movement-actors` | `inventory.view` | Users who moved stock at the branch in the last year. |
 | `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | Body `{ qty?, reasonCode: expired\|damaged\|recall\|inspection\|other, reason? }`. `qty` defaults to everything not already held or reserved; `reason` required for `other`. |
@@ -132,13 +132,13 @@ Quantities on the wire are always **units**; packs are a way of entering them. A
 
 | Endpoint | Permission | Notes |
 | --- | --- | --- |
-| `GET /purchasing/purchase-orders` | `purchasing.view` | `unitCost`, `packCost` and `shippingCharges` are **null** without `purchasing.view_cost`. |
+| `GET /purchasing/purchase-orders` | `purchasing.view` | `unitCost`, `packCost` and `shippingCharges` are **null** without `costs.view`. |
 | `GET /purchasing/purchase-orders/:id` | `purchasing.view` | Lines add `orderedPacks`, `unitsPerPack`, `packCost`, `receivedQty`, `freeQty`, `rejectedQty`, `outstandingQty`, `outstandingPacks`. |
-| `GET /purchasing/deliveries` | `purchasing.view` | Goods receipts for the branch, newest first. Query `supplierId`, `from`, `to`, `q`. Per-delivery `paidUnits`, `freeUnits`, `rejectedUnits`, and `value` (null without `purchasing.view_cost`). |
+| `GET /purchasing/deliveries` | `purchasing.view` | Goods receipts for the branch, newest first. Query `supplierId`, `from`, `to`, `q`. Per-delivery `paidUnits`, `freeUnits`, `rejectedUnits`, and `value` (null without `costs.view`). |
 | `GET /purchasing/reorder-suggestions` | `purchasing.manage` | Products at or below their reorder level after subtracting **available** stock and everything already on order, grouped by the cheapest active supplier who lists them. `unassigned` holds those no supplier prices. |
 | `POST /purchasing/purchase-orders/receive` | `purchasing.receive` | Lines accept `packs`/`receivedQty`, `freeQty`, `rejectedQty` (+ `rejectedReason`, required), `packCost`/`costPrice`, `sellingPrice`, `onCostConflict`. Body accepts `supplierDeliveryNote`, `acceptOverDelivery`, `acceptPriceVariance`, `updateSupplierPrice`. |
-| `GET /purchasing/supplier-prices` | `purchasing.view_cost` | Compact price map (`productId`, `unitCost`, `unitsPerPack`, `discountPercent`) for prefilling order lines. |
-| `GET /purchasing/batch-lookup` | `purchasing.receive` or `inventory.view` | `productId` + `batchNo` → whether that batch is already on the shelf here, with its expiry, units on hand and whether its expiry is still unconfirmed. Cost is withheld without `purchasing.view_cost`. |
+| `GET /purchasing/supplier-prices` | `costs.view` | Compact price map (`productId`, `unitCost`, `unitsPerPack`, `discountPercent`) for prefilling order lines. |
+| `GET /purchasing/batch-lookup` | `purchasing.receive` or `inventory.view` | `productId` + `batchNo` → whether that batch is already on the shelf here, with its expiry, units on hand and whether its expiry is still unconfirmed. Cost is withheld without `costs.view`. |
 | `GET /suppliers/:id/prices` | `suppliers.manage_prices` | The supplier's price list with `lastUnitCost` and `priceDrift` beside the agreed cost. |
 | `PUT /suppliers/:id/prices` | `suppliers.manage_prices` | Upsert one product's price (`packCost` or `unitCost` required). |
 | `DELETE /suppliers/:id/prices/:productId` | `suppliers.manage_prices` | Removes one product from the list. |

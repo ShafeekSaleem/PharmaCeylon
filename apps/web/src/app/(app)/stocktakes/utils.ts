@@ -333,7 +333,7 @@ export function exportStocktakeCsv(detail: StocktakeListItem): void {
         ? line.countedQty - line.expectedAtReview
         : null);
     const value =
-      variance != null && Number.isFinite(line.batch.costPrice)
+      variance != null && line.batch.costPrice != null
         ? Math.round(variance * line.batch.costPrice * 100) / 100
         : "";
     return [

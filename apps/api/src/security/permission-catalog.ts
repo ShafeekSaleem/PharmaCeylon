@@ -62,6 +62,9 @@ export const MODULE_SECTIONS: Record<string, string> = {
   uploads: "catalog_products",
   customers: "customers_prescriptions",
   prescriptions: "customers_prescriptions",
+  // Its own group: cost is not an Inventory or a Purchasing concern any more, it governs every
+  // screen that could show what something cost.
+  costs: "costs_money",
   inventory: "inventory_stocktakes",
   stocktakes: "inventory_stocktakes",
   purchasing: "purchasing_suppliers",
@@ -77,6 +80,7 @@ export const SECTION_LABELS: Record<string, string> = {
   pos_sales: "POS & Sales",
   catalog_products: "Catalog & Products",
   customers_prescriptions: "Customers & Prescriptions",
+  costs_money: "Costs & Margins",
   inventory_stocktakes: "Inventory & Stocktakes",
   purchasing_suppliers: "Purchasing & Suppliers",
   transfers: "Transfers",
@@ -268,14 +272,13 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     dependencies: ["inventory.view"],
   },
   {
-    key: "inventory.view_cost",
-    module: "inventory",
-    label: "View cost and stock value",
+    key: "costs.view",
+    module: "costs",
+    label: "See costs and margins",
     description:
-      "Batch cost prices and stock valuation in Inventory. Without it the API leaves them out entirely.",
-    defaultRoles: [owner, manager],
+      "What stock cost and what it earns, everywhere in the app: batch costs and stock valuation, unit costs and order values, supplier prices on an order line, stocktake variance values, and any margin worked out from them. One permission rather than one per screen — without it the API leaves every such figure out, and the pages show a dash.",
+    defaultRoles: [owner, manager, inventory_clerk, pharmacist],
     riskLevel: "sensitive",
-    dependencies: ["inventory.view"],
   },
 
   // ── NMRA import ──
@@ -382,14 +385,6 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
       "Enter the supplier's own invoice, match it to deliveries, raise and void debit notes.",
     defaultRoles: [owner, manager],
     riskLevel: "elevated",
-    dependencies: ["purchasing.view"],
-  },
-  {
-    key: "purchasing.view_cost",
-    module: "purchasing",
-    label: "View purchase costs",
-    description: "Unit costs, order values and supplier price lists in Purchasing.",
-    defaultRoles: [owner, manager, inventory_clerk, pharmacist],
     dependencies: ["purchasing.view"],
   },
   {

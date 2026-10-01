@@ -79,11 +79,7 @@ export function parseDateOnlyLocal(iso: string | null | undefined): Date | null 
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function formatMoney(value: string | number | null | undefined): string {
-  const n = typeof value === "number" ? value : Number(value ?? 0);
-  if (Number.isNaN(n)) return "—";
-  return `LKR ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+export { formatMoney } from "@/lib/money";
 
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -113,7 +109,7 @@ export function poLineCount(items: { orderedQty: number }[]): number {
 }
 
 /**
- * `unitCost` is null for a caller without `purchasing.view_cost` — the API withholds it rather
+ * `unitCost` is null for a caller without `costs.view` — the API withholds it rather
  * than the page hiding it — so every money helper treats a missing cost as zero and the totals
  * simply come out empty for them.
  */

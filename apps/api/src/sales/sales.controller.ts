@@ -13,6 +13,7 @@ import {
 } from "@nestjs/common";
 import { ApiBody, ApiHeader, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
+import { AccessService } from "../security/access.service";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -34,13 +35,17 @@ export class SalesController {
     private readonly pos: PosService,
     private readonly held: HeldSalesService,
     private readonly pharmacistApproval: PharmacistApprovalService,
+    private readonly access: AccessService,
   ) {}
 
   @ApiOperation({ summary: "Sellable products with FEFO batches for the POS screen" })
   @RequirePermission("sales.pos_use")
   @Get("pos/catalog")
-  posCatalog(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
-    return this.pos.catalog(user.tenantId, branchId);
+  async posCatalog(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    const access = await this.access.resolve(user, branchId);
+    return this.pos.catalog(user.tenantId, branchId, {
+      canViewCost: access.has("costs.view"),
+    });
   }
 
   @ApiOperation({

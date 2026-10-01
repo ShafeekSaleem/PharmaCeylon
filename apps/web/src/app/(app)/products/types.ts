@@ -128,7 +128,7 @@ export type ProductBatch = {
   id: string;
   batchNo: string;
   expiryDate: string;
-  costPrice: string;
+  costPrice: string | null;
   sellingPrice: string;
   receivedAt: string;
   qtyOnHand: number;

@@ -683,7 +683,13 @@ export class CatalogService {
     };
   }
 
-  async productDetail(tenantId: string, branchId: string | undefined, productId: string) {
+  async productDetail(
+    tenantId: string,
+    branchId: string | undefined,
+    productId: string,
+    opts: { canViewCost?: boolean } = {},
+  ) {
+    const canViewCost = opts.canViewCost !== false;
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId },
       include: {
@@ -727,7 +733,7 @@ export class CatalogService {
       if (b.id === branchId) {
         qtyOnHand = qty;
         sellPrice = maps.sellPriceByProduct.get(productId) ?? null;
-        costPrice = maps.costPriceByProduct.get(productId) ?? null;
+        costPrice = canViewCost ? (maps.costPriceByProduct.get(productId) ?? null) : null;
       }
       branchAvailability.push({
         branchId: b.id,

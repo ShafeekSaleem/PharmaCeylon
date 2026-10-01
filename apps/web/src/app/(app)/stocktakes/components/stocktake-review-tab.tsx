@@ -141,8 +141,10 @@ export function StocktakeReviewTab({
                   variance != null && expected !== 0
                     ? Math.round((variance / Math.abs(expected)) * 1000) / 10
                     : null;
+                // No cost means the reader may not see one, so the variance has no value to
+                // show either — a dash, not a zero.
                 const value =
-                  variance != null && Number.isFinite(line.batch.costPrice)
+                  variance != null && line.batch.costPrice != null
                     ? Math.round(variance * line.batch.costPrice * 100) / 100
                     : null;
                 const near = isNearExpiry(line.batch.expiryDate, nearExpiryDays);

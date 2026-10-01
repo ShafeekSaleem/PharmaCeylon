@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   Param,
@@ -26,6 +27,20 @@ export class PurchasingController {
     private readonly access: AccessService,
   ) {}
 
+  /**
+   * An order is a promise to pay a price, so raising or changing one takes `costs.view` as well
+   * as `purchasing.manage`. Ordering with every figure blanked out would mean committing the
+   * pharmacy's money without being allowed to see how much of it.
+   */
+  private async assertMayPrice(user: RequestUser, branchId: string) {
+    const access = await this.access.resolve(user, branchId);
+    if (!access.has("costs.view")) {
+      throw new ForbiddenException(
+        "Raising a purchase order needs permission to see costs — an order sets what the pharmacy agrees to pay.",
+      );
+    }
+  }
+
   @RequirePermission("purchasing.view")
   @Get("purchase-orders")
   async list(
@@ -34,7 +49,7 @@ export class PurchasingController {
   ) {
     const access = await this.access.resolve(user, branchId);
     return this.purchasing.listPurchaseOrders(user.tenantId, branchId, {
-      canViewCost: access.has("purchasing.view_cost"),
+      canViewCost: access.has("costs.view"),
     });
   }
 
@@ -54,13 +69,13 @@ export class PurchasingController {
       from,
       to,
       q,
-      canViewCost: access.has("purchasing.view_cost"),
+      canViewCost: access.has("costs.view"),
     });
   }
 
-  // Prefill for order lines. Seeing what a line will cost is `purchasing.view_cost`; changing
+  // Prefill for order lines. Seeing what a line will cost is `costs.view`; changing
   // what the pharmacy has agreed to pay is `suppliers.manage_prices`, on the supplier itself.
-  @RequirePermission("purchasing.view_cost")
+  @RequirePermission("costs.view")
   @Get("supplier-prices")
   supplierPrices(
     @CurrentUser() user: RequestUser,
@@ -81,7 +96,7 @@ export class PurchasingController {
   ) {
     const access = await this.access.resolve(user, branchId);
     return this.purchasing.lookupBatch(user.tenantId, branchId, productId, batchNo ?? "", {
-      canViewCost: access.has("purchasing.view_cost"),
+      canViewCost: access.has("costs.view"),
     });
   }
 
@@ -93,7 +108,7 @@ export class PurchasingController {
   ) {
     const access = await this.access.resolve(user, branchId);
     return this.purchasing.reorderSuggestions(user.tenantId, branchId, {
-      canViewCost: access.has("purchasing.view_cost"),
+      canViewCost: access.has("costs.view"),
     });
   }
 
@@ -106,17 +121,18 @@ export class PurchasingController {
   ) {
     const access = await this.access.resolve(user, branchId);
     return this.purchasing.getPurchaseOrder(user.tenantId, branchId, id, {
-      canViewCost: access.has("purchasing.view_cost"),
+      canViewCost: access.has("costs.view"),
     });
   }
 
   @RequirePermission("purchasing.manage")
   @Post("purchase-orders")
-  create(
+  async create(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Body() dto: CreatePurchaseOrderDto,
   ) {
+    await this.assertMayPrice(user, branchId);
     return this.purchasing.createPurchaseOrder(user.tenantId, branchId, user.userId, dto);
   }
 
@@ -163,12 +179,13 @@ export class PurchasingController {
 
   @RequirePermission("purchasing.manage")
   @Patch("purchase-orders/:id")
-  update(
+  async update(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdatePurchaseOrderDto,
   ) {
+    await this.assertMayPrice(user, branchId);
     return this.purchasing.updatePurchaseOrder(user.tenantId, branchId, user.userId, id, dto);
   }
 

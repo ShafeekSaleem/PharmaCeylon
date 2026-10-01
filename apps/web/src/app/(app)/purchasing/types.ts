@@ -36,7 +36,7 @@ export type PurchaseOrderItem = {
   id: string;
   productId: string;
   orderedQty: number;
-  /** Null when the caller may not see costs (`purchasing.view_cost`). */
+  /** Null when the caller may not see costs (`costs.view`). */
   unitCost: string | null;
   packCost?: string | null;
   /** Packs as ordered; null when the line was entered in units. */

@@ -20,14 +20,7 @@ export function hasSupplierWriteAccess(
   return scoped.some((br) => WRITE_ROLES.has(br.role));
 }
 
-export function formatMoney(value: string | number | null | undefined): string {
-  const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return "—";
-  return `LKR ${n.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
+export { formatMoney } from "@/lib/money";
 
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";

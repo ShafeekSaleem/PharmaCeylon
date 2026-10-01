@@ -44,7 +44,7 @@ export class InventoryController {
   ) {}
 
   private async canViewCost(user: RequestUser, branchId: string) {
-    return (await this.access.resolve(user, branchId)).has("inventory.view_cost");
+    return (await this.access.resolve(user, branchId)).has("costs.view");
   }
 
   @RequirePermission("inventory.manage")
@@ -198,7 +198,7 @@ export class InventoryController {
     const access = await this.access.resolve(user, branchId);
     const isOwner = user.branchRoles.some((entry) => entry.role === RoleName.owner);
     return this.inventory.productStock(user.tenantId, branchId, productId, {
-      canViewCost: access.has("inventory.view_cost"),
+      canViewCost: access.has("costs.view"),
       // Other branches' stock is shown only where the user works too; owners see every branch.
       accessibleBranchIds: isOwner
         ? "all"

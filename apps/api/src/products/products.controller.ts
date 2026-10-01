@@ -233,7 +233,7 @@ export class ProductsController {
   ) {
     const access = await this.access.resolve(user, req.branchId);
     return this.products.getDetail(user.tenantId, req.branchId, id, {
-      canViewCost: access.has("inventory.view_cost"),
+      canViewCost: access.has("costs.view"),
     });
   }
 

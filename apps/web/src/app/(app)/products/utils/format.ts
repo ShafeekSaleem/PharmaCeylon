@@ -86,9 +86,13 @@ export function summarizeAuditPayload(payload: unknown): string | null {
 }
 
 export function computeMarginPercent(
-  selling: string | number,
-  cost: string | number,
+  selling: string | number | null | undefined,
+  cost: string | number | null | undefined,
 ): number | null {
+  // A withheld cost has no margin. Coercing null to 0 here used to report a 100% margin, which
+  // is a worse lie than showing the cost would have been.
+  if (selling === null || selling === undefined) return null;
+  if (cost === null || cost === undefined || cost === "") return null;
   const sell = Number(selling);
   const c = Number(cost);
   if (Number.isNaN(sell) || Number.isNaN(c) || sell <= 0) return null;

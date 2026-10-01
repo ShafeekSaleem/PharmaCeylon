@@ -106,7 +106,7 @@ export class StockReadService {
     );
   }
 
-  /** On-hand stock at cost for the branch. Callers must check `inventory.view_cost` first. */
+  /** On-hand stock at cost for the branch. Callers must check `costs.view` first. */
   async stockValue(tenantId: string, branchId: string): Promise<string> {
     const rows = await this.prisma.$queryRaw<Array<{ value: Prisma.Decimal | null }>>`
       SELECT SUM(GREATEST(bs.on_hand_qty, 0) * b.cost_price) AS value

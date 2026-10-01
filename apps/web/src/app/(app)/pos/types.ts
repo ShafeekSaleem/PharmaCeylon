@@ -7,7 +7,7 @@ export type PosBatch = {
   batchNo: string;
   expiryDate: string;
   sellingPrice: string;
-  costPrice: string;
+  costPrice: string | null;
   qtyOnHand: number;
   daysToExpiry: number;
   nearExpiry: boolean;
