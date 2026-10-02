@@ -106,7 +106,7 @@ export function StocktakeReviewSidebar({
             />
             {varianceLines.length === 0
               ? "Matched lines need no reason"
-              : `Pick a reason + resolution (${resolved}/${varianceLines.length})`}
+              : `Pick a reason (${resolved}/${varianceLines.length})`}
           </li>
           <li>
             <span
@@ -119,12 +119,10 @@ export function StocktakeReviewSidebar({
           <li>
             <span
               className={
-                stocktake.status === "posted" || stocktake.status === "completed"
-                  ? scss.checkDotOk
-                  : scss.checkDotMuted
+                stocktake.status === "completed" ? scss.checkDotOk : scss.checkDotMuted
               }
             />
-            Post adjustments ({stocktake.status === "posted" || stocktake.status === "completed" ? "Done" : "Pending"})
+            Approve — adjusts stock to the count and closes it
           </li>
         </ul>
       </div>

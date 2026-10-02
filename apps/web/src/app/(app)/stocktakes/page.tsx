@@ -99,14 +99,14 @@ export default function StocktakesPage() {
       {
         key: "under_review",
         label: "Under review",
-        hint: "Variance lines need reason & resolution",
+        hint: "Variance lines need a reason, then approval",
         count: underReview,
         tone: "warning" as const,
       },
       {
         key: "approved",
-        label: "Ready to post",
-        hint: "Approved, awaiting stock posting",
+        label: "Approved, not posted",
+        hint: "Approved before approval also posted — open to post",
         count: approved,
         tone: "warning" as const,
       },
@@ -353,7 +353,7 @@ export default function StocktakesPage() {
       <PageHeader
         subtitleOnly
         floatingActions
-        description="Schedule branch counts, submit blind counts, review variances, and post approved stocktake adjustments."
+        description="Schedule branch counts, count them, and have a reviewer explain variances and approve — approving adjusts stock to the count."
         actions={
           canWrite ? (
             <ActionButton icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>

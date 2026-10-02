@@ -13,12 +13,17 @@ import {
 import { Alert } from "@/components/alert";
 import { IconCheck, IconClipboard, IconLock } from "@/components/icons";
 import { ActionButton } from "@/components/ui";
+import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { apiJson } from "@/lib/auth-client";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { LINE_FILTER_OPTIONS } from "../constants";
 import { EditStocktakeModal } from "../components/edit-stocktake-modal";
 import { ManageStocktakeLinesModal } from "../components/manage-stocktake-lines-modal";
 import { StocktakeActionsMenu } from "../components/stocktake-actions-menu";
+import {
+  StocktakeChangesPanel,
+  approvalPreview,
+} from "../components/stocktake-changes-panel";
 import { StocktakeActivityTab } from "../components/stocktake-activity-tab";
 import { StocktakeCountTab } from "../components/stocktake-count-tab";
 import { StocktakeDetailsTab } from "../components/stocktake-details-tab";
@@ -136,6 +141,7 @@ export default function StocktakeDetailPage() {
   const [lastSavedLabel, setLastSavedLabel] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
   const [linesModal, setLinesModal] = useState<"add" | "remove" | null>(null);
 
   const dirtyLinesRef = useRef<DirtyLine[]>([]);
@@ -373,7 +379,7 @@ export default function StocktakeDetailPage() {
     }
     const saved = await saveReviewNow({ includeIncomplete: true });
     if (!saved) return;
-    await runAction("approve");
+    setApproveOpen(true);
   }
 
   async function requestRecount() {
@@ -576,12 +582,17 @@ export default function StocktakeDetailPage() {
     );
   }
 
+  const counterMayNotReview = row.selfApprovalBlocked
+    ? "You counted this stocktake, and your role can't approve its own requests, so someone else reviews it."
+    : null;
+
   if (canReview && canStartReview(row.status)) {
     primaryActions.push(
       <ActionButton
         key="start-review"
         onClick={() => void runAction("review/start")}
-        disabled={saving}
+        disabled={saving || counterMayNotReview != null}
+        tooltip={counterMayNotReview ?? undefined}
       >
         Start review
       </ActionButton>,
@@ -601,9 +612,7 @@ export default function StocktakeDetailPage() {
     });
     if (canApprovePerm && canApprove(row.status)) {
       const approveBlocked = [
-        ...(row.selfApprovalBlocked
-          ? ["You counted this stocktake, and your role can't approve its own requests. Ask another approver."]
-          : []),
+        ...(counterMayNotReview ? [counterMayNotReview] : []),
         ...reviewApprovalBlockers(row, reviews),
       ];
       primaryActions.push(
@@ -614,7 +623,7 @@ export default function StocktakeDetailPage() {
           tooltip={
             approveBlocked.length > 0
               ? approveBlocked.join("; ")
-              : "Saves review notes, then approves"
+              : "Adjusts stock to the count and closes the stocktake"
           }
         >
           Approve
@@ -629,6 +638,7 @@ export default function StocktakeDetailPage() {
         key="post"
         onClick={() => void runAction("post")}
         disabled={saving}
+        tooltip="Adjusts stock to the count and closes the stocktake"
       >
         Post adjustments
       </ActionButton>,
@@ -641,6 +651,7 @@ export default function StocktakeDetailPage() {
         key="complete"
         onClick={() => void runAction("complete")}
         disabled={saving}
+        tooltip="Stock is already adjusted; this closes the stocktake"
       >
         Complete
       </ActionButton>,
@@ -761,8 +772,8 @@ export default function StocktakeDetailPage() {
           const approveBlocked = reviewApprovalBlockers(row, reviews);
           return approveBlocked.length > 0 ? (
             <Alert variant="warning">
-              Approve blocked: {approveBlocked.join("; ")}. Open Variance review, pick a reason and
-              resolution on each non-zero variance line (matched lines with variance 0 can be skipped).
+              Before approving: {approveBlocked.join("; ")}. Open Variance review and pick a reason
+              for each line whose count differs. Matched lines need nothing.
             </Alert>
           ) : null;
         })()
@@ -777,6 +788,10 @@ export default function StocktakeDetailPage() {
           </>
         }
       />
+
+      {row.status === "completed" && row.postings.length > 0 ? (
+        <StocktakeChangesPanel stocktake={row} />
+      ) : null}
 
       <div className={scss.workspaceShell}>
         <div className={scss.tabRow} role="tablist">
@@ -997,6 +1012,49 @@ export default function StocktakeDetailPage() {
           ) : null}
         </div>
       </div>
+
+
+      {approveOpen
+        ? (() => {
+            const p = approvalPreview(row);
+            return (
+              <ConfirmDialog
+                open
+                title={`Approve ${row.stocktakeNumber}?`}
+                confirmLabel="Approve and adjust stock"
+                cancelLabel="Not yet"
+                variant="primary"
+                loading={saving}
+                onCancel={() => {
+                  if (!saving) setApproveOpen(false);
+                }}
+                onConfirm={() => {
+                  void runAction("approve").then(() => setApproveOpen(false));
+                }}
+              >
+                <p>This closes the stocktake and changes stock now:</p>
+                <ul className={scss.approvePreview}>
+                  <li>
+                    {p.adjusted === 0
+                      ? "Every count matched, so no batch is adjusted."
+                      : `${p.adjusted} batch${p.adjusted === 1 ? "" : "es"} adjusted to the count` +
+                        (p.unitsIn > 0 ? ` · ${p.unitsIn} unit${p.unitsIn === 1 ? "" : "s"} added` : "") +
+                        (p.unitsOut > 0 ? ` · ${p.unitsOut} unit${p.unitsOut === 1 ? "" : "s"} removed` : "")}
+                  </li>
+                  {p.toHold > 0 ? (
+                    <li>
+                      Up to {p.toHold} unit{p.toHold === 1 ? "" : "s"} counted as damaged, expired or
+                      temperature-affected go into quarantine.
+                    </li>
+                  ) : null}
+                  {p.value != null && p.adjusted > 0 ? (
+                    <li>Net value of the adjustment: {formatMoney(p.value)}</li>
+                  ) : null}
+                </ul>
+              </ConfirmDialog>
+            );
+          })()
+        : null}
 
       <EditStocktakeModal
         open={editOpen}

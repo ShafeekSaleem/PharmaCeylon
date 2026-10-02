@@ -92,7 +92,9 @@ Configured in Settings → Approval Rules and stored on `TenantSettings`. **The 
 | Purchase order | `createdBy` | `POST /purchasing/purchase-orders/:id/approve` |
 | Transfer | `requestedBy` | `POST /transfers/:id/approve`; also decides whether a new transfer is approved on creation |
 | Return | `requestedBy` | `POST /returns/:id/approve`; also decides the submit/create auto-approve |
-| Stocktake | creator and everyone who entered a count | `POST /stocktakes/:id/approve` |
+| Stocktake | creator and everyone who entered a count | `POST /stocktakes/:id/review/start`, `PATCH /stocktakes/:id/review-lines`, `POST /stocktakes/:id/request-recount` and `POST /stocktakes/:id/approve` — the reviewer is the approver, so a counter can't review their own count either |
+
+**Stocktake approval posts.** `POST /stocktakes/:id/approve` needs a `reviewReason` on every line whose count differs from what was expected (`reviewResolution` is no longer required). In one transaction it adjusts each batch to its count, quarantines units on lines counted as `damaged`, `expired` or `temperature_affected` (less what the batch already holds in quarantine), and sets the stocktake to `completed`. The posting lines it writes (`postings[].lines`) are the record of what changed: `stocktake_in` / `stocktake_out` with the signed adjustment, and `quarantine_hold` with the units held. A repeat call on a completed stocktake returns it unchanged. `POST /stocktakes/:id/post` and `/complete` remain only for stocktakes approved before this change.
 
 Approving your own request without the setting returns **403** ("You raised this …"). Approving someone else's needs only the approve permission. Self-approvals are marked `selfApproved: true` in the audit payload.
 

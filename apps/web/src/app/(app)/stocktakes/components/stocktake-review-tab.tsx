@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
-import { RESOLUTION_OPTIONS, VARIANCE_REASON_OPTIONS } from "../constants";
+import { VARIANCE_REASON_OPTIONS } from "../constants";
 import type { StocktakeLine, StocktakeVarianceReason } from "../types";
 import {
   displayVarianceReason,
@@ -106,9 +106,9 @@ export function StocktakeReviewTab({
   return (
     <div className={scss.reviewTabWrap}>
       <p className={scss.reviewHint}>
-        Only lines with a non-zero variance need a <strong>reason</strong> (why it differs) and a{" "}
-        <strong>resolution</strong> (what to do). Matched lines (variance 0) need nothing — leave them
-        blank and approve.
+        Lines whose count differs from what was expected need a <strong>reason</strong>; a note is
+        optional. Matched lines need nothing. Approving adjusts stock to the count, quarantines units
+        counted as damaged, expired or temperature-affected, and closes the stocktake.
       </p>
       <div className={scss.linesTableWrap}>
         <div className={scss.linesTableScroll}>
@@ -127,7 +127,7 @@ export function StocktakeReviewTab({
                 <th className={scss.num}>Variance</th>
                 <th className={scss.num}>Value</th>
                 <th>Reason</th>
-                <th>Resolution</th>
+                <th>Note</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -158,12 +158,6 @@ export function StocktakeReviewTab({
                         ? scss.varianceNeg
                         : scss.varianceZero;
                 const needsReview = hasVariance && canEdit;
-                const resolutionValue = draft?.reviewResolution ?? line.reviewResolution ?? "";
-                const resolutionOptions =
-                  resolutionValue &&
-                  !RESOLUTION_OPTIONS.some((option) => option.value === resolutionValue)
-                    ? [...RESOLUTION_OPTIONS, { value: resolutionValue, label: resolutionValue }]
-                    : RESOLUTION_OPTIONS;
 
                 return (
                   <tr
@@ -281,23 +275,22 @@ export function StocktakeReviewTab({
                       {!hasVariance ? (
                         <span className={scss.matchedHint}>Matched — no action</span>
                       ) : needsReview ? (
-                        <PurchasingSelect
-                          label="Resolution"
-                          hideLabel
-                          value={resolutionValue}
-                          options={resolutionOptions}
-                          onChange={(value) =>
+                        <input
+                          className={scss.noteInput}
+                          aria-label={`Note for ${line.product.name}, batch ${line.batch.batchNo}`}
+                          value={draft?.reviewNote ?? line.reviewNote ?? ""}
+                          onChange={(event) =>
                             onDraftChange(
                               line.id,
-                              mergeDraft(line, draft, { reviewResolution: value }),
+                              mergeDraft(line, draft, { reviewNote: event.target.value }),
                             )
                           }
-                          allowClear
-                          placeholder="What action to take?"
+                          placeholder="Optional"
+                          maxLength={512}
                         />
                       ) : (
                         <span className={scss.noteReadonly}>
-                          {line.reviewResolution || "—"}
+                          {line.reviewNote || line.reviewResolution || "—"}
                         </span>
                       )}
                     </td>

@@ -85,35 +85,3 @@ export const VARIANCE_REASON_OPTIONS = [
   { value: "suspected_theft_loss", label: "Suspected theft / loss" },
   { value: "other", label: "Other" },
 ] as const;
-
-/** Preset supervisor actions stored in `reviewResolution` (free-text field). */
-export const RESOLUTION_OPTIONS = [
-  {
-    value: "Accept counted qty and post adjustment",
-    label: "Accept & post adjustment",
-  },
-  {
-    value: "Write off / dispose variance",
-    label: "Write off / dispose",
-  },
-  {
-    value: "Quarantine affected stock",
-    label: "Quarantine stock",
-  },
-  {
-    value: "Confirm shortage / loss",
-    label: "Confirm shortage / loss",
-  },
-  {
-    value: "Confirm excess / found stock",
-    label: "Confirm excess / found stock",
-  },
-  {
-    value: "Corrected after recount",
-    label: "Corrected after recount",
-  },
-  {
-    value: "No ledger change needed",
-    label: "No ledger change needed",
-  },
-] as const;

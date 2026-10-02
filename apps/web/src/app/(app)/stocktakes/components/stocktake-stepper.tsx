@@ -4,15 +4,14 @@ import type { StocktakeListItem, StocktakeStatus } from "../types";
 import { formatDate } from "../utils";
 import scss from "../stocktakes.module.css";
 
-type StepKey = "created" | "counting" | "submitted" | "review" | "posted" | "completed";
+type StepKey = "created" | "counting" | "submitted" | "review" | "completed";
 
 const STEPS: Array<{ key: StepKey; label: string }> = [
   { key: "created", label: "Created" },
   { key: "counting", label: "Counting" },
   { key: "submitted", label: "Submitted" },
   { key: "review", label: "Review" },
-  { key: "posted", label: "Posted" },
-  { key: "completed", label: "Completed" },
+  { key: "completed", label: "Approved" },
 ];
 
 function currentStepIndex(status: StocktakeStatus): number {
@@ -24,13 +23,14 @@ function currentStepIndex(status: StocktakeStatus): number {
       return 1;
     case "submitted":
       return 2;
+    // Approved and posted are only reached by stocktakes approved before approval also
+    // posted; they sit at review until someone finishes them.
     case "under_review":
     case "approved":
-      return 3;
     case "posted":
-      return 4;
+      return 3;
     case "completed":
-      return 5;
+      return 4;
     default:
       return 0;
   }
@@ -47,15 +47,13 @@ function stepMeta(key: StepKey, stocktake: StocktakeListItem, index: number, cur
       if (stocktake.submittedAt) return formatDate(stocktake.submittedAt);
       return index === current ? "In progress" : "";
     case "review":
-      if (stocktake.status === "approved") return "Approved";
+      if (stocktake.status === "approved") return "Approved — post adjustments";
+      if (stocktake.status === "posted") return "Posted — complete it";
       if (stocktake.reviewStartedAt) return formatDate(stocktake.reviewStartedAt);
       return index === current ? "In progress" : "";
-    case "posted":
-      if (stocktake.postedAt) return formatDate(stocktake.postedAt);
-      return index === current ? "Ready to post" : "";
     case "completed":
       if (stocktake.completedAt) return formatDate(stocktake.completedAt);
-      return index === current ? "Ready to complete" : "";
+      return "";
     default:
       return "";
   }

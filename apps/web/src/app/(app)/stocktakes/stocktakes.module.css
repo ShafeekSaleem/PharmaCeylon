@@ -2165,3 +2165,47 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── What changed (an approved stocktake) ── */
+.changesPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.changesHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.changesTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.changesWhen,
+.changesMeta {
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.changesSummary {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--pc-foreground);
+}
+
+.approvePreview {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.88rem;
+}
