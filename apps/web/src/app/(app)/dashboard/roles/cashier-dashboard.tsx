@@ -88,7 +88,7 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
         count: returnsTodayCount,
         label: `returns today · ${formatMoney(returnsTodayTotal)}`,
         tone: "info",
-        href: "/returns",
+        href: "/pos?mode=returns",
       });
     }
     return items;

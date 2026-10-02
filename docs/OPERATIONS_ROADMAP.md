@@ -69,7 +69,9 @@ returns had two doors with a gap in each.
   quarantines units counted as damaged, expired or temperature-affected, and completes the
   stocktake** in one transaction, after a confirmation that says what will change; the stocktake
   then shows *What changed*. Stocktakes approved before this keep a one-time *Post adjustments*.
-- **4c · Customer returns live in POS.** Refund lines choose *back on the shelf* or *hold for
+- **4c · Customer returns live in POS.** *(Done. Customer returns left open on the old Returns
+  page are listed in POS to be cancelled and refunded at the till; the demo seed no longer
+  creates open ones.)* Refund lines choose *back on the shelf* or *hold for
   inspection*; controlled and prescription items default to hold. Refunds over the tenant's
   threshold are approved at the till with an approver's PIN. `sales.refund` replaces the
   hardcoded refund roles. `/returns` redirects to supplier returns; POS lists recent refunds.

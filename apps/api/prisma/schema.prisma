@@ -89,6 +89,11 @@ enum GoodsReturnType {
   supplier
 }
 
+enum ReturnDisposition {
+  restock
+  quarantine
+}
+
 enum GoodsReturnStatus {
   draft
   pending_approval
@@ -2162,13 +2167,16 @@ model GoodsReturn {
 }
 
 model GoodsReturnItem {
-  id        String  @id @default(uuid()) @db.Uuid
-  tenantId  String  @map("tenant_id") @db.Uuid
-  returnId  String  @map("return_id") @db.Uuid
-  productId String  @map("product_id") @db.Uuid
-  batchId   String? @map("batch_id") @db.Uuid
-  qty       Int
-  unitPrice Decimal @default(0) @map("unit_price") @db.Decimal(12, 2)
+  id          String            @id @default(uuid()) @db.Uuid
+  tenantId    String            @map("tenant_id") @db.Uuid
+  returnId    String            @map("return_id") @db.Uuid
+  productId   String            @map("product_id") @db.Uuid
+  batchId     String?           @map("batch_id") @db.Uuid
+  qty         Int
+  unitPrice   Decimal           @default(0) @map("unit_price") @db.Decimal(12, 2)
+  /// What happened to a customer's returned item: back on the shelf, or held in quarantine for
+  /// a pharmacist to inspect. Supplier returns leave it at the default; it doesn't apply to them.
+  disposition ReturnDisposition @default(restock)
 
   goodsReturn GoodsReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
   product     Product     @relation(fields: [productId], references: [id])

@@ -11,14 +11,22 @@ import {
   IconSearch,
 } from "@/components/icons";
 import { StatusBadge } from "@/components/ui";
+import { ApiError } from "@/lib/api-error";
 import {
+  cancelOldReturn,
   findSaleByInvoice,
   searchInvoices,
   fetchSaleReturnable,
+  listRefundApprovers,
+  listRefunds,
   refundSale,
   type InvoiceSearchHit,
+  type RefundDisposition,
+  type RefundRow,
+  type RefundSalePayload,
   type SaleReturnable,
 } from "../services/pos-api";
+import { PosPharmacistPinModal } from "./pos-pharmacist-pin-modal";
 import type { RecentSale, SaleReceipt } from "../types";
 import { formatAmount, formatDate, formatMoney, formatTime } from "../utils";
 import css from "../pos.module.css";
@@ -26,19 +34,26 @@ import css from "../pos.module.css";
 type Props = {
   canRefund: boolean;
   canRefundControlled: boolean;
+  /** `returns.process` — may cancel a customer return left open on the old Returns page. */
+  canCancelOldReturns: boolean;
   recentSales: RecentSale[];
   onRefunded: (sale: SaleReceipt) => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
 };
 
+/** Statuses a customer return from the old Returns page could still be sitting in. */
+const OPEN_OLD_STATUSES = new Set(["draft", "pending_approval", "awaiting_logistics", "in_review"]);
+
 /**
- * Returns lane: search an invoice, refund selected lines (or all remaining),
- * then restock via a completed goods return. Partial / supplier workflow → /returns.
+ * Returns lane: the one door for a customer return. Search an invoice, choose the lines and
+ * whether each goes back on the shelf or is held for a pharmacist to inspect, and refund — over
+ * the tenant's limit, an approver signs it off with their till PIN.
  */
 export function PosReturnsPanel({
   canRefund,
   canRefundControlled,
+  canCancelOldReturns,
   recentSales,
   onRefunded,
   onError,
@@ -48,6 +63,20 @@ export function PosReturnsPanel({
   const [sale, setSale] = useState<SaleReceipt | null>(null);
   const [returnable, setReturnable] = useState<SaleReturnable | null>(null);
   const [qtyByKey, setQtyByKey] = useState<Record<string, number>>({});
+  const [dispositionByKey, setDispositionByKey] = useState<Record<string, RefundDisposition>>({});
+  /** A refund waiting for an approver's PIN because it is over the tenant's limit. */
+  const [pendingApproval, setPendingApproval] = useState<{
+    payload: RefundSalePayload;
+    message: string;
+  } | null>(null);
+  const [refunds, setRefunds] = useState<RefundRow[]>([]);
+  const loadRefunds = useCallback(() => {
+    if (!canRefund) return;
+    listRefunds()
+      .then(setRefunds)
+      .catch(() => setRefunds([]));
+  }, [canRefund]);
+  useEffect(loadRefunds, [loadRefunds]);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [hits, setHits] = useState<InvoiceSearchHit[]>([]);
@@ -59,11 +88,16 @@ export function PosReturnsPanel({
   const applyReturnable = useCallback((data: SaleReturnable) => {
     setReturnable(data);
     const next: Record<string, number> = {};
+    const dispositions: Record<string, RefundDisposition> = {};
     for (const line of data.lines) {
       // Start at 0 — cashier sets qty with steppers (or Select all remaining).
       next[line.saleItemId] = 0;
+      // A medicine back from a patient is held for a pharmacist to look at first.
+      dispositions[line.saleItemId] =
+        line.isControlled || line.requiresPrescription ? "quarantine" : "restock";
     }
     setQtyByKey(next);
+    setDispositionByKey(dispositions);
   }, []);
 
   const loadSale = useCallback(
@@ -183,7 +217,7 @@ export function PosReturnsPanel({
 
     // Always send explicit line items so the API never falls back to "refund all"
     // if the payload is stripped or mis-parsed.
-    let items: { productId: string; batchId: string; qty: number }[];
+    let items: NonNullable<RefundSalePayload["items"]>;
     if (mode === "selected") {
       if (selectedItems.length === 0) {
         onError("Set refund qty on at least one line (use + / −)");
@@ -193,6 +227,7 @@ export function PosReturnsPanel({
         productId: line.productId,
         batchId: line.batchId,
         qty,
+        disposition: dispositionByKey[line.saleItemId] ?? "restock",
       }));
     } else {
       items = returnable.lines
@@ -201,6 +236,7 @@ export function PosReturnsPanel({
           productId: line.productId,
           batchId: line.batchId,
           qty: line.remainingQty,
+          disposition: dispositionByKey[line.saleItemId] ?? "restock",
         }));
       if (items.length === 0) {
         onError("Nothing remains returnable on this invoice");
@@ -208,29 +244,59 @@ export function PosReturnsPanel({
       }
     }
 
+    await submitRefund({ reason: reason.trim(), items, refundMethod: "cash" });
+  }
+
+  async function submitRefund(payload: RefundSalePayload) {
+    if (!sale) return;
     setBusy(true);
     try {
-      const refunded = await refundSale(sale.id, {
-        reason: reason.trim(),
-        items,
-        refundMethod: "cash",
-      });
+      const refunded = await refundSale(sale.id, payload);
+      setPendingApproval(null);
       setSale(refunded);
       setReason("");
       const rem = await fetchSaleReturnable(refunded.id);
       applyReturnable(rem);
       onRefunded(refunded);
+      loadRefunds();
+      const held = (payload.items ?? [])
+        .filter((item) => item.disposition === "quarantine")
+        .reduce((n, item) => n + item.qty, 0);
+      const heldNote = held > 0 ? ` ${held} unit${held === 1 ? "" : "s"} held for inspection.` : "";
       onNotice(
-        refunded.status === "refunded"
-          ? `Fully refunded ${refunded.invoiceNo} — stock returned and logged on Returns.`
-          : `Partial refund posted for ${refunded.invoiceNo} — remaining lines can still be refunded.`,
+        (refunded.status === "refunded"
+          ? `Fully refunded ${refunded.invoiceNo}.`
+          : `Partial refund posted for ${refunded.invoiceNo} — remaining lines can still be refunded.`) +
+          heldNote,
       );
     } catch (e) {
+      // Over the tenant's limit: ask for an approver's PIN, then send the same refund again.
+      if (e instanceof ApiError && e.code === "REFUND_APPROVAL_REQUIRED" && !payload.approval) {
+        setPendingApproval({ payload, message: e.message });
+        return;
+      }
       onError(e instanceof Error ? e.message : "Refund failed");
+      if (payload.approval) throw e;
     } finally {
       setBusy(false);
     }
   }
+
+  async function cancelOld(row: RefundRow) {
+    setBusy(true);
+    try {
+      await cancelOldReturn(row.id);
+      onNotice(`${row.returnNumber} cancelled. Refund the sale here if the customer is owed money.`);
+      loadRefunds();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Couldn't cancel the return");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const openOldReturns = refunds.filter((row) => OPEN_OLD_STATUSES.has(row.status));
+  const recentRefunds = refunds.filter((row) => row.status === "completed").slice(0, 8);
 
   const refundableRecent = recentSales.filter(
     (s) => s.status === "posted" || s.status === "partially_refunded",
@@ -249,18 +315,18 @@ export function PosReturnsPanel({
         <div className={css.returnsHeaderCopy}>
           <h2 className={css.returnsTitle}>Invoice refund</h2>
           <p className={css.returnsSubtitle}>
-            Search by invoice or customer, pick lines to refund (or all remaining),
-            and restock in one step.
+            Search by invoice or customer, pick the lines to refund, and choose whether each
+            goes back on the shelf or is held for a pharmacist to inspect.
           </p>
         </div>
-        <Link href="/returns" className={css.returnsWorkspaceCard}>
+        <Link href="/purchasing/supplier-returns" className={css.returnsWorkspaceCard}>
           <span className={css.returnsWorkspaceIcon} aria-hidden>
             <IconPackage size={16} />
           </span>
           <span className={css.returnsWorkspaceText}>
-            <span className={css.returnsWorkspaceTitle}>Supplier &amp; approval returns</span>
+            <span className={css.returnsWorkspaceTitle}>Supplier returns</span>
             <span className={css.returnsWorkspaceHint}>
-              Damaged stock, supplier send-backs, and approval workflows
+              Send damaged, expired or recalled stock back to a supplier
             </span>
           </span>
           <span className={css.returnsWorkspaceCta}>
@@ -400,6 +466,7 @@ export function PosReturnsPanel({
                   <th>Sold</th>
                   <th>Left</th>
                   <th>Refund qty</th>
+                  <th>Then</th>
                   <th className={css.colNum}>Unit</th>
                 </tr>
               </thead>
@@ -464,6 +531,37 @@ export function PosReturnsPanel({
                           >
                             <IconPlus size={13} />
                           </button>
+                        </div>
+                      </td>
+                      <td>
+                        <div
+                          className={css.dispositionToggle}
+                          role="group"
+                          aria-label={`What happens to returned ${line.productName}`}
+                        >
+                          {(
+                            [
+                              ["restock", "Shelf"],
+                              ["quarantine", "Hold"],
+                            ] as const
+                          ).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              aria-pressed={(dispositionByKey[line.saleItemId] ?? "restock") === value}
+                              disabled={disabled}
+                              data-tooltip={
+                                value === "restock"
+                                  ? "Back on the shelf, ready to sell"
+                                  : "Held in quarantine until a pharmacist releases it"
+                              }
+                              onClick={() =>
+                                setDispositionByKey((prev) => ({ ...prev, [line.saleItemId]: value }))
+                              }
+                            >
+                              {label}
+                            </button>
+                          ))}
                         </div>
                       </td>
                       <td className={css.colNum}>
@@ -567,8 +665,99 @@ export function PosReturnsPanel({
               </ul>
             </div>
           )}
+
+          {openOldReturns.length > 0 && (
+            <div className={css.returnsRecent}>
+              <h3 className={css.returnsRecentTitle}>Left open on the old Returns page</h3>
+              <p className={css.returnsNote}>
+                These were raised before customer returns moved to the till, and refunded nobody.
+                Cancel each one, then refund its sale here if the customer is owed money.
+              </p>
+              <ul className={css.returnsRecentList}>
+                {openOldReturns.map((row) => (
+                  <li key={row.id} className={css.returnsOldRow}>
+                    <span className={css.returnsSuggestMain}>
+                      <span className={css.returnsSuggestInvoice}>{row.returnNumber}</span>
+                      <span className={css.returnsRecentTotal}>{formatMoney(row.amount)}</span>
+                    </span>
+                    <span className={css.returnsSuggestMeta}>
+                      {row.sale ? `${row.sale.invoiceNo} · ` : ""}
+                      {row.customerName ?? "Walk-in"} · {row.status.replace(/_/g, " ")}
+                    </span>
+                    <span className={css.returnsOldActions}>
+                      {row.sale ? (
+                        <button
+                          type="button"
+                          className={css.toolBtn}
+                          onClick={() => void loadSale(row.sale!.invoiceNo)}
+                          disabled={busy}
+                        >
+                          Open the sale
+                        </button>
+                      ) : null}
+                      {canCancelOldReturns ? (
+                        <button
+                          type="button"
+                          className={`${css.toolBtn} ${css.toolBtnDanger}`}
+                          onClick={() => void cancelOld(row)}
+                          disabled={busy}
+                        >
+                          Cancel return
+                        </button>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {recentRefunds.length > 0 && (
+            <div className={css.returnsRecent}>
+              <h3 className={css.returnsRecentTitle}>Recent refunds</h3>
+              <ul className={css.returnsRecentList}>
+                {recentRefunds.map((row) => {
+                  const held = row.items
+                    .filter((item) => item.disposition === "quarantine")
+                    .reduce((n, item) => n + item.qty, 0);
+                  return (
+                    <li key={row.id} className={css.returnsOldRow}>
+                      <span className={css.returnsSuggestMain}>
+                        <span className={css.returnsSuggestInvoice}>
+                          {row.returnNumber}
+                          {row.sale ? ` · ${row.sale.invoiceNo}` : ""}
+                        </span>
+                        <span className={css.returnsRecentTotal}>{formatMoney(row.amount)}</span>
+                      </span>
+                      <span className={css.returnsSuggestMeta}>
+                        {formatDate(row.createdAt)} {formatTime(row.createdAt)} ·{" "}
+                        {row.refundedBy.fullName}
+                        {row.approvedBy ? ` · approved by ${row.approvedBy.fullName}` : ""}
+                        {held > 0 ? ` · ${held} held for inspection` : ""}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </div>
       )}
+
+      <PosPharmacistPinModal
+        open={pendingApproval !== null}
+        title="Approve this refund"
+        description={pendingApproval?.message}
+        confirmLabel="Approve & refund"
+        emptyText="Nobody at this branch can approve refunds over the limit. Ask an owner to grant Approve returns."
+        loadApprovers={listRefundApprovers}
+        onClose={() => setPendingApproval(null)}
+        onError={onError}
+        onApprove={async (approval) => {
+          if (!pendingApproval) return;
+          await submitRefund({ ...pendingApproval.payload, approval });
+        }}
+      />
     </section>
   );
 }

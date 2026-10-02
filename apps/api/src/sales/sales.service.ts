@@ -26,7 +26,9 @@ import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { StockService } from "../inventory/stock/stock.service";
 import { TaxService } from "../pricing/tax.service";
 import { CheckoutDto } from "./dto/checkout.dto";
-import { RefundSaleDto } from "./dto/refund-sale.dto";
+import { RefundSaleDto, type RefundDisposition } from "./dto/refund-sale.dto";
+import { meetsApprovalThreshold } from "../common/approval-threshold.util";
+import type { ActorAccess } from "../security/access.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { softRxMatchWarnings } from "./rx-match.util";
 import { SetupReadinessService } from "../setup/setup-readiness.service";
@@ -101,13 +103,6 @@ export class SalesService {
     RoleName.owner,
     RoleName.manager,
     RoleName.pharmacist,
-  ];
-
-  private static readonly REFUND_ROLES: RoleName[] = [
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-    RoleName.cashier,
   ];
 
   constructor(
@@ -784,18 +779,22 @@ export class SalesService {
     return this.getSale(tenantId, branchId, saleId);
   }
 
+  /**
+   * A customer return is a refund at the till. Each line goes back on the shelf or into
+   * quarantine for a pharmacist to inspect; a refund over the tenant's threshold needs someone
+   * who approves returns — the cashier themselves only if their role may approve its own
+   * requests, otherwise an approver's till PIN.
+   */
   async refundSale(
     tenantId: string,
     branchId: string,
     userId: string,
-    branchRoles: BranchRoleEntry[],
+    access: ActorAccess,
     saleId: string,
     dto: RefundSaleDto,
   ) {
-    const roles = this.branchEffectiveRoles(branchRoles, branchId);
-    const can = roles.some((r) => SalesService.REFUND_ROLES.includes(r));
-    if (!can) {
-      throw new ForbiddenException("Insufficient role to refund a sale");
+    if (!access.has("sales.refund")) {
+      throw new ForbiddenException("Your role can't refund sales");
     }
 
     const reason = dto.reason?.trim();
@@ -805,6 +804,7 @@ export class SalesService {
     let goodsReturnId: string | null = null;
     let refundTotal = new Prisma.Decimal(0);
     let nextStatus: SaleStatus = SaleStatus.refunded;
+    let approvedByForAudit: string = userId;
 
     await this.prisma.$transaction(async (tx) => {
       const sale = await tx.sale.findFirst({
@@ -812,7 +812,9 @@ export class SalesService {
         include: {
           items: {
             include: {
-              product: { select: { id: true, isControlled: true, name: true } },
+              product: {
+                select: { id: true, isControlled: true, requiresPrescription: true, name: true },
+              },
             },
           },
           customer: { select: { fullName: true } },
@@ -831,16 +833,21 @@ export class SalesService {
       const needsControlledGate =
         Boolean(sale.prescriptionId) ||
         sale.items.some((i) => i.product.isControlled);
-      if (needsControlledGate) {
-        const elevated = roles.some((r) =>
-          SalesService.CONTROLLED_SALE_ROLES.includes(r),
+      if (needsControlledGate && !access.has("sales.approve_controlled")) {
+        throw new ForbiddenException(
+          "A sale with controlled or prescription items is refunded by someone who can approve controlled sales",
         );
-        if (!elevated) {
-          throw new ForbiddenException(
-            "Controlled or prescription-linked sales require a pharmacist, manager, or owner to refund",
-          );
-        }
       }
+
+      // Medicines that came back from a patient default to being held for a pharmacist to look
+      // at; everything else goes back on the shelf unless the cashier says otherwise.
+      const productById = new Map(sale.items.map((item) => [item.productId, item.product]));
+      const defaultDisposition = (productId: string): RefundDisposition => {
+        const product = productById.get(productId);
+        return product && (product.isControlled || product.requiresPrescription)
+          ? "quarantine"
+          : "restock";
+      };
 
       const { lines } = await getSaleReturnableByLine(
         tx,
@@ -854,6 +861,7 @@ export class SalesService {
         batchId: string;
         qty: number;
         unitPrice: Prisma.Decimal;
+        disposition: RefundDisposition;
       }[] = [];
 
       if (dto.items?.length) {
@@ -877,6 +885,7 @@ export class SalesService {
             batchId: item.batchId,
             qty: item.qty,
             unitPrice: refundUnitPrice(rem),
+            disposition: item.disposition ?? defaultDisposition(item.productId),
           });
         }
       } else {
@@ -887,6 +896,7 @@ export class SalesService {
             batchId: rem.batchId,
             qty: rem.remainingQty,
             unitPrice: refundUnitPrice(rem),
+            disposition: defaultDisposition(rem.productId),
           });
         }
       }
@@ -914,6 +924,43 @@ export class SalesService {
         }
       }
 
+      // Over the tenant's ceiling, someone who approves returns signs it off. The cashier counts
+      // only if their role may approve its own requests — the threshold exists to interrupt
+      // exactly the person who would otherwise wave it through.
+      const settings = await tx.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { approvalRequiredReturnThreshold: true },
+      });
+      let approvedBy = userId;
+      if (meetsApprovalThreshold(refundTotal, settings?.approvalRequiredReturnThreshold)) {
+        const selfApproves = access.has("returns.approve") && access.canSelfApprove;
+        if (!selfApproves) {
+          if (!dto.approval?.approverUserId || !dto.approval.pin) {
+            throw new ForbiddenException({
+              code: "REFUND_APPROVAL_REQUIRED",
+              message: `Refunds of ${settings?.approvalRequiredReturnThreshold?.toFixed(2)} or more need an approver. Ask someone who approves returns to enter their till PIN.`,
+              amount: refundTotal.toFixed(2),
+              threshold: settings?.approvalRequiredReturnThreshold?.toFixed(2) ?? null,
+            });
+          }
+          if (dto.approval.approverUserId === userId) {
+            throw new ForbiddenException(
+              "Your role can't approve its own refunds over the threshold. Ask another approver.",
+            );
+          }
+          const verified = await this.pharmacistApproval.verifyApproverPin(
+            tenantId,
+            branchId,
+            dto.approval.approverUserId,
+            dto.approval.pin,
+            userId,
+            "returns.approve",
+          );
+          approvedBy = verified.approverUserId;
+        }
+      }
+      approvedByForAudit = approvedBy;
+
       const returnNumber = await this.nextPosReturnNumber(
         tx,
         tenantId,
@@ -932,7 +979,7 @@ export class SalesService {
           notes: `POS refund · ${sale.invoiceNo}`,
           amount: refundTotal,
           requestedBy: userId,
-          approvedBy: userId,
+          approvedBy,
           processedBy: userId,
           items: {
             create: requested.map((line) => ({
@@ -941,6 +988,7 @@ export class SalesService {
               batchId: line.batchId,
               qty: line.qty,
               unitPrice: line.unitPrice,
+              disposition: line.disposition,
             })),
           },
         },
@@ -957,6 +1005,22 @@ export class SalesService {
           movementType: StockMovementType.customer_return_in,
         })),
       );
+      // Held lines come back onto the books and straight into quarantine, so they are counted
+      // but can't be sold until a pharmacist releases them.
+      const held = requested.filter((line) => line.disposition === "quarantine");
+      if (held.length > 0) {
+        await this.stock.quarantine(
+          tx,
+          { tenantId, branchId, userId, referenceType: "goods_return", referenceId: created.id },
+          held.map((line) => ({
+            productId: line.productId,
+            batchId: line.batchId,
+            qty: line.qty,
+            reasonCode: "inspection" as const,
+            reason: `Customer return ${created.returnNumber} — held for inspection`,
+          })),
+        );
+      }
 
       await tx.salePayment.create({
         data: {
@@ -992,6 +1056,7 @@ export class SalesService {
         refundMethod,
         refundTotal: refundTotal.toFixed(2),
         status: nextStatus,
+        approvedBy: approvedByForAudit,
       },
     });
 
@@ -1027,7 +1092,13 @@ export class SalesService {
         items: {
           include: {
             product: {
-              select: { id: true, name: true, sku: true, isControlled: true },
+              select: {
+                id: true,
+                name: true,
+                sku: true,
+                isControlled: true,
+                requiresPrescription: true,
+              },
             },
             batch: { select: { id: true, batchNo: true } },
           },
@@ -1063,6 +1134,7 @@ export class SalesService {
           productName: item?.product.name ?? "Product",
           sku: item?.product.sku ?? "",
           isControlled: item?.product.isControlled ?? false,
+          requiresPrescription: item?.product.requiresPrescription ?? false,
           batchNo: item?.batch.batchNo ?? "",
           soldQty: rem.soldQty,
           remainingQty: rem.remainingQty,
@@ -1073,6 +1145,50 @@ export class SalesService {
       }),
       totalRemainingQty: totalRemainingQty(lines),
     };
+  }
+
+  /**
+   * Customer returns at this branch, newest first: refunds made at the till, and any left open
+   * on the old Returns page (which are cancelled and refunded here instead).
+   */
+  async listRefunds(tenantId: string, branchId: string, take = 50) {
+    const rows = await this.prisma.goodsReturn.findMany({
+      where: { tenantId, branchId, type: GoodsReturnType.customer },
+      orderBy: { createdAt: "desc" },
+      take,
+      include: {
+        sale: { select: { id: true, invoiceNo: true } },
+        requester: { select: { id: true, fullName: true } },
+        approver: { select: { id: true, fullName: true } },
+        items: {
+          include: {
+            product: { select: { id: true, sku: true, name: true } },
+            batch: { select: { id: true, batchNo: true } },
+          },
+        },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      returnNumber: row.returnNumber,
+      status: row.status,
+      reason: row.reason,
+      amount: row.amount.toFixed(2),
+      createdAt: row.createdAt.toISOString(),
+      sale: row.sale,
+      customerName: row.customerName,
+      refundedBy: row.requester,
+      // Only worth showing when someone else signed it off.
+      approvedBy: row.approver && row.approver.id !== row.requester.id ? row.approver : null,
+      items: row.items.map((item) => ({
+        id: item.id,
+        product: item.product,
+        batchNo: item.batch?.batchNo ?? null,
+        qty: item.qty,
+        unitPrice: item.unitPrice.toFixed(2),
+        disposition: item.disposition,
+      })),
+    }));
   }
 
   async listSales(tenantId: string, branchId: string, take = 50) {

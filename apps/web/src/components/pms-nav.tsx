@@ -20,7 +20,6 @@ export function PmsNav() {
     ["/pos", "POS"],
     ["/inventory", "Inventory"],
     ["/transfers", "Transfers"],
-    ["/returns", "Returns"],
     ["/stocktakes", "Stocktakes"],
     ["/reports", "Reports"],
     ["/audit", "Audit"],

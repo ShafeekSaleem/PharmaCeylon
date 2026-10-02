@@ -61,7 +61,10 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 
 - **Checkout**: `POST /api/v1/sales/checkout` — optional `Idempotency-Key`. Line **tax**: send `taxAmount` per line, or omit to apply **VAT** from server config (see below).
 - **Void** (posted → voided, stock restored; elevated roles): `POST /api/v1/sales/:id/void`
-- **Refund** (posted → refunded, stock restored): `POST /api/v1/sales/:id/refund`
+- **Refund** (posted → refunded / partially_refunded): `POST /api/v1/sales/:id/refund` — needs `sales.refund`, plus `sales.approve_controlled` when the sale has controlled or prescription items. This is the only way to raise a customer return: `POST /returns` refuses `type: "customer"`, and completing a customer return left open on the old Returns page is refused too (cancel it and refund the sale instead).
+  - Each line may carry `disposition: "restock" | "quarantine"`. Omitted, controlled and prescription items are held and the rest restock. Held lines are booked back in and quarantined in the same transaction (`reasonCode: "inspection"`), and the choice is stored on the return line.
+  - Over `TenantSettings.approvalRequiredReturnThreshold`, the refund needs `returns.approve`: the caller alone if their role may approve its own requests, otherwise **403** with `code: "REFUND_APPROVAL_REQUIRED"` (`amount`, `threshold`) until the body carries `approval: { approverUserId, pin }` — another person's till PIN (or password if they have none), checked against `returns.approve` at the branch. The approver is recorded as the return's `approvedBy`.
+  - `GET /api/v1/sales/refunds` (`sales.refund`) lists the branch's customer returns, newest first; `GET /api/v1/sales/pos/refund-approvers` lists who can approve one at the till.
 
 **Controlled products** (`Product.isControlled`): checkout requires **pharmacist**, **manager**, or **owner** effective on the branch (owners may be recognized tenant-wide per service rules).
 
@@ -124,7 +127,7 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | `POST /inventory/quarantine-expired` | `inventory.manage_bulk` | Holds every sellable unit on expired batches. Returns `{ quarantined, units, batchIds }`. |
 | `POST /inventory/adjustments` | `inventory.manage` (increase) / `inventory.write_off` (decrease) | Decreases require `reason`; `fromQuarantine: true` writes off held units. |
 
-`POST /inventory/customer-returns` and `POST /inventory/supplier-returns` (which answered 410) have been removed, with the `inventory.customer_returns` permission. Use POS refunds and `POST /returns`.
+`POST /inventory/customer-returns` and `POST /inventory/supplier-returns` (which answered 410) have been removed, with the `inventory.customer_returns` permission. Customer returns are POS refunds; `POST /returns` is for supplier returns.
 
 **Goods receipt** (`POST /purchasing/purchase-orders/receive`) now refuses a received date in the future and any line whose expiry is on or before the received date. Auto-created supplier invoice numbers include the branch code (`SINV-<BRANCH>-<seq>`) so each branch's first delivery no longer collides.
 

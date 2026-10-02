@@ -786,8 +786,9 @@ function PosWorkspace() {
 
       {mode === "returns" ? (
         <PosReturnsPanel
-          canRefund={canAccess([...POS_ROLES])}
+          canRefund={hasPermission(permissionKeys, ["sales.refund"])}
           canRefundControlled={hasPermission(permissionKeys, ["sales.approve_controlled"])}
+          canCancelOldReturns={hasPermission(permissionKeys, ["returns.process"])}
           recentSales={recentSales}
           onRefunded={() => void reload()}
           onError={toasts.error}

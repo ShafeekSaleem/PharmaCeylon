@@ -1195,15 +1195,16 @@ export async function seedDemoOps(
         tenantId,
         branchId: sale.branchId,
         returnNumber: `RET-OPS-${String(i + 1).padStart(4, "0")}`,
+        // A customer return is a till refund now: done the moment it is raised, never waiting.
         type: GoodsReturnType.customer,
-        status: i % 4 === 0 ? GoodsReturnStatus.completed : GoodsReturnStatus.pending_approval,
+        status: GoodsReturnStatus.completed,
         customerName: "Ops seed customer",
         saleId: sale.id,
         reason: i % 2 === 0 ? "Unused sealed pack" : "Wrong item",
         amount,
         requestedBy: users.cashierId,
         approvedBy: users.managerId,
-        processedBy: i % 4 === 0 ? users.managerId : null,
+        processedBy: users.managerId,
         createdAt,
         items: {
           create: [
@@ -1219,7 +1220,7 @@ export async function seedDemoOps(
       },
     });
 
-    if (i % 4 === 0) {
+    {
       await prisma.stockLedger.create({
         data: {
           tenantId,

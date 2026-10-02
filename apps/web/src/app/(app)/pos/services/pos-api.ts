@@ -52,6 +52,7 @@ export type SaleReturnableLine = {
   productName: string;
   sku: string;
   isControlled: boolean;
+  requiresPrescription: boolean;
   batchNo: string;
   soldQty: number;
   remainingQty: number;
@@ -76,12 +77,50 @@ export function fetchSaleReturnable(saleId: string): Promise<SaleReturnable> {
   return apiJson<SaleReturnable>(`/sales/${saleId}/returnable`);
 }
 
+export type RefundDisposition = "restock" | "quarantine";
+
 export type RefundSalePayload = {
   reason: string;
-  items?: { productId: string; batchId: string; qty: number }[];
+  items?: { productId: string; batchId: string; qty: number; disposition?: RefundDisposition }[];
   refundMethod?: "cash" | "card" | "mobile_wallet";
   refundAmount?: string;
+  /** An approver's till PIN, for a refund over the tenant's threshold. */
+  approval?: { approverUserId: string; pin: string };
 };
+
+/** A customer return at this branch: a till refund, or one left open on the old Returns page. */
+export type RefundRow = {
+  id: string;
+  returnNumber: string;
+  status: string;
+  reason: string | null;
+  amount: string;
+  createdAt: string;
+  sale: { id: string; invoiceNo: string } | null;
+  customerName: string | null;
+  refundedBy: { id: string; fullName: string };
+  approvedBy: { id: string; fullName: string } | null;
+  items: Array<{
+    id: string;
+    product: { id: string; sku: string; name: string };
+    batchNo: string | null;
+    qty: number;
+    unitPrice: string;
+    disposition: RefundDisposition;
+  }>;
+};
+
+export function listRefunds(): Promise<RefundRow[]> {
+  return apiJson<RefundRow[]>("/sales/refunds");
+}
+
+export function listRefundApprovers(): Promise<PosApprover[]> {
+  return apiJson<PosApprover[]>("/sales/pos/refund-approvers");
+}
+
+export function cancelOldReturn(id: string): Promise<unknown> {
+  return apiJson(`/returns/${id}/cancel`, { method: "POST", headers: jsonHeaders, body: "{}" });
+}
 
 export function refundSale(saleId: string, payload: RefundSalePayload): Promise<SaleReceipt> {
   return apiJson<SaleReceipt>(`/sales/${saleId}/refund`, {

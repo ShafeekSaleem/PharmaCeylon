@@ -327,6 +327,11 @@ export class ReturnsService {
     dto: CreateReturnDto,
   ) {
     const userId = access.userId;
+    // One door for a customer return: the till, where the money is refunded with it. Raised here
+    // it put stock back and recorded no refund at all.
+    if (dto.type === GoodsReturnType.customer) {
+      throw new BadRequestException("Customer returns are refunds at the till now: refund the sale from POS → Returns, where you choose whether each item goes back on the shelf or is held for inspection.");
+    }
     this.validateTypeFields(dto.type, dto);
     await this.validateBatches(tenantId, branchId, dto.items);
 
@@ -758,19 +763,11 @@ export class ReturnsService {
           include: { items: true },
         });
         if (!row) throw new NotFoundException("Return not found");
-
-        if (row.saleId && row.type === GoodsReturnType.customer) {
-          await assertSaleReturnableLines(
-            tx,
-            tenantId,
-            branchId,
-            row.saleId,
-            row.items.map((i) => ({
-              productId: i.productId,
-              batchId: i.batchId!,
-              qty: i.qty,
-            })),
-            row.id,
+        // A customer return raised on the old Returns page restocked without refunding anyone.
+        // Those still open are cancelled and refunded at the till instead.
+        if (row.type === GoodsReturnType.customer) {
+          throw new BadRequestException(
+            "Cancel this return and refund the sale at the till instead — completing it here would put stock back without refunding the customer.",
           );
         }
 
@@ -824,17 +821,6 @@ export class ReturnsService {
               })),
             });
           }
-        } else {
-          await this.stock.receive(
-            tx,
-            stockCtx,
-            row.items.map((line) => ({
-              productId: line.productId,
-              batchId: line.batchId!,
-              qty: line.qty,
-              movementType: StockMovementType.customer_return_in,
-            })),
-          );
         }
 
         if (idemKey) {

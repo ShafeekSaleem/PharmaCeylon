@@ -80,7 +80,7 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
         count: returnsTodayCount,
         label: "returns today",
         tone: "info",
-        href: "/returns",
+        href: "/pos?mode=returns",
       });
     }
     return items;

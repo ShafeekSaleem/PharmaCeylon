@@ -3,6 +3,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -13,6 +14,10 @@ import {
   ValidateNested,
 } from "class-validator";
 import { PaymentMethod } from "@prisma/client";
+import { PharmacistApprovalDto } from "./pharmacist-approval.dto";
+
+export const REFUND_DISPOSITIONS = ["restock", "quarantine"] as const;
+export type RefundDisposition = (typeof REFUND_DISPOSITIONS)[number];
 
 export class RefundSaleItemDto {
   @IsUUID()
@@ -25,6 +30,14 @@ export class RefundSaleItemDto {
   @IsInt()
   @Min(1)
   qty!: number;
+
+  /**
+   * Back on the shelf, or held in quarantine for a pharmacist to inspect. Omitted, controlled and
+   * prescription items are held and everything else restocks.
+   */
+  @IsOptional()
+  @IsIn(REFUND_DISPOSITIONS)
+  disposition?: RefundDisposition;
 }
 
 export class RefundSaleDto {
@@ -49,4 +62,13 @@ export class RefundSaleDto {
   @IsOptional()
   @IsString()
   refundAmount?: string;
+
+  /**
+   * An approver's till PIN, for a refund over the tenant's threshold when the person refunding
+   * may not approve it themselves.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PharmacistApprovalDto)
+  approval?: PharmacistApprovalDto;
 }

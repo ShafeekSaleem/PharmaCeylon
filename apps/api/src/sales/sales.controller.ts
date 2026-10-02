@@ -220,16 +220,31 @@ export class SalesController {
   }
 
   @ApiOperation({ summary: "Refund a sale (full or partial); creates a completed goods return" })
-  @RequirePermission("sales.pos_use")
+  @RequirePermission("sales.refund")
   @HttpCode(HttpStatus.OK)
   @Post(":id/refund")
-  refundSale(
+  async refundSale(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: RefundSaleDto,
   ) {
-    return this.sales.refundSale(user.tenantId, branchId, user.userId, user.branchRoles, id, dto);
+    const access = await this.access.resolve(user, branchId);
+    return this.sales.refundSale(user.tenantId, branchId, user.userId, access, id, dto);
+  }
+
+  @ApiOperation({ summary: "Recent customer refunds at this branch" })
+  @RequirePermission("sales.refund")
+  @Get("refunds")
+  listRefunds(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.sales.listRefunds(user.tenantId, branchId);
+  }
+
+  @ApiOperation({ summary: "People who may approve a refund over the threshold, for the till PIN picker" })
+  @RequirePermission("sales.refund")
+  @Get("pos/refund-approvers")
+  listRefundApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.pharmacistApproval.listApprovers(user.tenantId, branchId, "returns.approve");
   }
 
   @ApiOperation({ summary: "Remaining returnable qty per line for a sale" })
