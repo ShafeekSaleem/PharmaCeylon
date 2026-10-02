@@ -177,9 +177,10 @@ export default function ApprovalRulesPage() {
 
           <div className={css.rowItem}>
             <div style={{ flex: 1 }}>
-              <div className={css.rowLabel}>Customer returns over a threshold</div>
+              <div className={css.rowLabel}>Refunds over a threshold</div>
               <div className={css.rowHint}>
-                Returns at or above this value wait for someone who can approve returns.
+                Refunds at or above this value need someone who can approve returns to enter
+                their till PIN.
               </div>
               {draft.approvalRequiredReturnThreshold != null ? (
                 <div style={{ marginTop: "0.5rem", maxWidth: 220 }}>
