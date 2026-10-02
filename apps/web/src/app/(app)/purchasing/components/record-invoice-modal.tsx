@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { IconPlus, IconTrash } from "@/components/icons";
-import { Modal, ModalButton, ModalFooter } from "@/components/ui";
+import { DatePicker, Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useUnbilledDeliveries } from "../hooks/use-ledger";
 import { useSuppliers } from "../hooks/use-suppliers";
@@ -47,7 +47,12 @@ const key = () => `l${++seq}`;
  * typing left is wherever the paper disagrees — which is exactly what the three-way match then
  * shows. A line with no product (freight, a handling fee) can be added by hand.
  */
-export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props) {
+export function RecordInvoiceModal({
+  open,
+  onClose,
+  onRecorded,
+  preset,
+}: Props) {
   const suppliers = useSuppliers();
   const [supplierId, setSupplierId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -61,7 +66,9 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const deliveries = useUnbilledDeliveries(open && supplierId ? supplierId : null);
+  const deliveries = useUnbilledDeliveries(
+    open && supplierId ? supplierId : null,
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -128,12 +135,17 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
   }
 
   function updateLine(lineKey: string, patch: Partial<Line>) {
-    setLines((current) => current.map((line) => (line.key === lineKey ? { ...line, ...patch } : line)));
+    setLines((current) =>
+      current.map((line) =>
+        line.key === lineKey ? { ...line, ...patch } : line,
+      ),
+    );
   }
 
   const totals = useMemo(() => {
     const subtotal = lines.reduce(
-      (sum, line) => sum + (Number(line.qty) || 0) * (Number(line.unitCost) || 0),
+      (sum, line) =>
+        sum + (Number(line.qty) || 0) * (Number(line.unitCost) || 0),
       0,
     );
     const tax = Number(taxAmount) || 0;
@@ -169,18 +181,26 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
           ...(dueDate ? { dueDate } : {}),
           receiptIds: [...receiptIds],
           lines: lines.map((line) => ({
-            ...(line.productId ? { productId: line.productId } : { description: line.description.trim() }),
+            ...(line.productId
+              ? { productId: line.productId }
+              : { description: line.description.trim() }),
             qty: Number(line.qty),
             unitCost: Number(line.unitCost).toFixed(2),
           })),
-          ...(taxAmount.trim() ? { taxAmount: Number(taxAmount).toFixed(2) } : {}),
-          ...(shippingAmount.trim() ? { shippingAmount: Number(shippingAmount).toFixed(2) } : {}),
+          ...(taxAmount.trim()
+            ? { taxAmount: Number(taxAmount).toFixed(2) }
+            : {}),
+          ...(shippingAmount.trim()
+            ? { shippingAmount: Number(shippingAmount).toFixed(2) }
+            : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
         }),
       });
       onRecorded(invoice);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record the invoice");
+      setError(
+        err instanceof Error ? err.message : "Failed to record the invoice",
+      );
     } finally {
       setSaving(false);
     }
@@ -199,7 +219,12 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
           <ModalButton onClick={onClose} disabled={saving}>
             Cancel
           </ModalButton>
-          <ModalButton variant="primary" onClick={() => void submit()} loading={saving} disabled={!valid}>
+          <ModalButton
+            variant="primary"
+            onClick={() => void submit()}
+            loading={saving}
+            disabled={!valid}
+          >
             Record invoice
           </ModalButton>
         </ModalFooter>
@@ -213,7 +238,11 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
             label="Supplier"
             required
             value={supplierId}
-            options={suppliers.rows.map((s) => ({ value: s.id, label: s.name, meta: s.code }))}
+            options={suppliers.rows.map((s) => ({
+              value: s.id,
+              label: s.name,
+              meta: s.code,
+            }))}
             placeholder={suppliers.loading ? "Loading…" : "Select supplier…"}
             searchPlaceholder="Search suppliers…"
             onChange={(value) => {
@@ -241,35 +270,39 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
           <label className={css.fieldLabel} htmlFor="inv-date">
             Invoice date
           </label>
-          <input
+          <DatePicker
+            variant="field"
             id="inv-date"
-            type="date"
-            className={css.input}
+            label="Invoice date"
             value={invoiceDate}
+            onChange={(value) => setInvoiceDate(value)}
             max={todayIsoDate()}
-            onChange={(e) => setInvoiceDate(e.target.value)}
             disabled={saving}
+            clearable={false}
+            placeholder="Select a date"
           />
         </div>
         <div className={css.field}>
           <label className={css.fieldLabel} htmlFor="inv-due">
             Due date
           </label>
-          <input
+          <DatePicker
+            variant="field"
             id="inv-due"
-            type="date"
-            className={css.input}
+            label="Due date"
             value={dueDate}
-            min={invoiceDate}
-            onChange={(e) => {
+            onChange={(value) => {
               setDueTouched(true);
-              setDueDate(e.target.value);
+              setDueDate(value);
             }}
+            min={invoiceDate}
             disabled={saving}
+            placeholder="Select a date"
           />
           {supplier && !dueTouched ? (
             <span className={css.fieldHint}>
-              From {supplier.name}&apos;s terms: {supplier.paymentTermsDays ?? 30} days
+              From {supplier.name}&apos;s terms:{" "}
+              {supplier.paymentTermsDays ?? 30} days
             </span>
           ) : null}
         </div>
@@ -279,10 +312,12 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
         <section className={css.suggestGroup}>
           <header className={css.suggestHeader}>
             <div>
-              <h3 className={css.suggestSupplier}>Deliveries this invoice covers</h3>
+              <h3 className={css.suggestSupplier}>
+                Deliveries this invoice covers
+              </h3>
               <p className={css.muted}>
-                Deliveries from {supplier?.name ?? "this supplier"} that no invoice has been recorded
-                against yet.
+                Deliveries from {supplier?.name ?? "this supplier"} that no
+                invoice has been recorded against yet.
               </p>
             </div>
           </header>
@@ -292,10 +327,14 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
             </p>
           ) : deliveries.rows.length === 0 ? (
             <p className={css.muted} style={{ padding: "0.75rem 0.9rem" }}>
-              No deliveries are waiting for an invoice. You can still record one with lines below.
+              No deliveries are waiting for an invoice. You can still record one
+              with lines below.
             </p>
           ) : (
-            <ul className={css.plainList} style={{ listStyle: "none", paddingLeft: "0.9rem" }}>
+            <ul
+              className={css.plainList}
+              style={{ listStyle: "none", paddingLeft: "0.9rem" }}
+            >
               {deliveries.rows.map((delivery) => (
                 <li key={delivery.id}>
                   <label className={css.checkboxRow}>
@@ -307,9 +346,12 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
                     />
                     <span className={css.cellStrong}>{delivery.grnNumber}</span>
                     <span className={css.muted}>
-                      {delivery.receivedOn} · {delivery.poNumber} · {delivery.lines.length} line
+                      {delivery.receivedOn} · {delivery.poNumber} ·{" "}
+                      {delivery.lines.length} line
                       {delivery.lines.length === 1 ? "" : "s"}
-                      {delivery.supplierDeliveryNote ? ` · note ${delivery.supplierDeliveryNote}` : ""}
+                      {delivery.supplierDeliveryNote
+                        ? ` · note ${delivery.supplierDeliveryNote}`
+                        : ""}
                     </span>
                   </label>
                 </li>
@@ -323,7 +365,9 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
         <header className={css.suggestHeader}>
           <div>
             <h3 className={css.suggestSupplier}>Lines as billed</h3>
-            <p className={css.muted}>Correct any quantity or price to match the paper invoice.</p>
+            <p className={css.muted}>
+              Correct any quantity or price to match the paper invoice.
+            </p>
           </div>
           <button
             type="button"
@@ -369,14 +413,20 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
                   <tr key={line.key}>
                     <td>
                       {line.productId ? (
-                        <span className={css.cellStrong}>{line.productName}</span>
+                        <span className={css.cellStrong}>
+                          {line.productName}
+                        </span>
                       ) : (
                         <input
                           className={css.input}
                           placeholder="e.g. Delivery charge"
                           aria-label="Charge description"
                           value={line.description}
-                          onChange={(e) => updateLine(line.key, { description: e.target.value })}
+                          onChange={(e) =>
+                            updateLine(line.key, {
+                              description: e.target.value,
+                            })
+                          }
                           disabled={saving}
                         />
                       )}
@@ -388,7 +438,9 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
                         className={css.input}
                         aria-label={`Quantity for ${line.productName || line.description || "charge"}`}
                         value={line.qty}
-                        onChange={(e) => updateLine(line.key, { qty: e.target.value })}
+                        onChange={(e) =>
+                          updateLine(line.key, { qty: e.target.value })
+                        }
                         disabled={saving}
                       />
                     </td>
@@ -400,17 +452,27 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
                         className={css.input}
                         aria-label={`Unit cost for ${line.productName || line.description || "charge"}`}
                         value={line.unitCost}
-                        onChange={(e) => updateLine(line.key, { unitCost: e.target.value })}
+                        onChange={(e) =>
+                          updateLine(line.key, { unitCost: e.target.value })
+                        }
                         disabled={saving}
                       />
                     </td>
-                    <td>{formatMoney((Number(line.qty) || 0) * (Number(line.unitCost) || 0))}</td>
+                    <td>
+                      {formatMoney(
+                        (Number(line.qty) || 0) * (Number(line.unitCost) || 0),
+                      )}
+                    </td>
                     <td>
                       <button
                         type="button"
                         className={css.actionBtn}
                         aria-label="Remove line"
-                        onClick={() => setLines((current) => current.filter((l) => l.key !== line.key))}
+                        onClick={() =>
+                          setLines((current) =>
+                            current.filter((l) => l.key !== line.key),
+                          )
+                        }
                         disabled={saving}
                       >
                         <IconTrash size={13} />
@@ -440,7 +502,9 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
             onChange={(e) => setTaxAmount(e.target.value)}
             disabled={saving}
           />
-          <span className={css.fieldHint}>The figure printed on the invoice.</span>
+          <span className={css.fieldHint}>
+            The figure printed on the invoice.
+          </span>
         </div>
         <div className={css.field}>
           <label className={css.fieldLabel} htmlFor="inv-shipping">
@@ -476,8 +540,8 @@ export function RecordInvoiceModal({ open, onClose, onRecorded, preset }: Props)
             {formatMoney(totals.total)}
           </span>
           <span className={css.fieldHint}>
-            Goods {formatMoney(totals.subtotal)} · tax {formatMoney(totals.tax)} · shipping{" "}
-            {formatMoney(totals.shipping)}
+            Goods {formatMoney(totals.subtotal)} · tax {formatMoney(totals.tax)}{" "}
+            · shipping {formatMoney(totals.shipping)}
           </span>
         </div>
       </div>

@@ -37,6 +37,8 @@ export {
 } from "./category-picker";
 export { StatusStrip } from "./status-strip";
 export { DateRangeField } from "./date-range-field";
+export { DatePicker, formatPickerDate } from "./date-picker";
+export { DateTimeField } from "./date-time-field";
 export { PageSubnav, type PageSubnavTab } from "./page-subnav";
 export { FilterPopover, FilterRow } from "./filter-popover";
 export { ActiveFilterBanner, type FilterPill } from "./active-filter-banner";

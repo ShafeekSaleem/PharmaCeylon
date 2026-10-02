@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
-import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
+import {
+  DatePicker,
+  Modal,
+  ModalButton,
+  ModalFooter,
+  StatusBadge,
+} from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { usePurchasingAccess } from "../../purchasing/hooks/use-purchasing-access";
@@ -81,7 +87,9 @@ const STATUS_OPTIONS = SUPPLIER_STATUS_CREATE_OPTIONS.map((o) => ({
   label: o.label,
 }));
 
-const TERMS_OPTIONS = PAYMENT_TERMS_OPTIONS.filter((o) => o.value !== "all").map((o) => ({
+const TERMS_OPTIONS = PAYMENT_TERMS_OPTIONS.filter(
+  (o) => o.value !== "all",
+).map((o) => ({
   value: o.value,
   label: o.label,
 }));
@@ -133,9 +141,13 @@ export function SupplierDetailModal({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
-  const [editErrors, setEditErrors] = useState<Partial<Record<keyof EditForm, string>>>({});
+  const [editErrors, setEditErrors] = useState<
+    Partial<Record<keyof EditForm, string>>
+  >({});
   const [invoiceOpen, setInvoiceOpen] = useState(false);
-  const [paymentInvoice, setPaymentInvoice] = useState<SupplierInvoice | null>(null);
+  const [paymentInvoice, setPaymentInvoice] = useState<SupplierInvoice | null>(
+    null,
+  );
   const [invoiceForm, setInvoiceForm] = useState<InvoiceForm>({
     invoiceNumber: "",
     invoiceDate: todayIso(),
@@ -143,7 +155,10 @@ export function SupplierDetailModal({
     totalAmount: "",
     notes: "",
   });
-  const [paymentForm, setPaymentForm] = useState<PaymentForm>({ amount: "", notes: "" });
+  const [paymentForm, setPaymentForm] = useState<PaymentForm>({
+    amount: "",
+    notes: "",
+  });
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const appliedStartEdit = useRef(false);
@@ -201,7 +216,8 @@ export function SupplierDetailModal({
 
   const termsOptions = (() => {
     if (!editForm) return TERMS_OPTIONS;
-    if (TERMS_OPTIONS.some((o) => o.value === editForm.paymentTermsDays)) return TERMS_OPTIONS;
+    if (TERMS_OPTIONS.some((o) => o.value === editForm.paymentTermsDays))
+      return TERMS_OPTIONS;
     return [
       ...TERMS_OPTIONS,
       {
@@ -223,13 +239,18 @@ export function SupplierDetailModal({
     if (!detail || !editForm) return;
     const next: Partial<Record<keyof EditForm, string>> = {};
     if (!editForm.name.trim()) next.name = "Name is required";
-    if (editForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email.trim())) {
+    if (
+      editForm.email.trim() &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email.trim())
+    ) {
       next.email = "Enter a valid email";
     }
     const lead = Number(editForm.leadTimeDays);
-    if (!Number.isInteger(lead) || lead < 0) next.leadTimeDays = "Invalid lead time";
+    if (!Number.isInteger(lead) || lead < 0)
+      next.leadTimeDays = "Invalid lead time";
     const terms = Number(editForm.paymentTermsDays);
-    if (!Number.isInteger(terms) || terms < 0) next.paymentTermsDays = "Invalid terms";
+    if (!Number.isInteger(terms) || terms < 0)
+      next.paymentTermsDays = "Invalid terms";
     setEditErrors(next);
     if (Object.keys(next).length > 0) return;
 
@@ -260,7 +281,9 @@ export function SupplierDetailModal({
       setEditing(false);
       onChanged();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to update supplier");
+      setActionError(
+        err instanceof Error ? err.message : "Failed to update supplier",
+      );
     } finally {
       setSaving(false);
     }
@@ -284,23 +307,28 @@ export function SupplierDetailModal({
     setSaving(true);
     setActionError(null);
     try {
-      const updated = await apiJson<SupplierDetail>(`/suppliers/${detail.id}/invoices`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoiceNumber: invoiceForm.invoiceNumber.trim(),
-          invoiceDate: invoiceForm.invoiceDate,
-          dueDate: invoiceForm.dueDate,
-          totalAmount: total,
-          notes: invoiceForm.notes.trim() || undefined,
-          ...(branchId ? { branchId } : {}),
-        }),
-      });
+      const updated = await apiJson<SupplierDetail>(
+        `/suppliers/${detail.id}/invoices`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            invoiceNumber: invoiceForm.invoiceNumber.trim(),
+            invoiceDate: invoiceForm.invoiceDate,
+            dueDate: invoiceForm.dueDate,
+            totalAmount: total,
+            notes: invoiceForm.notes.trim() || undefined,
+            ...(branchId ? { branchId } : {}),
+          }),
+        },
+      );
       setDetail(updated);
       setInvoiceOpen(false);
       onChanged();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to create invoice");
+      setActionError(
+        err instanceof Error ? err.message : "Failed to create invoice",
+      );
     } finally {
       setSaving(false);
     }
@@ -314,7 +342,9 @@ export function SupplierDetailModal({
       return;
     }
     if (amount > paymentInvoice.balance + 0.001) {
-      setActionError(`Payment cannot exceed balance (${formatMoney(paymentInvoice.balance)})`);
+      setActionError(
+        `Payment cannot exceed balance (${formatMoney(paymentInvoice.balance)})`,
+      );
       return;
     }
     setSaving(true);
@@ -335,7 +365,9 @@ export function SupplierDetailModal({
       setPaymentInvoice(null);
       onChanged();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to record payment");
+      setActionError(
+        err instanceof Error ? err.message : "Failed to record payment",
+      );
     } finally {
       setSaving(false);
     }
@@ -359,7 +391,11 @@ export function SupplierDetailModal({
           <ModalFooter>
             {canWrite && detail && !editing ? (
               <>
-                <ModalButton variant="secondary" onClick={startEdit} disabled={loading || saving}>
+                <ModalButton
+                  variant="secondary"
+                  onClick={startEdit}
+                  disabled={loading || saving}
+                >
                   Edit supplier
                 </ModalButton>
                 {canInvoice ? (
@@ -388,7 +424,11 @@ export function SupplierDetailModal({
                 >
                   Cancel edit
                 </ModalButton>
-                <ModalButton variant="primary" onClick={() => void saveEdit()} loading={saving}>
+                <ModalButton
+                  variant="primary"
+                  onClick={() => void saveEdit()}
+                  loading={saving}
+                >
                   Save changes
                 </ModalButton>
               </>
@@ -419,10 +459,14 @@ export function SupplierDetailModal({
               <input
                 className={`${css.input} ${editErrors.name ? css.inputError : ""}`}
                 value={editForm.name}
-                onChange={(e) => setEditForm((f) => (f ? { ...f, name: e.target.value } : f))}
+                onChange={(e) =>
+                  setEditForm((f) => (f ? { ...f, name: e.target.value } : f))
+                }
                 disabled={saving}
               />
-              {editErrors.name ? <span className={css.fieldError}>{editErrors.name}</span> : null}
+              {editErrors.name ? (
+                <span className={css.fieldError}>{editErrors.name}</span>
+              ) : null}
             </div>
             <PurchasingSelect
               label="Type"
@@ -430,7 +474,9 @@ export function SupplierDetailModal({
               options={TYPE_OPTIONS}
               placeholder="Select type…"
               onChange={(value) =>
-                setEditForm((f) => (f ? { ...f, type: value as SupplierType } : f))
+                setEditForm((f) =>
+                  f ? { ...f, type: value as SupplierType } : f,
+                )
               }
               disabled={saving}
             />
@@ -440,7 +486,9 @@ export function SupplierDetailModal({
               options={STATUS_OPTIONS}
               placeholder="Select status…"
               onChange={(value) =>
-                setEditForm((f) => (f ? { ...f, status: value as SupplierStatus } : f))
+                setEditForm((f) =>
+                  f ? { ...f, status: value as SupplierStatus } : f,
+                )
               }
               disabled={saving}
             />
@@ -450,25 +498,33 @@ export function SupplierDetailModal({
                 className={css.input}
                 value={editForm.contactName}
                 onChange={(e) =>
-                  setEditForm((f) => (f ? { ...f, contactName: e.target.value } : f))
+                  setEditForm((f) =>
+                    f ? { ...f, contactName: e.target.value } : f,
+                  )
                 }
                 disabled={saving}
               />
             </div>
             <div className={css.field}>
-              <label className={css.fieldLabel} htmlFor="sup-addressLine">Address</label>
+              <label className={css.fieldLabel} htmlFor="sup-addressLine">
+                Address
+              </label>
               <input
                 id="sup-addressLine"
                 className={css.input}
                 value={editForm.addressLine}
                 onChange={(e) =>
-                  setEditForm((f) => (f ? { ...f, addressLine: e.target.value } : f))
+                  setEditForm((f) =>
+                    f ? { ...f, addressLine: e.target.value } : f,
+                  )
                 }
                 disabled={saving}
               />
             </div>
             <div className={css.field}>
-              <label className={css.fieldLabel} htmlFor="sup-city">City</label>
+              <label className={css.fieldLabel} htmlFor="sup-city">
+                City
+              </label>
               <input
                 id="sup-city"
                 className={css.input}
@@ -480,49 +536,65 @@ export function SupplierDetailModal({
               />
             </div>
             <div className={css.field}>
-              <label className={css.fieldLabel} htmlFor="sup-taxRegistrationNo">VAT / TIN</label>
+              <label className={css.fieldLabel} htmlFor="sup-taxRegistrationNo">
+                VAT / TIN
+              </label>
               <input
                 id="sup-taxRegistrationNo"
                 className={css.input}
                 value={editForm.taxRegistrationNo}
                 onChange={(e) =>
-                  setEditForm((f) => (f ? { ...f, taxRegistrationNo: e.target.value } : f))
+                  setEditForm((f) =>
+                    f ? { ...f, taxRegistrationNo: e.target.value } : f,
+                  )
                 }
                 disabled={saving}
               />
             </div>
             <div className={css.field}>
-              <label className={css.fieldLabel} htmlFor="sup-bankName">Bank</label>
+              <label className={css.fieldLabel} htmlFor="sup-bankName">
+                Bank
+              </label>
               <input
                 id="sup-bankName"
                 className={css.input}
                 value={editForm.bankName}
                 onChange={(e) =>
-                  setEditForm((f) => (f ? { ...f, bankName: e.target.value } : f))
+                  setEditForm((f) =>
+                    f ? { ...f, bankName: e.target.value } : f,
+                  )
                 }
                 disabled={saving}
               />
             </div>
             <div className={css.field}>
-              <label className={css.fieldLabel} htmlFor="sup-bankAccountName">Account name</label>
+              <label className={css.fieldLabel} htmlFor="sup-bankAccountName">
+                Account name
+              </label>
               <input
                 id="sup-bankAccountName"
                 className={css.input}
                 value={editForm.bankAccountName}
                 onChange={(e) =>
-                  setEditForm((f) => (f ? { ...f, bankAccountName: e.target.value } : f))
+                  setEditForm((f) =>
+                    f ? { ...f, bankAccountName: e.target.value } : f,
+                  )
                 }
                 disabled={saving}
               />
             </div>
             <div className={css.field}>
-              <label className={css.fieldLabel} htmlFor="sup-bankAccountNo">Account number</label>
+              <label className={css.fieldLabel} htmlFor="sup-bankAccountNo">
+                Account number
+              </label>
               <input
                 id="sup-bankAccountNo"
                 className={css.input}
                 value={editForm.bankAccountNo}
                 onChange={(e) =>
-                  setEditForm((f) => (f ? { ...f, bankAccountNo: e.target.value } : f))
+                  setEditForm((f) =>
+                    f ? { ...f, bankAccountNo: e.target.value } : f,
+                  )
                 }
                 disabled={saving}
               />
@@ -532,7 +604,9 @@ export function SupplierDetailModal({
               <input
                 className={css.input}
                 value={editForm.phone}
-                onChange={(e) => setEditForm((f) => (f ? { ...f, phone: e.target.value } : f))}
+                onChange={(e) =>
+                  setEditForm((f) => (f ? { ...f, phone: e.target.value } : f))
+                }
                 disabled={saving}
               />
             </div>
@@ -542,10 +616,14 @@ export function SupplierDetailModal({
                 className={`${css.input} ${editErrors.email ? css.inputError : ""}`}
                 type="email"
                 value={editForm.email}
-                onChange={(e) => setEditForm((f) => (f ? { ...f, email: e.target.value } : f))}
+                onChange={(e) =>
+                  setEditForm((f) => (f ? { ...f, email: e.target.value } : f))
+                }
                 disabled={saving}
               />
-              {editErrors.email ? <span className={css.fieldError}>{editErrors.email}</span> : null}
+              {editErrors.email ? (
+                <span className={css.fieldError}>{editErrors.email}</span>
+              ) : null}
             </div>
             <div className={css.field}>
               <label className={css.fieldLabel}>Lead time (days)</label>
@@ -554,12 +632,16 @@ export function SupplierDetailModal({
                 inputMode="numeric"
                 value={editForm.leadTimeDays}
                 onChange={(e) =>
-                  setEditForm((f) => (f ? { ...f, leadTimeDays: e.target.value } : f))
+                  setEditForm((f) =>
+                    f ? { ...f, leadTimeDays: e.target.value } : f,
+                  )
                 }
                 disabled={saving}
               />
               {editErrors.leadTimeDays ? (
-                <span className={css.fieldError}>{editErrors.leadTimeDays}</span>
+                <span className={css.fieldError}>
+                  {editErrors.leadTimeDays}
+                </span>
               ) : null}
             </div>
             <PurchasingSelect
@@ -589,11 +671,15 @@ export function SupplierDetailModal({
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Type</span>
-                <span className={scss.profileValue}>{displayTypeLabel(detail.type)}</span>
+                <span className={scss.profileValue}>
+                  {displayTypeLabel(detail.type)}
+                </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Contact</span>
-                <span className={scss.profileValue}>{detail.contactName ?? "—"}</span>
+                <span className={scss.profileValue}>
+                  {detail.contactName ?? "—"}
+                </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Phone</span>
@@ -605,7 +691,9 @@ export function SupplierDetailModal({
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Address</span>
-                <span className={scss.profileValue}>{detail.addressLine || "—"}</span>
+                <span className={scss.profileValue}>
+                  {detail.addressLine || "—"}
+                </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>City</span>
@@ -613,33 +701,46 @@ export function SupplierDetailModal({
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>VAT / TIN</span>
-                <span className={scss.profileValue}>{detail.taxRegistrationNo || "—"}</span>
+                <span className={scss.profileValue}>
+                  {detail.taxRegistrationNo || "—"}
+                </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Bank</span>
-                <span className={scss.profileValue}>{detail.bankName || "—"}</span>
+                <span className={scss.profileValue}>
+                  {detail.bankName || "—"}
+                </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Account name</span>
-                <span className={scss.profileValue}>{detail.bankAccountName || "—"}</span>
+                <span className={scss.profileValue}>
+                  {detail.bankAccountName || "—"}
+                </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Account number</span>
-                <span className={scss.profileValue}>{detail.bankAccountNo || "—"}</span>
+                <span className={scss.profileValue}>
+                  {detail.bankAccountNo || "—"}
+                </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Payment terms</span>
                 <span className={scss.profileValue}>
-                  {formatTerms(detail.paymentTermsDays)} · lead {detail.leadTimeDays}d
+                  {formatTerms(detail.paymentTermsDays)} · lead{" "}
+                  {detail.leadTimeDays}d
                 </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Outstanding</span>
-                <span className={scss.profileValue}>{formatMoney(detail.outstanding)}</span>
+                <span className={scss.profileValue}>
+                  {formatMoney(detail.outstanding)}
+                </span>
               </div>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Overdue</span>
-                <span className={scss.profileValue}>{formatMoney(detail.overdueAmount)}</span>
+                <span className={scss.profileValue}>
+                  {formatMoney(detail.overdueAmount)}
+                </span>
               </div>
             </div>
 
@@ -677,7 +778,9 @@ export function SupplierDetailModal({
                             <div>{formatDate(inv.invoiceDate)}</div>
                             <div
                               className={`${scss.dueLabel} ${
-                                inv.dueLabel?.startsWith("Overdue") ? scss.dueOverdue : ""
+                                inv.dueLabel?.startsWith("Overdue")
+                                  ? scss.dueOverdue
+                                  : ""
                               }`}
                             >
                               Due {formatDate(inv.dueDate)}
@@ -695,7 +798,8 @@ export function SupplierDetailModal({
                           </td>
                           <td>
                             {canPay &&
-                            (inv.status === "open" || inv.status === "partial") &&
+                            (inv.status === "open" ||
+                              inv.status === "partial") &&
                             inv.balance > 0 ? (
                               <div className={scss.invoiceActions}>
                                 <button
@@ -724,24 +828,34 @@ export function SupplierDetailModal({
             </section>
 
             {canManagePrices ? (
-              <SupplierPriceList supplierId={detail.id} supplierName={detail.name} />
+              <SupplierPriceList
+                supplierId={detail.id}
+                supplierName={detail.name}
+              />
             ) : null}
 
             {detail.recentOrders.length > 0 ? (
               <section className={scss.detailSection}>
-                <h3 className={scss.detailSectionTitle}>Recent purchase orders</h3>
+                <h3 className={scss.detailSectionTitle}>
+                  Recent purchase orders
+                </h3>
                 <ul className={scss.activityList}>
                   {detail.recentOrders.map((po) => (
                     <li key={po.id} className={scss.activityItem}>
                       <div className={scss.activityTop}>
-                        <Link href={purchasingPoHref(po.id)} className={scss.poLink}>
+                        <Link
+                          href={purchasingPoHref(po.id)}
+                          className={scss.poLink}
+                        >
                           {po.poNumber}
                         </Link>
                         <StatusBadge status={po.status} />
                       </div>
                       <span className={scss.activityMeta}>
                         {formatDate(po.createdAt)}
-                        {po.expectedOn ? ` · expected ${formatDate(po.expectedOn)}` : ""}
+                        {po.expectedOn
+                          ? ` · expected ${formatDate(po.expectedOn)}`
+                          : ""}
                       </span>
                     </li>
                   ))}
@@ -798,24 +912,29 @@ export function SupplierDetailModal({
           </div>
           <div className={css.field}>
             <label className={css.fieldLabel}>Invoice date</label>
-            <input
-              type="date"
-              className={css.input}
+            <DatePicker
+              variant="field"
+              label="Invoice date"
               value={invoiceForm.invoiceDate}
-              onChange={(e) =>
-                setInvoiceForm((f) => ({ ...f, invoiceDate: e.target.value }))
+              onChange={(value) =>
+                setInvoiceForm((f) => ({ ...f, invoiceDate: value }))
               }
               disabled={saving}
+              clearable={false}
+              placeholder="Select a date"
             />
           </div>
           <div className={css.field}>
             <label className={css.fieldLabel}>Due date</label>
-            <input
-              type="date"
-              className={css.input}
+            <DatePicker
+              variant="field"
+              label="Due date"
               value={invoiceForm.dueDate}
-              onChange={(e) => setInvoiceForm((f) => ({ ...f, dueDate: e.target.value }))}
+              onChange={(value) =>
+                setInvoiceForm((f) => ({ ...f, dueDate: value }))
+              }
               disabled={saving}
+              placeholder="Select a date"
             />
           </div>
           <div className={`${css.field} ${css.fullWidth}`}>
@@ -835,7 +954,9 @@ export function SupplierDetailModal({
             <input
               className={css.input}
               value={invoiceForm.notes}
-              onChange={(e) => setInvoiceForm((f) => ({ ...f, notes: e.target.value }))}
+              onChange={(e) =>
+                setInvoiceForm((f) => ({ ...f, notes: e.target.value }))
+              }
               disabled={saving}
             />
           </div>
@@ -885,13 +1006,15 @@ export function SupplierDetailModal({
               className={css.input}
               inputMode="decimal"
               value={paymentForm.amount}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))}
+              onChange={(e) =>
+                setPaymentForm((f) => ({ ...f, amount: e.target.value }))
+              }
               disabled={saving}
             />
             {paymentInvoice ? (
               <span className={css.fieldHint}>
-                Outstanding balance {formatMoney(paymentInvoice.balance)}. Partial payments
-                mark the invoice as partial until fully paid.
+                Outstanding balance {formatMoney(paymentInvoice.balance)}.
+                Partial payments mark the invoice as partial until fully paid.
               </span>
             ) : null}
           </div>
@@ -900,7 +1023,9 @@ export function SupplierDetailModal({
             <input
               className={css.input}
               value={paymentForm.notes}
-              onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))}
+              onChange={(e) =>
+                setPaymentForm((f) => ({ ...f, notes: e.target.value }))
+              }
               disabled={saving}
             />
           </div>

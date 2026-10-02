@@ -541,14 +541,13 @@ function PurchasingContent() {
         actions={
           canWrite ? (
             <>
-              <button
-                type="button"
-                className={css.actionBtn}
+              <ActionButton
+                variant="secondary"
+                icon={<IconClipboardList size={16} />}
                 onClick={() => setSuggestOpen(true)}
               >
-                <IconClipboardList size={15} />
                 What to order
-              </button>
+              </ActionButton>
               <ActionButton icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
                 New purchase order
               </ActionButton>

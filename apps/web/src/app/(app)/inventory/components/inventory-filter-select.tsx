@@ -76,7 +76,12 @@ export function InventoryFilterSelect({
     setMenuStyle({
       position: "fixed",
       left: rect.left,
-      width: Math.max(rect.width, 170),
+      // The menu grows to fit its longest option — supplier and product names are long, and a
+      // menu clipped to the trigger's width cut them to "Ceylon Generics Man…". Bounded so it
+      // never runs off the right edge of the screen.
+      width: "max-content",
+      minWidth: Math.max(rect.width, 170),
+      maxWidth: Math.max(rect.width, Math.min(420, window.innerWidth - rect.left - 16)),
       zIndex: 200,
       ...(openUp
         ? { bottom: window.innerHeight - rect.top + 6, maxHeight: Math.min(280, rect.top - 16) }

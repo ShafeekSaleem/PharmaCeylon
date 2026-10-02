@@ -149,13 +149,17 @@ export class NotificationsService {
     category: NotificationCategory,
     input: AdminNotificationInput,
     excludeUserId?: string,
-  ) {
+    /** Only people who hold the permission *at this branch* — for a request about one branch's
+     *  stock, not a tenant-wide event. Owners still qualify wherever they are. */
+    opts: { branchId?: string } = {},
+  ): Promise<number> {
     const recipientIds = await this.resolveRecipientsByPermission(
       tenantId,
       requiredPermission,
       excludeUserId,
+      opts.branchId,
     );
-    if (!recipientIds.length) return;
+    if (!recipientIds.length) return 0;
 
     const preferenceRows = await this.prisma.notificationPreference.findMany({
       where: { tenantId, userId: { in: recipientIds } },
@@ -169,13 +173,13 @@ export class NotificationsService {
       return true;
     };
     const recipients = recipientIds.filter(isEnabled);
-    if (!recipients.length) return;
+    if (!recipients.length) return 0;
 
     await this.prisma.notification.createMany({
       data: recipients.map((recipientUserId) => ({
         tenantId,
         recipientUserId,
-        branchId: null,
+        branchId: opts.branchId ?? null,
         category,
         severity: input.severity ?? NotificationSeverity.info,
         title: input.title,
@@ -188,12 +192,14 @@ export class NotificationsService {
         requiresAction: input.requiresAction ?? false,
       })),
     });
+    return recipients.length;
   }
 
   private async resolveRecipientsByPermission(
     tenantId: string,
     requiredPermission: string,
     excludeUserId?: string,
+    branchId?: string,
   ): Promise<string[]> {
     const rows = await this.prisma.userBranchRole.findMany({
       where: { tenantId, ...(excludeUserId ? { userId: { not: excludeUserId } } : {}) },
@@ -211,7 +217,9 @@ export class NotificationsService {
         recipients.push(userId);
         continue;
       }
-      const granted = await this.permissions.resolveGrantedKeys(entries);
+      const scoped = branchId ? entries.filter((entry) => entry.branchId === branchId) : entries;
+      if (!scoped.length) continue;
+      const granted = await this.permissions.resolveGrantedKeys(scoped);
       if (granted.has(requiredPermission)) recipients.push(userId);
     }
     return recipients;

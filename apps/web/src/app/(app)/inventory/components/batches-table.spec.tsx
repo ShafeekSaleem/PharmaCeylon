@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { pickDate } from "@/test-utils/pick-date";
 import { BatchesTable } from "./batches-table";
 import { apiJson } from "@/lib/auth-client";
 
@@ -72,9 +73,7 @@ beforeEach(() => {
 it("confirms a flagged batch's expiry through the row menu and refreshes inventory", async () => {
   const onChanged = renderTable([batch({ needsExpiryReview: true })]);
   fireEvent.click(within(openMenu()).getByRole("menuitem", { name: "Confirm expiry date" }));
-  fireEvent.change(screen.getByLabelText(/Actual expiry date/), {
-    target: { value: "2027-06-30" },
-  });
+  pickDate(/Actual expiry date/, "2027-06-30");
   fireEvent.click(screen.getByRole("button", { name: "Confirm expiry" }));
   await waitFor(() => expect(onChanged).toHaveBeenCalled());
   expect(apiJson).toHaveBeenCalledWith(

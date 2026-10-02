@@ -318,3 +318,106 @@
 .table tbody tr.selectedRow:hover td {
   background: color-mix(in srgb, var(--pc-primary) 16%, var(--pc-card-bg));
 }
+
+/* ── Phones: each row becomes a card ─────────────────────────────────────────
+   A wide table on a phone either scrolled sideways inside a strip (most pages) or, where the
+   page turned that off, had its right-hand columns cut off entirely. Below 640px every row is
+   instead a card of label/value pairs, labelled from the column header (`data-label`), so
+   every column is readable without swiping. The first column — the row's identity, a product
+   or a document number — leads the card as its title. */
+@media (max-width: 640px) {
+  .scrollArea,
+  .noHorizontalScroll {
+    overflow-x: visible;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .table {
+    table-layout: auto;
+    border-collapse: separate;
+  }
+
+  /* The header row's job is done by each cell's label; kept for screen readers. */
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .table tbody tr {
+    margin-bottom: 0.6rem;
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--pc-border);
+    border-radius: var(--pc-radius-md, 10px);
+    background: var(--pc-card-bg);
+  }
+
+  .table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .table tbody td,
+  .table tbody tr:last-child td {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--pc-border) 70%, transparent);
+    text-align: right !important;
+    overflow-wrap: anywhere;
+  }
+
+  .table tbody td:last-child {
+    border-bottom: none;
+  }
+
+  .table tbody td[data-label]::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    max-width: 45%;
+    padding-top: 0.12rem;
+    text-align: left;
+    font-size: 0.68rem;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--pc-muted-fg);
+  }
+
+  /* An unlabelled cell (actions, a menu) sits at the card's right. */
+  .table tbody td:not([data-label]) {
+    justify-content: flex-end;
+  }
+
+  /* The row's identity leads the card as its title. */
+  .table tbody td:first-child:not(.selectCell),
+  .table tbody td.selectCell + td {
+    display: block;
+    padding-bottom: 0.55rem;
+    text-align: left !important;
+    font-weight: 600;
+  }
+
+  .table tbody td:first-child:not(.selectCell)::before,
+  .table tbody td.selectCell + td::before {
+    display: none;
+  }
+
+  .table tbody td.selectCell {
+    justify-content: flex-start;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+}

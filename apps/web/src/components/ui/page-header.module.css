@@ -56,6 +56,27 @@
 }
 
 @media (max-width: 640px) {
+  /* The description takes the whole row and the actions wrap beneath it. Left to share the row,
+     two buttons squeezed the description into a one-word-per-line column. */
+  .left {
+    flex-basis: 100%;
+  }
+
+  .actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  /* On a phone each action takes the full width, so two buttons are the same size instead of
+     each hugging its own label — side by side there isn't room for both at an equal width. */
+  .actions > * {
+    flex: 1 1 100%;
+  }
+
+  .actions > * > .actionBtn {
+    width: 100%;
+  }
+
   .floatingActions .left {
     padding-right: 0;
   }

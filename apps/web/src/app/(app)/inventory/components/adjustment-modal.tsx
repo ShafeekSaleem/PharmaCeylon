@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { RoleAccessDenied } from "@/components/role-access";
-import { Modal, ModalButton, ModalFooter } from "@/components/ui";
+import { DatePicker, Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { ProductStockBadge } from "../../products/components/product-stock-badge";
@@ -123,8 +123,10 @@ function AdjustmentModalContent({
 
   useEffect(() => {
     if (!access.ready) return;
-    if (!allowOut && movementType === "adjustment_out") setMovementType("adjustment_in");
-    if (!allowIn && movementType === "adjustment_in" && allowOut) setMovementType("adjustment_out");
+    if (!allowOut && movementType === "adjustment_out")
+      setMovementType("adjustment_in");
+    if (!allowIn && movementType === "adjustment_in" && allowOut)
+      setMovementType("adjustment_out");
   }, [access.ready, allowIn, allowOut, movementType]);
 
   useEffect(() => {
@@ -184,7 +186,8 @@ function AdjustmentModalContent({
   );
 
   const isOpeningStock =
-    movementType === "adjustment_in" && (useNewBatch || batches.rows.length === 0);
+    movementType === "adjustment_in" &&
+    (useNewBatch || batches.rows.length === 0);
 
   const newBatchValid =
     !!newBatch.batchNo.trim() &&
@@ -200,7 +203,12 @@ function AdjustmentModalContent({
     movementType === "adjustment_out" && selectedBatch
       ? fromQuarantine
         ? selectedBatch.quarantinedQty
-        : Math.max(0, selectedBatch.qtyOnHand - selectedBatch.quarantinedQty - selectedBatch.reservedQty)
+        : Math.max(
+            0,
+            selectedBatch.qtyOnHand -
+              selectedBatch.quarantinedQty -
+              selectedBatch.reservedQty,
+          )
       : null;
   const reasonRequired = movementType === "adjustment_out";
 
@@ -212,7 +220,8 @@ function AdjustmentModalContent({
     (isOpeningStock
       ? newBatchValid
       : !!batchId &&
-        (movementType === "adjustment_in" || (available != null && qty <= available)));
+        (movementType === "adjustment_in" ||
+          (available != null && qty <= available)));
 
   const submit = async () => {
     setSaving(true);
@@ -223,7 +232,9 @@ function AdjustmentModalContent({
         movementType,
         qty,
         reason: reason.trim() || undefined,
-        ...(movementType === "adjustment_out" && fromQuarantine ? { fromQuarantine: true } : {}),
+        ...(movementType === "adjustment_out" && fromQuarantine
+          ? { fromQuarantine: true }
+          : {}),
       };
       if (isOpeningStock) {
         body.newBatch = {
@@ -279,7 +290,11 @@ function AdjustmentModalContent({
         canDismiss={!saving}
         footer={
           <ModalFooter>
-            <ModalButton variant="secondary" onClick={onClose} disabled={saving}>
+            <ModalButton
+              variant="secondary"
+              onClick={onClose}
+              disabled={saving}
+            >
               Cancel
             </ModalButton>
             <ModalButton
@@ -316,7 +331,9 @@ function AdjustmentModalContent({
                 <button
                   type="button"
                   className={`${css.segmentBtn}${
-                    movementType === "adjustment_in" ? ` ${css.segmentBtnIncreaseActive}` : ""
+                    movementType === "adjustment_in"
+                      ? ` ${css.segmentBtnIncreaseActive}`
+                      : ""
                   }`}
                   onClick={() => allowIn && setMovementType("adjustment_in")}
                   disabled={!allowIn}
@@ -339,9 +356,13 @@ function AdjustmentModalContent({
                   <button
                     type="button"
                     className={`${css.segmentBtn}${
-                      movementType === "adjustment_out" ? ` ${css.segmentBtnDecreaseActive}` : ""
+                      movementType === "adjustment_out"
+                        ? ` ${css.segmentBtnDecreaseActive}`
+                        : ""
                     }`}
-                    onClick={() => allowOut && setMovementType("adjustment_out")}
+                    onClick={() =>
+                      allowOut && setMovementType("adjustment_out")
+                    }
                     disabled={!allowOut}
                   >
                     Decrease (−)
@@ -350,8 +371,8 @@ function AdjustmentModalContent({
               </div>
               {!allowOut && (
                 <span className={css.fieldHint}>
-                  Your role can add stock but not write it off. Ask someone with “Write off stock” to
-                  post decreases.
+                  Your role can add stock but not write it off. Ask someone with
+                  “Write off stock” to post decreases.
                 </span>
               )}
               {movementType === "adjustment_out" && (
@@ -361,7 +382,10 @@ function AdjustmentModalContent({
                     checked={fromQuarantine}
                     onChange={(e) => setFromQuarantine(e.target.checked)}
                   />
-                  <span>Write off quarantined units (disposing of expired or damaged stock)</span>
+                  <span>
+                    Write off quarantined units (disposing of expired or damaged
+                    stock)
+                  </span>
                 </label>
               )}
             </div>
@@ -393,7 +417,9 @@ function AdjustmentModalContent({
                   />
                   <span>
                     Also search the reference catalog
-                    {debouncedProductSearch && !includeReference && stock.rows.length === 0
+                    {debouncedProductSearch &&
+                    !includeReference &&
+                    stock.rows.length === 0
                       ? " — nothing in your products matches this search"
                       : ""}
                   </span>
@@ -404,11 +430,15 @@ function AdjustmentModalContent({
                 <>
                   <div className={`${css.field} ${css.fullWidth}`}>
                     <span className={css.fieldHint}>
-                      No batches at this branch yet — enter opening stock on a new batch.
+                      No batches at this branch yet — enter opening stock on a
+                      new batch.
                     </span>
                   </div>
                   <div className={css.field}>
-                    <label className={css.fieldLabel} htmlFor="adj-modal-batch-no">
+                    <label
+                      className={css.fieldLabel}
+                      htmlFor="adj-modal-batch-no"
+                    >
                       Batch no.
                     </label>
                     <input
@@ -416,25 +446,33 @@ function AdjustmentModalContent({
                       className={css.formControl}
                       value={newBatch.batchNo}
                       onChange={(e) =>
-                        setNewBatch((prev) => ({ ...prev, batchNo: e.target.value }))
+                        setNewBatch((prev) => ({
+                          ...prev,
+                          batchNo: e.target.value,
+                        }))
                       }
                       placeholder="e.g. OPEN-001"
                       required
                     />
                   </div>
                   <div className={css.field}>
-                    <label className={css.fieldLabel} htmlFor="adj-modal-expiry">
+                    <label
+                      className={css.fieldLabel}
+                      htmlFor="adj-modal-expiry"
+                    >
                       Expiry date
                     </label>
-                    <input
+                    <DatePicker
+                      variant="field"
                       id="adj-modal-expiry"
-                      type="date"
-                      className={css.formControl}
+                      label="Expiry date"
                       value={newBatch.expiryDate}
-                      onChange={(e) =>
-                        setNewBatch((prev) => ({ ...prev, expiryDate: e.target.value }))
+                      onChange={(value) =>
+                        setNewBatch((prev) => ({ ...prev, expiryDate: value }))
                       }
                       required
+                      clearable={false}
+                      placeholder="Select a date"
                     />
                   </div>
                   <div className={css.field}>
@@ -449,7 +487,10 @@ function AdjustmentModalContent({
                       className={css.formControl}
                       value={newBatch.costPrice}
                       onChange={(e) =>
-                        setNewBatch((prev) => ({ ...prev, costPrice: e.target.value }))
+                        setNewBatch((prev) => ({
+                          ...prev,
+                          costPrice: e.target.value,
+                        }))
                       }
                       required
                     />
@@ -466,7 +507,10 @@ function AdjustmentModalContent({
                       className={css.formControl}
                       value={newBatch.sellingPrice}
                       onChange={(e) =>
-                        setNewBatch((prev) => ({ ...prev, sellingPrice: e.target.value }))
+                        setNewBatch((prev) => ({
+                          ...prev,
+                          sellingPrice: e.target.value,
+                        }))
                       }
                       required
                     />
@@ -482,7 +526,9 @@ function AdjustmentModalContent({
                     options={batches.rows.map((batch) => ({
                       value: batch.id,
                       label: `${batch.batchNo} · ${batch.qtyOnHand} on hand${
-                        batch.quarantinedQty > 0 ? ` (${batch.quarantinedQty} held)` : ""
+                        batch.quarantinedQty > 0
+                          ? ` (${batch.quarantinedQty} held)`
+                          : ""
                       } · exp ${new Date(batch.expiryDate).toLocaleDateString()}`,
                     }))}
                     searchable
@@ -492,7 +538,8 @@ function AdjustmentModalContent({
                   />
                   {selectedProduct && (
                     <span className={css.fieldHint}>
-                      Product: {selectedProduct.availableQty} available of {selectedProduct.qtyOnHand} on hand
+                      Product: {selectedProduct.availableQty} available of{" "}
+                      {selectedProduct.qtyOnHand} on hand
                       {selectedBatch
                         ? ` · Batch: ${selectedBatch.qtyOnHand} on hand, ${selectedBatch.quarantinedQty} held, ${selectedBatch.reservedQty} reserved`
                         : ""}
@@ -501,28 +548,29 @@ function AdjustmentModalContent({
                         : ""}
                     </span>
                   )}
-                  {movementType === "adjustment_in" && batches.rows.length > 0 && (
-                    <button
-                      type="button"
-                      style={{
-                        marginTop: "0.35rem",
-                        background: "none",
-                        border: "none",
-                        padding: 0,
-                        color: "var(--pc-primary)",
-                        cursor: "pointer",
-                        font: "inherit",
-                        fontSize: "0.8rem",
-                        textDecoration: "underline",
-                      }}
-                      onClick={() => {
-                        setUseNewBatch(true);
-                        setBatchId("");
-                      }}
-                    >
-                      Or create a new batch instead
-                    </button>
-                  )}
+                  {movementType === "adjustment_in" &&
+                    batches.rows.length > 0 && (
+                      <button
+                        type="button"
+                        style={{
+                          marginTop: "0.35rem",
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          color: "var(--pc-primary)",
+                          cursor: "pointer",
+                          font: "inherit",
+                          fontSize: "0.8rem",
+                          textDecoration: "underline",
+                        }}
+                        onClick={() => {
+                          setUseNewBatch(true);
+                          setBatchId("");
+                        }}
+                      >
+                        Or create a new batch instead
+                      </button>
+                    )}
                 </div>
               )}
 
@@ -560,11 +608,14 @@ function AdjustmentModalContent({
                   min={1}
                   className={css.formControl}
                   value={qty}
-                  onChange={(e) => setQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  onChange={(e) =>
+                    setQty(Math.max(1, parseInt(e.target.value, 10) || 1))
+                  }
                 />
                 {available != null && (
                   <span className={css.fieldHint}>
-                    {fromQuarantine ? "Quarantined" : "Not held or reserved"} on this batch: {available}
+                    {fromQuarantine ? "Quarantined" : "Not held or reserved"} on
+                    this batch: {available}
                   </span>
                 )}
               </div>
@@ -572,7 +623,9 @@ function AdjustmentModalContent({
               <div className={`${css.field} ${css.fullWidth}`}>
                 <label className={css.fieldLabel} htmlFor="adj-modal-reason">
                   Reason{" "}
-                  <span className={css.fieldHint}>{reasonRequired ? "(required)" : "(recommended)"}</span>
+                  <span className={css.fieldHint}>
+                    {reasonRequired ? "(required)" : "(recommended)"}
+                  </span>
                 </label>
                 <textarea
                   id="adj-modal-reason"
@@ -615,7 +668,8 @@ function AdjustmentModalContent({
                       <span>Batch</span>
                       <strong>{selectedBatch.batchNo}</strong>
                       <span>
-                        {selectedBatch.qtyOnHand} on hand · {selectedBatch.availableQty} sellable now
+                        {selectedBatch.qtyOnHand} on hand ·{" "}
+                        {selectedBatch.availableQty} sellable now
                       </span>
                     </div>
                   ) : null}
@@ -630,11 +684,21 @@ function AdjustmentModalContent({
             <div className={css.sideCard}>
               <h3 className={css.sideCardTitle}>Adjustment guidance</h3>
               <ul className={css.guidanceList}>
-                <li>Use Increase for found stock, opening stock, or positive cycle-count corrections.</li>
-                <li>Use Decrease for damage, loss, expiry, or negative corrections — a reason is required.</li>
-                <li>To dispose of expired or damaged stock, quarantine it first, then write it off from quarantine.</li>
                 <li>
-                  Prefer an existing batch when available so FEFO and expiry stay accurate.
+                  Use Increase for found stock, opening stock, or positive
+                  cycle-count corrections.
+                </li>
+                <li>
+                  Use Decrease for damage, loss, expiry, or negative corrections
+                  — a reason is required.
+                </li>
+                <li>
+                  To dispose of expired or damaged stock, quarantine it first,
+                  then write it off from quarantine.
+                </li>
+                <li>
+                  Prefer an existing batch when available so FEFO and expiry
+                  stay accurate.
                 </li>
                 <li>Always include a clear reason for audit traceability.</li>
               </ul>
@@ -656,9 +720,13 @@ function AdjustmentModalContent({
       >
         {error && <Alert variant="error">{error}</Alert>}
         <p>
-          {movementType === "adjustment_in" ? "Add" : "Write off"} <strong>{qty}</strong>{" "}
-          {qty === 1 ? "unit" : "units"}
-          {movementType === "adjustment_in" ? " to " : fromQuarantine ? " of quarantined " : " of "}
+          {movementType === "adjustment_in" ? "Add" : "Write off"}{" "}
+          <strong>{qty}</strong> {qty === 1 ? "unit" : "units"}
+          {movementType === "adjustment_in"
+            ? " to "
+            : fromQuarantine
+              ? " of quarantined "
+              : " of "}
           <strong>{selectedProduct?.product.name ?? "product"}</strong>
           {isOpeningStock ? (
             <>
@@ -675,7 +743,9 @@ function AdjustmentModalContent({
         {reason.trim() ? (
           <p className={css.fieldHint}>Reason: {reason.trim()}</p>
         ) : (
-          <p className={css.fieldHint}>No reason provided — consider adding one for the audit log.</p>
+          <p className={css.fieldHint}>
+            No reason provided — consider adding one for the audit log.
+          </p>
         )}
       </ConfirmDialog>
     </>

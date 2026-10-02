@@ -122,6 +122,9 @@ type RoleFlags = {
   canViewExpected: boolean;
   /** Counting stock says nothing about being allowed to know what it cost. */
   canViewCost: boolean;
+  /** Who is asking, and whether their role may approve a count they took part in. */
+  userId: string;
+  canSelfApprove: boolean;
 };
 
 type MovementRef = {
@@ -172,6 +175,8 @@ function roleFlags(access: ActorAccess): RoleFlags {
     canPost: canReview,
     canViewExpected: canReview,
     canViewCost: access.has("costs.view"),
+    userId: access.userId,
+    canSelfApprove: access.canSelfApprove,
   };
 }
 
@@ -563,6 +568,14 @@ export class StocktakesService {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       counter: row.counter,
+      // The rule approve() enforces — anyone who counted, creator included, is asking for the
+      // count to be approved — said up front, so Approve can be disabled with its reason.
+      selfApprovalBlocked:
+        !flags.canSelfApprove &&
+        (row.countedBy === flags.userId ||
+          row.lines.some((line) =>
+            line.countEntries.some((entry) => entry.counter.id === flags.userId),
+          )),
       reviewer: row.reviewer,
       approver: row.approver,
       poster: row.poster,

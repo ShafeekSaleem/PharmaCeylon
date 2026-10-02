@@ -3,11 +3,13 @@
 import {
   forwardRef,
   useId,
+  type ChangeEvent,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { DatePicker } from "./date-picker";
 import styles from "./form-field.module.css";
 
 type BaseProps = {
@@ -35,7 +37,10 @@ type TextareaFieldProps = BaseProps &
     as: "textarea";
   };
 
-export type FormFieldProps = InputFieldProps | SelectFieldProps | TextareaFieldProps;
+export type FormFieldProps =
+  | InputFieldProps
+  | SelectFieldProps
+  | TextareaFieldProps;
 
 export const FormField = forwardRef<
   HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
@@ -52,7 +57,11 @@ export const FormField = forwardRef<
     as = "input",
     className,
     ...rest
-  } = props as BaseProps & { as?: string; className?: string; children?: ReactNode } & Record<string, unknown>;
+  } = props as BaseProps & {
+    as?: string;
+    className?: string;
+    children?: ReactNode;
+  } & Record<string, unknown>;
 
   const id = (rest.id as string) ?? autoId;
   const hasError = !!error;
@@ -61,14 +70,18 @@ export const FormField = forwardRef<
     styles.field,
     fullWidth ? styles.fullWidth : "",
     className ?? "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const controlCls = [
     styles.control,
     icon ? styles.hasIcon : "",
     hasError ? styles.error : "",
     as === "textarea" ? styles.textarea : "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className={wrapCls}>
@@ -84,7 +97,9 @@ export const FormField = forwardRef<
             ref={ref as React.Ref<HTMLSelectElement>}
             className={controlCls}
             aria-invalid={hasError || undefined}
-            aria-describedby={hasError ? `${id}-err` : hint ? `${id}-hint` : undefined}
+            aria-describedby={
+              hasError ? `${id}-err` : hint ? `${id}-hint` : undefined
+            }
             {...(rest as SelectHTMLAttributes<HTMLSelectElement>)}
           >
             {(props as SelectFieldProps).children}
@@ -95,8 +110,39 @@ export const FormField = forwardRef<
             ref={ref as React.Ref<HTMLTextAreaElement>}
             className={controlCls}
             aria-invalid={hasError || undefined}
-            aria-describedby={hasError ? `${id}-err` : hint ? `${id}-hint` : undefined}
+            aria-describedby={
+              hasError ? `${id}-err` : hint ? `${id}-hint` : undefined
+            }
             {...(rest as TextareaHTMLAttributes<HTMLTextAreaElement>)}
+          />
+        ) : rest.type === "date" ? (
+          // Dates open the app's own themed calendar rather than the browser's. Callers keep
+          // reading `event.target.value`, so the change is handed back in that shape.
+          <DatePicker
+            id={id}
+            variant="field"
+            label={label}
+            value={(rest.value as string | undefined) ?? ""}
+            min={rest.min as string | undefined}
+            max={rest.max as string | undefined}
+            disabled={rest.disabled as boolean | undefined}
+            required={required}
+            clearable={!required}
+            invalid={hasError}
+            placeholder="Select a date"
+            describedBy={
+              hasError ? `${id}-err` : hint ? `${id}-hint` : undefined
+            }
+            onChange={(next) =>
+              (
+                rest.onChange as
+                  | ((event: ChangeEvent<HTMLInputElement>) => void)
+                  | undefined
+              )?.({
+                target: { value: next },
+                currentTarget: { value: next },
+              } as ChangeEvent<HTMLInputElement>)
+            }
           />
         ) : (
           <input
@@ -104,15 +150,21 @@ export const FormField = forwardRef<
             ref={ref as React.Ref<HTMLInputElement>}
             className={controlCls}
             aria-invalid={hasError || undefined}
-            aria-describedby={hasError ? `${id}-err` : hint ? `${id}-hint` : undefined}
+            aria-describedby={
+              hasError ? `${id}-err` : hint ? `${id}-hint` : undefined
+            }
             {...(rest as InputHTMLAttributes<HTMLInputElement>)}
           />
         )}
       </div>
       {hasError ? (
-        <p id={`${id}-err`} className={styles.errorText}>{error}</p>
+        <p id={`${id}-err`} className={styles.errorText}>
+          {error}
+        </p>
       ) : hint ? (
-        <p id={`${id}-hint`} className={styles.hintText}>{hint}</p>
+        <p id={`${id}-hint`} className={styles.hintText}>
+          {hint}
+        </p>
       ) : null}
     </div>
   );
