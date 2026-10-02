@@ -477,6 +477,7 @@ model Branch {
   batches            Batch[]
   purchaseOrders     PurchaseOrder[]
   goodsReceipts      GoodsReceipt[]
+  heldDeliveries     HeldDelivery[]
   supplierPayments   SupplierPayment[]
   supplierDebitNotes SupplierDebitNote[]
   sales              Sale[]
@@ -667,6 +668,8 @@ model AppUser {
   sessions                 Session[]
   purchaseOrdersCreated    PurchaseOrder[]          @relation("PurchaseOrderCreator")
   goodsReceiptsReceived    GoodsReceipt[]           @relation("GoodsReceiptReceiver")
+  heldDeliveriesRequested  HeldDelivery[]           @relation("HeldDeliveryRequester")
+  heldDeliveriesDecided    HeldDelivery[]           @relation("HeldDeliveryDecider")
   supplierPaymentsMade     SupplierPayment[]        @relation("SupplierPaymentCreator")
   supplierDebitNotesRaised SupplierDebitNote[]      @relation("SupplierDebitNoteCreator")
   sales                    Sale[]                   @relation("SaleSeller")
@@ -1702,9 +1705,10 @@ model PurchaseOrder {
   supplier Supplier @relation(fields: [supplierId], references: [id])
   creator  AppUser  @relation("PurchaseOrderCreator", fields: [createdBy], references: [id])
 
-  items         PurchaseOrderItem[]
-  goodsReceipts GoodsReceipt[]
-  goodsReturns  GoodsReturn[]
+  items          PurchaseOrderItem[]
+  goodsReceipts  GoodsReceipt[]
+  heldDeliveries HeldDelivery[]
+  goodsReturns   GoodsReturn[]
 
   @@unique([tenantId, branchId, poNumber])
   @@index([tenantId, branchId, status])
@@ -1764,9 +1768,54 @@ model GoodsReceipt {
   goodsReturns    GoodsReturn[]
   supplierInvoice SupplierInvoice?
   invoiceLinks    SupplierInvoiceReceipt[]
+  heldDelivery    HeldDelivery?
 
   @@unique([tenantId, branchId, grnNumber])
   @@map("goods_receipt")
+}
+
+enum HeldDeliveryStatus {
+  awaiting_approval
+  accepted
+  rejected
+}
+
+/// A delivery the receiver could not book in themselves — more arrived than was ordered, or it
+/// is billed above the price the order agreed — kept exactly as they typed it until someone who
+/// may approve purchase orders accepts or rejects it. Nothing here touches stock or the supplier
+/// ledger: accepting books it in through the normal receiving path and links the delivery it
+/// created, so what the receiver typed and what was accepted can both be read afterwards.
+model HeldDelivery {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  branchId        String             @map("branch_id") @db.Uuid
+  purchaseOrderId String             @map("purchase_order_id") @db.Uuid
+  status          HeldDeliveryStatus @default(awaiting_approval)
+  /// Why it was held: `over_delivery`, `price_variance`, or both.
+  reasons         String[]
+  /// What the refusal said, so the approver reads the same facts the receiver saw.
+  detail          String?            @db.VarChar(1000)
+  /// The receiving form as submitted (`ReceiveGoodsDto` without the accept flags).
+  payload         Json
+  requestedBy     String             @map("requested_by") @db.Uuid
+  requestedAt     DateTime           @default(now()) @map("requested_at")
+  decidedBy       String?            @map("decided_by") @db.Uuid
+  decidedAt       DateTime?          @map("decided_at")
+  /// The approver's reason for rejecting.
+  decisionNote    String?            @map("decision_note") @db.VarChar(512)
+  /// True when the approver changed quantities or prices before accepting.
+  corrected       Boolean            @default(false)
+  goodsReceiptId  String?            @unique @map("goods_receipt_id") @db.Uuid
+
+  branch        Branch        @relation(fields: [branchId], references: [id])
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  requester     AppUser       @relation("HeldDeliveryRequester", fields: [requestedBy], references: [id])
+  decider       AppUser?      @relation("HeldDeliveryDecider", fields: [decidedBy], references: [id])
+  goodsReceipt  GoodsReceipt? @relation(fields: [goodsReceiptId], references: [id])
+
+  @@index([tenantId, branchId, status])
+  @@index([purchaseOrderId, status])
+  @@map("held_delivery")
 }
 
 model GoodsReceiptItem {

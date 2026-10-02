@@ -475,6 +475,16 @@
   justify-content: center;
   background: color-mix(in srgb, var(--pc-card-bg) 55%, transparent);
   border-radius: var(--pc-radius-sm);
+  /* Held back for 250ms, so a quick reply — a refusal that opens a prompt, say — never flashes
+     "Updating…" over the order on its way past. It still blocks clicks from the start. */
+  opacity: 0;
+  animation: detailOverlayIn 0.15s ease 250ms forwards;
+}
+
+@keyframes detailOverlayIn {
+  to {
+    opacity: 1;
+  }
 }
 
 .detailRefreshCard {
@@ -1481,4 +1491,87 @@
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--pc-alert-warning-icon, var(--pc-foreground));
+}
+
+/* ── A delivery waiting for approval, on its order ── */
+.heldBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--pc-warning) 45%, var(--pc-border));
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-warning) 8%, var(--pc-card-bg));
+}
+
+.heldBannerHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+}
+
+.heldBannerTitle {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.heldBannerMeta {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  color: var(--pc-muted-fg);
+}
+
+.heldBannerActions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.heldTableScroll {
+  overflow-x: auto;
+}
+
+.heldTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.heldTable th,
+.heldTable td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--pc-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.heldTable th {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.heldTable th.heldNum,
+.heldTable td.heldNum {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.heldLineMeta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--pc-muted-fg);
+}
+
+.heldTable td.heldFlag {
+  color: var(--pc-warning);
+  font-weight: 700;
 }

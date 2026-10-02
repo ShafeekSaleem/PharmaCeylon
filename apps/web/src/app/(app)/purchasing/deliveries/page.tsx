@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import {
   IconAlertTriangle,
   IconBox,
+  IconPause,
   IconDollarSign,
   IconDownload,
   IconPackage,
@@ -28,11 +29,13 @@ import {
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
 import { PurchasingSubnav } from "../components/purchasing-subnav";
 import { useDeliveries } from "../hooks/use-deliveries";
+import { apiJson } from "@/lib/auth-client";
+import { useAuth } from "@/lib/use-auth";
 import { usePurchasingAccess } from "../hooks/use-purchasing-access";
 import { useSuppliers } from "../hooks/use-suppliers";
 import css from "../purchasing.module.css";
-import type { DeliveryRow } from "../types";
-import { formatDate, formatMoney } from "../utils";
+import type { DeliveryRow, HeldDelivery } from "../types";
+import { formatDate, formatDateTime, formatMoney } from "../utils";
 
 function DeliveriesContent() {
   const access = usePurchasingAccess();
@@ -42,9 +45,9 @@ function DeliveriesContent() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selected, setSelected] = useState<DeliveryRow | null>(null);
-  const [flagFilter, setFlagFilter] = useState<"all" | "free" | "damaged">("all");
+  const [flagFilter, setFlagFilter] = useState<"all" | "free" | "damaged" | "held">("all");
 
-  const toggleFlag = (flag: "free" | "damaged") =>
+  const toggleFlag = (flag: "free" | "damaged" | "held") =>
     setFlagFilter((prev) => (prev === flag ? "all" : flag));
 
   const deliveries = useDeliveries({
@@ -53,6 +56,55 @@ function DeliveriesContent() {
     to: dateTo || undefined,
     q: search,
   });
+
+  // Deliveries a receiver typed but couldn't book in. They aren't deliveries yet — nothing is in
+  // stock — so they sit beside the list rather than in it, behind their own tile.
+  const { branchId } = useAuth();
+  const [held, setHeld] = useState<HeldDelivery[]>([]);
+  const loadHeld = useCallback(() => {
+    if (!branchId) return;
+    apiJson<HeldDelivery[]>("/purchasing/held-deliveries")
+      .then(setHeld)
+      .catch(() => setHeld([]));
+  }, [branchId]);
+  useEffect(loadHeld, [loadHeld]);
+
+  const heldColumns: Column<HeldDelivery>[] = useMemo(
+    () => [
+      {
+        key: "po",
+        header: "Order",
+        render: (row) => (
+          <Link href={`/purchasing?po=${row.purchaseOrder.id}&held=${row.id}`} className={css.inlineLink}>
+            {row.purchaseOrder.poNumber}
+          </Link>
+        ),
+      },
+      { key: "supplier", header: "Supplier", render: (row) => row.purchaseOrder.supplier.name },
+      {
+        key: "why",
+        header: "Why it's held",
+        render: (row) =>
+          row.reasons
+            .map((reason) =>
+              reason === "over_delivery" ? "More than ordered" : "Above the agreed price",
+            )
+            .join(" · "),
+      },
+      { key: "by", header: "Sent by", render: (row) => row.requester.fullName ?? "—" },
+      { key: "when", header: "Sent", render: (row) => formatDateTime(row.requestedAt) },
+      {
+        key: "action",
+        header: "",
+        render: (row) => (
+          <Link href={`/purchasing?po=${row.purchaseOrder.id}&held=${row.id}`} className={css.inlineLink}>
+            {access.canApprove ? "Review" : "Open"}
+          </Link>
+        ),
+      },
+    ],
+    [access.canApprove],
+  );
 
   const supplierOptions = useMemo(
     () => [
@@ -97,7 +149,17 @@ function DeliveriesContent() {
       : []),
     ...(search.trim() ? [{ key: "search", label: `“${search.trim()}”` }] : []),
     ...(flagFilter !== "all"
-      ? [{ key: "flag", label: flagFilter === "free" ? "With free goods" : "With damaged units" }]
+      ? [
+          {
+            key: "flag",
+            label:
+              flagFilter === "free"
+                ? "With free goods"
+                : flagFilter === "damaged"
+                  ? "With damaged units"
+                  : "Awaiting approval",
+          },
+        ]
       : []),
   ];
 
@@ -273,6 +335,16 @@ function DeliveriesContent() {
               active={flagFilter === "damaged"}
               onClick={() => toggleFlag("damaged")}
             />
+            <StatCard
+              size="sm"
+              title="Awaiting approval"
+              value={String(held.length)}
+              subtitle="Held for an approver"
+              icon={<IconPause size={16} />}
+              iconTone={held.length > 0 ? "warning" : "info"}
+              active={flagFilter === "held"}
+              onClick={() => toggleFlag("held")}
+            />
             {access.canViewCost && (
               <StatCard
                 size="sm"
@@ -321,15 +393,26 @@ function DeliveriesContent() {
 
           {deliveries.error && <Alert variant="error">{deliveries.error}</Alert>}
 
-          <DataTable
-            columns={columns}
-            data={rows}
-            rowKey={(row) => row.id}
-            loading={deliveries.loading}
-            emptyIcon={<IconTruck size={22} />}
-            emptyTitle="No deliveries yet"
-            emptyDescription="Deliveries appear here once goods are booked in against a purchase order."
-          />
+          {flagFilter === "held" ? (
+            <DataTable
+              columns={heldColumns}
+              data={held}
+              rowKey={(row) => row.id}
+              emptyIcon={<IconPause size={22} />}
+              emptyTitle="Nothing waiting"
+              emptyDescription="A delivery a receiver can't book in themselves — more than ordered, or dearer than agreed — waits here until an approver decides."
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              data={rows}
+              rowKey={(row) => row.id}
+              loading={deliveries.loading}
+              emptyIcon={<IconTruck size={22} />}
+              emptyTitle="No deliveries yet"
+              emptyDescription="Deliveries appear here once goods are booked in against a purchase order."
+            />
+          )}
 
           <Modal
             open={selected !== null}

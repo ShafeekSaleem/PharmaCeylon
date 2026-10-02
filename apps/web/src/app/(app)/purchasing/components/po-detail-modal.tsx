@@ -20,6 +20,7 @@ import css from "../purchasing.module.css";
 import type {
   CostConflict,
   ExpiryConflict,
+  HeldDelivery,
   PriceRise,
   ReceiveLineForm,
 } from "../types";
@@ -47,6 +48,7 @@ import {
   type PoPriority,
 } from "../types";
 import { PurchasingSelect } from "./purchasing-select";
+import { HeldDeliveryBanner, heldLineUnits } from "./held-delivery-banner";
 
 type Props = {
   poId: string | null;
@@ -56,6 +58,8 @@ type Props = {
   canCancelPo: boolean;
   canApprovePo: boolean;
   startInEdit?: boolean;
+  /** Open straight into reviewing this held delivery — the link in an approver's notification. */
+  reviewHeldId?: string | null;
   onClose: () => void;
   onChanged: () => void;
 };
@@ -102,6 +106,7 @@ export function PoDetailModal({
   canCancelPo,
   canApprovePo,
   startInEdit = false,
+  reviewHeldId = null,
   onClose,
   onChanged,
 }: Props) {
@@ -111,6 +116,11 @@ export function PoDetailModal({
   /** What happened when a receiver who can't accept asked an approver to. */
   const [escalationNotice, setEscalationNotice] = useState<string | null>(null);
   const [receiveMode, setReceiveMode] = useState(false);
+  /** The held delivery being reviewed: the receive form, filled with what the receiver typed. */
+  const [heldReview, setHeldReview] = useState<HeldDelivery | null>(null);
+  const [rejectHeld, setRejectHeld] = useState<HeldDelivery | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const openedHeldRef = useRef<string | null>(null);
   const [receiveLines, setReceiveLines] = useState<ReceiveLineForm[]>([]);
   const [receivedOn, setReceivedOn] = useState(todayIsoDate());
   const [editMode, setEditMode] = useState(false);
@@ -148,6 +158,9 @@ export function PoDetailModal({
     setActionError(null);
     setEscalationNotice(null);
     setReceiveMode(false);
+    setHeldReview(null);
+    setRejectHeld(null);
+    openedHeldRef.current = null;
     setBusy(false);
     setEditMode(false);
     setEditForm(null);
@@ -169,12 +182,52 @@ export function PoDetailModal({
   }, [poId, startInEdit, detail, loading, canWrite]);
 
   useEffect(() => {
+    if (!detail || !reviewHeldId || !canApprovePo || openedHeldRef.current === reviewHeldId) return;
+    const held = detail.heldDeliveries?.find((row) => row.id === reviewHeldId);
+    if (!held) return;
+    openedHeldRef.current = reviewHeldId;
+    setHeldReview(held);
+    setReceiveMode(true);
+  }, [detail, reviewHeldId, canApprovePo]);
+
+  useEffect(() => {
     if (!detail || !editMode) return;
     setEditForm(formFromDetail(detail));
   }, [detail, editMode]);
 
   useEffect(() => {
-    if (!detail || !receiveMode) return;
+    if (!detail || !receiveMode || !heldReview) return;
+    const typed = new Map(heldReview.delivery.lines.map((line) => [line.productId, line]));
+    setReceivedOn(heldReview.delivery.receivedOn.slice(0, 10));
+    setReceiveLines(
+      detail.items.map((item): ReceiveLineForm => {
+        const line = typed.get(item.productId);
+        const unitsPerPack = Math.max(line?.unitsPerPack ?? item.unitsPerPack ?? 1, 1);
+        return {
+          productId: item.productId,
+          productLabel: `${item.product.sku} — ${item.product.name}`,
+          remainingQty: remainingQtyForProduct(detail, item.productId),
+          unitsPerPack,
+          packLabel: null,
+          countMode: line?.packs != null ? "packs" : "units",
+          packs: line?.packs != null ? String(line.packs) : "",
+          receivedQty: line ? String(heldLineUnits(line)) : "",
+          freeQty: line?.freeQty ? String(line.freeQty) : "",
+          rejectedQty: line?.rejectedQty ? String(line.rejectedQty) : "",
+          rejectedReason: line?.rejectedReason ?? "",
+          batchNo: line?.batchNo ?? "",
+          expiryDate: line?.expiryDate.slice(0, 10) ?? "",
+          orderedCostPrice: item.unitCost ? Number(item.unitCost).toFixed(2) : null,
+          costPrice: line?.costPrice != null ? Number(line.costPrice).toFixed(2) : "",
+          sellingPrice: line ? Number(line.sellingPrice).toFixed(2) : "",
+          include: line != null,
+        };
+      }),
+    );
+  }, [detail, receiveMode, heldReview]);
+
+  useEffect(() => {
+    if (!detail || !receiveMode || heldReview) return;
     setReceivedOn(todayIsoDate());
     setReceiveLines(
       detail.items
@@ -217,7 +270,7 @@ export function PoDetailModal({
         })
         .filter((row): row is ReceiveLineForm => row != null),
     );
-  }, [detail, receiveMode]);
+  }, [detail, receiveMode, heldReview]);
 
   const open = !!poId;
   const overlayActive = busy;
@@ -443,8 +496,8 @@ export function PoDetailModal({
   }
 
   /**
-   * Send a refusal the receiver can't lift to the people who can, at this branch. Nothing is
-   * booked in: the approver opens the order from their notification and receives it there.
+   * Send the delivery itself to the people who can accept it, at this branch. It waits as typed
+   * — nothing is booked in — and the approver accepts, corrects or rejects it from this order.
    */
   async function askApprover(
     kind: "over_delivery" | "price_variance",
@@ -454,25 +507,89 @@ export function PoDetailModal({
     setBusy(true);
     try {
       const result = await apiJson<{ notified: number; alreadyAsked: boolean }>(
-        `/purchasing/purchase-orders/${detail.id}/request-approval`,
+        `/purchasing/purchase-orders/${detail.id}/hold-delivery`,
         {
           method: "POST",
-          body: JSON.stringify({ kind, detail: detailText.slice(0, 500) }),
+          body: JSON.stringify({
+            reasons: [kind],
+            detail: detailText.slice(0, 1000),
+            delivery: { purchaseOrderId: detail.id, receivedOn, lines: linesBody({}) },
+          }),
         },
       );
       setOverDeliveryPrompt(null);
       setPriceRises([]);
+      setReceiveMode(false);
+      receiveIdempotency.current = null;
+      receiveAnswers.current = {};
       setEscalationNotice(
         result.alreadyAsked
-          ? "You've already asked about this order in the last few minutes — the approvers have it."
+          ? "Updated the delivery waiting for approval. The approvers already have it."
           : result.notified > 0
-            ? `Sent to ${result.notified} ${result.notified === 1 ? "person" : "people"} who can approve orders at this branch. Nothing has been booked in yet — they'll accept the delivery from this order.`
-            : "Nobody at this branch can approve purchase orders, so there was no one to send it to. Ask an owner to grant the permission.",
+            ? `Saved and sent to ${result.notified} ${result.notified === 1 ? "person" : "people"} who approve orders at this branch. Nothing is booked in until one of them accepts it — you'll be told either way.`
+            : "Saved, but nobody at this branch can approve purchase orders, so no one was told. Ask an owner to grant the permission.",
       );
+      await reload();
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : "Couldn't send the request",
+        err instanceof Error ? err.message : "Couldn't send the delivery",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function linesBody(opts: ReceiveAnswers) {
+    return receiveLines
+      .filter((l) => l.include)
+      .map((l) => ({
+        productId: l.productId,
+        batchNo: l.batchNo.trim(),
+        expiryDate: l.expiryDate,
+        receivedQty: receivedUnits(l),
+        ...(l.countMode === "packs"
+          ? { packs: Number(l.packs), unitsPerPack: l.unitsPerPack }
+          : {}),
+        ...(Number(l.freeQty) > 0 ? { freeQty: Number(l.freeQty) } : {}),
+        ...(Number(l.rejectedQty) > 0
+          ? {
+              rejectedQty: Number(l.rejectedQty),
+              rejectedReason: l.rejectedReason.trim(),
+            }
+          : {}),
+        costPrice: Number(l.costPrice).toFixed(2),
+        sellingPrice: Number(l.sellingPrice).toFixed(2),
+        ...(opts.resolveCosts
+          ? { onCostConflict: costChoices[l.productId] ?? "keep_existing" }
+          : {}),
+        ...(opts.resolveExpiries
+          ? { onExpiryConflict: expiryChoices[l.productId] ?? "use_existing" }
+          : {}),
+      }));
+  }
+
+  function exitHeldReview() {
+    setHeldReview(null);
+    setReceiveMode(false);
+  }
+
+  async function rejectHeldDelivery() {
+    if (!rejectHeld || !rejectReason.trim()) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiJson(`/purchasing/held-deliveries/${rejectHeld.id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason: rejectReason.trim() }),
+      });
+      setRejectHeld(null);
+      setRejectReason("");
+      exitHeldReview();
+      setEscalationNotice("Rejected. The receiver has been told why; nothing was booked in.");
+      await reload();
+      onChanged();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Couldn't reject the delivery");
     } finally {
       setBusy(false);
     }
@@ -495,48 +612,40 @@ export function PoDetailModal({
     setBusy(true);
     setActionError(null);
     try {
-      const lines = receiveLines
-        .filter((l) => l.include)
-        .map((l) => ({
-          productId: l.productId,
-          batchNo: l.batchNo.trim(),
-          expiryDate: l.expiryDate,
-          receivedQty: receivedUnits(l),
-          ...(l.countMode === "packs"
-            ? { packs: Number(l.packs), unitsPerPack: l.unitsPerPack }
-            : {}),
-          ...(Number(l.freeQty) > 0 ? { freeQty: Number(l.freeQty) } : {}),
-          ...(Number(l.rejectedQty) > 0
-            ? {
-                rejectedQty: Number(l.rejectedQty),
-                rejectedReason: l.rejectedReason.trim(),
-              }
-            : {}),
-          costPrice: Number(l.costPrice).toFixed(2),
-          sellingPrice: Number(l.sellingPrice).toFixed(2),
-          ...(opts.resolveCosts
-            ? { onCostConflict: costChoices[l.productId] ?? "keep_existing" }
-            : {}),
-          ...(opts.resolveExpiries
-            ? { onExpiryConflict: expiryChoices[l.productId] ?? "use_existing" }
-            : {}),
-        }));
-      await apiJson("/purchasing/purchase-orders/receive", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": receiveIdempotency.current.key,
-        },
-        body: JSON.stringify({
-          purchaseOrderId: detail.id,
-          receivedOn,
-          ...(opts.acceptOverDelivery ? { acceptOverDelivery: true } : {}),
-          ...(opts.acceptPriceVariance
-            ? { acceptPriceVariance: true, updateSupplierPrice }
-            : {}),
-          lines,
-        }),
-      });
+      const lines = linesBody(opts);
+      if (heldReview) {
+        // Accepting a held delivery books in the form as it stands now — as the receiver typed
+        // it, or as the approver corrected it.
+        await apiJson(`/purchasing/held-deliveries/${heldReview.id}/accept`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": receiveIdempotency.current.key,
+          },
+          body: JSON.stringify({
+            delivery: { purchaseOrderId: detail.id, receivedOn, lines },
+            updateSupplierPrice,
+          }),
+        });
+        setHeldReview(null);
+      } else {
+        await apiJson("/purchasing/purchase-orders/receive", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": receiveIdempotency.current.key,
+          },
+          body: JSON.stringify({
+            purchaseOrderId: detail.id,
+            receivedOn,
+            ...(opts.acceptOverDelivery ? { acceptOverDelivery: true } : {}),
+            ...(opts.acceptPriceVariance
+              ? { acceptPriceVariance: true, updateSupplierPrice }
+              : {}),
+            lines,
+          }),
+        });
+      }
       receiveIdempotency.current = null;
       receiveAnswers.current = {};
       setCostConflicts([]);
@@ -604,7 +713,28 @@ export function PoDetailModal({
         canDismiss={!busy}
         footer={
           <ModalFooter className={css.detailFooter}>
-            {receiveMode ? (
+            {receiveMode && heldReview ? (
+              <>
+                <ModalButton variant="secondary" onClick={exitHeldReview} disabled={busy}>
+                  Back
+                </ModalButton>
+                <ModalButton
+                  variant="danger"
+                  onClick={() => setRejectHeld(heldReview)}
+                  disabled={busy}
+                >
+                  Reject
+                </ModalButton>
+                <ModalButton
+                  variant="primary"
+                  onClick={() => void receive()}
+                  loading={busy}
+                  disabled={!receiveValid}
+                >
+                  Accept delivery
+                </ModalButton>
+              </>
+            ) : receiveMode ? (
               <>
                 <ModalButton
                   variant="secondary"
@@ -974,13 +1104,50 @@ export function PoDetailModal({
                 </div>
               </div>
 
+              {!receiveMode
+                ? (detail.heldDeliveries ?? []).map((held) => (
+                    <HeldDeliveryBanner
+                      key={held.id}
+                      held={held}
+                      order={detail}
+                      canDecide={canApprovePo}
+                      busy={busy}
+                      onReview={() => {
+                        setHeldReview(held);
+                        setReceiveMode(true);
+                      }}
+                      onReject={() => setRejectHeld(held)}
+                    />
+                  ))
+                : null}
+
               {receiveMode ? (
                 <>
                   <div className={css.linesHead}>
                     <h3 className={css.sectionTitle} style={{ margin: 0 }}>
-                      Receive goods
+                      {heldReview ? "Review the held delivery" : "Receive goods"}
                     </h3>
                   </div>
+                  {heldReview ? (
+                    <Alert variant="warning" className={css.modalAlert}>
+                      {heldReview.requester.fullName || "A colleague"} typed this delivery
+                      {heldReview.detail ? ` — ${heldReview.detail}` : ""}. Correct anything that
+                      isn&apos;t right, then accept it; it is booked in exactly as shown here.
+                    </Alert>
+                  ) : null}
+                  {heldReview &&
+                  receiveLines.some((l) => l.include && (priceMovement(l) ?? 0) > 0) ? (
+                    <label className={css.checkboxRow}>
+                      <input
+                        type="checkbox"
+                        checked={updateSupplierPrice}
+                        onChange={(e) => setUpdateSupplierPrice(e.target.checked)}
+                        disabled={busy}
+                      />
+                      Also update this supplier&apos;s agreed price to what was billed, so the next
+                      order uses it
+                    </label>
+                  ) : null}
                   <div
                     className={css.field}
                     style={{ marginBottom: "0.75rem", maxWidth: 220 }}
@@ -1614,6 +1781,37 @@ export function PoDetailModal({
         </p>
       </ConfirmDialog>
 
+      <ConfirmDialog
+        open={rejectHeld !== null}
+        title="Reject this delivery?"
+        confirmLabel="Reject delivery"
+        cancelLabel="Keep it waiting"
+        variant="danger"
+        loading={busy}
+        confirmDisabled={!rejectReason.trim()}
+        onCancel={() => {
+          if (busy) return;
+          setRejectHeld(null);
+          setRejectReason("");
+        }}
+        onConfirm={() => void rejectHeldDelivery()}
+      >
+        <p>Nothing is booked in. The receiver is told, with your reason.</p>
+        <label className={css.fieldLabel} htmlFor="reject-held-reason">
+          Reason
+        </label>
+        <textarea
+          id="reject-held-reason"
+          className={css.input}
+          rows={3}
+          maxLength={512}
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          placeholder="e.g. Supplier sent the wrong pack size — return it"
+          disabled={busy}
+        />
+      </ConfirmDialog>
+
       {/*
       The server refuses a delivery bigger than the order allows, but that refusal is a
       question: the goods are on the counter either way. An approver can accept it here; anyone
@@ -1631,7 +1829,14 @@ export function PoDetailModal({
         }}
         onConfirm={() => {
           if (!canApprovePo) {
-            void askApprover("over_delivery", overDeliveryPrompt ?? "");
+            // Said for the approver, not the receiver: what arrived against what was outstanding.
+            const facts = overDelivering
+              .map(
+                (line) =>
+                  `${line.productLabel}: ${receivedUnits(line)} arrived, ${line.remainingQty} outstanding.`,
+              )
+              .join(" ");
+            void askApprover("over_delivery", facts || (overDeliveryPrompt ?? ""));
             return;
           }
           setOverDeliveryPrompt(null);
@@ -1641,9 +1846,9 @@ export function PoDetailModal({
         <p>{overDeliveryPrompt}</p>
         {!canApprovePo && (
           <p className={css.fieldHint}>
-            Your role can&apos;t accept an over-delivery. Ask an approver sends
-            it to the people who approve purchase orders at this branch — or
-            receive only what was ordered.
+            Your role can&apos;t accept an over-delivery. Ask an approver saves
+            this delivery as you typed it and sends it to the people who approve
+            purchase orders at this branch — or receive only what was ordered.
           </p>
         )}
       </ConfirmDialog>
@@ -1700,9 +1905,9 @@ export function PoDetailModal({
           </label>
         ) : (
           <p className={css.fieldHint}>
-            Your role can&apos;t accept a price increase. Ask an approver sends
-            it to the people who approve purchase orders at this branch — or
-            enter the price the order agreed.
+            Your role can&apos;t accept a price increase. Ask an approver saves
+            this delivery as you typed it and sends it to the people who approve
+            purchase orders at this branch — or enter the price the order agreed.
           </p>
         )}
       </ConfirmDialog>

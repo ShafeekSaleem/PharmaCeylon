@@ -20,7 +20,7 @@ import { UpdateNotificationPreferencesDto } from "./dto/update-notification-pref
 const OPERATIONAL_SOURCE = "operational_scan";
 const MAX_ACTION_ITEMS = 25;
 
-type AdminNotificationInput = {
+export type AdminNotificationInput = {
   severity?: NotificationSeverity;
   title: string;
   message?: string;
@@ -193,6 +193,44 @@ export class NotificationsService {
       })),
     });
     return recipients.length;
+  }
+
+  /**
+   * One notification to one person — the answer to something they asked for, such as the
+   * decision on a delivery they sent for approval. Honours the same per-category preferences.
+   */
+  async notifyUser(
+    tenantId: string,
+    recipientUserId: string,
+    category: NotificationCategory,
+    input: AdminNotificationInput,
+    opts: { branchId?: string } = {},
+  ): Promise<void> {
+    const preference = await this.prisma.notificationPreference.findFirst({
+      where: { tenantId, userId: recipientUserId },
+      select: { complianceEnabled: true, systemEnabled: true },
+    });
+    if (preference) {
+      if (category === NotificationCategory.compliance && !preference.complianceEnabled) return;
+      if (category === NotificationCategory.system && !preference.systemEnabled) return;
+    }
+    await this.prisma.notification.create({
+      data: {
+        tenantId,
+        recipientUserId,
+        branchId: opts.branchId ?? null,
+        category,
+        severity: input.severity ?? NotificationSeverity.info,
+        title: input.title,
+        message: input.message ?? null,
+        actionLabel: input.actionLabel ?? null,
+        actionHref: input.actionHref ?? null,
+        entityType: input.entityType ?? null,
+        entityId: input.entityId ?? null,
+        dedupeKey: randomUUID(),
+        requiresAction: input.requiresAction ?? false,
+      },
+    });
   }
 
   private async resolveRecipientsByPermission(

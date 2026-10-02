@@ -18,8 +18,12 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import { CreatePurchaseOrderDto } from "./dto/create-purchase-order.dto";
 import { ReceiveGoodsDto } from "./dto/receive-goods.dto";
 import { UpdatePurchaseOrderDto } from "./dto/update-purchase-order.dto";
-import { PurchaseApprovalRequestService } from "./approval-request.service";
-import { RequestApprovalDto } from "./dto/request-approval.dto";
+import { HeldDeliveryService } from "./held-delivery.service";
+import {
+  AcceptHeldDeliveryDto,
+  HoldDeliveryDto,
+  RejectHeldDeliveryDto,
+} from "./dto/held-delivery.dto";
 import { PurchasingService } from "./purchasing.service";
 
 @Controller("purchasing")
@@ -27,7 +31,7 @@ export class PurchasingController {
   constructor(
     private readonly purchasing: PurchasingService,
     private readonly access: AccessService,
-    private readonly approvalRequests: PurchaseApprovalRequestService,
+    private readonly heldDeliveries: HeldDeliveryService,
   ) {}
 
   /**
@@ -123,12 +127,19 @@ export class PurchasingController {
     @Param("id", ParseUUIDPipe) id: string,
   ) {
     const access = await this.access.resolve(user, branchId);
-    const po = await this.purchasing.getPurchaseOrder(user.tenantId, branchId, id, {
-      canViewCost: access.has("costs.view"),
+    const canViewCost = access.has("costs.view");
+    const po = await this.purchasing.getPurchaseOrder(user.tenantId, branchId, id, { canViewCost });
+    const heldDeliveries = await this.heldDeliveries.list(user.tenantId, branchId, {
+      purchaseOrderId: id,
+      canViewCost,
     });
     // The same rule `assertMayApprove` enforces, said up front so the page can disable Approve
     // with the reason on it instead of letting someone click and read a refusal.
-    return { ...po, selfApprovalBlocked: !access.canSelfApprove && po.createdBy === user.userId };
+    return {
+      ...po,
+      heldDeliveries,
+      selfApprovalBlocked: !access.canSelfApprove && po.createdBy === user.userId,
+    };
   }
 
   @RequirePermission("purchasing.manage")
@@ -197,17 +208,66 @@ export class PurchasingController {
 
   /**
    * The receiver hit a refusal only an approver can lift — an over-delivery or a dearer price —
-   * and sends it to the people who can, at this branch, rather than going to find one.
+   * and sends the delivery they typed to the people who can, at this branch. It waits, untouched
+   * by stock or the ledger, until one of them accepts or rejects it.
    */
   @RequirePermission("purchasing.receive")
-  @Post("purchase-orders/:id/request-approval")
-  requestApproval(
+  @Post("purchase-orders/:id/hold-delivery")
+  holdDelivery(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
-    @Body() dto: RequestApprovalDto,
+    @Body() dto: HoldDeliveryDto,
   ) {
-    return this.approvalRequests.request(user.tenantId, branchId, user.userId, id, dto);
+    return this.heldDeliveries.hold(user.tenantId, branchId, user.userId, id, dto);
+  }
+
+  @RequirePermission("purchasing.view")
+  @Get("held-deliveries")
+  async listHeldDeliveries(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("status") status?: string,
+  ) {
+    const access = await this.access.resolve(user, branchId);
+    const allowed = ["awaiting_approval", "accepted", "rejected"] as const;
+    return this.heldDeliveries.list(user.tenantId, branchId, {
+      status: allowed.find((value) => value === status),
+      canViewCost: access.has("costs.view"),
+    });
+  }
+
+  @RequirePermission("purchasing.approve")
+  @Post("held-deliveries/:id/accept")
+  async acceptHeldDelivery(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Body() dto: AcceptHeldDeliveryDto,
+  ) {
+    const access = await this.access.resolve(user, branchId);
+    return this.heldDeliveries.accept(
+      user.tenantId,
+      branchId,
+      user.userId,
+      access,
+      id,
+      dto,
+      idempotencyKey,
+    );
+  }
+
+  @RequirePermission("purchasing.approve")
+  @Post("held-deliveries/:id/reject")
+  async rejectHeldDelivery(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: RejectHeldDeliveryDto,
+  ) {
+    const access = await this.access.resolve(user, branchId);
+    return this.heldDeliveries.reject(user.tenantId, branchId, user.userId, access, id, dto);
   }
 
   // Receiving is its own permission: a storekeeper books deliveries in without being able to

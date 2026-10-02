@@ -6,6 +6,7 @@ import { StockReadService } from "../../src/inventory/stock/stock-read.service";
 import { findStockProjectionMismatches } from "../../src/inventory/stock/stock-projection";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { PurchasingService } from "../../src/purchasing/purchasing.service";
+import { HeldDeliveryService } from "../../src/purchasing/held-delivery.service";
 import { SuppliersService } from "../../src/suppliers/suppliers.service";
 import { nextDocumentNumber } from "../../src/common/document-sequence.util";
 import {
@@ -845,6 +846,102 @@ describe("Purchasing against PostgreSQL", () => {
         where: { tenantId: fx.tenantId, supplierId: fx.supplierId, productId: fx.productId },
       });
       expect(price.unitCost.toString()).toBe("140");
+    });
+  });
+
+  describe("deliveries held for approval", () => {
+    const notifications = {
+      notifyByPermission: jest.fn().mockResolvedValue(1),
+      notifyUser: jest.fn().mockResolvedValue(undefined),
+    };
+    const held = () =>
+      new HeldDeliveryService(prisma as never, purchasing(), notifications as never, audit);
+
+    async function heldOverDelivery() {
+      const poId = await issuedOrder([
+        { productId: fx.productId, orderedQty: 50, unitCost: "10.00", taxPercent: 0 },
+      ]);
+      const batchNo = `HELD-${randomUUID().slice(0, 6)}`;
+      const delivery = {
+        purchaseOrderId: poId,
+        receivedOn: today(),
+        lines: [
+          {
+            productId: fx.productId,
+            batchNo,
+            expiryDate: expiry(),
+            receivedQty: 55,
+            costPrice: "10.00",
+            sellingPrice: "15.00",
+          },
+        ],
+      };
+      const { held: row } = await held().hold(fx.tenantId, fx.mainBranchId, fx.clerkId, poId, {
+        reasons: ["over_delivery"],
+        detail: "55 arrived, 50 outstanding.",
+        delivery,
+      });
+      return { poId, batchNo, delivery, heldId: row.id };
+    }
+
+    it("keeps the delivery as typed and touches no stock until it is accepted", async () => {
+      const { batchNo, heldId } = await heldOverDelivery();
+      expect(await prisma.batch.findFirst({ where: { tenantId: fx.tenantId, batchNo } })).toBeNull();
+      const row = await prisma.heldDelivery.findUniqueOrThrow({ where: { id: heldId } });
+      expect(row.status).toBe("awaiting_approval");
+      expect((row.payload as { lines: Array<{ receivedQty: number }> }).lines[0]!.receivedQty).toBe(55);
+    });
+
+    it("books it in once when an approver accepts it, even if two accept at the same time", async () => {
+      const { batchNo, heldId } = await heldOverDelivery();
+      const results = await Promise.allSettled([
+        held().accept(fx.tenantId, fx.mainBranchId, fx.managerId, approver(), heldId, {}),
+        held().accept(fx.tenantId, fx.mainBranchId, fx.ownerId, actor(fx.ownerId, "all"), heldId, {}),
+      ]);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+
+      const batch = await prisma.batch.findFirstOrThrow({ where: { tenantId: fx.tenantId, batchNo } });
+      expect((await batchTotals(prisma, batch.id)).onHand).toBe(55);
+      const row = await prisma.heldDelivery.findUniqueOrThrow({ where: { id: heldId } });
+      expect(row.status).toBe("accepted");
+      expect(row.goodsReceiptId).not.toBeNull();
+      expect(row.corrected).toBe(false);
+    });
+
+    it("records a correction, and books what the approver accepted", async () => {
+      const { batchNo, heldId, delivery } = await heldOverDelivery();
+      const corrected = { ...delivery, lines: [{ ...delivery.lines[0]!, receivedQty: 52 }] };
+      await held().accept(fx.tenantId, fx.mainBranchId, fx.managerId, approver(), heldId, {
+        delivery: corrected,
+      });
+      const batch = await prisma.batch.findFirstOrThrow({ where: { tenantId: fx.tenantId, batchNo } });
+      expect((await batchTotals(prisma, batch.id)).onHand).toBe(52);
+      const row = await prisma.heldDelivery.findUniqueOrThrow({ where: { id: heldId } });
+      expect(row.corrected).toBe(true);
+      expect((row.payload as { lines: Array<{ receivedQty: number }> }).lines[0]!.receivedQty).toBe(55);
+    });
+
+    it("rejects without touching stock, and a rejected delivery can't then be accepted", async () => {
+      const { batchNo, heldId } = await heldOverDelivery();
+      await held().reject(fx.tenantId, fx.mainBranchId, fx.managerId, approver(), heldId, {
+        reason: "Supplier sent the wrong pack size",
+      });
+      expect(await prisma.batch.findFirst({ where: { tenantId: fx.tenantId, batchNo } })).toBeNull();
+      await expect(
+        held().accept(fx.tenantId, fx.mainBranchId, fx.managerId, approver(), heldId, {}),
+      ).rejects.toThrow(/already been decided/);
+      expect(notifications.notifyUser).toHaveBeenCalled();
+    });
+
+    it("puts it back to waiting when accepting raises a question the approver must answer", async () => {
+      const { heldId } = await heldOverDelivery();
+      // The approver lacks the permission the receive needs, so receiving refuses.
+      const noApprove = actor(fx.managerId, ["purchasing.receive"], { canSelfApprove: true });
+      await expect(
+        held().accept(fx.tenantId, fx.mainBranchId, fx.managerId, noApprove, heldId, {}),
+      ).rejects.toMatchObject({ response: { code: "OVER_DELIVERY" } });
+      const row = await prisma.heldDelivery.findUniqueOrThrow({ where: { id: heldId } });
+      expect(row.status).toBe("awaiting_approval");
     });
   });
 

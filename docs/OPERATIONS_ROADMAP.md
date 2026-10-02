@@ -56,7 +56,8 @@ test run showed two approval flows that stop short — the approver is told *tha
 them but not *what*, and the stocktake's last steps say nothing about what they do — and customer
 returns had two doors with a gap in each.
 
-- **4a · Held deliveries.** A receiver stopped by an over-delivery or a price above the order
+- **4a · Held deliveries.** *(Done — kept as its own `HeldDelivery` record rather than a status on
+  `GoodsReceipt`, so no delivery query has to skip unposted rows.)* A receiver stopped by an over-delivery or a price above the order
   saves the delivery as *awaiting approval* instead of losing it. The notification and the order
   open on that delivery — what arrived and was billed beside what was ordered — and the approver
   accepts, **corrects then accepts**, or rejects it with a reason. Nothing touches stock or the
