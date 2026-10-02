@@ -182,13 +182,17 @@ export function ModalButton({ variant = "secondary", loading, children, disabled
   const cls = [
     styles.btn,
     variant === "primary" ? styles.btnPrimary : variant === "danger" ? styles.btnDanger : styles.btnSecondary,
+    loading ? styles.btnLoading : "",
     className ?? "",
   ].filter(Boolean).join(" ");
 
+  // The spinner sits over the label rather than beside it, so the button never changes width,
+  // and both only swap after a short delay: a reply that comes back in a blink (a refusal that
+  // opens a prompt, say) no longer flashes a spinner and a dimmed button on its way past.
   return (
-    <button type="button" className={cls} disabled={disabled || loading} {...rest}>
-      {loading && <span className={styles.spinner} />}
-      {children}
+    <button type="button" className={cls} disabled={disabled || loading} aria-busy={loading || undefined} {...rest}>
+      {loading && <span className={styles.spinner} aria-hidden />}
+      <span className={styles.btnLabel}>{children}</span>
     </button>
   );
 }

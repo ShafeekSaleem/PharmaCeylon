@@ -1,0 +1,10 @@
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8.5rem;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.time {
+  min-width: 0;
+}

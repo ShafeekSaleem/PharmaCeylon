@@ -196,7 +196,10 @@ export function ManageStocktakeLinesModal({
                   <span className={scss.pickerRowBody}>
                     <span className={scss.pickerTitle}>{batch.product.name}</span>
                     <span className={scss.pickerMeta}>
-                      {batch.product.sku} · Batch {batch.batchNo} · Qty {batch.qtyOnHand}
+                      {/* A blind count hides what the system expects until review — the
+                          picker included, or the counter reads the answer before counting. */}
+                      {batch.product.sku} · Batch {batch.batchNo}
+                      {stocktake.blindCount ? "" : ` · Qty ${batch.qtyOnHand}`}
                       {batch.isQuarantined ? " · Quarantined" : ""}
                     </span>
                   </span>

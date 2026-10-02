@@ -221,14 +221,12 @@ export default function ApprovalRulesPage() {
                 <IconUsers size={16} /> Approving your own requests
               </h2>
               <p className={css.cardDesc}>
-                When someone raises a request that needs approval — a purchase order over the limit, a
-                transfer, a return, a stocktake count — can they approve it themselves? Roles switched on
-                here can. Everyone else needs a second person who holds the approve permission.
+                Roles switched on can approve their own orders, transfers, returns and stocktakes.
+                Everyone else needs a second approver.
               </p>
               {canEdit && !canEditSelfApproval ? (
                 <p className={css.cardDesc}>
-                  Only the owner can change this — the rule decides who is held to a second
-                  approver, so it isn&apos;t one a manager sets for themselves.
+                  Only the owner can change this.
                 </p>
               ) : null}
             </div>

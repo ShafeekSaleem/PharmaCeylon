@@ -308,10 +308,13 @@ function InvoicesContent() {
         actions={
           <>
             {access.canPay ? (
-              <button type="button" className={css.actionBtn} onClick={() => setRecordPayment({})}>
-                <IconDollarSign size={14} />
+              <ActionButton
+                variant="secondary"
+                icon={<IconDollarSign size={16} />}
+                onClick={() => setRecordPayment({})}
+              >
                 Record payment
-              </button>
+              </ActionButton>
             ) : null}
             {access.canInvoice ? (
               <ActionButton icon={<IconPlus size={16} />} onClick={() => setRecordInvoice({})}>

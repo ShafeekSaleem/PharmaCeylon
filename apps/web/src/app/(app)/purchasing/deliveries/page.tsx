@@ -23,6 +23,7 @@ import {
   StatCard,
   type Column,
   type FilterPill,
+  ActionButton,
 } from "@/components/ui";
 import { InventoryFilterSelect } from "../../inventory/components/inventory-filter-select";
 import { PurchasingSubnav } from "../components/purchasing-subnav";
@@ -217,10 +218,9 @@ function DeliveriesContent() {
         floatingActions
         description="Every delivery booked in at this branch, with what arrived free, what arrived damaged, and which order it belongs to."
         actions={
-          <button type="button" className={css.actionBtn} onClick={exportCsv}>
-            <IconDownload size={14} />
+          <ActionButton variant="secondary" icon={<IconDownload size={16} />} onClick={exportCsv}>
             Export
-          </button>
+          </ActionButton>
         }
       />
 

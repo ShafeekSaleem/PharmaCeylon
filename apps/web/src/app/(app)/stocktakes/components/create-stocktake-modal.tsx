@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { IconChevronDown, IconChevronRight, IconSearch } from "@/components/icons";
-import { Modal, ModalButton, ModalFooter } from "@/components/ui";
+import { DateTimeField, Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import css from "../../purchasing/purchasing.module.css";
@@ -349,12 +349,11 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
                 <label className={css.fieldLabel} htmlFor="stocktake-scheduled">
                   Scheduled date and time
                 </label>
-                <input
+                <DateTimeField
                   id="stocktake-scheduled"
-                  className={css.input}
-                  type="datetime-local"
+                  label="Scheduled date and time"
                   value={scheduledFor}
-                  onChange={(e) => setScheduledFor(e.target.value)}
+                  onChange={setScheduledFor}
                   disabled={saving}
                 />
                 <p className={css.fieldHint}>Leave blank to create as a draft.</p>
@@ -363,12 +362,11 @@ export function CreateStocktakeModal({ open, onClose, onCreated }: Props) {
                 <label className={css.fieldLabel} htmlFor="stocktake-expected">
                   Expected completion
                 </label>
-                <input
+                <DateTimeField
                   id="stocktake-expected"
-                  className={css.input}
-                  type="datetime-local"
+                  label="Expected completion"
                   value={expectedCompletionAt}
-                  onChange={(e) => setExpectedCompletionAt(e.target.value)}
+                  onChange={setExpectedCompletionAt}
                   disabled={saving}
                 />
               </div>
