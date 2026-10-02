@@ -34,6 +34,7 @@ export function usePurchasingAccess() {
     canPay: can("suppliers.pay"),
     /** Supplier returns: sending stock back and the debit note that follows. */
     canViewReturns: can("returns.view"),
+    canCreateReturn: can("returns.create"),
   };
 }
 

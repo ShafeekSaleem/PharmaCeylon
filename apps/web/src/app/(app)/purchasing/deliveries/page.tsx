@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import {
@@ -39,6 +40,7 @@ import { formatDate, formatDateTime, formatMoney } from "../utils";
 
 function DeliveriesContent() {
   const access = usePurchasingAccess();
+  const router = useRouter();
   const suppliers = useSuppliers();
   const [search, setSearch] = useState("");
   const [supplierFilter, setSupplierFilter] = useState("all");
@@ -427,6 +429,20 @@ function DeliveriesContent() {
             footer={
               <ModalFooter>
                 <ModalButton onClick={() => setSelected(null)}>Done</ModalButton>
+                {selected && access.canCreateReturn ? (
+                  // Damaged units are held against this delivery waiting for a supplier credit;
+                  // this starts that return from them rather than from a blank form.
+                  <ModalButton
+                    variant="primary"
+                    onClick={() =>
+                      router.push(
+                        `/purchasing/supplier-returns?grn=${selected.id}${selected.rejectedUnits > 0 ? "&damaged=1" : ""}`,
+                      )
+                    }
+                  >
+                    {selected.rejectedUnits > 0 ? "Return damaged units" : "Return to supplier"}
+                  </ModalButton>
+                ) : null}
               </ModalFooter>
             }
           >

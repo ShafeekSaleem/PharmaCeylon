@@ -104,6 +104,13 @@ export function ReturnsContent({ lockedType, subnav }: ReturnsContentProps = {})
   const productId = searchParams.get("productId");
   const statusParam = searchParams.get("status");
   const returnParam = searchParams.get("return");
+  // `?grn=…&damaged=1` — "Return to supplier" from a delivery opens the form on it.
+  const grnParam = searchParams.get("grn");
+  const damagedParam = searchParams.get("damaged") === "1";
+
+  useEffect(() => {
+    if (grnParam) setCreateOpen(true);
+  }, [grnParam]);
 
   useEffect(() => {
     if (!returnParam) return;
@@ -834,7 +841,18 @@ export function ReturnsContent({ lockedType, subnav }: ReturnsContentProps = {})
       <CreateReturnModal
         open={createOpen}
         lockedType={lockedType}
-        onClose={() => setCreateOpen(false)}
+        fromGoodsReceiptId={grnParam}
+        damagedOnly={damagedParam}
+        onClose={() => {
+          setCreateOpen(false);
+          if (grnParam) {
+            const next = new URLSearchParams(searchParams.toString());
+            next.delete("grn");
+            next.delete("damaged");
+            const qs = next.toString();
+            router.replace(qs ? `${pathname}?${qs}` : pathname);
+          }
+        }}
         onCreated={() => void returns.reload()}
       />
 

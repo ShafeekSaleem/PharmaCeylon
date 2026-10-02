@@ -27,6 +27,28 @@ type Props = {
   onCreated: () => void;
   /** Start as, and stay, this kind of return — the Supplier returns tab has no customer case. */
   lockedType?: GoodsReturnType;
+  /** Open on this delivery: supplier, order and lines come from what it brought in. */
+  fromGoodsReceiptId?: string | null;
+  /** With `fromGoodsReceiptId`: only the units that arrived damaged. */
+  damagedOnly?: boolean;
+};
+
+/** What a delivery can still send back — `GET /returns/goods-receipts/:id/returnable`. */
+type DeliveryReturnable = {
+  goodsReceipt: { id: string; grnNumber: string; receivedOn: string };
+  purchaseOrder: { id: string; poNumber: string };
+  supplier: { id: string; name: string };
+  lines: Array<{
+    productId: string;
+    product: { id: string; sku: string; name: string };
+    batchId: string;
+    batchNo: string;
+    delivered: number;
+    damaged: number;
+    alreadyReturned: number;
+    returnable: number;
+    unitCost: string | null;
+  }>;
 };
 
 type LineErrors = {
@@ -68,7 +90,14 @@ function isCompleteLine(line: CreateReturnLine): boolean {
   );
 }
 
-export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Props) {
+export function CreateReturnModal({
+  open,
+  onClose,
+  onCreated,
+  lockedType,
+  fromGoodsReceiptId = null,
+  damagedOnly = false,
+}: Props) {
   const { branchId } = useAuth();
   const { permissionKeys } = usePermissions();
   const canAutoSubmit = canApproveReturn(permissionKeys);
@@ -96,6 +125,7 @@ export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Prop
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [touched, setTouched] = useState(false);
+  const [deliveryNote, setDeliveryNote] = useState<string | null>(null);
 
   const batchById = useMemo(() => new Map(batches.map((b) => [b.id, b])), [batches]);
   const saleById = useMemo(() => new Map(sales.map((s) => [s.id, s])), [sales]);
@@ -116,6 +146,7 @@ export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Prop
     setFieldErrors({});
     setTouched(false);
     setSaving(false);
+    setDeliveryNote(null);
     void suppliers.reload();
     void products.reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,6 +189,53 @@ export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Prop
       .catch(() => setPoDetail(null))
       .finally(() => setPoDetailLoading(false));
   }, [open, purchaseOrderId, branchId]);
+
+  /**
+   * Fill the lines from a delivery: each batch it brought in that can still go back, at what it
+   * cost. Opened from a delivery's damaged units, only those — the usual reason to send stock
+   * back — and the reason says so.
+   */
+  async function fillFromDelivery(goodsReceiptId: string, onlyDamaged: boolean) {
+    try {
+      const delivery = await apiJson<DeliveryReturnable>(
+        `/returns/goods-receipts/${goodsReceiptId}/returnable`,
+      );
+      setSupplierId(delivery.supplier.id);
+      setPurchaseOrderId(delivery.purchaseOrder.id);
+      setGoodsReceiptId(delivery.goodsReceipt.id);
+      const usable = delivery.lines.filter(
+        (line) => line.returnable > 0 && (!onlyDamaged || line.damaged > 0),
+      );
+      setLines(
+        usable.length > 0
+          ? usable.map((line) => ({
+              ...newLine(),
+              productId: line.productId,
+              batchId: line.batchId,
+              qty: String(onlyDamaged ? Math.min(line.damaged, line.returnable) : line.returnable),
+              unitPrice: line.unitCost ?? "",
+              maxQty: line.returnable,
+            }))
+          : [newLine()],
+      );
+      if (onlyDamaged) {
+        setReason((prev) => prev || `Damaged on delivery ${delivery.goodsReceipt.grnNumber}`);
+      }
+      setDeliveryNote(
+        usable.length === 0
+          ? `Nothing from ${delivery.goodsReceipt.grnNumber} can be sent back — it has all been returned, sold or moved.`
+          : `Lines filled from ${delivery.goodsReceipt.grnNumber}. Each is capped at what that delivery brought in and is still here.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't read that delivery");
+    }
+  }
+
+  useEffect(() => {
+    if (!open || !fromGoodsReceiptId || !branchId) return;
+    void fillFromDelivery(fromGoodsReceiptId, damagedOnly);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, fromGoodsReceiptId, damagedOnly, branchId]);
 
   const supplierOptions = useMemo(
     () =>
@@ -314,7 +392,10 @@ export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Prop
         errs.unitPrice = "Enter a valid unit price";
       }
       if (line.maxQty != null && Number.isInteger(qty) && qty > line.maxQty) {
-        errs.qty = `Max ${line.maxQty} remaining on sale`;
+        errs.qty =
+          type === "supplier"
+            ? `At most ${line.maxQty} from this delivery`
+            : `Max ${line.maxQty} remaining on sale`;
       }
       if (type === "supplier" && line.batchId) {
         const batch = batchById.get(line.batchId);
@@ -471,7 +552,10 @@ export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Prop
       <section className={css.createSection}>
         <h3 className={css.createSectionTitle}>1. Return details</h3>
         <div className={css.createHeaderGrid}>
-          <div className={css.field} hidden={!!lockedType}>
+          {/* `hidden` lost to the field's own display rule, so a locked form still showed the
+              Customer choice. Not rendering it is the only reliable way to hide it. */}
+          {!lockedType && (
+          <div className={css.field}>
             <span className={css.fieldLabel}>Return type</span>
             <div className={rcss.typeSegmented} role="group" aria-label="Return type">
               <button
@@ -512,6 +596,7 @@ export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Prop
               </button>
             </div>
           </div>
+          )}
 
           {type === "customer" ? (
             <>
@@ -595,10 +680,17 @@ export function CreateReturnModal({ open, onClose, onCreated, lockedType }: Prop
                       : "Select GRN…"
                 }
                 searchPlaceholder="Search GRN…"
-                onChange={setGoodsReceiptId}
+                onChange={(value) => {
+                  setGoodsReceiptId(value);
+                  setDeliveryNote(null);
+                  if (value) void fillFromDelivery(value, false);
+                }}
                 disabled={saving || !purchaseOrderId || poDetailLoading}
                 allowClear
               />
+              {deliveryNote ? (
+                <p className={`${css.fieldHint} ${css.fullWidth}`}>{deliveryNote}</p>
+              ) : null}
             </>
           )}
 

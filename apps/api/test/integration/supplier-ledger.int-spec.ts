@@ -354,6 +354,64 @@ describe("Supplier ledger against PostgreSQL", () => {
     });
   });
 
+  describe("returns traced to a delivery", () => {
+    const returns = () => new ReturnsService(prisma as never, audit, stock);
+    const manager = () => actor(fx.managerId, "all", { canSelfApprove: true });
+
+    it("lists what a delivery can still send back, and caps a return against it", async () => {
+      const receipt = await delivery(12, 12);
+      const batchId = receipt.items[0]!.batchId;
+
+      const before = await returns().goodsReceiptReturnable(fx.tenantId, fx.mainBranchId, receipt.id, {
+        canViewCost: true,
+      });
+      expect(before.lines[0]).toEqual(
+        expect.objectContaining({ batchId, delivered: 12, alreadyReturned: 0, returnable: 12, unitCost: "10.00" }),
+      );
+
+      const base = {
+        type: "supplier" as const,
+        supplierId: fx.supplierId,
+        purchaseOrderId: receipt.purchaseOrderId,
+        goodsReceiptId: receipt.id,
+        reason: "Short dated",
+      };
+      await returns().create(fx.tenantId, fx.mainBranchId, manager(), {
+        ...base,
+        items: [{ productId: fx.productId, batchId, qty: 5, unitPrice: 10 }],
+      } as never);
+
+      const after = await returns().goodsReceiptReturnable(fx.tenantId, fx.mainBranchId, receipt.id, {
+        canViewCost: false,
+      });
+      expect(after.lines[0]).toEqual(
+        expect.objectContaining({ alreadyReturned: 5, returnable: 7, unitCost: null }),
+      );
+
+      await expect(
+        returns().create(fx.tenantId, fx.mainBranchId, manager(), {
+          ...base,
+          items: [{ productId: fx.productId, batchId, qty: 8, unitPrice: 10 }],
+        } as never),
+      ).rejects.toThrow(/at most 7 can be returned/);
+    });
+
+    it("refuses a batch that didn't arrive on the delivery", async () => {
+      const first = await delivery(4, 4);
+      const second = await delivery(4, 4);
+      await expect(
+        returns().create(fx.tenantId, fx.mainBranchId, manager(), {
+          type: "supplier",
+          supplierId: fx.supplierId,
+          purchaseOrderId: first.purchaseOrderId,
+          goodsReceiptId: first.id,
+          reason: "Wrong batch",
+          items: [{ productId: fx.productId, batchId: second.items[0]!.batchId, qty: 1, unitPrice: 10 }],
+        } as never),
+      ).rejects.toThrow(/didn't arrive on/);
+    });
+  });
+
   describe("demo seed", () => {
     it("gives invoices written the old way the ledger an upgraded pharmacy gets", async () => {
       const own = await createTenant(prisma, "ledger-seed");

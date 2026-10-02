@@ -75,7 +75,7 @@ returns had two doors with a gap in each.
   inspection*; controlled and prescription items default to hold. Refunds over the tenant's
   threshold are approved at the till with an approver's PIN. `sales.refund` replaces the
   hardcoded refund roles. `/returns` redirects to supplier returns; POS lists recent refunds.
-- **4d · Supplier returns traced to the delivery.** Choosing a delivery fills the return lines;
+- **4d · Supplier returns traced to the delivery.** *(Done.)* Choosing a delivery fills the return lines;
   a delivery with damaged units held against it offers *Return to supplier*; a batch can't be
   returned against a delivery beyond what that delivery brought in.
 - **4e · Phones, second pass.** Stat tiles two per row, and a walk of every Operations page at
