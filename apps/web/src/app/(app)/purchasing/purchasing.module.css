@@ -1275,7 +1275,8 @@
 }
 
 @media (max-width: 640px) {
-  .kpiRow,
+  /* Stat tiles stay two per row on a phone: one per row made the top of every page a long
+     column of numbers before the list it summarises. */
   .detailGrid,
   .formGrid,
   .receiveGrid,

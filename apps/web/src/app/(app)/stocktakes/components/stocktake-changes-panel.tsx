@@ -89,7 +89,7 @@ export function StocktakeChangesPanel({ stocktake }: { stocktake: StocktakeListI
           </p>
           <div className={scss.linesTableWrap}>
             <div className={scss.linesTableScroll}>
-              <table className={scss.linesTable}>
+              <table className={`${scss.linesTable} ${scss.changesTable}`}>
                 <thead>
                   <tr>
                     <th>Product / batch</th>
@@ -113,10 +113,16 @@ export function StocktakeChangesPanel({ stocktake }: { stocktake: StocktakeListI
                             <span className={scss.changesMeta}>Batch {row.line.batch.batchNo}</span>
                           </div>
                         </td>
-                        <td>{row.kind === "held" ? "Quarantined" : "Adjusted to count"}</td>
-                        <td className={scss.num}>{row.kind === "held" ? "—" : counted - row.qty}</td>
-                        <td className={scss.num}>{row.kind === "held" ? "—" : counted}</td>
-                        <td className={scss.num}>
+                        <td data-label="Change">
+                          {row.kind === "held" ? "Quarantined" : "Adjusted to count"}
+                        </td>
+                        <td className={scss.num} data-label="Before">
+                          {row.kind === "held" ? "—" : counted - row.qty}
+                        </td>
+                        <td className={scss.num} data-label="After">
+                          {row.kind === "held" ? "—" : counted}
+                        </td>
+                        <td className={scss.num} data-label="Units">
                           <span
                             className={
                               row.kind === "held"
@@ -129,10 +135,12 @@ export function StocktakeChangesPanel({ stocktake }: { stocktake: StocktakeListI
                             {row.kind === "held" ? row.qty : formatSigned(row.qty)}
                           </span>
                         </td>
-                        <td className={scss.num}>
+                        <td className={scss.num} data-label="Value">
                           {row.kind === "held" || cost == null ? "—" : formatMoney(row.qty * cost)}
                         </td>
-                        <td className={scss.changesMeta}>{row.reason ?? "—"}</td>
+                        <td className={scss.changesMeta} data-label="Why">
+                          {row.reason ?? "—"}
+                        </td>
                       </tr>
                     );
                   })}

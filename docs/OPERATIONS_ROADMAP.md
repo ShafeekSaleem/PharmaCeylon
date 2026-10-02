@@ -78,7 +78,8 @@ returns had two doors with a gap in each.
 - **4d · Supplier returns traced to the delivery.** *(Done.)* Choosing a delivery fills the return lines;
   a delivery with damaged units held against it offers *Return to supplier*; a batch can't be
   returned against a delivery beyond what that delivery brought in.
-- **4e · Phones, second pass.** Stat tiles two per row, and a walk of every Operations page at
+- **4e · Phones, second pass.** *(Done — every Operations page checked at 375px: two tiles per
+  row, nothing clipped, no sideways scroll; the stocktake's What changed reads as cards.)* Stat tiles two per row, and a walk of every Operations page at
   375px, including the new screens.
 
 ## Module 5 — Inventory screens, adjustments and the supplier workspace

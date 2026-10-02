@@ -344,7 +344,12 @@
 }
 
 @media (max-width: 720px) {
-  .kpiRow,
+  /* Stat tiles stay two per row on a phone: one per row made the top of every page a long
+     column of numbers before the list it summarises. */
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .profileGrid {
     grid-template-columns: 1fr;
   }
