@@ -12,8 +12,7 @@ import {
 } from "react";
 import { Alert } from "@/components/alert";
 import { IconCheck, IconClipboard, IconLock } from "@/components/icons";
-import { ActionButton } from "@/components/ui";
-import { ConfirmDialog } from "../../products/components/confirm-dialog";
+import { ActionButton, ActiveFilterBanner } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { LINE_FILTER_OPTIONS } from "../constants";
@@ -21,8 +20,8 @@ import { EditStocktakeModal } from "../components/edit-stocktake-modal";
 import { ManageStocktakeLinesModal } from "../components/manage-stocktake-lines-modal";
 import { StocktakeActionsMenu } from "../components/stocktake-actions-menu";
 import {
+  ApproveStocktakeModal,
   StocktakeChangesPanel,
-  approvalPreview,
 } from "../components/stocktake-changes-panel";
 import { StocktakeActivityTab } from "../components/stocktake-activity-tab";
 import { StocktakeCountTab } from "../components/stocktake-count-tab";
@@ -917,6 +916,40 @@ export default function StocktakeDetailPage() {
                 </span>
               </div>
 
+              {/* The same "Filtered … / Clear filter" strip every list page shows. */}
+              {(() => {
+                const chip =
+                  activeTab === "count"
+                    ? lineFilter !== "all"
+                      ? filterOptions.find((opt) => opt.value === lineFilter)?.label
+                      : null
+                    : reviewFilter !== "variances"
+                      ? {
+                          need_approval: "Need approval",
+                          recount: "Recount",
+                          resolved: "Resolved",
+                          all: "All lines",
+                          variances: "All variances",
+                        }[reviewFilter]
+                      : null;
+                const search = lineSearch.trim();
+                return (
+                  <ActiveFilterBanner
+                    active={Boolean(chip || search)}
+                    summary={`Filtered lines · ${filteredLines.length} result${filteredLines.length === 1 ? "" : "s"}`}
+                    pills={[
+                      ...(chip ? [{ key: "chip", label: chip }] : []),
+                      ...(search ? [{ key: "search", label: `“${search}”` }] : []),
+                    ]}
+                    onClear={() => {
+                      setLineSearch("");
+                      if (activeTab === "count") setLineFilter("all");
+                      else setReviewFilter("variances");
+                    }}
+                  />
+                );
+              })()}
+
               {activeTab === "count" ? (
                 <div className={scss.countMetaRow}>
                   <span className={scss.uncountedChip}>
@@ -1014,47 +1047,15 @@ export default function StocktakeDetailPage() {
       </div>
 
 
-      {approveOpen
-        ? (() => {
-            const p = approvalPreview(row);
-            return (
-              <ConfirmDialog
-                open
-                title={`Approve ${row.stocktakeNumber}?`}
-                confirmLabel="Approve and adjust stock"
-                cancelLabel="Not yet"
-                variant="primary"
-                loading={saving}
-                onCancel={() => {
-                  if (!saving) setApproveOpen(false);
-                }}
-                onConfirm={() => {
-                  void runAction("approve").then(() => setApproveOpen(false));
-                }}
-              >
-                <p>This closes the stocktake and changes stock now:</p>
-                <ul className={scss.approvePreview}>
-                  <li>
-                    {p.adjusted === 0
-                      ? "Every count matched, so no batch is adjusted."
-                      : `${p.adjusted} batch${p.adjusted === 1 ? "" : "es"} adjusted to the count` +
-                        (p.unitsIn > 0 ? ` · ${p.unitsIn} unit${p.unitsIn === 1 ? "" : "s"} added` : "") +
-                        (p.unitsOut > 0 ? ` · ${p.unitsOut} unit${p.unitsOut === 1 ? "" : "s"} removed` : "")}
-                  </li>
-                  {p.toHold > 0 ? (
-                    <li>
-                      Up to {p.toHold} unit{p.toHold === 1 ? "" : "s"} counted as damaged, expired or
-                      temperature-affected go into quarantine.
-                    </li>
-                  ) : null}
-                  {p.value != null && p.adjusted > 0 ? (
-                    <li>Net value of the adjustment: {formatMoney(p.value)}</li>
-                  ) : null}
-                </ul>
-              </ConfirmDialog>
-            );
-          })()
-        : null}
+      <ApproveStocktakeModal
+        stocktake={row}
+        open={approveOpen}
+        busy={saving}
+        onCancel={() => setApproveOpen(false)}
+        onApprove={() => {
+          void runAction("approve").then(() => setApproveOpen(false));
+        }}
+      />
 
       <EditStocktakeModal
         open={editOpen}

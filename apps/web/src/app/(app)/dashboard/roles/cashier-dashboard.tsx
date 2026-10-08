@@ -11,7 +11,7 @@ import {
   IconUsers,
 } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
-import { CATALOG_ROLES, POS_ROLES, RETURNS_ROLES } from "@/lib/role-access";
+import { CATALOG_ROLES, POS_ROLES } from "@/lib/role-access";
 import {
   AttentionTicker,
   type TickerItem,
@@ -234,13 +234,6 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
             icon: <IconRotateCcw size={18} />,
             roles: POS_ROLES,
             tone: "danger",
-          },
-          {
-            href: "/returns?status=pending_approval",
-            label: "Returns Queue",
-            icon: <IconReceipt size={18} />,
-            roles: RETURNS_ROLES,
-            tone: "success",
           },
         ]}
       />

@@ -126,6 +126,11 @@ export function CreateReturnModal({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [touched, setTouched] = useState(false);
   const [deliveryNote, setDeliveryNote] = useState<string | null>(null);
+  /** Products a chosen delivery brought in. The picker only loads the first 200 products, so a
+   *  line filled from a delivery could name one it didn't have — and show a batch with no name. */
+  const [deliveryProducts, setDeliveryProducts] = useState<
+    Array<{ id: string; sku: string; name: string }>
+  >([]);
 
   const batchById = useMemo(() => new Map(batches.map((b) => [b.id, b])), [batches]);
   const saleById = useMemo(() => new Map(sales.map((s) => [s.id, s])), [sales]);
@@ -147,6 +152,7 @@ export function CreateReturnModal({
     setTouched(false);
     setSaving(false);
     setDeliveryNote(null);
+    setDeliveryProducts([]);
     void suppliers.reload();
     void products.reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,6 +209,7 @@ export function CreateReturnModal({
       setSupplierId(delivery.supplier.id);
       setPurchaseOrderId(delivery.purchaseOrder.id);
       setGoodsReceiptId(delivery.goodsReceipt.id);
+      setDeliveryProducts(delivery.lines.map((line) => line.product));
       const usable = delivery.lines.filter(
         (line) => line.returnable > 0 && (!onlyDamaged || line.damaged > 0),
       );
@@ -247,15 +254,17 @@ export function CreateReturnModal({
     [suppliers.rows],
   );
 
-  const productOptions = useMemo(
-    () =>
-      products.rows.map((p) => ({
-        value: p.id,
-        label: `${p.sku} — ${p.name}`,
-        meta: p.sku,
-      })),
-    [products.rows],
-  );
+  const productOptions = useMemo(() => {
+    const known = new Set(products.rows.map((p) => p.id));
+    return [
+      ...products.rows,
+      ...deliveryProducts.filter((p) => !known.has(p.id)),
+    ].map((p) => ({
+      value: p.id,
+      label: `${p.sku} — ${p.name}`,
+      meta: p.sku,
+    }));
+  }, [products.rows, deliveryProducts]);
 
   const saleOptions = useMemo(
     () =>

@@ -2646,9 +2646,3 @@
   background: var(--pc-card-bg);
 }
 
-.returnsOldActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.25rem;
-}

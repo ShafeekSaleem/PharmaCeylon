@@ -1,7 +1,8 @@
 "use client";
 
+import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import type { StocktakeLine, StocktakeListItem } from "../types";
-import { formatDateTime, formatMoney, formatSigned } from "../utils";
+import { displayVarianceReason, formatDateTime, formatMoney, formatSigned } from "../utils";
 import scss from "../stocktakes.module.css";
 
 /** Conditions that send counted units to quarantine at approval — mirrors the API. */
@@ -151,5 +152,127 @@ export function StocktakeChangesPanel({ stocktake }: { stocktake: StocktakeListI
         </>
       )}
     </section>
+  );
+}
+
+type ApproveProps = {
+  stocktake: StocktakeListItem;
+  open: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onApprove: () => void;
+};
+
+/**
+ * What approving will do, batch by batch, before it is done. A count can touch dozens of
+ * batches, so this is a full window with the list, not a two-line confirmation: the reviewer signs
+ * off on each change they can see.
+ */
+export function ApproveStocktakeModal({ stocktake, open, busy, onCancel, onApprove }: ApproveProps) {
+  const p = approvalPreview(stocktake);
+  const rows = stocktake.lines.filter((line) => {
+    const variance = line.countedQty == null ? 0 : (line.adjustedVariance ?? 0);
+    return variance !== 0 || ((line.countedQty ?? 0) > 0 && UNFIT_CONDITIONS.has(line.condition));
+  });
+  return (
+    <Modal
+      open={open}
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
+      title={`Approve ${stocktake.stocktakeNumber}`}
+      description="Approving adjusts stock to the count and closes the stocktake."
+      size="lg"
+      footer={
+        <ModalFooter>
+          <ModalButton onClick={onCancel} disabled={busy}>
+            Not yet
+          </ModalButton>
+          <ModalButton variant="primary" onClick={onApprove} loading={busy}>
+            Approve and adjust stock
+          </ModalButton>
+        </ModalFooter>
+      }
+    >
+      <div className={scss.approveSummary}>
+        <div>
+          <span className={scss.approveFigure}>{p.adjusted}</span>
+          <span className={scss.approveLabel}>batches adjusted</span>
+        </div>
+        <div>
+          <span className={scss.approveFigure}>{p.unitsIn > 0 ? `+${p.unitsIn}` : 0}</span>
+          <span className={scss.approveLabel}>units added</span>
+        </div>
+        <div>
+          <span className={scss.approveFigure}>{p.unitsOut > 0 ? `−${p.unitsOut}` : 0}</span>
+          <span className={scss.approveLabel}>units removed</span>
+        </div>
+        <div>
+          <span className={scss.approveFigure}>{p.toHold}</span>
+          <span className={scss.approveLabel}>to quarantine</span>
+        </div>
+        {p.value != null ? (
+          <div>
+            <span className={scss.approveFigure}>{formatMoney(p.value)}</span>
+            <span className={scss.approveLabel}>net value</span>
+          </div>
+        ) : null}
+      </div>
+      {rows.length === 0 ? (
+        <p className={scss.changesSummary}>Every count matched, so no stock changes.</p>
+      ) : (
+        <div className={scss.approveList}>
+          <table className={`${scss.linesTable} ${scss.changesTable}`}>
+            <thead>
+              <tr>
+                <th>Product / batch</th>
+                <th className={scss.num}>Expected</th>
+                <th className={scss.num}>Counted</th>
+                <th className={scss.num}>Change</th>
+                <th>Then</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((line) => {
+                const variance = line.adjustedVariance ?? 0;
+                const hold = (line.countedQty ?? 0) > 0 && UNFIT_CONDITIONS.has(line.condition);
+                return (
+                  <tr key={line.id}>
+                    <td>
+                      <div className={scss.productCell}>
+                        <span>{line.product.name}</span>
+                        <span className={scss.changesMeta}>Batch {line.batch.batchNo}</span>
+                      </div>
+                    </td>
+                    <td className={scss.num} data-label="Expected">
+                      {line.expectedAtReview ?? "—"}
+                    </td>
+                    <td className={scss.num} data-label="Counted">
+                      {line.countedQty ?? "—"}
+                    </td>
+                    <td className={scss.num} data-label="Change">
+                      <span
+                        className={
+                          variance > 0 ? scss.variancePos : variance < 0 ? scss.varianceNeg : undefined
+                        }
+                      >
+                        {variance === 0 ? "—" : formatSigned(variance)}
+                      </span>
+                    </td>
+                    <td data-label="Then">
+                      {hold ? `Quarantine ${line.countedQty}` : "Adjust"}
+                    </td>
+                    <td className={scss.changesMeta} data-label="Reason">
+                      {line.reviewReason ? displayVarianceReason(line.reviewReason) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }

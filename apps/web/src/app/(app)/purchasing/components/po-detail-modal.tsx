@@ -849,16 +849,28 @@ export function PoDetailModal({
                         </ModalButton>
                       </span>
                     )}
-                    {canReceiveGoods && canReceive(detail.status) && (
-                      <ModalButton
-                        variant="primary"
-                        onClick={() => void openReceive()}
-                        loading={preparingReceive}
-                        disabled={busy}
-                      >
-                        Receive goods
-                      </ModalButton>
-                    )}
+                    {/* While a delivery waits for approval, that delivery is the next thing booked
+                        in: approvers review it from the banner, and nobody books another beside it. */}
+                    {canReceiveGoods &&
+                      canReceive(detail.status) &&
+                      !(canApprovePo && (detail.heldDeliveries?.length ?? 0) > 0) && (
+                        <span
+                          data-tooltip={
+                            (detail.heldDeliveries?.length ?? 0) > 0
+                              ? "A delivery on this order is waiting for approval. It has to be accepted or rejected first."
+                              : undefined
+                          }
+                        >
+                          <ModalButton
+                            variant="primary"
+                            onClick={() => void openReceive()}
+                            loading={preparingReceive}
+                            disabled={busy || (detail.heldDeliveries?.length ?? 0) > 0}
+                          >
+                            Receive goods
+                          </ModalButton>
+                        </span>
+                      )}
                   </>
                 )}
               </>
@@ -1130,9 +1142,12 @@ export function PoDetailModal({
                   </div>
                   {heldReview ? (
                     <Alert variant="warning" className={css.modalAlert}>
-                      {heldReview.requester.fullName || "A colleague"} typed this delivery
-                      {heldReview.detail ? ` — ${heldReview.detail}` : ""}. Correct anything that
-                      isn&apos;t right, then accept it; it is booked in exactly as shown here.
+                      <strong>
+                        Sent for approval by {heldReview.requester.fullName || "a colleague"}
+                      </strong>
+                      {heldReview.detail ? <> · {heldReview.detail}</> : null}
+                      <br />
+                      Fix anything that&apos;s wrong, then accept.
                     </Alert>
                   ) : null}
                   {heldReview &&
@@ -1827,15 +1842,19 @@ export function PoDetailModal({
         onCancel={() => {
           if (!busy) void refreshQuantities();
         }}
+        // Closing the prompt keeps what was typed; only "Refresh quantities" re-reads the order.
+        onDismiss={() => {
+          if (!busy) setOverDeliveryPrompt(null);
+        }}
         onConfirm={() => {
           if (!canApprovePo) {
             // Said for the approver, not the receiver: what arrived against what was outstanding.
             const facts = overDelivering
               .map(
                 (line) =>
-                  `${line.productLabel}: ${receivedUnits(line)} arrived, ${line.remainingQty} outstanding.`,
+                  `${line.productLabel.split(" — ").pop()}: ${receivedUnits(line)} arrived, ${line.remainingQty} ordered`,
               )
-              .join(" ");
+              .join(" · ");
             void askApprover("over_delivery", facts || (overDeliveryPrompt ?? ""));
             return;
           }
@@ -1874,9 +1893,9 @@ export function PoDetailModal({
               priceRises
                 .map(
                   (rise) =>
-                    `${rise.product}: ordered at ${formatMoney(rise.orderedUnitCost)}, billed at ${formatMoney(rise.billedUnitCost)} (+${rise.variancePercent}%).`,
+                    `${rise.product}: ${formatMoney(rise.billedUnitCost)} billed, ${formatMoney(rise.orderedUnitCost)} agreed (+${rise.variancePercent}%)`,
                 )
-                .join(" "),
+                .join(" · "),
             );
             return;
           }

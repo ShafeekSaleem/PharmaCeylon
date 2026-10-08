@@ -88,7 +88,7 @@ export type RefundSalePayload = {
   approval?: { approverUserId: string; pin: string };
 };
 
-/** A customer return at this branch: a till refund, or one left open on the old Returns page. */
+/** A customer refund at this branch. */
 export type RefundRow = {
   id: string;
   returnNumber: string;
@@ -116,10 +116,6 @@ export function listRefunds(): Promise<RefundRow[]> {
 
 export function listRefundApprovers(): Promise<PosApprover[]> {
   return apiJson<PosApprover[]>("/sales/pos/refund-approvers");
-}
-
-export function cancelOldReturn(id: string): Promise<unknown> {
-  return apiJson(`/returns/${id}/cancel`, { method: "POST", headers: jsonHeaders, body: "{}" });
 }
 
 export function refundSale(saleId: string, payload: RefundSalePayload): Promise<SaleReceipt> {

@@ -2242,3 +2242,41 @@
     color: var(--pc-muted-fg);
   }
 }
+
+/* ── Approve: what will change ── */
+.approveSummary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.approveSummary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-muted-fg) 4%, var(--pc-card-bg));
+}
+
+.approveFigure {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+}
+
+.approveLabel {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+/* Long counts scroll inside the window; the totals and the buttons stay put. */
+.approveList {
+  max-height: min(50vh, 26rem);
+  overflow: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+}

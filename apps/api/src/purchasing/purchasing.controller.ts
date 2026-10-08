@@ -19,6 +19,8 @@ import { CreatePurchaseOrderDto } from "./dto/create-purchase-order.dto";
 import { ReceiveGoodsDto } from "./dto/receive-goods.dto";
 import { UpdatePurchaseOrderDto } from "./dto/update-purchase-order.dto";
 import { HeldDeliveryService } from "./held-delivery.service";
+import { NotificationCategory, NotificationSeverity } from "@prisma/client";
+import { NotificationsService } from "../notifications/notifications.service";
 import {
   AcceptHeldDeliveryDto,
   HoldDeliveryDto,
@@ -32,6 +34,7 @@ export class PurchasingController {
     private readonly purchasing: PurchasingService,
     private readonly access: AccessService,
     private readonly heldDeliveries: HeldDeliveryService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -171,17 +174,48 @@ export class PurchasingController {
     @Param("id", ParseUUIDPipe) id: string,
   ) {
     const access = await this.access.resolve(user, branchId);
-    return this.purchasing.approvePurchaseOrder(user.tenantId, branchId, access, id);
+    const po = await this.purchasing.approvePurchaseOrder(user.tenantId, branchId, access, id);
+    await this.tellRaiser(user, branchId, po, true);
+    return po;
+  }
+
+  /** The person who raised an order hears the decision, unless they made it themselves. */
+  private async tellRaiser(
+    user: RequestUser,
+    branchId: string,
+    po: { id: string; poNumber: string; createdBy: string },
+    approved: boolean,
+  ) {
+    if (po.createdBy === user.userId) return;
+    await this.notifications.notifyUser(
+      user.tenantId,
+      po.createdBy,
+      NotificationCategory.purchasing,
+      {
+        severity: approved ? NotificationSeverity.info : NotificationSeverity.warning,
+        title: `Order ${approved ? "approved" : "rejected"} · ${po.poNumber}`,
+        message: approved
+          ? "It has been issued to the supplier."
+          : "It was cancelled instead of being issued.",
+        actionLabel: "Open the order",
+        actionHref: `/purchasing?po=${po.id}`,
+        entityType: "purchase_order",
+        entityId: po.id,
+      },
+      { branchId },
+    );
   }
 
   @RequirePermission("purchasing.approve")
   @Post("purchase-orders/:id/reject")
-  reject(
+  async reject(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.purchasing.rejectPurchaseOrder(user.tenantId, branchId, user.userId, id);
+    const po = await this.purchasing.rejectPurchaseOrder(user.tenantId, branchId, user.userId, id);
+    await this.tellRaiser(user, branchId, po, false);
+    return po;
   }
 
   @RequirePermission("purchasing.approve")

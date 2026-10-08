@@ -1147,13 +1147,15 @@ export class SalesService {
     };
   }
 
-  /**
-   * Customer returns at this branch, newest first: refunds made at the till, and any left open
-   * on the old Returns page (which are cancelled and refunded here instead).
-   */
+  /** Refunds made at this branch, newest first. */
   async listRefunds(tenantId: string, branchId: string, take = 50) {
     const rows = await this.prisma.goodsReturn.findMany({
-      where: { tenantId, branchId, type: GoodsReturnType.customer },
+      where: {
+        tenantId,
+        branchId,
+        type: GoodsReturnType.customer,
+        status: GoodsReturnStatus.completed,
+      },
       orderBy: { createdAt: "desc" },
       take,
       include: {

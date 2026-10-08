@@ -16,6 +16,11 @@ type Props = {
   confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /**
+   * Closing with × or Escape. Defaults to `onCancel`; give it separately when the cancel button
+   * does something (re-reads a form, say) that just closing the dialog shouldn't.
+   */
+  onDismiss?: () => void;
 };
 
 /** Themed confirmation dialog for destructive or important actions. */
@@ -30,12 +35,13 @@ export function ConfirmDialog({
   confirmDisabled = false,
   onConfirm,
   onCancel,
+  onDismiss,
 }: Props) {
   return (
     <Modal
       open={open}
       onClose={() => {
-        if (!loading) onCancel();
+        if (!loading) (onDismiss ?? onCancel)();
       }}
       title={title}
       size="sm"

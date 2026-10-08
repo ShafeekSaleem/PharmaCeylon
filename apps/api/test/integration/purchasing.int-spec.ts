@@ -933,6 +933,42 @@ describe("Purchasing against PostgreSQL", () => {
       expect(notifications.notifyUser).toHaveBeenCalled();
     });
 
+    it("refuses another delivery on the order while one waits for approval", async () => {
+      const { poId } = await heldOverDelivery();
+      await expect(
+        purchasing().receiveGoods(fx.tenantId, fx.mainBranchId, fx.clerkId, receiver(), {
+          purchaseOrderId: poId,
+          receivedOn: today(),
+          lines: [
+            {
+              productId: fx.productId,
+              batchNo: `PAR-${randomUUID().slice(0, 6)}`,
+              expiryDate: expiry(),
+              receivedQty: 50,
+              costPrice: "10.00",
+              sellingPrice: "15.00",
+            },
+          ],
+        }),
+      ).rejects.toMatchObject({ response: { code: "DELIVERY_AWAITING_APPROVAL" } });
+    });
+
+    it("closes a held delivery whose order was closed meanwhile, instead of leaving it waiting", async () => {
+      const { poId, heldId } = await heldOverDelivery();
+      await prisma.purchaseOrder.update({ where: { id: poId }, data: { status: "short_closed" } });
+      await expect(
+        held().accept(fx.tenantId, fx.mainBranchId, fx.managerId, approver(), heldId, {}),
+      ).rejects.toMatchObject({ response: { code: "PO_NOT_OPEN" } });
+      const row = await prisma.heldDelivery.findUniqueOrThrow({ where: { id: heldId } });
+      expect(row.status).toBe("rejected");
+      expect(row.decisionNote).toMatch(/before this delivery was accepted/);
+      const waiting = await held().list(fx.tenantId, fx.mainBranchId, {
+        purchaseOrderId: poId,
+        canViewCost: true,
+      });
+      expect(waiting).toHaveLength(0);
+    });
+
     it("puts it back to waiting when accepting raises a question the approver must answer", async () => {
       const { heldId } = await heldOverDelivery();
       // The approver lacks the permission the receive needs, so receiving refuses.

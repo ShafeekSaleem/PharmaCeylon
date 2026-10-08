@@ -82,7 +82,26 @@ returns had two doors with a gap in each.
   row, nothing clipped, no sideways scroll; the stocktake's What changed reads as cards.)* Stat tiles two per row, and a walk of every Operations page at
   375px, including the new screens.
 
-## Module 5 — Inventory screens, adjustments and the supplier workspace
+**Module 4 test-run fixes.** One delivery at a time: an order with a delivery waiting for approval
+can't be received again until it is decided, and a held delivery whose order closes meanwhile is
+closed with the reason instead of waiting forever. Notifications list newest first; approval
+requests read "Approve order …" / "Approve a delivery on …", are resolved once decided, and the
+person who raised an order hears when it is approved or rejected. The stocktake approval window
+lists every batch it will change. A manager can save approval thresholds. Returns filled from a
+delivery always name their products. "Returns today" counts today's refunds. Customer returns
+left open on the old Returns page were closed (migration `close_open_customer_returns`).
+
+## Module 5 — Returns at the till, inventory screens, adjustments and the supplier workspace
+
+- **The POS returns lane needs a restructure and a simpler layout** (Module 4 test run: "UI is not
+  good", "needs a major restructure and simplify"). Today it is a long single panel — invoice
+  search, a lines table with Shelf/Hold, a reason field, three buttons and two lists. Design it as
+  a short guided flow: find the sale → choose lines and what happens to each → confirm the amount
+  and refund method, with recent refunds on their own tab.
+- **The product picker loads the first 200 products** in several forms (purchase orders, supplier
+  returns). It should search the server as you type, like the global search does.
+- **Stocktake count tables** scroll sideways inside their box on a phone instead of reading as
+  cards.
 
 - **The supplier detail window needs its own pass.** Long price lists and invoice lists need
   paging, the sections want sub-tabs rather than one long scroll, and the save/close buttons

@@ -75,7 +75,9 @@ export class NotificationsService {
       await Promise.all([
         this.prisma.notification.findMany({
           where,
-          orderBy: [{ requiresAction: "desc" }, { createdAt: "desc" }],
+          // Newest first. Pinning everything that needs action to the top buried a fresh
+          // answer ("your delivery was accepted") under older requests still waiting.
+          orderBy: { createdAt: "desc" },
           skip,
           take,
           include: { branch: { select: { id: true, name: true, code: true } } },
@@ -626,9 +628,7 @@ export class NotificationsService {
         severity: pending
           ? NotificationSeverity.warning
           : NotificationSeverity.critical,
-        title: pending
-          ? `${row.poNumber} requires approval`
-          : `${row.poNumber} is overdue`,
+        title: pending ? `Approve order ${row.poNumber}` : `${row.poNumber} is overdue`,
         message: `${row.supplier.name}${row.expectedOn ? ` · Expected ${row.expectedOn.toISOString().slice(0, 10)}` : ""}`,
         actionLabel: pending ? "Review order" : "Open order",
         actionHref: `/purchasing?po=${row.id}`,
@@ -679,7 +679,7 @@ export class NotificationsService {
           ? NotificationSeverity.warning
           : NotificationSeverity.info,
         title: pending
-          ? `${row.transferNumber} requires approval`
+          ? `Approve transfer ${row.transferNumber}`
           : `${row.transferNumber} is ready to receive`,
         message: `${row.fromBranch.name} → ${row.toBranch.name}`,
         actionLabel: pending ? "Review transfer" : "Receive transfer",

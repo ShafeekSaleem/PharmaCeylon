@@ -13,7 +13,6 @@ import {
 import { StatusBadge } from "@/components/ui";
 import { ApiError } from "@/lib/api-error";
 import {
-  cancelOldReturn,
   findSaleByInvoice,
   searchInvoices,
   fetchSaleReturnable,
@@ -34,16 +33,11 @@ import css from "../pos.module.css";
 type Props = {
   canRefund: boolean;
   canRefundControlled: boolean;
-  /** `returns.process` — may cancel a customer return left open on the old Returns page. */
-  canCancelOldReturns: boolean;
   recentSales: RecentSale[];
   onRefunded: (sale: SaleReceipt) => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
 };
-
-/** Statuses a customer return from the old Returns page could still be sitting in. */
-const OPEN_OLD_STATUSES = new Set(["draft", "pending_approval", "awaiting_logistics", "in_review"]);
 
 /**
  * Returns lane: the one door for a customer return. Search an invoice, choose the lines and
@@ -53,7 +47,6 @@ const OPEN_OLD_STATUSES = new Set(["draft", "pending_approval", "awaiting_logist
 export function PosReturnsPanel({
   canRefund,
   canRefundControlled,
-  canCancelOldReturns,
   recentSales,
   onRefunded,
   onError,
@@ -282,20 +275,6 @@ export function PosReturnsPanel({
     }
   }
 
-  async function cancelOld(row: RefundRow) {
-    setBusy(true);
-    try {
-      await cancelOldReturn(row.id);
-      onNotice(`${row.returnNumber} cancelled. Refund the sale here if the customer is owed money.`);
-      loadRefunds();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : "Couldn't cancel the return");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const openOldReturns = refunds.filter((row) => OPEN_OLD_STATUSES.has(row.status));
   const recentRefunds = refunds.filter((row) => row.status === "completed").slice(0, 8);
 
   const refundableRecent = recentSales.filter(
@@ -463,8 +442,8 @@ export function PosReturnsPanel({
                 <tr>
                   <th>Product</th>
                   <th>Batch</th>
-                  <th>Sold</th>
-                  <th>Left</th>
+                  <th>Bought</th>
+                  <th>Can return</th>
                   <th>Refund qty</th>
                   <th>Then</th>
                   <th className={css.colNum}>Unit</th>
@@ -660,52 +639,6 @@ export function PosReturnsPanel({
                         {row.itemCount === 1 ? "" : "s"}
                       </span>
                     </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {openOldReturns.length > 0 && (
-            <div className={css.returnsRecent}>
-              <h3 className={css.returnsRecentTitle}>Left open on the old Returns page</h3>
-              <p className={css.returnsNote}>
-                These were raised before customer returns moved to the till, and refunded nobody.
-                Cancel each one, then refund its sale here if the customer is owed money.
-              </p>
-              <ul className={css.returnsRecentList}>
-                {openOldReturns.map((row) => (
-                  <li key={row.id} className={css.returnsOldRow}>
-                    <span className={css.returnsSuggestMain}>
-                      <span className={css.returnsSuggestInvoice}>{row.returnNumber}</span>
-                      <span className={css.returnsRecentTotal}>{formatMoney(row.amount)}</span>
-                    </span>
-                    <span className={css.returnsSuggestMeta}>
-                      {row.sale ? `${row.sale.invoiceNo} · ` : ""}
-                      {row.customerName ?? "Walk-in"} · {row.status.replace(/_/g, " ")}
-                    </span>
-                    <span className={css.returnsOldActions}>
-                      {row.sale ? (
-                        <button
-                          type="button"
-                          className={css.toolBtn}
-                          onClick={() => void loadSale(row.sale!.invoiceNo)}
-                          disabled={busy}
-                        >
-                          Open the sale
-                        </button>
-                      ) : null}
-                      {canCancelOldReturns ? (
-                        <button
-                          type="button"
-                          className={`${css.toolBtn} ${css.toolBtnDanger}`}
-                          onClick={() => void cancelOld(row)}
-                          disabled={busy}
-                        >
-                          Cancel return
-                        </button>
-                      ) : null}
-                    </span>
                   </li>
                 ))}
               </ul>

@@ -236,6 +236,8 @@ export function useDashboardData() {
   const [holds, setHolds] = useState<HoldRow[]>([]);
   const [transfers, setTransfers] = useState<TransferRow[]>([]);
   const [goodsReturns, setGoodsReturns] = useState<ReturnRow[]>([]);
+  /** Customer refunds at this branch — what "returns today" counts. */
+  const [refunds, setRefunds] = useState<Array<{ status: string; amount: string; createdAt: string }>>([]);
   const [stocktakes, setStocktakes] = useState<StocktakeRow[]>([]);
   const [prescriptions, setPrescriptions] = useState<PrescriptionRow[]>([]);
   const [nearExpiryItems, setNearExpiryItems] = useState<
@@ -517,6 +519,16 @@ export function useDashboardData() {
         setMovements([]);
       }
 
+      if (canViewPos) {
+        tasks.push(
+          apiJson<Array<{ status: string; amount: string; createdAt: string }>>("/sales/refunds")
+            .then(setRefunds)
+            .catch(() => setRefunds([])),
+        );
+      } else {
+        setRefunds([]);
+      }
+
       if (canViewReturns) {
         tasks.push(
           apiJson<ReturnRow[]>("/returns")
@@ -663,14 +675,13 @@ export function useDashboardData() {
       0,
     );
 
-    const returnsToday = posted.filter(
-      (s) =>
-        new Date(s.soldAt) >= startOfToday &&
-        (s.status === "refunded" || s.status === "partially_refunded"),
+    // Refunds made today, at what was refunded. Counting sales *sold* today that had since been
+    // refunded missed every refund of an older sale and totalled the whole bill instead.
+    const returnsToday = refunds.filter(
+      (r) => r.status === "completed" && new Date(r.createdAt) >= startOfToday,
     );
-    // listSales filters to posted/partially_refunded — count partial refunds as returns signal
     const returnsTodayCount = returnsToday.length;
-    const returnsTodayTotal = returnsToday.reduce((sum, s) => sum + Number(s.grandTotal), 0);
+    const returnsTodayTotal = returnsToday.reduce((sum, r) => sum + Number(r.amount), 0);
 
     // Hourly sales today for cashier/pharmacist charts
     const hourlyToday: ChartPoint[] = [];
@@ -1092,6 +1103,7 @@ export function useDashboardData() {
     ownerScope,
     prescriptions,
     purchaseOrders,
+    refunds,
     reorder,
     sales,
     salesPulse,
