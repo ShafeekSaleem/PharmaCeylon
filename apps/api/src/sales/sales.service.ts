@@ -26,7 +26,12 @@ import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { StockService } from "../inventory/stock/stock.service";
 import { TaxService } from "../pricing/tax.service";
 import { CheckoutDto } from "./dto/checkout.dto";
-import { RefundSaleDto, type RefundDisposition } from "./dto/refund-sale.dto";
+import {
+  REFUND_REASON_LABELS,
+  RefundSaleDto,
+  type RefundDisposition,
+} from "./dto/refund-sale.dto";
+import { allocateRefund } from "./refund-allocation";
 import { meetsApprovalThreshold } from "../common/approval-threshold.util";
 import type { ActorAccess } from "../security/access.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
@@ -797,10 +802,17 @@ export class SalesService {
       throw new ForbiddenException("Your role can't refund sales");
     }
 
-    const reason = dto.reason?.trim();
-    if (!reason) throw new BadRequestException("Enter a reason for the refund");
-
-    const refundMethod = dto.refundMethod ?? PaymentMethod.cash;
+    const note = dto.reason?.trim() || null;
+    if (!dto.reasonCode && !note) throw new BadRequestException("Choose a reason for the refund");
+    if (dto.reasonCode === "other" && !note) {
+      throw new BadRequestException("Say what the reason is when it's Other");
+    }
+    const reason = dto.reasonCode
+      ? note && dto.reasonCode !== "other"
+        ? `${REFUND_REASON_LABELS[dto.reasonCode]} — ${note}`
+        : (note ?? REFUND_REASON_LABELS[dto.reasonCode])
+      : note!;
+    let refundSplit: Array<{ method: PaymentMethod; amount: Prisma.Decimal }> = [];
     let goodsReturnId: string | null = null;
     let refundTotal = new Prisma.Decimal(0);
     let nextStatus: SaleStatus = SaleStatus.refunded;
@@ -818,6 +830,7 @@ export class SalesService {
             },
           },
           customer: { select: { fullName: true } },
+          payments: { select: { method: true, amount: true } },
         },
       });
       if (!sale) throw new NotFoundException("Sale not found");
@@ -976,6 +989,7 @@ export class SalesService {
           customerName: sale.customer?.fullName ?? "Walk-in",
           saleId: sale.id,
           reason,
+          reasonCode: dto.reasonCode ?? null,
           notes: `POS refund · ${sale.invoiceNo}`,
           amount: refundTotal,
           requestedBy: userId,
@@ -1022,15 +1036,22 @@ export class SalesService {
         );
       }
 
-      await tx.salePayment.create({
-        data: {
-          tenantId,
-          saleId: sale.id,
-          method: refundMethod,
-          amount: refundTotal.neg(),
-          reference: `POS refund ${created.returnNumber}`,
-        },
-      });
+      // Back the way it came unless the cashier chose one method: card and wallet first, cash
+      // last. Every refund used to be booked as cash, which put card refunds in the drawer count.
+      refundSplit = dto.refundMethod
+        ? [{ method: dto.refundMethod, amount: refundTotal }]
+        : allocateRefund(sale.payments, sale.changeDue, refundTotal);
+      for (const part of refundSplit) {
+        await tx.salePayment.create({
+          data: {
+            tenantId,
+            saleId: sale.id,
+            method: part.method,
+            amount: part.amount.neg(),
+            reference: `POS refund ${created.returnNumber}`,
+          },
+        });
+      }
 
       nextStatus =
         remainingBefore - refundedQty <= 0
@@ -1053,7 +1074,8 @@ export class SalesService {
       payload: {
         reason,
         goodsReturnId,
-        refundMethod,
+        refundedTo: refundSplit.map((part) => ({ method: part.method, amount: part.amount.toFixed(2) })),
+        reasonCode: dto.reasonCode ?? null,
         refundTotal: refundTotal.toFixed(2),
         status: nextStatus,
         approvedBy: approvedByForAudit,
@@ -1159,7 +1181,13 @@ export class SalesService {
       orderBy: { createdAt: "desc" },
       take,
       include: {
-        sale: { select: { id: true, invoiceNo: true } },
+        sale: {
+          select: {
+            id: true,
+            invoiceNo: true,
+            payments: { select: { method: true, amount: true, reference: true } },
+          },
+        },
         requester: { select: { id: true, fullName: true } },
         approver: { select: { id: true, fullName: true } },
         items: {
@@ -1175,9 +1203,13 @@ export class SalesService {
       returnNumber: row.returnNumber,
       status: row.status,
       reason: row.reason,
+      reasonCode: row.reasonCode,
       amount: row.amount.toFixed(2),
       createdAt: row.createdAt.toISOString(),
-      sale: row.sale,
+      sale: row.sale ? { id: row.sale.id, invoiceNo: row.sale.invoiceNo } : null,
+      refundedTo: (row.sale?.payments ?? [])
+        .filter((payment) => payment.reference === `POS refund ${row.returnNumber}`)
+        .map((payment) => ({ method: payment.method, amount: payment.amount.neg().toFixed(2) })),
       customerName: row.customerName,
       refundedBy: row.requester,
       // Only worth showing when someone else signed it off.

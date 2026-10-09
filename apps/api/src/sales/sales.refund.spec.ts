@@ -53,6 +53,8 @@ describe("SalesService.refundSale", () => {
       status: SaleStatus.posted,
       prescriptionId: null as string | null,
       customer: { fullName: "Walk-in" },
+      payments: [{ method: PaymentMethod.card, amount: new Prisma.Decimal("40.00") }],
+      changeDue: new Prisma.Decimal("0"),
       items: [
         {
           id: "si-1",
@@ -195,6 +197,8 @@ describe("SalesService.refundSale", () => {
               id: saleId,
               invoiceNo: "INV-2607-000001",
               status: SaleStatus.posted,
+              payments: [{ method: PaymentMethod.cash, amount: new Prisma.Decimal("40.00") }],
+              changeDue: new Prisma.Decimal("0"),
               prescriptionId: null,
               customer: { fullName: "Walk-in" },
               items: [
@@ -256,6 +260,8 @@ describe("SalesService.refundSale", () => {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
               invoiceNo: "INV-1",
+              payments: [{ method: PaymentMethod.cash, amount: new Prisma.Decimal("100.00") }],
+              changeDue: new Prisma.Decimal("0"),
               status: SaleStatus.posted,
               prescriptionId: null,
               customer: null,
@@ -303,6 +309,8 @@ describe("SalesService.refundSale", () => {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
               invoiceNo: "INV-1",
+              payments: [{ method: PaymentMethod.cash, amount: new Prisma.Decimal("100.00") }],
+              changeDue: new Prisma.Decimal("0"),
               status: SaleStatus.posted,
               prescriptionId: "rx-1",
               customer: null,
@@ -339,6 +347,25 @@ describe("SalesService.refundSale", () => {
       reason: "Pharmacist approved",
     });
     expect(txState.goodsReturnCreate).toHaveBeenCalled();
+  });
+
+  it("refunds a card sale to card unless the cashier picks a method", async () => {
+    await service.refundSale(tenantId, branchId, userId, cashierRoles, saleId, {
+      reasonCode: "changed_mind",
+      items: [{ productId, batchId, qty: 1 }],
+    });
+    expect(txState.salePaymentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ method: PaymentMethod.card }) }),
+    );
+    const data = txState.goodsReturnCreate.mock.calls[0][0].data;
+    expect(data.reasonCode).toBe("changed_mind");
+    expect(data.reason).toBe("Changed their mind");
+  });
+
+  it("needs a note when the reason is Other", async () => {
+    await expect(
+      service.refundSale(tenantId, branchId, userId, cashierRoles, saleId, { reasonCode: "other" }),
+    ).rejects.toThrow(/Other/);
   });
 
   it("refuses someone without the refund permission", async () => {
@@ -422,6 +449,8 @@ describe("SalesService.refundSale", () => {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
               invoiceNo: "INV-1",
+              payments: [{ method: PaymentMethod.cash, amount: new Prisma.Decimal("100.00") }],
+              changeDue: new Prisma.Decimal("0"),
               status: SaleStatus.posted,
               prescriptionId: null,
               customer: null,

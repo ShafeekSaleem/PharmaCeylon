@@ -2176,23 +2176,8 @@
 }
 
 /* Invoice lines table — no empty-cart min-height (that belongs to sale cart only). */
-.returnsTableWrap {
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
 
-.returnsHeader {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem 1rem;
-}
 
-.returnsHeaderCopy {
-  flex: 1 1 12rem;
-  min-width: 0;
-}
 
 .returnsTitle {
   margin: 0;
@@ -2208,91 +2193,14 @@
   max-width: 28rem;
 }
 
-.returnsWorkspaceCard {
-  display: flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 0.55rem;
-  max-width: 22rem;
-  margin-left: auto;
-  padding: 0.45rem 0.55rem 0.45rem 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--pc-primary) 22%, var(--pc-border));
-  border-radius: var(--pc-radius-md, 10px);
-  background: color-mix(in srgb, var(--pc-primary-soft) 70%, var(--pc-card-bg));
-  color: inherit;
-  text-decoration: none;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
-}
 
-.returnsWorkspaceCard:hover {
-  border-color: var(--pc-primary);
-  background: var(--pc-primary-soft);
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--pc-primary) 12%, transparent);
-}
 
-.returnsWorkspaceIcon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  border-radius: 8px;
-  background: var(--pc-card-bg);
-  color: var(--pc-primary);
-  border: 1px solid color-mix(in srgb, var(--pc-primary) 20%, var(--pc-border));
-}
 
-.returnsWorkspaceText {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 0.05rem;
-  min-width: 0;
-}
 
-.returnsWorkspaceTitle {
-  color: var(--pc-foreground);
-  font-size: 0.76rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
 
-.returnsWorkspaceHint {
-  overflow: hidden;
-  color: var(--pc-muted-fg);
-  font-size: 0.66rem;
-  line-height: 1.3;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 
-.returnsWorkspaceCta {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 0.1rem;
-  padding: 0.25rem 0.45rem;
-  border-radius: 999px;
-  background: var(--pc-card-bg);
-  color: var(--pc-primary);
-  font-size: 0.68rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
 
-.returnsSearchBlock {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
 
-.returnsSearchRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
 
 .returnsSearchField {
   position: relative;
@@ -2314,130 +2222,19 @@
   pointer-events: none;
 }
 
-.returnsSearchHint {
-  position: absolute;
-  right: 0.7rem;
-  color: var(--pc-muted-fg);
-  font-size: 0.68rem;
-  font-weight: 600;
-}
 
-.returnsSuggest {
-  position: absolute;
-  top: calc(100% + 0.25rem);
-  left: 0;
-  right: 0;
-  z-index: 40;
-  margin: 0;
-  padding: 0.3rem;
-  list-style: none;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-md, 10px);
-  background: var(--pc-card-bg);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
-  max-height: 280px;
-  overflow-y: auto;
-}
 
-.returnsSuggestItem {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  width: 100%;
-  padding: 0.55rem 0.65rem;
-  border: none;
-  border-radius: var(--pc-radius-sm);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 
-.returnsSuggestItem:hover {
-  background: var(--pc-muted-bg);
-}
 
-.returnsSuggestMain {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-width: 0;
-}
 
-.returnsSuggestInvoice {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--pc-foreground);
-  font-size: 0.82rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 
-.returnsSuggestMeta {
-  overflow: hidden;
-  color: var(--pc-muted-fg);
-  font-size: 0.7rem;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 
-.returnsSummary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.5rem;
-  padding: 0.65rem;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-muted-bg);
-}
 
-.returnsStat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
 
-.returnsStatLabel {
-  color: var(--pc-muted-fg);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
 
-.returnsStatValue {
-  color: var(--pc-foreground);
-  font-size: 0.88rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
 
-.returnsActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
 
-.returnsNote {
-  margin: 0;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--pc-alert-warning-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-alert-warning-bg);
-  color: var(--pc-alert-warning-text);
-  font-size: 0.78rem;
-}
 
-.returnsEmpty {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
 
 .returnsRecentTitle {
   margin: 0 0 0.4rem;
@@ -2448,52 +2245,10 @@
   text-transform: uppercase;
 }
 
-.returnsRecentList {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 220px);
-  gap: 0.4rem;
-  align-items: start;
-}
 
-.returnsRecentList > li {
-  width: 220px;
-  height: 4.5rem;
-}
 
-.returnsRecentItem {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.15rem;
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  padding: 0.55rem 0.65rem;
-  overflow: hidden;
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-sm);
-  background: var(--pc-card-bg);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 
-.returnsRecentItem:hover {
-  background: var(--pc-muted-bg);
-}
 
-.returnsRecentTotal {
-  flex: 0 0 auto;
-  color: var(--pc-primary);
-  font-size: 0.78rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 
 /* Toast */
 
@@ -2636,13 +2391,310 @@
   opacity: 0.6;
 }
 
-.returnsOldRow {
+/* ── Returns lane: find the sale → what's coming back → refund ── */
+.rfHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.rfSupplierLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pc-primary);
+  text-decoration: none;
+}
+
+.rfSupplierLink:hover {
+  text-decoration: underline;
+}
+
+.rfSteps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  margin: 0.9rem 0 0.4rem;
+  padding: 0;
+  list-style: none;
+}
+
+.rfStep {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-muted-fg);
+}
+
+.rfStepNum {
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  border: 1px solid var(--pc-border);
+  font-size: 0.72rem;
+}
+
+.rfStepActive {
+  color: var(--pc-foreground);
+}
+
+.rfStepActive .rfStepNum {
+  background: var(--pc-primary);
+  border-color: var(--pc-primary);
+  color: #fff;
+}
+
+.rfStepDone .rfStepNum {
+  border-color: var(--pc-primary);
+  color: var(--pc-primary);
+}
+
+.rfBody {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.6rem 0.7rem;
+  gap: 0.8rem;
+  margin-top: 0.6rem;
+}
+
+.rfStrong {
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.rfMuted {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.rfSaleList,
+.rfRecentList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rfSaleRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rfSaleRow:hover:not(:disabled) {
+  border-color: var(--pc-primary);
+}
+
+.rfSaleBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-muted-fg) 6%, var(--pc-card-bg));
+}
+
+.rfNotice {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--pc-alert-warning-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  font-size: 0.85rem;
+}
+
+.rfItems {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rfItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  padding: 0.7rem 0.85rem;
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
   background: var(--pc-card-bg);
 }
 
+.rfItemOn {
+  border-color: var(--pc-primary);
+  box-shadow: inset 3px 0 0 var(--pc-primary);
+}
+
+.rfItemMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.rfItemControls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rfQty {
+  min-width: 2ch;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rfFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--pc-border);
+}
+
+.rfTotal {
+  margin-left: auto;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rfPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--pc-primary);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rfPrimary:hover:not(:disabled) {
+  background: var(--pc-primary-hover);
+}
+
+.rfPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rfSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  list-style: none;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+}
+
+.rfSummary li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.88rem;
+}
+
+.rfSummary li .rfMuted {
+  display: inline;
+}
+
+.rfField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.rfLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.rfChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.rfChip {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.rfChip:hover {
+  border-color: var(--pc-primary);
+}
+
+.rfChipOn {
+  border-color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 14%, var(--pc-card-bg));
+  color: var(--pc-foreground);
+  font-weight: 600;
+}
+
+.rfRecentRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+}
+
+.rfRecentTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+@media (max-width: 640px) {
+  .rfItemControls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .rfTotal {
+    width: 100%;
+    margin-left: 0;
+  }
+}

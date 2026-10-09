@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  IconChevronLeft,
   IconChevronRight,
   IconMinus,
   IconPackage,
@@ -10,7 +11,7 @@ import {
   IconRotateCcw,
   IconSearch,
 } from "@/components/icons";
-import { StatusBadge } from "@/components/ui";
+import { SegmentedTabs, StatusBadge } from "@/components/ui";
 import { ApiError } from "@/lib/api-error";
 import {
   findSaleByInvoice,
@@ -21,13 +22,17 @@ import {
   refundSale,
   type InvoiceSearchHit,
   type RefundDisposition,
+  type RefundReason,
   type RefundRow,
   type RefundSalePayload,
   type SaleReturnable,
 } from "../services/pos-api";
+import { PAYMENT_METHOD_LABELS } from "../constants";
+import type { PaymentMethod, RecentSale, SaleReceipt } from "../types";
+import { formatDate, formatMoney, formatTime } from "../utils";
 import { PosPharmacistPinModal } from "./pos-pharmacist-pin-modal";
-import type { RecentSale, SaleReceipt } from "../types";
-import { formatAmount, formatDate, formatMoney, formatTime } from "../utils";
+import { PosRefundReceiptModal, type RefundReceipt } from "./pos-refund-receipt-modal";
+import type { ReceiptPreferences } from "./pos-receipt-modal";
 import css from "../pos.module.css";
 
 type Props = {
@@ -37,12 +42,59 @@ type Props = {
   onRefunded: (sale: SaleReceipt) => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
+  receiptPreferences: ReceiptPreferences;
+  organization: { displayName: string; logoUrl: string | null } | null;
 };
 
+type Step = "find" | "items" | "refund";
+
+export const REFUND_REASON_OPTIONS: Array<{ value: RefundReason; label: string }> = [
+  { value: "wrong_item", label: "Wrong item" },
+  { value: "changed_mind", label: "Changed their mind" },
+  { value: "damaged", label: "Damaged" },
+  { value: "expired", label: "Expired or short-dated" },
+  { value: "adverse_reaction", label: "Adverse reaction" },
+  { value: "other", label: "Other" },
+];
+
+/** "As paid" sends no method, and the server splits it; the others send one method. */
+type MethodChoice = "as_paid" | PaymentMethod;
+const METHOD_CHOICES: PaymentMethod[] = ["cash", "card", "mobile_wallet"];
+const SPLIT_ORDER: PaymentMethod[] = ["card", "mobile_wallet", "cash"];
+
 /**
- * Returns lane: the one door for a customer return. Search an invoice, choose the lines and
- * whether each goes back on the shelf or is held for a pharmacist to inspect, and refund — over
- * the tenant's limit, an approver signs it off with their till PIN.
+ * What "as paid" will do, for the screen — the same rule the server applies: what each method
+ * took less what has gone back to it (cash net of change), card and wallet first, cash last.
+ */
+function previewAsPaid(sale: SaleReceipt, total: number) {
+  const left = new Map<PaymentMethod, number>();
+  for (const payment of sale.payments) {
+    left.set(payment.method, (left.get(payment.method) ?? 0) + Number(payment.amount));
+  }
+  if (left.has("cash")) left.set("cash", (left.get("cash") ?? 0) - Number(sale.changeDue));
+  const out: Array<{ method: PaymentMethod; amount: number }> = [];
+  let remaining = Math.round(total * 100) / 100;
+  for (const method of SPLIT_ORDER) {
+    if (remaining <= 0) break;
+    const available = left.get(method) ?? 0;
+    if (available <= 0) continue;
+    const take = Math.min(available, remaining);
+    out.push({ method, amount: take });
+    remaining = Math.round((remaining - take) * 100) / 100;
+  }
+  if (remaining > 0) {
+    const cash = out.find((row) => row.method === "cash");
+    if (cash) cash.amount += remaining;
+    else out.push({ method: "cash", amount: remaining });
+  }
+  return out;
+}
+
+/**
+ * The one door for a customer return, in three steps: find the sale, choose what's coming back
+ * (and whether each item goes back on the shelf or is held for a pharmacist), then refund — the
+ * amount, why, and how it goes back. Over the tenant's limit an approver signs it off with their
+ * till PIN. Recent refunds are a tab of their own rather than a list under the form.
  */
 export function PosReturnsPanel({
   canRefund,
@@ -51,18 +103,30 @@ export function PosReturnsPanel({
   onRefunded,
   onError,
   onNotice,
+  receiptPreferences,
+  organization,
 }: Props) {
-  const [invoiceNo, setInvoiceNo] = useState("");
+  const [tab, setTab] = useState<"refund" | "recent">("refund");
+  const [step, setStep] = useState<Step>("find");
+  const [query, setQuery] = useState("");
   const [sale, setSale] = useState<SaleReceipt | null>(null);
   const [returnable, setReturnable] = useState<SaleReturnable | null>(null);
   const [qtyByKey, setQtyByKey] = useState<Record<string, number>>({});
   const [dispositionByKey, setDispositionByKey] = useState<Record<string, RefundDisposition>>({});
-  /** A refund waiting for an approver's PIN because it is over the tenant's limit. */
+  const [reasonCode, setReasonCode] = useState<RefundReason | "">("");
+  const [note, setNote] = useState("");
+  const [method, setMethod] = useState<MethodChoice>("as_paid");
+  const [busy, setBusy] = useState(false);
+  const [hits, setHits] = useState<InvoiceSearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<{
     payload: RefundSalePayload;
     message: string;
   } | null>(null);
+  const [receipt, setReceipt] = useState<RefundReceipt | null>(null);
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const loadRefunds = useCallback(() => {
     if (!canRefund) return;
     listRefunds()
@@ -70,44 +134,47 @@ export function PosReturnsPanel({
       .catch(() => setRefunds([]));
   }, [canRefund]);
   useEffect(loadRefunds, [loadRefunds]);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [hits, setHits] = useState<InvoiceSearchHit[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
 
   const applyReturnable = useCallback((data: SaleReturnable) => {
     setReturnable(data);
-    const next: Record<string, number> = {};
+    const qty: Record<string, number> = {};
     const dispositions: Record<string, RefundDisposition> = {};
     for (const line of data.lines) {
-      // Start at 0 — cashier sets qty with steppers (or Select all remaining).
-      next[line.saleItemId] = 0;
+      qty[line.saleItemId] = 0;
       // A medicine back from a patient is held for a pharmacist to look at first.
       dispositions[line.saleItemId] =
         line.isControlled || line.requiresPrescription ? "quarantine" : "restock";
     }
-    setQtyByKey(next);
+    setQtyByKey(qty);
     setDispositionByKey(dispositions);
   }, []);
 
-  const loadSale = useCallback(
+  function reset() {
+    setStep("find");
+    setSale(null);
+    setReturnable(null);
+    setQuery("");
+    setReasonCode("");
+    setNote("");
+    setMethod("as_paid");
+  }
+
+  const openSale = useCallback(
     async (term: string) => {
       if (!term.trim()) return;
       setBusy(true);
-      setMenuOpen(false);
       try {
         const found = await findSaleByInvoice(term);
+        const data = await fetchSaleReturnable(found.id);
         setSale(found);
-        setInvoiceNo(found.invoiceNo);
+        applyReturnable(data);
         setHits([]);
-        const rem = await fetchSaleReturnable(found.id);
-        applyReturnable(rem);
+        setQuery("");
+        setReasonCode("");
+        setNote("");
+        setMethod("as_paid");
+        setStep("items");
       } catch (e) {
-        setSale(null);
-        setReturnable(null);
         onError(e instanceof Error ? e.message : "Invoice not found");
       } finally {
         setBusy(false);
@@ -118,150 +185,113 @@ export function PosReturnsPanel({
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    const term = invoiceNo.trim();
+    const term = query.trim();
     if (term.length < 2) {
       setHits([]);
       setSearching(false);
       return;
     }
-    if (sale && sale.invoiceNo.toLowerCase() === term.toLowerCase()) {
-      setHits([]);
-      return;
-    }
     setSearching(true);
     debounceRef.current = setTimeout(() => {
       void searchInvoices(term)
-        .then((rows) => {
-          setHits(rows);
-          setMenuOpen(rows.length > 0);
-        })
+        .then(setHits)
         .catch(() => setHits([]))
         .finally(() => setSearching(false));
     }, 220);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [invoiceNo, sale]);
+  }, [query]);
 
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
-
-  const selectedItems = useMemo(() => {
-    if (!returnable) return [];
-    return returnable.lines
-      .map((line) => {
-        const qty = qtyByKey[line.saleItemId] ?? 0;
-        return { line, qty };
-      })
-      .filter((row) => row.qty > 0);
-  }, [returnable, qtyByKey]);
-
-  const selectedTotal = useMemo(
+  const selected = useMemo(
     () =>
-      selectedItems.reduce(
-        (sum, row) =>
-          sum + row.qty * Number(row.line.refundUnitPrice ?? row.line.unitPrice),
-        0,
-      ),
-    [selectedItems],
+      (returnable?.lines ?? [])
+        .map((line) => ({ line, qty: qtyByKey[line.saleItemId] ?? 0 }))
+        .filter((row) => row.qty > 0),
+    [returnable, qtyByKey],
   );
+  const total = useMemo(
+    () =>
+      Math.round(
+        selected.reduce(
+          (sum, row) => sum + row.qty * Number(row.line.refundUnitPrice ?? row.line.unitPrice),
+          0,
+        ) * 100,
+      ) / 100,
+    [selected],
+  );
+  const heldUnits = selected
+    .filter((row) => dispositionByKey[row.line.saleItemId] === "quarantine")
+    .reduce((n, row) => n + row.qty, 0);
 
-  const blockedControlled =
-    Boolean(returnable?.requiresPharmacist) && !canRefundControlled;
-
-  const canAct =
-    canRefund &&
-    !blockedControlled &&
-    sale &&
-    returnable &&
+  const blockedControlled = Boolean(returnable?.requiresPharmacist) && !canRefundControlled;
+  const refundable =
+    !!sale &&
+    !!returnable &&
     returnable.totalRemainingQty > 0 &&
     (sale.status === "posted" || sale.status === "partially_refunded");
+  const canAct = canRefund && !blockedControlled && refundable;
 
-  function setAllRemaining() {
+  function stepQty(saleItemId: string, max: number, delta: number) {
+    setQtyByKey((prev) => ({
+      ...prev,
+      [saleItemId]: Math.max(0, Math.min(max, (prev[saleItemId] ?? 0) + delta)),
+    }));
+  }
+
+  function returnAll() {
     if (!returnable) return;
-    const next: Record<string, number> = {};
-    for (const line of returnable.lines) {
-      next[line.saleItemId] = line.remainingQty;
-    }
-    setQtyByKey(next);
+    setQtyByKey(
+      Object.fromEntries(returnable.lines.map((line) => [line.saleItemId, line.remainingQty])),
+    );
   }
 
-  function stepQty(saleItemId: string, remainingQty: number, delta: number) {
-    setQtyByKey((prev) => {
-      const cur = prev[saleItemId] ?? 0;
-      return {
-        ...prev,
-        [saleItemId]: Math.max(0, Math.min(remainingQty, cur + delta)),
-      };
-    });
-  }
-
-  async function refund(mode: "selected" | "all") {
-    if (!sale || !returnable) return;
-    if (!reason.trim()) {
-      onError("Enter a reason for the refund");
-      return;
-    }
-
-    // Always send explicit line items so the API never falls back to "refund all"
-    // if the payload is stripped or mis-parsed.
-    let items: NonNullable<RefundSalePayload["items"]>;
-    if (mode === "selected") {
-      if (selectedItems.length === 0) {
-        onError("Set refund qty on at least one line (use + / −)");
-        return;
-      }
-      items = selectedItems.map(({ line, qty }) => ({
-        productId: line.productId,
-        batchId: line.batchId,
-        qty,
-        disposition: dispositionByKey[line.saleItemId] ?? "restock",
-      }));
-    } else {
-      items = returnable.lines
-        .filter((line) => line.remainingQty > 0)
-        .map((line) => ({
-          productId: line.productId,
-          batchId: line.batchId,
-          qty: line.remainingQty,
-          disposition: dispositionByKey[line.saleItemId] ?? "restock",
-        }));
-      if (items.length === 0) {
-        onError("Nothing remains returnable on this invoice");
-        return;
-      }
-    }
-
-    await submitRefund({ reason: reason.trim(), items, refundMethod: "cash" });
-  }
-
-  async function submitRefund(payload: RefundSalePayload) {
+  async function submit(payload: RefundSalePayload) {
     if (!sale) return;
     setBusy(true);
     try {
       const refunded = await refundSale(sale.id, payload);
       setPendingApproval(null);
-      setSale(refunded);
-      setReason("");
-      const rem = await fetchSaleReturnable(refunded.id);
-      applyReturnable(rem);
       onRefunded(refunded);
       loadRefunds();
-      const held = (payload.items ?? [])
-        .filter((item) => item.disposition === "quarantine")
-        .reduce((n, item) => n + item.qty, 0);
-      const heldNote = held > 0 ? ` ${held} unit${held === 1 ? "" : "s"} held for inspection.` : "";
-      onNotice(
-        (refunded.status === "refunded"
-          ? `Fully refunded ${refunded.invoiceNo}.`
-          : `Partial refund posted for ${refunded.invoiceNo} — remaining lines can still be refunded.`) +
-          heldNote,
+      // The refund's own payment rows carry its return number.
+      const rows = refunded.payments.filter(
+        (p) => Number(p.amount) < 0 && p.reference?.startsWith("POS refund "),
       );
+      const returnNumber = rows[rows.length - 1]?.reference?.replace("POS refund ", "") ?? "";
+      const mine = rows.filter((p) => p.reference === `POS refund ${returnNumber}`);
+      setReceipt({
+        returnNumber,
+        invoiceNo: refunded.invoiceNo,
+        at: new Date().toISOString(),
+        customerName: refunded.customer?.fullName ?? null,
+        lines: (payload.items ?? []).map((item) => {
+          const line = returnable?.lines.find(
+            (l) => l.productId === item.productId && l.batchId === item.batchId,
+          );
+          return {
+            name: line?.productName ?? "Item",
+            batchNo: line?.batchNo ?? "",
+            qty: item.qty,
+            amount: item.qty * Number(line?.refundUnitPrice ?? line?.unitPrice ?? 0),
+            held: item.disposition === "quarantine",
+          };
+        }),
+        refundedTo: mine.map((p) => ({ method: p.method, amount: -Number(p.amount) })),
+        // "Other" is described by the note itself; any other reason is its label plus the note.
+        reason:
+          payload.reasonCode === "other"
+            ? (payload.reason ?? "Other")
+            : (REFUND_REASON_OPTIONS.find((option) => option.value === payload.reasonCode)?.label ??
+              payload.reason ??
+              ""),
+        note: payload.reasonCode === "other" ? null : (payload.reason ?? null),
+      });
+      onNotice(
+        `Refunded ${formatMoney(total)} on ${refunded.invoiceNo}.` +
+          (heldUnits > 0 ? ` ${heldUnits} unit${heldUnits === 1 ? "" : "s"} held for inspection.` : ""),
+      );
+      reset();
     } catch (e) {
       // Over the tenant's limit: ask for an approver's PIN, then send the same refund again.
       if (e instanceof ApiError && e.code === "REFUND_APPROVAL_REQUIRED" && !payload.approval) {
@@ -275,244 +305,279 @@ export function PosReturnsPanel({
     }
   }
 
-  const recentRefunds = refunds.filter((row) => row.status === "completed").slice(0, 8);
+  function refund() {
+    if (!reasonCode) {
+      onError("Choose why it's coming back");
+      return;
+    }
+    if (reasonCode === "other" && !note.trim()) {
+      onError("Say what the reason is");
+      return;
+    }
+    void submit({
+      reasonCode,
+      reason: note.trim() || undefined,
+      items: selected.map(({ line, qty }) => ({
+        productId: line.productId,
+        batchId: line.batchId,
+        qty,
+        disposition: dispositionByKey[line.saleItemId] ?? "restock",
+      })),
+      ...(method === "as_paid" ? {} : { refundMethod: method }),
+    });
+  }
 
+  const steps: Array<[Step, string]> = [
+    ["find", "Find the sale"],
+    ["items", "What's coming back"],
+    ["refund", "Refund"],
+  ];
+  const stepIndex = steps.findIndex(([key]) => key === step);
+  const split = sale ? previewAsPaid(sale, total) : [];
   const refundableRecent = recentSales.filter(
     (s) => s.status === "posted" || s.status === "partially_refunded",
   );
 
-  const statusVariant =
-    sale?.status === "posted"
-      ? "success"
-      : sale?.status === "partially_refunded"
-        ? "warning"
-        : "danger";
-
   return (
     <section className={`${css.card} ${css.returnsPanel}`}>
-      <header className={css.returnsHeader}>
-        <div className={css.returnsHeaderCopy}>
-          <h2 className={css.returnsTitle}>Invoice refund</h2>
-          <p className={css.returnsSubtitle}>
-            Search by invoice or customer, pick the lines to refund, and choose whether each
-            goes back on the shelf or is held for a pharmacist to inspect.
-          </p>
+      <header className={css.rfHeader}>
+        <div>
+          <h2 className={css.returnsTitle}>Returns</h2>
+          <p className={css.returnsSubtitle}>Refund a customer, and decide what happens to what comes back.</p>
         </div>
-        <Link href="/purchasing/supplier-returns" className={css.returnsWorkspaceCard}>
-          <span className={css.returnsWorkspaceIcon} aria-hidden>
-            <IconPackage size={16} />
-          </span>
-          <span className={css.returnsWorkspaceText}>
-            <span className={css.returnsWorkspaceTitle}>Supplier returns</span>
-            <span className={css.returnsWorkspaceHint}>
-              Send damaged, expired or recalled stock back to a supplier
-            </span>
-          </span>
-          <span className={css.returnsWorkspaceCta}>
-            Open
-            <IconChevronRight size={14} />
-          </span>
+        <Link href="/purchasing/supplier-returns" className={css.rfSupplierLink}>
+          <IconPackage size={14} /> Supplier returns
         </Link>
       </header>
 
-      <div className={css.returnsSearchBlock} ref={wrapRef}>
-        <div className={css.returnsSearchRow}>
-          <div className={css.returnsSearchField}>
-            <IconSearch size={15} className={css.returnsSearchIcon} />
-            <input
-              className={css.control}
-              placeholder="Search invoice no. or customer… e.g. INV-SEED-0001"
-              value={invoiceNo}
-              autoFocus
-              aria-autocomplete="list"
-              aria-expanded={menuOpen}
-              aria-controls="returns-invoice-results"
-              onChange={(e) => {
-                setInvoiceNo(e.target.value);
-                setSale(null);
-                setReturnable(null);
-                setMenuOpen(true);
-              }}
-              onFocus={() => {
-                if (hits.length > 0) setMenuOpen(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (hits[0]) void loadSale(hits[0].invoiceNo);
-                  else void loadSale(invoiceNo);
-                }
-                if (e.key === "Escape") setMenuOpen(false);
-              }}
-            />
-            {searching && <span className={css.returnsSearchHint}>Searching…</span>}
-          </div>
-          <button
-            type="button"
-            className={css.toolBtn}
-            onClick={() => void loadSale(invoiceNo)}
-            disabled={busy || !invoiceNo.trim()}
-          >
-            <IconSearch size={15} />
-            Find invoice
-          </button>
-        </div>
+      <SegmentedTabs
+        ariaLabel="Returns"
+        active={tab}
+        onChange={setTab}
+        items={[
+          { id: "refund", label: "Refund" },
+          { id: "recent", label: "Recent refunds", count: refunds.length || null },
+        ]}
+      />
 
-        {menuOpen && hits.length > 0 && (
-          <ul id="returns-invoice-results" className={css.returnsSuggest} role="listbox">
-            {hits.map((hit) => (
-              <li key={hit.id} role="option">
-                <button
-                  type="button"
-                  className={css.returnsSuggestItem}
-                  onClick={() => void loadSale(hit.invoiceNo)}
-                >
-                  <span className={css.returnsSuggestMain}>
-                    <span className={css.returnsSuggestInvoice}>{hit.invoiceNo}</span>
-                    <StatusBadge
-                      status={hit.status}
-                      variant={
-                        hit.status === "posted"
-                          ? "success"
-                          : hit.status === "partially_refunded"
-                            ? "warning"
-                            : "danger"
-                      }
-                      dot
-                    />
-                  </span>
-                  <span className={css.returnsSuggestMeta}>
-                    {hit.customer?.fullName ?? "Walk-in"} · {formatDate(hit.soldAt)}{" "}
-                    {formatTime(hit.soldAt)} · {hit._count.items} item
-                    {hit._count.items === 1 ? "" : "s"} · {formatMoney(hit.grandTotal)}
-                  </span>
-                </button>
+      {tab === "recent" ? (
+        refunds.length === 0 ? (
+          <p className={css.pickerEmpty}>No refunds at this branch yet.</p>
+        ) : (
+          <ul className={css.rfRecentList}>
+            {refunds.map((row) => {
+              const held = row.items
+                .filter((item) => item.disposition === "quarantine")
+                .reduce((n, item) => n + item.qty, 0);
+              return (
+                <li key={row.id} className={css.rfRecentRow}>
+                  <div className={css.rfRecentTop}>
+                    <span className={css.rfStrong}>{row.returnNumber}</span>
+                    <span className={css.rfStrong}>{formatMoney(row.amount)}</span>
+                  </div>
+                  <div className={css.rfMuted}>
+                    {row.sale?.invoiceNo ?? "—"} · {formatDate(row.createdAt)} {formatTime(row.createdAt)} ·{" "}
+                    {row.refundedBy.fullName}
+                    {row.approvedBy ? ` · approved by ${row.approvedBy.fullName}` : ""}
+                  </div>
+                  <div className={css.rfMuted}>
+                    {row.refundedTo.length > 0
+                      ? row.refundedTo
+                          .map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatMoney(p.amount)}`)
+                          .join(" · ")
+                      : null}
+                    {row.reason ? `${row.refundedTo.length ? " · " : ""}${row.reason}` : ""}
+                    {held > 0 ? ` · ${held} held` : ""}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      ) : (
+        <>
+          <ol className={css.rfSteps} aria-label="Refund steps">
+            {steps.map(([key, label], index) => (
+              <li
+                key={key}
+                className={`${css.rfStep}${index === stepIndex ? ` ${css.rfStepActive}` : ""}${
+                  index < stepIndex ? ` ${css.rfStepDone}` : ""
+                }`}
+                aria-current={index === stepIndex ? "step" : undefined}
+              >
+                <span className={css.rfStepNum}>{index + 1}</span>
+                {label}
               </li>
             ))}
-          </ul>
-        )}
-      </div>
+          </ol>
 
-      {sale && returnable ? (
-        <>
-          <div className={css.returnsSummary}>
-            <div className={css.returnsStat}>
-              <span className={css.returnsStatLabel}>Invoice</span>
-              <span className={css.returnsStatValue}>{sale.invoiceNo}</span>
+          {step === "find" ? (
+            <div className={css.rfBody}>
+              <div className={css.returnsSearchField}>
+                <IconSearch size={15} className={css.returnsSearchIcon} />
+                <input
+                  className={css.control}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void openSale(query);
+                  }}
+                  placeholder="Scan the receipt, or search invoice, customer or phone"
+                  aria-label="Find the sale"
+                  autoFocus
+                />
+              </div>
+              {searching ? <p className={css.rfMuted}>Searching…</p> : null}
+              {(hits.length > 0 ? hits : refundableRecent.slice(0, 8)).length > 0 ? (
+                <>
+                  <h3 className={css.returnsRecentTitle}>
+                    {hits.length > 0 ? "Matching sales" : "Recent sales"}
+                  </h3>
+                  <ul className={css.rfSaleList}>
+                    {(hits.length > 0
+                      ? hits.map((hit) => ({
+                          key: hit.id,
+                          invoiceNo: hit.invoiceNo,
+                          total: hit.grandTotal,
+                          at: hit.soldAt,
+                          who: hit.customer?.fullName ?? "Walk-in",
+                          status: hit.status,
+                        }))
+                      : refundableRecent.slice(0, 8).map((s) => ({
+                          key: s.id,
+                          invoiceNo: s.invoiceNo,
+                          total: s.grandTotal,
+                          at: s.soldAt,
+                          who: s.customerName ?? "Walk-in",
+                          status: s.status,
+                        }))
+                    ).map((row) => (
+                      <li key={row.key}>
+                        <button
+                          type="button"
+                          className={css.rfSaleRow}
+                          onClick={() => void openSale(row.invoiceNo)}
+                          disabled={busy}
+                        >
+                          <span>
+                            <span className={css.rfStrong}>{row.invoiceNo}</span>
+                            <span className={css.rfMuted}>
+                              {formatDate(row.at)} {formatTime(row.at)} · {row.who}
+                              {row.status === "partially_refunded" ? " · part refunded" : ""}
+                              {row.status === "refunded" ? " · refunded" : ""}
+                              {row.status === "voided" ? " · voided" : ""}
+                            </span>
+                          </span>
+                          <span className={css.rfStrong}>{formatMoney(row.total)}</span>
+                          <IconChevronRight size={15} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className={css.rfMuted}>Type at least two characters to search.</p>
+              )}
             </div>
-            <div className={css.returnsStat}>
-              <span className={css.returnsStatLabel}>Sold</span>
-              <span className={css.returnsStatValue}>
-                {formatDate(sale.soldAt)} {formatTime(sale.soldAt)}
-              </span>
-            </div>
-            <div className={css.returnsStat}>
-              <span className={css.returnsStatLabel}>Customer</span>
-              <span className={css.returnsStatValue}>
-                {sale.customer?.fullName ?? "Walk-in"}
-              </span>
-            </div>
-            <div className={css.returnsStat}>
-              <span className={css.returnsStatLabel}>Original total</span>
-              <span className={css.returnsStatValue}>{formatMoney(sale.grandTotal)}</span>
-            </div>
-            <div className={css.returnsStat}>
-              <span className={css.returnsStatLabel}>Status</span>
-              <StatusBadge status={sale.status} variant={statusVariant} dot />
-            </div>
-            <div className={css.returnsStat}>
-              <span className={css.returnsStatLabel}>Still returnable</span>
-              <span className={css.returnsStatValue}>
-                {returnable.totalRemainingQty} unit
-                {returnable.totalRemainingQty === 1 ? "" : "s"}
-              </span>
-            </div>
-          </div>
+          ) : null}
 
-          {blockedControlled && (
-            <p className={css.returnsNote}>
-              This invoice includes controlled or prescription items. A pharmacist,
-              manager, or owner must process the refund.
-            </p>
-          )}
+          {step !== "find" && sale && returnable ? (
+            <div className={css.rfSaleBar}>
+              <span>
+                <span className={css.rfStrong}>{sale.invoiceNo}</span>
+                <span className={css.rfMuted}>
+                  {formatDate(sale.soldAt)} · {sale.customer?.fullName ?? "Walk-in"} · paid{" "}
+                  {formatMoney(sale.grandTotal)}
+                </span>
+              </span>
+              <StatusBadge
+                status={sale.status}
+                variant={
+                  sale.status === "posted"
+                    ? "success"
+                    : sale.status === "partially_refunded"
+                      ? "warning"
+                      : "danger"
+                }
+                label={
+                  sale.status === "posted"
+                    ? "Sold"
+                    : sale.status === "partially_refunded"
+                      ? "Part refunded"
+                      : sale.status === "refunded"
+                        ? "Refunded"
+                        : "Voided"
+                }
+              />
+            </div>
+          ) : null}
 
-          <div className={css.returnsTableWrap}>
-            <table className={css.cartTable}>
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Batch</th>
-                  <th>Bought</th>
-                  <th>Can return</th>
-                  <th>Refund qty</th>
-                  <th>Then</th>
-                  <th className={css.colNum}>Unit</th>
-                </tr>
-              </thead>
-              <tbody>
+          {step === "items" && sale && returnable ? (
+            <div className={css.rfBody}>
+              {!refundable ? (
+                <p className={css.rfNotice}>
+                  {sale.status === "voided"
+                    ? "This sale was voided, so there's nothing to refund."
+                    : "Everything on this sale has already been refunded."}
+                </p>
+              ) : blockedControlled ? (
+                <p className={css.rfNotice}>
+                  This sale has controlled or prescription items. Ask a pharmacist or manager to
+                  refund it.
+                </p>
+              ) : !canRefund ? (
+                <p className={css.rfNotice}>Your role can't give refunds.</p>
+              ) : null}
+
+              <div className={css.rfItems}>
                 {returnable.lines.map((line) => {
                   const qty = qtyByKey[line.saleItemId] ?? 0;
-                  const disabled = !canAct || line.remainingQty <= 0 || busy;
+                  const disposition = dispositionByKey[line.saleItemId] ?? "restock";
+                  const off = !canAct || line.remainingQty <= 0 || busy;
                   return (
-                    <tr key={line.saleItemId}>
-                      <td>
-                        <Link href={`/products/${line.productId}`} className={css.productLink}>
+                    <div
+                      key={line.saleItemId}
+                      className={`${css.rfItem}${qty > 0 ? ` ${css.rfItemOn}` : ""}`}
+                    >
+                      <div className={css.rfItemMain}>
+                        <span className={css.rfStrong}>
                           {line.productName}
-                        </Link>
-                        {line.isControlled && <span className={css.tagRx}>Rx</span>}
-                      </td>
-                      <td>{line.batchNo}</td>
-                      <td>{line.soldQty}</td>
-                      <td>{line.remainingQty}</td>
-                      <td>
+                          {line.isControlled || line.requiresPrescription ? (
+                            <span className={css.tagRx}>Rx</span>
+                          ) : null}
+                        </span>
+                        <span className={css.rfMuted}>
+                          Batch {line.batchNo} · bought {line.soldQty} ·{" "}
+                          {line.remainingQty > 0
+                            ? `${line.remainingQty} can come back`
+                            : "all returned"}{" "}
+                          · {formatMoney(line.refundUnitPrice ?? line.unitPrice)} each
+                        </span>
+                      </div>
+                      <div className={css.rfItemControls}>
                         <div className={css.qtyGroup}>
                           <button
                             type="button"
                             className={css.qtyBtn}
-                            disabled={disabled || qty <= 0}
-                            aria-label={`Decrease refund qty for ${line.productName}`}
+                            disabled={off || qty <= 0}
+                            aria-label={`One less ${line.productName}`}
                             onClick={() => stepQty(line.saleItemId, line.remainingQty, -1)}
                           >
                             <IconMinus size={13} />
                           </button>
-                          <input
-                            type="number"
-                            min={0}
-                            max={line.remainingQty}
-                            className={css.qtyInput}
-                            value={qty}
-                            disabled={disabled}
-                            aria-label={`Refund qty for ${line.productName}`}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              if (raw === "") {
-                                setQtyByKey((prev) => ({ ...prev, [line.saleItemId]: 0 }));
-                                return;
-                              }
-                              const next = Math.trunc(Number(raw));
-                              if (!Number.isFinite(next)) return;
-                              setQtyByKey((prev) => ({
-                                ...prev,
-                                [line.saleItemId]: Math.max(
-                                  0,
-                                  Math.min(line.remainingQty, next),
-                                ),
-                              }));
-                            }}
-                            onFocus={(e) => e.currentTarget.select()}
-                          />
+                          <span className={css.rfQty} aria-live="polite">
+                            {qty}
+                          </span>
                           <button
                             type="button"
                             className={css.qtyBtn}
-                            disabled={disabled || qty >= line.remainingQty}
-                            aria-label={`Increase refund qty for ${line.productName}`}
+                            disabled={off || qty >= line.remainingQty}
+                            aria-label={`One more ${line.productName}`}
                             onClick={() => stepQty(line.saleItemId, line.remainingQty, 1)}
                           >
                             <IconPlus size={13} />
                           </button>
                         </div>
-                      </td>
-                      <td>
                         <div
                           className={css.dispositionToggle}
                           role="group"
@@ -527,8 +592,8 @@ export function PosReturnsPanel({
                             <button
                               key={value}
                               type="button"
-                              aria-pressed={(dispositionByKey[line.saleItemId] ?? "restock") === value}
-                              disabled={disabled}
+                              aria-pressed={disposition === value}
+                              disabled={off}
                               data-tooltip={
                                 value === "restock"
                                   ? "Back on the shelf, ready to sell"
@@ -542,139 +607,119 @@ export function PosReturnsPanel({
                             </button>
                           ))}
                         </div>
-                      </td>
-                      <td className={css.colNum}>
-                        {formatAmount(line.refundUnitPrice ?? line.unitPrice)}
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </div>
 
-          {canAct ? (
-            <div className={css.returnsActions}>
-              <input
-                className={css.control}
-                style={{ flex: "1 1 220px", width: "auto" }}
-                placeholder="Reason for refund (required)"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-              />
-              <button
-                type="button"
-                className={css.toolBtn}
-                onClick={setAllRemaining}
-                disabled={busy}
-              >
-                Select all remaining
-              </button>
-              <button
-                type="button"
-                className={css.toolBtn}
-                onClick={() => void refund("selected")}
-                disabled={busy || selectedItems.length === 0}
-                data-tooltip={
-                  selectedItems.length
-                    ? `Refund ${formatMoney(selectedTotal.toFixed(2))}`
-                    : "Set refund qty on one or more lines"
-                }
-              >
-                <IconRotateCcw size={15} />
-                Refund selected
-              </button>
-              <button
-                type="button"
-                className={`${css.toolBtn} ${css.toolBtnDanger}`}
-                onClick={() => void refund("all")}
-                disabled={busy}
-                data-tooltip="Refund every remaining unit on this invoice"
-              >
-                <IconRotateCcw size={15} />
-                Refund all remaining
-              </button>
+              <div className={css.rfFooter}>
+                <button type="button" className={css.toolBtn} onClick={reset} disabled={busy}>
+                  <IconChevronLeft size={15} /> Another sale
+                </button>
+                {canAct ? (
+                  <button type="button" className={css.toolBtn} onClick={returnAll} disabled={busy}>
+                    Return everything
+                  </button>
+                ) : null}
+                <span className={css.rfTotal}>
+                  {selected.length > 0 ? formatMoney(total) : "Nothing chosen"}
+                </span>
+                <button
+                  type="button"
+                  className={css.rfPrimary}
+                  onClick={() => setStep("refund")}
+                  disabled={!canAct || selected.length === 0}
+                >
+                  Next <IconChevronRight size={15} />
+                </button>
+              </div>
             </div>
-          ) : sale.status === "voided" ? (
-            <p className={css.returnsNote}>
-              This invoice was voided and cannot be refunded from POS.
-            </p>
-          ) : sale.status === "refunded" || returnable.totalRemainingQty <= 0 ? (
-            <p className={css.returnsNote}>
-              This invoice has no remaining returnable quantity.
-            </p>
-          ) : !canRefund ? (
-            <p className={css.returnsNote}>
-              You do not have permission to process refunds on this counter.
-            </p>
           ) : null}
-        </>
-      ) : (
-        <div className={css.returnsEmpty}>
-          <p className={css.pickerEmpty}>
-            Start typing an invoice number or customer name — matching bills appear as you type.
-            You can also pick a recent sale below.
-          </p>
 
-          {refundableRecent.length > 0 && (
-            <div className={css.returnsRecent}>
-              <h3 className={css.returnsRecentTitle}>Recent invoices</h3>
-              <ul className={css.returnsRecentList}>
-                {refundableRecent.slice(0, 8).map((row) => (
-                  <li key={row.id}>
-                    <button
-                      type="button"
-                      className={css.returnsRecentItem}
-                      onClick={() => void loadSale(row.invoiceNo)}
-                    >
-                      <span className={css.returnsSuggestMain}>
-                        <span className={css.returnsSuggestInvoice}>{row.invoiceNo}</span>
-                        <span className={css.returnsRecentTotal}>
-                          {formatMoney(row.grandTotal)}
-                        </span>
+          {step === "refund" && sale && returnable ? (
+            <div className={css.rfBody}>
+              <ul className={css.rfSummary}>
+                {selected.map(({ line, qty }) => (
+                  <li key={line.saleItemId}>
+                    <span>
+                      {line.productName} × {qty}
+                      <span className={css.rfMuted}>
+                        {" "}
+                        · {dispositionByKey[line.saleItemId] === "quarantine" ? "held for inspection" : "back on the shelf"}
                       </span>
-                      <span className={css.returnsSuggestMeta}>
-                        {formatDate(row.soldAt)} {formatTime(row.soldAt)} ·{" "}
-                        {row.customerName ?? "Walk-in"} · {row.itemCount} unit
-                        {row.itemCount === 1 ? "" : "s"}
-                      </span>
-                    </button>
+                    </span>
+                    <span>{formatMoney(qty * Number(line.refundUnitPrice ?? line.unitPrice))}</span>
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
 
-          {recentRefunds.length > 0 && (
-            <div className={css.returnsRecent}>
-              <h3 className={css.returnsRecentTitle}>Recent refunds</h3>
-              <ul className={css.returnsRecentList}>
-                {recentRefunds.map((row) => {
-                  const held = row.items
-                    .filter((item) => item.disposition === "quarantine")
-                    .reduce((n, item) => n + item.qty, 0);
-                  return (
-                    <li key={row.id} className={css.returnsOldRow}>
-                      <span className={css.returnsSuggestMain}>
-                        <span className={css.returnsSuggestInvoice}>
-                          {row.returnNumber}
-                          {row.sale ? ` · ${row.sale.invoiceNo}` : ""}
-                        </span>
-                        <span className={css.returnsRecentTotal}>{formatMoney(row.amount)}</span>
-                      </span>
-                      <span className={css.returnsSuggestMeta}>
-                        {formatDate(row.createdAt)} {formatTime(row.createdAt)} ·{" "}
-                        {row.refundedBy.fullName}
-                        {row.approvedBy ? ` · approved by ${row.approvedBy.fullName}` : ""}
-                        {held > 0 ? ` · ${held} held for inspection` : ""}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className={css.rfField}>
+                <span className={css.rfLabel}>Why is it coming back?</span>
+                <div className={css.rfChips} role="radiogroup" aria-label="Reason">
+                  {REFUND_REASON_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={reasonCode === option.value}
+                      className={`${css.rfChip}${reasonCode === option.value ? ` ${css.rfChipOn}` : ""}`}
+                      onClick={() => setReasonCode(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  className={css.control}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  maxLength={500}
+                  placeholder={reasonCode === "other" ? "What's the reason? (required)" : "Note (optional)"}
+                  aria-label="Note"
+                />
+              </div>
+
+              <div className={css.rfField}>
+                <span className={css.rfLabel}>Refund to</span>
+                <div className={css.rfChips} role="radiogroup" aria-label="Refund to">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={method === "as_paid"}
+                    className={`${css.rfChip}${method === "as_paid" ? ` ${css.rfChipOn}` : ""}`}
+                    onClick={() => setMethod("as_paid")}
+                  >
+                    As paid ·{" "}
+                    {split.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatMoney(p.amount)}`).join(" + ")}
+                  </button>
+                  {METHOD_CHOICES.map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      role="radio"
+                      aria-checked={method === choice}
+                      className={`${css.rfChip}${method === choice ? ` ${css.rfChipOn}` : ""}`}
+                      onClick={() => setMethod(choice)}
+                    >
+                      {PAYMENT_METHOD_LABELS[choice]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className={css.rfFooter}>
+                <button type="button" className={css.toolBtn} onClick={() => setStep("items")} disabled={busy}>
+                  <IconChevronLeft size={15} /> Back
+                </button>
+                <span className={css.rfTotal}>{formatMoney(total)}</span>
+                <button type="button" className={css.rfPrimary} onClick={refund} disabled={busy}>
+                  <IconRotateCcw size={15} /> Refund {formatMoney(total)}
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+          ) : null}
+        </>
       )}
 
       <PosPharmacistPinModal
@@ -688,8 +733,15 @@ export function PosReturnsPanel({
         onError={onError}
         onApprove={async (approval) => {
           if (!pendingApproval) return;
-          await submitRefund({ ...pendingApproval.payload, approval });
+          await submit({ ...pendingApproval.payload, approval });
         }}
+      />
+
+      <PosRefundReceiptModal
+        receipt={receipt}
+        onClose={() => setReceipt(null)}
+        preferences={receiptPreferences}
+        organization={organization}
       />
     </section>
   );

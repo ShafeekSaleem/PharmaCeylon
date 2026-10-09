@@ -792,6 +792,8 @@ function PosWorkspace() {
           onRefunded={() => void reload()}
           onError={toasts.error}
           onNotice={toasts.success}
+          receiptPreferences={receiptPrefs}
+          organization={organization}
         />
       ) : (
         <div className={css.workspace}>

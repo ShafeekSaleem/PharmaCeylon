@@ -2140,6 +2140,10 @@ model GoodsReturn {
   purchaseOrderId String?           @map("purchase_order_id") @db.Uuid
   goodsReceiptId  String?           @map("goods_receipt_id") @db.Uuid
   reason          String?
+  /// Why a customer brought it back, from a fixed list (`wrong_item`, `changed_mind`, `damaged`,
+  /// `expired`, `adverse_reaction`, `other`), so refunds can be counted by reason. Null for
+  /// supplier returns and for refunds made before the list existed.
+  reasonCode      String?           @map("reason_code") @db.VarChar(40)
   notes           String?
   amount          Decimal           @default(0) @db.Decimal(12, 2)
   requestedBy     String            @map("requested_by") @db.Uuid

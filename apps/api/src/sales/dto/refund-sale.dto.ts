@@ -17,6 +17,26 @@ import { PaymentMethod } from "@prisma/client";
 import { PharmacistApprovalDto } from "./pharmacist-approval.dto";
 
 export const REFUND_DISPOSITIONS = ["restock", "quarantine"] as const;
+
+/** Why a customer brought something back — a list, so refunds can be counted by reason. */
+export const REFUND_REASONS = [
+  "wrong_item",
+  "changed_mind",
+  "damaged",
+  "expired",
+  "adverse_reaction",
+  "other",
+] as const;
+export type RefundReason = (typeof REFUND_REASONS)[number];
+
+export const REFUND_REASON_LABELS: Record<RefundReason, string> = {
+  wrong_item: "Wrong item",
+  changed_mind: "Changed their mind",
+  damaged: "Damaged",
+  expired: "Expired or short-dated",
+  adverse_reaction: "Adverse reaction",
+  other: "Other",
+};
 export type RefundDisposition = (typeof REFUND_DISPOSITIONS)[number];
 
 export class RefundSaleItemDto {
@@ -41,10 +61,16 @@ export class RefundSaleItemDto {
 }
 
 export class RefundSaleDto {
+  /** Why, from the list. Either this or a typed `reason` is required; "other" needs the note. */
+  @IsOptional()
+  @IsIn(REFUND_REASONS)
+  reasonCode?: RefundReason;
+
+  /** A note, or the whole reason for callers that don't send a code. */
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(500)
-  reason!: string;
+  reason?: string;
 
   /** Omit to refund all remaining returnable qty on the invoice. */
   @IsOptional()
@@ -54,6 +80,7 @@ export class RefundSaleDto {
   @Type(() => RefundSaleItemDto)
   items?: RefundSaleItemDto[];
 
+  /** One method for the whole refund. Omitted, it goes back the way the sale was paid. */
   @IsOptional()
   @IsEnum(PaymentMethod)
   refundMethod?: PaymentMethod;
