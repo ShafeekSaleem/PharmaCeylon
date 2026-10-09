@@ -23,6 +23,8 @@ type Props = {
   required?: boolean;
   allowClear?: boolean;
   hideLabel?: boolean;
+  /** Told what was typed, so a long list can fetch matches it doesn't hold yet. */
+  onSearchChange?: (query: string) => void;
 };
 
 export function PurchasingSelect({
@@ -37,6 +39,7 @@ export function PurchasingSelect({
   required = false,
   allowClear = false,
   hideLabel = false,
+  onSearchChange,
 }: Props) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -169,7 +172,10 @@ export function PurchasingSelect({
                 ref={searchInputRef}
                 type="search"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  onSearchChange?.(event.target.value);
+                }}
                 placeholder={searchPlaceholder}
               />
             </div>

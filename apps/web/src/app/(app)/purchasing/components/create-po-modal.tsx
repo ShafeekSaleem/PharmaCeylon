@@ -614,6 +614,7 @@ export function CreatePoModal({
                           products.loading ? "Loading…" : "Select product…"
                         }
                         searchPlaceholder="Search SKU or name…"
+                        onSearchChange={products.search}
                         onChange={(value) => {
                           applyProductToLine(line.key, value);
                           clearLineError(line.key, "productId");

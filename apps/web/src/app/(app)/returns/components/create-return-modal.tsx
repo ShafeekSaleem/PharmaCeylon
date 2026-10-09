@@ -781,6 +781,7 @@ export function CreateReturnModal({
                         options={productOptions}
                         placeholder={products.loading ? "Loading…" : "Select product…"}
                         searchPlaceholder="Search SKU or name…"
+                        onSearchChange={products.search}
                         onChange={(value) => {
                           updateLine(line.key, { productId: value });
                           clearLineError(line.key, "productId");

@@ -184,6 +184,7 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
               options={productOptions}
               placeholder={products.loading ? "Loading…" : "Select product…"}
               searchPlaceholder="Search SKU or name…"
+              onSearchChange={products.search}
               onChange={(value) => {
                 const product = products.rows.find((p) => p.id === value);
                 priceFields(

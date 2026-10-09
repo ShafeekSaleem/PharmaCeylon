@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { apiJson } from "@/lib/auth-client";
 import type { SupplierOption } from "../types";
 
@@ -42,10 +42,40 @@ export type ProductOption = {
   packLabel?: string | null;
 };
 
+/**
+ * The products a picker offers. It starts with the first 200 and fetches matches from the
+ * server as someone types (`search`), adding them to what it already holds — so in a range of
+ * thousands every product can be found, and one already chosen never loses its name.
+ */
 export function useProductOptions() {
   const [rows, setRows] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const merge = useCallback((found: ProductOption[]) => {
+    setRows((prev) => {
+      const known = new Set(prev.map((p) => p.id));
+      const fresh = found.filter((p) => p.isActive !== false && !known.has(p.id));
+      return fresh.length ? [...prev, ...fresh] : prev;
+    });
+  }, []);
+
+  const search = useCallback(
+    (query: string) => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+      const q = query.trim();
+      if (q.length < 2) return;
+      searchTimer.current = setTimeout(() => {
+        void apiJson<{ items: ProductOption[] }>(
+          `/products?take=50&status=active&rangeStatus=RANGED&q=${encodeURIComponent(q)}`,
+        )
+          .then((data) => merge(data.items))
+          .catch(() => undefined);
+      }, 250);
+    },
+    [merge],
+  );
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -70,7 +100,7 @@ export function useProductOptions() {
     void reload();
   }, [reload]);
 
-  return { rows, loading, error, reload };
+  return { rows, loading, error, reload, search };
 }
 
 export type SupplierPriceRow = {
