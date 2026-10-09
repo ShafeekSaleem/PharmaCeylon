@@ -19,7 +19,6 @@ import { nextTenantDocumentNumber } from "../common/document-sequence.util";
 import { refreshInvoiceSettlement } from "../purchasing/ledger/supplier-ledger.service";
 import { CreateSupplierDto } from "./dto/create-supplier.dto";
 import { UpdateSupplierDto } from "./dto/update-supplier.dto";
-import { CreateSupplierInvoiceDto } from "./dto/create-supplier-invoice.dto";
 import { RecordSupplierPaymentDto } from "./dto/record-supplier-payment.dto";
 import { UpsertSupplierPriceDto } from "./dto/supplier-product-price.dto";
 import {
@@ -744,66 +743,6 @@ export class SuppliersService {
       payload: { supplierId, productId },
     });
     return this.listPrices(tenantId, supplierId);
-  }
-
-  async createInvoice(
-    tenantId: string,
-    userId: string,
-    supplierId: string,
-    dto: CreateSupplierInvoiceDto,
-  ) {
-    const supplier = await this.prisma.supplier.findFirst({
-      where: { id: supplierId, tenantId },
-    });
-    if (!supplier) throw new NotFoundException("Supplier not found");
-
-    if (dto.branchId) {
-      const branch = await this.prisma.branch.findFirst({
-        where: { id: dto.branchId, tenantId },
-      });
-      if (!branch) throw new BadRequestException("Branch not found");
-    }
-
-    const invoiceDate = new Date(dto.invoiceDate);
-    const dueDate = new Date(dto.dueDate);
-    if (dueDate < invoiceDate) {
-      throw new BadRequestException("Due date cannot be before invoice date");
-    }
-
-    try {
-      const invoice = await this.prisma.supplierInvoice.create({
-        data: {
-          tenantId,
-          supplierId,
-          branchId: dto.branchId ?? null,
-          invoiceNumber: dto.invoiceNumber.trim(),
-          source: SupplierInvoiceSource.supplier,
-          invoiceDate,
-          dueDate,
-          subtotalAmount: decimal(dto.totalAmount),
-          totalAmount: decimal(dto.totalAmount),
-          paidAmount: decimal(0),
-          status: SupplierInvoiceStatus.open,
-          notes: dto.notes?.trim() || null,
-          createdBy: userId,
-        },
-      });
-      await this.audit.log({
-        tenantId,
-        branchId: dto.branchId,
-        actorUserId: userId,
-        eventName: "supplier_invoice.created",
-        entityName: "supplier_invoice",
-        entityId: invoice.id,
-        payload: { invoiceNumber: invoice.invoiceNumber, supplierId },
-      });
-      return this.getById(tenantId, supplierId);
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-        throw new ConflictException("This supplier's invoice number has already been recorded");
-      }
-      throw e;
-    }
   }
 
   /**

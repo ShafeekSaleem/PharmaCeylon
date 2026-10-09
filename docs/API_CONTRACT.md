@@ -129,6 +129,8 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 
 `POST /inventory/customer-returns` and `POST /inventory/supplier-returns` (which answered 410) have been removed, with the `inventory.customer_returns` permission. Customer returns are POS refunds; `POST /returns` is for supplier returns.
 
+**Supplier invoices are recorded only through the ledger** (`POST /purchasing/invoices`, against the deliveries they bill). `POST /suppliers/:id/invoices`, which recorded a bare total with no lines and no delivery, has been removed: it skipped the three-way match and left the delivery's placeholder standing, so the same goods could be owed twice. Invoices it already created have `source: "supplier"` and no `deliveries`, and the web marks them "No delivery linked".
+
 `GET /returns/goods-receipts/:id/returnable` (`returns.create`) lists, per batch on a delivery, what it brought in (`delivered` = paid + free + damaged), `damaged`, `alreadyReturned` (supplier returns against it that aren't cancelled or rejected), `onHand`, and `returnable` = the lesser of what's left and what's on hand; `unitCost` follows `costs.view`. A supplier return with a `goodsReceiptId` is refused (**400**) for a batch that didn't arrive on that delivery, or for more than it brought in less what has already gone back.
 
 **Goods receipt** (`POST /purchasing/purchase-orders/receive`) now refuses a received date in the future and any line whose expiry is on or before the received date. Auto-created supplier invoice numbers include the branch code (`SINV-<BRANCH>-<seq>`) so each branch's first delivery no longer collides.

@@ -1,19 +1,24 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
 import {
-  DatePicker,
   Modal,
   ModalButton,
   ModalFooter,
+  SegmentedTabs,
   StatusBadge,
 } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
-import { useAuth } from "@/lib/use-auth";
 import { usePurchasingAccess } from "../../purchasing/hooks/use-purchasing-access";
 import { SupplierPriceList } from "./supplier-price-list";
+import {
+  SupplierMoneyTab,
+  SupplierOrdersTab,
+  SupplierReturnsTab,
+} from "./supplier-workspace-tabs";
+import { RecordInvoiceModal } from "../../purchasing/components/record-invoice-modal";
+import { RecordPaymentModal } from "../../purchasing/components/record-payment-modal";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
 import {
   PAYMENT_TERMS_OPTIONS,
@@ -22,7 +27,6 @@ import {
 } from "../constants";
 import type {
   SupplierDetail,
-  SupplierInvoice,
   SupplierStatus,
   SupplierType,
 } from "../types";
@@ -32,7 +36,6 @@ import {
   formatDate,
   formatMoney,
   formatTerms,
-  purchasingPoHref,
 } from "../utils";
 import css from "../../purchasing/purchasing.module.css";
 import scss from "../suppliers.module.css";
@@ -47,18 +50,7 @@ type Props = {
   onChanged: () => void;
 };
 
-type InvoiceForm = {
-  invoiceNumber: string;
-  invoiceDate: string;
-  dueDate: string;
-  totalAmount: string;
-  notes: string;
-};
-
-type PaymentForm = {
-  amount: string;
-  notes: string;
-};
+type SupplierTab = "overview" | "orders" | "money" | "prices" | "returns";
 
 type EditForm = {
   name: string;
@@ -94,16 +86,6 @@ const TERMS_OPTIONS = PAYMENT_TERMS_OPTIONS.filter(
   label: o.label,
 }));
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function addDaysIso(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 function toEditForm(detail: SupplierDetail): EditForm {
   return {
     name: detail.name,
@@ -132,7 +114,6 @@ export function SupplierDetailModal({
   onClose,
   onChanged,
 }: Props) {
-  const { branchId } = useAuth();
   // Agreeing prices is its own permission — a stock clerk manages suppliers without setting
   // what the pharmacy has agreed to pay.
   const { canManagePrices, canInvoice, canPay } = usePurchasingAccess();
@@ -144,21 +125,12 @@ export function SupplierDetailModal({
   const [editErrors, setEditErrors] = useState<
     Partial<Record<keyof EditForm, string>>
   >({});
+  const [tab, setTab] = useState<SupplierTab>("overview");
+  // Invoices and payments are typed in the Purchasing ledger forms, preset to this supplier —
+  // the window's own "Add invoice" recorded a bare total that skipped the three-way match.
   const [invoiceOpen, setInvoiceOpen] = useState(false);
-  const [paymentInvoice, setPaymentInvoice] = useState<SupplierInvoice | null>(
-    null,
-  );
-  const [invoiceForm, setInvoiceForm] = useState<InvoiceForm>({
-    invoiceNumber: "",
-    invoiceDate: todayIso(),
-    dueDate: todayIso(),
-    totalAmount: "",
-    notes: "",
-  });
-  const [paymentForm, setPaymentForm] = useState<PaymentForm>({
-    amount: "",
-    notes: "",
-  });
+  const [payment, setPayment] = useState<{ invoiceId?: string } | null>(null);
+  const [moneyRefresh, setMoneyRefresh] = useState(0);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const appliedStartEdit = useRef(false);
@@ -183,7 +155,8 @@ export function SupplierDetailModal({
       setEditing(false);
       setEditForm(null);
       setInvoiceOpen(false);
-      setPaymentInvoice(null);
+      setPayment(null);
+      setTab("overview");
       setActionError(null);
       appliedStartEdit.current = false;
       return;
@@ -203,16 +176,6 @@ export function SupplierDetailModal({
     onStartInEditConsumed?.();
   }, [open, startInEdit, detail, loading, canWrite, onStartInEditConsumed]);
 
-  useEffect(() => {
-    if (!detail || invoiceOpen) return;
-    setInvoiceForm({
-      invoiceNumber: "",
-      invoiceDate: todayIso(),
-      dueDate: addDaysIso(todayIso(), detail.paymentTermsDays),
-      totalAmount: "",
-      notes: "",
-    });
-  }, [detail, invoiceOpen]);
 
   const termsOptions = (() => {
     if (!editForm) return TERMS_OPTIONS;
@@ -289,89 +252,7 @@ export function SupplierDetailModal({
     }
   }
 
-  async function submitInvoice() {
-    if (!detail) return;
-    const total = Number(invoiceForm.totalAmount);
-    if (!invoiceForm.invoiceNumber.trim()) {
-      setActionError("Invoice number is required");
-      return;
-    }
-    if (!Number.isFinite(total) || total <= 0) {
-      setActionError("Enter a valid invoice amount");
-      return;
-    }
-    if (invoiceForm.dueDate < invoiceForm.invoiceDate) {
-      setActionError("Due date cannot be before invoice date");
-      return;
-    }
-    setSaving(true);
-    setActionError(null);
-    try {
-      const updated = await apiJson<SupplierDetail>(
-        `/suppliers/${detail.id}/invoices`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            invoiceNumber: invoiceForm.invoiceNumber.trim(),
-            invoiceDate: invoiceForm.invoiceDate,
-            dueDate: invoiceForm.dueDate,
-            totalAmount: total,
-            notes: invoiceForm.notes.trim() || undefined,
-            ...(branchId ? { branchId } : {}),
-          }),
-        },
-      );
-      setDetail(updated);
-      setInvoiceOpen(false);
-      onChanged();
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Failed to create invoice",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
 
-  async function submitPayment() {
-    if (!paymentInvoice) return;
-    const amount = Number(paymentForm.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setActionError("Enter a valid payment amount");
-      return;
-    }
-    if (amount > paymentInvoice.balance + 0.001) {
-      setActionError(
-        `Payment cannot exceed balance (${formatMoney(paymentInvoice.balance)})`,
-      );
-      return;
-    }
-    setSaving(true);
-    setActionError(null);
-    try {
-      const updated = await apiJson<SupplierDetail>(
-        `/suppliers/invoices/${paymentInvoice.id}/payments`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            amount,
-            notes: paymentForm.notes.trim() || undefined,
-          }),
-        },
-      );
-      setDetail(updated);
-      setPaymentInvoice(null);
-      onChanged();
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Failed to record payment",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
 
   return (
     <>
@@ -386,31 +267,17 @@ export function SupplierDetailModal({
         }
         size="xl"
         canDismiss={!saving}
-        closeOnEsc={!invoiceOpen && !paymentInvoice}
+        closeOnEsc={!invoiceOpen && !payment}
         footer={
           <ModalFooter>
-            {canWrite && detail && !editing ? (
-              <>
-                <ModalButton
-                  variant="secondary"
-                  onClick={startEdit}
-                  disabled={loading || saving}
-                >
-                  Edit supplier
-                </ModalButton>
-                {canInvoice ? (
-                  <ModalButton
-                    variant="secondary"
-                    onClick={() => {
-                      setActionError(null);
-                      setInvoiceOpen(true);
-                    }}
-                    disabled={loading || saving}
-                  >
-                    Add invoice
-                  </ModalButton>
-                ) : null}
-              </>
+            {canWrite && detail && !editing && tab === "overview" ? (
+              <ModalButton
+                variant="secondary"
+                onClick={startEdit}
+                disabled={loading || saving}
+              >
+                Edit supplier
+              </ModalButton>
             ) : null}
             {editing ? (
               <>
@@ -445,7 +312,7 @@ export function SupplierDetailModal({
             {error}
           </Alert>
         ) : null}
-        {actionError && !invoiceOpen && !paymentInvoice ? (
+        {actionError && !invoiceOpen && !payment ? (
           <Alert variant="error" className={scss.modalAlert}>
             {actionError}
           </Alert>
@@ -659,6 +526,47 @@ export function SupplierDetailModal({
 
         {detail && !editing ? (
           <>
+            <SegmentedTabs
+              ariaLabel="Supplier"
+              active={tab}
+              onChange={setTab}
+              items={[
+                { id: "overview", label: "Overview" },
+                { id: "orders", label: "Orders" },
+                ...(canInvoice || canPay
+                  ? [{ id: "money" as const, label: "Invoices & payments" }]
+                  : []),
+                ...(canManagePrices ? [{ id: "prices" as const, label: "Price list" }] : []),
+                { id: "returns", label: "Returns" },
+              ]}
+            />
+
+            {tab === "overview" ? (
+              <>
+                <div className={scss.overviewTiles}>
+                  <div className={scss.overviewTile}>
+                    <span className={scss.profileLabel}>Owed · all branches</span>
+                    <strong>{formatMoney(detail.outstanding)}</strong>
+                  </div>
+                  <div className={scss.overviewTile}>
+                    <span className={scss.profileLabel}>Overdue · all branches</span>
+                    <strong className={detail.overdueAmount > 0 ? scss.dueOverdue : undefined}>
+                      {formatMoney(detail.overdueAmount)}
+                    </strong>
+                  </div>
+                  <div className={scss.overviewTile}>
+                    <span className={scss.profileLabel}>Last order</span>
+                    <strong>
+                      {detail.recentOrders[0] ? formatDate(detail.recentOrders[0].createdAt) : "—"}
+                    </strong>
+                  </div>
+                  <div className={scss.overviewTile}>
+                    <span className={scss.profileLabel}>Terms</span>
+                    <strong>
+                      {formatTerms(detail.paymentTermsDays)} · {detail.leadTimeDays}d lead
+                    </strong>
+                  </div>
+                </div>
             <div className={scss.profileGrid}>
               <div className={scss.profileField}>
                 <span className={scss.profileLabel}>Status</span>
@@ -730,307 +638,52 @@ export function SupplierDetailModal({
                   {detail.leadTimeDays}d
                 </span>
               </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Outstanding</span>
-                <span className={scss.profileValue}>
-                  {formatMoney(detail.outstanding)}
-                </span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Overdue</span>
-                <span className={scss.profileValue}>
-                  {formatMoney(detail.overdueAmount)}
-                </span>
-              </div>
             </div>
 
-            <section className={scss.detailSection}>
-              <div className={scss.detailSectionHeader}>
-                <h3 className={scss.detailSectionTitle}>Invoices</h3>
-              </div>
-              {detail.invoices.length === 0 ? (
-                <p className={css.fieldHint}>No supplier invoices yet.</p>
-              ) : (
-                <div className={scss.invoiceTableWrap}>
-                  <table className={scss.invoiceTable}>
-                    <thead>
-                      <tr>
-                        <th>Invoice</th>
-                        <th>Dates</th>
-                        <th>Status</th>
-                        <th>Balance</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.invoices.map((inv) => (
-                        <tr key={inv.id}>
-                          <td>
-                            <div>{inv.invoiceNumber}</div>
-                            <div className={scss.supplierMeta}>
-                              {formatMoney(inv.totalAmount)}
-                              {inv.goodsReceipt
-                                ? ` · ${inv.goodsReceipt.grnNumber}`
-                                : ""}
-                            </div>
-                          </td>
-                          <td>
-                            <div>{formatDate(inv.invoiceDate)}</div>
-                            <div
-                              className={`${scss.dueLabel} ${
-                                inv.dueLabel?.startsWith("Overdue")
-                                  ? scss.dueOverdue
-                                  : ""
-                              }`}
-                            >
-                              Due {formatDate(inv.dueDate)}
-                              {inv.dueLabel ? ` · ${inv.dueLabel}` : ""}
-                            </div>
-                          </td>
-                          <td>
-                            <StatusBadge status={inv.status} />
-                          </td>
-                          <td>
-                            <div>{formatMoney(inv.balance)}</div>
-                            <div className={scss.supplierMeta}>
-                              Paid {formatMoney(inv.paidAmount)}
-                            </div>
-                          </td>
-                          <td>
-                            {canPay &&
-                            (inv.status === "open" ||
-                              inv.status === "partial") &&
-                            inv.balance > 0 ? (
-                              <div className={scss.invoiceActions}>
-                                <button
-                                  type="button"
-                                  className={scss.payBtn}
-                                  onClick={() => {
-                                    setActionError(null);
-                                    setPaymentForm({
-                                      amount: String(inv.balance),
-                                      notes: "",
-                                    });
-                                    setPaymentInvoice(inv);
-                                  }}
-                                >
-                                  Record payment
-                                </button>
-                              </div>
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
+              </>
+            ) : null}
 
-            {canManagePrices ? (
-              <SupplierPriceList
+            {tab === "orders" ? <SupplierOrdersTab supplierId={detail.id} /> : null}
+            {tab === "money" ? (
+              <SupplierMoneyTab
                 supplierId={detail.id}
-                supplierName={detail.name}
+                canInvoice={canInvoice}
+                canPay={canPay}
+                refreshKey={moneyRefresh}
+                onRecordInvoice={() => setInvoiceOpen(true)}
+                onPay={(invoiceId) => setPayment({ invoiceId })}
               />
             ) : null}
-
-            {detail.recentOrders.length > 0 ? (
-              <section className={scss.detailSection}>
-                <h3 className={scss.detailSectionTitle}>
-                  Recent purchase orders
-                </h3>
-                <ul className={scss.activityList}>
-                  {detail.recentOrders.map((po) => (
-                    <li key={po.id} className={scss.activityItem}>
-                      <div className={scss.activityTop}>
-                        <Link
-                          href={purchasingPoHref(po.id)}
-                          className={scss.poLink}
-                        >
-                          {po.poNumber}
-                        </Link>
-                        <StatusBadge status={po.status} />
-                      </div>
-                      <span className={scss.activityMeta}>
-                        {formatDate(po.createdAt)}
-                        {po.expectedOn
-                          ? ` · expected ${formatDate(po.expectedOn)}`
-                          : ""}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+            {tab === "prices" && canManagePrices ? (
+              <SupplierPriceList supplierId={detail.id} supplierName={detail.name} />
             ) : null}
+            {tab === "returns" ? <SupplierReturnsTab supplierId={detail.id} /> : null}
           </>
         ) : null}
       </Modal>
 
-      <Modal
+      <RecordInvoiceModal
         open={invoiceOpen}
-        onClose={() => !saving && setInvoiceOpen(false)}
-        title="Add supplier invoice"
-        description="Record an AP invoice against this supplier."
-        size="md"
-        canDismiss={!saving}
-        elevated
-        footer={
-          <ModalFooter>
-            <ModalButton
-              variant="secondary"
-              onClick={() => setInvoiceOpen(false)}
-              disabled={saving}
-            >
-              Cancel
-            </ModalButton>
-            <ModalButton
-              variant="primary"
-              onClick={() => void submitInvoice()}
-              loading={saving}
-            >
-              Create invoice
-            </ModalButton>
-          </ModalFooter>
-        }
-      >
-        {actionError ? (
-          <Alert variant="error" className={scss.modalAlert}>
-            {actionError}
-          </Alert>
-        ) : null}
-        <div className={css.formGrid}>
-          <div className={`${css.field} ${css.fullWidth}`}>
-            <label className={css.fieldLabel}>Invoice number</label>
-            <input
-              className={css.input}
-              value={invoiceForm.invoiceNumber}
-              onChange={(e) =>
-                setInvoiceForm((f) => ({ ...f, invoiceNumber: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </div>
-          <div className={css.field}>
-            <label className={css.fieldLabel}>Invoice date</label>
-            <DatePicker
-              variant="field"
-              label="Invoice date"
-              value={invoiceForm.invoiceDate}
-              onChange={(value) =>
-                setInvoiceForm((f) => ({ ...f, invoiceDate: value }))
-              }
-              disabled={saving}
-              clearable={false}
-              placeholder="Select a date"
-            />
-          </div>
-          <div className={css.field}>
-            <label className={css.fieldLabel}>Due date</label>
-            <DatePicker
-              variant="field"
-              label="Due date"
-              value={invoiceForm.dueDate}
-              onChange={(value) =>
-                setInvoiceForm((f) => ({ ...f, dueDate: value }))
-              }
-              disabled={saving}
-              placeholder="Select a date"
-            />
-          </div>
-          <div className={`${css.field} ${css.fullWidth}`}>
-            <label className={css.fieldLabel}>Total amount (LKR)</label>
-            <input
-              className={css.input}
-              inputMode="decimal"
-              value={invoiceForm.totalAmount}
-              onChange={(e) =>
-                setInvoiceForm((f) => ({ ...f, totalAmount: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </div>
-          <div className={`${css.field} ${css.fullWidth}`}>
-            <label className={css.fieldLabel}>Notes</label>
-            <input
-              className={css.input}
-              value={invoiceForm.notes}
-              onChange={(e) =>
-                setInvoiceForm((f) => ({ ...f, notes: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </div>
-        </div>
-      </Modal>
-
-      <Modal
-        open={!!paymentInvoice}
-        onClose={() => !saving && setPaymentInvoice(null)}
-        title="Record payment"
-        description={
-          paymentInvoice
-            ? `${paymentInvoice.invoiceNumber} · balance ${formatMoney(paymentInvoice.balance)}`
-            : undefined
-        }
-        size="md"
-        canDismiss={!saving}
-        elevated
-        footer={
-          <ModalFooter>
-            <ModalButton
-              variant="secondary"
-              onClick={() => setPaymentInvoice(null)}
-              disabled={saving}
-            >
-              Cancel
-            </ModalButton>
-            <ModalButton
-              variant="primary"
-              onClick={() => void submitPayment()}
-              loading={saving}
-            >
-              Apply payment
-            </ModalButton>
-          </ModalFooter>
-        }
-      >
-        {actionError ? (
-          <Alert variant="error" className={scss.modalAlert}>
-            {actionError}
-          </Alert>
-        ) : null}
-        <div className={css.formGrid}>
-          <div className={`${css.field} ${css.fullWidth}`}>
-            <label className={css.fieldLabel}>Amount (LKR)</label>
-            <input
-              className={css.input}
-              inputMode="decimal"
-              value={paymentForm.amount}
-              onChange={(e) =>
-                setPaymentForm((f) => ({ ...f, amount: e.target.value }))
-              }
-              disabled={saving}
-            />
-            {paymentInvoice ? (
-              <span className={css.fieldHint}>
-                Outstanding balance {formatMoney(paymentInvoice.balance)}.
-                Partial payments mark the invoice as partial until fully paid.
-              </span>
-            ) : null}
-          </div>
-          <div className={`${css.field} ${css.fullWidth}`}>
-            <label className={css.fieldLabel}>Notes</label>
-            <input
-              className={css.input}
-              value={paymentForm.notes}
-              onChange={(e) =>
-                setPaymentForm((f) => ({ ...f, notes: e.target.value }))
-              }
-              disabled={saving}
-            />
-          </div>
-        </div>
-      </Modal>
+        preset={detail ? { supplierId: detail.id } : null}
+        onClose={() => setInvoiceOpen(false)}
+        onRecorded={() => {
+          setInvoiceOpen(false);
+          setMoneyRefresh((n) => n + 1);
+          void load();
+          onChanged();
+        }}
+      />
+      <RecordPaymentModal
+        open={payment !== null}
+        preset={detail ? { supplierId: detail.id, invoiceId: payment?.invoiceId } : null}
+        onClose={() => setPayment(null)}
+        onRecorded={() => {
+          setPayment(null);
+          setMoneyRefresh((n) => n + 1);
+          void load();
+          onChanged();
+        }}
+      />
     </>
   );
 }

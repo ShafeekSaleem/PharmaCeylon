@@ -526,7 +526,7 @@ export function PosReturnsPanel({
                   refund it.
                 </p>
               ) : !canRefund ? (
-                <p className={css.rfNotice}>Your role can't give refunds.</p>
+                <p className={css.rfNotice}>Your role can&apos;t give refunds.</p>
               ) : null}
 
               <div className={css.rfItems}>

@@ -16,7 +16,7 @@ import { InventoryFilterSelect } from "../../inventory/components/inventory-filt
 import type { StocktakeListItem } from "../types";
 import { PAGE_SIZE } from "../types";
 import { formatDateTime } from "../utils";
-import { StocktakeTablePager } from "./stocktake-table-pager";
+import { TablePager as StocktakeTablePager } from "@/components/ui";
 import scss from "../stocktakes.module.css";
 
 type Props = {

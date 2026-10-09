@@ -16,7 +16,7 @@ import {
   statusLabel,
   stocktakeHref,
 } from "../utils";
-import { StocktakeTablePager } from "./stocktake-table-pager";
+import { TablePager as StocktakeTablePager } from "@/components/ui";
 import scss from "../stocktakes.module.css";
 
 const PREVIEW_PAGE_SIZE = 5;

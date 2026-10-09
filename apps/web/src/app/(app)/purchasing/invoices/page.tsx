@@ -184,6 +184,11 @@ function InvoicesContent() {
             {row.invoiceNumber}
           </button>
           {row.source === "system" ? <div className={css.muted}>Delivery awaiting invoice</div> : null}
+          {/* Typed in with no delivery behind it (the supplier window's old "Add invoice"), so
+              it never went through the three-way match — worth a look before paying. */}
+          {row.source === "supplier" && row.deliveries.length === 0 ? (
+            <div className={css.noDeliveryNote}>No delivery linked</div>
+          ) : null}
         </>
       ),
     },

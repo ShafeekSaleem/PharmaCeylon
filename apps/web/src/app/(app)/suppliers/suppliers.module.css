@@ -354,3 +354,48 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Supplier workspace ── */
+.overviewTiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.6rem;
+  margin: 0.9rem 0;
+}
+
+.overviewTile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-muted-fg) 4%, var(--pc-card-bg));
+}
+
+.overviewTile strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+}
+
+.sectionActions {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+a.payBtn {
+  text-decoration: none;
+}
+
+/* An invoice typed in with no delivery behind it skipped the three-way match. */
+.noDeliveryChip {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--pc-alert-warning-border);
+  border-radius: 999px;
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+  font-size: 0.7rem;
+  font-weight: 600;
+}

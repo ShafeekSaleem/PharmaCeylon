@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { TablePager } from "@/components/ui";
 import { Alert } from "@/components/alert";
 import { IconPlus, IconSearch, IconTrash } from "@/components/icons";
 import { apiJson } from "@/lib/auth-client";
@@ -31,6 +32,7 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [adding, setAdding] = useState(false);
   const lastCostEdit = useRef<"pack" | "unit">("pack");
   const [saving, setSaving] = useState(false);
@@ -98,6 +100,10 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
         (row.supplierSku ?? "").toLowerCase().includes(q),
     );
   }, [rows, search]);
+  // Long price lists page rather than stretching the supplier window.
+  const PAGE = 15;
+  useEffect(() => setPage(1), [search]);
+  const shown = filtered.slice((page - 1) * PAGE, page * PAGE);
 
   const takenProductIds = useMemo(() => new Set(rows.map((r) => r.product.id)), [rows]);
   const productOptions = useMemo(
@@ -300,7 +306,7 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((row) => (
+              {shown.map((row) => (
                 <tr key={row.id}>
                   <td>
                     <div className={pcss.cellStrong}>{row.product.name}</div>
@@ -342,6 +348,7 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
               ))}
             </tbody>
           </table>
+          <TablePager page={page} pageSize={PAGE} total={filtered.length} onPageChange={setPage} />
         </div>
       )}
     </section>

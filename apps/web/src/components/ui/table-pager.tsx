@@ -53,7 +53,7 @@ function renderPageNumbers(
   return pages;
 }
 
-export function StocktakeTablePager({ page, pageSize, total, onPageChange }: Props) {
+export function TablePager({ page, pageSize, total, onPageChange }: Props) {
   const totalPages = Math.max(1, Math.ceil(Math.max(0, total) / pageSize));
 
   // Keep controlled page in range when filters shrink the result set.
