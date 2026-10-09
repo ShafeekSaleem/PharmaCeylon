@@ -1,6 +1,6 @@
 import type { AuthUser } from "@/lib/auth-types";
 import { formatDate, formatDateTime, formatMoney } from "../purchasing/utils";
-import { SCOPE_LABELS } from "./constants";
+import { SCOPE_LABELS, VARIANCE_REASON_OPTIONS } from "./constants";
 import {
   REVIEW_ROLES,
   WRITE_ROLES,
@@ -413,7 +413,10 @@ export function displayCondition(condition: StocktakeLine["condition"]): string 
 
 export function displayVarianceReason(reason: string | null | undefined): string {
   if (!reason) return "—";
-  return reason.replace(/_/g, " ");
+  return (
+    VARIANCE_REASON_OPTIONS.find((option) => option.value === reason)?.label ??
+    reason.replace(/_/g, " ")
+  );
 }
 
 export function formatSigned(n: number): string {
