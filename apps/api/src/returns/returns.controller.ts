@@ -30,6 +30,19 @@ export class ReturnsController {
     return this.returns.list(user.tenantId, branchId);
   }
 
+  @RequirePermission("returns.create")
+  @Get("goods-receipts/:id/returnable")
+  async goodsReceiptReturnable(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    const access = await this.access.resolve(user, branchId);
+    return this.returns.goodsReceiptReturnable(user.tenantId, branchId, id, {
+      canViewCost: access.has("costs.view"),
+    });
+  }
+
   @RequirePermission("returns.view")
   @Get(":id")
   getOne(

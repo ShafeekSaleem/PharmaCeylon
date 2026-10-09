@@ -296,7 +296,8 @@
   }
 }
 
-@media (max-width: 640px) {
+/* Two per row on a phone too — see the Operations pages. */
+@media (max-width: 380px) {
   .grid {
     grid-template-columns: 1fr;
   }

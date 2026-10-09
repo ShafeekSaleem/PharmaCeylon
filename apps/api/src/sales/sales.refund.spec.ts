@@ -3,7 +3,6 @@ import {
   GoodsReturnStatus,
   PaymentMethod,
   Prisma,
-  RoleName,
   SaleStatus,
   StockMovementType,
 } from "@prisma/client";
@@ -23,17 +22,19 @@ describe("SalesService.refundSale", () => {
   let audit: AuditService;
   let tax: TaxService;
   let service: SalesService;
-  let stock: { receive: jest.Mock; issue: jest.Mock };
+  let stock: { receive: jest.Mock; issue: jest.Mock; quarantine: jest.Mock };
+  let pharmacistApproval: { verifyApproverPin: jest.Mock; hasApproverRole: jest.Mock };
   let txState: {
     goodsReturnCreate: jest.Mock;
     stockLedgerCreate: jest.Mock;
     salePaymentCreate: jest.Mock;
     saleUpdate: jest.Mock;
     completedReturns: { items: { productId: string; batchId: string; qty: number }[] }[];
+    threshold: string | null;
   };
 
   beforeEach(() => {
-    stock = { receive: jest.fn(), issue: jest.fn() };
+    stock = { receive: jest.fn(), issue: jest.fn(), quarantine: jest.fn() };
     txState = {
       goodsReturnCreate: jest.fn().mockResolvedValue({
         id: "gr-1",
@@ -43,6 +44,7 @@ describe("SalesService.refundSale", () => {
       salePaymentCreate: jest.fn(),
       saleUpdate: jest.fn(),
       completedReturns: [],
+      threshold: null,
     };
 
     const saleRow = {
@@ -99,6 +101,15 @@ describe("SalesService.refundSale", () => {
           salePayment: {
             create: txState.salePaymentCreate,
           },
+          tenantSettings: {
+            findUnique: jest.fn().mockImplementation(() =>
+              Promise.resolve(
+                txState.threshold
+                  ? { approvalRequiredReturnThreshold: new Prisma.Decimal(txState.threshold) }
+                  : null,
+              ),
+            ),
+          },
         };
         return fn(tx);
       }),
@@ -106,7 +117,7 @@ describe("SalesService.refundSale", () => {
 
     audit = { log: jest.fn() } as unknown as AuditService;
     tax = { getVatRatePercent: () => 0 } as unknown as TaxService;
-    const pharmacistApproval = {
+    pharmacistApproval = {
       verifyApproverPin: jest.fn(),
       hasApproverRole: jest.fn().mockReturnValue(false),
     };
@@ -120,8 +131,15 @@ describe("SalesService.refundSale", () => {
     );
   });
 
-  const cashierRoles = [{ branchId, role: RoleName.cashier }];
-  const pharmacistRoles = [{ branchId, role: RoleName.pharmacist }];
+  const access = (permissions: string[], canSelfApprove = false) => ({
+    userId,
+    permissions: new Set(permissions),
+    roleKeys: [],
+    canSelfApprove,
+    has: (key: string) => permissions.includes(key),
+  });
+  const cashierRoles = access(["sales.pos_use", "sales.refund"]);
+  const pharmacistRoles = access(["sales.pos_use", "sales.refund", "sales.approve_controlled"]);
 
   it("creates completed GoodsReturn, customer_return_in, and negative payment", async () => {
     await service.refundSale(tenantId, branchId, userId, cashierRoles, saleId, {
@@ -211,6 +229,7 @@ describe("SalesService.refundSale", () => {
             groupBy: jest.fn().mockResolvedValue([]),
           },
           salePayment: { create: txState.salePaymentCreate },
+          tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
         };
         return fn(tx);
       },
@@ -263,6 +282,7 @@ describe("SalesService.refundSale", () => {
             groupBy: jest.fn().mockResolvedValue([]),
           },
           salePayment: { create: txState.salePaymentCreate },
+          tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
         };
         return fn(tx);
       },
@@ -309,6 +329,7 @@ describe("SalesService.refundSale", () => {
             groupBy: jest.fn().mockResolvedValue([]),
           },
           salePayment: { create: txState.salePaymentCreate },
+          tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
         };
         return fn(tx);
       },
@@ -318,6 +339,79 @@ describe("SalesService.refundSale", () => {
       reason: "Pharmacist approved",
     });
     expect(txState.goodsReturnCreate).toHaveBeenCalled();
+  });
+
+  it("refuses someone without the refund permission", async () => {
+    await expect(
+      service.refundSale(tenantId, branchId, userId, access(["sales.pos_use"]), saleId, {
+        reason: "x",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("holds a returned item for inspection when asked, after booking it back in", async () => {
+    await service.refundSale(tenantId, branchId, userId, cashierRoles, saleId, {
+      reason: "Opened box",
+      items: [{ productId, batchId, qty: 2, disposition: "quarantine" }],
+    });
+    const item = txState.goodsReturnCreate.mock.calls[0][0].data.items.create[0];
+    expect(item.disposition).toBe("quarantine");
+    expect(stock.receive).toHaveBeenCalled();
+    expect(stock.quarantine).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ referenceType: "goods_return", referenceId: "gr-1" }),
+      [expect.objectContaining({ batchId, qty: 2, reasonCode: "inspection" })],
+    );
+  });
+
+  it("puts an ordinary item back on the shelf by default", async () => {
+    await service.refundSale(tenantId, branchId, userId, cashierRoles, saleId, { reason: "x" });
+    const item = txState.goodsReturnCreate.mock.calls[0][0].data.items.create[0];
+    expect(item.disposition).toBe("restock");
+    expect(stock.quarantine).not.toHaveBeenCalled();
+  });
+
+  it("asks for an approver when the refund is over the tenant's threshold", async () => {
+    txState.threshold = "20.00";
+    await expect(
+      service.refundSale(tenantId, branchId, userId, cashierRoles, saleId, { reason: "x" }),
+    ).rejects.toMatchObject({ response: { code: "REFUND_APPROVAL_REQUIRED" } });
+    expect(txState.goodsReturnCreate).not.toHaveBeenCalled();
+  });
+
+  it("takes an approver's PIN for a refund over the threshold, and records who approved", async () => {
+    txState.threshold = "20.00";
+    pharmacistApproval.verifyApproverPin.mockResolvedValue({
+      approverUserId: "u-manager",
+      approverName: "Manager",
+    });
+    await service.refundSale(tenantId, branchId, userId, cashierRoles, saleId, {
+      reason: "x",
+      approval: { approverUserId: "u-manager", pin: "1234" },
+    });
+    expect(pharmacistApproval.verifyApproverPin).toHaveBeenCalledWith(
+      tenantId,
+      branchId,
+      "u-manager",
+      "1234",
+      userId,
+      "returns.approve",
+    );
+    expect(txState.goodsReturnCreate.mock.calls[0][0].data.approvedBy).toBe("u-manager");
+  });
+
+  it("lets someone who may approve their own requests refund over the threshold alone", async () => {
+    txState.threshold = "20.00";
+    await service.refundSale(
+      tenantId,
+      branchId,
+      userId,
+      access(["sales.pos_use", "sales.refund", "returns.approve"], true),
+      saleId,
+      { reason: "x" },
+    );
+    expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
+    expect(txState.goodsReturnCreate.mock.calls[0][0].data.approvedBy).toBe(userId);
   });
 
   it("rejects refund when prior GoodsReturn already consumed qty", async () => {
@@ -361,6 +455,7 @@ describe("SalesService.refundSale", () => {
             groupBy: jest.fn().mockResolvedValue([]),
           },
           salePayment: { create: txState.salePaymentCreate },
+          tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
         };
         return fn(tx);
       },

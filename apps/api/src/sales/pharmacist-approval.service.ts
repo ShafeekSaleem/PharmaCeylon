@@ -7,6 +7,7 @@ import { RoleName } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { PERMISSION_CATALOG } from "../security/permission-catalog";
 import { PermissionsService } from "../security/permissions.service";
 
 /** Static fallback — mirrors `sales.approve_controlled`'s default grant in permission-catalog.ts. */
@@ -39,17 +40,31 @@ export class PharmacistApprovalService {
    * `@RequirePermission` guard, so a tenant that re-grants this permission
    * to another role sees it take effect here too.
    */
-  async hasApproverRole(branchRoles: BranchRoleEntry[], branchId: string): Promise<boolean> {
+  async hasApproverRole(
+    branchRoles: BranchRoleEntry[],
+    branchId: string,
+    permission: string = APPROVE_CONTROLLED_PERMISSION,
+  ): Promise<boolean> {
     const ownerAnywhere = branchRoles.some((b) => b.role === RoleName.owner);
     if (ownerAnywhere) return true;
     const atBranch = branchRoles.filter((b) => b.branchId === branchId);
-    return this.permissions.hasAnyPermission(atBranch, [APPROVE_CONTROLLED_PERMISSION]);
+    return this.permissions.hasAnyPermission(atBranch, [permission]);
   }
 
   /** Pharmacists / managers / owners active at this branch (for PIN picker), plus any custom role granted approval. */
-  async listApprovers(tenantId: string, branchId: string) {
+  async listApprovers(
+    tenantId: string,
+    branchId: string,
+    permission: string = APPROVE_CONTROLLED_PERMISSION,
+  ) {
+    const fallbackRoles =
+      permission === APPROVE_CONTROLLED_PERMISSION
+        ? APPROVER_ROLES
+        : (PERMISSION_CATALOG.find((entry) => entry.key === permission)?.defaultRoles ?? [
+            RoleName.owner,
+          ]);
     const grantedRoles = await this.prisma.role.findMany({
-      where: { tenantId, permissions: { some: { permissionKey: APPROVE_CONTROLLED_PERMISSION } } },
+      where: { tenantId, permissions: { some: { permissionKey: permission } } },
       select: { id: true },
     });
     const grantedRoleIds = grantedRoles.map((r) => r.id);
@@ -58,7 +73,7 @@ export class PharmacistApprovalService {
       where: {
         tenantId,
         OR: [
-          { branchId, role: { in: APPROVER_ROLES } },
+          { branchId, role: { in: fallbackRoles } },
           ...(grantedRoleIds.length ? [{ branchId, roleId: { in: grantedRoleIds } }] : []),
           { role: RoleName.owner },
         ],
@@ -198,6 +213,9 @@ export class PharmacistApprovalService {
     approverUserId: string,
     pin: string,
     actorUserId: string,
+    /** What the approver is signing for. Controlled dispense by default; a refund over the
+     *  threshold passes `returns.approve`. */
+    permission: string = APPROVE_CONTROLLED_PERMISSION,
   ): Promise<{ approverUserId: string; approverName: string }> {
     const user = await this.prisma.appUser.findFirst({
       where: {
@@ -225,10 +243,12 @@ export class PharmacistApprovalService {
       throw new UnauthorizedException("Approver not found");
     }
 
-    const allowed = await this.hasApproverRole(user.userBranchRoles, branchId);
+    const allowed = await this.hasApproverRole(user.userBranchRoles, branchId, permission);
     if (!allowed) {
       throw new ForbiddenException(
-        "Selected user is not authorised to approve controlled dispense at this branch",
+        permission === APPROVE_CONTROLLED_PERMISSION
+          ? "Selected user is not authorised to approve controlled dispense at this branch"
+          : "Selected user can't approve this at this branch",
       );
     }
 

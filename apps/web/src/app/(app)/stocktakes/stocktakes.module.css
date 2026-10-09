@@ -1103,9 +1103,6 @@
 }
 
 @media (max-width: 560px) {
-  .summaryCardsGrid {
-    grid-template-columns: 1fr;
-  }
 
   .headerMetaBlock {
     align-items: flex-start;
@@ -2164,4 +2161,122 @@
   .metricTiles {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── What changed (an approved stocktake) ── */
+.changesPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.changesHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.changesTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.changesWhen,
+.changesMeta {
+  font-size: 0.78rem;
+  color: var(--pc-muted-fg);
+}
+
+.changesSummary {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--pc-foreground);
+}
+
+.approvePreview {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.88rem;
+}
+
+/* On a phone each change is a small card, like every other table in the app. */
+@media (max-width: 640px) {
+  .changesTable thead {
+    display: none;
+  }
+
+  .changesTable tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35rem 0.75rem;
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid var(--pc-border);
+  }
+
+  .changesTable td {
+    padding: 0;
+    border: none;
+    text-align: left !important;
+  }
+
+  .changesTable td:first-child,
+  .changesTable td:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .changesTable td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--pc-muted-fg);
+  }
+}
+
+/* ── Approve: what will change ── */
+.approveSummary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.approveSummary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-muted-fg) 4%, var(--pc-card-bg));
+}
+
+.approveFigure {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-foreground);
+}
+
+.approveLabel {
+  font-size: 0.72rem;
+  color: var(--pc-muted-fg);
+}
+
+/* Long counts scroll inside the window; the totals and the buttons stay put. */
+.approveList {
+  max-height: min(50vh, 26rem);
+  overflow: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
 }

@@ -530,6 +530,8 @@ export class PurchasingService {
     access: ActorAccess,
     dto: ReceiveGoodsDto,
     idempotencyKeyRaw?: string,
+    /** Set when an approver is accepting a held delivery, which is then not "another" delivery. */
+    opts: { heldDeliveryId?: string } = {},
   ) {
     assertNoDuplicateProductIds(
       dto.lines.map((l) => l.productId),
@@ -584,6 +586,27 @@ export class PurchasingService {
     }
     if (po.status !== PoStatus.issued && po.status !== PoStatus.partially_received) {
       throw poNotOpen(po.status);
+    }
+
+    // One delivery at a time. While a receiver's delivery waits for an approver, booking another
+    // against the same order lands beside it — and accepting the held one afterwards counts the
+    // same goods twice, or finds the order already closed.
+    const waiting = await this.prisma.heldDelivery.findFirst({
+      where: {
+        tenantId,
+        branchId,
+        purchaseOrderId: po.id,
+        status: "awaiting_approval",
+        ...(opts.heldDeliveryId ? { id: { not: opts.heldDeliveryId } } : {}),
+      },
+      select: { id: true, requester: { select: { fullName: true } } },
+    });
+    if (waiting) {
+      throw new BadRequestException({
+        code: "DELIVERY_AWAITING_APPROVAL",
+        heldDeliveryId: waiting.id,
+        message: `A delivery on this order from ${waiting.requester.fullName || "a colleague"} is waiting for approval. It has to be accepted or rejected before anything else is booked in.`,
+      });
     }
 
     const poItemsByProduct = new Map(po.items.map((i) => [i.productId, i]));

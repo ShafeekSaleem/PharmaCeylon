@@ -41,7 +41,11 @@ describe("Operations workflows against PostgreSQL", () => {
     const reviewer = () => actor(fx.managerId, "all", { canSelfApprove: true });
     const counter = () => actor(fx.clerkId, ["stocktakes.use"]);
 
-    async function countedStocktake(batchId: string, countedQty: number) {
+    async function countedStocktake(
+      batchId: string,
+      countedQty: number,
+      condition?: "saleable" | "damaged" | "expired",
+    ) {
       const service = stocktakes();
       const created = await service.create(
         fx.tenantId,
@@ -56,7 +60,7 @@ describe("Operations workflows against PostgreSQL", () => {
         fx.mainBranchId,
         fx.clerkId,
         created.id,
-        { lines: [{ batchId, countedQty }] },
+        { lines: [{ batchId, countedQty, ...(condition ? { condition } : {}) }] },
         counter(),
       );
       await service.submit(fx.tenantId, fx.mainBranchId, fx.clerkId, created.id, counter());
@@ -86,13 +90,12 @@ describe("Operations workflows against PostgreSQL", () => {
       expect(detail.lines[0]!.adjustedVariance).toBe(0);
 
       await stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer());
-      await stocktakes().post(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer());
       expect(await batchTotals(prisma, batchId)).toEqual(
         expect.objectContaining({ onHand: 30, reserved: 10, available: 20 }),
       );
     });
 
-    it("posts a stocktake's variance exactly once when Post is sent twice at the same time", async () => {
+    it("adjusts stock exactly once when Approve is sent twice at the same time", async () => {
       const batchId = await createStockedBatch(prisma, stock, fx, { qty: 50 });
       const id = await countedStocktake(batchId, 47);
       const counted = await stocktakes().getOne(fx.tenantId, fx.mainBranchId, id, reviewer());
@@ -101,22 +104,13 @@ describe("Operations workflows against PostgreSQL", () => {
         fx.mainBranchId,
         fx.managerId,
         id,
-        {
-          lines: [
-            {
-              lineId: counted.lines[0]!.id,
-              reviewReason: "counting_error",
-              reviewResolution: "Accept the physical count",
-            },
-          ],
-        },
+        { lines: [{ lineId: counted.lines[0]!.id, reviewReason: "counting_error" }] },
         reviewer(),
       );
-      await stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer());
 
       const results = await Promise.allSettled([
-        stocktakes().post(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer()),
-        stocktakes().post(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer()),
+        stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer()),
+        stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer()),
       ]);
       expect(results.some((r) => r.status === "fulfilled")).toBe(true);
 
@@ -127,16 +121,52 @@ describe("Operations workflows against PostgreSQL", () => {
       expect(await batchTotals(prisma, batchId)).toEqual(
         expect.objectContaining({ onHand: 47, ledgerOnHand: 47 }),
       );
+      const done = await stocktakes().getOne(fx.tenantId, fx.mainBranchId, id, reviewer());
+      expect(done.status).toBe("completed");
     });
 
-    it("stops a counter approving their own count when their role can't self-approve", async () => {
+    it("refuses to approve a variance with no reason", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 20 });
+      const id = await countedStocktake(batchId, 18);
+      await expect(
+        stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer()),
+      ).rejects.toThrow(/Give a reason/);
+    });
+
+    it("quarantines units counted as damaged when the count is approved", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 12 });
+      const id = await countedStocktake(batchId, 12, "damaged");
+      await stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer());
+      expect(await batchTotals(prisma, batchId)).toEqual(
+        expect.objectContaining({ onHand: 12, quarantined: 12, available: 0 }),
+      );
+    });
+
+    it("stops a counter reviewing their own count when their role can't self-approve", async () => {
       const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
-      const id = await countedStocktake(batchId, 5);
+      const service = stocktakes();
+      const created = await service.create(
+        fx.tenantId,
+        fx.mainBranchId,
+        fx.clerkId,
+        { scope: "custom", batchIds: [batchId], counterIds: [fx.clerkId] },
+        counter(),
+      );
+      await service.start(fx.tenantId, fx.mainBranchId, fx.clerkId, created.id, counter());
+      await service.upsertLines(
+        fx.tenantId,
+        fx.mainBranchId,
+        fx.clerkId,
+        created.id,
+        { lines: [{ batchId, countedQty: 5 }] },
+        counter(),
+      );
+      await service.submit(fx.tenantId, fx.mainBranchId, fx.clerkId, created.id, counter());
       const clerkReviewer = actor(fx.clerkId, ["stocktakes.use", "stocktakes.review"], {
         canSelfApprove: false,
       });
       await expect(
-        stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.clerkId, id, clerkReviewer),
+        service.startReview(fx.tenantId, fx.mainBranchId, fx.clerkId, created.id, clerkReviewer),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });

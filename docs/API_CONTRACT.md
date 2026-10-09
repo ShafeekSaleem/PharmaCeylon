@@ -61,7 +61,10 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 
 - **Checkout**: `POST /api/v1/sales/checkout` — optional `Idempotency-Key`. Line **tax**: send `taxAmount` per line, or omit to apply **VAT** from server config (see below).
 - **Void** (posted → voided, stock restored; elevated roles): `POST /api/v1/sales/:id/void`
-- **Refund** (posted → refunded, stock restored): `POST /api/v1/sales/:id/refund`
+- **Refund** (posted → refunded / partially_refunded): `POST /api/v1/sales/:id/refund` — needs `sales.refund`, plus `sales.approve_controlled` when the sale has controlled or prescription items. This is the only way to raise a customer return: `POST /returns` refuses `type: "customer"`, and completing a customer return left open on the old Returns page is refused too (cancel it and refund the sale instead).
+  - Each line may carry `disposition: "restock" | "quarantine"`. Omitted, controlled and prescription items are held and the rest restock. Held lines are booked back in and quarantined in the same transaction (`reasonCode: "inspection"`), and the choice is stored on the return line.
+  - Over `TenantSettings.approvalRequiredReturnThreshold`, the refund needs `returns.approve`: the caller alone if their role may approve its own requests, otherwise **403** with `code: "REFUND_APPROVAL_REQUIRED"` (`amount`, `threshold`) until the body carries `approval: { approverUserId, pin }` — another person's till PIN (or password if they have none), checked against `returns.approve` at the branch. The approver is recorded as the return's `approvedBy`.
+  - `GET /api/v1/sales/refunds` (`sales.refund`) lists the branch's customer returns, newest first; `GET /api/v1/sales/pos/refund-approvers` lists who can approve one at the till.
 
 **Controlled products** (`Product.isControlled`): checkout requires **pharmacist**, **manager**, or **owner** effective on the branch (owners may be recognized tenant-wide per service rules).
 
@@ -92,7 +95,9 @@ Configured in Settings → Approval Rules and stored on `TenantSettings`. **The 
 | Purchase order | `createdBy` | `POST /purchasing/purchase-orders/:id/approve` |
 | Transfer | `requestedBy` | `POST /transfers/:id/approve`; also decides whether a new transfer is approved on creation |
 | Return | `requestedBy` | `POST /returns/:id/approve`; also decides the submit/create auto-approve |
-| Stocktake | creator and everyone who entered a count | `POST /stocktakes/:id/approve` |
+| Stocktake | creator and everyone who entered a count | `POST /stocktakes/:id/review/start`, `PATCH /stocktakes/:id/review-lines`, `POST /stocktakes/:id/request-recount` and `POST /stocktakes/:id/approve` — the reviewer is the approver, so a counter can't review their own count either |
+
+**Stocktake approval posts.** `POST /stocktakes/:id/approve` needs a `reviewReason` on every line whose count differs from what was expected (`reviewResolution` is no longer required). In one transaction it adjusts each batch to its count, quarantines units on lines counted as `damaged`, `expired` or `temperature_affected` (less what the batch already holds in quarantine), and sets the stocktake to `completed`. The posting lines it writes (`postings[].lines`) are the record of what changed: `stocktake_in` / `stocktake_out` with the signed adjustment, and `quarantine_hold` with the units held. A repeat call on a completed stocktake returns it unchanged. `POST /stocktakes/:id/post` and `/complete` remain only for stocktakes approved before this change.
 
 Approving your own request without the setting returns **403** ("You raised this …"). Approving someone else's needs only the approve permission. Self-approvals are marked `selfApproved: true` in the audit payload.
 
@@ -122,7 +127,9 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | `POST /inventory/quarantine-expired` | `inventory.manage_bulk` | Holds every sellable unit on expired batches. Returns `{ quarantined, units, batchIds }`. |
 | `POST /inventory/adjustments` | `inventory.manage` (increase) / `inventory.write_off` (decrease) | Decreases require `reason`; `fromQuarantine: true` writes off held units. |
 
-`POST /inventory/customer-returns` and `POST /inventory/supplier-returns` (which answered 410) have been removed, with the `inventory.customer_returns` permission. Use POS refunds and `POST /returns`.
+`POST /inventory/customer-returns` and `POST /inventory/supplier-returns` (which answered 410) have been removed, with the `inventory.customer_returns` permission. Customer returns are POS refunds; `POST /returns` is for supplier returns.
+
+`GET /returns/goods-receipts/:id/returnable` (`returns.create`) lists, per batch on a delivery, what it brought in (`delivered` = paid + free + damaged), `damaged`, `alreadyReturned` (supplier returns against it that aren't cancelled or rejected), `onHand`, and `returnable` = the lesser of what's left and what's on hand; `unitCost` follows `costs.view`. A supplier return with a `goodsReceiptId` is refused (**400**) for a batch that didn't arrive on that delivery, or for more than it brought in less what has already gone back.
 
 **Goods receipt** (`POST /purchasing/purchase-orders/receive`) now refuses a received date in the future and any line whose expiry is on or before the received date. Auto-created supplier invoice numbers include the branch code (`SINV-<BRANCH>-<seq>`) so each branch's first delivery no longer collides.
 
@@ -134,7 +141,10 @@ Quantities on the wire are always **units**; packs are a way of entering them. A
 | --- | --- | --- |
 | `GET /purchasing/purchase-orders` | `purchasing.view` | `unitCost`, `packCost` and `shippingCharges` are **null** without `costs.view`. |
 | `GET /purchasing/purchase-orders/:id` | `purchasing.view` | Lines add `orderedPacks`, `unitsPerPack`, `packCost`, `receivedQty`, `freeQty`, `rejectedQty`, `outstandingQty`, `outstandingPacks`. `selfApprovalBlocked` is true when the caller raised the order and their role may not approve its own requests. |
-| `POST /purchasing/purchase-orders/:id/request-approval` | `purchasing.receive` | Body `{ kind: "over_delivery" \| "price_variance", detail }`. Notifies the holders of `purchasing.approve` at this branch (owners always), excluding the caller, with a link to the order. Returns `{ notified, alreadyAsked }`; the same kind for the same order within ten minutes is not re-sent. Books nothing in. |
+| `POST /purchasing/purchase-orders/:id/hold-delivery` | `purchasing.receive` | Body `{ reasons: ("over_delivery" \| "price_variance")[], detail, delivery }`, where `delivery` is the receive body as typed. Saves it as a **held delivery** (`awaiting_approval`) — no stock, no ledger — and notifies the holders of `purchasing.approve` at this branch (owners always), excluding the caller, with a link to `/purchasing?po=…&held=…`. One held delivery per receiver per order: sending again replaces it, and re-notifies only for a new reason or after ten minutes (`alreadyAsked: true`). Returns `{ held, notified, alreadyAsked }`. |
+| `GET /purchasing/held-deliveries` | `purchasing.view` | `?status=awaiting_approval` (default) \| `accepted` \| `rejected`. Typed costs are withheld without `costs.view`. `GET /purchasing/purchase-orders/:id` also returns the order's waiting ones as `heldDeliveries`. |
+| `POST /purchasing/held-deliveries/:id/accept` | `purchasing.approve` | Optional body `{ delivery?, updateSupplierPrice? }` — the delivery as corrected; omitted, it is accepted as typed. Books it in through `purchase-orders/receive` with over-delivery and price variance accepted, so cost and expiry questions still come back as `COST_CONFLICT` / `EXPIRY_CONFLICT` (the held delivery stays waiting). Records `corrected` when anything changed, links `goodsReceiptId`, and notifies the receiver. Two approvers at once: one wins, the other gets **409**. Honours `Idempotency-Key`. |
+| `POST /purchasing/held-deliveries/:id/reject` | `purchasing.approve` | Body `{ reason }`. Nothing is booked in; the receiver is notified with the reason. **409** once decided. |
 | `GET /purchasing/deliveries` | `purchasing.view` | Goods receipts for the branch, newest first. Query `supplierId`, `from`, `to`, `q`. Per-delivery `paidUnits`, `freeUnits`, `rejectedUnits`, and `value` (null without `costs.view`). |
 | `GET /purchasing/reorder-suggestions` | `purchasing.manage` | Products at or below their reorder level after subtracting **available** stock and everything already on order, grouped by the cheapest active supplier who lists them. `unassigned` holds those no supplier prices. |
 | `POST /purchasing/purchase-orders/receive` | `purchasing.receive` | Lines accept `packs`/`receivedQty`, `freeQty`, `rejectedQty` (+ `rejectedReason`, required), `packCost`/`costPrice`, `sellingPrice`, `onCostConflict`. Body accepts `supplierDeliveryNote`, `acceptOverDelivery`, `acceptPriceVariance`, `updateSupplierPrice`. |

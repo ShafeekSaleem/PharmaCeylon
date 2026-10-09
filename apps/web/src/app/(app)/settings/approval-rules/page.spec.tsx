@@ -70,6 +70,19 @@ it("leaves the rule read-only for a manager, who is the one it holds to a second
   expect(
     await screen.findByRole("switch", { name: "Manager may approve their own requests" }),
   ).toBeDisabled();
-  expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
   expect(screen.getByText(/Only the owner can change this/)).toBeInTheDocument();
+});
+
+it("lets a manager save the thresholds without touching who approves their own requests", async () => {
+  grantedKeys = ["tenant.management"];
+  render(<ApprovalRulesPage />);
+  fireEvent.click(
+    await screen.findByRole("switch", { name: "Require approval for customer returns over a threshold" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+  await waitFor(() => expect(saveApprovalsSettings).toHaveBeenCalled());
+  const sent = (saveApprovalsSettings as jest.Mock).mock.calls.at(-1)[0];
+  expect(sent).not.toHaveProperty("selfApprovalRoleKeys");
+  expect(sent.approvalRequiredReturnThreshold).not.toBeNull();
 });

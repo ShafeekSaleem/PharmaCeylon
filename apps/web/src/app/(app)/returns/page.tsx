@@ -1,12 +1,9 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { Suspense } from "react";
-import { ReturnsContent } from "./returns-content";
-
+/**
+ * Customer returns are refunds at the till now, and supplier returns live under Purchasing — two
+ * doors into the same list was the confusion the Module 2 test run found. Old links land here.
+ */
 export default function ReturnsPage() {
-  return (
-    <Suspense fallback={null}>
-      <ReturnsContent />
-    </Suspense>
-  );
+  redirect("/purchasing/supplier-returns");
 }

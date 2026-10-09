@@ -1985,7 +1985,16 @@ async function main() {
     { number: "RET-2026-KDY-04", type: GoodsReturnType.supplier, status: GoodsReturnStatus.in_review, daysAgo: 4, reason: "Branch overstock to supplier", supplierId: supplier1.id, branchId: secondBranch.id, amount: 500, lines: [{ sku: "PCL-0027", qty: 2, unitPrice: 250 }] },
   ];
 
+  // Customer returns are refunds at the till, finished when they are raised; one waiting in a
+  // workflow can't arise any more, so the demo doesn't seed any.
+  const openStatuses: GoodsReturnStatus[] = [
+    GoodsReturnStatus.draft,
+    GoodsReturnStatus.pending_approval,
+    GoodsReturnStatus.awaiting_logistics,
+    GoodsReturnStatus.in_review,
+  ];
   for (const def of returnDefs) {
+    if (def.type === GoodsReturnType.customer && openStatuses.includes(def.status)) continue;
     const branchId = def.branchId ?? mainBranch.id;
     const batchPrefix = branchId === secondBranch.id ? "BRANCH2" : "MAIN";
     const itemsData = def.lines

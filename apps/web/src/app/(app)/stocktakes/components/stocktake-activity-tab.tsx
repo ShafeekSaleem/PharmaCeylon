@@ -176,7 +176,7 @@ function eventDescription(item: ActivityItem, stocktake: StocktakeListItem): str
       ? `Posted ${count} ledger adjustment${count === 1 ? "" : "s"}.`
       : "Adjustments posted to inventory ledger.";
   }
-  if (name.includes("approved")) return "Variance review approved.";
+  if (name.includes("approved")) return "Approved — stock adjusted to the count and the stocktake closed.";
   if (name.includes("completed")) return "Stocktake marked complete.";
   if (name.includes("cancelled")) return "Stocktake cancelled.";
   if (name.includes("scheduled")) return "Stocktake scheduled.";

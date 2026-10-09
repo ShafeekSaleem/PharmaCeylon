@@ -74,7 +74,9 @@ export default function ApprovalRulesPage() {
         approvalRequiredPurchaseOrderThreshold: draft.approvalRequiredPurchaseOrderThreshold,
         approvalRequiredForBranchTransfers: draft.approvalRequiredForBranchTransfers,
         approvalRequiredReturnThreshold: draft.approvalRequiredReturnThreshold,
-        selfApprovalRoleKeys: draft.selfApprovalRoleKeys,
+        // Only the owner may change who approves their own requests; sending it from anyone else
+        // is refused, which used to fail a manager's whole save.
+        ...(canEditSelfApproval ? { selfApprovalRoleKeys: draft.selfApprovalRoleKeys } : {}),
       });
       setDraft(updated);
       setSaved(true);
@@ -177,9 +179,10 @@ export default function ApprovalRulesPage() {
 
           <div className={css.rowItem}>
             <div style={{ flex: 1 }}>
-              <div className={css.rowLabel}>Customer returns over a threshold</div>
+              <div className={css.rowLabel}>Refunds over a threshold</div>
               <div className={css.rowHint}>
-                Returns at or above this value wait for someone who can approve returns.
+                Refunds at or above this value need someone who can approve returns to enter
+                their till PIN.
               </div>
               {draft.approvalRequiredReturnThreshold != null ? (
                 <div style={{ marginTop: "0.5rem", maxWidth: 220 }}>
@@ -273,13 +276,18 @@ export default function ApprovalRulesPage() {
             </Alert>
           ) : null}
 
-          {canEditSelfApproval ? (
-            <div className={css.saveRow}>
-              <ActionButton onClick={handleSave} disabled={saving}>
-                {saving ? "Saving…" : "Save changes"}
-              </ActionButton>
-            </div>
-          ) : null}
+        </div>
+      ) : null}
+
+      {/* One save for the whole page. It used to sit inside the owner-only card, so a manager could
+          change a threshold and had no way to keep it. */}
+      {!loading && draft && canEdit ? (
+        <div className={css.saveRow}>
+          {error ? <span className={css.saveError}>{error}</span> : null}
+          {saved ? <span className={css.saveOk}>Saved</span> : null}
+          <ActionButton onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </ActionButton>
         </div>
       ) : null}
     </div>

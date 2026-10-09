@@ -12,13 +12,17 @@ import {
 } from "react";
 import { Alert } from "@/components/alert";
 import { IconCheck, IconClipboard, IconLock } from "@/components/icons";
-import { ActionButton } from "@/components/ui";
+import { ActionButton, ActiveFilterBanner } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { LINE_FILTER_OPTIONS } from "../constants";
 import { EditStocktakeModal } from "../components/edit-stocktake-modal";
 import { ManageStocktakeLinesModal } from "../components/manage-stocktake-lines-modal";
 import { StocktakeActionsMenu } from "../components/stocktake-actions-menu";
+import {
+  ApproveStocktakeModal,
+  StocktakeChangesPanel,
+} from "../components/stocktake-changes-panel";
 import { StocktakeActivityTab } from "../components/stocktake-activity-tab";
 import { StocktakeCountTab } from "../components/stocktake-count-tab";
 import { StocktakeDetailsTab } from "../components/stocktake-details-tab";
@@ -136,6 +140,7 @@ export default function StocktakeDetailPage() {
   const [lastSavedLabel, setLastSavedLabel] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
   const [linesModal, setLinesModal] = useState<"add" | "remove" | null>(null);
 
   const dirtyLinesRef = useRef<DirtyLine[]>([]);
@@ -373,7 +378,7 @@ export default function StocktakeDetailPage() {
     }
     const saved = await saveReviewNow({ includeIncomplete: true });
     if (!saved) return;
-    await runAction("approve");
+    setApproveOpen(true);
   }
 
   async function requestRecount() {
@@ -576,12 +581,17 @@ export default function StocktakeDetailPage() {
     );
   }
 
+  const counterMayNotReview = row.selfApprovalBlocked
+    ? "You counted this stocktake, and your role can't approve its own requests, so someone else reviews it."
+    : null;
+
   if (canReview && canStartReview(row.status)) {
     primaryActions.push(
       <ActionButton
         key="start-review"
         onClick={() => void runAction("review/start")}
-        disabled={saving}
+        disabled={saving || counterMayNotReview != null}
+        tooltip={counterMayNotReview ?? undefined}
       >
         Start review
       </ActionButton>,
@@ -601,9 +611,7 @@ export default function StocktakeDetailPage() {
     });
     if (canApprovePerm && canApprove(row.status)) {
       const approveBlocked = [
-        ...(row.selfApprovalBlocked
-          ? ["You counted this stocktake, and your role can't approve its own requests. Ask another approver."]
-          : []),
+        ...(counterMayNotReview ? [counterMayNotReview] : []),
         ...reviewApprovalBlockers(row, reviews),
       ];
       primaryActions.push(
@@ -614,7 +622,7 @@ export default function StocktakeDetailPage() {
           tooltip={
             approveBlocked.length > 0
               ? approveBlocked.join("; ")
-              : "Saves review notes, then approves"
+              : "Adjusts stock to the count and closes the stocktake"
           }
         >
           Approve
@@ -629,6 +637,7 @@ export default function StocktakeDetailPage() {
         key="post"
         onClick={() => void runAction("post")}
         disabled={saving}
+        tooltip="Adjusts stock to the count and closes the stocktake"
       >
         Post adjustments
       </ActionButton>,
@@ -641,6 +650,7 @@ export default function StocktakeDetailPage() {
         key="complete"
         onClick={() => void runAction("complete")}
         disabled={saving}
+        tooltip="Stock is already adjusted; this closes the stocktake"
       >
         Complete
       </ActionButton>,
@@ -761,8 +771,8 @@ export default function StocktakeDetailPage() {
           const approveBlocked = reviewApprovalBlockers(row, reviews);
           return approveBlocked.length > 0 ? (
             <Alert variant="warning">
-              Approve blocked: {approveBlocked.join("; ")}. Open Variance review, pick a reason and
-              resolution on each non-zero variance line (matched lines with variance 0 can be skipped).
+              Before approving: {approveBlocked.join("; ")}. Open Variance review and pick a reason
+              for each line whose count differs. Matched lines need nothing.
             </Alert>
           ) : null;
         })()
@@ -777,6 +787,10 @@ export default function StocktakeDetailPage() {
           </>
         }
       />
+
+      {row.status === "completed" && row.postings.length > 0 ? (
+        <StocktakeChangesPanel stocktake={row} />
+      ) : null}
 
       <div className={scss.workspaceShell}>
         <div className={scss.tabRow} role="tablist">
@@ -902,6 +916,40 @@ export default function StocktakeDetailPage() {
                 </span>
               </div>
 
+              {/* The same "Filtered … / Clear filter" strip every list page shows. */}
+              {(() => {
+                const chip =
+                  activeTab === "count"
+                    ? lineFilter !== "all"
+                      ? filterOptions.find((opt) => opt.value === lineFilter)?.label
+                      : null
+                    : reviewFilter !== "variances"
+                      ? {
+                          need_approval: "Need approval",
+                          recount: "Recount",
+                          resolved: "Resolved",
+                          all: "All lines",
+                          variances: "All variances",
+                        }[reviewFilter]
+                      : null;
+                const search = lineSearch.trim();
+                return (
+                  <ActiveFilterBanner
+                    active={Boolean(chip || search)}
+                    summary={`Filtered lines · ${filteredLines.length} result${filteredLines.length === 1 ? "" : "s"}`}
+                    pills={[
+                      ...(chip ? [{ key: "chip", label: chip }] : []),
+                      ...(search ? [{ key: "search", label: `“${search}”` }] : []),
+                    ]}
+                    onClear={() => {
+                      setLineSearch("");
+                      if (activeTab === "count") setLineFilter("all");
+                      else setReviewFilter("variances");
+                    }}
+                  />
+                );
+              })()}
+
               {activeTab === "count" ? (
                 <div className={scss.countMetaRow}>
                   <span className={scss.uncountedChip}>
@@ -997,6 +1045,17 @@ export default function StocktakeDetailPage() {
           ) : null}
         </div>
       </div>
+
+
+      <ApproveStocktakeModal
+        stocktake={row}
+        open={approveOpen}
+        busy={saving}
+        onCancel={() => setApproveOpen(false)}
+        onApprove={() => {
+          void runAction("approve").then(() => setApproveOpen(false));
+        }}
+      />
 
       <EditStocktakeModal
         open={editOpen}

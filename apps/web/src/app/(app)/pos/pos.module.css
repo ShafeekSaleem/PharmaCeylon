@@ -2602,3 +2602,47 @@
     flex: 1 1 auto;
   }
 }
+
+/* ── Refund: shelf or hold, per line ── */
+.dispositionToggle {
+  display: inline-flex;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+}
+
+.dispositionToggle button {
+  padding: 0.3rem 0.65rem;
+  border: none;
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dispositionToggle button + button {
+  border-left: 1px solid var(--pc-border);
+}
+
+.dispositionToggle button[aria-pressed="true"] {
+  background: var(--pc-primary);
+  color: #fff;
+}
+
+.dispositionToggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.returnsOldRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+}
+

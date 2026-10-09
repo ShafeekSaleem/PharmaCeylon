@@ -92,6 +92,7 @@ function PurchasingContent() {
   const productId = searchParams.get("productId");
   const action = searchParams.get("action");
   const poParam = searchParams.get("po");
+  const heldParam = searchParams.get("held");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<PoStatusFilter>("all");
@@ -518,6 +519,7 @@ function PurchasingContent() {
     if (!searchParams.get("po")) return;
     const next = new URLSearchParams(searchParams.toString());
     next.delete("po");
+    next.delete("held");
     const qs = next.toString();
     router.replace(qs ? `/purchasing?${qs}` : "/purchasing");
   }
@@ -889,6 +891,7 @@ function PurchasingContent() {
         canCancelPo={canCancel}
         canApprovePo={canApprove}
         startInEdit={detailStartInEdit}
+        reviewHeldId={heldParam}
         onClose={() => {
           setDetailId(null);
           setDetailStartInEdit(false);

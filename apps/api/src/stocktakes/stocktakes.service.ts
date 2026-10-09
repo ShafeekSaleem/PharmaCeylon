@@ -17,8 +17,8 @@ import { randomUUID } from "crypto";
 import { nextDocumentNumber } from "../common/document-sequence.util";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { StockService } from "../inventory/stock/stock.service";
-import { assertMayApprove, type ActorAccess } from "../security/access.service";
+import { StockService, type QuarantineLine } from "../inventory/stock/stock.service";
+import { type ActorAccess } from "../security/access.service";
 import { CreateStocktakeDto } from "./dto/create-stocktake.dto";
 import { UpsertStocktakeLinesDto } from "./dto/upsert-stocktake-lines.dto";
 import {
@@ -38,6 +38,38 @@ const NON_PHYSICAL_MOVEMENTS: StockMovementType[] = [
   StockMovementType.transfer_reserve_out,
   StockMovementType.transfer_reserve_release,
 ];
+/** Counted as one of these, the units are on the shelf but must not be sold. */
+const UNFIT_CONDITIONS = new Set<StocktakeCondition>([
+  StocktakeCondition.damaged,
+  StocktakeCondition.expired,
+  StocktakeCondition.temperature_affected,
+]);
+
+const CONDITION_LABELS: Record<StocktakeCondition, string> = {
+  saleable: "saleable",
+  damaged: "damaged",
+  expired: "expired",
+  quarantined: "quarantined",
+  opened_pack: "an opened pack",
+  missing_label: "missing a label",
+  temperature_affected: "temperature-affected",
+};
+
+const VARIANCE_REASON_LABELS: Record<StocktakeVarianceReason, string> = {
+  unrecorded_sale: "Unrecorded sale",
+  unrecorded_receipt: "Unrecorded receipt",
+  damaged_stock: "Damaged stock",
+  expired_stock: "Expired stock",
+  supplier_shortage: "Supplier shortage",
+  wrong_batch_used: "Wrong batch used",
+  unit_conversion_error: "Unit conversion error",
+  transfer_not_recorded: "Transfer not recorded",
+  return_not_recorded: "Return not recorded",
+  counting_error: "Counting error",
+  suspected_theft_loss: "Suspected theft or loss",
+  other: "Other",
+};
+
 const BLIND_RESTRICTED_STATUSES: StocktakeStatus[] = [
   StocktakeStatus.draft,
   StocktakeStatus.scheduled,
@@ -191,6 +223,31 @@ export class StocktakesService {
   private assertReviewer(access: ActorAccess) {
     if (!access.has("stocktakes.review")) {
       throw new ForbiddenException("Your role can't review stocktakes");
+    }
+  }
+
+  /** Everyone who counted: the stocktake's creator and each person who entered a count. */
+  private countersOf(row: Pick<StocktakeRow, "countedBy" | "lines">): string[] {
+    const counters = new Set<string>([row.countedBy]);
+    for (const line of row.lines) {
+      for (const entry of line.countEntries) counters.add(entry.counter.id);
+    }
+    return [...counters];
+  }
+
+  /**
+   * The reviewer explains each variance and then approves the count, so one rule covers both:
+   * someone who counted can't review their own count unless their role may approve its own
+   * requests. Checked when review starts, not only at approval, so the person explaining a
+   * variance is never the person who produced it.
+   */
+  private assertMayReview(access: ActorAccess, row: Pick<StocktakeRow, "countedBy" | "lines">) {
+    this.assertReviewer(access);
+    if (access.canSelfApprove) return;
+    if (this.countersOf(row).includes(access.userId)) {
+      throw new ForbiddenException(
+        "You counted this stocktake, and your role can't approve its own requests, so someone else reviews it.",
+      );
     }
   }
 
@@ -570,12 +627,9 @@ export class StocktakesService {
       counter: row.counter,
       // The rule approve() enforces — anyone who counted, creator included, is asking for the
       // count to be approved — said up front, so Approve can be disabled with its reason.
+      // Review follows the same rule, so Start review is disabled with this reason too.
       selfApprovalBlocked:
-        !flags.canSelfApprove &&
-        (row.countedBy === flags.userId ||
-          row.lines.some((line) =>
-            line.countEntries.some((entry) => entry.counter.id === flags.userId),
-          )),
+        !flags.canSelfApprove && this.countersOf(row).includes(flags.userId),
       reviewer: row.reviewer,
       approver: row.approver,
       poster: row.poster,
@@ -1098,8 +1152,8 @@ export class StocktakesService {
     id: string,
     access: ActorAccess,
   ) {
-    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
+    this.assertMayReview(access, row);
     if (row.status !== StocktakeStatus.submitted) {
       throw new BadRequestException("Only submitted stocktakes can enter review");
     }
@@ -1133,8 +1187,8 @@ export class StocktakesService {
     dto: ReviewStocktakeLinesDto,
     access: ActorAccess,
   ) {
-    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
+    this.assertMayReview(access, row);
     if (!REVIEWABLE_LINE_STATUSES.includes(row.status)) {
       throw new BadRequestException("Review details can only be edited during review or approval");
     }
@@ -1179,8 +1233,8 @@ export class StocktakesService {
     dto: RequestRecountDto,
     access: ActorAccess,
   ) {
-    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
+    this.assertMayReview(access, row);
     if (row.status !== StocktakeStatus.under_review) {
       throw new BadRequestException("Recounts can only be requested during review");
     }
@@ -1214,6 +1268,11 @@ export class StocktakesService {
     return this.getOne(tenantId, branchId, id, access);
   }
 
+  /**
+   * Approve the count: adjust stock to it, hold back what was counted as unfit to sell, and close
+   * the stocktake, all in one transaction. Approve, Post adjustments and Complete used to be three
+   * buttons; only the second changed anything, and none of them said so.
+   */
   async approve(
     tenantId: string,
     branchId: string,
@@ -1221,22 +1280,26 @@ export class StocktakesService {
     id: string,
     access: ActorAccess,
   ) {
-    this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
+    if (row.status === StocktakeStatus.completed) {
+      // A double-click or a retried request: the first one went through, so report that.
+      return this.getOne(tenantId, branchId, id, access);
+    }
     if (row.status !== StocktakeStatus.under_review) {
       throw new BadRequestException("Only stocktakes under review can be approved");
     }
+    this.assertMayReview(access, row);
 
     const movementMap = await this.movementMapForRow(row);
     const snapshotByLineId = new Map(row.snapshotLines.map((snapshot) => [snapshot.lineId, snapshot.snapshotQty]));
-    const missingReview = row.lines.filter((line) => {
+    const missingReason = row.lines.filter((line) => {
       const expected = (snapshotByLineId.get(line.id) ?? line.systemQty) + (movementMap.get(line.batchId)?.delta ?? 0);
       const variance = line.countedQty == null ? null : line.countedQty - expected;
-      return variance !== null && variance !== 0 && (!line.reviewReason || !line.reviewResolution?.trim());
+      return variance !== null && variance !== 0 && !line.reviewReason;
     });
-    if (missingReview.length > 0) {
+    if (missingReason.length > 0) {
       throw new BadRequestException(
-        `Cannot approve yet: ${missingReview.length} variance line(s) still need both a reason (why the difference exists) and a resolution (what action to take). Matched lines with 0 variance do not need review.`,
+        `Give a reason for ${missingReason.length} line(s) whose count differs from what was expected. Lines that match need nothing.`,
       );
     }
 
@@ -1249,22 +1312,19 @@ export class StocktakesService {
       );
     }
 
-    // Whoever did the count is asking for it to be approved: the stocktake's creator and
-    // everyone who entered a count.
-    const counters = new Set<string>([row.countedBy]);
-    for (const line of row.lines) {
-      for (const entry of line.countEntries) counters.add(entry.counter.id);
-    }
-    assertMayApprove(access, [...counters], "stocktake count");
-
     const now = new Date();
+    let result = { adjustments: 0, quarantined: 0 };
     await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.stocktake.updateMany({
         where: { id, tenantId, branchId, status: StocktakeStatus.under_review },
         data: {
-          status: StocktakeStatus.approved,
+          status: StocktakeStatus.completed,
           approvedBy: userId,
           approvedAt: now,
+          postedBy: userId,
+          postedAt: now,
+          completedBy: userId,
+          completedAt: now,
         },
       });
       if (claimed.count !== 1) {
@@ -1272,12 +1332,9 @@ export class StocktakesService {
       }
       await tx.stocktakeLine.updateMany({
         where: { stocktakeId: id, tenantId },
-        data: {
-          approvedBy: userId,
-          approvedAt: now,
-          status: StocktakeCountStatus.approved,
-        },
+        data: { approvedBy: userId, approvedAt: now },
       });
+      result = await this.postAdjustments(tx, row, userId, now);
     });
 
     await this.audit.log({
@@ -1287,11 +1344,16 @@ export class StocktakesService {
       eventName: "stocktake.approved",
       entityName: "stocktake",
       entityId: id,
+      payload: result,
     });
 
     return this.getOne(tenantId, branchId, id, access);
   }
 
+  /**
+   * For a stocktake approved before approval also posted: adjust stock and close it. Nothing
+   * reaches the approved status any more, so this only finishes counts already in flight.
+   */
   async post(
     tenantId: string,
     branchId: string,
@@ -1302,70 +1364,156 @@ export class StocktakesService {
     this.assertReviewer(access);
     const row = await this.loadOneRow(tenantId, branchId, id);
     if (row.status === StocktakeStatus.posted || row.status === StocktakeStatus.completed) {
-      // A double-click or a retried request: the first one posted, so report that result.
       return this.getOne(tenantId, branchId, id, access);
     }
     if (row.status !== StocktakeStatus.approved) {
       throw new BadRequestException("Only approved stocktakes can be posted");
     }
-
-    const snapshotByLineId = new Map(row.snapshotLines.map((snapshot) => [snapshot.lineId, snapshot.snapshotQty]));
     const now = new Date();
-    const postingId = randomUUID();
-    let adjustments = 0;
-
+    let result = { adjustments: 0, quarantined: 0 };
     await this.prisma.$transaction(async (tx) => {
-      // Claim the stocktake first. The status used to be checked outside the transaction and
-      // the update didn't re-check it, so two posts running together both adjusted stock.
+      // Claim the stocktake first, so two posts running together can't both adjust stock.
       const claimed = await tx.stocktake.updateMany({
         where: { id, tenantId, branchId, status: StocktakeStatus.approved },
-        data: { status: StocktakeStatus.posted, postedBy: userId, postedAt: now },
+        data: {
+          status: StocktakeStatus.completed,
+          postedBy: userId,
+          postedAt: now,
+          completedBy: userId,
+          completedAt: now,
+        },
       });
       if (claimed.count !== 1) {
         throw new BadRequestException("This stocktake has already been posted — refresh to see the result");
       }
+      result = await this.postAdjustments(tx, row, userId, now);
+    });
+    await this.audit.log({
+      tenantId,
+      branchId,
+      actorUserId: userId,
+      eventName: "stocktake.posted",
+      entityName: "stocktake",
+      entityId: id,
+      payload: result,
+    });
+    return this.getOne(tenantId, branchId, id, access);
+  }
 
-      // Lock the counted batches, then read the movements since the snapshot: nothing can
-      // change them between the variance being worked out and the adjustment being written.
-      await this.stock.lockBatches(tx, tenantId, row.lines.map((line) => line.batchId));
-      const movementMap = await this.movementMapForRow(row, tx);
+  /**
+   * Bring each counted batch to its count, then quarantine what was counted as damaged, expired
+   * or temperature-affected — those units are on the shelf but must not be sold. Runs inside the
+   * caller's transaction, after it has claimed the stocktake.
+   */
+  private async postAdjustments(
+    tx: Prisma.TransactionClient,
+    row: StocktakeRow,
+    userId: string,
+    now: Date,
+  ): Promise<{ adjustments: number; quarantined: number }> {
+    const { tenantId, branchId, id } = row;
+    const snapshotByLineId = new Map(row.snapshotLines.map((snapshot) => [snapshot.lineId, snapshot.snapshotQty]));
+    const postingId = randomUUID();
+    let adjustments = 0;
+    let quarantined = 0;
 
-      await tx.stocktakePosting.create({
+    // Lock the counted batches, then read the movements since the snapshot: nothing can
+    // change them between the variance being worked out and the adjustment being written.
+    await this.stock.lockBatches(tx, tenantId, row.lines.map((line) => line.batchId));
+    const movementMap = await this.movementMapForRow(row, tx);
+    await tx.stocktakePosting.create({
+      data: {
+        id: postingId,
+        tenantId,
+        stocktakeId: id,
+        postedBy: userId,
+        postedAt: now,
+        note: "Approved stocktake",
+      },
+    });
+    const gains: Array<{ productId: string; batchId: string; qty: number; reason: string }> = [];
+    const losses: Array<{ productId: string; batchId: string; qty: number; reason: string }> = [];
+    for (const line of row.lines) {
+      const snapshotQty = snapshotByLineId.get(line.id) ?? line.systemQty;
+      const expected = snapshotQty + (movementMap.get(line.batchId)?.delta ?? 0);
+      const adjustedVariance = line.countedQty == null ? 0 : line.countedQty - expected;
+      await tx.stocktakeLine.update({
+        where: { id: line.id, tenantId },
         data: {
-          id: postingId,
-          tenantId,
-          stocktakeId: id,
-          postedBy: userId,
+          varianceQty: adjustedVariance,
           postedAt: now,
-          note: "Supervisor-approved stocktake posting",
+          status: StocktakeCountStatus.posted,
         },
       });
+      if (adjustedVariance === 0) continue;
+      adjustments += 1;
+      const reason = this.adjustmentReason(row, line);
+      (adjustedVariance > 0 ? gains : losses).push({
+        productId: line.productId,
+        batchId: line.batchId,
+        qty: Math.abs(adjustedVariance),
+        reason,
+      });
+      await tx.stocktakePostingLine.create({
+        data: {
+          tenantId,
+          postingId,
+          lineId: line.id,
+          qtyDelta: adjustedVariance,
+          movementType:
+            adjustedVariance > 0
+              ? StockMovementType.stocktake_in
+              : StockMovementType.stocktake_out,
+          ledgerReferenceId: id,
+          reason,
+          createdBy: userId,
+        },
+      });
+    }
+    const ctx = { tenantId, branchId, userId, referenceType: "stocktake", referenceId: id };
+    await this.stock.receive(
+      tx,
+      ctx,
+      gains.map((gain) => ({ ...gain, movementType: StockMovementType.stocktake_in })),
+    );
+    // The count is the physical truth, so a shortfall posts even if it leaves a transfer's
+    // reservation uncovered — that transfer then refuses to ship and says why.
+    await this.stock.issue(
+      tx,
+      ctx,
+      losses.map((loss) => ({
+        ...loss,
+        movementType: StockMovementType.stocktake_out,
+        from: "sellable_first" as const,
+      })),
+      { allowReservedShortfall: true },
+    );
 
-      const gains: Array<{ productId: string; batchId: string; qty: number; reason: string }> = [];
-      const losses: Array<{ productId: string; batchId: string; qty: number; reason: string }> = [];
-
-      for (const line of row.lines) {
-        const snapshotQty = snapshotByLineId.get(line.id) ?? line.systemQty;
-        const expected = snapshotQty + (movementMap.get(line.batchId)?.delta ?? 0);
-        const adjustedVariance = line.countedQty == null ? 0 : line.countedQty - expected;
-
-        await tx.stocktakeLine.update({
-          where: { id: line.id, tenantId },
-          data: {
-            varianceQty: adjustedVariance,
-            postedAt: now,
-            status: StocktakeCountStatus.posted,
-          },
-        });
-
-        if (adjustedVariance === 0) continue;
-        adjustments += 1;
-        const reason =
-          line.reviewResolution?.trim() || line.note?.trim() || `Stocktake ${row.stocktakeNumber}`;
-        (adjustedVariance > 0 ? gains : losses).push({
+    // Counted as unfit to sell: hold those units back. Units the batch already has in
+    // quarantine count towards it, so a batch already held isn't held twice.
+    const unfit = row.lines.filter(
+      (line) => (line.countedQty ?? 0) > 0 && UNFIT_CONDITIONS.has(line.condition),
+    );
+    if (unfit.length > 0) {
+      const balances = await this.stock.balances(tx, tenantId, unfit.map((line) => line.batchId));
+      const holds: QuarantineLine[] = [];
+      for (const line of unfit) {
+        const balance = balances.get(line.batchId);
+        if (!balance) continue;
+        const qty = Math.min((line.countedQty ?? 0) - balance.quarantined, balance.sellable);
+        if (qty <= 0) continue;
+        quarantined += qty;
+        const reason = `Counted as ${CONDITION_LABELS[line.condition]} in stocktake ${row.stocktakeNumber}`;
+        holds.push({
           productId: line.productId,
           batchId: line.batchId,
-          qty: Math.abs(adjustedVariance),
+          qty,
+          reasonCode:
+            line.condition === StocktakeCondition.expired
+              ? "expired"
+              : line.condition === StocktakeCondition.damaged
+                ? "damaged"
+                : "inspection",
           reason,
         });
         await tx.stocktakePostingLine.create({
@@ -1373,52 +1521,24 @@ export class StocktakesService {
             tenantId,
             postingId,
             lineId: line.id,
-            qtyDelta: adjustedVariance,
-            movementType:
-              adjustedVariance > 0
-                ? StockMovementType.stocktake_in
-                : StockMovementType.stocktake_out,
+            qtyDelta: qty,
+            movementType: StockMovementType.quarantine_hold,
             ledgerReferenceId: id,
-            reason: line.reviewResolution?.trim() || line.note?.trim() || null,
+            reason,
             createdBy: userId,
           },
         });
       }
+      await this.stock.quarantine(tx, { tenantId, branchId, userId, referenceType: "stocktake", referenceId: id }, holds);
+    }
+    return { adjustments, quarantined };
+  }
 
-      const ctx = { tenantId, branchId, userId, referenceType: "stocktake", referenceId: id };
-      await this.stock.receive(
-        tx,
-        ctx,
-        gains.map((gain) => ({ ...gain, movementType: StockMovementType.stocktake_in })),
-      );
-      // The count is the physical truth, so a shortfall posts even if it leaves a transfer's
-      // reservation uncovered — that transfer then refuses to ship and says why.
-      await this.stock.issue(
-        tx,
-        ctx,
-        losses.map((loss) => ({
-          ...loss,
-          movementType: StockMovementType.stocktake_out,
-          from: "sellable_first" as const,
-        })),
-        { allowReservedShortfall: true },
-      );
-
-      await this.audit.log(
-        {
-          tenantId,
-          branchId,
-          actorUserId: userId,
-          eventName: "stocktake.posted",
-          entityName: "stocktake",
-          entityId: id,
-          payload: { adjustments },
-        },
-        tx,
-      );
-    });
-
-    return this.getOne(tenantId, branchId, id, access);
+  private adjustmentReason(row: StocktakeRow, line: StocktakeRow["lines"][number]): string {
+    const label = line.reviewReason ? VARIANCE_REASON_LABELS[line.reviewReason] : null;
+    const detail = line.reviewNote?.trim() || line.reviewResolution?.trim() || line.note?.trim();
+    const base = label ?? `Stocktake ${row.stocktakeNumber}`;
+    return detail ? `${base} — ${detail}` : base;
   }
 
   async complete(

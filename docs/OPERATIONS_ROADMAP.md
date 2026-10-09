@@ -49,37 +49,59 @@ hold the spinner back for 180ms, so a refusal that opens a prompt no longer flas
 past. Page-header actions use `ActionButton` everywhere and take the full width on a phone, so a
 pair is the same size. The self-approval setting's description is two lines.
 
-## Module 4 — approvals that carry their evidence
+## Module 4 — approvals that carry their evidence, and one door for returns
 
-Module 3's test run showed that two approval flows stop short: the approver is told *that*
-something needs them, but not *what*, and the stocktake's last steps say nothing about what they
-do. Both are finished here, before new ground.
+The old Modules 4 and 5, combined (approved 3 October 2026, design as recommended). Module 3's
+test run showed two approval flows that stop short — the approver is told *that* something needs
+them but not *what*, and the stocktake's last steps say nothing about what they do — and customer
+returns had two doors with a gap in each.
 
-- **4a · Held deliveries.** A receiver stopped by an over-delivery or a price above the order
+- **4a · Held deliveries.** *(Done — kept as its own `HeldDelivery` record rather than a status on
+  `GoodsReceipt`, so no delivery query has to skip unposted rows.)* A receiver stopped by an over-delivery or a price above the order
   saves the delivery as *awaiting approval* instead of losing it. The notification and the order
-  open on that delivery — the quantities and prices the receiver typed beside what was ordered —
-  and the approver accepts, edits or rejects it in one step. Purchasing lists deliveries awaiting
-  approval as their own tile. Nothing touches stock or the supplier ledger until it is accepted.
-- **4b · Stocktake workflow, end to end.** Decide and enforce who does each step: counters count;
-  a reviewer (who did not count, unless their role may self-approve) explains each variance with a
-  reason and a resolution, or sends lines back for recount; an approver signs off. Approving posts
-  the adjustments and completes the count in one step — today *Post adjustments* and *Complete*
-  are separate buttons that say nothing about what they do — and the result shows what changed:
-  which batches moved, by how much, at what value.
-- **4c · Phones, second pass.** Stat tiles two per row, and the remaining rough edges from walking
-  each Operations page at 375px.
+  open on that delivery — what arrived and was billed beside what was ordered — and the approver
+  accepts, **corrects then accepts**, or rejects it with a reason. Nothing touches stock or the
+  supplier ledger until it is accepted.
+- **4b · Stocktake, end to end.** *(Done.)* Count → review → approve, one owner per step. The
+  reviewer is also the approver, and may not have counted unless their role may approve its own
+  requests — checked when review starts, not only at approval. A variance needs a **reason**
+  (the typed resolution is gone; a note is optional). **Approve adjusts stock to the count,
+  quarantines units counted as damaged, expired or temperature-affected, and completes the
+  stocktake** in one transaction, after a confirmation that says what will change; the stocktake
+  then shows *What changed*. Stocktakes approved before this keep a one-time *Post adjustments*.
+- **4c · Customer returns live in POS.** *(Done. Customer returns left open on the old Returns
+  page are listed in POS to be cancelled and refunded at the till; the demo seed no longer
+  creates open ones.)* Refund lines choose *back on the shelf* or *hold for
+  inspection*; controlled and prescription items default to hold. Refunds over the tenant's
+  threshold are approved at the till with an approver's PIN. `sales.refund` replaces the
+  hardcoded refund roles. `/returns` redirects to supplier returns; POS lists recent refunds.
+- **4d · Supplier returns traced to the delivery.** *(Done.)* Choosing a delivery fills the return lines;
+  a delivery with damaged units held against it offers *Return to supplier*; a batch can't be
+  returned against a delivery beyond what that delivery brought in.
+- **4e · Phones, second pass.** *(Done — every Operations page checked at 375px: two tiles per
+  row, nothing clipped, no sideways scroll; the stocktake's What changed reads as cards.)* Stat tiles two per row, and a walk of every Operations page at
+  375px, including the new screens.
 
-## Module 5 — POS refunds & customer returns
+**Module 4 test-run fixes.** One delivery at a time: an order with a delivery waiting for approval
+can't be received again until it is decided, and a held delivery whose order closes meanwhile is
+closed with the reason instead of waiting forever. Notifications list newest first; approval
+requests read "Approve order …" / "Approve a delivery on …", are resolved once decided, and the
+person who raised an order hears when it is approved or rejected. The stocktake approval window
+lists every batch it will change. A manager can save approval thresholds. Returns filled from a
+delivery always name their products. "Returns today" counts today's refunds. Customer returns
+left open on the old Returns page were closed (migration `close_open_customer_returns`).
 
-- **Customer returns move into POS**, with a restock-or-quarantine choice for what comes back.
-- **Delete the Returns page.** Once customer returns live in POS, `/returns` goes: supplier
-  returns are already under Purchasing, and two doors into the same list is the confusion the
-  test run found.
-- **Supplier → PO → GRN lineage on a return.** Choosing a supplier should narrow the purchase
-  order list to that supplier's orders, and the delivery list to that order's deliveries, so a
-  return can be traced back to what arrived instead of being typed from scratch.
+## Module 5 — Returns at the till, inventory screens, adjustments and the supplier workspace
 
-## Module 6 — Inventory screens, adjustments and the supplier workspace
+- **The POS returns lane needs a restructure and a simpler layout** (Module 4 test run: "UI is not
+  good", "needs a major restructure and simplify"). Today it is a long single panel — invoice
+  search, a lines table with Shelf/Hold, a reason field, three buttons and two lists. Design it as
+  a short guided flow: find the sale → choose lines and what happens to each → confirm the amount
+  and refund method, with recent refunds on their own tab.
+- **The product picker loads the first 200 products** in several forms (purchase orders, supplier
+  returns). It should search the server as you type, like the global search does.
+- **Stocktake count tables** scroll sideways inside their box on a phone instead of reading as
+  cards.
 
 - **The supplier detail window needs its own pass.** Long price lists and invoice lists need
   paging, the sections want sub-tabs rather than one long scroll, and the save/close buttons
@@ -97,7 +119,7 @@ These are deliberate limits of what shipped, not defects:
 
 - **Advance and unallocated supplier payments are not supported.** Every payment must be
   allocated in full to invoices, so money paid on account ahead of an invoice has nowhere to go.
-  Needs a supplier credit balance that later invoices draw down. *Module 6 or its own module.*
+  Needs a supplier credit balance that later invoices draw down. *Module 5 or its own module.*
 - **Reorder suggestions use each product's reorder level, not sales velocity.** A seasonal or
   accelerating line is not noticed until it hits the level. *Wherever demand forecasting lands.*
 - **The invoice list is one row per invoice**, so an invoice covering three deliveries has to be

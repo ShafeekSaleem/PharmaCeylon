@@ -1,6 +1,6 @@
 import type { AuthUser } from "@/lib/auth-types";
 import { formatDate, formatDateTime, formatMoney } from "../purchasing/utils";
-import { SCOPE_LABELS } from "./constants";
+import { SCOPE_LABELS, VARIANCE_REASON_OPTIONS } from "./constants";
 import {
   REVIEW_ROLES,
   WRITE_ROLES,
@@ -256,20 +256,16 @@ export function completeBlockers(
   return blockers;
 }
 
-/** True when a variance line has both reason and resolution (draft or saved). */
+/** True when a variance line has a reason (draft or saved). Approving adjusts stock to the
+ *  count, so what to do about a variance is never a separate choice — only why it happened. */
 export function lineHasCompleteReview(
-  line: Pick<StocktakeLine, "reviewReason" | "reviewResolution">,
-  draft?: {
-    reviewReason?: string | null;
-    reviewResolution?: string | null;
-  },
+  line: Pick<StocktakeLine, "reviewReason">,
+  draft?: { reviewReason?: string | null },
 ): boolean {
-  const reason = draft?.reviewReason || line.reviewReason;
-  const resolution = (draft?.reviewResolution || line.reviewResolution || "").trim();
-  return Boolean(reason && resolution);
+  return Boolean(draft?.reviewReason || line.reviewReason);
 }
 
-/** Non-zero variance lines still missing reason + resolution (draft or saved). */
+/** Non-zero variance lines still missing a reason (draft or saved). */
 export function reviewApprovalBlockers(
   detail: StocktakeListItem,
   drafts: Record<
@@ -298,7 +294,7 @@ export function reviewApprovalBlockers(
 
   if (missing > 0) {
     blockers.push(
-      `${missing} variance line${missing === 1 ? "" : "s"} need a reason and resolution before approve`,
+      `${missing} line${missing === 1 ? "" : "s"} with a variance need${missing === 1 ? "s" : ""} a reason`,
     );
   }
   if (recountPending > 0) {
@@ -417,7 +413,10 @@ export function displayCondition(condition: StocktakeLine["condition"]): string 
 
 export function displayVarianceReason(reason: string | null | undefined): string {
   if (!reason) return "—";
-  return reason.replace(/_/g, " ");
+  return (
+    VARIANCE_REASON_OPTIONS.find((option) => option.value === reason)?.label ??
+    reason.replace(/_/g, " ")
+  );
 }
 
 export function formatSigned(n: number): string {

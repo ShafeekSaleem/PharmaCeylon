@@ -1453,12 +1453,6 @@
   }
 }
 
-@media (max-width: 640px) {
-  .kpiRow,
-  .batchKpiRow {
-    grid-template-columns: 1fr;
-  }
-}
 
 @media (max-width: 720px) {
   .formGrid {

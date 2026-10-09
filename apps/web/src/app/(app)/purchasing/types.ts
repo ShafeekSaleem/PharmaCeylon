@@ -163,9 +163,47 @@ export type GoodsReceipt = {
   items: GoodsReceiptItem[];
 };
 
+/** A delivery the receiver typed but couldn't book in, waiting for an approver. */
+export type HeldDelivery = {
+  id: string;
+  status: "awaiting_approval" | "accepted" | "rejected";
+  reasons: Array<"over_delivery" | "price_variance">;
+  detail: string | null;
+  requestedAt: string;
+  requester: { id: string; fullName: string | null };
+  decidedAt: string | null;
+  decider: { id: string; fullName: string | null } | null;
+  decisionNote: string | null;
+  corrected: boolean;
+  goodsReceiptId: string | null;
+  purchaseOrder: { id: string; poNumber: string; supplier: { id: string; name: string } };
+  delivery: {
+    purchaseOrderId: string;
+    receivedOn: string;
+    supplierDeliveryNote?: string;
+    lines: Array<{
+      productId: string;
+      batchNo: string;
+      expiryDate: string;
+      receivedQty?: number;
+      packs?: number;
+      unitsPerPack?: number;
+      freeQty?: number;
+      rejectedQty?: number;
+      rejectedReason?: string;
+      packCost?: string;
+      /** Absent when you may not see costs. */
+      costPrice?: string;
+      sellingPrice: string;
+    }>;
+  };
+};
+
 export type PurchaseOrderDetail = Omit<PurchaseOrderListItem, "supplier" | "goodsReceipts"> & {
   supplier: SupplierOption;
   goodsReceipts: GoodsReceipt[];
+  /** Deliveries on this order waiting for an approver. */
+  heldDeliveries?: HeldDelivery[];
   /** You raised this order and your role can't approve its own requests. */
   selfApprovalBlocked?: boolean;
 };

@@ -20,6 +20,7 @@ import {
 import { ActionButton, PageHeader } from "@/components/ui";
 import actionCss from "@/components/ui/page-header.module.css";
 import { usePermissions } from "@/lib/permissions";
+import { useAuth } from "@/lib/use-auth";
 import {
   archiveNotification,
   fetchNotifications,
@@ -134,6 +135,7 @@ function CategoryFilter({
 
 export default function NotificationsPage() {
   const router = useRouter();
+  const { branchId, user, setBranchId } = useAuth();
   const { permissionKeys } = usePermissions();
   const availableCategories = useMemo(
     () =>
@@ -215,6 +217,14 @@ export default function NotificationsPage() {
             }
           : current,
       );
+    }
+    // Open it on the branch it is about — see the notification centre.
+    if (
+      item.branchId &&
+      item.branchId !== branchId &&
+      user?.branchRoles.some((role) => role.branchId === item.branchId)
+    ) {
+      setBranchId(item.branchId);
     }
     if (item.actionHref) router.push(item.actionHref);
   }

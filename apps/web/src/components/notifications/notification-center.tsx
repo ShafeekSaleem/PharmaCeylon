@@ -43,7 +43,7 @@ function categoryIcon(item: NotificationItem) {
 
 export function NotificationCenter() {
   const router = useRouter();
-  const { branchId } = useAuth();
+  const { branchId, user, setBranchId } = useAuth();
   const wrapRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -98,6 +98,15 @@ export function NotificationCenter() {
       void markNotificationRead(item.id).catch(() => void load());
     }
     setOpen(false);
+    // A notice is about one branch's document; open it on that branch, or the link lands on
+    // "not found" while the header is set to another branch you also work at.
+    if (
+      item.branchId &&
+      item.branchId !== branchId &&
+      user?.branchRoles.some((role) => role.branchId === item.branchId)
+    ) {
+      setBranchId(item.branchId);
+    }
     if (item.actionHref) router.push(item.actionHref);
   }
 

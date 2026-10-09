@@ -11,8 +11,15 @@ type Props = {
   warnings?: string[];
   onClose: () => void;
   onApprove: (approval: { approverUserId: string; pin: string }) => void | Promise<void>;
-  onHoldInstead: () => void;
+  /** Park the sale for a pharmacist instead. Omitted, there is no Hold button. */
+  onHoldInstead?: () => void;
   onError: (message: string) => void;
+  /** The same co-sign for something other than controlled medicines — a refund over the limit. */
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
+  emptyText?: string;
+  loadApprovers?: () => Promise<PosApprover[]>;
 };
 
 /**
@@ -26,6 +33,11 @@ export function PosPharmacistPinModal({
   onApprove,
   onHoldInstead,
   onError,
+  title = "Pharmacist approval",
+  description = "Enter the approver PIN to dispense controlled medicines.",
+  confirmLabel = "Approve & complete",
+  emptyText = "No pharmacist is assigned to this branch. Hold the sale and ask a supervisor.",
+  loadApprovers = listPosApprovers,
 }: Props) {
   const listboxId = useId();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -45,7 +57,7 @@ export function PosPharmacistPinModal({
     }
     let active = true;
     setLoading(true);
-    listPosApprovers()
+    loadApprovers()
       .then((rows) => {
         if (!active) return;
         setApprovers(rows);
@@ -58,7 +70,7 @@ export function PosPharmacistPinModal({
     return () => {
       active = false;
     };
-  }, [open, onError]);
+  }, [open, onError, loadApprovers]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -84,7 +96,7 @@ export function PosPharmacistPinModal({
 
   async function submit() {
     if (!approverUserId) {
-      onError("Select a pharmacist to approve");
+      onError("Select an approver");
       return;
     }
     if (pin.trim().length < 4) {
@@ -105,20 +117,22 @@ export function PosPharmacistPinModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Pharmacist approval"
-      description="Enter the approver PIN to dispense controlled medicines."
+      title={title}
+      description={description}
       size="sm"
       footer={
         <ModalFooter className={css.pinModalFooter}>
-          <ModalButton onClick={onHoldInstead} disabled={submitting}>
-            Hold
-          </ModalButton>
+          {onHoldInstead ? (
+            <ModalButton onClick={onHoldInstead} disabled={submitting}>
+              Hold
+            </ModalButton>
+          ) : null}
           <span className={css.pinModalFooterSpacer} />
           <ModalButton onClick={onClose} disabled={submitting}>
             Cancel
           </ModalButton>
           <ModalButton variant="primary" onClick={() => void submit()} loading={submitting}>
-            Approve &amp; complete
+            {confirmLabel}
           </ModalButton>
         </ModalFooter>
       }
@@ -135,9 +149,7 @@ export function PosPharmacistPinModal({
         {loading ? (
           <p className={css.pickerEmpty}>Loading approvers…</p>
         ) : approvers.length === 0 ? (
-          <p className={css.pickerEmpty}>
-            No pharmacist is assigned to this branch. Hold the sale and ask a supervisor.
-          </p>
+          <p className={css.pickerEmpty}>{emptyText}</p>
         ) : (
           <div className={css.pinModalFields}>
             <div className={css.field} ref={wrapRef}>

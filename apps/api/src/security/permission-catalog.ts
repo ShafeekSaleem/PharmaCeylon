@@ -465,6 +465,16 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     dependencies: ["sales.pos_use"],
   },
   {
+    key: "sales.refund",
+    module: "sales",
+    label: "Refund sales",
+    description:
+      "Refund a sale at the till, choosing whether each returned item goes back on the shelf or is held for inspection. Controlled and prescription items also need \"Approve controlled substance sales\".",
+    defaultRoles: [owner, manager, pharmacist, cashier],
+    riskLevel: "elevated",
+    dependencies: ["sales.pos_use"],
+  },
+  {
     key: "sales.view",
     module: "sales",
     label: "View sales history",

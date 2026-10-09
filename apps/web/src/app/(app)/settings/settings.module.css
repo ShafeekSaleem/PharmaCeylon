@@ -562,3 +562,17 @@
   font-size: 0.8rem;
   font-weight: 700;
 }
+
+/* What happened on Save, beside the button rather than at the top of a long page. */
+.saveError {
+  margin-right: auto;
+  font-size: 0.82rem;
+  color: var(--pc-alert-error-text);
+}
+
+.saveOk {
+  margin-right: auto;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-success);
+}

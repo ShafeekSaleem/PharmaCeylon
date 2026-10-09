@@ -263,6 +263,111 @@ export class ReturnsService {
     };
   }
 
+  /**
+   * What a delivery can still send back, batch by batch: what it brought in (paid, free and
+   * damaged), less what returns against it have already taken, and never more than the batch
+   * still holds. A supplier return raised from a delivery starts from this instead of being typed
+   * from scratch, and is capped by it.
+   */
+  async goodsReceiptReturnable(
+    tenantId: string,
+    branchId: string,
+    goodsReceiptId: string,
+    opts: { canViewCost: boolean; excludeReturnId?: string },
+  ) {
+    const grn = await this.prisma.goodsReceipt.findFirst({
+      where: { id: goodsReceiptId, tenantId, branchId },
+      include: {
+        purchaseOrder: {
+          select: { id: true, poNumber: true, supplier: { select: { id: true, name: true } } },
+        },
+        items: {
+          include: {
+            product: { select: { id: true, sku: true, name: true } },
+            batch: { select: { id: true, batchNo: true, expiryDate: true, costPrice: true } },
+          },
+        },
+      },
+    });
+    if (!grn) throw new NotFoundException("Delivery not found for this branch");
+
+    const returned = await this.prisma.goodsReturnItem.groupBy({
+      by: ["batchId"],
+      where: {
+        tenantId,
+        goodsReturn: {
+          goodsReceiptId,
+          type: GoodsReturnType.supplier,
+          status: { notIn: [GoodsReturnStatus.cancelled, GoodsReturnStatus.rejected] },
+          ...(opts.excludeReturnId ? { id: { not: opts.excludeReturnId } } : {}),
+        },
+      },
+      _sum: { qty: true },
+    });
+    const returnedByBatch = new Map(returned.map((row) => [row.batchId, row._sum.qty ?? 0]));
+    const balances = await this.prisma.$transaction((tx) =>
+      this.stock.balances(tx, tenantId, grn.items.map((item) => item.batchId)),
+    );
+
+    return {
+      goodsReceipt: { id: grn.id, grnNumber: grn.grnNumber, receivedOn: grn.receivedOn.toISOString() },
+      purchaseOrder: { id: grn.purchaseOrder.id, poNumber: grn.purchaseOrder.poNumber },
+      supplier: grn.purchaseOrder.supplier,
+      lines: grn.items.map((item) => {
+        const delivered = item.receivedQty + item.freeQty + item.rejectedQty;
+        const alreadyReturned = returnedByBatch.get(item.batchId) ?? 0;
+        const balance = balances.get(item.batchId);
+        const onHand = balance?.onHand ?? 0;
+        const cost = item.unitCost ?? item.batch.costPrice;
+        return {
+          productId: item.productId,
+          product: item.product,
+          batchId: item.batchId,
+          batchNo: item.batch.batchNo,
+          expiryDate: item.batch.expiryDate.toISOString(),
+          delivered,
+          damaged: item.rejectedQty,
+          alreadyReturned,
+          onHand,
+          quarantined: balance?.quarantined ?? 0,
+          returnable: Math.max(0, Math.min(delivered - alreadyReturned, onHand)),
+          unitCost: opts.canViewCost && cost != null ? cost.toFixed(2) : null,
+        };
+      }),
+    };
+  }
+
+  /** A supplier return tied to a delivery may only send back what that delivery brought in. */
+  private async assertWithinDelivery(
+    tenantId: string,
+    branchId: string,
+    goodsReceiptId: string,
+    lines: ReadonlyArray<{ productId: string; batchId?: string | null; qty: number }>,
+    excludeReturnId?: string,
+  ) {
+    const delivery = await this.goodsReceiptReturnable(tenantId, branchId, goodsReceiptId, {
+      canViewCost: false,
+      excludeReturnId,
+    });
+    const byBatch = new Map(delivery.lines.map((line) => [line.batchId, line]));
+    for (const line of lines) {
+      const source = line.batchId ? byBatch.get(line.batchId) : undefined;
+      if (!source) {
+        throw new BadRequestException(
+          `That batch didn't arrive on ${delivery.goodsReceipt.grnNumber}. Choose a batch from the delivery, or leave the delivery blank.`,
+        );
+      }
+      const left = source.delivered - source.alreadyReturned;
+      if (line.qty > left) {
+        throw new BadRequestException(
+          `${source.product.name} batch ${source.batchNo}: ${delivery.goodsReceipt.grnNumber} brought in ${source.delivered}` +
+            (source.alreadyReturned ? ` and ${source.alreadyReturned} have already gone back` : "") +
+            `, so at most ${left} can be returned against it.`,
+        );
+      }
+    }
+  }
+
   private createData(
     tenantId: string,
     branchId: string,
@@ -327,6 +432,11 @@ export class ReturnsService {
     dto: CreateReturnDto,
   ) {
     const userId = access.userId;
+    // One door for a customer return: the till, where the money is refunded with it. Raised here
+    // it put stock back and recorded no refund at all.
+    if (dto.type === GoodsReturnType.customer) {
+      throw new BadRequestException("Customer returns are refunds at the till now: refund the sale from POS → Returns, where you choose whether each item goes back on the shelf or is held for inspection.");
+    }
     this.validateTypeFields(dto.type, dto);
     await this.validateBatches(tenantId, branchId, dto.items);
 
@@ -354,6 +464,9 @@ export class ReturnsService {
             dto.goodsReceiptId,
           )
         : { purchaseOrderId: null, goodsReceiptId: null };
+    if (poGrn.goodsReceiptId) {
+      await this.assertWithinDelivery(tenantId, branchId, poGrn.goodsReceiptId, dto.items);
+    }
 
     const amount = this.lineAmount(dto.items);
     const forceApproval = await this.requiresThresholdApproval(
@@ -484,6 +597,9 @@ export class ReturnsService {
             goodsReceiptId,
           )
         : { purchaseOrderId: null, goodsReceiptId: null };
+    if (poGrn.goodsReceiptId && dto.items) {
+      await this.assertWithinDelivery(tenantId, branchId, poGrn.goodsReceiptId, dto.items, id);
+    }
 
     const amount = dto.items ? this.lineAmount(dto.items) : existing.amount;
 
@@ -758,19 +874,11 @@ export class ReturnsService {
           include: { items: true },
         });
         if (!row) throw new NotFoundException("Return not found");
-
-        if (row.saleId && row.type === GoodsReturnType.customer) {
-          await assertSaleReturnableLines(
-            tx,
-            tenantId,
-            branchId,
-            row.saleId,
-            row.items.map((i) => ({
-              productId: i.productId,
-              batchId: i.batchId!,
-              qty: i.qty,
-            })),
-            row.id,
+        // A customer return raised on the old Returns page restocked without refunding anyone.
+        // Those still open are cancelled and refunded at the till instead.
+        if (row.type === GoodsReturnType.customer) {
+          throw new BadRequestException(
+            "Cancel this return and refund the sale at the till instead — completing it here would put stock back without refunding the customer.",
           );
         }
 
@@ -824,17 +932,6 @@ export class ReturnsService {
               })),
             });
           }
-        } else {
-          await this.stock.receive(
-            tx,
-            stockCtx,
-            row.items.map((line) => ({
-              productId: line.productId,
-              batchId: line.batchId!,
-              qty: line.qty,
-              movementType: StockMovementType.customer_return_in,
-            })),
-          );
         }
 
         if (idemKey) {
