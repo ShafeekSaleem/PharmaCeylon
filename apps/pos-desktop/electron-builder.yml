@@ -1,0 +1,30 @@
+appId: com.curalio.pos
+productName: Curalio POS
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+  # The SQLite binding ships N-API prebuilds for every platform; keep Windows only.
+  - "!**/better-sqlite3-multiple-ciphers/prebuilds/{darwin,linux,linuxmusl}-*"
+  - "!**/better-sqlite3-multiple-ciphers/{deps,src,binding.gyp}"
+asar: true
+asarUnpack:
+  - "**/*.node"
+# The binding is N-API, so the published prebuild loads in Electron as-is.
+npmRebuild: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: false
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
