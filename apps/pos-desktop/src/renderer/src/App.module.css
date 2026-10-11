@@ -1,0 +1,181 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--pc-page-bg);
+  color: var(--pc-foreground);
+  font-family: var(--pc-font);
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 16px;
+  background: var(--pc-card-bg);
+  border-bottom: 1px solid var(--pc-border);
+  flex: none;
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--pc-primary);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.version {
+  color: var(--pc-muted-fg);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill {
+  padding: 2px 10px;
+  border: 1px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pillOk {
+  background: var(--pc-alert-success-bg);
+  border-color: var(--pc-alert-success-border);
+  color: var(--pc-alert-success-text);
+}
+
+.pillWarning {
+  background: var(--pc-alert-warning-bg);
+  border-color: var(--pc-alert-warning-border);
+  color: var(--pc-alert-warning-text);
+}
+
+.pillDanger {
+  background: var(--pc-alert-error-bg);
+  border-color: var(--pc-alert-error-border);
+  color: var(--pc-alert-error-text);
+}
+
+.content {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+  align-items: start;
+  gap: 16px;
+  padding: 16px;
+  overflow: auto;
+  flex: 1;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: var(--pc-card-bg);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.panel p {
+  margin: 0;
+}
+
+.checks {
+  align-self: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.check {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--pc-border);
+  font-size: 0.875rem;
+}
+
+.checkLabel {
+  font-weight: 600;
+}
+
+.checkDetail {
+  color: var(--pc-muted-fg);
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.badge_ok {
+  background: var(--pc-alert-success-bg);
+  color: var(--pc-alert-success-text);
+}
+
+.badge_warning {
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+}
+
+.badge_failed {
+  background: var(--pc-alert-error-bg);
+  color: var(--pc-alert-error-text);
+}
+
+.badge_not_ready {
+  background: var(--pc-muted-bg);
+  color: var(--pc-muted-fg);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.field select {
+  height: 36px;
+  padding: 0 8px;
+  background: var(--pc-input-bg);
+  color: var(--pc-foreground);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  font: inherit;
+  font-weight: 400;
+}
+
+.field select:focus-visible {
+  outline: 2px solid var(--pc-ring);
+  outline-offset: 1px;
+}
+
+.resultOk {
+  color: var(--pc-success);
+  font-weight: 600;
+}
+
+.resultFailed {
+  color: var(--pc-danger);
+  font-weight: 600;
+}

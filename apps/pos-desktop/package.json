@@ -1,0 +1,38 @@
+{
+  "name": "pos-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Curalio offline POS for Windows pharmacy counters",
+  "author": "PharmaCeylon",
+  "main": "./dist/main/index.js",
+  "scripts": {
+    "start": "electron-vite dev",
+    "build": "electron-vite build",
+    "lint": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "test": "jest",
+    "package": "electron-vite build && electron-builder --win dir",
+    "dist": "electron-vite build && electron-builder --win nsis",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3-multiple-ciphers": "^13.0.3"
+  },
+  "devDependencies": {
+    "@pharmaceylon/shared": "file:../../packages/shared",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.7",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "jest": "^29.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ts-jest": "^29.4.12",
+    "typescript": "^5.7.3",
+    "vite": "^7.0.0",
+    "zod": "^4.6.5"
+  }
+}
