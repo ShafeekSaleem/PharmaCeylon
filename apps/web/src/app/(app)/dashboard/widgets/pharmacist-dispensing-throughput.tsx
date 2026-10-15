@@ -7,7 +7,11 @@ import { SimpleBarChart } from "../components/simple-charts";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import css from "../dashboard.module.css";
 
-export function PharmacistDispensingThroughputWidget({ data }: { data: DashboardData }) {
+export function PharmacistDispensingThroughputWidget({
+  data,
+}: {
+  data: DashboardData;
+}) {
   const {
     loading,
     hourlyUnitsToday,
@@ -22,39 +26,61 @@ export function PharmacistDispensingThroughputWidget({ data }: { data: Dashboard
     (best, p) => (p.value > best.value ? p : best),
     hourlyUnitsToday[0] ?? { label: "—", value: 0 },
   );
-  const avgUnitsPerRx = todaySalesCount > 0 ? dispensedToday / todaySalesCount : 0;
+  const avgUnitsPerRx =
+    todaySalesCount > 0 ? dispensedToday / todaySalesCount : 0;
   const avgUnitsPerRxYesterday =
     yesterdaySalesCount > 0 ? dispensedYesterday / yesterdaySalesCount : 0;
   const avgPerRxTrendPct =
-    yesterdaySalesCount > 0 ? pctChange(avgUnitsPerRx, avgUnitsPerRxYesterday) : null;
+    yesterdaySalesCount > 0
+      ? pctChange(avgUnitsPerRx, avgUnitsPerRxYesterday)
+      : null;
 
   return (
     <DashboardPanel
-      title="Dispensing Throughput (Today)"
+      title="Units Sold (Today)"
       compact
       footerHref="/pos"
       footerLabel="Open POS →"
-      footerMeta={peakHour.value > 0 ? `Peak hour: ${peakHour.label}` : undefined}
+      footerMeta={
+        peakHour.value > 0 ? `Peak hour: ${peakHour.label}` : undefined
+      }
     >
       <SimpleBarChart points={hourlyUnitsToday} height={140} />
-      <div className={css.overviewChartsSummary} style={{ marginTop: "0.5rem" }}>
+      <div
+        className={css.overviewChartsSummary}
+        style={{ marginTop: "0.5rem" }}
+      >
         <MetricCell
-          label="Total dispensed"
+          label="Units sold"
           value={loading ? "…" : `${dispensedToday.toLocaleString()} units`}
           icon={<IconPackage size={16} strokeWidth={1.75} />}
           iconTone="bills"
-          trend={dispensedTrendPct != null ? { pct: dispensedTrendPct, compareLabel: "vs Yesterday" } : undefined}
+          trend={
+            dispensedTrendPct != null
+              ? { pct: dispensedTrendPct, compareLabel: "vs Yesterday" }
+              : undefined
+          }
         />
         <MetricCell
-          label="Avg per Rx"
+          label="Avg per bill"
           value={loading ? "…" : `${avgUnitsPerRx.toFixed(1)} units`}
           icon={<IconPill size={16} strokeWidth={1.75} />}
           iconTone="avg"
-          trend={avgPerRxTrendPct != null ? { pct: avgPerRxTrendPct, compareLabel: "vs Yesterday" } : undefined}
+          trend={
+            avgPerRxTrendPct != null
+              ? { pct: avgPerRxTrendPct, compareLabel: "vs Yesterday" }
+              : undefined
+          }
         />
         <MetricCell
           label="Peak hour"
-          value={loading ? "…" : peakHour.value > 0 ? `${peakHour.label} · ${peakHour.value} units` : "—"}
+          value={
+            loading
+              ? "…"
+              : peakHour.value > 0
+                ? `${peakHour.label} · ${peakHour.value} units`
+                : "—"
+          }
           icon={<IconStethoscope size={16} strokeWidth={1.75} />}
           iconTone="peak"
         />

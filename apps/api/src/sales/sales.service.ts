@@ -1225,11 +1225,12 @@ export class SalesService {
     }));
   }
 
-  async listSales(tenantId: string, branchId: string, take = 50) {
+  async listSales(tenantId: string, branchId: string, take = 50, soldBy?: string) {
     return this.prisma.sale.findMany({
       where: {
         tenantId,
         branchId,
+        ...(soldBy ? { soldBy } : {}),
         status: { in: [SaleStatus.posted, SaleStatus.partially_refunded] },
       },
       orderBy: { soldAt: "desc" },

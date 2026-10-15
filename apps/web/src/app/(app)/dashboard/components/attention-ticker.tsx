@@ -17,6 +17,7 @@ export type TickerItem = {
 type Props = {
   items: TickerItem[];
   loading?: boolean;
+  unavailable?: boolean;
   allClearText?: string;
 };
 
@@ -24,8 +25,16 @@ type Props = {
 export function AttentionTicker({
   items,
   loading,
+  unavailable,
   allClearText = "Nothing needs attention right now",
 }: Props) {
+  if (unavailable) {
+    return (
+      <div className={css.tickerAllClear} role="status">
+        Some checks are unavailable. Refresh to check for alerts.
+      </div>
+    );
+  }
   if (loading) {
     return (
       <div className={css.tickerAllClear} role="status" aria-live="polite">

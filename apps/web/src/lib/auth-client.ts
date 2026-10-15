@@ -31,7 +31,7 @@ function buildHeaders(method: string, init: RequestInit): Headers {
   }
 
   const branch = getBranchId();
-  if (branch) {
+  if (branch && !headers.has("x-branch-id")) {
     headers.set("x-branch-id", branch);
   }
 

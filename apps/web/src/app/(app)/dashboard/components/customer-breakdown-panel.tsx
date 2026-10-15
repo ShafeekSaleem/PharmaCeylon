@@ -21,14 +21,27 @@ type SegmentProps = {
   height?: "md" | "sm";
 };
 
-function CompositionRow({ labelLeft, labelRight, valueLeft, valueRight, toneLeft, toneRight, total, height = "md" }: SegmentProps) {
+function CompositionRow({
+  labelLeft,
+  labelRight,
+  valueLeft,
+  valueRight,
+  toneLeft,
+  toneRight,
+  total,
+  height = "md",
+}: SegmentProps) {
   const [hovered, setHovered] = useState<"left" | "right" | null>(null);
   const leftPct = pct(valueLeft, total);
   const rightPct = 100 - leftPct;
 
   return (
     <div className={css.compRow}>
-      <div className={css.compTrack} data-size={height} onMouseLeave={() => setHovered(null)}>
+      <div
+        className={css.compTrack}
+        data-size={height}
+        onMouseLeave={() => setHovered(null)}
+      >
         <div
           className={`${css.compSeg} ${css[`compSeg_${toneLeft}`]}`}
           style={{ width: `${leftPct}%` }}
@@ -69,8 +82,11 @@ type Props = {
   title?: string;
 };
 
-export function CustomerBreakdownPanel({ branchId, title = "Today's Customer Breakdown" }: Props) {
-  const { data, loading } = useCustomerBreakdown(branchId);
+export function CustomerBreakdownPanel({
+  branchId,
+  title = "Today's Customer Breakdown",
+}: Props) {
+  const { data, loading, failed } = useCustomerBreakdown(branchId);
 
   return (
     <DashboardPanel
@@ -82,6 +98,10 @@ export function CustomerBreakdownPanel({ branchId, title = "Today's Customer Bre
     >
       {loading && !data ? (
         <p className={css.emptyState}>Loading customer breakdown…</p>
+      ) : failed ? (
+        <p className={css.emptyState} role="status">
+          Customer data unavailable. Refresh to try again.
+        </p>
       ) : !data || data.total === 0 ? (
         <p className={css.emptyState}>No transactions yet today.</p>
       ) : (
@@ -152,8 +172,9 @@ export function CustomerBreakdownPanel({ branchId, title = "Today's Customer Bre
             </span>
           </div>
           <p className={css.placeholderNote}>
-            Walk-ins are counted by transaction, not verified unique people. New = registered today
-            (by name + mobile number); repeat = registered before today.
+            Walk-ins are counted by transaction, not verified unique people. New
+            = registered today (by name + mobile number); repeat = registered
+            before today.
           </p>
         </div>
       )}

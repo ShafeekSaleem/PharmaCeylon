@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { IconTruck } from "@/components/icons";
+import { useDashboardRefresh } from "../hooks/use-dashboard-refresh";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { StatusBadge } from "@/components/ui";
@@ -34,19 +35,28 @@ type Props = {
   footerLabel?: string;
 };
 
-export function TopSuppliersPanel({ footerHref = "/suppliers", footerLabel = "Open suppliers →" }: Props) {
+export function TopSuppliersPanel({
+  footerHref = "/suppliers",
+  footerLabel = "Open suppliers →",
+}: Props) {
   const [data, setData] = useState<SupplierSpendResponse | null>(null);
+  const refreshVersion = useDashboardRefresh();
+  const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void apiJson<SupplierSpendResponse>("/analytics/supplier-spend-summary?limit=18")
+    setFailed(false);
+    void apiJson<SupplierSpendResponse>(
+      "/analytics/supplier-spend-summary?limit=18",
+    )
       .then((res) => {
         if (!cancelled) setData(res);
       })
       .catch(() => {
+        if (!cancelled) setFailed(true);
         if (!cancelled) setData(null);
       })
       .finally(() => {
@@ -55,7 +65,7 @@ export function TopSuppliersPanel({ footerHref = "/suppliers", footerLabel = "Op
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshVersion]);
 
   return (
     <DashboardPanel
@@ -73,6 +83,10 @@ export function TopSuppliersPanel({ footerHref = "/suppliers", footerLabel = "Op
     >
       {loading && !data ? (
         <p className={css.emptyState}>Loading suppliers…</p>
+      ) : failed ? (
+        <p className={css.emptyState} role="status">
+          Data unavailable. Refresh the dashboard to try again.
+        </p>
       ) : !data || data.suppliers.length === 0 ? (
         <p className={css.emptyState}>No open supplier balances.</p>
       ) : (
@@ -80,14 +94,20 @@ export function TopSuppliersPanel({ footerHref = "/suppliers", footerLabel = "Op
           <ul className={css.pipelineList}>
             {paginate(data.suppliers, page, SUPPLIERS_PAGE_SIZE).map((s) => (
               <li key={s.supplierId}>
-                <Link href={`/suppliers?supplier=${encodeURIComponent(s.supplierId)}`}>
-                  <span className={`${css.pipelineIcon} ${css.pipelineIcon_po}`} aria-hidden>
+                <Link
+                  href={`/suppliers?supplier=${encodeURIComponent(s.supplierId)}`}
+                >
+                  <span
+                    className={`${css.pipelineIcon} ${css.pipelineIcon_po}`}
+                    aria-hidden
+                  >
                     <IconTruck size={14} strokeWidth={1.75} />
                   </span>
                   <span className={css.pipelineRowBody}>
                     <strong>{s.name}</strong>
                     <span className={css.muted}>
-                      {s.code} · {s.invoiceCount} open invoice{s.invoiceCount === 1 ? "" : "s"}
+                      {s.code} · {s.invoiceCount} open invoice
+                      {s.invoiceCount === 1 ? "" : "s"}
                     </span>
                     {s.overduePoCount > 0 ? (
                       <StatusBadge
@@ -97,17 +117,27 @@ export function TopSuppliersPanel({ footerHref = "/suppliers", footerLabel = "Op
                       />
                     ) : null}
                   </span>
-                  <span className={css.teamNum}>{formatMoney(s.outstanding)}</span>
+                  <span className={css.teamNum}>
+                    {formatMoney(s.outstanding)}
+                  </span>
                 </Link>
               </li>
             ))}
           </ul>
           <PaginationControls
             page={page}
-            pageCount={Math.max(1, Math.ceil(data.suppliers.length / SUPPLIERS_PAGE_SIZE))}
+            pageCount={Math.max(
+              1,
+              Math.ceil(data.suppliers.length / SUPPLIERS_PAGE_SIZE),
+            )}
             onPrev={() => setPage((p) => Math.max(0, p - 1))}
             onNext={() =>
-              setPage((p) => Math.min(Math.ceil(data.suppliers.length / SUPPLIERS_PAGE_SIZE) - 1, p + 1))
+              setPage((p) =>
+                Math.min(
+                  Math.ceil(data.suppliers.length / SUPPLIERS_PAGE_SIZE) - 1,
+                  p + 1,
+                ),
+              )
             }
             rangeLabel={`${page * SUPPLIERS_PAGE_SIZE + 1}–${Math.min(data.suppliers.length, (page + 1) * SUPPLIERS_PAGE_SIZE)} of ${data.suppliers.length}`}
           />

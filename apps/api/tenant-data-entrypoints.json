@@ -182,6 +182,16 @@
       "path": "src/suppliers/suppliers.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one supplier_invoice row by bound tenant_id and id (FOR UPDATE) before recording a payment against it from the supplier page."
+    },
+    {
+      "path": "src/dashboard/daily-work.service.ts",
+      "mode": "tenant-filtered-read-model",
+      "reason": "Read-only workflow union. Every source binds tenant_id and active branch; permissions and self-approval controls are resolved from ActorAccess. Page and counts use one snapshot."
+    },
+    {
+      "path": "src/dashboard/dashboard-metrics.service.ts",
+      "mode": "tenant-filtered-aggregate",
+      "reason": "Read-only business-day sales rollups, explicitly bound to tenant and active branch, with operator filtering for cashier-only users. Child joins also constrain tenant_id."
     }
   ]
 }

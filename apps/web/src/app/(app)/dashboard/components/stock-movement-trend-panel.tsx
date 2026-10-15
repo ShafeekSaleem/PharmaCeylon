@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { IconActivity, IconPackage, IconTruck } from "@/components/icons";
 import { withBranch } from "@/lib/api-branch";
+import { useDashboardRefresh } from "../hooks/use-dashboard-refresh";
 import { apiJson } from "@/lib/auth-client";
 import { DashboardPanel } from "./dashboard-panel";
 import { MetricCell } from "./metric-cell";
@@ -38,11 +39,14 @@ type Props = { branchId?: string | null };
 export function StockMovementTrendPanel({ branchId }: Props) {
   const [period, setPeriod] = useState<Period>("week");
   const [data, setData] = useState<TrendResponse | null>(null);
+  const refreshVersion = useDashboardRefresh();
+  const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setFailed(false);
     void apiJson<TrendResponse>(
       withBranch(`/analytics/stock-movement-trend?period=${period}`, branchId),
     )
@@ -50,6 +54,7 @@ export function StockMovementTrendPanel({ branchId }: Props) {
         if (!cancelled) setData(res);
       })
       .catch(() => {
+        if (!cancelled) setFailed(true);
         if (!cancelled) setData(null);
       })
       .finally(() => {
@@ -58,9 +63,10 @@ export function StockMovementTrendPanel({ branchId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [branchId, period]);
+  }, [branchId, period, refreshVersion]);
 
-  const isEmpty = !data || data.points.every((p) => p.received === 0 && p.issued === 0);
+  const isEmpty =
+    !data || data.points.every((p) => p.received === 0 && p.issued === 0);
 
   return (
     <DashboardPanel
@@ -80,6 +86,10 @@ export function StockMovementTrendPanel({ branchId }: Props) {
     >
       {loading && !data ? (
         <p className={css.emptyState}>Loading movements…</p>
+      ) : failed ? (
+        <p className={css.emptyState} role="status">
+          Data unavailable. Refresh the dashboard to try again.
+        </p>
       ) : isEmpty ? (
         <p className={css.emptyState}>No stock movements in this period.</p>
       ) : (
@@ -87,14 +97,23 @@ export function StockMovementTrendPanel({ branchId }: Props) {
           {/* SimpleGroupedBarChart floors its own viewBox height at 168, but its
               SVG stretches to fill this wrapper via flex (height:100%) — so a
               fixed-height flex column here is what actually shrinks it. */}
-          <div style={{ height: 140, display: "flex", flexDirection: "column" }}>
+          <div
+            style={{ height: 140, display: "flex", flexDirection: "column" }}
+          >
             <SimpleGroupedBarChart
-              points={data.points.map((p) => ({ label: p.label, a: p.received, b: p.issued }))}
+              points={data.points.map((p) => ({
+                label: p.label,
+                a: p.received,
+                b: p.issued,
+              }))}
               aLabel="Received"
               bLabel="Issued"
             />
           </div>
-          <div className={css.overviewChartsSummary} style={{ marginTop: "0.5rem" }}>
+          <div
+            className={css.overviewChartsSummary}
+            style={{ marginTop: "0.5rem" }}
+          >
             <MetricCell
               label="Received"
               value={`+${data.receivedTotal.toLocaleString()} units`}

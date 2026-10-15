@@ -13,7 +13,11 @@ describe("apiFetch headers", () => {
 
   beforeEach(() => {
     fetchMock.mockReset();
-    fetchMock.mockResolvedValue({ status: 200, ok: true, text: async () => "{}" });
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: async () => "{}",
+    });
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
@@ -48,5 +52,12 @@ describe("apiFetch headers", () => {
   it("does not set one on a GET with no body", async () => {
     await apiFetch("/purchasing/deliveries");
     expect(headersOf(0).get("Content-Type")).toBeNull();
+  });
+
+  it("preserves an explicit branch scope when shared storage changes", async () => {
+    await apiFetch("/dashboard/work", {
+      headers: { "x-branch-id": "request-branch" },
+    });
+    expect(headersOf(0).get("x-branch-id")).toBe("request-branch");
   });
 });

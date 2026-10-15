@@ -10,7 +10,7 @@ import {
 import { resolveStockStatus } from "../products/stock-qty.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { StockReadService } from "../inventory/stock/stock-read.service";
-import { businessToday, safeTimeZone } from "../common/business-date.util";
+import { addDays, businessDateKey, businessToday, safeTimeZone, startOfBusinessDay } from "../common/business-date.util";
 import { UpsertBranchMonthlyTargetDto } from "./dto/upsert-branch-monthly-target.dto";
 
 function monthKey(d = new Date()): string {
@@ -363,13 +363,43 @@ export class AnalyticsService {
   ) {
     const scopedBranchId = await this.resolveOptionalBranch(tenantId, branchId);
     const days = [7, 14, 30].includes(trendDays) ? trendDays : 7;
-    const todayStart = startOfToday();
-    const yesterdayStart = new Date(todayStart);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    const rangeStart = new Date(todayStart);
-    rangeStart.setDate(rangeStart.getDate() - (days - 1));
-
-    const mix = mixWindow(todayStart, mixPeriod);
+    const clock = scopedBranchId
+      ? await this.prisma.branch.findFirst({
+          where: { tenantId, id: scopedBranchId },
+          select: { timezone: true },
+        })
+      : await this.prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { timezone: true },
+        });
+    const timezone = safeTimeZone(clock?.timezone);
+    const todayDate = businessToday(timezone);
+    const key = (date: Date) => date.toISOString().slice(0, 10);
+    const todayStart = startOfBusinessDay(timezone, key(todayDate));
+    const tomorrowStart = startOfBusinessDay(
+      timezone,
+      key(addDays(todayDate, 1)),
+    );
+    const yesterdayStart = startOfBusinessDay(
+      timezone,
+      key(addDays(todayDate, -1)),
+    );
+    const rangeStart = startOfBusinessDay(
+      timezone,
+      key(addDays(todayDate, -(days - 1))),
+    );
+    const mixStartDate =
+      mixPeriod === "today"
+        ? todayDate
+        : mixPeriod === "this_week"
+          ? addDays(todayDate, -((todayDate.getUTCDay() + 6) % 7))
+          : new Date(
+              Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), 1),
+            );
+    const mix = {
+      start: startOfBusinessDay(timezone, key(mixStartDate)),
+      end: tomorrowStart,
+    };
 
     const posted: Prisma.SaleWhereInput = {
       tenantId,
@@ -379,15 +409,13 @@ export class AnalyticsService {
 
     const paymentSaleWhere: Prisma.SaleWhereInput = {
       ...posted,
-      soldAt: mix.end
-        ? { gte: mix.start, lt: mix.end }
-        : { gte: mix.start },
+      soldAt: mix.end ? { gte: mix.start, lt: mix.end } : { gte: mix.start },
     };
 
     const [todayAgg, yesterdayAgg, rangeSales, mixPayments, mixSalesAgg] =
       await Promise.all([
         this.prisma.sale.aggregate({
-          where: { ...posted, soldAt: { gte: todayStart } },
+          where: { ...posted, soldAt: { gte: todayStart, lt: tomorrowStart } },
           _sum: { grandTotal: true },
           _count: { _all: true },
         }),
@@ -399,7 +427,7 @@ export class AnalyticsService {
           _sum: { grandTotal: true },
         }),
         this.prisma.sale.findMany({
-          where: { ...posted, soldAt: { gte: rangeStart } },
+          where: { ...posted, soldAt: { gte: rangeStart, lt: tomorrowStart } },
           select: { soldAt: true, grandTotal: true },
         }),
         this.prisma.salePayment.findMany({
@@ -419,12 +447,11 @@ export class AnalyticsService {
 
     const byDay = new Map<string, number>();
     for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(todayStart);
-      d.setDate(d.getDate() - i);
+      const d = addDays(todayDate, -i);
       byDay.set(d.toISOString().slice(0, 10), 0);
     }
     for (const s of rangeSales) {
-      const key = new Date(s.soldAt).toISOString().slice(0, 10);
+      const key = businessDateKey(timezone, new Date(s.soldAt));
       if (!byDay.has(key)) continue;
       byDay.set(key, (byDay.get(key) ?? 0) + Number(s.grandTotal));
     }
@@ -454,7 +481,8 @@ export class AnalyticsService {
     const yesterdayTotal = Number(yesterdayAgg._sum.grandTotal ?? 0);
     const vsYesterdayPct =
       yesterdayTotal > 0
-        ? Math.round(((todayTotal - yesterdayTotal) / yesterdayTotal) * 1000) / 10
+        ? Math.round(((todayTotal - yesterdayTotal) / yesterdayTotal) * 1000) /
+          10
         : todayTotal > 0
           ? null
           : 0;

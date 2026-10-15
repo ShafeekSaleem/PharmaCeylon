@@ -56,7 +56,10 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     width: "wide",
     rows: 16,
     component: ({ data }) => (
-      <BusinessOverviewPanel fallbackTrend={data.salesTrend7d} analyticsBranchId={data.analyticsBranchId} />
+      <BusinessOverviewPanel
+        fallbackTrend={data.salesTrend7d}
+        analyticsBranchId={data.analyticsBranchId}
+      />
     ),
   },
   {
@@ -66,7 +69,9 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     category: "Overview",
     width: "narrow",
     rows: 12,
-    component: ({ data }) => <CashFlowPanel analyticsBranchId={data.analyticsBranchId} />,
+    component: ({ data }) => (
+      <CashFlowPanel analyticsBranchId={data.analyticsBranchId} />
+    ),
   },
   {
     key: "owner.branch-sales-trend",
@@ -187,7 +192,9 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     category: "Overview",
     width: "narrow",
     rows: 16,
-    component: ({ data }) => <CustomerBreakdownPanel branchId={data.branchId} />,
+    component: ({ data }) => (
+      <CustomerBreakdownPanel branchId={data.branchId} />
+    ),
   },
   {
     key: "manager.transfer-po-pipeline",
@@ -256,7 +263,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     key: "pharmacist.dispensing-throughput",
-    title: "Dispensing Throughput (Today)",
+    title: "Units Sold (Today)",
     roles: ["pharmacist"],
     category: "Dispensing",
     width: "narrow",
@@ -274,7 +281,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     key: "pharmacist.frequently-dispensed",
-    title: "Frequently Dispensed",
+    title: "Top Products Sold Today",
     roles: ["pharmacist"],
     category: "Dispensing",
     width: "narrow",
@@ -312,11 +319,11 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   // ── Cashier ──
   {
     key: "cashier.shift-performance",
-    title: "Shift Performance (Today)",
+    title: "Sales Performance (Today)",
     roles: ["cashier"],
     category: "Overview",
     width: "wide",
-    rows: 24,
+    rows: 15,
     component: CashierShiftPerformanceWidget,
   },
   {
@@ -325,7 +332,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["cashier"],
     category: "Sales",
     width: "narrow",
-    rows: 16,
+    rows: 11,
     component: CashierPaymentMethodsWidget,
   },
   {
@@ -335,7 +342,9 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     category: "Overview",
     width: "narrow",
     rows: 16,
-    component: ({ data }) => <CustomerBreakdownPanel branchId={data.branchId} />,
+    component: ({ data }) => (
+      <CustomerBreakdownPanel branchId={data.branchId} />
+    ),
   },
   {
     key: "cashier.held-bills",
@@ -361,7 +370,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ["cashier"],
     category: "Sales",
     width: "narrow",
-    rows: 23,
+    rows: 15,
     component: CashierRecentTransactionsWidget,
   },
   {
@@ -382,7 +391,9 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     category: "Inventory",
     width: "wide",
     rows: 15,
-    component: ({ data }) => <StockMovementTrendPanel branchId={data.branchId} />,
+    component: ({ data }) => (
+      <StockMovementTrendPanel branchId={data.branchId} />
+    ),
   },
   {
     key: "inventory_clerk.inventory-health",
@@ -450,5 +461,13 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
 ];
 
 export function catalogForRole(role: DashboardRole): WidgetDef[] {
-  return WIDGET_REGISTRY.filter((w) => w.roles.includes(role));
+  const unsupported = new Set([
+    "pharmacist.prescription-queue",
+    "pharmacist.drug-interaction",
+    "pharmacist.ai-insights",
+    "inventory_clerk.ai-insights",
+  ]);
+  return WIDGET_REGISTRY.filter(
+    (w) => w.roles.includes(role) && !unsupported.has(w.key),
+  );
 }

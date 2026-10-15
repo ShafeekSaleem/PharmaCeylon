@@ -260,8 +260,8 @@ export class SalesController {
 
   @RequirePermission("sales.view")
   @Get()
-  list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
-    return this.sales.listSales(user.tenantId, branchId);
+  list(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string, @Query("mine") mine?: string) {
+    return this.sales.listSales(user.tenantId, branchId, 50, mine === "1" ? user.userId : undefined);
   }
 
   @RequirePermission("sales.view")

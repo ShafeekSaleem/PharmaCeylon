@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { withBranch } from "@/lib/api-branch";
+import { useDashboardRefresh } from "../hooks/use-dashboard-refresh";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import {
@@ -47,6 +48,9 @@ export function BusinessOverviewPanel({
   fallbackTrend = [],
   analyticsBranchId = null,
 }: Props) {
+  const refreshVersion = useDashboardRefresh();
+  const [trendFailed, setTrendFailed] = useState(false);
+  const [revFailed, setRevFailed] = useState(false);
   const [trendDays, setTrendDays] = useState<TrendDays>(7);
   const [revPeriod, setRevPeriod] = useState<MonthPeriod>("this_month");
 
@@ -62,17 +66,20 @@ export function BusinessOverviewPanel({
   useEffect(() => {
     let cancelled = false;
     setLoadingTrend(true);
+    setTrendFailed(false);
     void apiJson<{
       salesTrend?: ChartPoint[];
       salesTrend7d?: ChartPoint[];
-    }>(withBranch(`/analytics/sales-pulse?days=${trendDays}`, analyticsBranchId))
+    }>(
+      withBranch(`/analytics/sales-pulse?days=${trendDays}`, analyticsBranchId),
+    )
       .then((res) => {
         if (cancelled) return;
         const pts = res.salesTrend ?? res.salesTrend7d ?? [];
         setTrend(pts.map((p) => ({ label: p.label, value: p.value })));
       })
       .catch(() => {
-        /* keep prior / fallback */
+        if (!cancelled) setTrendFailed(true);
       })
       .finally(() => {
         if (!cancelled) setLoadingTrend(false);
@@ -80,7 +87,7 @@ export function BusinessOverviewPanel({
     return () => {
       cancelled = true;
     };
-  }, [trendDays, analyticsBranchId]);
+  }, [trendDays, analyticsBranchId, refreshVersion]);
 
   useEffect(() => {
     if (fallbackTrend.length && trend.length === 0) {
@@ -91,6 +98,7 @@ export function BusinessOverviewPanel({
   useEffect(() => {
     let cancelled = false;
     setLoadingRev(true);
+    setRevFailed(false);
     const comparePeriod: MonthPeriod | null =
       revPeriod === "this_month" ? "last_month" : null;
 
@@ -132,6 +140,7 @@ export function BusinessOverviewPanel({
       })
       .catch(() => {
         if (!cancelled) {
+          setRevFailed(true);
           setRevPoints([]);
           setTotalRevenue(0);
           setTotalPurchases(0);
@@ -145,16 +154,17 @@ export function BusinessOverviewPanel({
     return () => {
       cancelled = true;
     };
-  }, [revPeriod, analyticsBranchId]);
+  }, [revPeriod, analyticsBranchId, refreshVersion]);
 
-  /** Totals follow Revenue vs Purchases period (not Sales Trend days). */
+  /** Totals follow Sales vs PO Value period (not Sales Trend days). */
   const totalProfit = totalRevenue - totalPurchases;
   const prevProfit =
     prevRevenue != null && prevPurchases != null
       ? prevRevenue - prevPurchases
       : null;
   const revPeriodLabel =
-    MONTH_OPTIONS.find((o) => o.value === revPeriod)?.label ?? "Selected period";
+    MONTH_OPTIONS.find((o) => o.value === revPeriod)?.label ??
+    "Selected period";
   const compareLabel = "vs Last month";
   const canCompare = prevRevenue != null && prevPurchases != null;
 
@@ -182,6 +192,10 @@ export function BusinessOverviewPanel({
               <div className={css.overviewChartGrow}>
                 {loadingTrend && trend.length === 0 ? (
                   <p className={css.emptyState}>Loading trend…</p>
+                ) : trendFailed ? (
+                  <p className={css.emptyState} role="status">
+                    Sales trend unavailable. Refresh to retry.
+                  </p>
                 ) : (
                   <SimpleLineChart
                     points={trend}
@@ -198,9 +212,9 @@ export function BusinessOverviewPanel({
 
             <section className={css.overviewSubcard}>
               <div className={css.subHeadingRow}>
-                <h3 className={css.subHeading}>Revenue vs Purchases</h3>
+                <h3 className={css.subHeading}>Sales vs PO Value</h3>
                 <PeriodToggle
-                  aria-label="Revenue vs purchases period"
+                  aria-label="Sales vs PO value period"
                   value={revPeriod}
                   options={MONTH_OPTIONS}
                   onChange={(v) => setRevPeriod(v as MonthPeriod)}
@@ -209,11 +223,15 @@ export function BusinessOverviewPanel({
               <div className={css.overviewChartGrow}>
                 {loadingRev && revPoints.length === 0 ? (
                   <p className={css.emptyState}>Loading series…</p>
+                ) : revFailed ? (
+                  <p className={css.emptyState} role="status">
+                    Order series unavailable. Refresh to retry.
+                  </p>
                 ) : (
                   <SimpleGroupedBarChart
                     points={revPoints}
                     aLabel="Revenue"
-                    bLabel="Purchases"
+                    bLabel="PO value"
                     height={168}
                   />
                 )}
@@ -227,7 +245,7 @@ export function BusinessOverviewPanel({
           >
             <MetricCell
               label="Total Revenue"
-              value={formatMoney(totalRevenue)}
+              value={revFailed ? "—" : formatMoney(totalRevenue)}
               icon={<IconDollarSign size={16} strokeWidth={1.75} />}
               iconTone="revenue"
               trend={
@@ -240,8 +258,8 @@ export function BusinessOverviewPanel({
               }
             />
             <MetricCell
-              label="Total Purchases"
-              value={formatMoney(totalPurchases)}
+              label="Orders placed"
+              value={revFailed ? "—" : formatMoney(totalPurchases)}
               icon={<IconShoppingCart size={16} strokeWidth={1.75} />}
               iconTone="purchases"
               trend={
@@ -254,8 +272,8 @@ export function BusinessOverviewPanel({
               }
             />
             <MetricCell
-              label="Total Profit"
-              value={formatMoney(totalProfit)}
+              label="Sales less PO value"
+              value={revFailed ? "—" : formatMoney(totalProfit)}
               icon={<IconBanknote size={16} strokeWidth={1.75} />}
               iconTone="profit"
               trend={

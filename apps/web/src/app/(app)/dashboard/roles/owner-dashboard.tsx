@@ -12,7 +12,10 @@ import {
 } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
-import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
+import {
+  AttentionTicker,
+  type TickerItem,
+} from "../components/attention-ticker";
 import { DashboardCanvas } from "../components/dashboard-canvas";
 import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
@@ -20,7 +23,11 @@ import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { UseDashboardLayoutResult } from "../hooks/use-dashboard-layout";
 import type { WidgetDef } from "../widgets/types";
 
-type Props = { data: DashboardData; catalog: WidgetDef[]; layout: UseDashboardLayoutResult };
+type Props = {
+  data: DashboardData;
+  catalog: WidgetDef[];
+  layout: UseDashboardLayoutResult;
+};
 
 export function OwnerDashboard({ data, catalog, layout }: Props) {
   const {
@@ -38,9 +45,7 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
     ownerTodayTxnCount,
     ownerSalesTrendLabel,
     ownerSalesTrendPositive,
-    ownerTodayGrossProfit,
-    ownerGrossProfitTrendLabel,
-    ownerGrossProfitTrendPositive,
+    ownerGrossProfit30d,
     branchesReportingToday,
     branchesReportingTotal,
     ownerScope,
@@ -53,7 +58,12 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
     () =>
       pendingApprovalListFull.reduce(
         (sum, po) =>
-          sum + po.items.reduce((lineSum, item) => lineSum + Number(item.unitCost) * item.orderedQty, 0),
+          sum +
+          po.items.reduce(
+            (lineSum, item) =>
+              lineSum + Number(item.unitCost) * item.orderedQty,
+            0,
+          ),
         0,
       ),
     [pendingApprovalListFull],
@@ -133,74 +143,15 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
     const txnLabel = `${ownerTodayTxnCount} transaction${ownerTodayTxnCount === 1 ? "" : "s"}`;
     if (ownerScope === "this_branch") return `${txnLabel} today`;
     return `${txnLabel} · ${branchesReportingToday} of ${branchesReportingTotal} branches reporting`;
-  }, [ownerTodayTxnCount, ownerScope, branchesReportingToday, branchesReportingTotal]);
+  }, [
+    ownerTodayTxnCount,
+    ownerScope,
+    branchesReportingToday,
+    branchesReportingTotal,
+  ]);
 
   return (
     <>
-      <HeroBand
-        label="Today's Sales"
-        value={formatMoney(ownerTodaySalesTotal)}
-        scope={`${ownerScopeLabel} · vs yesterday`}
-        meta={loading ? undefined : heroMeta}
-        loading={loading}
-        sparkline={salesTrend7d}
-        trend={
-          ownerSalesTrendLabel
-            ? { label: ownerSalesTrendLabel, direction: ownerSalesTrendPositive ? "up" : "down" }
-            : undefined
-        }
-        secondary={[
-          {
-            key: "gp",
-            label: "Gross Profit (Today)",
-            value: hasMarginData ? formatMoney(ownerTodayGrossProfit) : "—",
-            meta:
-              hasMarginData && marginPct != null
-                ? `Margin ${marginPct.toFixed(1)}%`
-                : "From margin report",
-            trend:
-              hasMarginData && ownerGrossProfitTrendLabel
-                ? {
-                    label: ownerGrossProfitTrendLabel,
-                    direction: ownerGrossProfitTrendPositive ? "up" : "down",
-                  }
-                : undefined,
-            href: "/reports?category=profitability&report=gross-profit",
-            linkLabel: "View margin",
-          },
-          {
-            key: "recv",
-            label: "Outstanding Receivables",
-            value: financial ? formatMoney(financial.receivablesOutstanding) : "—",
-            meta: financial ? `${financial.receivablesCustomerCount} customers` : undefined,
-          },
-          {
-            key: "payables",
-            label: "Outstanding Payables",
-            value: financial ? formatMoney(financial.payablesOutstanding) : "—",
-            meta: financial ? `${financial.payablesSupplierCount} suppliers` : undefined,
-            href: "/suppliers",
-            linkLabel: "Open suppliers",
-          },
-        ]}
-      />
-
-      <AttentionTicker
-        items={tickerItems}
-        loading={kpisLoading}
-        allClearText={`No alerts — ${scopePhrase} looks healthy`}
-      />
-
-      <DashboardCanvas
-        catalog={catalog}
-        layout={layout.layout}
-        data={data}
-        isEditing={layout.isEditing}
-        loading={layout.loading}
-        onLayoutChange={layout.updateLayout}
-        onRemoveWidget={layout.removeWidget}
-      />
-
       <QuickActionsBar
         title="Owner Quick Actions"
         actions={[
@@ -261,6 +212,72 @@ export function OwnerDashboard({ data, catalog, layout }: Props) {
             tone: "danger",
           },
         ]}
+      />
+
+      <HeroBand
+        label="Today's Sales"
+        value={formatMoney(ownerTodaySalesTotal)}
+        scope={`${ownerScopeLabel} · vs yesterday`}
+        meta={loading ? undefined : heroMeta}
+        loading={loading}
+        sparkline={salesTrend7d}
+        trend={
+          ownerSalesTrendLabel
+            ? {
+                label: ownerSalesTrendLabel,
+                direction: ownerSalesTrendPositive ? "up" : "down",
+              }
+            : undefined
+        }
+        secondary={[
+          {
+            key: "gp",
+            label: "Gross Profit · Last 30 Days",
+            value: hasMarginData ? formatMoney(ownerGrossProfit30d) : "—",
+            meta:
+              hasMarginData && marginPct != null
+                ? `30-day margin ${marginPct.toFixed(1)}%`
+                : "From margin report",
+            href: "/reports?category=profitability&report=gross-profit",
+            linkLabel: "View margin",
+          },
+          {
+            key: "recv",
+            label: "Recorded Credit Sales",
+            value: financial
+              ? formatMoney(financial.receivablesOutstanding)
+              : "—",
+            meta: financial
+              ? `${financial.receivablesCustomerCount} customers`
+              : undefined,
+          },
+          {
+            key: "payables",
+            label: "Outstanding Payables",
+            value: financial ? formatMoney(financial.payablesOutstanding) : "—",
+            meta: financial
+              ? `${financial.payablesSupplierCount} suppliers`
+              : undefined,
+            href: "/suppliers",
+            linkLabel: "Open suppliers",
+          },
+        ]}
+      />
+
+      <AttentionTicker
+        items={tickerItems}
+        loading={kpisLoading}
+        allClearText={`No alerts — ${scopePhrase} looks healthy`}
+      />
+
+      <DashboardCanvas
+        catalog={catalog}
+        layout={layout.layout}
+        data={data}
+        isEditing={layout.isEditing}
+        loading={layout.loading}
+        onLayoutChange={layout.updateLayout}
+        onRemoveWidget={layout.removeWidget}
       />
     </>
   );

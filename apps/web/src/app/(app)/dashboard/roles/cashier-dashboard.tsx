@@ -50,7 +50,7 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
     branchId,
   } = data;
 
-  const rxWaiting = pharmacistHolds.length;
+  const rxWaiting = data.salesMetrics?.holds.pharmacist ?? 0;
   const { data: breakdown } = useCustomerBreakdown(branchId);
 
   const tickerItems: TickerItem[] = useMemo(() => {
@@ -73,10 +73,10 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
         href: "/pos?panel=holds",
       });
     }
-    if (lowStockRows.length > 0) {
+    if ((data.lowStockCount ?? 0) > 0) {
       items.push({
         key: "low",
-        count: lowStockRows.length,
+        count: data.lowStockCount ?? 0,
         label: "items low on stock at counter",
         tone: "warning",
         href: "/inventory?view=low",
@@ -95,94 +95,13 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
   }, [
     rxWaiting,
     holdCount,
-    lowStockRows.length,
+    data.lowStockCount,
     returnsTodayCount,
     returnsTodayTotal,
   ]);
 
   return (
     <>
-      <HeroBand
-        label="Shift Sales"
-        value={formatMoney(todaySalesTotal)}
-        scope="This shift · vs yesterday"
-        loading={loading}
-        sparkline={hourlyToday}
-        trend={
-          salesTrendLabel
-            ? {
-                label: salesTrendLabel,
-                direction: salesTrendPositive ? "up" : "down",
-              }
-            : undefined
-        }
-        secondary={[
-          {
-            key: "bills",
-            label: "Bills Processed",
-            value: todaySalesCount,
-            meta: "Posted today",
-            trend: billsTrendLabel
-              ? {
-                  label: billsTrendLabel,
-                  direction: billsTrendPositive ? "up" : "down",
-                }
-              : undefined,
-            href: "/pos",
-            linkLabel: "Open POS",
-          },
-          {
-            key: "held",
-            label: "Held Sales",
-            value: holdCount,
-            meta: `Value: ${formatMoney(holdValue)}`,
-            href: "/pos?panel=holds",
-            linkLabel: "View holds",
-          },
-          {
-            key: "customers",
-            label: "Customers Today",
-            value: breakdown?.total ?? 0,
-            meta: breakdown ? (
-              <span className={css.heroBreakdownRow}>
-                <span className={css.heroBreakdownItem}>
-                  <i
-                    className={css.heroBreakdownDot}
-                    style={{ background: "var(--pc-muted-fg)" }}
-                  />
-                  {breakdown.walkIn} walk-in
-                </span>
-                <span className={css.heroBreakdownItem}>
-                  <i
-                    className={css.heroBreakdownDot}
-                    style={{ background: "var(--pc-primary)" }}
-                  />
-                  {breakdown.registered} registered
-                </span>
-              </span>
-            ) : undefined,
-            href: "/pos?panel=customer",
-            linkLabel: "Find customer",
-          },
-        ]}
-      />
-
-      <AttentionTicker
-        items={tickerItems}
-        loading={loading}
-        allClearText="No counter alerts — all clear"
-      />
-
-      <DashboardCanvas
-        catalog={catalog}
-        layout={layout.layout}
-        data={data}
-        isEditing={layout.isEditing}
-        loading={layout.loading}
-        onLayoutChange={layout.updateLayout}
-        onRemoveWidget={layout.removeWidget}
-      />
-
       <QuickActionsBar
         title="Cashier Quick Actions"
         actions={[
@@ -236,6 +155,92 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
             tone: "danger",
           },
         ]}
+      />
+
+      <HeroBand
+        label={
+          data.salesMetrics?.scope === "personal"
+            ? "Your Sales Today"
+            : "Branch Sales Today"
+        }
+        value={data.salesMetrics ? formatMoney(todaySalesTotal) : "—"}
+        scope="Business day · vs yesterday"
+        loading={loading}
+        sparkline={hourlyToday}
+        trend={
+          salesTrendLabel
+            ? {
+                label: salesTrendLabel,
+                direction: salesTrendPositive ? "up" : "down",
+              }
+            : undefined
+        }
+        secondary={[
+          {
+            key: "bills",
+            label: "Bills Processed",
+            value: todaySalesCount,
+            meta: "Posted today",
+            trend: billsTrendLabel
+              ? {
+                  label: billsTrendLabel,
+                  direction: billsTrendPositive ? "up" : "down",
+                }
+              : undefined,
+            href: "/pos",
+            linkLabel: "Open POS",
+          },
+          {
+            key: "held",
+            label: "Branch Held Bills",
+            value: holdCount,
+            meta: `Value: ${formatMoney(holdValue)}`,
+            href: "/pos?panel=holds",
+            linkLabel: "View holds",
+          },
+          {
+            key: "customers",
+            label: "Branch Customers Today",
+            value: breakdown?.total ?? "—",
+            meta: breakdown ? (
+              <span className={css.heroBreakdownRow}>
+                <span className={css.heroBreakdownItem}>
+                  <i
+                    className={css.heroBreakdownDot}
+                    style={{ background: "var(--pc-muted-fg)" }}
+                  />
+                  {breakdown.walkIn} walk-in
+                </span>
+                <span className={css.heroBreakdownItem}>
+                  <i
+                    className={css.heroBreakdownDot}
+                    style={{ background: "var(--pc-primary)" }}
+                  />
+                  {breakdown.registered} registered
+                </span>
+              </span>
+            ) : undefined,
+            href: "/pos?panel=customer",
+            linkLabel: "Find customer",
+          },
+        ]}
+      />
+
+      <AttentionTicker
+        items={tickerItems}
+        loading={loading}
+        unavailable={data.failedSections.size > 0}
+        allClearText="No counter alerts — all clear"
+      />
+
+      <DashboardCanvas
+        catalog={catalog}
+        layout={layout.layout}
+        data={data}
+        isEditing={layout.isEditing}
+        loading={layout.loading}
+        onLayoutChange={layout.updateLayout}
+        onRemoveWidget={layout.removeWidget}
       />
     </>
   );

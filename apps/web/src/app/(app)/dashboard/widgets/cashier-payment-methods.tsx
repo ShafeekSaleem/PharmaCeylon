@@ -22,7 +22,11 @@ export function CashierPaymentMethodsWidget({ data }: { data: DashboardData }) {
     <DashboardPanel
       title="Payment Methods Today"
       compact
-      badge={paymentMixIsPlaceholder ? <span className={css.placeholderBadge}>Sample</span> : undefined}
+      badge={
+        paymentMixIsPlaceholder ? (
+          <span className={css.placeholderBadge}>Sample</span>
+        ) : undefined
+      }
       footerHref="/pos"
       footerLabel="Open POS →"
       footerMeta={
@@ -32,16 +36,21 @@ export function CashierPaymentMethodsWidget({ data }: { data: DashboardData }) {
               <IconCreditCard size={11} strokeWidth={2.5} aria-hidden />
               {topPaymentMethod.label} leads
             </span>
-            <span className={css.muted}>{topPaymentMethod.pct.toFixed(0)}% of today&apos;s tenders</span>
+            <span className={css.muted}>
+              {topPaymentMethod.pct.toFixed(0)}% of today&apos;s tenders
+            </span>
           </span>
         ) : undefined
       }
     >
-      {paymentMixIsPlaceholder ? (
+      {paymentMix.length === 0 ? (
         <>
-          <p className={css.emptyState}>No tender data in today&apos;s sales yet.</p>
+          <p className={css.emptyState}>
+            No tender data in today&apos;s sales yet.
+          </p>
           <p className={css.placeholderNote}>
-            Mix chart stays empty until payment lines are present — not a live sample mix.
+            Mix chart stays empty until payment lines are present — not a live
+            sample mix.
           </p>
         </>
       ) : (
