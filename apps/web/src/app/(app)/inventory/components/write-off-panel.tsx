@@ -5,6 +5,7 @@ import { ModalButton } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import { formatMoney } from "@/lib/money";
+import { usePermissions } from "@/lib/permissions";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { useInventoryAccess } from "../hooks/use-inventory-access";
 import css from "../inventory.module.css";
@@ -38,8 +39,9 @@ type Props = {
  * off stock, and this month's write-offs by what happened underneath.
  */
 export function WriteOffPanel({ focusId, onChanged, onError }: Props) {
-  const { branchId } = useAuth();
+  const { branchId, user } = useAuth();
   const access = useInventoryAccess();
+  const { canSelfApprove } = usePermissions();
   const [held, setHeld] = useState<HeldWriteOff[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,7 +108,9 @@ export function WriteOffPanel({ focusId, onChanged, onError }: Props) {
                     {row.note ? ` · ${row.note}` : ""}
                   </span>
                 </div>
-                {access.canWriteOff ? (
+                {access.canWriteOff && row.requester.id === user?.id && !canSelfApprove ? (
+                  <span className={css.fieldHint}>Waiting for someone else to approve it</span>
+                ) : access.canWriteOff ? (
                   <div className={css.writeOffActions}>
                     <ModalButton variant="danger" onClick={() => setRejecting(row)} disabled={busy}>
                       Reject

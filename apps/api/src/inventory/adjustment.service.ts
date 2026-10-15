@@ -243,6 +243,14 @@ export class AdjustmentService {
    * What was written off this month, by what happened — units, and value for those who may see
    * cost. Read from the ledger, so it counts what actually posted.
    */
+  async writeOffPolicy(tenantId: string) {
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { approvalRequiredWriteOffThreshold: true },
+    });
+    return { threshold: settings?.approvalRequiredWriteOffThreshold?.toFixed(2) ?? null };
+  }
+
   async writeOffSummary(tenantId: string, branchId: string, canViewCost: boolean) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },

@@ -17,6 +17,8 @@ export type RefundReceipt = {
   refundedTo: Array<{ method: PaymentMethod; amount: number }>;
   reason: string;
   note: string | null;
+  /** Set when the refund was over the limit and someone else entered their PIN. */
+  approvedBy?: string | null;
 };
 
 type Props = {
@@ -101,6 +103,12 @@ export function PosRefundReceiptModal({ receipt, onClose, preferences, organizat
                 {receipt.note ? ` — ${receipt.note}` : ""}
               </span>
             </div>
+            {receipt.approvedBy ? (
+              <div className={css.summaryRow}>
+                <span className={css.summaryLabel}>Approved by</span>
+                <span className={css.summaryValue}>{receipt.approvedBy}</span>
+              </div>
+            ) : null}
           </div>
           {preferences.footerText ? (
             <p className={css.receiptSub} style={{ marginTop: "0.5rem" }}>

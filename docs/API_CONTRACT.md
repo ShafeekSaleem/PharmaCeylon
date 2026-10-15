@@ -131,6 +131,7 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | `GET /inventory/held-adjustments` | `inventory.view` | Write-offs waiting at the branch: kind, qty, `value` (**null** without `costs.view`), note, product, batch, requester. |
 | `POST /inventory/held-adjustments/:id/accept` | `inventory.write_off` | Posts the adjustment as entered. Refused for the person who raised it unless their role may approve its own requests. |
 | `POST /inventory/held-adjustments/:id/reject` | `inventory.write_off` | Body `{ reason }`. Nothing moves; the requester is told why. |
+| `GET /inventory/write-offs/policy` | `inventory.view` | `{ threshold }` — the write-off limit (decimal string, or null when off), so the form can say before posting that a write-off will wait. |
 | `GET /inventory/write-offs/summary` | `inventory.view` | This month's decreases at the branch by kind: `{ since, rows: [{ kind, label, units, value }] }`. |
 
 `POST /inventory/customer-returns` and `POST /inventory/supplier-returns` (which answered 410) have been removed, with the `inventory.customer_returns` permission. Customer returns are POS refunds; `POST /returns` is for supplier returns.

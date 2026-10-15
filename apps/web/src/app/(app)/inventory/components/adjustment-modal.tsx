@@ -6,6 +6,7 @@ import { RoleAccessDenied } from "@/components/role-access";
 import { DatePicker, Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/lib/money";
+import { usePermissions } from "@/lib/permissions";
 import { useInventoryAccess } from "../hooks/use-inventory-access";
 import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
@@ -67,7 +68,14 @@ function AdjustmentModalContent({
   onSuccess?: (message: string) => void;
 }) {
   const access = useInventoryAccess();
+  const { canSelfApprove } = usePermissions();
   const canAdd = access.canAdjustIn;
+  const [writeOffLimit, setWriteOffLimit] = useState<number | null>(null);
+  useEffect(() => {
+    apiJson<{ threshold: string | null }>("/inventory/write-offs/policy")
+      .then((policy) => setWriteOffLimit(policy.threshold == null ? null : Number(policy.threshold)))
+      .catch(() => setWriteOffLimit(null));
+  }, []);
   // Anyone who manages inventory may record a write-off; without "Write off stock" it is sent
   // to someone who has it.
   const canRecordOut = access.canAdjustIn || access.canWriteOff;
@@ -117,16 +125,24 @@ function AdjustmentModalContent({
     if (batchId && !batches.loading && !batches.rows.some((b) => b.id === batchId)) setBatchId("");
   }, [batchId, batches.loading, batches.rows]);
 
+  // One batch is no choice at all — take it, so the quantity step shows straight away.
+  useEffect(() => {
+    if (batchId || useNewBatch || kind === "opening" || batches.loading) return;
+    if (batches.rows.length === 1) setBatchId(batches.rows[0]!.id);
+  }, [batchId, useNewBatch, kind, batches.loading, batches.rows]);
+
   const productOptions = useMemo(() => {
     const map = new Map<string, { value: string; label: string }>();
-    for (const row of [...selectedStock.rows, ...stock.rows]) {
+    // Without a product the "selected" lookup is just the first page of everything — keep it out.
+    const pinned = productId ? selectedStock.rows : [];
+    for (const row of [...pinned, ...stock.rows]) {
       map.set(row.productId, {
         value: row.productId,
         label: `${row.product.sku} — ${row.product.name} (${row.availableQty} available)`,
       });
     }
     return [...map.values()];
-  }, [stock.rows, selectedStock.rows]);
+  }, [stock.rows, selectedStock.rows, productId]);
 
   const selectedProduct =
     stock.rows.find((r) => r.productId === productId) ??
@@ -142,14 +158,19 @@ function AdjustmentModalContent({
     : 0;
   const canTake = selectedBatch ? (fromHeldFirst ? selectedBatch.quarantinedQty + free : free) : 0;
 
-  const before = onNewBatch ? 0 : (selectedBatch?.qtyOnHand ?? null);
+  // An existing batch shows its own count; a new batch adds to the product's total.
+  const before = onNewBatch ? (selectedProduct?.qtyOnHand ?? 0) : (selectedBatch?.qtyOnHand ?? null);
   const after = before == null ? null : direction === "in" ? before + qty : before - qty;
   const unitCost = onNewBatch
     ? newBatch.costPrice !== "" ? Number(newBatch.costPrice) : null
     : selectedBatch?.costPrice != null ? Number(selectedBatch.costPrice) : null;
   const value = unitCost == null ? null : unitCost * qty * (direction === "in" ? 1 : -1);
-  // The server decides for certain (the write-off threshold too); this is the common case.
-  const goesForApproval = direction === "out" && !access.canWriteOff;
+  // The server decides for certain; this says so before posting. A write-off at or over the
+  // limit waits unless the person's role may approve its own requests.
+  const overLimit =
+    direction === "out" && writeOffLimit != null && value != null && Math.abs(value) >= writeOffLimit;
+  const goesForApproval =
+    direction === "out" && (!access.canWriteOff || (overLimit && !canSelfApprove));
 
   const newBatchValid =
     !!newBatch.batchNo.trim() &&
@@ -245,9 +266,11 @@ function AdjustmentModalContent({
           >
             {goesForApproval
               ? "Send for approval"
-              : direction === "out"
-                ? "Write off"
-                : "Add stock"}
+              : kind === "correction"
+                ? "Save correction"
+                : direction === "out"
+                  ? "Write off"
+                  : "Add stock"}
           </ModalButton>
         </ModalFooter>
       }
@@ -452,7 +475,11 @@ function AdjustmentModalContent({
 
           <div className={css.adjPreview} aria-live="polite">
             <div>
-              <span className={css.fieldHint}>{selectedProduct?.product.name ?? "Stock"} · on hand</span>
+              <span className={css.fieldHint}>
+                {onNewBatch || !selectedBatch
+                  ? `${selectedProduct?.product.name ?? "Stock"} · on hand`
+                  : `Batch ${selectedBatch.batchNo} · on hand`}
+              </span>
               <strong>
                 {before ?? "—"} → {after ?? "—"}
               </strong>
@@ -465,8 +492,10 @@ function AdjustmentModalContent({
             </div>
             {goesForApproval ? (
               <p className={css.adjApprovalNote}>
-                Your role can&apos;t write off stock, so this goes to someone who can. Nothing moves
-                until they accept it.
+                {access.canWriteOff
+                  ? `This is over the ${formatMoney(writeOffLimit ?? 0)} write-off limit, so someone else approves it.`
+                  : "Your role can't write off stock, so this goes to someone who can."}{" "}
+                Nothing moves until they accept it.
               </p>
             ) : null}
             {direction === "out" && qty > canTake ? (

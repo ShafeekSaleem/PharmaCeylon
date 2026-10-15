@@ -107,10 +107,13 @@ export function ReturnsContent({ lockedType, subnav }: ReturnsContentProps = {})
   // `?grn=…&damaged=1` — "Return to supplier" from a delivery opens the form on it.
   const grnParam = searchParams.get("grn");
   const damagedParam = searchParams.get("damaged") === "1";
+  // `?new=1&supplier=…` — "New return" from a supplier's window opens the form on that supplier.
+  const newParam = searchParams.get("new") === "1";
+  const supplierParam = searchParams.get("supplier");
 
   useEffect(() => {
-    if (grnParam) setCreateOpen(true);
-  }, [grnParam]);
+    if (grnParam || newParam) setCreateOpen(true);
+  }, [grnParam, newParam]);
 
   useEffect(() => {
     if (!returnParam) return;
@@ -843,12 +846,15 @@ export function ReturnsContent({ lockedType, subnav }: ReturnsContentProps = {})
         lockedType={lockedType}
         fromGoodsReceiptId={grnParam}
         damagedOnly={damagedParam}
+        supplierPreset={supplierParam}
         onClose={() => {
           setCreateOpen(false);
-          if (grnParam) {
+          if (grnParam || newParam) {
             const next = new URLSearchParams(searchParams.toString());
             next.delete("grn");
             next.delete("damaged");
+            next.delete("new");
+            next.delete("supplier");
             const qs = next.toString();
             router.replace(qs ? `${pathname}?${qs}` : pathname);
           }

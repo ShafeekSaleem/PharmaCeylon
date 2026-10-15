@@ -316,6 +316,13 @@ export class InventoryController {
     return this.adjustments.reject(user.tenantId, branchId, access, id, body?.reason ?? "");
   }
 
+  /** The write-off limit, so the form can say before posting that it will wait for approval. */
+  @RequirePermission("inventory.view")
+  @Get("write-offs/policy")
+  async writeOffPolicy(@CurrentUser() user: RequestUser) {
+    return this.adjustments.writeOffPolicy(user.tenantId);
+  }
+
   /** What was written off this month, by what happened. */
   @RequirePermission("inventory.view")
   @Get("write-offs/summary")

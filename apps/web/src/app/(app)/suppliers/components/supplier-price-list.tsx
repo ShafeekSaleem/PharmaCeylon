@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { TablePager } from "@/components/ui";
+import { ModalButton, TablePager } from "@/components/ui";
 import { Alert } from "@/components/alert";
 import { IconPlus, IconSearch, IconTrash } from "@/components/icons";
 import { apiJson } from "@/lib/auth-client";
@@ -34,6 +34,9 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [adding, setAdding] = useState(false);
+  /** The price just saved: its page is shown and its row marked, so the save is visible. */
+  const [justSaved, setJustSaved] = useState<string | null>(null);
+  const pendingPage = useRef<number | null>(null);
   const lastCostEdit = useRef<"pack" | "unit">("pack");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ productId: "", unitsPerPack: "1", packCost: "", unitCost: "" });
@@ -102,7 +105,10 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
   }, [rows, search]);
   // Long price lists page rather than stretching the supplier window.
   const PAGE = 15;
-  useEffect(() => setPage(1), [search]);
+  useEffect(() => {
+    setPage(pendingPage.current ?? 1);
+    pendingPage.current = null;
+  }, [search]);
   const shown = filtered.slice((page - 1) * PAGE, page * PAGE);
 
   const takenProductIds = useMemo(() => new Set(rows.map((r) => r.product.id)), [rows]);
@@ -129,6 +135,17 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
         }),
       });
       setRows(next);
+      const index = next.findIndex((row) => row.product.id === form.productId);
+      if (index >= 0) {
+        const target = Math.floor(index / PAGE) + 1;
+        if (search) {
+          pendingPage.current = target;
+          setSearch("");
+        } else {
+          setPage(target);
+        }
+        setJustSaved(form.productId);
+      }
       setForm({ productId: "", unitsPerPack: "1", packCost: "", unitCost: "" });
       setAdding(false);
     } catch (err) {
@@ -174,101 +191,96 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
       {error && <Alert variant="error">{error}</Alert>}
 
       {adding && (
-        <div className={pcss.extrasRow}>
-          <div className={pcss.field}>
-            <label className={pcss.fieldLabel}>Product</label>
-            <PurchasingSelect
-              label="Product"
-              hideLabel
-              value={form.productId}
-              options={productOptions}
-              placeholder={products.loading ? "Loading…" : "Select product…"}
-              searchPlaceholder="Search SKU or name…"
-              onSearchChange={products.search}
-              onChange={(value) => {
-                const product = products.rows.find((p) => p.id === value);
-                priceFields(
-                  {
-                    productId: value,
-                    ...(product?.unitsPerPack
-                      ? { unitsPerPack: String(product.unitsPerPack) }
-                      : {}),
-                  },
-                  "size",
-                );
-              }}
-              disabled={saving}
-              allowClear
-            />
+        <div className={scss.priceForm}>
+          <div className={scss.priceFormGrid}>
+            <div className={pcss.field}>
+              <PurchasingSelect
+                label="Product"
+                value={form.productId}
+                options={productOptions}
+                placeholder={products.loading ? "Loading…" : "Select product…"}
+                searchPlaceholder="Search SKU or name…"
+                onSearchChange={products.search}
+                onChange={(value) => {
+                  const product = products.rows.find((p) => p.id === value);
+                  priceFields(
+                    {
+                      productId: value,
+                      ...(product?.unitsPerPack
+                        ? { unitsPerPack: String(product.unitsPerPack) }
+                        : {}),
+                    },
+                    "size",
+                  );
+                }}
+                disabled={saving}
+                allowClear
+              />
+            </div>
+            <div className={pcss.field}>
+              <label className={pcss.fieldLabel} htmlFor="price-units-per-pack">
+                Units per pack
+              </label>
+              <input
+                id="price-units-per-pack"
+                type="number"
+                min={1}
+                className={pcss.input}
+                value={form.unitsPerPack}
+                onChange={(e) => priceFields({ unitsPerPack: e.target.value }, "size")}
+                disabled={saving}
+              />
+            </div>
+            <div className={pcss.field}>
+              <label className={pcss.fieldLabel} htmlFor="price-pack-cost">
+                Cost per pack
+              </label>
+              <input
+                id="price-pack-cost"
+                type="number"
+                min={0}
+                step="0.01"
+                className={pcss.input}
+                placeholder="0.00"
+                value={form.packCost}
+                onChange={(e) => priceFields({ packCost: e.target.value }, "pack")}
+                disabled={saving}
+              />
+              <span className={pcss.packHint}>
+                {Number(form.unitsPerPack) > 1
+                  ? `Fills the unit cost, and follows it — ${form.unitsPerPack} units per pack.`
+                  : "Same as the unit cost while the pack is a single unit."}
+              </span>
+            </div>
+            <div className={pcss.field}>
+              <label className={pcss.fieldLabel} htmlFor="price-unit-cost">
+                Cost per unit
+              </label>
+              <input
+                id="price-unit-cost"
+                type="number"
+                min={0}
+                step="0.01"
+                className={pcss.input}
+                placeholder="0.00"
+                value={form.unitCost}
+                onChange={(e) => priceFields({ unitCost: e.target.value }, "unit")}
+                disabled={saving}
+              />
+            </div>
           </div>
-          <div className={pcss.field}>
-            <label className={pcss.fieldLabel} htmlFor="price-units-per-pack">
-              Units per pack
-            </label>
-            <input
-              id="price-units-per-pack"
-              type="number"
-              min={1}
-              className={pcss.input}
-              value={form.unitsPerPack}
-              onChange={(e) => priceFields({ unitsPerPack: e.target.value }, "size")}
-              disabled={saving}
-            />
-          </div>
-          <div className={pcss.field}>
-            <label className={pcss.fieldLabel} htmlFor="price-pack-cost">
-              Cost per pack
-            </label>
-            <input
-              id="price-pack-cost"
-              type="number"
-              min={0}
-              step="0.01"
-              className={pcss.input}
-              placeholder="0.00"
-              value={form.packCost}
-              onChange={(e) => priceFields({ packCost: e.target.value }, "pack")}
-              disabled={saving}
-            />
-            <span className={pcss.packHint}>
-              {Number(form.unitsPerPack) > 1
-                ? `Fills the unit cost, and follows it — ${form.unitsPerPack} units per pack.`
-                : "Same as the unit cost while the pack is a single unit."}
-            </span>
-          </div>
-          <div className={pcss.field}>
-            <label className={pcss.fieldLabel} htmlFor="price-unit-cost">
-              Cost per unit
-            </label>
-            <input
-              id="price-unit-cost"
-              type="number"
-              min={0}
-              step="0.01"
-              className={pcss.input}
-              placeholder="0.00"
-              value={form.unitCost}
-              onChange={(e) => priceFields({ unitCost: e.target.value }, "unit")}
-              disabled={saving}
-            />
-          </div>
-          <div className={pcss.field}>
-            <button
-              type="button"
-              className={`${pcss.actionBtn} ${pcss.actionBtnPrimary}`}
-              onClick={() => void save()}
-              disabled={saving || !form.productId}
-            >
-              {saving ? "Saving…" : "Save price"}
-            </button>
-            <button
-              type="button"
-              className={pcss.actionBtn}
-              onClick={() => setAdding(false)}
-              disabled={saving}
-            >
+          <div className={scss.priceFormActions}>
+            <ModalButton onClick={() => setAdding(false)} disabled={saving}>
               Cancel
-            </button>
+            </ModalButton>
+            <ModalButton
+              variant="primary"
+              onClick={() => void save()}
+              loading={saving}
+              disabled={!form.productId}
+            >
+              Save price
+            </ModalButton>
           </div>
         </div>
       )}
@@ -308,7 +320,10 @@ export function SupplierPriceList({ supplierId, supplierName }: Props) {
             </thead>
             <tbody>
               {shown.map((row) => (
-                <tr key={row.id}>
+                <tr
+                  key={row.id}
+                  className={row.product.id === justSaved ? scss.priceRowSaved : undefined}
+                >
                   <td>
                     <div className={pcss.cellStrong}>{row.product.name}</div>
                     <div className={pcss.muted}>

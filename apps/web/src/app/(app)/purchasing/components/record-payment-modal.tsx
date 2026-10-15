@@ -84,7 +84,7 @@ export function RecordPaymentModal({
   useEffect(() => {
     if (!preset?.invoiceId || invoices.loading) return;
     const invoice = invoices.rows.find((row) => row.id === preset.invoiceId);
-    if (invoice && !allocations[invoice.id]) {
+    if (invoice && !(invoice.id in allocations)) {
       setAllocations({ [invoice.id]: invoice.balance });
       setAmount(invoice.balance);
     }
@@ -118,6 +118,20 @@ export function RecordPaymentModal({
 
   const valid =
     !!supplierId && amountNumber > 0 && !!paidOn && !allocationProblem;
+
+  // Paying one chosen invoice: the amount is what goes against it, so typing a part payment
+  // doesn't leave the invoice still set to its whole balance.
+  function changeAmount(next: string) {
+    setAmount(next);
+    if (mode !== "choose") return;
+    const chosen = Object.keys(allocations);
+    if (chosen.length !== 1) return;
+    const invoiceId = chosen[0]!;
+    const invoice = invoices.rows.find((row) => row.id === invoiceId);
+    if (!invoice) return;
+    const capped = Math.min(Number(next) || 0, Number(invoice.balance));
+    setAllocations({ [invoiceId]: capped > 0 ? capped.toFixed(2) : "" });
+  }
 
   async function submit() {
     if (!valid) return;
@@ -226,7 +240,7 @@ export function RecordPaymentModal({
             className={css.input}
             placeholder="0.00"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => changeAmount(e.target.value)}
             disabled={saving}
           />
         </div>
@@ -331,7 +345,10 @@ export function RecordPaymentModal({
                       <td>
                         {formatDate(row.dueDate)}
                         {row.overdue ? (
-                          <div className={css.fieldWarning}>Overdue</div>
+                          <>
+                            {" · "}
+                            <span className={css.fieldWarning}>overdue</span>
+                          </>
                         ) : null}
                       </td>
                       <td>{formatMoney(row.balance)}</td>

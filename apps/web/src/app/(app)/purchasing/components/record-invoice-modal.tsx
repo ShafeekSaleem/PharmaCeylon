@@ -9,7 +9,7 @@ import { useUnbilledDeliveries } from "../hooks/use-ledger";
 import { useSuppliers } from "../hooks/use-suppliers";
 import type { InvoiceDetail } from "../ledger-types";
 import css from "../purchasing.module.css";
-import { formatMoney, todayIsoDate } from "../utils";
+import { formatDate, formatMoney, todayIsoDate } from "../utils";
 import { PurchasingSelect } from "./purchasing-select";
 
 type Props = {
@@ -346,7 +346,7 @@ export function RecordInvoiceModal({
                     />
                     <span className={css.cellStrong}>{delivery.grnNumber}</span>
                     <span className={css.muted}>
-                      {delivery.receivedOn} · {delivery.poNumber} ·{" "}
+                      {formatDate(delivery.receivedOn)} · {delivery.poNumber} ·{" "}
                       {delivery.lines.length} line
                       {delivery.lines.length === 1 ? "" : "s"}
                       {delivery.supplierDeliveryNote

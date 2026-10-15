@@ -1726,6 +1726,11 @@
   border-bottom: 1px solid var(--pc-border);
 }
 
+/* A filter select is sized for a toolbar row; stacked in the form it keeps its own height. */
+.adjSection > .inventoryFilter {
+  flex: none;
+}
+
 .adjSection:last-child {
   border-bottom: none;
   margin-bottom: 0;

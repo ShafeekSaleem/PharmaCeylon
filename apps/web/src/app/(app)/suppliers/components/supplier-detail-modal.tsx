@@ -541,123 +541,125 @@ export function SupplierDetailModal({
               ]}
             />
 
-            {tab === "overview" ? (
-              <>
-                <div className={scss.overviewTiles}>
-                  <div className={scss.overviewTile}>
-                    <span className={scss.profileLabel}>Owed · all branches</span>
-                    <strong>{formatMoney(detail.outstanding)}</strong>
+            <div className={scss.supplierTabBody}>
+              {tab === "overview" ? (
+                <>
+                  <div className={scss.overviewTiles}>
+                    <div className={scss.overviewTile}>
+                      <span className={scss.profileLabel}>Owed · all branches</span>
+                      <strong>{formatMoney(detail.outstanding)}</strong>
+                    </div>
+                    <div className={scss.overviewTile}>
+                      <span className={scss.profileLabel}>Overdue · all branches</span>
+                      <strong className={detail.overdueAmount > 0 ? scss.dueOverdue : undefined}>
+                        {formatMoney(detail.overdueAmount)}
+                      </strong>
+                    </div>
+                    <div className={scss.overviewTile}>
+                      <span className={scss.profileLabel}>Last order</span>
+                      <strong>
+                        {detail.recentOrders[0] ? formatDate(detail.recentOrders[0].createdAt) : "—"}
+                      </strong>
+                    </div>
+                    <div className={scss.overviewTile}>
+                      <span className={scss.profileLabel}>Terms</span>
+                      <strong>
+                        {formatTerms(detail.paymentTermsDays)} · {detail.leadTimeDays}d lead
+                      </strong>
+                    </div>
                   </div>
-                  <div className={scss.overviewTile}>
-                    <span className={scss.profileLabel}>Overdue · all branches</span>
-                    <strong className={detail.overdueAmount > 0 ? scss.dueOverdue : undefined}>
-                      {formatMoney(detail.overdueAmount)}
-                    </strong>
-                  </div>
-                  <div className={scss.overviewTile}>
-                    <span className={scss.profileLabel}>Last order</span>
-                    <strong>
-                      {detail.recentOrders[0] ? formatDate(detail.recentOrders[0].createdAt) : "—"}
-                    </strong>
-                  </div>
-                  <div className={scss.overviewTile}>
-                    <span className={scss.profileLabel}>Terms</span>
-                    <strong>
-                      {formatTerms(detail.paymentTermsDays)} · {detail.leadTimeDays}d lead
-                    </strong>
-                  </div>
+              <div className={scss.profileGrid}>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Status</span>
+                  <span className={scss.profileValue}>
+                    <StatusBadge
+                      status={detail.status}
+                      label={displayStatusLabel(detail.status)}
+                    />
+                  </span>
                 </div>
-            <div className={scss.profileGrid}>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Status</span>
-                <span className={scss.profileValue}>
-                  <StatusBadge
-                    status={detail.status}
-                    label={displayStatusLabel(detail.status)}
-                  />
-                </span>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Type</span>
+                  <span className={scss.profileValue}>
+                    {displayTypeLabel(detail.type)}
+                  </span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Contact</span>
+                  <span className={scss.profileValue}>
+                    {detail.contactName ?? "—"}
+                  </span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Phone</span>
+                  <span className={scss.profileValue}>{detail.phone ?? "—"}</span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Email</span>
+                  <span className={scss.profileValue}>{detail.email ?? "—"}</span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Address</span>
+                  <span className={scss.profileValue}>
+                    {detail.addressLine || "—"}
+                  </span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>City</span>
+                  <span className={scss.profileValue}>{detail.city || "—"}</span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>VAT / TIN</span>
+                  <span className={scss.profileValue}>
+                    {detail.taxRegistrationNo || "—"}
+                  </span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Bank</span>
+                  <span className={scss.profileValue}>
+                    {detail.bankName || "—"}
+                  </span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Account name</span>
+                  <span className={scss.profileValue}>
+                    {detail.bankAccountName || "—"}
+                  </span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Account number</span>
+                  <span className={scss.profileValue}>
+                    {detail.bankAccountNo || "—"}
+                  </span>
+                </div>
+                <div className={scss.profileField}>
+                  <span className={scss.profileLabel}>Payment terms</span>
+                  <span className={scss.profileValue}>
+                    {formatTerms(detail.paymentTermsDays)} · lead{" "}
+                    {detail.leadTimeDays}d
+                  </span>
+                </div>
               </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Type</span>
-                <span className={scss.profileValue}>
-                  {displayTypeLabel(detail.type)}
-                </span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Contact</span>
-                <span className={scss.profileValue}>
-                  {detail.contactName ?? "—"}
-                </span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Phone</span>
-                <span className={scss.profileValue}>{detail.phone ?? "—"}</span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Email</span>
-                <span className={scss.profileValue}>{detail.email ?? "—"}</span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Address</span>
-                <span className={scss.profileValue}>
-                  {detail.addressLine || "—"}
-                </span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>City</span>
-                <span className={scss.profileValue}>{detail.city || "—"}</span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>VAT / TIN</span>
-                <span className={scss.profileValue}>
-                  {detail.taxRegistrationNo || "—"}
-                </span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Bank</span>
-                <span className={scss.profileValue}>
-                  {detail.bankName || "—"}
-                </span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Account name</span>
-                <span className={scss.profileValue}>
-                  {detail.bankAccountName || "—"}
-                </span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Account number</span>
-                <span className={scss.profileValue}>
-                  {detail.bankAccountNo || "—"}
-                </span>
-              </div>
-              <div className={scss.profileField}>
-                <span className={scss.profileLabel}>Payment terms</span>
-                <span className={scss.profileValue}>
-                  {formatTerms(detail.paymentTermsDays)} · lead{" "}
-                  {detail.leadTimeDays}d
-                </span>
-              </div>
+
+                </>
+              ) : null}
+
+              {tab === "orders" ? <SupplierOrdersTab supplierId={detail.id} /> : null}
+              {tab === "money" ? (
+                <SupplierMoneyTab
+                  supplierId={detail.id}
+                  canInvoice={canInvoice}
+                  canPay={canPay}
+                  refreshKey={moneyRefresh}
+                  onRecordInvoice={() => setInvoiceOpen(true)}
+                  onPay={(invoiceId) => setPayment({ invoiceId })}
+                />
+              ) : null}
+              {tab === "prices" && canManagePrices ? (
+                <SupplierPriceList supplierId={detail.id} supplierName={detail.name} />
+              ) : null}
+              {tab === "returns" ? <SupplierReturnsTab supplierId={detail.id} /> : null}
             </div>
-
-              </>
-            ) : null}
-
-            {tab === "orders" ? <SupplierOrdersTab supplierId={detail.id} /> : null}
-            {tab === "money" ? (
-              <SupplierMoneyTab
-                supplierId={detail.id}
-                canInvoice={canInvoice}
-                canPay={canPay}
-                refreshKey={moneyRefresh}
-                onRecordInvoice={() => setInvoiceOpen(true)}
-                onPay={(invoiceId) => setPayment({ invoiceId })}
-              />
-            ) : null}
-            {tab === "prices" && canManagePrices ? (
-              <SupplierPriceList supplierId={detail.id} supplierName={detail.name} />
-            ) : null}
-            {tab === "returns" ? <SupplierReturnsTab supplierId={detail.id} /> : null}
           </>
         ) : null}
       </Modal>

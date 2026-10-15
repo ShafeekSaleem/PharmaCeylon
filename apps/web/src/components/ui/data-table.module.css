@@ -183,6 +183,18 @@
   border-radius: var(--pc-radius-md, 8px);
 }
 
+/* A compact table's empty state is a line, not a panel — it sits among other sections. */
+.emptyCompact {
+  padding: 1rem;
+}
+
+.emptyCompact .emptyTitle {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  margin-bottom: 0;
+}
+
 .emptyIcon {
   color: var(--pc-muted-fg);
   margin-bottom: 0.75rem;

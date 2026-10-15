@@ -31,6 +31,8 @@ type Props = {
   fromGoodsReceiptId?: string | null;
   /** With `fromGoodsReceiptId`: only the units that arrived damaged. */
   damagedOnly?: boolean;
+  /** Open with this supplier chosen — "New return" from the supplier's own window. */
+  supplierPreset?: string | null;
 };
 
 /** What a delivery can still send back — `GET /returns/goods-receipts/:id/returnable`. */
@@ -97,6 +99,7 @@ export function CreateReturnModal({
   lockedType,
   fromGoodsReceiptId = null,
   damagedOnly = false,
+  supplierPreset = null,
 }: Props) {
   const { branchId } = useAuth();
   const { permissionKeys } = usePermissions();
@@ -140,7 +143,7 @@ export function CreateReturnModal({
     setType(lockedType ?? "customer");
     setCustomerName("");
     setSaleId("");
-    setSupplierId("");
+    setSupplierId(supplierPreset ?? "");
     setPurchaseOrderId("");
     setGoodsReceiptId("");
     setReason("");
@@ -261,7 +264,7 @@ export function CreateReturnModal({
       ...deliveryProducts.filter((p) => !known.has(p.id)),
     ].map((p) => ({
       value: p.id,
-      label: `${p.sku} — ${p.name}`,
+      label: p.name,
       meta: p.sku,
     }));
   }, [products.rows, deliveryProducts]);

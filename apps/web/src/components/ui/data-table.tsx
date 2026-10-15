@@ -255,7 +255,7 @@ export function DataTable<T>({
 
   if (!data.length) {
     return (
-      <div className={styles.empty}>
+      <div className={`${styles.empty}${compact ? ` ${styles.emptyCompact}` : ""}`}>
         {emptyIcon && <div className={styles.emptyIcon}>{emptyIcon}</div>}
         <div className={styles.emptyTitle}>{emptyTitle}</div>
         {emptyDescription && <div className={styles.emptyDesc}>{emptyDescription}</div>}

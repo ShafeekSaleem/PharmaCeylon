@@ -53,7 +53,7 @@ function dueLabel(balance: number, dueDate: Date | null, today: Date): string | 
   if (diffDays < 0) return `Overdue ${Math.abs(diffDays)}d`;
   if (diffDays === 0) return "Due today";
   if (diffDays <= 7) return `Due in ${diffDays}d`;
-  return `Due ${due.toISOString().slice(0, 10)}`;
+  return `Due ${due.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}`;
 }
 
 function invoiceStatusFromAmounts(

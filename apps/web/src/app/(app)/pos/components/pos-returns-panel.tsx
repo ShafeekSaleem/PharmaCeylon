@@ -246,7 +246,7 @@ export function PosReturnsPanel({
     );
   }
 
-  async function submit(payload: RefundSalePayload) {
+  async function submit(payload: RefundSalePayload, approvedBy?: string) {
     if (!sale) return;
     setBusy(true);
     try {
@@ -286,6 +286,7 @@ export function PosReturnsPanel({
               payload.reason ??
               ""),
         note: payload.reasonCode === "other" ? null : (payload.reason ?? null),
+        approvedBy: approvedBy ?? null,
       });
       onNotice(
         `Refunded ${formatMoney(total)} on ${refunded.invoiceNo}.` +
@@ -333,6 +334,11 @@ export function PosReturnsPanel({
     ["refund", "Refund"],
   ];
   const stepIndex = steps.findIndex(([key]) => key === step);
+  const reasonMissing = !reasonCode
+    ? "Choose why it's coming back"
+    : reasonCode === "other" && !note.trim()
+      ? "Say what the reason is"
+      : null;
   const split = sale ? previewAsPaid(sale, total) : [];
   const refundableRecent = recentSales.filter(
     (s) => s.status === "posted" || s.status === "partially_refunded",
@@ -712,8 +718,15 @@ export function PosReturnsPanel({
                 <button type="button" className={css.toolBtn} onClick={() => setStep("items")} disabled={busy}>
                   <IconChevronLeft size={15} /> Back
                 </button>
-                <span className={css.rfTotal}>{formatMoney(total)}</span>
-                <button type="button" className={css.rfPrimary} onClick={refund} disabled={busy}>
+                <span className={reasonMissing ? css.rfMuted : css.rfTotal}>
+                  {reasonMissing ?? formatMoney(total)}
+                </span>
+                <button
+                  type="button"
+                  className={css.rfPrimary}
+                  onClick={refund}
+                  disabled={busy || reasonMissing !== null}
+                >
                   <IconRotateCcw size={15} /> Refund {formatMoney(total)}
                 </button>
               </div>
@@ -731,9 +744,9 @@ export function PosReturnsPanel({
         loadApprovers={listRefundApprovers}
         onClose={() => setPendingApproval(null)}
         onError={onError}
-        onApprove={async (approval) => {
+        onApprove={async (approval, approverName) => {
           if (!pendingApproval) return;
-          await submit({ ...pendingApproval.payload, approval });
+          await submit({ ...pendingApproval.payload, approval }, approverName);
         }}
       />
 

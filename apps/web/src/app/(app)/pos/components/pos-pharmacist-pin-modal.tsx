@@ -10,7 +10,11 @@ type Props = {
   open: boolean;
   warnings?: string[];
   onClose: () => void;
-  onApprove: (approval: { approverUserId: string; pin: string }) => void | Promise<void>;
+  /** `approverName` is for showing who approved; only `approval` goes to the API. */
+  onApprove: (
+    approval: { approverUserId: string; pin: string },
+    approverName?: string,
+  ) => void | Promise<void>;
   /** Park the sale for a pharmacist instead. Omitted, there is no Hold button. */
   onHoldInstead?: () => void;
   onError: (message: string) => void;
@@ -105,7 +109,7 @@ export function PosPharmacistPinModal({
     }
     setSubmitting(true);
     try {
-      await onApprove({ approverUserId, pin: pin.trim() });
+      await onApprove({ approverUserId, pin: pin.trim() }, selected?.fullName);
     } catch {
       /* parent shows toast; keep modal open for retry */
     } finally {

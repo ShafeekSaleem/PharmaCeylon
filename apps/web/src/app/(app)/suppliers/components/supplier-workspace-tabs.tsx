@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { DataTable, StatusBadge, type Column } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import type { DeliveryRow, PurchaseOrderListItem } from "../../purchasing/types";
-import type { DebitNoteRow, InvoiceRow, PaymentRow } from "../../purchasing/ledger-types";
+import { paymentMethodLabel, type DebitNoteRow, type InvoiceRow, type PaymentRow } from "../../purchasing/ledger-types";
 import { formatDate, formatMoney, purchasingPoHref } from "../utils";
 import scss from "../suppliers.module.css";
 
@@ -175,7 +175,7 @@ export function SupplierMoneyTab({ supplierId, canInvoice, canPay, refreshKey, o
   const paymentColumns: Column<PaymentRow>[] = [
     { key: "no", header: "Payment", render: (p) => p.paymentNo },
     { key: "on", header: "Paid", render: (p) => formatDate(p.paidOn) },
-    { key: "method", header: "Method", render: (p) => p.method.replace(/_/g, " ") },
+    { key: "method", header: "Method", render: (p) => paymentMethodLabel(p.method) },
     {
       key: "to",
       header: "Against",
@@ -296,7 +296,7 @@ export function SupplierReturnsTab({ supplierId }: { supplierId: string }) {
     <Section
       title="Supplier returns"
       action={
-        <Link href="/purchasing/supplier-returns" className={scss.payBtn}>
+        <Link href={`/purchasing/supplier-returns?new=1&supplier=${supplierId}`} className={scss.payBtn}>
           New return
         </Link>
       }

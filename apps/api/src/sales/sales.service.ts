@@ -951,7 +951,7 @@ export class SalesService {
           if (!dto.approval?.approverUserId || !dto.approval.pin) {
             throw new ForbiddenException({
               code: "REFUND_APPROVAL_REQUIRED",
-              message: `Refunds of ${settings?.approvalRequiredReturnThreshold?.toFixed(2)} or more need an approver. Ask someone who approves returns to enter their till PIN.`,
+              message: `Refunds of LKR ${Number(settings?.approvalRequiredReturnThreshold ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })} or more need an approver. Ask someone who approves returns to enter their till PIN.`,
               amount: refundTotal.toFixed(2),
               threshold: settings?.approvalRequiredReturnThreshold?.toFixed(2) ?? null,
             });
