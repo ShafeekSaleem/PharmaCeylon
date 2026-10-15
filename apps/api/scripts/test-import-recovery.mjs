@@ -8,6 +8,7 @@ import { PrismaService } from "../dist/src/prisma/prisma.service.js";
 import { AuditService } from "../dist/src/audit/audit.service.js";
 import { ProductImportService } from "../dist/src/product-import/product-import.service.js";
 import { ImportJobRunner } from "../dist/src/product-import/import-job-runner.js";
+import { StockService } from "../dist/src/inventory/stock/stock.service.js";
 
 if (
   process.env.PHASE67_DB_TEST_ACK !== "ephemeral-database" ||
@@ -41,6 +42,7 @@ const service = new ProductImportService(
   taxonomy,
   runner,
   tasks,
+  new StockService(),
 );
 const tenantId = randomUUID(),
   branchId = randomUUID(),
