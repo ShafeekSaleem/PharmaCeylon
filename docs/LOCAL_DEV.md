@@ -27,6 +27,18 @@ npm run prisma:migrate -w api
 npm run prisma:seed -w api
 ```
 
+The seed's history ends on the day it ran. To bring the demo up to date — sales, refunds,
+orders through to delivery, invoice and payment, transfers, stocktakes, adjustments and supplier
+returns for the last few days, with today's items still waiting for approval — run:
+
+```bash
+npm run seed:recent -w api            # last 10 days through today
+npm run seed:recent -w api -- --days=14
+```
+
+It goes through the real services with the clock set to each event, needs no running API, and
+skips anything it already created, so running it again later in the day only tops up today's sales.
+
 > **Prisma 7:** the API loads `DATABASE_URL` via `apps/api/prisma.config.ts` and Nest `ConfigModule`. The Prisma client uses the PostgreSQL driver adapter; ensure `DATABASE_URL` is set before `prisma db seed` or `nest start`.
 
 ## Daily commands

@@ -27,6 +27,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
+    "seed:recent": "tsx prisma/seed-recent-activity.ts",
     "prisma:studio": "prisma studio",
     "test:import-recovery": "node scripts/test-import-recovery.mjs",
     "reconcile:stock": "node scripts/reconcile-stock.mjs"
