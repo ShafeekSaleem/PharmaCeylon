@@ -217,5 +217,9 @@ function serializeSettings(settings: TenantSettings) {
       settings.approvalRequiredReturnThreshold == null
         ? null
         : Number(settings.approvalRequiredReturnThreshold),
+    approvalRequiredWriteOffThreshold:
+      settings.approvalRequiredWriteOffThreshold == null
+        ? null
+        : Number(settings.approvalRequiredWriteOffThreshold),
   };
 }

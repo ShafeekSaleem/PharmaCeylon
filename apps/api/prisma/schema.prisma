@@ -483,6 +483,7 @@ model Branch {
   purchaseOrders     PurchaseOrder[]
   goodsReceipts      GoodsReceipt[]
   heldDeliveries     HeldDelivery[]
+  heldAdjustments    HeldAdjustment[]
   supplierPayments   SupplierPayment[]
   supplierDebitNotes SupplierDebitNote[]
   sales              Sale[]
@@ -618,6 +619,8 @@ model TenantSettings {
   approvalRequiredPurchaseOrderThreshold Decimal? @map("approval_required_po_threshold") @db.Decimal(14, 2)
   approvalRequiredForBranchTransfers     Boolean  @default(true) @map("approval_required_for_branch_transfers")
   approvalRequiredReturnThreshold        Decimal? @map("approval_required_return_threshold") @db.Decimal(14, 2)
+  /// Write-offs worth at least this much wait for someone who may write off stock. Null = off.
+  approvalRequiredWriteOffThreshold      Decimal? @map("approval_required_write_off_threshold") @db.Decimal(14, 2)
   /// Role keys (`Role.key`: a built-in RoleName or a custom role's slug) whose holders may approve
   /// a request they raised themselves. Everyone else needs a second person with the approve
   /// permission. Owners and managers by default: a small pharmacy's senior staff shouldn't be
@@ -675,6 +678,8 @@ model AppUser {
   goodsReceiptsReceived    GoodsReceipt[]           @relation("GoodsReceiptReceiver")
   heldDeliveriesRequested  HeldDelivery[]           @relation("HeldDeliveryRequester")
   heldDeliveriesDecided    HeldDelivery[]           @relation("HeldDeliveryDecider")
+  heldAdjustmentsRequested HeldAdjustment[]         @relation("HeldAdjustmentRequester")
+  heldAdjustmentsDecided   HeldAdjustment[]         @relation("HeldAdjustmentDecider")
   supplierPaymentsMade     SupplierPayment[]        @relation("SupplierPaymentCreator")
   supplierDebitNotesRaised SupplierDebitNote[]      @relation("SupplierDebitNoteCreator")
   sales                    Sale[]                   @relation("SaleSeller")
@@ -1361,6 +1366,7 @@ model Product {
   ledgerEntries          StockLedger[]
   transferItems          TransferItem[]
   returnItems            GoodsReturnItem[]
+  heldAdjustments        HeldAdjustment[]
   stocktakeLines         StocktakeLine[]
   stocktakeSnapshotLines StocktakeSnapshotLine[]
   tagMaps                ProductTagMap[]
@@ -1675,6 +1681,7 @@ model Batch {
   ledgerEntries          StockLedger[]
   transferItems          TransferItem[]
   returnItems            GoodsReturnItem[]
+  heldAdjustments        HeldAdjustment[]
   stocktakeLines         StocktakeLine[]
   stocktakeSnapshotLines StocktakeSnapshotLine[]
   stock                  BatchStock?
@@ -1821,6 +1828,48 @@ model HeldDelivery {
   @@index([tenantId, branchId, status])
   @@index([purchaseOrderId, status])
   @@map("held_delivery")
+}
+
+enum HeldAdjustmentStatus {
+  awaiting_approval
+  accepted
+  rejected
+}
+
+/// A write-off someone entered but may not post themselves — they can't write off stock, or it
+/// is worth more than the tenant's write-off threshold — kept exactly as entered until someone
+/// who may write off stock accepts or rejects it. Nothing moves until it is accepted.
+model HeldAdjustment {
+  id           String               @id @default(uuid()) @db.Uuid
+  tenantId     String               @map("tenant_id") @db.Uuid
+  branchId     String               @map("branch_id") @db.Uuid
+  productId    String               @map("product_id") @db.Uuid
+  batchId      String               @map("batch_id") @db.Uuid
+  /// What happened: `damaged`, `expired`, `lost` or `correction`.
+  kind         String               @db.VarChar(24)
+  qty          Int
+  /// Units × the batch's cost when it was entered.
+  value        Decimal              @db.Decimal(14, 2)
+  note         String?              @db.VarChar(512)
+  /// The adjustment as entered (`StockAdjustmentDto`).
+  payload      Json
+  status       HeldAdjustmentStatus @default(awaiting_approval)
+  requestedBy  String               @map("requested_by") @db.Uuid
+  requestedAt  DateTime             @default(now()) @map("requested_at")
+  decidedBy    String?              @map("decided_by") @db.Uuid
+  decidedAt    DateTime?            @map("decided_at")
+  decisionNote String?              @map("decision_note") @db.VarChar(512)
+  /// The ledger reference of the adjustment, once accepted.
+  referenceId  String?              @map("reference_id") @db.Uuid
+
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  batch     Batch    @relation(fields: [batchId], references: [id])
+  requester AppUser  @relation("HeldAdjustmentRequester", fields: [requestedBy], references: [id])
+  decider   AppUser? @relation("HeldAdjustmentDecider", fields: [decidedBy], references: [id])
+
+  @@index([tenantId, branchId, status])
+  @@map("held_adjustment")
 }
 
 model GoodsReceiptItem {

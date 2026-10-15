@@ -26,7 +26,7 @@ import { expandCommercialCategoryIds } from "../products/product-query.util";
 import { reorderGap, resolveStockStatus } from "../products/stock-qty.util";
 import type { ActorAccess } from "../security/access.service";
 import { AUTO_QUARANTINE_EXPIRED_REASON } from "./quarantine.constants";
-import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
+import { StockAdjustmentDto, ADJUSTMENT_KIND_LABELS } from "./dto/stock-adjustment.dto";
 import { QuarantineBatchDto, ReleaseQuarantineDto } from "./dto/quarantine-batch.dto";
 import { StockReadService, type ProductStockTotals } from "./stock/stock-read.service";
 import { StockService } from "./stock/stock.service";
@@ -1153,7 +1153,18 @@ export class InventoryService {
     dto: StockAdjustmentDto,
   ) {
     const userId = access.userId;
-    const increase = dto.movementType === "adjustment_in";
+    // What happened sets the direction; only a correction says it itself.
+    const kind = dto.kind;
+    const movementType =
+      kind && kind !== "correction"
+        ? kind === "found" || kind === "opening"
+          ? "adjustment_in"
+          : "adjustment_out"
+        : dto.movementType;
+    if (!movementType) {
+      throw new BadRequestException("Say whether the correction adds or removes stock");
+    }
+    const increase = movementType === "adjustment_in";
     if (increase && !access.has("inventory.manage")) {
       throw new ForbiddenException("Your role can't add stock");
     }
@@ -1174,10 +1185,24 @@ export class InventoryService {
     if (dto.fromQuarantine && increase) {
       throw new BadRequestException("Only a write-off can take stock from quarantine");
     }
-    const reason = dto.reason?.trim() || null;
-    if (!increase && !reason) {
+    const note = dto.reason?.trim() || null;
+    if (kind === "correction" && !note) {
+      throw new BadRequestException("Say what the correction is for");
+    }
+    if (!kind && !increase && !note) {
       throw new BadRequestException("Enter a reason for the write-off");
     }
+    const reason = kind
+      ? note
+        ? `${ADJUSTMENT_KIND_LABELS[kind]} — ${note}`
+        : ADJUSTMENT_KIND_LABELS[kind]
+      : note;
+    // Damaged and expired units are usually already held back, so they go from quarantine first.
+    const from = dto.fromQuarantine
+      ? ("quarantine" as const)
+      : kind === "damaged" || kind === "expired"
+        ? ("quarantine_first" as const)
+        : ("sellable" as const);
 
     const product = await this.prisma.product.findFirst({
       where: { id: dto.productId, tenantId, isActive: true },
@@ -1244,6 +1269,7 @@ export class InventoryService {
             qty: dto.qty,
             movementType: StockMovementType.adjustment_in,
             reason,
+            reasonCode: kind ?? null,
           },
         ]);
       } else {
@@ -1253,8 +1279,9 @@ export class InventoryService {
             batchId: batchId!,
             qty: dto.qty,
             movementType: StockMovementType.adjustment_out,
-            from: dto.fromQuarantine ? "quarantine" : "sellable",
+            from,
             reason,
+            reasonCode: kind ?? null,
           },
         ]);
       }
@@ -1268,7 +1295,8 @@ export class InventoryService {
           entityName: "product",
           entityId: dto.productId,
           payload: {
-            movementType: dto.movementType,
+            movementType,
+            kind: kind ?? null,
             qty: dto.qty,
             reason,
             batchId: batchId!,
