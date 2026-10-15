@@ -70,6 +70,7 @@ export type TenantSettings = {
   approvalRequiredPurchaseOrderThreshold: number | null;
   approvalRequiredForBranchTransfers: boolean;
   approvalRequiredReturnThreshold: number | null;
+  approvalRequiredWriteOffThreshold: number | null;
   /** Role keys whose holders may approve requests they raised themselves. */
   selfApprovalRoleKeys: string[];
 

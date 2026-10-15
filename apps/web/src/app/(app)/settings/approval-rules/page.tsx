@@ -25,6 +25,7 @@ const BUILT_IN_ROLES: ApprovalRoleOption[] = [
 
 const DEFAULT_PO_THRESHOLD = 50000;
 const DEFAULT_RETURN_THRESHOLD = 5000;
+const DEFAULT_WRITE_OFF_THRESHOLD = 5000;
 
 export default function ApprovalRulesPage() {
   const { permissionKeys } = usePermissions();
@@ -74,6 +75,7 @@ export default function ApprovalRulesPage() {
         approvalRequiredPurchaseOrderThreshold: draft.approvalRequiredPurchaseOrderThreshold,
         approvalRequiredForBranchTransfers: draft.approvalRequiredForBranchTransfers,
         approvalRequiredReturnThreshold: draft.approvalRequiredReturnThreshold,
+        approvalRequiredWriteOffThreshold: draft.approvalRequiredWriteOffThreshold,
         // Only the owner may change who approves their own requests; sending it from anyone else
         // is refused, which used to fail a manager's whole save.
         ...(canEditSelfApproval ? { selfApprovalRoleKeys: draft.selfApprovalRoleKeys } : {}),
@@ -210,6 +212,42 @@ export default function ApprovalRulesPage() {
               }
               disabled={!canEdit}
               label="Require approval for customer returns over a threshold"
+            />
+          </div>
+
+          <div className={css.rowItem}>
+            <div style={{ flex: 1 }}>
+              <div className={css.rowLabel}>Write-offs over a threshold</div>
+              <div className={css.rowHint}>
+                Write-offs worth this much or more wait for someone who can write off stock — unless
+                they entered it and their role may approve its own requests.
+              </div>
+              {draft.approvalRequiredWriteOffThreshold != null ? (
+                <div style={{ marginTop: "0.5rem", maxWidth: 220 }}>
+                  <FormField
+                    label="Threshold amount"
+                    type="number"
+                    min={0}
+                    value={draft.approvalRequiredWriteOffThreshold}
+                    onChange={(e) =>
+                      setDraft((d) =>
+                        d ? { ...d, approvalRequiredWriteOffThreshold: Number(e.target.value) } : d,
+                      )
+                    }
+                    disabled={!canEdit}
+                  />
+                </div>
+              ) : null}
+            </div>
+            <ToggleSwitch
+              checked={draft.approvalRequiredWriteOffThreshold != null}
+              onChange={(v) =>
+                setDraft((d) =>
+                  d ? { ...d, approvalRequiredWriteOffThreshold: v ? DEFAULT_WRITE_OFF_THRESHOLD : null } : d,
+                )
+              }
+              disabled={!canEdit}
+              label="Require approval for write-offs over a threshold"
             />
           </div>
 
