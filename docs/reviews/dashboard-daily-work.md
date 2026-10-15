@@ -46,7 +46,7 @@ A live PostgreSQL server was not available here, so the repository's native Post
 
 ## Rollout
 
-No schema migration, new role permission, or data backfill is needed. Deploy API and web together because the dashboard consumes the new `/dashboard/work`, `/dashboard/sales-metrics`, and `/dashboard/stock-metrics` endpoints.
+Run `npm run prisma:deploy -w api` before deploying. Migration `20261016000000_stage_held_approval_tenant_policies` completes the missing staged tenant policies for held deliveries and adjustments inherited from develop. It does not enable or force RLS. No new role permission or data backfill is needed. Deploy API and web together because the dashboard consumes the new `/dashboard/work`, `/dashboard/sales-metrics`, and `/dashboard/stock-metrics` endpoints.
 
 For staging, use separate role accounts to check one real receiving, transfer, stocktake, held-delivery approval, write-off approval, and hold recall. Return to the dashboard and confirm that the corresponding task advances/disappears. Verify a non-self-approving role's own request remains blocked, and a branch switch cannot show the previous branch's work. Compare cashier daily totals with sales records at a branch exceeding 50 bills.
 
