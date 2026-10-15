@@ -91,27 +91,29 @@ lists every batch it will change. A manager can save approval thresholds. Return
 delivery always name their products. "Returns today" counts today's refunds. Customer returns
 left open on the old Returns page were closed (migration `close_open_customer_returns`).
 
-## Module 5 — Returns at the till, inventory screens, adjustments and the supplier workspace
+## Module 5 — Returns at the till, adjustments and the supplier workspace
 
-- **The POS returns lane needs a restructure and a simpler layout** (Module 4 test run: "UI is not
-  good", "needs a major restructure and simplify"). Today it is a long single panel — invoice
-  search, a lines table with Shelf/Hold, a reason field, three buttons and two lists. Design it as
-  a short guided flow: find the sale → choose lines and what happens to each → confirm the amount
-  and refund method, with recent refunds on their own tab.
-- **The product picker loads the first 200 products** in several forms (purchase orders, supplier
-  returns). It should search the server as you type, like the global search does.
-- **Stocktake count tables** scroll sideways inside their box on a phone instead of reading as
-  cards.
+Built on `feat/operations-module-5`; waiting on its test run.
 
-- **The supplier detail window needs its own pass.** Long price lists and invoice lists need
-  paging, the sections want sub-tabs rather than one long scroll, and the save/close buttons
-  currently stack awkwardly.
-- **Dark-mode contrast.** Pale green surfaces with white text are hard to read in places, mostly
-  action buttons.
-- **The Invoices tab flickers** briefly when opened — a flash before the page paints, with no
-  error behind it.
-- **The stock adjustment form gets a redesign.** It works, but it is the oldest form in the area
-  and reads like it: simplify it, fix its rough edges, and bring it in line with the receive form.
+- **Refunds at the till in three steps** — find the sale, choose lines and Shelf/Hold for each,
+  then a reason chip and the refund method. The method defaults to how the customer paid (split
+  across methods if they paid that way) and can be changed. Recent refunds have their own tab, and
+  each refund prints a receipt. Over the threshold, the approver's PIN is asked for in place.
+- **The supplier window in tabs** — Overview, Orders, Invoices & payments, Price list, Returns.
+  Lists page; invoices and payments go through the supplier ledger, the same as Purchasing →
+  Invoices. The bare "add invoice" on the supplier was removed; invoices it created are marked
+  "No delivery linked".
+- **Stock adjustments say what happened** — Found, Damaged, Expired, Lost, Opening stock or
+  Correction, with a before → after preview. Write-offs by people who can't write off stock, and
+  write-offs over a new threshold (off by default, Settings → Approval rules), wait for someone
+  who can, on the Inventory page; this month's write-offs are summarised by kind.
+- **Product pickers search the server** as you type (orders, supplier returns, price lists,
+  adjustments) instead of the first 200 products.
+- **Polish** — readable text on bright buttons and badges in dark mode (new `--pc-btn-destructive-text`
+  and `--pc-on-tone` tokens beside `--pc-btn-primary-text`); the Invoices page no longer flashes an
+  empty table before its rows; stocktake count and review sheets read as cards on a phone.
+
+Not in Module 5, by decision: **advance and unallocated supplier payments** (below).
 
 ## Known gaps carried from Module 2
 
@@ -119,7 +121,7 @@ These are deliberate limits of what shipped, not defects:
 
 - **Advance and unallocated supplier payments are not supported.** Every payment must be
   allocated in full to invoices, so money paid on account ahead of an invoice has nowhere to go.
-  Needs a supplier credit balance that later invoices draw down. *Module 5 or its own module.*
+  Needs a supplier credit balance that later invoices draw down. *Its own module (held out of Module 5).*
 - **Reorder suggestions use each product's reorder level, not sales velocity.** A seasonal or
   accelerating line is not noticed until it hits the level. *Wherever demand forecasting lands.*
 - **The invoice list is one row per invoice**, so an invoice covering three deliveries has to be
