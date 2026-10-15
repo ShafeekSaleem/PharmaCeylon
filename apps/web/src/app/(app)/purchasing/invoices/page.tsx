@@ -93,6 +93,11 @@ function InvoicesContent() {
   );
   const debitNotes = useDebitNotes({ supplierId }, allowed && view === "debit-notes");
   const payables = usePayables(allowed);
+  // Until permissions arrive every list is switched off and would read as empty; show it as
+  // loading instead, so opening the page doesn't flash "No invoices" before the rows.
+  const waiting = !access.ready;
+  const money = (value: number | string | undefined) =>
+    waiting || payables.loading ? "—" : formatMoney(value ?? 0);
 
   const refreshAll = () => {
     void invoices.reload();
@@ -184,6 +189,11 @@ function InvoicesContent() {
             {row.invoiceNumber}
           </button>
           {row.source === "system" ? <div className={css.muted}>Delivery awaiting invoice</div> : null}
+          {/* Typed in with no delivery behind it (the supplier window's old "Add invoice"), so
+              it never went through the three-way match — worth a look before paying. */}
+          {row.source === "supplier" && row.deliveries.length === 0 ? (
+            <div className={css.noDeliveryNote}>No delivery linked</div>
+          ) : null}
         </>
       ),
     },
@@ -335,7 +345,7 @@ function InvoicesContent() {
             <StatCard
               size="sm"
               title="Owed to suppliers"
-              value={formatMoney(payables.data?.outstanding ?? 0)}
+              value={money(payables.data?.outstanding)}
               subtitle="Everything not yet paid"
               icon={<IconDollarSign size={16} />}
               iconTone="primary"
@@ -348,7 +358,7 @@ function InvoicesContent() {
             <StatCard
               size="sm"
               title="Overdue"
-              value={formatMoney(payables.data?.overdue ?? 0)}
+              value={money(payables.data?.overdue)}
               subtitle="Past the due date"
               icon={<IconAlertTriangle size={16} />}
               iconTone={Number(payables.data?.overdue ?? 0) > 0 ? "warning" : "info"}
@@ -361,8 +371,8 @@ function InvoicesContent() {
             <StatCard
               size="sm"
               title="Awaiting invoice"
-              value={String(payables.data?.awaitingInvoiceCount ?? 0)}
-              subtitle={`Deliveries · ${formatMoney(payables.data?.awaitingInvoice ?? 0)}`}
+              value={waiting || payables.loading ? "—" : String(payables.data?.awaitingInvoiceCount ?? 0)}
+              subtitle={`Deliveries · ${money(payables.data?.awaitingInvoice)}`}
               icon={<IconTruck size={16} />}
               iconTone="info"
               active={tile === "awaiting"}
@@ -374,7 +384,7 @@ function InvoicesContent() {
             <StatCard
               size="sm"
               title="Credits to apply"
-              value={formatMoney(payables.data?.openCredits ?? 0)}
+              value={money(payables.data?.openCredits)}
               subtitle="Open debit notes"
               icon={<IconRefresh size={16} />}
               iconTone="success"
@@ -451,7 +461,7 @@ function InvoicesContent() {
               columns={invoiceColumns}
               data={invoices.rows}
               rowKey={(row) => row.id}
-              loading={invoices.loading}
+              loading={waiting || invoices.loading}
               emptyIcon={<IconClipboardList size={22} />}
               emptyTitle="No invoices here"
               emptyDescription="Record the supplier's invoice when it arrives, against the deliveries it bills for."
@@ -461,7 +471,7 @@ function InvoicesContent() {
               columns={paymentColumns}
               data={payments.rows}
               rowKey={(row) => row.id}
-              loading={payments.loading}
+              loading={waiting || payments.loading}
               emptyIcon={<IconDollarSign size={22} />}
               emptyTitle="No payments recorded"
               emptyDescription="Payments to suppliers appear here, with the invoices they settled."
@@ -471,7 +481,7 @@ function InvoicesContent() {
               columns={debitColumns}
               data={debitNotes.rows}
               rowKey={(row) => row.id}
-              loading={debitNotes.loading}
+              loading={waiting || debitNotes.loading}
               emptyIcon={<IconRefresh size={22} />}
               emptyTitle="No debit notes"
               emptyDescription="A debit note is raised automatically when a supplier return is completed."

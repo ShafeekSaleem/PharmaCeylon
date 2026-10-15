@@ -33,7 +33,7 @@ import {
 } from "../components/stocktake-review-tab";
 import { StocktakeReviewSidebar } from "../components/stocktake-review-sidebar";
 import { StocktakeSummarySidebar } from "../components/stocktake-summary-sidebar";
-import { StocktakeTablePager } from "../components/stocktake-table-pager";
+import { TablePager as StocktakeTablePager } from "@/components/ui";
 import { useStocktakeDetail } from "../hooks/use-stocktake-detail";
 import type {
   StocktakeCondition,

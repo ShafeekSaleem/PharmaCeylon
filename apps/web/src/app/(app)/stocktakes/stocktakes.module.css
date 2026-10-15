@@ -1185,7 +1185,7 @@
 .stepDotDone {
   border-color: var(--pc-success);
   background: var(--pc-success);
-  color: #fff;
+  color: var(--pc-on-tone);
 }
 
 .stepDotActive {
@@ -2279,4 +2279,72 @@
   overflow: auto;
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-sm);
+}
+
+/* Count and review sheets on a phone: each line is a card with labelled fields, and the inputs
+   are full width and 16px so the keyboard doesn't zoom the page. */
+@media (max-width: 640px) {
+  .cardTable,
+  .cardTable tbody {
+    display: block;
+  }
+
+  .cardTable thead {
+    display: none;
+  }
+
+  .cardTable tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem 0.75rem;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--pc-border);
+  }
+
+  .cardTable td {
+    min-width: 0;
+    padding: 0;
+    border: none;
+    text-align: left !important;
+  }
+
+  .cardTable td.cardFirst {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+
+  .cardTable td.cardFirst .productCell {
+    margin-bottom: 0;
+  }
+
+  .cardTable td.cardWide {
+    grid-column: 1 / -1;
+  }
+
+  .cardTable td.cardHide {
+    display: none;
+  }
+
+  .cardTable .varianceStack {
+    align-items: flex-start;
+  }
+
+  .cardTable td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.2rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--pc-muted-fg);
+  }
+
+  .cardTable .countInput,
+  .cardTable .noteInput {
+    width: 100%;
+    max-width: none;
+    min-height: 2.5rem;
+    font-size: 1rem;
+  }
 }

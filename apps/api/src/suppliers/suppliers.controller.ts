@@ -15,7 +15,6 @@ import { RequirePermission } from "../security/decorators/require-permission.dec
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { CreateSupplierDto } from "./dto/create-supplier.dto";
 import { UpdateSupplierDto } from "./dto/update-supplier.dto";
-import { CreateSupplierInvoiceDto } from "./dto/create-supplier-invoice.dto";
 import { RecordSupplierPaymentDto } from "./dto/record-supplier-payment.dto";
 import { UpsertSupplierPriceDto } from "./dto/supplier-product-price.dto";
 import { SuppliersService } from "./suppliers.service";
@@ -56,16 +55,6 @@ export class SuppliersController {
   @Post()
   create(@CurrentUser() user: RequestUser, @Body() dto: CreateSupplierDto) {
     return this.suppliers.create(user.tenantId, user.userId, dto);
-  }
-
-  @RequirePermission("suppliers.manage")
-  @Post(":id/invoices")
-  createInvoice(
-    @CurrentUser() user: RequestUser,
-    @Param("id", ParseUUIDPipe) id: string,
-    @Body() dto: CreateSupplierInvoiceDto,
-  ) {
-    return this.suppliers.createInvoice(user.tenantId, user.userId, id, dto);
   }
 
   // Agreeing what a supplier charges is a commercial decision, not a stock one, so the whole

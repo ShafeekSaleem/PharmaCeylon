@@ -1576,3 +1576,10 @@
   color: var(--pc-warning);
   font-weight: 700;
 }
+
+/* An invoice with no delivery behind it skipped the three-way match. */
+.noDeliveryNote {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pc-alert-warning-text);
+}

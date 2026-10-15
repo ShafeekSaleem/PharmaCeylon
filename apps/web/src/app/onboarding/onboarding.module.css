@@ -78,7 +78,7 @@
   place-items: center;
   border-radius: 50%;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 .workspace {
   width: 100%;
@@ -164,7 +164,7 @@
 .sidebar .activeStep button > span {
   background: var(--pc-primary);
   border-color: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 .sidebar button > div {
   display: grid;
@@ -842,7 +842,7 @@
   place-items: center;
   border-radius: 9px;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 .reviewStatus > div {
   display: grid;

@@ -3410,7 +3410,7 @@
 .tagChipOn {
   border-color: var(--pc-primary);
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 /* Removing is destructive, so a chip queued for removal wears the danger colour rather than

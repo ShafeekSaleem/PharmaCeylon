@@ -1715,3 +1715,259 @@
   }
 }
 
+
+/* ── Adjust stock: what happened → which stock → how many ── */
+.adjSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+/* A filter select is sized for a toolbar row; stacked in the form it keeps its own height. */
+.adjSection > .inventoryFilter {
+  flex: none;
+}
+
+.adjSection:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.adjStepTitle {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.adjKinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.5rem;
+}
+
+.adjKind {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.adjKind:hover {
+  border-color: var(--pc-primary);
+}
+
+.adjKindOn {
+  border-color: var(--pc-primary);
+  background: color-mix(in srgb, var(--pc-primary) 10%, var(--pc-card-bg));
+  box-shadow: inset 3px 0 0 var(--pc-primary);
+}
+
+.adjKindLabel {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.adjKindHint {
+  font-size: 0.74rem;
+  color: var(--pc-muted-fg);
+}
+
+.adjIn,
+.adjOut,
+.adjEither {
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.adjIn {
+  color: var(--pc-success);
+}
+
+.adjOut,
+.adjOutText {
+  color: var(--pc-danger);
+}
+
+.adjEither {
+  color: var(--pc-muted-fg);
+}
+
+.adjToggle {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  overflow: hidden;
+}
+
+.adjToggle button {
+  padding: 0.4rem 0.8rem;
+  border: none;
+  background: var(--pc-card-bg);
+  color: var(--pc-muted-fg);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.adjToggle button + button {
+  border-left: 1px solid var(--pc-border);
+}
+
+.adjToggle button[aria-pressed="true"] {
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+}
+
+.adjBatches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.adjBatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  color: var(--pc-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.adjBatchOn {
+  border-color: var(--pc-primary);
+  box-shadow: inset 3px 0 0 var(--pc-primary);
+}
+
+.adjBatchNo {
+  display: flex;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.adjLinkBtn {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--pc-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.adjQtyRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.adjQtyRow input {
+  max-width: 8rem;
+}
+
+.adjPreview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-muted-fg) 6%, var(--pc-card-bg));
+}
+
+.adjPreview > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.adjPreview strong {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.adjApprovalNote {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--pc-alert-warning-text);
+}
+
+/* ── Write-offs waiting for approval ── */
+.writeOffPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+}
+
+.writeOffList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.writeOffRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--pc-warning) 40%, var(--pc-border));
+  border-radius: var(--pc-radius-sm);
+  background: color-mix(in srgb, var(--pc-warning) 6%, var(--pc-card-bg));
+}
+
+.writeOffFocus {
+  box-shadow: 0 0 0 2px var(--pc-primary);
+}
+
+.writeOffMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1 1 18rem;
+}
+
+.writeOffActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.writeOffSummary {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--pc-foreground);
+}

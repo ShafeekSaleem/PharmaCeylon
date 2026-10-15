@@ -183,6 +183,18 @@
   border-radius: var(--pc-radius-md, 8px);
 }
 
+/* A compact table's empty state is a line, not a panel — it sits among other sections. */
+.emptyCompact {
+  padding: 1rem;
+}
+
+.emptyCompact .emptyTitle {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--pc-muted-fg);
+  margin-bottom: 0;
+}
+
 .emptyIcon {
   color: var(--pc-muted-fg);
   margin-bottom: 0.75rem;
@@ -264,13 +276,13 @@
 .pageBtnActive {
   background: var(--pc-primary);
   border-color: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .pageBtnActive:hover:not(:disabled) {
   background: var(--pc-primary-hover);
   border-color: var(--pc-primary-hover);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .ellipsis {

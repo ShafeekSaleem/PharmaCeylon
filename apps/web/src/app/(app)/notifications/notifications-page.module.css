@@ -299,7 +299,7 @@
   border-color: color-mix(in srgb, var(--pc-primary) 45%, var(--pc-border));
 }
 .itemActions .primaryAction {
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   background: var(--pc-primary);
   border-color: var(--pc-primary);
   white-space: nowrap;

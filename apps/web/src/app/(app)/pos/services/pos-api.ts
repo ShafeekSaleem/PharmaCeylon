@@ -79,9 +79,20 @@ export function fetchSaleReturnable(saleId: string): Promise<SaleReturnable> {
 
 export type RefundDisposition = "restock" | "quarantine";
 
+export type RefundReason =
+  | "wrong_item"
+  | "changed_mind"
+  | "damaged"
+  | "expired"
+  | "adverse_reaction"
+  | "other";
+
 export type RefundSalePayload = {
-  reason: string;
+  reasonCode?: RefundReason;
+  /** A note, or "Other"'s description. */
+  reason?: string;
   items?: { productId: string; batchId: string; qty: number; disposition?: RefundDisposition }[];
+  /** One method for the whole refund. Omitted, it goes back the way the sale was paid. */
   refundMethod?: "cash" | "card" | "mobile_wallet";
   refundAmount?: string;
   /** An approver's till PIN, for a refund over the tenant's threshold. */
@@ -94,9 +105,11 @@ export type RefundRow = {
   returnNumber: string;
   status: string;
   reason: string | null;
+  reasonCode: RefundReason | null;
   amount: string;
   createdAt: string;
   sale: { id: string; invoiceNo: string } | null;
+  refundedTo: Array<{ method: "cash" | "card" | "mobile_wallet"; amount: string }>;
   customerName: string | null;
   refundedBy: { id: string; fullName: string };
   approvedBy: { id: string; fullName: string } | null;

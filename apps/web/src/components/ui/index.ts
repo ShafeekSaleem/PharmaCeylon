@@ -40,6 +40,7 @@ export { DateRangeField } from "./date-range-field";
 export { DatePicker, formatPickerDate } from "./date-picker";
 export { DateTimeField } from "./date-time-field";
 export { PageSubnav, type PageSubnavTab } from "./page-subnav";
+export { TablePager } from "./table-pager";
 export { FilterPopover, FilterRow } from "./filter-popover";
 export { ActiveFilterBanner, type FilterPill } from "./active-filter-banner";
 export { RowMenu, type RowMenuAction } from "./row-menu";

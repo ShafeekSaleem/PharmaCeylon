@@ -184,7 +184,7 @@
 
 .btnPrimary {
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   border-color: var(--pc-primary);
 }
 

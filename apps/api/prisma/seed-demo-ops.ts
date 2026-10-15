@@ -1185,8 +1185,14 @@ export async function seedDemoOps(
     const item = sale.items[0];
     if (!item?.batchId) continue;
     const retId = randomUUID();
+    // A day or three after the sale, but never in the future — "Recent refunds" lists newest
+    // first, and a refund dated tomorrow sits above the one just given.
     const createdAt = new Date(sale.soldAt);
     createdAt.setUTCDate(createdAt.getUTCDate() + 1 + (i % 3));
+    const latest = Date.now() - (i + 1) * 60 * 60 * 1000;
+    if (createdAt.getTime() > latest) {
+      createdAt.setTime(Math.min(Date.now(), Math.max(latest, sale.soldAt.getTime() + 60 * 60 * 1000)));
+    }
     const amount = item.unitPrice.mul(Math.min(item.qty, 1));
 
     await prisma.goodsReturn.create({
@@ -1201,6 +1207,7 @@ export async function seedDemoOps(
         customerName: "Ops seed customer",
         saleId: sale.id,
         reason: i % 2 === 0 ? "Unused sealed pack" : "Wrong item",
+        reasonCode: i % 2 === 0 ? "changed_mind" : "wrong_item",
         amount,
         requestedBy: users.cashierId,
         approvedBy: users.managerId,

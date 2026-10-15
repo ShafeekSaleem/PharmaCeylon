@@ -3,6 +3,7 @@ import { ForbiddenException } from "@nestjs/common";
 import { PrismaClient, StockMovementType } from "@prisma/client";
 import { AuditService } from "../../src/audit/audit.service";
 import { InventoryService } from "../../src/inventory/inventory.service";
+import { AdjustmentService } from "../../src/inventory/adjustment.service";
 import { StockReadService } from "../../src/inventory/stock/stock-read.service";
 import { findStockProjectionMismatches } from "../../src/inventory/stock/stock-projection";
 import { StockService } from "../../src/inventory/stock/stock.service";
@@ -345,6 +346,106 @@ describe("Operations workflows against PostgreSQL", () => {
         movementType: "adjustment_in",
       });
       expect((await batchTotals(prisma, batchId)).onHand).toBe(7);
+    });
+
+    describe("write-offs by what happened, with approval", () => {
+      const notifications = {
+        notifyByPermission: jest.fn().mockResolvedValue(1),
+        notifyUser: jest.fn().mockResolvedValue(undefined),
+      };
+      const adjustments = () =>
+        new AdjustmentService(prisma as never, inventory(), notifications as never, audit);
+      const clerk = () => actor(fx.clerkId, ["inventory.view", "inventory.manage"]);
+      const manager = () => actor(fx.managerId, "all", { canSelfApprove: true });
+
+      afterEach(async () => {
+        await prisma.tenantSettings.updateMany({
+          where: { tenantId: fx.tenantId },
+          data: { approvalRequiredWriteOffThreshold: null },
+        });
+      });
+
+      it("takes damaged units from quarantine first and records why", async () => {
+        const batchId = await createStockedBatch(prisma, stock, fx, { qty: 10 });
+        await inventory().quarantineBatch(fx.tenantId, fx.mainBranchId, fx.clerkId, batchId, {
+          qty: 3,
+          reasonCode: "damaged",
+        });
+        const result = await adjustments().adjust(fx.tenantId, fx.mainBranchId, manager(), {
+          productId: fx.productId,
+          batchId,
+          kind: "damaged",
+          qty: 3,
+        });
+        expect(result.held).toBe(false);
+        expect(await batchTotals(prisma, batchId)).toEqual(
+          expect.objectContaining({ onHand: 7, quarantined: 0 }),
+        );
+        const row = await prisma.stockLedger.findFirstOrThrow({
+          where: { batchId, movementType: "adjustment_out" },
+        });
+        expect(row.reasonCode).toBe("damaged");
+        expect(row.reason).toBe("Damaged");
+      });
+
+      it("holds a clerk's write-off until someone who may write off stock accepts it", async () => {
+        const batchId = await createStockedBatch(prisma, stock, fx, { qty: 8 });
+        const result = await adjustments().adjust(fx.tenantId, fx.mainBranchId, clerk(), {
+          productId: fx.productId,
+          batchId,
+          kind: "lost",
+          qty: 2,
+          reason: "Missing after delivery",
+        });
+        expect(result.held).toBe(true);
+        expect((await batchTotals(prisma, batchId)).onHand).toBe(8);
+
+        const id = (result as { heldAdjustment: { id: string } }).heldAdjustment.id;
+        await expect(
+          adjustments().accept(fx.tenantId, fx.mainBranchId, clerk(), id),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        await adjustments().accept(fx.tenantId, fx.mainBranchId, manager(), id);
+        expect((await batchTotals(prisma, batchId)).onHand).toBe(6);
+        await expect(
+          adjustments().accept(fx.tenantId, fx.mainBranchId, manager(), id),
+        ).rejects.toThrow(/already been decided/);
+      });
+
+      it("holds a write-off over the threshold even for a manager who can't self-approve", async () => {
+        await prisma.tenantSettings.upsert({
+          where: { tenantId: fx.tenantId },
+          update: { approvalRequiredWriteOffThreshold: 50 },
+          create: { tenantId: fx.tenantId, approvalRequiredWriteOffThreshold: 50 },
+        });
+        const batchId = await createStockedBatch(prisma, stock, fx, { qty: 20 });
+        const held = await adjustments().adjust(
+          fx.tenantId,
+          fx.mainBranchId,
+          actor(fx.managerId, "all", { canSelfApprove: false }),
+          { productId: fx.productId, batchId, kind: "expired", qty: 10 },
+        );
+        expect(held.held).toBe(true);
+        const posted = await adjustments().adjust(fx.tenantId, fx.mainBranchId, manager(), {
+          productId: fx.productId,
+          batchId,
+          kind: "expired",
+          qty: 10,
+        });
+        expect(posted.held).toBe(false);
+      });
+
+      it("rejects without moving stock", async () => {
+        const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+        const result = await adjustments().adjust(fx.tenantId, fx.mainBranchId, clerk(), {
+          productId: fx.productId,
+          batchId,
+          kind: "damaged",
+          qty: 1,
+        });
+        const id = (result as { heldAdjustment: { id: string } }).heldAdjustment.id;
+        await adjustments().reject(fx.tenantId, fx.mainBranchId, manager(), id, "Found it on the shelf");
+        expect((await batchTotals(prisma, batchId)).onHand).toBe(5);
+      });
     });
 
     it("reports on hand, available, quarantined and reserved per product, and hides cost without permission", async () => {

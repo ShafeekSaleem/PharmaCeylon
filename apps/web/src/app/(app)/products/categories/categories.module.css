@@ -371,7 +371,7 @@
 
 .countBadgeFilled {
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 /* The register's count, in the warning amber the theme already uses for "regulatory, not

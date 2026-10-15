@@ -105,6 +105,8 @@ export class UpdateApprovalsSettingsDto {
   @IsOptional() @IsNumber() @Min(0) approvalRequiredPurchaseOrderThreshold?: number | null;
   @IsOptional() @IsBoolean() approvalRequiredForBranchTransfers?: boolean;
   @IsOptional() @IsNumber() @Min(0) approvalRequiredReturnThreshold?: number | null;
+  /** Write-offs worth at least this much wait for an approver. Null turns the rule off. */
+  @IsOptional() @IsNumber() @Min(0) approvalRequiredWriteOffThreshold?: number | null;
   /**
    * `Role.key`s whose holders may approve requests they raised themselves. Validated against
    * the tenant's roles in the service. An empty list means nobody self-approves.

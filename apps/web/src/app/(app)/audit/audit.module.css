@@ -98,7 +98,7 @@
 .capsuleActive {
   border-color: var(--pc-primary);
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .capsuleActive:hover {

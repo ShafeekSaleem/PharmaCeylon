@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import type {
@@ -21,25 +21,29 @@ function qs(params: Record<string, string | undefined>) {
 
 /**
  * One loader shape for every ledger list: re-fetches when its path changes, clears when there
- * is no branch, and never throws into the page.
+ * is no branch, and never throws into the page. Only the first load shows as loading — a search
+ * or filter change keeps the rows on screen until the new ones arrive, so the table never blinks.
  */
 function useLedgerList<T>(path: string | null, fallbackError: string, enabled = true) {
   const { branchId } = useAuth();
   const [rows, setRows] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loaded = useRef(false);
 
   const reload = useCallback(async () => {
     if (!branchId || !path || !enabled) {
+      loaded.current = false;
       setRows([]);
       setLoading(false);
       setError(null);
       return;
     }
-    setLoading(true);
+    if (!loaded.current) setLoading(true);
     setError(null);
     try {
       setRows(await apiJson<T[]>(path));
+      loaded.current = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : fallbackError);
       setRows([]);
@@ -98,18 +102,25 @@ export function useUnbilledDeliveries(supplierId: string | null) {
 export function usePayables(enabled = true) {
   const { branchId } = useAuth();
   const [data, setData] = useState<Payables | null>(null);
+  const [loading, setLoading] = useState(true);
   const reload = useCallback(async () => {
-    if (!branchId || !enabled) return setData(null);
+    if (!branchId || !enabled) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     try {
       setData(await apiJson<Payables>("/purchasing/payables"));
     } catch {
       setData(null);
+    } finally {
+      setLoading(false);
     }
   }, [branchId, enabled]);
   useEffect(() => {
     void reload();
   }, [reload]);
-  return { data, reload };
+  return { data, loading, reload };
 }
 
 export function useInvoiceDetail(id: string | null) {

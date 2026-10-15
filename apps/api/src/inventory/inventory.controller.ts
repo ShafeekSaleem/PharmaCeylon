@@ -16,6 +16,7 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import { ConfirmBatchExpiryDto } from "./dto/confirm-batch-expiry.dto";
 import { QuarantineBatchDto, ReleaseQuarantineDto } from "./dto/quarantine-batch.dto";
 import { StockAdjustmentDto } from "./dto/stock-adjustment.dto";
+import { AdjustmentService } from "./adjustment.service";
 import {
   InventoryService,
   MOVEMENT_CATEGORY_TYPES,
@@ -40,6 +41,7 @@ function tristate(value?: string): boolean | undefined {
 export class InventoryController {
   constructor(
     private readonly inventory: InventoryService,
+    private readonly adjustments: AdjustmentService,
     private readonly access: AccessService,
   ) {}
 
@@ -268,7 +270,11 @@ export class InventoryController {
     return this.inventory.movementActors(user.tenantId, branchId);
   }
 
-  /** Increases need `inventory.manage`, decreases `inventory.write_off` — checked per request. */
+  /**
+   * Increases need `inventory.manage`. A write-off posts for someone with `inventory.write_off`
+   * (over the tenant's threshold, only if they may also approve their own requests); anyone else
+   * who manages inventory has it held for an approver — `{ held: true }`.
+   */
   @RequirePermission("inventory.manage", "inventory.write_off")
   @Post("adjustments")
   async adjustment(
@@ -277,6 +283,51 @@ export class InventoryController {
     @Body() dto: StockAdjustmentDto,
   ) {
     const access = await this.access.resolve(user, branchId);
-    return this.inventory.adjustment(user.tenantId, branchId, access, dto);
+    return this.adjustments.adjust(user.tenantId, branchId, access, dto);
+  }
+
+  @RequirePermission("inventory.view")
+  @Get("held-adjustments")
+  async heldAdjustments(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    const access = await this.access.resolve(user, branchId);
+    return this.adjustments.listHeld(user.tenantId, branchId, access.has("costs.view"));
+  }
+
+  @RequirePermission("inventory.write_off")
+  @Post("held-adjustments/:id/accept")
+  async acceptHeldAdjustment(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    const access = await this.access.resolve(user, branchId);
+    return this.adjustments.accept(user.tenantId, branchId, access, id);
+  }
+
+  @RequirePermission("inventory.write_off")
+  @Post("held-adjustments/:id/reject")
+  async rejectHeldAdjustment(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() body: { reason?: string },
+  ) {
+    const access = await this.access.resolve(user, branchId);
+    return this.adjustments.reject(user.tenantId, branchId, access, id, body?.reason ?? "");
+  }
+
+  /** The write-off limit, so the form can say before posting that it will wait for approval. */
+  @RequirePermission("inventory.view")
+  @Get("write-offs/policy")
+  async writeOffPolicy(@CurrentUser() user: RequestUser) {
+    return this.adjustments.writeOffPolicy(user.tenantId);
+  }
+
+  /** What was written off this month, by what happened. */
+  @RequirePermission("inventory.view")
+  @Get("write-offs/summary")
+  async writeOffSummary(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    const access = await this.access.resolve(user, branchId);
+    return this.adjustments.writeOffSummary(user.tenantId, branchId, access.has("costs.view"));
   }
 }

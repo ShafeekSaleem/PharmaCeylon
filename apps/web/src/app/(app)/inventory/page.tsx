@@ -25,6 +25,7 @@ import {
 import { apiJson } from "@/lib/auth-client";
 import { useProductMeta } from "../products/hooks/use-product-meta";
 import { AdjustmentModal } from "./components/adjustment-modal";
+import { WriteOffPanel } from "./components/write-off-panel";
 import { InventoryFilterSelect } from "./components/inventory-filter-select";
 import {
   EMPTY_INVENTORY_CATALOG_FILTERS,
@@ -158,8 +159,11 @@ function StockOverviewContent() {
   });
   const { summary, reload: reloadSummary } = useInventorySummary("this_month");
 
+  // Bumped after any adjustment, so the write-off panel re-reads what's waiting.
+  const [writeOffKey, setWriteOffKey] = useState(0);
   const refresh = useCallback(
     (message?: string) => {
+      setWriteOffKey((n) => n + 1);
       if (message) setNotice(message);
       void stock.reload();
       void reloadSummary();
@@ -305,6 +309,15 @@ function StockOverviewContent() {
       <InventorySubnav />
 
       {notice && <Alert variant="success">{notice}</Alert>}
+
+      {stock.hasBranch ? (
+        <WriteOffPanel
+          key={writeOffKey}
+          focusId={searchParams.get("heldAdjustment")}
+          onChanged={(message) => refresh(message)}
+          onError={(message) => setNotice(message)}
+        />
+      ) : null}
 
       {!stock.hasBranch && (
         <div className={css.branchNotice}>

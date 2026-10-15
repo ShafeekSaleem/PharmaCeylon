@@ -67,6 +67,12 @@ const STATUS_LABELS: Record<string, string> = {
   inactive: "Inactive",
 };
 
+/** `partially_received` → "Partially received", the way the labelled statuses read. */
+function sentenceCase(status: string): string {
+  const words = status.replace(/_/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1).toLowerCase();
+}
+
 type Props = {
   status: string;
   /** Override the default mapped label. */
@@ -78,7 +84,7 @@ type Props = {
 
 export function StatusBadge({ status, label, variant, dot = false, className }: Props) {
   const resolved = variant ?? STATUS_MAP[status.toLowerCase()] ?? "default";
-  const text = label ?? STATUS_LABELS[status.toLowerCase()] ?? status.replace(/_/g, " ");
+  const text = label ?? STATUS_LABELS[status.toLowerCase()] ?? sentenceCase(status);
 
   const cls = [
     styles.badge,
