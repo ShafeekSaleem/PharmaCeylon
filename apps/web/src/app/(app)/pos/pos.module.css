@@ -313,7 +313,7 @@
   padding: 0 0.25rem;
   border-radius: 999px;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   font-size: 0.62rem;
   font-weight: 700;
 }
@@ -787,7 +787,7 @@
 
 .qtyBtn:hover:not(:disabled) {
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .qtyBtn:disabled {
@@ -1080,7 +1080,7 @@
 .quickAddBtn:hover:not(:disabled) {
   border-color: transparent;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .quickAddBtn:disabled {
@@ -2383,7 +2383,7 @@
 
 .dispositionToggle button[aria-pressed="true"] {
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .dispositionToggle button:disabled {
@@ -2449,7 +2449,7 @@
 .rfStepActive .rfStepNum {
   background: var(--pc-primary);
   border-color: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .rfStepDone .rfStepNum {
@@ -2594,7 +2594,7 @@
   border: 1px solid var(--pc-primary);
   border-radius: var(--pc-radius-sm);
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   font: inherit;
   font-weight: 600;
   cursor: pointer;

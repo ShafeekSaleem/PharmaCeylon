@@ -1544,12 +1544,12 @@ button.treemapTile:hover {
 
 .actionPill.critical {
   background: var(--pc-destructive);
-  color: #fff;
+  color: var(--pc-btn-destructive-text);
 }
 
 .actionPill.watch {
   background: var(--pc-tone-orange);
-  color: #fff;
+  color: var(--pc-on-tone);
 }
 
 .actionPill.notice {

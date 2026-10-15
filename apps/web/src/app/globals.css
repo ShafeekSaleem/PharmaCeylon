@@ -37,6 +37,9 @@
 
   /* Button colors */
   --pc-btn-primary-text: #ffffff;
+  --pc-btn-destructive-text: #ffffff;
+  /* Text on a solid tone fill (count badges, step dots) — the tones lighten on dark. */
+  --pc-on-tone: #ffffff;
 
   /* Toggle / icon hover overlays */
   --pc-hover-overlay: rgba(0, 0, 0, 0.04);
@@ -161,6 +164,8 @@
 
     /* Teal is bright enough on dark that black text reads better than white. */
     --pc-btn-primary-text: #04201c;
+    --pc-btn-destructive-text: #2a0a0a;
+    --pc-on-tone: #0b1220;
 
     --pc-alert-error-bg: #2a1416;
     --pc-alert-error-border: #7f1d1d;
@@ -243,6 +248,8 @@
   --pc-shadow-card: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
   --pc-hover-overlay: rgba(255, 255, 255, 0.06);
   --pc-btn-primary-text: #04201c;
+  --pc-btn-destructive-text: #2a0a0a;
+  --pc-on-tone: #0b1220;
 
   --pc-alert-error-bg: #2a1416;
   --pc-alert-error-border: #7f1d1d;

@@ -1216,7 +1216,7 @@
 }
 
 .controlledFieldBadgeYes {
-  color: #fff;
+  color: var(--pc-on-tone);
   background: var(--pc-tone-amber);
   border-color: var(--pc-tone-amber);
 }

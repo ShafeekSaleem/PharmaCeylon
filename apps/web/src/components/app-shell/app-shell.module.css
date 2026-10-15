@@ -154,7 +154,7 @@
 
 .navItemActive:hover {
   background: var(--pc-primary-hover);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .navItemRestricted {
@@ -353,7 +353,7 @@
   padding: 0 4px;
   border-radius: 999px;
   background: var(--pc-destructive);
-  color: #fff;
+  color: var(--pc-btn-destructive-text);
   font-size: 0.6rem;
   font-weight: 700;
   display: flex;
@@ -486,7 +486,7 @@
   border-radius: 50%;
   border: 2px solid var(--pc-primary);
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
@@ -599,7 +599,7 @@
   padding: 0.2rem 0.65rem;
   border-radius: 999px;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
@@ -752,7 +752,7 @@
   border-radius: 999px;
   border: none;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -769,7 +769,7 @@
 
 .fab:hover {
   background: var(--pc-primary-hover);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   transform: scale(1.05);
   box-shadow: 0 6px 20px rgba(13, 148, 136, 0.45);
 }

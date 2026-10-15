@@ -24,7 +24,7 @@
   height: 28px;
   border-radius: 50%;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .message {

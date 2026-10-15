@@ -104,7 +104,7 @@ export function StocktakeCountTab({
   return (
     <div className={scss.linesTableWrap}>
       <div className={scss.linesTableScroll}>
-        <table className={scss.linesTable}>
+        <table className={`${scss.linesTable} ${scss.cardTable}`}>
           <thead>
             <tr>
               <th className={scss.numCol}>#</th>
@@ -134,8 +134,8 @@ export function StocktakeCountTab({
 
               return (
                 <tr key={line.id}>
-                  <td className={scss.numCol}>{startIndex + index + 1}</td>
-                  <td>
+                  <td className={`${scss.numCol} ${scss.cardHide}`}>{startIndex + index + 1}</td>
+                  <td className={scss.cardFirst}>
                     <div className={scss.productCell}>
                       <Link href={`/products/${line.productId}`} className={scss.productName}>
                         {line.product.name}
@@ -153,10 +153,10 @@ export function StocktakeCountTab({
                       )}
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Location">
                     <span className={scss.locationCell}>{areaLabel || "Branch scope"}</span>
                   </td>
-                  <td>
+                  <td data-label="Expiry">
                     <div className={scss.expiryCell}>
                       <span>{formatDate(line.batch.expiryDate)}</span>
                       {Number.isFinite(daysLeft) ? (
@@ -175,9 +175,9 @@ export function StocktakeCountTab({
                     </div>
                   </td>
                   {showExpected ? (
-                    <td className={scss.num}>{expected == null ? "—" : expected}</td>
+                    <td className={scss.num} data-label="Expected">{expected == null ? "—" : expected}</td>
                   ) : null}
-                  <td className={scss.num}>
+                  <td className={scss.num} data-label="Counted">
                     <input
                       className={scss.countInput}
                       inputMode="numeric"
@@ -188,7 +188,7 @@ export function StocktakeCountTab({
                     />
                   </td>
                   {showExpected ? (
-                    <td className={scss.num}>
+                    <td className={scss.num} data-label="Variance">
                       <span
                         className={
                           variance == null
@@ -204,7 +204,7 @@ export function StocktakeCountTab({
                       </span>
                     </td>
                   ) : null}
-                  <td className={scss.conditionCell}>
+                  <td className={scss.conditionCell} data-label="Condition">
                     {editable ? (
                       <PurchasingSelect
                         label="Condition"
@@ -221,7 +221,7 @@ export function StocktakeCountTab({
                       </span>
                     )}
                   </td>
-                  <td>
+                  <td className={scss.cardWide} data-label="Note">
                     {editable ? (
                       <input
                         className={scss.noteInput}
@@ -234,7 +234,7 @@ export function StocktakeCountTab({
                       <span className={scss.noteReadonly}>{notes[line.batchId] || "—"}</span>
                     )}
                   </td>
-                  <td>
+                  <td data-label="Status">
                     <span className={`${scss.statusPill} ${status.className}`}>
                       {status.label === "Counted" ? <IconCheck size={11} /> : null}
                       {status.label}

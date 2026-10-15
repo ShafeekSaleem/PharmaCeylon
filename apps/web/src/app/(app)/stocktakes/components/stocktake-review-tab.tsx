@@ -112,7 +112,7 @@ export function StocktakeReviewTab({
       </p>
       <div className={scss.linesTableWrap}>
         <div className={scss.linesTableScroll}>
-          <table className={scss.linesTable}>
+          <table className={`${scss.linesTable} ${scss.cardTable}`}>
             <thead>
               <tr>
                 <th className={scss.checkCol}>
@@ -164,7 +164,7 @@ export function StocktakeReviewTab({
                     key={line.id}
                     className={hasVariance ? scss.varianceRow : undefined}
                   >
-                    <td className={scss.checkCol}>
+                    <td className={scss.checkCol} data-label="Recount">
                       <input
                         type="checkbox"
                         className={scss.recountCheck}
@@ -183,7 +183,7 @@ export function StocktakeReviewTab({
                         }
                       />
                     </td>
-                    <td>
+                    <td className={scss.cardFirst}>
                       <div className={scss.productCell}>
                         <Link href={`/products/${line.productId}`} className={scss.productName}>
                           {line.product.name}
@@ -216,18 +216,18 @@ export function StocktakeReviewTab({
                         ) : null}
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Location">
                       <span className={scss.locationCell}>{areaLabel || "Branch scope"}</span>
                     </td>
-                    <td className={scss.num}>{line.snapshotQty ?? "—"}</td>
-                    <td className={scss.num}>
+                    <td className={scss.num} data-label="Snapshot">{line.snapshotQty ?? "—"}</td>
+                    <td className={scss.num} data-label="Movements">
                       {line.movementDeltaSinceSnapshot == null
                         ? "—"
                         : formatSigned(line.movementDeltaSinceSnapshot)}
                     </td>
-                    <td className={scss.num}>{line.expectedAtReview ?? "—"}</td>
-                    <td className={scss.num}>{line.countedQty ?? "—"}</td>
-                    <td className={scss.num}>
+                    <td className={scss.num} data-label="Expected">{line.expectedAtReview ?? "—"}</td>
+                    <td className={scss.num} data-label="Counted">{line.countedQty ?? "—"}</td>
+                    <td className={scss.num} data-label="Variance">
                       <div className={scss.varianceStack}>
                         <span className={varianceClass}>
                           {variance == null ? "—" : formatSigned(variance)}
@@ -240,12 +240,12 @@ export function StocktakeReviewTab({
                         ) : null}
                       </div>
                     </td>
-                    <td className={scss.num}>
+                    <td className={scss.num} data-label="Value">
                       <span className={value != null && value < 0 ? scss.varianceNeg : undefined}>
                         {value == null ? "—" : formatMoney(Math.abs(value))}
                       </span>
                     </td>
-                    <td className={scss.conditionCell}>
+                    <td className={`${scss.conditionCell} ${scss.cardWide}`} data-label="Reason">
                       {!hasVariance ? (
                         <span className={scss.matchedHint}>Not required</span>
                       ) : needsReview ? (
@@ -271,7 +271,7 @@ export function StocktakeReviewTab({
                         </span>
                       )}
                     </td>
-                    <td className={scss.conditionCell}>
+                    <td className={`${scss.conditionCell} ${scss.cardWide}`} data-label="Note">
                       {!hasVariance ? (
                         <span className={scss.matchedHint}>Matched — no action</span>
                       ) : needsReview ? (
@@ -294,7 +294,7 @@ export function StocktakeReviewTab({
                         </span>
                       )}
                     </td>
-                    <td>
+                    <td data-label="Status">
                       <span className={`${scss.statusPill} ${status.className}`}>{status.label}</span>
                     </td>
                   </tr>

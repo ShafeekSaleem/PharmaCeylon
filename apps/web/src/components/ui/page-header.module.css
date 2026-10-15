@@ -122,7 +122,7 @@
 
 .actionPrimary {
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
 }
 
 .actionPrimary:hover:not(:disabled) {
@@ -141,7 +141,7 @@
 
 .actionDanger {
   background: var(--pc-destructive);
-  color: #fff;
+  color: var(--pc-btn-destructive-text);
 }
 
 .actionDanger:hover:not(:disabled) {

@@ -303,7 +303,7 @@
   border: 1px solid var(--pc-primary);
   border-radius: 8px;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   font: inherit;
   font-size: 0.72rem;
   font-weight: 600;

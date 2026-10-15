@@ -63,7 +63,7 @@
   padding: 0 0.3rem;
   border-radius: 999px;
   background: var(--pc-primary);
-  color: #fff;
+  color: var(--pc-btn-primary-text);
   font-size: 0.72rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
