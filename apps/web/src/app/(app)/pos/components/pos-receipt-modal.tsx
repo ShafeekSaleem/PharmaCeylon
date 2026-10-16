@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { IconCheckCircle, IconPrinter } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { PAYMENT_METHOD_LABELS } from "../constants";
@@ -12,6 +13,8 @@ type Props = {
   onClose: () => void;
   preferences: ReceiptPreferences;
   organization: { displayName: string; logoUrl: string | null } | null;
+  /** Print as soon as it opens, then close — the till's auto-print setting. */
+  autoPrint?: boolean;
 };
 
 export type ReceiptPreferences = {
@@ -23,7 +26,17 @@ export type ReceiptPreferences = {
   showStaffName: boolean;
 };
 
-export function PosReceiptModal({ receipt, onClose, preferences, organization }: Props) {
+export function PosReceiptModal({ receipt, onClose, preferences, organization, autoPrint = false }: Props) {
+  useEffect(() => {
+    if (!receipt || !autoPrint) return;
+    // Let the receipt render first; print() blocks until the dialog closes.
+    const timer = window.setTimeout(() => {
+      window.print();
+      onClose();
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [receipt, autoPrint, onClose]);
+
   return (
     <Modal
       open={receipt !== null}

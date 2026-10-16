@@ -1,48 +1,31 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import {
-  IconBarcodeScan,
-  IconPill,
-  IconRotateCcw,
-  IconSearch,
-  IconShoppingBag,
-} from "@/components/icons";
-import { PRODUCT_PLACEHOLDER_SRC } from "@/lib/product-placeholder";
-import { POS_MODES, SEARCH_RESULT_LIMIT } from "../constants";
-import type { PosMode, PosProduct } from "../types";
-import { findExactScan, formatMoney, matchesQuery, productSubtitle } from "../utils";
-import css from "../pos.module.css";
-
-const MODE_ICONS: Record<PosMode, React.ReactNode> = {
-  retail: <IconShoppingBag size={14} />,
-  prescription: <IconPill size={14} />,
-  returns: <IconRotateCcw size={14} />,
-};
+import { IconSearch } from "@/components/icons";
+import { SEARCH_RESULT_LIMIT } from "../constants";
+import type { PosProduct } from "../types";
+import { findExactScan, formatMoney, matchesQuery } from "../utils";
+import { lineSubtitle, ProductTag } from "./pos-ticket";
+import tcss from "../till.module.css";
 
 type Props = {
   products: PosProduct[];
-  mode: PosMode;
-  onModeChange: (mode: PosMode) => void;
   onSelect: (product: PosProduct) => void;
   inputRef: RefObject<HTMLInputElement>;
   disabled?: boolean;
-  /** Hide product search (e.g. Returns mode uses invoice search instead). */
-  searchDisabled?: boolean;
+  placeholder?: string;
 };
 
 /**
- * Barcode-first hero input. An exact barcode/SKU match on Enter drops straight
- * into the cart; anything ambiguous shows a keyboard-navigable picker.
+ * The till's scan box. An exact barcode or SKU on Enter goes straight into the sale; anything
+ * else lists matches to pick with the arrow keys. It keeps the cursor between sales.
  */
 export function PosSearchBar({
   products,
-  mode,
-  onModeChange,
   onSelect,
   inputRef,
   disabled = false,
-  searchDisabled = false,
+  placeholder = "Scan a barcode, or type a name, generic or SKU",
 }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -66,9 +49,7 @@ export function PosSearchBar({
 
   useEffect(() => {
     function onClickOutside(event: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false);
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -82,7 +63,6 @@ export function PosSearchBar({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (searchDisabled) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setOpen(true);
@@ -103,7 +83,6 @@ export function PosSearchBar({
       return;
     }
     if (event.key !== "Enter") return;
-
     event.preventDefault();
     const scanned = findExactScan(products, query);
     if (scanned) {
@@ -118,120 +97,75 @@ export function PosSearchBar({
     setOpen(true);
   }
 
-  const inputLocked = disabled || searchDisabled;
-  const showMenu = open && !searchDisabled && query.trim().length > 0;
+  const showMenu = open && query.trim().length > 0;
 
   return (
-    <div className={css.searchCard}>
-      <div className={css.searchWrap} ref={wrapRef}>
-        <IconSearch size={15} className={css.searchIcon} />
+    <div className={tcss.searchWrap} ref={wrapRef}>
+      <label className={tcss.searchField}>
+        <IconSearch size={18} />
         <input
           ref={inputRef}
           type="text"
           role="combobox"
-          className={`${css.searchInput}${query && !searchDisabled ? ` ${css.searchInputScanning}` : ""}`}
-          placeholder={
-            searchDisabled
-              ? "Switch to Retail Sale or Prescriptions to scan products"
-              : "Scan barcode or search product name, generic, SKU…"
-          }
-          value={searchDisabled ? "" : query}
+          className={tcss.searchInput}
+          placeholder={placeholder}
+          value={query}
           autoComplete="off"
           spellCheck={false}
-          disabled={inputLocked}
-          aria-label="Scan barcode or search products"
+          disabled={disabled}
+          aria-label="Scan or search products"
           aria-autocomplete="list"
           aria-controls="pos-search-results"
           aria-expanded={showMenu}
           onChange={(e) => {
-            if (searchDisabled) return;
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => {
-            if (!searchDisabled) setOpen(true);
-          }}
+          onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
         />
-        <span className={css.scanHint}>
-          <IconBarcodeScan size={16} />
-        </span>
+        <span className={tcss.kbd}>/</span>
+      </label>
 
-        {showMenu && (
-          <div id="pos-search-results" className={css.resultsMenu} role="listbox">
-            {results.length === 0 ? (
-              <div className={css.resultsEmpty}>
-                No sellable stock matches “{query.trim()}” at this branch.
-              </div>
-            ) : (
-              results.map((product, index) => {
-                const outOfStock = product.qtyOnHand <= 0;
-                return (
-                  <button
-                    key={product.id}
-                    type="button"
-                    role="option"
-                    aria-selected={index === activeIndex}
-                    className={[
-                      css.resultRow,
-                      index === activeIndex ? css.resultRowActive : "",
-                      outOfStock ? css.resultRowDisabled : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    disabled={outOfStock}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => commit(product)}
-                  >
-                    <img
-                      src={product.imageUrl ?? PRODUCT_PLACEHOLDER_SRC}
-                      alt=""
-                      className={css.thumb}
-                      aria-hidden
-                    />
-                    <span className={css.productText}>
-                      <span className={css.resultName}>
-                        {product.name}
-                        {product.isControlled ? (
-                          <span className={css.tagControlled}>Ctrl</span>
-                        ) : product.requiresPrescription ? (
-                          <span className={css.tagRx}>Rx</span>
-                        ) : (
-                          <span className={css.tagOtc}>OTC</span>
-                        )}
-                      </span>
-                      <span className={css.resultMeta}>{productSubtitle(product)}</span>
+      {showMenu && (
+        <div id="pos-search-results" className={tcss.results} role="listbox">
+          {results.length === 0 ? (
+            <div className={tcss.resultsEmpty}>
+              No sellable stock matches “{query.trim()}” at this branch.
+            </div>
+          ) : (
+            results.map((product, index) => {
+              const outOfStock = product.qtyOnHand <= 0;
+              return (
+                <button
+                  key={product.id}
+                  type="button"
+                  role="option"
+                  aria-selected={index === activeIndex}
+                  className={`${tcss.resultRow}${index === activeIndex ? ` ${tcss.resultRowActive}` : ""}`}
+                  disabled={outOfStock}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => commit(product)}
+                >
+                  <span className={tcss.resultMain}>
+                    <span className={tcss.resultName}>
+                      {product.name}
+                      <ProductTag product={product} />
                     </span>
-                    <span className={css.resultRight}>
-                      <span className={css.resultPrice}>
-                        {formatMoney(product.batches[0]?.sellingPrice ?? 0)}
-                      </span>
-                      <span className={css.resultStock}>{product.qtyOnHand} in stock</span>
+                    <span className={tcss.resultMeta}>{lineSubtitle(product)}</span>
+                  </span>
+                  <span className={tcss.resultSide}>
+                    <span className={tcss.resultPrice}>
+                      {formatMoney(product.batches[0]?.sellingPrice ?? 0)}
                     </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className={css.modeGroup} role="tablist" aria-label="POS mode">
-        {POS_MODES.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="tab"
-            aria-selected={mode === option.value}
-            className={`${css.modeBtn}${mode === option.value ? ` ${css.modeBtnActive}` : ""}`}
-            data-tooltip={option.hint}
-            onClick={() => onModeChange(option.value)}
-          >
-            {MODE_ICONS[option.value]}
-            {option.label}
-          </button>
-        ))}
-      </div>
+                    <span className={tcss.resultStock}>{product.qtyOnHand} in stock</span>
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }

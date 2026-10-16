@@ -1,20 +1,13 @@
 "use client";
 
 import { useMemo } from "react";
-import type {
-  Customer,
-  PosAlert,
-  PosMode,
-  Prescription,
-  ResolvedCartLine,
-} from "../types";
+import type { Customer, PosAlert, Prescription, ResolvedCartLine } from "../types";
 import { nameSimilarity } from "../utils";
 
 type Options = {
   lines: ResolvedCartLine[];
   prescription: Prescription | null;
   customer: Customer | null;
-  mode?: PosMode;
   /** Current user can dispense controlled items without PIN co-sign. */
   canDispenseControlled: boolean;
 };
@@ -28,7 +21,6 @@ export function usePosAlerts({
   lines,
   prescription,
   customer,
-  mode = "retail",
   canDispenseControlled,
 }: Options): {
   alerts: PosAlert[];
@@ -91,20 +83,19 @@ export function usePosAlerts({
       });
     }
 
-    const needsPharmacistPin =
-      controlled.length > 0 && Boolean(prescription) && !canDispenseControlled;
-
-    if (mode === "prescription" && lines.length > 0 && !prescription) {
+    // Said up front, beside "link a prescription", so the cashier knows a pharmacist is needed too.
+    if (controlled.length > 0 && !prescription && !canDispenseControlled) {
       alerts.push({
-        id: "prescription-mode-no-rx",
-        severity: "danger",
-        title: "Prescription mode requires a linked Rx",
-        detail: "Link a prescription before completing this sale.",
-        count: 1,
-        blocking: true,
-        actions: [{ kind: "link_rx", label: "Link Rx" }],
+        id: "controlled-cosign",
+        severity: "warning",
+        title: "Pharmacist co-sign",
+        detail: controlled.map((l) => l.product.name).join(", "),
+        count: controlled.length,
       });
     }
+
+    const needsPharmacistPin =
+      controlled.length > 0 && Boolean(prescription) && !canDispenseControlled;
 
     if (prescription && customer?.fullName) {
       const score = nameSimilarity(customer.fullName, prescription.patientName);
@@ -186,5 +177,5 @@ export function usePosAlerts({
       needsPharmacistPin,
       softRxWarnings,
     };
-  }, [lines, prescription, customer, mode, canDispenseControlled]);
+  }, [lines, prescription, customer, canDispenseControlled]);
 }

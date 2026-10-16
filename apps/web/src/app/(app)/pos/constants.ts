@@ -1,10 +1,4 @@
-import type { PaymentMethod, PosMode } from "./types";
-
-export const POS_MODES: { value: PosMode; label: string; hint: string }[] = [
-  { value: "retail", label: "Retail Sale", hint: "Walk-in over-the-counter sale" },
-  { value: "prescription", label: "Prescriptions", hint: "Dispense against a doctor's Rx" },
-  { value: "returns", label: "Returns", hint: "Look up an invoice to refund or return" },
-];
+import type { PaymentMethod } from "./types";
 
 export const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: "cash", label: "Cash" },
@@ -18,9 +12,6 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   mobile_wallet: "Mobile Wallet",
 };
 
-/** Cash-drawer style denominations for one-tap exact tender. */
-export const QUICK_CASH_AMOUNTS = [100, 500, 1000, 5000];
-
 export const SHORTCUTS: { keys: string; action: string; group: string }[] = [
   { keys: "/", action: "Focus barcode / product search", group: "Scanning" },
   { keys: "F3", action: "Price check (no cart change)", group: "Scanning" },
@@ -31,7 +22,7 @@ export const SHORTCUTS: { keys: string; action: string; group: string }[] = [
   { keys: "F7", action: "Recall a parked sale", group: "Sale" },
   { keys: "F8", action: "Start a new sale", group: "Sale" },
   { keys: "F9", action: "Cycle payment method", group: "Sale" },
-  { keys: "Alt + C", action: "Customer lookup", group: "Sale" },
+  { keys: "F2 / Alt + C", action: "Customer lookup", group: "Sale" },
   { keys: "Alt + R", action: "Link prescription", group: "Sale" },
   { keys: "Alt + X", action: "Clear the cart", group: "Sale" },
   { keys: "Alt + F", action: "Toggle focus mode (hide sidebar/topbar)", group: "General" },
@@ -40,16 +31,6 @@ export const SHORTCUTS: { keys: string; action: string; group: string }[] = [
   { keys: "Ctrl + Shift + P", action: "Jump to POS from anywhere", group: "General" },
   { keys: "Ctrl + Shift + F", action: "Toggle fullscreen (any page)", group: "General" },
 ];
-
-export const QUICK_ADD_TABS = [
-  { value: "top", label: "Top Products" },
-  { value: "frequent", label: "Frequent Items" },
-  { value: "category", label: "Category" },
-  { value: "recent", label: "Recent Sales" },
-  { value: "suggested", label: "Suggested for this Sale" },
-] as const;
-
-export type QuickAddTab = (typeof QUICK_ADD_TABS)[number]["value"];
 
 /** Max rows rendered in the search dropdown before the cashier should refine the term. */
 export const SEARCH_RESULT_LIMIT = 8;

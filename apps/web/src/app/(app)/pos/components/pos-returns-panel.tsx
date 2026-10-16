@@ -1,25 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  IconChevronLeft,
-  IconChevronRight,
-  IconMinus,
-  IconPackage,
-  IconPlus,
-  IconRotateCcw,
-  IconSearch,
-} from "@/components/icons";
-import { SegmentedTabs, StatusBadge } from "@/components/ui";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { IconChevronRight, IconInfo, IconMinus, IconPlus, IconSearch } from "@/components/icons";
 import { ApiError } from "@/lib/api-error";
 import {
-  findSaleByInvoice,
-  searchInvoices,
   fetchSaleReturnable,
+  findSaleByInvoice,
   listRefundApprovers,
   listRefunds,
   refundSale,
+  searchInvoices,
   type InvoiceSearchHit,
   type RefundDisposition,
   type RefundReason,
@@ -29,24 +20,33 @@ import {
 } from "../services/pos-api";
 import { PAYMENT_METHOD_LABELS } from "../constants";
 import type { PaymentMethod, RecentSale, SaleReceipt } from "../types";
-import { formatDate, formatMoney, formatTime } from "../utils";
+import { formatAmount, formatDate, formatMoney, formatTime } from "../utils";
 import { PosPharmacistPinModal } from "./pos-pharmacist-pin-modal";
 import { PosRefundReceiptModal, type RefundReceipt } from "./pos-refund-receipt-modal";
 import type { ReceiptPreferences } from "./pos-receipt-modal";
-import css from "../pos.module.css";
+import tcss from "../till.module.css";
+
+export type ReturnsSlots = {
+  search: ReactNode;
+  body: ReactNode;
+  recentOpen: boolean;
+  toggleRecent: () => void;
+};
 
 type Props = {
   canRefund: boolean;
   canRefundControlled: boolean;
   recentSales: RecentSale[];
+  /** Open this invoice straight away — "Return items" on the last sale. */
+  initialInvoice: string | null;
+  onInitialInvoiceUsed: () => void;
   onRefunded: (sale: SaleReceipt) => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
   receiptPreferences: ReceiptPreferences;
   organization: { displayName: string; logoUrl: string | null } | null;
+  children: (slots: ReturnsSlots) => ReactNode;
 };
-
-type Step = "find" | "items" | "refund";
 
 export const REFUND_REASON_OPTIONS: Array<{ value: RefundReason; label: string }> = [
   { value: "wrong_item", label: "Wrong item" },
@@ -60,6 +60,7 @@ export const REFUND_REASON_OPTIONS: Array<{ value: RefundReason; label: string }
 /** "As paid" sends no method, and the server splits it; the others send one method. */
 type MethodChoice = "as_paid" | PaymentMethod;
 const METHOD_CHOICES: PaymentMethod[] = ["cash", "card", "mobile_wallet"];
+const METHOD_SHORT: Record<PaymentMethod, string> = { cash: "Cash", card: "Card", mobile_wallet: "Wallet" };
 const SPLIT_ORDER: PaymentMethod[] = ["card", "mobile_wallet", "cash"];
 
 /**
@@ -91,23 +92,25 @@ function previewAsPaid(sale: SaleReceipt, total: number) {
 }
 
 /**
- * The one door for a customer return, in three steps: find the sale, choose what's coming back
- * (and whether each item goes back on the shelf or is held for a pharmacist), then refund — the
- * amount, why, and how it goes back. Over the tenant's limit an approver signs it off with their
- * till PIN. Recent refunds are a tab of their own rather than a list under the form.
+ * The one door for a customer return, laid out like a sale: find it from the till bar, choose
+ * what's coming back on the left (and whether each item goes back on the shelf or is held for a
+ * pharmacist), refund on the right. Over the tenant's limit an approver signs it off with their
+ * till PIN. The page places the pieces through `children`.
  */
 export function PosReturnsPanel({
   canRefund,
   canRefundControlled,
   recentSales,
+  initialInvoice,
+  onInitialInvoiceUsed,
   onRefunded,
   onError,
   onNotice,
   receiptPreferences,
   organization,
+  children,
 }: Props) {
-  const [tab, setTab] = useState<"refund" | "recent">("refund");
-  const [step, setStep] = useState<Step>("find");
+  const [recentOpen, setRecentOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sale, setSale] = useState<SaleReceipt | null>(null);
   const [returnable, setReturnable] = useState<SaleReturnable | null>(null);
@@ -126,6 +129,7 @@ export function PosReturnsPanel({
   const [receipt, setReceipt] = useState<RefundReceipt | null>(null);
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const loadRefunds = useCallback(() => {
     if (!canRefund) return;
@@ -150,13 +154,13 @@ export function PosReturnsPanel({
   }, []);
 
   function reset() {
-    setStep("find");
     setSale(null);
     setReturnable(null);
     setQuery("");
     setReasonCode("");
     setNote("");
     setMethod("as_paid");
+    window.setTimeout(() => searchRef.current?.focus(), 0);
   }
 
   const openSale = useCallback(
@@ -173,7 +177,7 @@ export function PosReturnsPanel({
         setReasonCode("");
         setNote("");
         setMethod("as_paid");
-        setStep("items");
+        setRecentOpen(false);
       } catch (e) {
         onError(e instanceof Error ? e.message : "Invoice not found");
       } finally {
@@ -182,6 +186,12 @@ export function PosReturnsPanel({
     },
     [applyReturnable, onError],
   );
+
+  useEffect(() => {
+    if (!initialInvoice) return;
+    onInitialInvoiceUsed();
+    void openSale(initialInvoice);
+  }, [initialInvoice, onInitialInvoiceUsed, openSale]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -220,6 +230,7 @@ export function PosReturnsPanel({
       ) / 100,
     [selected],
   );
+  const units = selected.reduce((n, row) => n + row.qty, 0);
   const heldUnits = selected
     .filter((row) => dispositionByKey[row.line.saleItemId] === "quarantine")
     .reduce((n, row) => n + row.qty, 0);
@@ -241,9 +252,7 @@ export function PosReturnsPanel({
 
   function returnAll() {
     if (!returnable) return;
-    setQtyByKey(
-      Object.fromEntries(returnable.lines.map((line) => [line.saleItemId, line.remainingQty])),
-    );
+    setQtyByKey(Object.fromEntries(returnable.lines.map((line) => [line.saleItemId, line.remainingQty])));
   }
 
   async function submit(payload: RefundSalePayload, approvedBy?: string) {
@@ -306,17 +315,24 @@ export function PosReturnsPanel({
     }
   }
 
+  const reasonMissing = !reasonCode
+    ? "Choose why it's coming back"
+    : reasonCode === "other" && !note.trim()
+      ? "Say what the reason is"
+      : null;
+  const nothingChosen = selected.length === 0 ? "Choose what's coming back" : null;
+  const refundBlocked = !canAct
+    ? !canRefund
+      ? "Your role can't give refunds"
+      : blockedControlled
+        ? "A pharmacist or manager refunds this sale"
+        : "Nothing on this sale can be refunded"
+    : (nothingChosen ?? reasonMissing);
+
   function refund() {
-    if (!reasonCode) {
-      onError("Choose why it's coming back");
-      return;
-    }
-    if (reasonCode === "other" && !note.trim()) {
-      onError("Say what the reason is");
-      return;
-    }
+    if (refundBlocked) return;
     void submit({
-      reasonCode,
+      reasonCode: reasonCode as RefundReason,
       reason: note.trim() || undefined,
       items: selected.map(({ line, qty }) => ({
         productId: line.productId,
@@ -328,413 +344,419 @@ export function PosReturnsPanel({
     });
   }
 
-  const steps: Array<[Step, string]> = [
-    ["find", "Find the sale"],
-    ["items", "What's coming back"],
-    ["refund", "Refund"],
-  ];
-  const stepIndex = steps.findIndex(([key]) => key === step);
-  const reasonMissing = !reasonCode
-    ? "Choose why it's coming back"
-    : reasonCode === "other" && !note.trim()
-      ? "Say what the reason is"
-      : null;
   const split = sale ? previewAsPaid(sale, total) : [];
-  const refundableRecent = recentSales.filter(
-    (s) => s.status === "posted" || s.status === "partially_refunded",
+  const refundableRecent = recentSales.filter((s) => s.status === "posted" || s.status === "partially_refunded");
+  const saleRows = (hits.length > 0
+    ? hits.map((hit) => ({
+        key: hit.id,
+        invoiceNo: hit.invoiceNo,
+        total: hit.grandTotal,
+        at: hit.soldAt,
+        who: hit.customer?.fullName ?? "Walk-in",
+        status: hit.status,
+      }))
+    : refundableRecent.slice(0, 12).map((s) => ({
+        key: s.id,
+        invoiceNo: s.invoiceNo,
+        total: s.grandTotal,
+        at: s.soldAt,
+        who: s.customerName ?? "Walk-in",
+        status: s.status,
+      })));
+
+  /* ── The pieces ───────────────────────────────────────── */
+
+  const search = (
+    <div className={tcss.searchWrap}>
+      <label className={tcss.searchField}>
+        <IconSearch size={18} />
+        <input
+          ref={searchRef}
+          className={tcss.searchInput}
+          value={query}
+          autoFocus
+          autoComplete="off"
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setRecentOpen(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void openSale(query);
+          }}
+          placeholder="Scan the receipt, or search invoice, customer or phone"
+          aria-label="Find the sale"
+        />
+      </label>
+    </div>
   );
 
-  return (
-    <section className={`${css.card} ${css.returnsPanel}`}>
-      <header className={css.rfHeader}>
-        <div>
-          <h2 className={css.returnsTitle}>Returns</h2>
-          <p className={css.returnsSubtitle}>Refund a customer, and decide what happens to what comes back.</p>
+  const recentList = (
+    <section aria-label="Recent refunds" className={tcss.ticket}>
+      <div className={tcss.ticketHead}>
+        <span className={tcss.ticketTitle}>Recent refunds</span>
+        <span className={tcss.counts}>At this branch, newest first</span>
+        <span className={tcss.spacer} />
+        <button type="button" className={tcss.linkBtn} onClick={() => setRecentOpen(false)}>
+          Back to returns
+        </button>
+      </div>
+      {refunds.length === 0 ? (
+        <div className={tcss.ready}>
+          <span className={tcss.readyHint}>No refunds at this branch yet.</span>
         </div>
-        <Link href="/purchasing/supplier-returns" className={css.rfSupplierLink}>
-          <IconPackage size={14} /> Supplier returns
-        </Link>
-      </header>
-
-      <SegmentedTabs
-        ariaLabel="Returns"
-        active={tab}
-        onChange={setTab}
-        items={[
-          { id: "refund", label: "Refund" },
-          { id: "recent", label: "Recent refunds", count: refunds.length || null },
-        ]}
-      />
-
-      {tab === "recent" ? (
-        refunds.length === 0 ? (
-          <p className={css.pickerEmpty}>No refunds at this branch yet.</p>
-        ) : (
-          <ul className={css.rfRecentList}>
-            {refunds.map((row) => {
-              const held = row.items
-                .filter((item) => item.disposition === "quarantine")
-                .reduce((n, item) => n + item.qty, 0);
-              return (
-                <li key={row.id} className={css.rfRecentRow}>
-                  <div className={css.rfRecentTop}>
-                    <span className={css.rfStrong}>{row.returnNumber}</span>
-                    <span className={css.rfStrong}>{formatMoney(row.amount)}</span>
-                  </div>
-                  <div className={css.rfMuted}>
+      ) : (
+        <ul className={tcss.saleList}>
+          {refunds.map((row) => {
+            const held = row.items.filter((i) => i.disposition === "quarantine").reduce((n, i) => n + i.qty, 0);
+            return (
+              <li key={row.id} className={tcss.saleRow} style={{ cursor: "default" }}>
+                <span className={tcss.saleRowMain}>
+                  <span className={tcss.saleRowNo}>{row.returnNumber}</span>
+                  <span className={tcss.saleRowMeta}>
                     {row.sale?.invoiceNo ?? "—"} · {formatDate(row.createdAt)} {formatTime(row.createdAt)} ·{" "}
                     {row.refundedBy.fullName}
                     {row.approvedBy ? ` · approved by ${row.approvedBy.fullName}` : ""}
-                  </div>
-                  <div className={css.rfMuted}>
-                    {row.refundedTo.length > 0
-                      ? row.refundedTo
-                          .map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatMoney(p.amount)}`)
-                          .join(" · ")
-                      : null}
+                  </span>
+                  <span className={tcss.saleRowMeta}>
+                    {row.refundedTo.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatAmount(p.amount)}`).join(" · ")}
                     {row.reason ? `${row.refundedTo.length ? " · " : ""}${row.reason}` : ""}
                     {held > 0 ? ` · ${held} held` : ""}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )
-      ) : (
-        <>
-          <ol className={css.rfSteps} aria-label="Refund steps">
-            {steps.map(([key, label], index) => (
-              <li
-                key={key}
-                className={`${css.rfStep}${index === stepIndex ? ` ${css.rfStepActive}` : ""}${
-                  index < stepIndex ? ` ${css.rfStepDone}` : ""
-                }`}
-                aria-current={index === stepIndex ? "step" : undefined}
-              >
-                <span className={css.rfStepNum}>{index + 1}</span>
-                {label}
+                  </span>
+                </span>
+                <span className={tcss.saleRowAmount}>{formatMoney(row.amount)}</span>
+                <span />
               </li>
-            ))}
-          </ol>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
 
-          {step === "find" ? (
-            <div className={css.rfBody}>
-              <div className={css.returnsSearchField}>
-                <IconSearch size={15} className={css.returnsSearchIcon} />
-                <input
-                  className={css.control}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void openSale(query);
-                  }}
-                  placeholder="Scan the receipt, or search invoice, customer or phone"
-                  aria-label="Find the sale"
-                  autoFocus
-                />
-              </div>
-              {searching ? <p className={css.rfMuted}>Searching…</p> : null}
-              {(hits.length > 0 ? hits : refundableRecent.slice(0, 8)).length > 0 ? (
-                <>
-                  <h3 className={css.returnsRecentTitle}>
-                    {hits.length > 0 ? "Matching sales" : "Recent sales"}
-                  </h3>
-                  <ul className={css.rfSaleList}>
-                    {(hits.length > 0
-                      ? hits.map((hit) => ({
-                          key: hit.id,
-                          invoiceNo: hit.invoiceNo,
-                          total: hit.grandTotal,
-                          at: hit.soldAt,
-                          who: hit.customer?.fullName ?? "Walk-in",
-                          status: hit.status,
-                        }))
-                      : refundableRecent.slice(0, 8).map((s) => ({
-                          key: s.id,
-                          invoiceNo: s.invoiceNo,
-                          total: s.grandTotal,
-                          at: s.soldAt,
-                          who: s.customerName ?? "Walk-in",
-                          status: s.status,
-                        }))
-                    ).map((row) => (
-                      <li key={row.key}>
-                        <button
-                          type="button"
-                          className={css.rfSaleRow}
-                          onClick={() => void openSale(row.invoiceNo)}
-                          disabled={busy}
-                        >
-                          <span>
-                            <span className={css.rfStrong}>{row.invoiceNo}</span>
-                            <span className={css.rfMuted}>
-                              {formatDate(row.at)} {formatTime(row.at)} · {row.who}
-                              {row.status === "partially_refunded" ? " · part refunded" : ""}
-                              {row.status === "refunded" ? " · refunded" : ""}
-                              {row.status === "voided" ? " · voided" : ""}
-                            </span>
-                          </span>
-                          <span className={css.rfStrong}>{formatMoney(row.total)}</span>
-                          <IconChevronRight size={15} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <p className={css.rfMuted}>Type at least two characters to search.</p>
-              )}
-            </div>
-          ) : null}
-
-          {step !== "find" && sale && returnable ? (
-            <div className={css.rfSaleBar}>
-              <span>
-                <span className={css.rfStrong}>{sale.invoiceNo}</span>
-                <span className={css.rfMuted}>
-                  {formatDate(sale.soldAt)} · {sale.customer?.fullName ?? "Walk-in"} · paid{" "}
-                  {formatMoney(sale.grandTotal)}
+  const findList = (
+    <section aria-label="Find the sale" className={tcss.ticket}>
+      <div className={tcss.ticketHead}>
+        <span className={tcss.ticketTitle}>{hits.length > 0 ? "Matching sales" : "Recent sales"}</span>
+        <span className={tcss.counts}>{searching ? "Searching…" : "Pick the sale the customer is returning from"}</span>
+      </div>
+      {saleRows.length === 0 ? (
+        <div className={tcss.ready}>
+          <span className={tcss.readyHint}>
+            {query.trim().length >= 2 && !searching
+              ? `No sale matches “${query.trim()}”.`
+              : "Scan the receipt barcode, or type an invoice number, customer name or phone."}
+          </span>
+        </div>
+      ) : (
+        <ul className={tcss.saleList}>
+          {saleRows.map((row) => (
+            <li key={row.key}>
+              <button
+                type="button"
+                className={tcss.saleRow}
+                onClick={() => void openSale(row.invoiceNo)}
+                disabled={busy}
+              >
+                <span className={tcss.saleRowMain}>
+                  <span className={tcss.saleRowNo}>{row.invoiceNo}</span>
+                  <span className={tcss.saleRowMeta}>
+                    {formatDate(row.at)} {formatTime(row.at)} · {row.who}
+                    {row.status === "partially_refunded" ? " · part refunded" : ""}
+                    {row.status === "refunded" ? " · refunded" : ""}
+                    {row.status === "voided" ? " · voided" : ""}
+                  </span>
                 </span>
-              </span>
-              <StatusBadge
-                status={sale.status}
-                variant={
-                  sale.status === "posted"
-                    ? "success"
-                    : sale.status === "partially_refunded"
-                      ? "warning"
-                      : "danger"
-                }
-                label={
-                  sale.status === "posted"
-                    ? "Sold"
-                    : sale.status === "partially_refunded"
-                      ? "Part refunded"
-                      : sale.status === "refunded"
-                        ? "Refunded"
-                        : "Voided"
-                }
-              />
-            </div>
-          ) : null}
+                <span className={tcss.saleRowAmount}>{formatMoney(row.total)}</span>
+                <IconChevronRight size={16} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 
-          {step === "items" && sale && returnable ? (
-            <div className={css.rfBody}>
-              {!refundable ? (
-                <p className={css.rfNotice}>
-                  {sale.status === "voided"
-                    ? "This sale was voided, so there's nothing to refund."
-                    : "Everything on this sale has already been refunded."}
-                </p>
-              ) : blockedControlled ? (
-                <p className={css.rfNotice}>
-                  This sale has controlled or prescription items. Ask a pharmacist or manager to
-                  refund it.
-                </p>
-              ) : !canRefund ? (
-                <p className={css.rfNotice}>Your role can&apos;t give refunds.</p>
-              ) : null}
-
-              <div className={css.rfItems}>
-                {returnable.lines.map((line) => {
-                  const qty = qtyByKey[line.saleItemId] ?? 0;
-                  const disposition = dispositionByKey[line.saleItemId] ?? "restock";
-                  const off = !canAct || line.remainingQty <= 0 || busy;
-                  return (
-                    <div
-                      key={line.saleItemId}
-                      className={`${css.rfItem}${qty > 0 ? ` ${css.rfItemOn}` : ""}`}
-                    >
-                      <div className={css.rfItemMain}>
-                        <span className={css.rfStrong}>
-                          {line.productName}
-                          {line.isControlled || line.requiresPrescription ? (
-                            <span className={css.tagRx}>Rx</span>
-                          ) : null}
-                        </span>
-                        <span className={css.rfMuted}>
-                          Batch {line.batchNo} · bought {line.soldQty} ·{" "}
-                          {line.remainingQty > 0
-                            ? `${line.remainingQty} can come back`
-                            : "all returned"}{" "}
-                          · {formatMoney(line.refundUnitPrice ?? line.unitPrice)} each
-                        </span>
-                      </div>
-                      <div className={css.rfItemControls}>
-                        <div className={css.qtyGroup}>
-                          <button
-                            type="button"
-                            className={css.qtyBtn}
-                            disabled={off || qty <= 0}
-                            aria-label={`One less ${line.productName}`}
-                            onClick={() => stepQty(line.saleItemId, line.remainingQty, -1)}
-                          >
-                            <IconMinus size={13} />
-                          </button>
-                          <span className={css.rfQty} aria-live="polite">
-                            {qty}
-                          </span>
-                          <button
-                            type="button"
-                            className={css.qtyBtn}
-                            disabled={off || qty >= line.remainingQty}
-                            aria-label={`One more ${line.productName}`}
-                            onClick={() => stepQty(line.saleItemId, line.remainingQty, 1)}
-                          >
-                            <IconPlus size={13} />
-                          </button>
-                        </div>
-                        <div
-                          className={css.dispositionToggle}
-                          role="group"
-                          aria-label={`What happens to returned ${line.productName}`}
-                        >
-                          {(
-                            [
-                              ["restock", "Shelf"],
-                              ["quarantine", "Hold"],
-                            ] as const
-                          ).map(([value, label]) => (
-                            <button
-                              key={value}
-                              type="button"
-                              aria-pressed={disposition === value}
-                              disabled={off}
-                              data-tooltip={
-                                value === "restock"
-                                  ? "Back on the shelf, ready to sell"
-                                  : "Held in quarantine until a pharmacist releases it"
-                              }
-                              onClick={() =>
-                                setDispositionByKey((prev) => ({ ...prev, [line.saleItemId]: value }))
-                              }
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className={css.rfFooter}>
-                <button type="button" className={css.toolBtn} onClick={reset} disabled={busy}>
-                  <IconChevronLeft size={15} /> Another sale
-                </button>
-                {canAct ? (
-                  <button type="button" className={css.toolBtn} onClick={returnAll} disabled={busy}>
-                    Return everything
-                  </button>
-                ) : null}
-                <span className={css.rfTotal}>
-                  {selected.length > 0 ? formatMoney(total) : "Nothing chosen"}
-                </span>
-                <button
-                  type="button"
-                  className={css.rfPrimary}
-                  onClick={() => setStep("refund")}
-                  disabled={!canAct || selected.length === 0}
-                >
-                  Next <IconChevronRight size={15} />
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {step === "refund" && sale && returnable ? (
-            <div className={css.rfBody}>
-              <ul className={css.rfSummary}>
-                {selected.map(({ line, qty }) => (
-                  <li key={line.saleItemId}>
-                    <span>
-                      {line.productName} × {qty}
-                      <span className={css.rfMuted}>
-                        {" "}
-                        · {dispositionByKey[line.saleItemId] === "quarantine" ? "held for inspection" : "back on the shelf"}
-                      </span>
-                    </span>
-                    <span>{formatMoney(qty * Number(line.refundUnitPrice ?? line.unitPrice))}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <div className={css.rfField}>
-                <span className={css.rfLabel}>Why is it coming back?</span>
-                <div className={css.rfChips} role="radiogroup" aria-label="Reason">
-                  {REFUND_REASON_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={reasonCode === option.value}
-                      className={`${css.rfChip}${reasonCode === option.value ? ` ${css.rfChipOn}` : ""}`}
-                      onClick={() => setReasonCode(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+  const itemsPane =
+    sale && returnable ? (
+      <section aria-label="What is coming back" className={tcss.ticket}>
+        <div className={tcss.ticketHead}>
+          <span className={tcss.ticketTitle}>{sale.invoiceNo}</span>
+          <span className={tcss.counts}>
+            {formatDate(sale.soldAt)} {formatTime(sale.soldAt)} · {sale.customer?.fullName ?? "Walk-in"} · paid{" "}
+            {formatMoney(sale.grandTotal)}
+          </span>
+          <span className={tcss.spacer} />
+          {canAct && (
+            <button type="button" className={tcss.smallBtn} onClick={returnAll} disabled={busy}>
+              Return everything
+            </button>
+          )}
+          <button type="button" className={tcss.linkBtn} onClick={reset} disabled={busy}>
+            Another sale
+          </button>
+        </div>
+        {!refundable ? (
+          <div className={tcss.warnBar}>
+            {sale.status === "voided"
+              ? "This sale was voided, so there's nothing to refund."
+              : "Everything on this sale has already been refunded."}
+          </div>
+        ) : blockedControlled ? (
+          <div className={tcss.warnBar}>
+            This sale has controlled or prescription items. Ask a pharmacist or manager to refund it.
+          </div>
+        ) : !canRefund ? (
+          <div className={tcss.warnBar}>Your role can&apos;t give refunds.</div>
+        ) : null}
+        <div className={tcss.rcols} aria-hidden>
+          <span>Item</span>
+          <span className={tcss.center}>Bought</span>
+          <span className={tcss.center}>Coming back</span>
+          <span className={tcss.center}>Then</span>
+          <span className={tcss.right}>Refund</span>
+        </div>
+        <div className={tcss.lines}>
+          {returnable.lines.map((line) => {
+            const qty = qtyByKey[line.saleItemId] ?? 0;
+            const disposition = dispositionByKey[line.saleItemId] ?? "restock";
+            const off = !canAct || line.remainingQty <= 0 || busy;
+            const each = Number(line.refundUnitPrice ?? line.unitPrice);
+            return (
+              <div key={line.saleItemId} className={`${tcss.rline}${qty > 0 ? ` ${tcss.rlineOn}` : ""}`}>
+                <div className={tcss.lineMain}>
+                  <span className={tcss.lineTitle}>
+                    <span className={tcss.rlineName}>{line.productName}</span>
+                    {line.isControlled ? (
+                      <span className={`${tcss.tag} ${tcss.tagCtrl}`}>CONTROLLED</span>
+                    ) : line.requiresPrescription ? (
+                      <span className={`${tcss.tag} ${tcss.tagRx}`}>Rx</span>
+                    ) : null}
+                  </span>
+                  <span className={tcss.lineMeta}>
+                    {formatAmount(each)} each · Batch {line.batchNo}
+                    {line.remainingQty < line.soldQty
+                      ? ` · ${line.soldQty - line.remainingQty} already returned`
+                      : ""}
+                  </span>
                 </div>
-                <input
-                  className={css.control}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  maxLength={500}
-                  placeholder={reasonCode === "other" ? "What's the reason? (required)" : "Note (optional)"}
-                  aria-label="Note"
-                />
-              </div>
-
-              <div className={css.rfField}>
-                <span className={css.rfLabel}>Refund to</span>
-                <div className={css.rfChips} role="radiogroup" aria-label="Refund to">
+                <span className={tcss.center} style={{ fontSize: 15 }}>
+                  {line.soldQty}
+                </span>
+                <div className={tcss.stepper}>
                   <button
                     type="button"
-                    role="radio"
-                    aria-checked={method === "as_paid"}
-                    className={`${css.rfChip}${method === "as_paid" ? ` ${css.rfChipOn}` : ""}`}
-                    onClick={() => setMethod("as_paid")}
+                    className={tcss.stepBtn}
+                    disabled={off || qty <= 0}
+                    aria-label={`One less ${line.productName}`}
+                    onClick={() => stepQty(line.saleItemId, line.remainingQty, -1)}
                   >
-                    As paid ·{" "}
-                    {split.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatMoney(p.amount)}`).join(" + ")}
+                    <IconMinus size={15} />
                   </button>
-                  {METHOD_CHOICES.map((choice) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      role="radio"
-                      aria-checked={method === choice}
-                      className={`${css.rfChip}${method === choice ? ` ${css.rfChipOn}` : ""}`}
-                      onClick={() => setMethod(choice)}
-                    >
-                      {PAYMENT_METHOD_LABELS[choice]}
-                    </button>
-                  ))}
+                  <span className={tcss.qtyInput} style={{ display: "grid", placeItems: "center" }} aria-live="polite">
+                    {qty}
+                  </span>
+                  <button
+                    type="button"
+                    className={tcss.stepBtn}
+                    disabled={off || qty >= line.remainingQty}
+                    aria-label={`One more ${line.productName}`}
+                    onClick={() => stepQty(line.saleItemId, line.remainingQty, 1)}
+                  >
+                    <IconPlus size={15} />
+                  </button>
                 </div>
-              </div>
-
-              <div className={css.rfFooter}>
-                <button type="button" className={css.toolBtn} onClick={() => setStep("items")} disabled={busy}>
-                  <IconChevronLeft size={15} /> Back
-                </button>
-                <span className={reasonMissing ? css.rfMuted : css.rfTotal}>
-                  {reasonMissing ?? formatMoney(total)}
+                <div className={tcss.disposition}>
+                  {qty > 0 ? (
+                    <div className={tcss.dispToggle} role="group" aria-label={`What happens to returned ${line.productName}`}>
+                      {(
+                        [
+                          ["restock", "Shelf"],
+                          ["quarantine", "Hold"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={disposition === value}
+                          disabled={off}
+                          className={`${tcss.dispBtn}${
+                            disposition === value ? ` ${value === "restock" ? tcss.dispShelf : tcss.dispHold}` : ""
+                          }`}
+                          title={
+                            value === "restock"
+                              ? "Back on the shelf, ready to sell"
+                              : "Held in quarantine until a pharmacist releases it"
+                          }
+                          onClick={() => setDispositionByKey((prev) => ({ ...prev, [line.saleItemId]: value }))}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>—</span>
+                  )}
+                </div>
+                <span className={qty > 0 ? tcss.lineTotal : tcss.right}>
+                  {qty > 0 ? formatAmount(qty * each) : "—"}
                 </span>
-                <button
-                  type="button"
-                  className={css.rfPrimary}
-                  onClick={refund}
-                  disabled={busy || reasonMissing !== null}
-                >
-                  <IconRotateCcw size={15} /> Refund {formatMoney(total)}
-                </button>
               </div>
-            </div>
-          ) : null}
-        </>
-      )}
+            );
+          })}
+        </div>
+        <div className={tcss.returnsFoot}>
+          <IconInfo size={16} />
+          <span>
+            <b>Shelf</b> puts it back on sale. <b>Hold</b> quarantines it for the pharmacist to check — prescription
+            and controlled items start on Hold.
+          </span>
+        </div>
+      </section>
+    ) : null;
 
+  const refundPane =
+    sale && returnable ? (
+      <aside aria-label="Refund" className={tcss.pay}>
+        <div className={tcss.totalBlock}>
+          <span className={tcss.label}>Refund</span>
+          <span className={tcss.totalAmount}>{formatMoney(total)}</span>
+          <span className={tcss.heldMeta}>
+            {units === 0
+              ? "Nothing chosen yet"
+              : `${units} unit${units === 1 ? "" : "s"} · ${units - heldUnits} back on the shelf, ${heldUnits} held`}
+          </span>
+        </div>
+
+        <div className={tcss.payBlock}>
+          <span className={tcss.label}>Why is it coming back?</span>
+          <div className={tcss.reasonChips} role="radiogroup" aria-label="Reason">
+            {REFUND_REASON_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={reasonCode === option.value}
+                className={`${tcss.reasonChip}${reasonCode === option.value ? ` ${tcss.reasonChipOn}` : ""}`}
+                onClick={() => setReasonCode(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <input
+            className={tcss.noteInput}
+            style={{ flex: "none", height: 40 }}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={500}
+            placeholder={reasonCode === "other" ? "What's the reason? (required)" : "Note (optional)"}
+            aria-label="Note"
+          />
+        </div>
+
+        <div className={tcss.payBlock}>
+          <span className={tcss.label}>Refund to</span>
+          <div className={tcss.methods} role="radiogroup" aria-label="Refund to">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={method === "as_paid"}
+              className={`${tcss.method} ${tcss.methodCompact}${method === "as_paid" ? ` ${tcss.methodOn}` : ""}`}
+              onClick={() => setMethod("as_paid")}
+              title={split.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatAmount(p.amount)}`).join(" + ")}
+            >
+              As paid
+              <span className={tcss.methodSub}>
+                {split.length > 0 ? split.map((p) => METHOD_SHORT[p.method]).join(" + ") : "—"}
+              </span>
+            </button>
+            {METHOD_CHOICES.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                role="radio"
+                aria-checked={method === choice}
+                className={`${tcss.method} ${tcss.methodCompact}${method === choice ? ` ${tcss.methodOn}` : ""}`}
+                onClick={() => setMethod(choice)}
+              >
+                {METHOD_SHORT[choice]}
+              </button>
+            ))}
+          </div>
+          {method === "as_paid" && split.length > 1 && (
+            <span className={tcss.heldMeta}>
+              {split.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatAmount(p.amount)}`).join(" + ")}
+            </span>
+          )}
+        </div>
+
+        <div className={tcss.grow} />
+
+        <div className={tcss.payFoot}>
+          {refundBlocked && <span className={tcss.blockedHint}>{refundBlocked}</span>}
+          <button
+            type="button"
+            className={tcss.completeBtn}
+            onClick={refund}
+            disabled={busy || refundBlocked !== null}
+          >
+            <span>{busy ? "Refunding…" : "Refund"}</span>
+            <span>{formatMoney(total)}</span>
+          </button>
+          <span className={tcss.blockedHint}>Refunds over the approval limit ask for an approver&apos;s till PIN here.</span>
+        </div>
+      </aside>
+    ) : (
+      <aside aria-label="Refunds" className={tcss.pay}>
+        <div className={tcss.totalBlock}>
+          <span className={tcss.label}>Returns</span>
+          <span className={tcss.doneTitle}>Find the sale first</span>
+          <span className={tcss.heldMeta}>
+            Scan the receipt or pick the sale on the left. You&apos;ll choose what&apos;s coming back, why, and how
+            the money goes back.
+          </span>
+        </div>
+        <div className={tcss.rule} />
+        <div className={tcss.payBlock}>
+          <div className={tcss.lastSaleTop}>
+            <span className={tcss.label}>Latest refunds</span>
+            {refunds.length > 0 && (
+              <button type="button" className={tcss.linkBtn} onClick={() => setRecentOpen(true)}>
+                See all
+              </button>
+            )}
+          </div>
+          {refunds.length === 0 ? (
+            <span className={tcss.emptyNote}>No refunds at this branch yet.</span>
+          ) : (
+            refunds.slice(0, 4).map((row) => (
+              <div key={row.id} className={tcss.heldRow}>
+                <div className={tcss.heldMain}>
+                  <span className={tcss.heldName}>{row.returnNumber}</span>
+                  <span className={tcss.heldMeta}>
+                    {row.sale?.invoiceNo ?? "—"} · {formatTime(row.createdAt)}
+                    {row.reason ? ` · ${row.reason}` : ""}
+                  </span>
+                </div>
+                <span className={tcss.saleRowAmount}>{formatMoney(row.amount)}</span>
+              </div>
+            ))
+          )}
+        </div>
+        <div className={tcss.grow} />
+        <div className={tcss.menuHint}>
+          <b>Sending stock back to a supplier?</b>
+          <span>
+            That&apos;s a supplier return — <Link href="/purchasing/supplier-returns">open Supplier returns</Link>.
+          </span>
+        </div>
+      </aside>
+    );
+
+  const body = (
+    <>
+      {recentOpen ? recentList : (itemsPane ?? findList)}
+      {refundPane}
       <PosPharmacistPinModal
         open={pendingApproval !== null}
         title="Approve this refund"
@@ -749,13 +771,14 @@ export function PosReturnsPanel({
           await submit({ ...pendingApproval.payload, approval }, approverName);
         }}
       />
-
       <PosRefundReceiptModal
         receipt={receipt}
         onClose={() => setReceipt(null)}
         preferences={receiptPreferences}
         organization={organization}
       />
-    </section>
+    </>
   );
+
+  return <>{children({ search, body, recentOpen, toggleRecent: () => setRecentOpen((v) => !v) })}</>;
 }
