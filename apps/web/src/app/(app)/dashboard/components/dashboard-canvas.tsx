@@ -90,7 +90,13 @@ export function DashboardCanvas({
       md: packDashboardLayout(rglLayout, 8),
       sm: packDashboardLayout(
         rglLayout.map((item) =>
-          item.i.endsWith(".payment-methods") ? { ...item, h: 16 } : item,
+          item.i.endsWith(".business-overview")
+            ? { ...item, h: 28 }
+            : item.i.endsWith(".cash-flow")
+              ? { ...item, h: 17 }
+              : item.i.endsWith(".payment-methods")
+                ? { ...item, h: 16 }
+                : item,
         ),
         1,
       ),

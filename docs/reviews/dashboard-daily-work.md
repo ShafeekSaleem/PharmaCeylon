@@ -42,7 +42,7 @@ Checks include desktop and phone layouts for owner, manager, pharmacist, cashier
 - New native PostgreSQL integration scenarios are in `apps/api/test/integration/dashboard.int-spec.ts` for the repository's existing integration runner.
 - Independently executed the service SQL against PostgreSQL through PGlite using the generated real Prisma schema and seeded workflows: more than 50 sales, Colombo midnight, cashier and branch scopes, permission-restricted sources, assigned counts, self-approval, incoming/outgoing transfers, inclusive due dates, page counts, and workflow changes. This caught and corrected a cashier-only CTE column-alias issue.
 
-A live PostgreSQL server was not available here, so the repository's native PostgreSQL integration runner and a deployed Nest/API-to-browser workflow smoke test remain staging checks. Fixture-backed browser tests and embedded PostgreSQL query tests do not establish deployed-system performance or concurrency behavior.
+The repeatable browser smoke test is `DASHBOARD_BROWSER_TEST_ACK=ephemeral-database npm run test:dashboard-browser`, after API/web builds and migrations against a disposable database. It starts the real web and Nest servers, creates an isolated synthetic tenant, logs in through the UI as all five roles, checks server-backed filters/categories/pagination, verifies desktop/mobile overflow, captures screenshots, and approves a purchase order through its actual document workflow. CI runs it against native PostgreSQL and retains screenshots/diagnostics for three days. Local PostgreSQL execution uses PGlite; deployed performance and concurrency still require staging checks. The wider native integration runner remains a separate check.
 
 ## Rollout
 

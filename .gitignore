@@ -38,3 +38,4 @@ apps/api/storage/
 
 # Test / coverage
 coverage/
+test-results/
