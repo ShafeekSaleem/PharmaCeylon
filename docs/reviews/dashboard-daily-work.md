@@ -30,7 +30,7 @@ Effective permissions determine sources and actions, including custom permission
 
 The queue uses existing theme tokens, so the new area follows light/dark and accent settings. Primary task links open existing document workflows directly. No checkbox implies that a financial or stock operation can be completed from the dashboard.
 
-The first review found oversized cashier chart slots, empty tablet columns, clipped mobile payment content, and repeated/unconnected clinical cards. These were corrected with compact defaults, explicit tablet/mobile packing, appropriate mobile payment-card height, and a smaller default widget selection. Saved desktop arrangements remain available.
+The first review found oversized cashier chart slots, empty tablet columns, clipped mobile payment content, and repeated/unconnected clinical cards. These were corrected with compact defaults, explicit tablet/mobile packing, appropriate mobile payment-card height, and a smaller default widget selection. Saved desktop arrangements remain available. A subsequent real-app screenshot review also found the business overview charts/totals and payment-mix legend overlapping on narrow cards. Card-width container queries, wrapped controls/footers, and larger stacked-card row allocations correct this. Browser checks now inspect internal chart/footer clipping as well as document overflow.
 
 Checks include desktop and phone layouts for owner, manager, pharmacist, cashier, and inventory clerk; filtering; unavailable queue/retry; theme rendering; and horizontal-overflow detection. Browser data is fixture-backed, not a live pharmacy account.
 

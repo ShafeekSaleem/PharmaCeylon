@@ -422,6 +422,47 @@ try {
       .getByRole("combobox", { name: "Work category", exact: true })
       .selectOption("");
     await reset;
+    if (role === "owner") {
+      await page
+        .getByRole("button", { name: "Colombo Central", exact: true })
+        .click();
+      const changed = page.waitForResponse(
+        (r) =>
+          r.url().includes("/dashboard/work?") &&
+          r.request().headers()["x-branch-id"] === fixture.other.id,
+      );
+      await page
+        .getByRole("button", { name: "Kandy Central", exact: true })
+        .click();
+      const otherWork = await (await changed).json();
+      assert.deepEqual(
+        otherWork.items.map((i) => i.reference),
+        ["PO-KANDY-ONLY"],
+      );
+      await page
+        .getByRole("button", { name: "Kandy Central", exact: true })
+        .click();
+      const restored = page.waitForResponse(
+        (r) =>
+          r.url().includes("/dashboard/work?") &&
+          r.request().headers()["x-branch-id"] === fixture.main.id,
+      );
+      await page
+        .getByRole("button", { name: "Colombo Central", exact: true })
+        .click();
+      await restored;
+    }
+    if (role === "cashier") {
+      const metrics = await page.request.get(
+        "http://localhost:3000/api/v1/dashboard/sales-metrics",
+        { headers: { "x-branch-id": fixture.main.id } },
+      );
+      assert.equal(metrics.status(), 200);
+      const sales = await metrics.json();
+      assert.equal(sales.scope, "personal");
+      assert.equal(sales.today.count, 65);
+      assert.equal(sales.today.total, 16250);
+    }
     await page.screenshot({
       path: resolve(out, role + "-desktop.png"),
       fullPage: true,
@@ -473,6 +514,11 @@ try {
       false,
       role + " mobile overflow",
     );
+    if (role === "owner")
+      await queue.screenshot({
+        path: resolve(out, "daily-work-mobile.png"),
+        animations: "disabled",
+      });
     if (role === "pharmacist") {
       await page.evaluate(() =>
         document.documentElement.setAttribute("data-theme", "dark"),
@@ -539,6 +585,8 @@ try {
       category: true,
       desktopOverflow: false,
       mobileOverflow: false,
+      chartContentFits: true,
+      branchSwitch: role === "owner",
       errors,
       failures,
     });

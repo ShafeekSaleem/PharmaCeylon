@@ -93,7 +93,7 @@ export function DashboardCanvas({
           item.i.endsWith(".business-overview")
             ? { ...item, h: 28 }
             : item.i.endsWith(".cash-flow")
-              ? { ...item, h: 17 }
+              ? { ...item, h: 20 }
               : item.i.endsWith(".payment-methods")
                 ? { ...item, h: 16 }
                 : item,
