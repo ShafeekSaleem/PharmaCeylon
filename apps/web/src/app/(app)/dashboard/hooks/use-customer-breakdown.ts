@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { withBranch } from "@/lib/api-branch";
+import { useDashboardRefresh } from "./use-dashboard-refresh";
 import { apiJson } from "@/lib/auth-client";
 
 export type CustomerBreakdown = {
@@ -15,6 +16,8 @@ export type CustomerBreakdown = {
 /** Today's counter footfall split by identity (walk-in/registered) and, within
  * registered, by behavior (new/repeat) — see /analytics/customer-breakdown. */
 export function useCustomerBreakdown(branchId: string | null | undefined) {
+  const refreshVersion = useDashboardRefresh();
+  const [failed, setFailed] = useState(false);
   const [data, setData] = useState<CustomerBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -26,11 +29,15 @@ export function useCustomerBreakdown(branchId: string | null | undefined) {
     }
     let cancelled = false;
     setLoading(true);
-    void apiJson<CustomerBreakdown>(withBranch("/analytics/customer-breakdown", branchId))
+    setFailed(false);
+    void apiJson<CustomerBreakdown>(
+      withBranch("/analytics/customer-breakdown", branchId),
+    )
       .then((res) => {
         if (!cancelled) setData(res);
       })
       .catch(() => {
+        if (!cancelled) setFailed(true);
         if (!cancelled) setData(null);
       })
       .finally(() => {
@@ -39,7 +46,7 @@ export function useCustomerBreakdown(branchId: string | null | undefined) {
     return () => {
       cancelled = true;
     };
-  }, [branchId]);
+  }, [branchId, refreshVersion]);
 
-  return { data, loading };
+  return { data, loading, failed };
 }

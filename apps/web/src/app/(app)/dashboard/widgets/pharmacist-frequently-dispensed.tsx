@@ -10,20 +10,35 @@ import css from "../dashboard.module.css";
 
 const PRODUCTS_PAGE_SIZE = 6;
 
-export function PharmacistFrequentlyDispensedWidget({ data }: { data: DashboardData }) {
+export function PharmacistFrequentlyDispensedWidget({
+  data,
+}: {
+  data: DashboardData;
+}) {
   const { topProductsToday } = data;
   const [page, setPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(topProductsToday.length / PRODUCTS_PAGE_SIZE));
+  const pageCount = Math.max(
+    1,
+    Math.ceil(topProductsToday.length / PRODUCTS_PAGE_SIZE),
+  );
 
   return (
-    <DashboardPanel title="Frequently Dispensed" footerHref="/pos" footerLabel="Open POS →">
+    <DashboardPanel
+      title="Top Products Sold Today"
+      footerHref="/pos"
+      footerLabel="Open POS →"
+    >
       {topProductsToday.length === 0 ? (
         <p className={css.emptyState}>No units sold today yet.</p>
       ) : (
         <>
           <div className={`${css.productStrip} ${css.productStripWrap}`}>
             {paginate(topProductsToday, page, PRODUCTS_PAGE_SIZE).map((p) => (
-              <Link key={p.sku} href={`/products/${p.id}`} className={css.productChip}>
+              <Link
+                key={p.sku}
+                href={`/products/${p.id}`}
+                className={css.productChip}
+              >
                 <span className={css.productAvatar} aria-hidden>
                   {p.name.slice(0, 2).toUpperCase()}
                 </span>

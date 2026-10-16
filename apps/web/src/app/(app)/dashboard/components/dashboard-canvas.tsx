@@ -4,8 +4,14 @@ import { useMemo, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import type { DashboardData } from "../hooks/use-dashboard-data";
-import { WIDGET_WIDTH_COLS, type WidgetDef, type WidgetInstance } from "../widgets/types";
+import {
+  WIDGET_WIDTH_COLS,
+  type WidgetDef,
+  type WidgetInstance,
+} from "../widgets/types";
 import { WidgetFrame } from "./widget-frame";
+import { widgetDataSources } from "../lib/widget-data-sources";
+import { packDashboardLayout } from "../lib/responsive-layout";
 import css from "../dashboard.module.css";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -35,13 +41,26 @@ type Props = {
  * always fixed (derived from the registry, never stored/resizable) — only
  * position is user-controlled. Mobile (`sm` breakpoint) always renders
  * read-only, stacked, regardless of `isEditing`. */
-export function DashboardCanvas({ catalog, layout, data, isEditing, loading, onLayoutChange, onRemoveWidget }: Props) {
+export function DashboardCanvas({
+  catalog,
+  layout,
+  data,
+  isEditing,
+  loading,
+  onLayoutChange,
+  onRemoveWidget,
+}: Props) {
   const [breakpoint, setBreakpoint] = useState<string>(() =>
-    typeof window !== "undefined" && window.innerWidth < BREAKPOINTS.md ? MOBILE_BREAKPOINT : "lg",
+    typeof window !== "undefined" && window.innerWidth < BREAKPOINTS.md
+      ? MOBILE_BREAKPOINT
+      : "lg",
   );
   const isMobile = breakpoint === MOBILE_BREAKPOINT;
 
-  const catalogByKey = useMemo(() => new Map(catalog.map((w) => [w.key, w])), [catalog]);
+  const catalogByKey = useMemo(
+    () => new Map(catalog.map((w) => [w.key, w])),
+    [catalog],
+  );
   const visibleLayout = useMemo(
     () => layout.filter((item) => catalogByKey.has(item.key)),
     [layout, catalogByKey],
@@ -51,9 +70,38 @@ export function DashboardCanvas({ catalog, layout, data, isEditing, loading, onL
     () =>
       visibleLayout.map((item) => {
         const def = catalogByKey.get(item.key)!;
-        return { i: item.key, x: item.x, y: item.y, w: WIDGET_WIDTH_COLS[def.width], h: def.rows };
+        return {
+          i: item.key,
+          x: item.x,
+          y: item.y,
+          w: WIDGET_WIDTH_COLS[def.width],
+          h:
+            item.key.endsWith(".recent-transactions") &&
+            data.todaySales.length === 0
+              ? 7
+              : def.rows,
+        };
       }),
-    [visibleLayout, catalogByKey],
+    [visibleLayout, catalogByKey, data.todaySales.length],
+  );
+  const responsiveLayouts = useMemo(
+    () => ({
+      lg: rglLayout,
+      md: packDashboardLayout(rglLayout, 8),
+      sm: packDashboardLayout(
+        rglLayout.map((item) =>
+          item.i.endsWith(".business-overview")
+            ? { ...item, h: 28 }
+            : item.i.endsWith(".cash-flow")
+              ? { ...item, h: 20 }
+              : item.i.endsWith(".payment-methods")
+                ? { ...item, h: 16 }
+                : item,
+        ),
+        1,
+      ),
+    }),
+    [rglLayout],
   );
 
   function handleLayoutChange(next: Layout[]) {
@@ -65,7 +113,7 @@ export function DashboardCanvas({ catalog, layout, data, isEditing, loading, onL
     return (
       <ResponsiveGridLayout
         className={css.canvas}
-        layouts={{ lg: rglLayout }}
+        layouts={responsiveLayouts}
         breakpoints={BREAKPOINTS}
         cols={COLS}
         rowHeight={12}
@@ -89,7 +137,7 @@ export function DashboardCanvas({ catalog, layout, data, isEditing, loading, onL
   return (
     <ResponsiveGridLayout
       className={css.canvas}
-      layouts={{ lg: rglLayout }}
+      layouts={responsiveLayouts}
       breakpoints={BREAKPOINTS}
       cols={COLS}
       rowHeight={12}
@@ -106,10 +154,31 @@ export function DashboardCanvas({ catalog, layout, data, isEditing, loading, onL
       {visibleLayout.map((item) => {
         const def = catalogByKey.get(item.key)!;
         const Body = def.component;
+        const unavailable = widgetDataSources(item.key).filter((source) =>
+          data.failedSections.has(source),
+        );
         return (
           <div key={item.key} data-widget-key={item.key}>
-            <WidgetFrame widgetKey={item.key} title={def.title} isEditing={isEditing && !isMobile} onRemove={onRemoveWidget}>
-              <Body data={data} />
+            <WidgetFrame
+              widgetKey={item.key}
+              title={def.title}
+              isEditing={isEditing && !isMobile}
+              onRemove={onRemoveWidget}
+            >
+              {unavailable.length > 0 ? (
+                <div className={css.widgetErrorState} role="status">
+                  <strong>{def.title} is unavailable</strong>
+                  <p>
+                    Couldn’t load {unavailable.join(", ").toLowerCase()}.
+                    Refresh to try again.
+                  </p>
+                  <button type="button" onClick={() => void data.reload()}>
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <Body data={data} />
+              )}
             </WidgetFrame>
           </div>
         );

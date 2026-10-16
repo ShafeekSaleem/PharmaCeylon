@@ -13,7 +13,10 @@ import {
 } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { OPERATIONS_ROLES, PURCHASING_ROLES } from "@/lib/role-access";
-import { AttentionTicker, type TickerItem } from "../components/attention-ticker";
+import {
+  AttentionTicker,
+  type TickerItem,
+} from "../components/attention-ticker";
 import { DashboardCanvas } from "../components/dashboard-canvas";
 import { HeroBand } from "../components/hero-band";
 import { QuickActionsBar } from "../components/quick-actions-bar";
@@ -21,7 +24,11 @@ import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { UseDashboardLayoutResult } from "../hooks/use-dashboard-layout";
 import type { WidgetDef } from "../widgets/types";
 
-type Props = { data: DashboardData; catalog: WidgetDef[]; layout: UseDashboardLayoutResult };
+type Props = {
+  data: DashboardData;
+  catalog: WidgetDef[];
+  layout: UseDashboardLayoutResult;
+};
 
 export function ManagerDashboard({ data, catalog, layout }: Props) {
   const {
@@ -121,65 +128,6 @@ export function ManagerDashboard({ data, catalog, layout }: Props) {
 
   return (
     <>
-      <HeroBand
-        label="Today's Sales"
-        value={formatMoney(todaySalesTotal)}
-        scope="This branch · vs yesterday"
-        meta={loading ? undefined : `${todaySalesCount} transaction${todaySalesCount === 1 ? "" : "s"} today`}
-        loading={loading}
-        sparkline={salesTrend7d}
-        trend={
-          salesTrendLabel
-            ? { label: salesTrendLabel, direction: salesTrendPositive ? "up" : "down" }
-            : undefined
-        }
-        secondary={[
-          {
-            key: "target",
-            label: "Target Achievement",
-            value:
-              currentBranchPerf?.achievementPct != null
-                ? `${currentBranchPerf.achievementPct.toFixed(0)}%`
-                : "—",
-            meta:
-              currentBranchPerf?.targetAmount != null
-                ? `MTD ${formatMoney(currentBranchPerf.monthSales)} / ${formatMoney(currentBranchPerf.targetAmount)}`
-                : "Assigned by owner",
-            href: "/reports?category=sales&report=branch-sales",
-            linkLabel: "View reports",
-          },
-          {
-            key: "approvals",
-            label: "Pending Approvals",
-            value: pendingApprovalsTotal,
-            meta: "POs, transfers & returns — see below",
-          },
-          {
-            key: "units",
-            label: "Units Sold Today",
-            value: dispensedToday,
-            meta: "This branch",
-            trend: dispensedTrendLabel
-              ? { label: dispensedTrendLabel, direction: dispensedTrendPositive ? "up" : "down" }
-              : undefined,
-            href: "/reports?category=sales&report=sales-summary",
-            linkLabel: "View reports",
-          },
-        ]}
-      />
-
-      <AttentionTicker items={tickerItems} loading={loading} allClearText="No operational alerts — branch looks healthy" />
-
-      <DashboardCanvas
-        catalog={catalog}
-        layout={layout.layout}
-        data={data}
-        isEditing={layout.isEditing}
-        loading={layout.loading}
-        onLayoutChange={layout.updateLayout}
-        onRemoveWidget={layout.removeWidget}
-      />
-
       <QuickActionsBar
         title="Manager Quick Actions"
         actions={[
@@ -240,6 +188,80 @@ export function ManagerDashboard({ data, catalog, layout }: Props) {
             tone: "info",
           },
         ]}
+      />
+
+      <HeroBand
+        label="Today's Sales"
+        value={data.salesMetrics ? formatMoney(todaySalesTotal) : "—"}
+        scope="This branch · vs yesterday"
+        meta={
+          loading
+            ? undefined
+            : `${todaySalesCount} transaction${todaySalesCount === 1 ? "" : "s"} today`
+        }
+        loading={loading}
+        sparkline={salesTrend7d}
+        trend={
+          salesTrendLabel
+            ? {
+                label: salesTrendLabel,
+                direction: salesTrendPositive ? "up" : "down",
+              }
+            : undefined
+        }
+        secondary={[
+          {
+            key: "target",
+            label: "Target Achievement",
+            value:
+              currentBranchPerf?.achievementPct != null
+                ? `${currentBranchPerf.achievementPct.toFixed(0)}%`
+                : "—",
+            meta:
+              currentBranchPerf?.targetAmount != null
+                ? `MTD ${formatMoney(currentBranchPerf.monthSales)} / ${formatMoney(currentBranchPerf.targetAmount)}`
+                : "Assigned by owner",
+            href: "/reports?category=sales&report=branch-sales",
+            linkLabel: "View reports",
+          },
+          {
+            key: "approvals",
+            label: "Transactions Today",
+            value: data.salesMetrics ? todaySalesCount : "—",
+            meta: "All operators · this branch",
+          },
+          {
+            key: "units",
+            label: "Units Sold Today",
+            value: dispensedToday,
+            meta: "This branch",
+            trend: dispensedTrendLabel
+              ? {
+                  label: dispensedTrendLabel,
+                  direction: dispensedTrendPositive ? "up" : "down",
+                }
+              : undefined,
+            href: "/reports?category=sales&report=sales-summary",
+            linkLabel: "View reports",
+          },
+        ]}
+      />
+
+      <AttentionTicker
+        items={tickerItems}
+        loading={loading}
+        unavailable={data.failedSections.size > 0}
+        allClearText="No operational alerts — branch looks healthy"
+      />
+
+      <DashboardCanvas
+        catalog={catalog}
+        layout={layout.layout}
+        data={data}
+        isEditing={layout.isEditing}
+        loading={layout.loading}
+        onLayoutChange={layout.updateLayout}
+        onRemoveWidget={layout.removeWidget}
       />
     </>
   );

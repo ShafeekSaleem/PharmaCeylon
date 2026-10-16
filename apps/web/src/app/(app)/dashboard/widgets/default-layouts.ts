@@ -11,7 +11,9 @@ const TRACKS = 3;
  * closely enough that shipping this feature doesn't change what anyone
  * sees. Only the resulting position is kept; width/height are always
  * re-derived from the registry at render time (see WidgetInstance). */
-function buildDefaultLayout(items: { key: string; w: number; h: number }[]): WidgetInstance[] {
+function buildDefaultLayout(
+  items: { key: string; w: number; h: number }[],
+): WidgetInstance[] {
   const colHeights = [0, 0, 0];
   const result: WidgetInstance[] = [];
   for (const item of items) {
@@ -32,12 +34,44 @@ function buildDefaultLayout(items: { key: string; w: number; h: number }[]): Wid
   return result;
 }
 
+// Keep the default page focused. Additional supported widgets remain available through Customize.
+const DEFAULT_KEYS: Record<DashboardRole, string[]> = {
+  owner: [
+    "owner.business-overview",
+    "owner.inventory-health",
+    "owner.branch-revenue-contribution",
+    "owner.cash-flow",
+  ],
+  manager: [
+    "manager.business-overview",
+    "manager.inventory-health",
+    "manager.staff-productivity",
+    "manager.branch-sales-vs-target",
+  ],
+  pharmacist: [
+    "pharmacist.dispensing-throughput",
+    "pharmacist.controlled-drug-activity",
+    "pharmacist.frequently-dispensed",
+  ],
+  cashier: [
+    "cashier.shift-performance",
+    "cashier.payment-methods",
+    "cashier.recent-transactions",
+  ],
+  inventory_clerk: [
+    "inventory_clerk.stock-movement-trend",
+    "inventory_clerk.inventory-health",
+    "inventory_clerk.stock-watch",
+  ],
+};
+
 function defaultLayoutForRole(role: DashboardRole): WidgetInstance[] {
-  const widgets = WIDGET_REGISTRY.filter((w) => w.roles.includes(role)).map((w) => ({
-    key: w.key,
-    w: WIDGET_WIDTH_COLS[w.width],
-    h: w.rows,
-  }));
+  const widgets = DEFAULT_KEYS[role].flatMap((key) => {
+    const widget = WIDGET_REGISTRY.find((w) => w.key === key);
+    return widget
+      ? [{ key, w: WIDGET_WIDTH_COLS[widget.width], h: widget.rows }]
+      : [];
+  });
   return buildDefaultLayout(widgets);
 }
 
