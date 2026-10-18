@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { IconPrinter, IconRotateCcw } from "@/components/icons";
 import { Modal, ModalButton, ModalFooter } from "@/components/ui";
 import { PAYMENT_METHOD_LABELS } from "../constants";
@@ -26,15 +27,37 @@ type Props = {
   onClose: () => void;
   preferences: ReceiptPreferences;
   organization: { displayName: string; logoUrl: string | null } | null;
+  /** Print as soon as it opens, then close — the refund pane's "Print receipt" switch. */
+  autoPrint?: boolean;
+  /** Opened over another dialog (Return history): Esc closes this one first. */
+  elevated?: boolean;
 };
 
 /** The customer's copy of a refund — laid out like a sale receipt, printed the same way. */
-export function PosRefundReceiptModal({ receipt, onClose, preferences, organization }: Props) {
+export function PosRefundReceiptModal({
+  receipt,
+  onClose,
+  preferences,
+  organization,
+  autoPrint = false,
+  elevated = false,
+}: Props) {
+  useEffect(() => {
+    if (!receipt || !autoPrint) return;
+    // Let the receipt render first; print() blocks until the dialog closes.
+    const timer = window.setTimeout(() => {
+      window.print();
+      onClose();
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [receipt, autoPrint, onClose]);
+
   const total = receipt?.refundedTo.reduce((sum, p) => sum + p.amount, 0) ?? 0;
   return (
     <Modal
       open={receipt !== null}
       onClose={onClose}
+      elevated={elevated}
       title="Refund receipt"
       size="md"
       footer={

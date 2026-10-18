@@ -8,6 +8,7 @@ import {
   IconFocus,
   IconKeyboard,
   IconLock,
+  IconMaximize,
   IconMinimize,
   IconMoreHorizontal,
   IconPause,
@@ -15,8 +16,7 @@ import {
   IconReceipt,
   IconTag,
 } from "@/components/icons";
-import { fetchTenantBranches } from "@/lib/auth-client";
-import { useAuth } from "@/lib/use-auth";
+import { useFullscreen } from "@/lib/use-fullscreen";
 import tcss from "../till.module.css";
 
 export type TillMode = "sale" | "returns";
@@ -24,6 +24,8 @@ export type TillMode = "sale" | "returns";
 type Props = {
   mode: TillMode;
   onModeChange: (mode: TillMode) => void;
+  /** Loaded by the page: the bar remounts on every Sale/Returns switch, so it can't fetch it. */
+  branchName: string;
   /** The scan box (sale) or the find-a-sale box (returns). */
   search: ReactNode;
   cashierName: string;
@@ -32,8 +34,6 @@ type Props = {
   holdsEnabled: boolean;
   onHeld: () => void;
   onPriceCheck: () => void;
-  recentRefundsOpen: boolean;
-  onRecentRefunds: () => void;
   focusMode: boolean;
   onToggleFocus: () => void;
   menu: {
@@ -70,6 +70,7 @@ function useClock(): Date {
 export function PosTillBar({
   mode,
   onModeChange,
+  branchName,
   search,
   cashierName,
   roleLabel,
@@ -77,29 +78,15 @@ export function PosTillBar({
   holdsEnabled,
   onHeld,
   onPriceCheck,
-  recentRefundsOpen,
-  onRecentRefunds,
   focusMode,
   onToggleFocus,
   menu,
 }: Props) {
-  const { branchId } = useAuth();
   const now = useClock();
-  const [branchName, setBranchName] = useState("");
+  // Focus mode hides the app's top bar, and its fullscreen button with it — so the till has its own.
+  const fullscreen = useFullscreen();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchTenantBranches()
-      .then((rows) => {
-        if (!cancelled) setBranchName(rows.find((b) => b.id === branchId)?.name ?? "");
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [branchId]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -153,36 +140,29 @@ export function PosTillBar({
 
       {search}
 
-      {mode === "sale" ? (
-        <>
-          {holdsEnabled && (
-            <button type="button" className={tcss.barBtn} onClick={onHeld} data-tooltip="Held sales (F7)">
-              <IconPause size={16} />
-              <span className={tcss.barLabel}>Held</span>
-              {holdCount > 0 && <span className={tcss.countBadge}>{holdCount}</span>}
+      {/* A fixed-width slot, so the scan box keeps its width whichever mode's buttons are here. */}
+      <div className={tcss.barActions}>
+        {mode === "sale" ? (
+          <>
+            {holdsEnabled && (
+              <button type="button" className={tcss.barBtn} onClick={onHeld} data-tooltip="Held sales (F7)">
+                <IconPause size={16} />
+                <span className={tcss.barLabel}>Held</span>
+                {holdCount > 0 && <span className={tcss.countBadge}>{holdCount}</span>}
+              </button>
+            )}
+            <button
+              type="button"
+              className={tcss.barBtn}
+              onClick={onPriceCheck}
+              data-tooltip="Look up a price without touching the sale (F3)"
+            >
+              <IconTag size={16} />
+              <span className={tcss.barLabel}>Price check</span>
             </button>
-          )}
-          <button
-            type="button"
-            className={tcss.barBtn}
-            onClick={onPriceCheck}
-            data-tooltip="Look up a price without touching the sale (F3)"
-          >
-            <IconTag size={16} />
-            <span className={tcss.barLabel}>Price check</span>
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          className={`${tcss.barBtn}${recentRefundsOpen ? ` ${tcss.barBtnOn}` : ""}`}
-          onClick={onRecentRefunds}
-          aria-pressed={recentRefundsOpen}
-        >
-          <IconReceipt size={16} />
-          <span className={tcss.barLabel}>Recent refunds</span>
-        </button>
-      )}
+          </>
+        ) : null}
+      </div>
 
       <span className={tcss.barDivider} aria-hidden />
 
@@ -253,13 +233,23 @@ export function PosTillBar({
 
       <button
         type="button"
-        className={`${tcss.barBtn} ${tcss.barIconBtn}`}
+        className={`${tcss.barBtn} ${tcss.barIconBtn}${focusMode ? ` ${tcss.barBtnOn}` : ""}`}
         onClick={onToggleFocus}
         aria-pressed={focusMode}
         aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"}
-        data-tooltip={focusMode ? "Show the app's menu again (Alt+F)" : "Fill the screen with the till (Alt+F)"}
+        data-tooltip={focusMode ? "Focus mode is on — show the app's menu (Alt+F)" : "Focus mode — hide the app's menu (Alt+F)"}
       >
-        {focusMode ? <IconMinimize size={17} /> : <IconFocus size={17} />}
+        <IconFocus size={17} />
+      </button>
+      <button
+        type="button"
+        className={`${tcss.barBtn} ${tcss.barIconBtn}${fullscreen.isFullscreen ? ` ${tcss.barBtnOn}` : ""}`}
+        onClick={fullscreen.toggle}
+        aria-pressed={fullscreen.isFullscreen}
+        aria-label={fullscreen.isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+        data-tooltip={fullscreen.isFullscreen ? "Exit fullscreen (Ctrl+Shift+F)" : "Fullscreen (Ctrl+Shift+F)"}
+      >
+        {fullscreen.isFullscreen ? <IconMinimize size={17} /> : <IconMaximize size={17} />}
       </button>
     </header>
   );

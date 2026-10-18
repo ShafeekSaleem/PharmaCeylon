@@ -100,8 +100,15 @@ export class SalesController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Query("take") take?: string,
+    @Query("today") today?: string,
+    @Query("days") days?: string,
+    @Query("date") date?: string,
   ) {
-    return this.pos.recentSales(user.tenantId, branchId, take ? Number(take) : undefined);
+    return this.pos.recentSales(user.tenantId, branchId, take ? Number(take) : undefined, {
+      todayOnly: today === "1" || today === "true",
+      days: days ? Number(days) || undefined : undefined,
+      date: date || undefined,
+    });
   }
 
   @ApiOperation({ summary: "Look up a posted sale by invoice number" })

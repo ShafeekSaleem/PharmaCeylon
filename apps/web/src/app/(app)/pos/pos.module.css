@@ -164,15 +164,19 @@
   text-align: right;
 }
 
+/* Filter chips and the popup's search share one row; on a phone they wrap. */
 .holdFilterRow {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 0.4rem;
   margin-bottom: 0.75rem;
 }
 
 .holdFilterBtn {
+  flex: none;
   padding: 0.3rem 0.65rem;
+  white-space: nowrap;
   border: 1px solid var(--pc-border);
   border-radius: 999px;
   background: var(--pc-muted-bg);
@@ -225,6 +229,31 @@
   margin-bottom: 0.6rem;
 }
 
+/* A small search, beside a popup's filter chips or above its list. */
+.pickerSearchSmall {
+  flex: 0 1 240px;
+  min-width: 140px;
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .holdFilterRow {
+    flex-wrap: wrap;
+  }
+
+  .pickerSearchSmall {
+    flex-basis: 100%;
+  }
+}
+
+.holdFilterRow .pickerSearch {
+  margin-bottom: 0;
+}
+
+.pickerSearchSmall .pickerSearchInput {
+  height: 2.1rem;
+}
+
 .pickerSearchInput {
   width: 100%;
   height: 2.4rem;
@@ -250,6 +279,21 @@
   max-height: 320px;
   overflow-y: auto;
   scrollbar-width: thin;
+}
+
+/* A popup's paged list: the pager sits at the bottom of the steady height, not under the last row. */
+.pagedArea {
+  display: flex;
+  flex-direction: column;
+}
+
+.pagedFoot {
+  margin-top: auto;
+}
+
+.pickerListPaged {
+  max-height: none;
+  overflow: visible;
 }
 
 .pickerRow {

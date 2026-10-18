@@ -15,6 +15,8 @@ type Props = {
   organization: { displayName: string; logoUrl: string | null } | null;
   /** Print as soon as it opens, then close — the till's auto-print setting. */
   autoPrint?: boolean;
+  /** Opened over another dialog (Today's sales): Esc closes this one first. */
+  elevated?: boolean;
 };
 
 export type ReceiptPreferences = {
@@ -26,7 +28,14 @@ export type ReceiptPreferences = {
   showStaffName: boolean;
 };
 
-export function PosReceiptModal({ receipt, onClose, preferences, organization, autoPrint = false }: Props) {
+export function PosReceiptModal({
+  receipt,
+  onClose,
+  preferences,
+  organization,
+  autoPrint = false,
+  elevated = false,
+}: Props) {
   useEffect(() => {
     if (!receipt || !autoPrint) return;
     // Let the receipt render first; print() blocks until the dialog closes.
@@ -41,6 +50,7 @@ export function PosReceiptModal({ receipt, onClose, preferences, organization, a
     <Modal
       open={receipt !== null}
       onClose={onClose}
+      elevated={elevated}
       title="Receipt"
       size="md"
       footer={

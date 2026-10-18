@@ -1,11 +1,27 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { IconChevronRight, IconInfo, IconMinus, IconPlus, IconSearch } from "@/components/icons";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
+  IconInfo,
+  IconMinus,
+  IconPlus,
+  IconPrinter,
+  IconSearch,
+} from "@/components/icons";
+import { ToggleSwitch } from "@/components/ui";
 import { ApiError } from "@/lib/api-error";
 import {
   fetchSaleReturnable,
+  fetchSalesInRange,
   findSaleByInvoice,
   listRefundApprovers,
   listRefunds,
@@ -21,22 +37,31 @@ import {
 import { PAYMENT_METHOD_LABELS } from "../constants";
 import type { PaymentMethod, RecentSale, SaleReceipt } from "../types";
 import { formatAmount, formatDate, formatMoney, formatTime } from "../utils";
+import { METHOD_ICONS } from "./pos-pay-panel";
 import { PosPharmacistPinModal } from "./pos-pharmacist-pin-modal";
 import { PosRefundReceiptModal, type RefundReceipt } from "./pos-refund-receipt-modal";
+import {
+  InvoiceDetails,
+  ReturnSalesList,
+  ReturnsHeader,
+  type PaymentFilter,
+  type ReturnStep,
+  type SalesRange,
+} from "./pos-returns-find";
+import { PosReturnHistoryModal } from "./pos-sale-card";
 import type { ReceiptPreferences } from "./pos-receipt-modal";
 import tcss from "../till.module.css";
 
 export type ReturnsSlots = {
   search: ReactNode;
+  /** Title, the 1–2–3 steps and Return history, above the two panels. */
+  header: ReactNode;
   body: ReactNode;
-  recentOpen: boolean;
-  toggleRecent: () => void;
 };
 
 type Props = {
   canRefund: boolean;
   canRefundControlled: boolean;
-  recentSales: RecentSale[];
   /** Open this invoice straight away — "Return items" on the last sale. */
   initialInvoice: string | null;
   onInitialInvoiceUsed: () => void;
@@ -45,6 +70,16 @@ type Props = {
   onNotice: (message: string) => void;
   receiptPreferences: ReceiptPreferences;
   organization: { displayName: string; logoUrl: string | null } | null;
+  /** Print a sale's receipt again — the page owns the sale receipt popup. */
+  onReprintSale: (sale: Pick<RecentSale, "invoiceNo">) => void;
+  /** The find-a-sale box, owned by the page so `/` can reach it. */
+  inputRef: RefObject<HTMLInputElement>;
+  /** Tells the page when this panel has a dialog up, so till shortcuts stand down behind it. */
+  onOverlayChange: (open: boolean) => void;
+  /** Where "Print receipt" starts — the tenant's auto-print setting, the same as a sale's. */
+  printByDefault: boolean;
+  /** Set to this panel's Refund action, so F4 refunds in Returns as it completes a sale in Sale. */
+  refundTriggerRef: MutableRefObject<(() => void) | null>;
   children: (slots: ReturnsSlots) => ReactNode;
 };
 
@@ -59,7 +94,6 @@ export const REFUND_REASON_OPTIONS: Array<{ value: RefundReason; label: string }
 
 /** "As paid" sends no method, and the server splits it; the others send one method. */
 type MethodChoice = "as_paid" | PaymentMethod;
-const METHOD_CHOICES: PaymentMethod[] = ["cash", "card", "mobile_wallet"];
 const METHOD_SHORT: Record<PaymentMethod, string> = { cash: "Cash", card: "Card", mobile_wallet: "Wallet" };
 const SPLIT_ORDER: PaymentMethod[] = ["card", "mobile_wallet", "cash"];
 
@@ -67,12 +101,28 @@ const SPLIT_ORDER: PaymentMethod[] = ["card", "mobile_wallet", "cash"];
  * What "as paid" will do, for the screen — the same rule the server applies: what each method
  * took less what has gone back to it (cash net of change), card and wallet first, cash last.
  */
-function previewAsPaid(sale: SaleReceipt, total: number) {
+/** What each method took on the sale, cash net of change, less what has already gone back to it. */
+function netPaid(sale: SaleReceipt): Map<PaymentMethod, number> {
   const left = new Map<PaymentMethod, number>();
   for (const payment of sale.payments) {
     left.set(payment.method, (left.get(payment.method) ?? 0) + Number(payment.amount));
   }
   if (left.has("cash")) left.set("cash", (left.get("cash") ?? 0) - Number(sale.changeDue));
+  return left;
+}
+
+/** The methods the customer actually paid with, for the Original payment box and the default. */
+function paidMethods(sale: SaleReceipt): Array<{ method: PaymentMethod; amount: number }> {
+  const paid = new Map<PaymentMethod, number>();
+  for (const payment of sale.payments) {
+    if (Number(payment.amount) > 0) paid.set(payment.method, (paid.get(payment.method) ?? 0) + Number(payment.amount));
+  }
+  if (paid.has("cash")) paid.set("cash", (paid.get("cash") ?? 0) - Number(sale.changeDue));
+  return [...paid].filter(([, amount]) => amount > 0).map(([method, amount]) => ({ method, amount }));
+}
+
+function previewAsPaid(sale: SaleReceipt, total: number) {
+  const left = netPaid(sale);
   const out: Array<{ method: PaymentMethod; amount: number }> = [];
   let remaining = Math.round(total * 100) / 100;
   for (const method of SPLIT_ORDER) {
@@ -91,6 +141,29 @@ function previewAsPaid(sale: SaleReceipt, total: number) {
   return out;
 }
 
+/** A refund's receipt again, from the list — the same reason/note split the refund itself prints. */
+function receiptFromRefund(row: RefundRow): RefundReceipt {
+  const label = REFUND_REASON_OPTIONS.find((option) => option.value === row.reasonCode)?.label;
+  const other = row.reasonCode === "other" || !label;
+  return {
+    returnNumber: row.returnNumber,
+    invoiceNo: row.sale?.invoiceNo ?? "—",
+    at: row.createdAt,
+    customerName: row.customerName,
+    lines: row.items.map((item) => ({
+      name: item.product.name,
+      batchNo: item.batchNo ?? "",
+      qty: item.qty,
+      amount: item.qty * Number(item.unitPrice),
+      held: item.disposition === "quarantine",
+    })),
+    refundedTo: row.refundedTo.map((p) => ({ method: p.method, amount: Number(p.amount) })),
+    reason: other ? (row.reason ?? "Other") : label,
+    note: other ? null : row.reason,
+    approvedBy: row.approvedBy?.fullName ?? null,
+  };
+}
+
 /**
  * The one door for a customer return, laid out like a sale: find it from the till bar, choose
  * what's coming back on the left (and whether each item goes back on the shelf or is held for a
@@ -100,7 +173,6 @@ function previewAsPaid(sale: SaleReceipt, total: number) {
 export function PosReturnsPanel({
   canRefund,
   canRefundControlled,
-  recentSales,
   initialInvoice,
   onInitialInvoiceUsed,
   onRefunded,
@@ -108,9 +180,13 @@ export function PosReturnsPanel({
   onNotice,
   receiptPreferences,
   organization,
+  onReprintSale,
+  inputRef,
+  onOverlayChange,
+  printByDefault,
+  refundTriggerRef,
   children,
 }: Props) {
-  const [recentOpen, setRecentOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sale, setSale] = useState<SaleReceipt | null>(null);
   const [returnable, setReturnable] = useState<SaleReturnable | null>(null);
@@ -120,6 +196,11 @@ export function PosReturnsPanel({
   const [note, setNote] = useState("");
   const [method, setMethod] = useState<MethodChoice>("as_paid");
   const [busy, setBusy] = useState(false);
+  /**
+   * The invoice being opened from elsewhere ("Return items" on a sale card). Seeded from the prop so
+   * the first render already shows it loading, rather than the recent-sales list flashing first.
+   */
+  const [openingInvoice, setOpeningInvoice] = useState<string | null>(initialInvoice);
   const [hits, setHits] = useState<InvoiceSearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<{
@@ -128,8 +209,40 @@ export function PosReturnsPanel({
   } | null>(null);
   const [receipt, setReceipt] = useState<RefundReceipt | null>(null);
   const [refunds, setRefunds] = useState<RefundRow[]>([]);
+  const [printReceipt, setPrintReceipt] = useState(printByDefault);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  /** Steps 2–3: choosing what comes back. Step 1 lists sales and shows the chosen one's details. */
+  const [pickingItems, setPickingItems] = useState(false);
+  /** Set while a sale opened from elsewhere loads straight into steps 2–3. */
+  const [openingToPick, setOpeningToPick] = useState(Boolean(initialInvoice));
+  const [range, setRange] = useState<SalesRange>({ kind: "today" });
+  const [payment, setPayment] = useState<PaymentFilter>("all");
+  const [lane, setLane] = useState<RecentSale[]>([]);
+  const [laneLoading, setLaneLoading] = useState(false);
+  const rangeKey = range.kind === "date" ? range.date : range.kind;
+
+  const loadLane = useCallback(() => {
+    setLaneLoading(true);
+    fetchSalesInRange(
+      range.kind === "today" ? { days: 1 } : range.kind === "week" ? { days: 7 } : { date: range.date },
+    )
+      .then(setLane)
+      .catch(() => setLane([]))
+      .finally(() => setLaneLoading(false));
+    // The range is read through its key, so a new object for the same range doesn't refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeKey]);
+  useEffect(loadLane, [loadLane]);
+
+  const [autoPrintRefund, setAutoPrintRefund] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
+  const searchRef = inputRef;
+
+  const overlayOpen = pendingApproval !== null || receipt !== null || historyOpen;
+  useEffect(() => {
+    onOverlayChange(overlayOpen);
+  }, [overlayOpen, onOverlayChange]);
+  useEffect(() => () => onOverlayChange(false), [onOverlayChange]);
 
   const loadRefunds = useCallback(() => {
     if (!canRefund) return;
@@ -156,6 +269,7 @@ export function PosReturnsPanel({
   function reset() {
     setSale(null);
     setReturnable(null);
+    setPickingItems(false);
     setQuery("");
     setReasonCode("");
     setNote("");
@@ -164,7 +278,7 @@ export function PosReturnsPanel({
   }
 
   const openSale = useCallback(
-    async (term: string) => {
+    async (term: string, pick = false) => {
       if (!term.trim()) return;
       setBusy(true);
       try {
@@ -172,16 +286,22 @@ export function PosReturnsPanel({
         const data = await fetchSaleReturnable(found.id);
         setSale(found);
         applyReturnable(data);
-        setHits([]);
-        setQuery("");
+        if (pick) {
+          setHits([]);
+          setQuery("");
+        }
+        setPickingItems(pick);
         setReasonCode("");
         setNote("");
-        setMethod("as_paid");
-        setRecentOpen(false);
+        // Back the way they paid: their one method, or split across them when they paid several ways.
+        const methods = paidMethods(found);
+        setMethod(methods.length === 1 ? methods[0]!.method : "as_paid");
       } catch (e) {
         onError(e instanceof Error ? e.message : "Invoice not found");
       } finally {
         setBusy(false);
+        setOpeningInvoice(null);
+        setOpeningToPick(false);
       }
     },
     [applyReturnable, onError],
@@ -189,8 +309,10 @@ export function PosReturnsPanel({
 
   useEffect(() => {
     if (!initialInvoice) return;
+    setOpeningInvoice(initialInvoice);
+    setOpeningToPick(true);
     onInitialInvoiceUsed();
-    void openSale(initialInvoice);
+    void openSale(initialInvoice, true);
   }, [initialInvoice, onInitialInvoiceUsed, openSale]);
 
   useEffect(() => {
@@ -263,13 +385,15 @@ export function PosReturnsPanel({
       setPendingApproval(null);
       onRefunded(refunded);
       loadRefunds();
+      loadLane();
+      setPickingItems(false);
       // The refund's own payment rows carry its return number.
       const rows = refunded.payments.filter(
         (p) => Number(p.amount) < 0 && p.reference?.startsWith("POS refund "),
       );
       const returnNumber = rows[rows.length - 1]?.reference?.replace("POS refund ", "") ?? "";
       const mine = rows.filter((p) => p.reference === `POS refund ${returnNumber}`);
-      setReceipt({
+      const printed: RefundReceipt = {
         returnNumber,
         invoiceNo: refunded.invoiceNo,
         at: new Date().toISOString(),
@@ -296,7 +420,12 @@ export function PosReturnsPanel({
               ""),
         note: payload.reasonCode === "other" ? null : (payload.reason ?? null),
         approvedBy: approvedBy ?? null,
-      });
+      };
+      // With "Print receipt" off the refund just completes; it can be reprinted from Recent refunds.
+      if (printReceipt) {
+        setAutoPrintRefund(true);
+        setReceipt(printed);
+      }
       onNotice(
         `Refunded ${formatMoney(total)} on ${refunded.invoiceNo}.` +
           (heldUnits > 0 ? ` ${heldUnits} unit${heldUnits === 1 ? "" : "s"} held for inspection.` : ""),
@@ -344,25 +473,53 @@ export function PosReturnsPanel({
     });
   }
 
+  // F4 refunds here; refund() itself says no while anything is missing.
+  useEffect(() => {
+    refundTriggerRef.current = refund;
+    return () => {
+      refundTriggerRef.current = null;
+    };
+  });
+
+  const closeReceipt = useCallback(() => {
+    setReceipt(null);
+    setAutoPrintRefund(false);
+  }, []);
+
   const split = sale ? previewAsPaid(sale, total) : [];
-  const refundableRecent = recentSales.filter((s) => s.status === "posted" || s.status === "partially_refunded");
-  const saleRows = (hits.length > 0
-    ? hits.map((hit) => ({
-        key: hit.id,
-        invoiceNo: hit.invoiceNo,
-        total: hit.grandTotal,
-        at: hit.soldAt,
-        who: hit.customer?.fullName ?? "Walk-in",
-        status: hit.status,
-      }))
-    : refundableRecent.slice(0, 12).map((s) => ({
-        key: s.id,
-        invoiceNo: s.invoiceNo,
-        total: s.grandTotal,
-        at: s.soldAt,
-        who: s.customerName ?? "Walk-in",
-        status: s.status,
-      })));
+  const original = sale ? paidMethods(sale) : [];
+  const searchedFor = query.trim();
+  const listSales: RecentSale[] =
+    searchedFor.length >= 2
+      ? hits.map((hit) => ({
+          id: hit.id,
+          invoiceNo: hit.invoiceNo,
+          status: hit.status,
+          soldAt: hit.soldAt,
+          grandTotal: hit.grandTotal,
+          itemCount: hit._count.items,
+          customerName: hit.customer?.fullName ?? null,
+          sellerName: hit.sellerName,
+          paymentMethods: hit.paymentMethods ?? [],
+          productIds: [],
+          summary: "",
+        }))
+      : lane;
+
+  // Why the chosen sale can't move on to choosing items, said as the reason.
+  const detailsBlocked = !sale || !returnable
+    ? "Pick a sale first"
+    : !refundable
+      ? sale.status === "voided"
+        ? "This sale was voided, so nothing can be returned."
+        : "Everything on this sale has already been returned."
+      : !canRefund
+        ? "Your role can't give refunds."
+        : blockedControlled
+          ? "It has controlled or prescription items — a pharmacist or manager returns it."
+          : null;
+
+  const step: ReturnStep = !pickingItems || !sale ? 1 : selected.length > 0 ? 3 : 2;
 
   /* ── The pieces ───────────────────────────────────────── */
 
@@ -378,102 +535,20 @@ export function PosReturnsPanel({
           autoComplete="off"
           onChange={(e) => {
             setQuery(e.target.value);
-            setRecentOpen(false);
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void openSale(query);
+            if (e.key !== "Enter") return;
+            const term = hits[0]?.invoiceNo ?? query.trim();
+            if (!term) return;
+            setOpeningInvoice(term);
+            void openSale(term);
           }}
           placeholder="Scan the receipt, or search invoice, customer or phone"
           aria-label="Find the sale"
         />
+        <span className={tcss.kbd}>/</span>
       </label>
     </div>
-  );
-
-  const recentList = (
-    <section aria-label="Recent refunds" className={tcss.ticket}>
-      <div className={tcss.ticketHead}>
-        <span className={tcss.ticketTitle}>Recent refunds</span>
-        <span className={tcss.counts}>At this branch, newest first</span>
-        <span className={tcss.spacer} />
-        <button type="button" className={tcss.linkBtn} onClick={() => setRecentOpen(false)}>
-          Back to returns
-        </button>
-      </div>
-      {refunds.length === 0 ? (
-        <div className={tcss.ready}>
-          <span className={tcss.readyHint}>No refunds at this branch yet.</span>
-        </div>
-      ) : (
-        <ul className={tcss.saleList}>
-          {refunds.map((row) => {
-            const held = row.items.filter((i) => i.disposition === "quarantine").reduce((n, i) => n + i.qty, 0);
-            return (
-              <li key={row.id} className={tcss.saleRow} style={{ cursor: "default" }}>
-                <span className={tcss.saleRowMain}>
-                  <span className={tcss.saleRowNo}>{row.returnNumber}</span>
-                  <span className={tcss.saleRowMeta}>
-                    {row.sale?.invoiceNo ?? "—"} · {formatDate(row.createdAt)} {formatTime(row.createdAt)} ·{" "}
-                    {row.refundedBy.fullName}
-                    {row.approvedBy ? ` · approved by ${row.approvedBy.fullName}` : ""}
-                  </span>
-                  <span className={tcss.saleRowMeta}>
-                    {row.refundedTo.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatAmount(p.amount)}`).join(" · ")}
-                    {row.reason ? `${row.refundedTo.length ? " · " : ""}${row.reason}` : ""}
-                    {held > 0 ? ` · ${held} held` : ""}
-                  </span>
-                </span>
-                <span className={tcss.saleRowAmount}>{formatMoney(row.amount)}</span>
-                <span />
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
-  );
-
-  const findList = (
-    <section aria-label="Find the sale" className={tcss.ticket}>
-      <div className={tcss.ticketHead}>
-        <span className={tcss.ticketTitle}>{hits.length > 0 ? "Matching sales" : "Recent sales"}</span>
-        <span className={tcss.counts}>{searching ? "Searching…" : "Pick the sale the customer is returning from"}</span>
-      </div>
-      {saleRows.length === 0 ? (
-        <div className={tcss.ready}>
-          <span className={tcss.readyHint}>
-            {query.trim().length >= 2 && !searching
-              ? `No sale matches “${query.trim()}”.`
-              : "Scan the receipt barcode, or type an invoice number, customer name or phone."}
-          </span>
-        </div>
-      ) : (
-        <ul className={tcss.saleList}>
-          {saleRows.map((row) => (
-            <li key={row.key}>
-              <button
-                type="button"
-                className={tcss.saleRow}
-                onClick={() => void openSale(row.invoiceNo)}
-                disabled={busy}
-              >
-                <span className={tcss.saleRowMain}>
-                  <span className={tcss.saleRowNo}>{row.invoiceNo}</span>
-                  <span className={tcss.saleRowMeta}>
-                    {formatDate(row.at)} {formatTime(row.at)} · {row.who}
-                    {row.status === "partially_refunded" ? " · part refunded" : ""}
-                    {row.status === "refunded" ? " · refunded" : ""}
-                    {row.status === "voided" ? " · voided" : ""}
-                  </span>
-                </span>
-                <span className={tcss.saleRowAmount}>{formatMoney(row.total)}</span>
-                <IconChevronRight size={16} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 
   const itemsPane =
@@ -491,8 +566,8 @@ export function PosReturnsPanel({
               Return everything
             </button>
           )}
-          <button type="button" className={tcss.linkBtn} onClick={reset} disabled={busy}>
-            Another sale
+          <button type="button" className={tcss.linkBtn} onClick={() => setPickingItems(false)} disabled={busy}>
+            Back to sale details
           </button>
         </div>
         {!refundable ? (
@@ -582,7 +657,7 @@ export function PosReturnsPanel({
                           className={`${tcss.dispBtn}${
                             disposition === value ? ` ${value === "restock" ? tcss.dispShelf : tcss.dispHold}` : ""
                           }`}
-                          title={
+                          data-tooltip={
                             value === "restock"
                               ? "Back on the shelf, ready to sell"
                               : "Held in quarantine until a pharmacist releases it"
@@ -616,81 +691,118 @@ export function PosReturnsPanel({
 
   const refundPane =
     sale && returnable ? (
-      <aside aria-label="Refund" className={tcss.pay}>
-        <div className={tcss.totalBlock}>
-          <span className={tcss.label}>Refund</span>
-          <span className={tcss.totalAmount}>{formatMoney(total)}</span>
-          <span className={tcss.heldMeta}>
-            {units === 0
-              ? "Nothing chosen yet"
-              : `${units} unit${units === 1 ? "" : "s"} · ${units - heldUnits} back on the shelf, ${heldUnits} held`}
-          </span>
-        </div>
-
+      <aside aria-label="Refund" className={`${tcss.pay} ${tcss.payPinned}`}>
         <div className={tcss.payBlock}>
-          <span className={tcss.label}>Why is it coming back?</span>
-          <div className={tcss.reasonChips} role="radiogroup" aria-label="Reason">
-            {REFUND_REASON_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={reasonCode === option.value}
-                className={`${tcss.reasonChip}${reasonCode === option.value ? ` ${tcss.reasonChipOn}` : ""}`}
-                onClick={() => setReasonCode(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+          <span className={tcss.label}>Refund summary</span>
+          <div className={tcss.breakdown}>
+            <div className={tcss.breakdownRow}>
+              <span>Items to return</span>
+              <b className={tcss.strongText}>
+                {selected.length} item{selected.length === 1 ? "" : "s"} ({units} unit{units === 1 ? "" : "s"})
+              </b>
+            </div>
           </div>
-          <input
-            className={tcss.noteInput}
-            style={{ flex: "none", height: 40 }}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={500}
-            placeholder={reasonCode === "other" ? "What's the reason? (required)" : "Note (optional)"}
-            aria-label="Note"
-          />
-        </div>
-
-        <div className={tcss.payBlock}>
-          <span className={tcss.label}>Refund to</span>
-          <div className={tcss.methods} role="radiogroup" aria-label="Refund to">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={method === "as_paid"}
-              className={`${tcss.method} ${tcss.methodCompact}${method === "as_paid" ? ` ${tcss.methodOn}` : ""}`}
-              onClick={() => setMethod("as_paid")}
-              title={split.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatAmount(p.amount)}`).join(" + ")}
-            >
-              As paid
-              <span className={tcss.methodSub}>
-                {split.length > 0 ? split.map((p) => METHOD_SHORT[p.method]).join(" + ") : "—"}
-              </span>
-            </button>
-            {METHOD_CHOICES.map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                role="radio"
-                aria-checked={method === choice}
-                className={`${tcss.method} ${tcss.methodCompact}${method === choice ? ` ${tcss.methodOn}` : ""}`}
-                onClick={() => setMethod(choice)}
-              >
-                {METHOD_SHORT[choice]}
-              </button>
-            ))}
+          <div className={tcss.change}>
+            <span>Total refund</span>
+            <span className={tcss.changeAmount}>{formatMoney(total)}</span>
           </div>
-          {method === "as_paid" && split.length > 1 && (
+          {units > 0 && (
             <span className={tcss.heldMeta}>
-              {split.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatAmount(p.amount)}`).join(" + ")}
+              {units - heldUnits} back on the shelf · {heldUnits} held for the pharmacist
             </span>
           )}
         </div>
 
-        <div className={tcss.grow} />
+        {/* The middle scrolls when it must; the total and Refund always stay in view. */}
+        <div className={tcss.payScroll}>
+          <div className={tcss.payBlock}>
+            <span className={tcss.label}>Why is it coming back?</span>
+            <div className={tcss.reasonChips} role="radiogroup" aria-label="Reason">
+              {REFUND_REASON_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={reasonCode === option.value}
+                  className={`${tcss.reasonChip}${reasonCode === option.value ? ` ${tcss.reasonChipOn}` : ""}`}
+                  onClick={() => setReasonCode(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <input
+              className={tcss.noteInput}
+              style={{ flex: "none", height: 40 }}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={500}
+              placeholder={reasonCode === "other" ? "What's the reason? (required)" : "Note (optional)"}
+              aria-label="Note"
+            />
+          </div>
+
+          <div className={tcss.payBlock}>
+            <span className={tcss.label}>Original payment method</span>
+            <div className={tcss.origPay}>
+              {original.length === 0 ? (
+                <span className={tcss.emptyNote}>No payment recorded on this sale.</span>
+              ) : (
+                original.map((p) => (
+                  <div key={p.method} className={tcss.origPayRow}>
+                    <span className={tcss.origPayMethod}>
+                      {METHOD_ICONS[p.method]}
+                      {PAYMENT_METHOD_LABELS[p.method]}
+                    </span>
+                    <span>{formatMoney(p.amount)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className={tcss.payBlock}>
+            <span className={tcss.label}>Refund method</span>
+            <div className={tcss.methods} role="radiogroup" aria-label="Refund method">
+              {(["cash", "card", "mobile_wallet", "split"] as const).map((choice) => {
+                const value: MethodChoice = choice === "split" ? "as_paid" : choice;
+                // Split means "back the way they paid", which only differs from one method when they paid several ways.
+                const off = choice === "split" && original.length < 2;
+                return (
+                  <button
+                    key={choice}
+                    type="button"
+                    role="radio"
+                    aria-checked={method === value}
+                    disabled={off}
+                    data-tooltip={off ? "They paid one way — choose that method" : undefined}
+                    className={`${tcss.method} ${tcss.methodCompact}${method === value ? ` ${tcss.methodOn}` : ""}`}
+                    onClick={() => setMethod(value)}
+                  >
+                    {METHOD_ICONS[choice]}
+                    {choice === "split" ? "Split" : METHOD_SHORT[choice]}
+                  </button>
+                );
+              })}
+            </div>
+            {method === "as_paid" && split.length > 0 && total > 0 && (
+              <span className={tcss.heldMeta}>
+                {split.map((p) => `${PAYMENT_METHOD_LABELS[p.method]} ${formatAmount(p.amount)}`).join(" + ")}
+              </span>
+            )}
+          </div>
+
+          <div className={tcss.printRow}>
+            <span className={tcss.printRowIcon} aria-hidden>
+              <IconPrinter size={18} />
+            </span>
+            <span className={tcss.printRowText}>
+              <span className={tcss.printRowTitle}>Print receipt</span>
+              <span className={tcss.heldMeta}>Print a return receipt for the customer</span>
+            </span>
+            <ToggleSwitch checked={printReceipt} onChange={setPrintReceipt} label="Print a refund receipt" />
+          </div>
+        </div>
 
         <div className={tcss.payFoot}>
           {refundBlocked && <span className={tcss.blockedHint}>{refundBlocked}</span>}
@@ -700,63 +812,86 @@ export function PosReturnsPanel({
             onClick={refund}
             disabled={busy || refundBlocked !== null}
           >
-            <span>{busy ? "Refunding…" : "Refund"}</span>
+            <span className={tcss.completeLabel}>
+              {busy ? "Refunding…" : "Refund"}
+              {!busy && !refundBlocked && <span className={`${tcss.kbd} ${tcss.kbdOnAction}`}>F4</span>}
+            </span>
             <span>{formatMoney(total)}</span>
           </button>
           <span className={tcss.blockedHint}>Refunds over the approval limit ask for an approver&apos;s till PIN here.</span>
         </div>
       </aside>
-    ) : (
-      <aside aria-label="Refunds" className={tcss.pay}>
-        <div className={tcss.totalBlock}>
-          <span className={tcss.label}>Returns</span>
-          <span className={tcss.doneTitle}>Find the sale first</span>
-          <span className={tcss.heldMeta}>
-            Scan the receipt or pick the sale on the left. You&apos;ll choose what&apos;s coming back, why, and how
-            the money goes back.
-          </span>
-        </div>
-        <div className={tcss.rule} />
-        <div className={tcss.payBlock}>
-          <div className={tcss.lastSaleTop}>
-            <span className={tcss.label}>Latest refunds</span>
-            {refunds.length > 0 && (
-              <button type="button" className={tcss.linkBtn} onClick={() => setRecentOpen(true)}>
-                See all
-              </button>
-            )}
-          </div>
-          {refunds.length === 0 ? (
-            <span className={tcss.emptyNote}>No refunds at this branch yet.</span>
-          ) : (
-            refunds.slice(0, 4).map((row) => (
-              <div key={row.id} className={tcss.heldRow}>
-                <div className={tcss.heldMain}>
-                  <span className={tcss.heldName}>{row.returnNumber}</span>
-                  <span className={tcss.heldMeta}>
-                    {row.sale?.invoiceNo ?? "—"} · {formatTime(row.createdAt)}
-                    {row.reason ? ` · ${row.reason}` : ""}
-                  </span>
-                </div>
-                <span className={tcss.saleRowAmount}>{formatMoney(row.amount)}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <div className={tcss.grow} />
-        <div className={tcss.menuHint}>
-          <b>Sending stock back to a supplier?</b>
-          <span>
-            That&apos;s a supplier return — <Link href="/purchasing/supplier-returns">open Supplier returns</Link>.
-          </span>
-        </div>
-      </aside>
-    );
+    ) : null;
 
   const body = (
     <>
-      {recentOpen ? recentList : (itemsPane ?? findList)}
-      {refundPane}
+      {openingInvoice && openingToPick ? (
+        <>
+          <section aria-label="Opening the sale" className={tcss.ticket}>
+            <div className={tcss.ticketHead}>
+              <span className={tcss.ticketTitle}>{openingInvoice}</span>
+              <span className={tcss.counts}>Opening the sale…</span>
+            </div>
+          </section>
+          <aside aria-label="Refund" className={tcss.pay}>
+            <div className={tcss.totalBlock}>
+              <span className={tcss.label}>Refund summary</span>
+              <span className={tcss.heldMeta}>Loading what can come back…</span>
+            </div>
+          </aside>
+        </>
+      ) : pickingItems && itemsPane ? (
+        <>
+          {itemsPane}
+          {refundPane}
+        </>
+      ) : (
+        <>
+          <ReturnSalesList
+            sales={listSales}
+            loading={laneLoading}
+            searchedFor={searchedFor}
+            searching={searching}
+            range={range}
+            onRange={setRange}
+            payment={payment}
+            onPayment={setPayment}
+            selectedId={sale?.id ?? null}
+            openingInvoice={openingInvoice}
+            onSelect={(picked) => {
+              if (busy) return;
+              setOpeningInvoice(picked.invoiceNo);
+              void openSale(picked.invoiceNo);
+            }}
+          />
+          <InvoiceDetails
+            sale={sale}
+            returnable={returnable}
+            loadingInvoice={openingInvoice}
+            blockedReason={detailsBlocked}
+            onSelectItems={() => setPickingItems(true)}
+            onReprint={() => sale && onReprintSale(sale)}
+          />
+        </>
+      )}
+      <PosReturnHistoryModal
+        open={historyOpen}
+        refunds={refunds}
+        onClose={() => setHistoryOpen(false)}
+        onView={(r) => {
+          setAutoPrintRefund(false);
+          setReceipt(receiptFromRefund(r));
+        }}
+        onReprint={(r) => {
+          setAutoPrintRefund(true);
+          setReceipt(receiptFromRefund(r));
+        }}
+        onOpenSale={(invoiceNo) => {
+          setHistoryOpen(false);
+          setOpeningInvoice(invoiceNo);
+          void openSale(invoiceNo);
+        }}
+      />
       <PosPharmacistPinModal
         open={pendingApproval !== null}
         title="Approve this refund"
@@ -773,12 +908,31 @@ export function PosReturnsPanel({
       />
       <PosRefundReceiptModal
         receipt={receipt}
-        onClose={() => setReceipt(null)}
+        autoPrint={autoPrintRefund}
+        elevated={historyOpen}
+        onClose={closeReceipt}
         preferences={receiptPreferences}
         organization={organization}
       />
     </>
   );
 
-  return <>{children({ search, body, recentOpen, toggleRecent: () => setRecentOpen((v) => !v) })}</>;
+  return (
+    <>
+      {children({
+        search,
+        body,
+        header: (
+          <ReturnsHeader
+            step={step}
+            onHistory={() => {
+              loadRefunds();
+              setHistoryOpen(true);
+            }}
+            historyEnabled={canRefund}
+          />
+        ),
+      })}
+    </>
+  );
 }

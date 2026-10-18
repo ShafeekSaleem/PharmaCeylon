@@ -17,8 +17,15 @@ export function fetchPosCatalog(): Promise<PosCatalog> {
   return apiJson<PosCatalog>("/sales/pos/catalog");
 }
 
-export function fetchRecentSales(take = 12): Promise<RecentSale[]> {
-  return apiJson<RecentSale[]>(`/sales/pos/recent?take=${take}`);
+/** `todayOnly` keeps the tenant's current business day (the server decides when it starts). */
+export function fetchRecentSales(take = 12, todayOnly = false): Promise<RecentSale[]> {
+  return apiJson<RecentSale[]>(`/sales/pos/recent?take=${take}${todayOnly ? "&today=1" : ""}`);
+}
+
+/** Sales over the last `days` business days, or on one `date` (`YYYY-MM-DD`) — the Returns list. */
+export function fetchSalesInRange(range: { days: number } | { date: string }): Promise<RecentSale[]> {
+  const q = "days" in range ? `days=${range.days}` : `date=${encodeURIComponent(range.date)}`;
+  return apiJson<RecentSale[]>(`/sales/pos/recent?take=500&${q}`);
 }
 
 export function findSaleByInvoice(invoiceNo: string): Promise<SaleReceipt> {
@@ -35,6 +42,8 @@ export type InvoiceSearchHit = {
   grandTotal: string;
   customer: { fullName: string; phone: string | null } | null;
   _count: { items: number };
+  sellerName: string;
+  paymentMethods: Array<"cash" | "card" | "mobile_wallet">;
 };
 
 export function searchInvoices(q: string, take = 12): Promise<InvoiceSearchHit[]> {

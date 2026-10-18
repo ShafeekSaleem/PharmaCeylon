@@ -18,9 +18,13 @@
  * to top up today's trading); a backdated document is only consistent when nothing after its
  * date existed yet, which is why each run plays its events strictly in time order.
  *
+ * Today's till gets extra: parked carts (one waiting for a pharmacist) and a run of refunds at the
+ * main branch, with shelf and held lines and a split-payment sale refunded back the way it was paid.
+ *
  * Usage (from apps/api, API not required):
  *   npm run seed:recent                 # last 10 days
  *   npm run seed:recent -- --days=14
+ *   npm run seed:recent -- --today-until=20:00   # play today's till through 8 pm (e.g. just after midnight)
  */
 import "dotenv/config";
 import "reflect-metadata";
@@ -38,6 +42,7 @@ import { AccessService, type ActorAccess } from "../src/security/access.service"
 import { NotificationsService } from "../src/notifications/notifications.service";
 import { PharmacistApprovalService } from "../src/sales/pharmacist-approval.service";
 import { SalesService } from "../src/sales/sales.service";
+import { HeldSalesService } from "../src/sales/held-sales.service";
 import { PurchasingService } from "../src/purchasing/purchasing.service";
 import { HeldDeliveryService } from "../src/purchasing/held-delivery.service";
 import { SupplierLedgerService } from "../src/purchasing/ledger/supplier-ledger.service";
@@ -143,6 +148,7 @@ const ledger = new SupplierLedgerService(prisma, audit);
 const transfers = new TransfersService(prisma, audit, stock);
 const stocktakes = new StocktakesService(prisma, audit, stock);
 const returns = new ReturnsService(prisma, audit, stock);
+const heldSales = new HeldSalesService(prisma);
 const inventory = new InventoryService(prisma, audit, stock, stockRead);
 const adjustments = new AdjustmentService(prisma, inventory, notifications, audit);
 
@@ -258,6 +264,19 @@ function schedule(when: Date, label: string, run: () => Promise<unknown>) {
 
 const now = new RealDate();
 
+/**
+ * How far today's till activity (sales, parked carts, refunds) is played. Normally now; with
+ * --today-until=HH:MM a demo seeded early in the day still has a day's trading. Only the till
+ * moves — orders, deliveries, transfers and the rest still stop at the real time.
+ */
+const tillNow = (() => {
+  const arg = process.argv.find((a) => a.startsWith("--today-until="))?.split("=")[1];
+  const m = arg?.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return now;
+  const until = dayAt(0, Math.min(23, Number(m[1])), Math.min(59, Number(m[2])));
+  return until > now ? until : now;
+})();
+
 // ── Sales ───────────────────────────────────────────────────────────────────
 
 async function planSales(offset: number) {
@@ -266,9 +285,9 @@ async function planSales(offset: number) {
   for (const b of branches) {
     const rng = rngFor(`sales-${ymd(day)}-${b.code}`);
     let target = Math.round((dailySales[b.code] ?? 10) * (weekend ? 0.8 : 1) * (0.9 + rng() * 0.2));
-    // Today only trades up to now.
+    // Today only trades up to now (or --today-until).
     if (offset === 0) {
-      const share = Math.max(0, Math.min(1, (now.getHours() + now.getMinutes() / 60 - 8) / 13));
+      const share = Math.max(0, Math.min(1, (tillNow.getHours() + tillNow.getMinutes() / 60 - 8) / 13));
       target = Math.round(target * share);
     }
     const existing = await prisma.sale.count({
@@ -279,7 +298,7 @@ async function planSales(offset: number) {
     const times = Array.from({ length: toAdd }, () => 8 * 60 + Math.floor(rng() * 13 * 60))
       .sort((a, z) => a - z)
       .map((m) => dayAt(offset, Math.floor(m / 60), m % 60))
-      .filter((t) => t < now);
+      .filter((t) => t < tillNow);
     const customers = await prisma.customer.findMany({ where: { tenantId }, select: { id: true }, take: 40 });
     times.forEach((when, i) => {
       const key = `demo-sale-${ymd(day)}-${b.code}-${existing}-${i}`;
@@ -343,7 +362,7 @@ function planRefunds(offset: number) {
   ];
   for (const p of plan) {
     const when = dayAt(offset, p.hour, Math.floor(rng() * 50));
-    if (when > now) continue;
+    if (when > tillNow) continue;
     schedule(when, `refund ${p.code}`, async () => {
       const b = branch(p.code);
       // The clock is deterministic, so this refund is recognised by the minute it was given.
@@ -379,6 +398,158 @@ function planRefunds(offset: number) {
         ],
       } as never);
       count("Refunds", "ok");
+    });
+  }
+}
+
+// ── Today at the till: parked carts and more refunds ─────────────────────────
+
+/** Carts parked at the main counters today, as a cashier labels them. */
+const TODAY_HOLDS = [
+  { code: "MAIN", hour: 9, minute: 40, label: "Mrs. Perera — fetching her card", lines: 2 },
+  { code: "MAIN", hour: 12, minute: 5, label: "Blue shirt", lines: 3 },
+  { code: "MAIN", hour: 15, minute: 25, label: "Mr. Fernando", lines: 1, forPharmacist: true },
+  { code: "MAIN", hour: 18, minute: 50, label: "Delivery rider — back in 10", lines: 2 },
+  { code: "BRANCH2", hour: 11, minute: 15, label: "Ms. Silva", lines: 2 },
+] as const;
+
+function planTodayHolds() {
+  const rng = rngFor(`holds-${ymd(dayAt(0, 0))}`);
+  for (const h of TODAY_HOLDS) {
+    const when = dayAt(0, h.hour, h.minute);
+    if (when > tillNow) continue;
+    schedule(when, `hold ${h.code}`, async () => {
+      const b = branch(h.code);
+      const done = await prisma.heldSale.findFirst({
+        where: { tenantId, branchId: b.id, label: h.label, createdAt: { gte: dayAt(0, 0) } },
+      });
+      if (done) return count("Held sales", "skipped");
+      // A cart waiting for the pharmacist holds a prescription item; the rest are over the counter.
+      const lots = h.forPharmacist ? await rxLotsAt(b.id) : await lotsAt(b.id, when);
+      if (lots.length === 0) return count("Held sales", "skipped");
+      const lines: Array<Record<string, unknown>> = [];
+      const used = new Set<string>();
+      for (let i = 0; i < h.lines; i++) {
+        const lot = pick(rng, lots);
+        if (used.has(lot.productId)) continue;
+        used.add(lot.productId);
+        lines.push({
+          key: `${lot.productId}:${lot.batchId}`,
+          productId: lot.productId,
+          batchId: lot.batchId,
+          qty: Math.min(lot.available, 1 + Math.floor(rng() * 2)),
+          unitPrice: Number(lot.sellingPrice),
+          discountPercent: 0,
+          addedAt: when.getTime() + i,
+        });
+      }
+      const total = lines.reduce((sum, l) => sum + (l.unitPrice as number) * (l.qty as number), 0);
+      const cashier = await actor(pick(rng, cashiersOf[b.code] ?? cashiersOf.MAIN!));
+      await heldSales.hold(tenantId, b.id, cashier.id, {
+        label: h.label,
+        itemCount: lines.length,
+        total: total.toFixed(2),
+        lines,
+        meta: {
+          mode: "retail",
+          customerId: null,
+          prescriptionId: null,
+          notes: null,
+          holdReason: h.forPharmacist ? "awaiting_pharmacist" : "parked",
+          needsPharmacist: Boolean(h.forPharmacist),
+        },
+      });
+      count("Held sales", "ok");
+    });
+  }
+}
+
+/** Sellable prescription-only lots at a branch, for a cart that waits for the pharmacist. */
+async function rxLotsAt(branchId: string): Promise<Lot[]> {
+  const rows = await prisma.batchStock.findMany({
+    where: {
+      tenantId,
+      branchId,
+      onHandQty: { gt: 0 },
+      batch: {
+        expiryDate: { gt: new RealDate(now.getTime() + 45 * 86_400_000) },
+        product: { rangeStatus: "RANGED", isActive: true, isControlled: false, requiresPrescription: true },
+      },
+    },
+    include: { batch: { include: { product: { select: { name: true } } } } },
+    take: 50,
+  });
+  return rows
+    .map((r) => ({
+      batchId: r.batchId,
+      productId: r.productId,
+      name: r.batch.product.name,
+      available: r.onHandQty - r.quarantinedQty - r.reservedQty,
+      sellingPrice: r.batch.sellingPrice,
+      costPrice: r.batch.costPrice,
+      expiry: r.batch.expiryDate,
+    }))
+    .filter((l) => l.available > 0 && Number(l.sellingPrice) > 0);
+}
+
+/**
+ * Today's refunds at the main counter, on top of the two a day every branch gets: a whole sale
+ * back on the shelf, a part refund with one line held, and a cash-and-card sale refunded as paid.
+ */
+const TODAY_REFUNDS = [
+  { hour: 10, minute: 35, kind: "whole" },
+  { hour: 14, minute: 10, kind: "part-held" },
+  { hour: 16, minute: 45, kind: "split" },
+  { hour: 19, minute: 20, kind: "whole" },
+] as const;
+
+function planTodayRefunds() {
+  const rng = rngFor(`refunds-main-${ymd(dayAt(0, 0))}`);
+  for (const r of TODAY_REFUNDS) {
+    const when = dayAt(0, r.hour, r.minute);
+    if (when > tillNow) continue;
+    schedule(when, `refund MAIN`, async () => {
+      const b = branch("MAIN");
+      const done = await prisma.goodsReturn.findFirst({
+        where: { tenantId, branchId: b.id, type: "customer", createdAt: { gte: when, lt: new RealDate(when.getTime() + 60_000) } },
+      });
+      if (done) return count("Refunds (today, main)", "skipped");
+      const candidates = await prisma.sale.findMany({
+        where: {
+          tenantId,
+          branchId: b.id,
+          status: "posted",
+          soldAt: { gte: dayAt(-1, 0), lt: when },
+          items: { every: { product: { isControlled: false, requiresPrescription: false } } },
+        },
+        include: { items: true, payments: true },
+        orderBy: { soldAt: "desc" },
+        take: 40,
+      });
+      const fits = candidates.filter((sale) => {
+        const methods = new Set(sale.payments.filter((p) => p.amount.gt(0)).map((p) => p.method));
+        if (r.kind === "split") return methods.size > 1;
+        if (r.kind === "part-held") return sale.items.length > 1;
+        return sale.items.length > 0;
+      });
+      const sale = fits.length ? pick(rng, fits) : null;
+      if (!sale) return count("Refunds (today, main)", "skipped");
+      // A whole sale back is usually over the refund limit, so the manager gives those; the
+      // one-unit part refund stays with a cashier.
+      const giver = r.kind === "part-held" ? await actor(pick(rng, cashiersOf.MAIN!)) : await actor(managerOf.MAIN!);
+      const items =
+        r.kind === "part-held"
+          ? [
+              { productId: sale.items[0]!.productId, batchId: sale.items[0]!.batchId!, qty: 1, disposition: "restock" },
+              { productId: sale.items[1]!.productId, batchId: sale.items[1]!.batchId!, qty: 1, disposition: "quarantine" },
+            ]
+          : sale.items.map((it) => ({ productId: it.productId, batchId: it.batchId!, qty: it.qty, disposition: "restock" }));
+      const reasonCode = r.kind === "part-held" ? "damaged" : pick(rng, ["wrong_item", "changed_mind"] as const);
+      await sales.refundSale(tenantId, b.id, giver.id, await accessFor(giver, b.id), sale.id, {
+        reasonCode,
+        items,
+      } as never);
+      count("Refunds (today, main)", "ok");
     });
   }
 }
@@ -848,6 +1019,8 @@ async function main() {
   planStocktakes();
   planAdjustments(days);
   planSupplierReturns();
+  planTodayHolds();
+  planTodayRefunds();
 
   // Events schedule follow-ups as they run, so keep draining in time order.
   let done = 0;

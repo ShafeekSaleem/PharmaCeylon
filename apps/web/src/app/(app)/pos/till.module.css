@@ -310,6 +310,15 @@
   font-weight: 700;
 }
 
+.barActions {
+  flex: none;
+  width: 244px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 14px;
+}
+
 .barDivider {
   width: 1px;
   height: 28px;
@@ -912,6 +921,12 @@
   box-shadow: 0 0 0 3px var(--pc-focus-ring);
 }
 
+.popoverNote {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--pc-muted-fg);
+}
+
 .popoverChips {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1015,22 +1030,90 @@
   color: var(--pc-muted-fg);
 }
 
+/* Folded to its header while the sale needs the room. */
+.picksCollapsed {
+  padding-bottom: 10px;
+}
+
+.pickTabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--pc-muted-bg);
+}
+
+.pickTab {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pickTab:hover:not(:disabled):not(.pickTabOn) {
+  color: var(--pc-foreground);
+}
+
+.pickTab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pickTabOn {
+  background: var(--pc-card-bg);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--pc-foreground) 14%, transparent);
+  font-weight: 650;
+  color: var(--pc-foreground);
+}
+
+.pickTabCount {
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--pc-primary);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pc-btn-primary-text);
+}
+
+.picksEmpty {
+  padding: 14px 0;
+  font-size: 13px;
+  color: var(--pc-muted-fg);
+}
+
 .picksGrid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
+/* Picture or kind icon on the left; name and price beside it. */
 .pick {
-  height: 50px;
+  height: 56px;
   min-width: 0;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 10px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 0 8px;
   border: 1px solid var(--pc-border);
   border-radius: 10px;
   background: var(--pc-card-bg);
@@ -1038,10 +1121,6 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-.pickTall {
-  height: 56px;
 }
 
 .pick:hover:not(:disabled) {
@@ -1052,6 +1131,55 @@
 .pick:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.pickImg,
+.pickIcon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 9px;
+}
+
+.pickImg {
+  object-fit: cover;
+  background: var(--pc-muted-bg);
+}
+
+.pickIcon {
+  display: grid;
+  place-items: center;
+}
+
+.pickToneTeal {
+  background: var(--till-soft);
+  color: var(--till-ink);
+}
+
+.pickToneInfo {
+  background: var(--pc-alert-info-bg);
+  color: var(--pc-alert-info-text);
+}
+
+.pickToneWarn {
+  background: var(--pc-alert-warning-bg);
+  color: var(--pc-alert-warning-text);
+}
+
+.pickToneGood {
+  background: var(--pc-alert-success-bg);
+  color: var(--pc-alert-success-text);
+}
+
+.pickText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pickLow {
+  color: var(--pc-alert-warning-text);
 }
 
 .pickName {
@@ -1198,6 +1326,7 @@
 .payPinned {
   overflow: hidden;
 }
+
 
 .payScroll {
   flex: 1;
@@ -1561,22 +1690,23 @@
   color: var(--pc-muted-fg);
 }
 
+/* The same grey outline as the till's other secondary buttons (View, Reprint, Return items). */
 .recallBtn {
   height: 36px;
   flex: none;
   padding: 0 14px;
-  border: 1px solid var(--pc-primary);
+  border: 1px solid var(--pc-border);
   border-radius: 9px;
   background: var(--pc-card-bg);
   font: inherit;
   font-size: 13px;
-  font-weight: 650;
-  color: var(--till-ink);
+  font-weight: 600;
+  color: var(--pc-foreground);
   cursor: pointer;
 }
 
 .recallBtn:hover {
-  background: var(--till-soft);
+  background: var(--pc-muted-bg);
 }
 
 .emptyNote {
@@ -1842,6 +1972,13 @@
   background: var(--till-soft);
 }
 
+.saleRowOn,
+.saleRowOn:hover:not(:disabled) {
+  border-color: var(--pc-primary);
+  background: var(--till-soft);
+  box-shadow: inset 3px 0 0 var(--pc-primary);
+}
+
 .saleRowMain {
   display: flex;
   flex-direction: column;
@@ -1880,6 +2017,19 @@
   font-size: 13px;
   color: var(--pc-foreground);
   cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+/* The same teal-tinted hover as the Returns rows, so a chip reads as something to pick. */
+.reasonChip:hover:not(.reasonChipOn) {
+  border-color: var(--till-soft-line);
+  background: color-mix(in srgb, var(--till-soft) 60%, var(--pc-card-bg));
+  color: var(--till-ink);
+}
+
+.reasonChip:focus-visible {
+  outline: 2px solid var(--pc-primary);
+  outline-offset: 2px;
 }
 
 .reasonChipOn {
@@ -1888,6 +2038,144 @@
   background: var(--till-soft);
   color: var(--till-ink);
   font-weight: 650;
+}
+
+/* ── Refund summary ───────────────────────────────────────── */
+
+.strongText {
+  font-weight: 600;
+  color: var(--pc-foreground);
+}
+
+.origPay {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--pc-border);
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+
+.origPayRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.origPayMethod {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.printRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--pc-border);
+  border-radius: 11px;
+}
+
+.printRowIcon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--pc-muted-fg);
+}
+
+.printRowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.printRowTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* ── A sale as a card: last completed sale and today's sales ── */
+
+.saleCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--pc-border);
+  border-radius: 12px;
+  background: var(--pc-card-bg);
+}
+
+.saleCardTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The number with its status pill beside it, so the lines below get the card's full width. */
+.saleCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.saleCardMain {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.saleCardNo,
+.saleCardAmount {
+  font-size: 14.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.saleCardMeta {
+  font-size: 12.5px;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saleCardSide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: start;
+  gap: 2px;
+  text-align: right;
+}
+
+.saleCardActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.saleCardActions > .secondaryBtn {
+  height: 38px;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.saleCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* ── Narrower screens ─────────────────────────────────────── */
@@ -1903,6 +2191,10 @@
     display: none;
   }
 
+  .barActions {
+    width: 131px;
+  }
+
   .pay {
     width: 352px;
   }
@@ -1914,12 +2206,16 @@
   }
 
   .picksGrid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .picksOneRow > :nth-child(n + 6),
-  .picksTwoRows > :nth-child(n + 11) {
+  .picksOneRow > :nth-child(n + 5),
+  .picksTwoRows > :nth-child(n + 9) {
     display: none;
+  }
+
+  .pickTab {
+    padding: 0 8px;
   }
 }
 
@@ -1939,5 +2235,721 @@
   .pay {
     width: auto;
     overflow: visible;
+  }
+
+  /* The scan box gets a row of its own, full width, under the till's buttons. */
+  .bar {
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 10px;
+    padding: 10px 16px;
+  }
+
+  .bar > .searchWrap {
+    order: 10;
+    flex: 1 1 100%;
+  }
+
+  /* The scan box has its own row here, so the buttons no longer need a fixed slot. */
+  .barActions {
+    width: auto;
+  }
+}
+
+/* ── Phones ───────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .bar {
+    gap: 6px;
+  }
+
+  .barBtn {
+    padding: 0 9px;
+  }
+
+  .barActions {
+    gap: 6px;
+  }
+
+  .brand,
+  .barDivider,
+  .cashier {
+    display: none;
+  }
+
+  .modeSwitch {
+    margin-right: auto;
+  }
+
+  .modeBtn {
+    padding: 0 12px;
+  }
+
+  .ticketHead {
+    height: auto;
+    min-height: 60px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+
+  .picksGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .picksOneRow > :nth-child(n + 3),
+  .picksTwoRows > :nth-child(n + 5) {
+    display: none;
+  }
+
+  .picksHead {
+    flex-wrap: wrap;
+  }
+
+  .pickTabs {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .pickTab {
+    flex: 1;
+    justify-content: center;
+  }
+
+  /* A line reads as two rows: what it is, then quantity, price, total and remove. */
+  .cols,
+  .rcols {
+    display: none;
+  }
+
+  .line {
+    grid-template-columns: minmax(0, 1fr) auto auto 32px;
+    row-gap: 4px;
+    padding-bottom: 10px;
+  }
+
+  .line > .lineMain,
+  .rline > .lineMain {
+    grid-column: 1 / -1;
+  }
+
+  .line > .stepper {
+    justify-content: flex-start;
+  }
+
+  .rline {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 4px;
+    padding-bottom: 10px;
+  }
+
+  /* "Bought" is already in the line's meta ("2 already returned"); the stepper caps at it. */
+  .rline > :nth-child(2) {
+    display: none;
+  }
+
+  /* A finished sale keeps Item · Qty · Total; the unit price is on the receipt. */
+  .doneCols,
+  .doneLine {
+    grid-template-columns: minmax(0, 1fr) 40px 96px;
+  }
+
+  .doneCols > :nth-child(3),
+  .doneLine > :nth-child(3) {
+    display: none;
+  }
+}
+
+/* ── Hold sale in the theme's green ── */
+
+.holdBtn {
+  border-color: var(--pc-primary);
+  color: var(--till-ink);
+}
+
+.holdBtn:hover:not(:disabled) {
+  background: var(--till-soft);
+}
+
+/* ── Today at this branch ── */
+
+.todayCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--pc-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--pc-muted-bg) 35%, var(--pc-card-bg));
+}
+
+.todayStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.todayStats > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.todayStats b {
+  font-size: 17px;
+  font-weight: 750;
+  color: var(--pc-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todayStats span {
+  font-size: 11.5px;
+  color: var(--pc-muted-fg);
+}
+
+/* Sales by hour, 8 am to 9 pm; the current hour in the theme's green. */
+.todayBars {
+  height: 30px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.todayBar {
+  flex: 1;
+  min-height: 3px;
+  border-radius: 3px 3px 1px 1px;
+  background: color-mix(in srgb, var(--pc-primary) 35%, var(--pc-card-bg));
+}
+
+.todayBarNow {
+  background: var(--pc-primary);
+}
+
+.todayAxis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -6px;
+  font-size: 11px;
+  color: var(--pc-muted-fg);
+}
+
+/* ── Customer return ──────────────────────────────────────── */
+
+/* Title, the three steps and Return history, above the two panels. */
+.retHead {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 16px 20px 4px;
+}
+
+.retHead > :last-child {
+  justify-self: end;
+}
+
+.retHeadText {
+  min-width: 0;
+}
+
+.retTitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  color: var(--pc-foreground);
+}
+
+.retSub {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--pc-muted-fg);
+}
+
+.retSteps {
+  display: flex;
+  align-items: flex-start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.retStep {
+  display: flex;
+  align-items: flex-start;
+}
+
+/* The line joining one step to the next. */
+.retStep + .retStep::before {
+  content: "";
+  width: 72px;
+  height: 2px;
+  margin: 15px 4px 0;
+  border-radius: 2px;
+  background: var(--pc-border);
+}
+
+.retStep_done + .retStep::before {
+  background: var(--pc-primary);
+}
+
+.retStepBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 104px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+
+button.retStepBtn {
+  cursor: pointer;
+}
+
+.retStepDot {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--pc-border);
+  border-radius: 999px;
+  background: var(--pc-card-bg);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--pc-muted-fg);
+}
+
+.retStepLabel {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+}
+
+.retStep_on .retStepDot,
+.retStep_done .retStepDot {
+  border-color: var(--pc-primary);
+  background: var(--pc-primary);
+  color: var(--pc-btn-primary-text);
+}
+
+.retStep_on .retStepLabel {
+  font-weight: 700;
+  color: var(--till-ink);
+}
+
+/* ── Recent sales ── */
+
+.retPanel {
+  padding: 18px 18px 0;
+}
+
+.retPanelHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.retPanelTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.retPanelSub {
+  font-size: 13px;
+  color: var(--pc-muted-fg);
+}
+
+.retFilters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.retChip {
+  height: 38px;
+  flex: none;
+  padding: 0 16px;
+  border: 1px solid var(--pc-border);
+  border-radius: 10px;
+  background: var(--pc-card-bg);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--pc-foreground);
+  cursor: pointer;
+}
+
+.retChip:hover {
+  background: var(--pc-muted-bg);
+}
+
+.retChipOn,
+.retChipOn:hover {
+  border-color: var(--pc-primary);
+  background: var(--till-soft);
+  color: var(--till-ink);
+}
+
+.retDate {
+  width: 170px;
+  flex: none;
+}
+
+.retDateOn > * {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--pc-primary);
+}
+
+.retFilterRule {
+  width: 1px;
+  height: 26px;
+  margin: 0 4px;
+  background: var(--pc-border);
+}
+
+.retPay {
+  width: 170px;
+  flex: none;
+}
+
+/* Receipt / customer · time · payment · total · status · go */
+.retCols,
+.retRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 12px;
+}
+
+.retCols {
+  margin: 16px -18px 0;
+  padding: 10px 32px;
+  border-top: 1px solid var(--till-line);
+  border-bottom: 1px solid var(--till-line);
+  background: color-mix(in srgb, var(--pc-muted-bg) 45%, var(--pc-card-bg));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.retRows {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  overflow: hidden;
+}
+
+.retRow {
+  flex: none;
+  min-height: 66px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid var(--pc-border);
+  border-radius: 12px;
+  background: var(--pc-card-bg);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.retRow:hover {
+  border-color: var(--till-soft-line);
+  background: color-mix(in srgb, var(--till-soft) 50%, var(--pc-card-bg));
+}
+
+.retRowOn,
+.retRowOn:hover {
+  border-color: var(--pc-primary);
+  background: var(--till-soft);
+  box-shadow: 0 0 0 1px var(--pc-primary);
+}
+
+.retRowMain,
+.retRowTime {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.retRowNo {
+  font-size: 14.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.retRowSub,
+.retRowTime {
+  font-size: 13px;
+  color: var(--pc-muted-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.retRowPay {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.retRowTotal {
+  font-size: 14.5px;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.retRowGo {
+  display: grid;
+  place-items: center;
+  color: var(--pc-muted-fg);
+}
+
+.retRowOn .retRowGo {
+  color: var(--till-ink);
+}
+
+/* ── Invoice details ── */
+
+.retDetail {
+  width: 46%;
+  max-width: 600px;
+  min-width: 400px;
+}
+
+.retInvoice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--till-soft-line);
+  border-radius: 12px;
+  background: var(--till-soft);
+}
+
+.retInvoiceTop,
+.retInvoiceBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.retInvoiceBottom {
+  align-items: flex-end;
+}
+
+.retInvoiceNo {
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+.retInvoiceMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13.5px;
+  color: var(--pc-muted-fg);
+}
+
+.retInvoiceTotal {
+  font-size: 26px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.retBlockTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--pc-foreground);
+}
+
+.retItems {
+  border: 1px solid var(--pc-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.retItemsHead,
+.retItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px 96px 104px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+
+.retItemsHead {
+  background: color-mix(in srgb, var(--pc-muted-bg) 45%, var(--pc-card-bg));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pc-muted-fg);
+}
+
+.retItem {
+  border-top: 1px solid var(--till-line);
+  font-size: 13.5px;
+}
+
+.retItemName {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.retItemName b {
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retItemName span {
+  font-size: 12px;
+  color: var(--pc-muted-fg);
+}
+
+/* Sold · Returned · Available to return */
+.retStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--pc-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--pc-muted-bg) 35%, var(--pc-card-bg));
+}
+
+.retStats > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  font-size: 12.5px;
+  color: var(--pc-muted-fg);
+}
+
+.retStats > div + div {
+  border-left: 1px solid var(--pc-border);
+}
+
+.retStats b {
+  font-size: 22px;
+  font-weight: 750;
+  color: var(--pc-foreground);
+}
+
+.retStats b.retStatGood {
+  color: var(--pc-alert-success-text);
+}
+
+.retActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.retActions > .secondaryBtn {
+  height: auto;
+}
+
+@media (max-width: 1240px) {
+  .retStepBtn {
+    width: 88px;
+  }
+
+  .retStep + .retStep::before {
+    width: 32px;
+  }
+
+  .retSub {
+    display: none;
+  }
+
+  .retCols,
+  .retRow {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 20px;
+  }
+
+  .retCols > :nth-child(2),
+  .retRow > .retRowTime {
+    display: none;
+  }
+
+  .retDetail {
+    min-width: 360px;
+  }
+}
+
+@media (max-width: 960px) {
+  .retHead {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .retSteps {
+    display: none;
+  }
+
+  .retDetail {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .retRows {
+    overflow: visible;
+  }
+
+  .retFilters {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .retCols {
+    display: none;
+  }
+
+  .retRow {
+    grid-template-columns: minmax(0, 1fr) auto 20px;
+  }
+
+  .retRow > .retRowPay,
+  .retRow > :nth-child(5) {
+    display: none;
+  }
+
+  .retFilterRule {
+    display: none;
+  }
+
+  .retDate,
+  .retPay {
+    width: calc(50% - 4px);
   }
 }

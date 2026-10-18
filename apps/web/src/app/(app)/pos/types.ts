@@ -35,6 +35,8 @@ export type PosProduct = {
   batches: PosBatch[];
   units30d: number;
   lines90d: number;
+  /** Products most often bought in the same sale at this branch, best first ("Goes together"). */
+  pairedWith: string[];
   /** Primary COMMERCIAL category — powers the Category quick-add tab, not Dosage Form. */
   commercialCategoryId: string | null;
   commercialCategoryName: string | null;
@@ -152,6 +154,8 @@ export type RecentSale = {
   itemCount: number;
   customerName: string | null;
   sellerName: string;
+  /** How the customer paid, refunds left out. */
+  paymentMethods: PaymentMethod[];
   productIds: string[];
   summary: string;
 };

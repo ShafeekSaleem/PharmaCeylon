@@ -3,10 +3,19 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  IconBaby,
   IconBarcodeScan,
+  IconChevronDown,
+  IconChevronUp,
+  IconCoffee,
+  IconDroplet,
   IconEdit,
   IconFileText,
+  IconFirstAid,
+  IconLeaf,
   IconMinus,
+  IconPackage,
+  IconPill,
   IconPlus,
   IconUser,
   IconX,
@@ -68,78 +77,221 @@ const DISCOUNT_STEPS = [5, 10, 15, 20];
 
 /* ── Quick picks ──────────────────────────────────────────── */
 
+type PickTab = "fast" | "recent" | "together";
+
+const PICK_TABS: Array<{ value: PickTab; label: string }> = [
+  { value: "fast", label: "Fast moving" },
+  { value: "recent", label: "Recently sold" },
+  { value: "together", label: "Goes together" },
+];
+
+/** A pick is one tap, so nothing that stops the sale for a prescription or a pharmacist. */
+function pickable(p: PosProduct): boolean {
+  return p.qtyOnHand > 0 && !p.isControlled && !p.requiresPrescription;
+}
+
 /**
- * The branch's fast movers: most units sold in the last 30 days, then most sale lines in 90,
- * then whatever sold most recently — so a new branch still gets picks from its first sales.
+ * The three lists the picks offer, none repeating what is already in the sale:
+ * fast movers (units in 30 days, then lines in 90), what sold most recently, and what is usually
+ * bought with the items in the cart.
  */
-export function rankQuickPicks(products: PosProduct[], recentSales: RecentSale[], limit: number): PosProduct[] {
-  const recentRank = new Map<string, number>();
-  recentSales.forEach((sale, index) => {
-    for (const id of sale.productIds) if (!recentRank.has(id)) recentRank.set(id, index);
-  });
-  return products
-    .filter((p) => p.qtyOnHand > 0 && !p.isControlled)
-    .filter((p) => p.units30d > 0 || p.lines90d > 0 || recentRank.has(p.id))
-    .sort(
-      (a, b) =>
-        b.units30d - a.units30d ||
-        b.lines90d - a.lines90d ||
-        (recentRank.get(a.id) ?? 9999) - (recentRank.get(b.id) ?? 9999) ||
-        a.name.localeCompare(b.name),
-    )
-    .slice(0, limit);
+export function quickPickLists(
+  products: PosProduct[],
+  recentSales: RecentSale[],
+  cartIds: Set<string>,
+): Record<PickTab, PosProduct[]> {
+  const byId = new Map(products.map((p) => [p.id, p]));
+  const ok = (p: PosProduct | undefined): p is PosProduct => !!p && pickable(p) && !cartIds.has(p.id);
+
+  const fast = products
+    .filter((p) => ok(p) && (p.units30d > 0 || p.lines90d > 0))
+    .sort((a, b) => b.units30d - a.units30d || b.lines90d - a.lines90d || a.name.localeCompare(b.name));
+
+  const seen = new Set<string>();
+  const recent: PosProduct[] = [];
+  for (const sale of recentSales) {
+    for (const id of sale.productIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const p = byId.get(id);
+      if (ok(p)) recent.push(p);
+    }
+  }
+
+  // Each cart item votes for its partners, stronger for the ones it sells with most.
+  const votes = new Map<string, number>();
+  for (const id of cartIds) {
+    (byId.get(id)?.pairedWith ?? []).forEach((partner, rank) => {
+      votes.set(partner, (votes.get(partner) ?? 0) + (6 - rank));
+    });
+  }
+  const together = [...votes.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([id]) => byId.get(id))
+    .filter(ok);
+
+  return { fast, recent, together };
+}
+
+/** What a product is, as a picture: its photo when it has one, else an icon for its kind. */
+function PickThumb({ product }: { product: PosProduct }) {
+  if (product.imageUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img className={tcss.pickImg} src={product.imageUrl} alt="" loading="lazy" />;
+  }
+  const text = `${product.dosageForm ?? ""} ${product.commercialCategoryName ?? ""} ${product.name}`.toLowerCase();
+  const [Icon, tone] = /tablet|capsule|caplet|pill|lozenge/.test(text)
+    ? [IconPill, tcss.pickToneTeal]
+    : /baby|infant|diaper|nappy/.test(text)
+      ? [IconBaby, tcss.pickToneInfo]
+      : /snack|chocolate|drink|juice|coffee|tea|beverage|biscuit|chips|soft drink|water/.test(text)
+        ? [IconCoffee, tcss.pickToneWarn]
+        : /bandage|plaster|first aid|sanitiz|thermometer|mask|glove|device/.test(text)
+          ? [IconFirstAid, tcss.pickToneInfo]
+          : /vitamin|supplement|herbal|ayurved|tonic/.test(text)
+            ? [IconLeaf, tcss.pickToneGood]
+            : /syrup|suspension|liquid|drop|solution|lotion|shampoo|wash|gel|cream|ointment|oil|soap|clean/.test(text)
+              ? [IconDroplet, tcss.pickToneInfo]
+              : [IconPackage, tcss.pickToneTeal];
+  return (
+    <span className={`${tcss.pickIcon} ${tone}`} aria-hidden>
+      <Icon size={18} />
+    </span>
+  );
 }
 
 function QuickPicks({
   products,
   recentSales,
+  cartIds,
   rows,
+  collapsed,
+  onToggle,
   onAdd,
 }: {
   products: PosProduct[];
   recentSales: RecentSale[];
+  cartIds: Set<string>;
   rows: 1 | 2;
+  /** Folded to its header — the cart has grown and needs the room. */
+  collapsed: boolean;
+  /** Fold or unfold; null when the picks can't be folded (an empty sale). */
+  onToggle: (() => void) | null;
   onAdd: (product: PosProduct) => void;
 }) {
-  const picks = useMemo(() => rankQuickPicks(products, recentSales, rows * 7), [products, recentSales, rows]);
-  if (picks.length === 0) return null;
+  // null = choose for the cashier: what goes with the cart once there is one, else fast movers.
+  const [chosen, setChosen] = useState<PickTab | null>(null);
+  const lists = useMemo(() => quickPickLists(products, recentSales, cartIds), [products, recentSales, cartIds]);
+  const tab: PickTab = chosen ?? (cartIds.size > 0 && lists.together.length > 0 ? "together" : "fast");
+  const picks = lists[tab].slice(0, rows * 5);
+  if (lists.fast.length === 0 && lists.recent.length === 0) return null;
+
   return (
-    <div className={tcss.picks}>
+    <div className={`${tcss.picks}${collapsed ? ` ${tcss.picksCollapsed}` : ""}`}>
       <div className={tcss.picksHead}>
         <span className={tcss.label}>Quick picks</span>
-        <span className={tcss.picksHint}>Best sellers at this branch</span>
-      </div>
-      <div className={`${tcss.picksGrid} ${rows === 1 ? tcss.picksOneRow : tcss.picksTwoRows}`}>
-        {picks.map((product) => (
-          <button
-            key={product.id}
-            type="button"
-            className={`${tcss.pick}${rows === 2 ? ` ${tcss.pickTall}` : ""}`}
-            onClick={() => onAdd(product)}
-            title={`${product.name} · ${product.qtyOnHand} in stock`}
-          >
-            <span className={tcss.pickName}>{product.name}</span>
-            <span className={tcss.pickPrice}>{formatAmount(product.batches[0]?.sellingPrice ?? 0)}</span>
+        {!collapsed && (
+          <div className={tcss.pickTabs} role="tablist" aria-label="Quick picks">
+            {PICK_TABS.map((t) => {
+              const off = t.value === "together" && cartIds.size === 0;
+              return (
+                <button
+                  key={t.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t.value}
+                  disabled={off}
+                  data-tooltip={off ? "Add an item to see what usually goes with it" : undefined}
+                  className={`${tcss.pickTab}${tab === t.value ? ` ${tcss.pickTabOn}` : ""}`}
+                  onClick={() => setChosen(t.value)}
+                >
+                  {t.label}
+                  {t.value === "together" && lists.together.length > 0 && (
+                    <span className={tcss.pickTabCount}>{lists.together.length}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <span className={tcss.spacer} />
+        {onToggle && (
+          <button type="button" className={tcss.linkBtn} onClick={onToggle} aria-expanded={!collapsed}>
+            {collapsed ? (
+              <>
+                Show <IconChevronUp size={14} />
+              </>
+            ) : (
+              <>
+                Hide <IconChevronDown size={14} />
+              </>
+            )}
           </button>
-        ))}
+        )}
       </div>
+      {!collapsed &&
+        (picks.length === 0 ? (
+          <span className={tcss.picksEmpty}>
+            {tab === "together"
+              ? "Nothing usually goes with these items yet."
+              : tab === "recent"
+                ? "Nothing sold recently that isn't already in the sale."
+                : "No fast movers to suggest yet."}
+          </span>
+        ) : (
+          <div className={`${tcss.picksGrid} ${rows === 1 ? tcss.picksOneRow : tcss.picksTwoRows}`}>
+            {picks.map((product) => {
+              const low = product.stockStatus !== "ok";
+              return (
+                <button
+                  key={product.id}
+                  type="button"
+                  className={tcss.pick}
+                  onClick={() => onAdd(product)}
+                  data-tooltip={`${product.name} · ${product.qtyOnHand} in stock`}
+                >
+                  <PickThumb product={product} />
+                  <span className={tcss.pickText}>
+                    <span className={tcss.pickName}>{product.name}</span>
+                    <span className={tcss.pickPrice}>
+                      {formatAmount(product.batches[0]?.sellingPrice ?? 0)}
+                      {low && <span className={tcss.pickLow}> · {product.qtyOnHand} left</span>}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
     </div>
   );
 }
 
 /* ── One line ─────────────────────────────────────────────── */
 
+/** The chips a cashier can tap: the usual steps up to their limit, and the limit itself. */
+function discountSteps(limit: number): number[] {
+  const steps = DISCOUNT_STEPS.filter((step) => step <= limit);
+  if (limit > 0 && limit < 100 && !steps.includes(limit)) steps.push(limit);
+  return steps.slice(-4);
+}
+
 function DiscountEditor({
   line,
+  limit,
   onSetDiscount,
   onClose,
 }: {
   line: ResolvedCartLine;
+  /** The most this person may give; null when they may give any discount. */
+  limit: number | null;
   onSetDiscount: (key: string, percent: number) => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState(line.discountPercent ? String(line.discountPercent) : "");
+  const max = limit ?? 100;
+  const steps = limit === null ? DISCOUNT_STEPS : discountSteps(limit);
 
   useEffect(() => {
     function onDown(event: MouseEvent) {
@@ -150,7 +302,7 @@ function DiscountEditor({
   }, [onClose]);
 
   function apply(percent: number) {
-    const clamped = Math.min(Math.max(Number.isFinite(percent) ? percent : 0, 0), 100);
+    const clamped = Math.min(Math.max(Number.isFinite(percent) ? percent : 0, 0), max);
     setValue(clamped ? String(clamped) : "");
     onSetDiscount(line.key, clamped);
   }
@@ -179,23 +331,32 @@ function DiscountEditor({
             className={tcss.popoverInput}
             type="number"
             min={0}
-            max={100}
+            max={max}
             step={1}
             inputMode="decimal"
             placeholder="0"
             autoFocus
+            disabled={max <= 0}
             value={value}
             onChange={(e) => {
-              setValue(e.target.value);
-              onSetDiscount(line.key, Math.min(Math.max(Number(e.target.value) || 0, 0), 100));
+              const typed = Number(e.target.value) || 0;
+              // Over the limit, the field shows the limit rather than a number that won't be applied.
+              setValue(typed > max ? String(max) : e.target.value);
+              onSetDiscount(line.key, Math.min(Math.max(typed, 0), max));
             }}
             onFocus={(e) => e.currentTarget.select()}
           />
           %
         </span>
       </div>
+      {limit !== null && (
+        <span className={tcss.popoverNote}>
+          {limit > 0 ? `Up to ${limit}% at the till.` : "Discounts aren't allowed at the till."} A manager can give
+          more.
+        </span>
+      )}
       <div className={tcss.popoverChips}>
-        {DISCOUNT_STEPS.map((step) => (
+        {steps.map((step) => (
           <button
             key={step}
             type="button"
@@ -228,6 +389,7 @@ function DiscountEditor({
 function TicketLine({
   line,
   scanned,
+  discountLimit,
   onOpenBatch,
   onStepQty,
   onSetQty,
@@ -236,6 +398,7 @@ function TicketLine({
 }: {
   line: ResolvedCartLine;
   scanned: boolean;
+  discountLimit: number | null;
   onOpenBatch: (line: ResolvedCartLine) => void;
   onStepQty: (key: string, delta: number) => void;
   onSetQty: (key: string, qty: number) => void;
@@ -278,7 +441,7 @@ function TicketLine({
             type="button"
             className={tcss.linkBtn}
             onClick={() => onOpenBatch(line)}
-            title="Change batch — the soonest expiry is picked first"
+            data-tooltip="Change batch — the soonest expiry is picked first"
           >
             Batch {line.batch.batchNo}
           </button>{" "}
@@ -344,7 +507,7 @@ function TicketLine({
           )}
         </button>
         {editingDiscount && (
-          <DiscountEditor line={line} onSetDiscount={onSetDiscount} onClose={() => setEditingDiscount(false)} />
+          <DiscountEditor line={line} limit={discountLimit} onSetDiscount={onSetDiscount} onClose={() => setEditingDiscount(false)} />
         )}
       </div>
 
@@ -372,6 +535,8 @@ type TicketProps = {
   prescription: Prescription | null;
   /** Lines that can only be sold against a prescription. */
   rxNeededCount: number;
+  /** The most this person may discount a line, in percent; null when there is no limit. */
+  discountLimit: number | null;
   notes: string;
   recalledHoldRef: string | null;
   products: PosProduct[];
@@ -396,6 +561,7 @@ export function PosTicket({
   customer,
   prescription,
   rxNeededCount,
+  discountLimit,
   notes,
   recalledHoldRef,
   products,
@@ -413,6 +579,13 @@ export function PosTicket({
 }: TicketProps) {
   const [noteOpen, setNoteOpen] = useState(false);
   const empty = lines.length === 0;
+  const cartIds = useMemo(() => new Set(lines.map((line) => line.productId)), [lines]);
+  // null = automatic: picks fold away once the sale has four lines and needs the room.
+  const [picksOpen, setPicksOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (empty) setPicksOpen(null);
+  }, [empty]);
+  const picksCollapsed = !(picksOpen ?? lines.length < 4);
 
   return (
     <section aria-label="Current sale" className={tcss.ticket}>
@@ -520,7 +693,15 @@ export function PosTicket({
               </span>
             </div>
           </div>
-          <QuickPicks products={products} recentSales={recentSales} rows={2} onAdd={onAddProduct} />
+          <QuickPicks
+            products={products}
+            recentSales={recentSales}
+            cartIds={cartIds}
+            rows={2}
+            collapsed={false}
+            onToggle={null}
+            onAdd={onAddProduct}
+          />
         </>
       ) : (
         <>
@@ -537,6 +718,7 @@ export function PosTicket({
                 key={line.key}
                 line={line}
                 scanned={line.key === scannedKey}
+                discountLimit={discountLimit}
                 onOpenBatch={onOpenBatch}
                 onStepQty={onStepQty}
                 onSetQty={onSetQty}
@@ -545,7 +727,15 @@ export function PosTicket({
               />
             ))}
           </div>
-          <QuickPicks products={products} recentSales={recentSales} rows={1} onAdd={onAddProduct} />
+          <QuickPicks
+            products={products}
+            recentSales={recentSales}
+            cartIds={cartIds}
+            rows={1}
+            collapsed={picksCollapsed}
+            onToggle={() => setPicksOpen(picksCollapsed)}
+            onAdd={onAddProduct}
+          />
         </>
       )}
     </section>
@@ -601,7 +791,11 @@ export function PosCompletedTicket({ sale }: { sale: SaleReceipt }) {
           Subtotal <b>{formatAmount(sale.subtotal)}</b>
         </span>
         <span>
-          Discounts <b className={tcss.minus}>−{formatAmount(sale.discountTotal)}</b>
+          Discounts{" "}
+          <b className={Number(sale.discountTotal) > 0 ? tcss.minus : undefined}>
+            {Number(sale.discountTotal) > 0 ? "−" : ""}
+            {formatAmount(sale.discountTotal)}
+          </b>
         </span>
         <span>
           VAT <b>{formatAmount(sale.taxTotal)}</b>

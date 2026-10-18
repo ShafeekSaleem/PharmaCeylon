@@ -1313,6 +1313,8 @@ export class SalesService {
         soldAt: true,
         grandTotal: true,
         customer: { select: { fullName: true, phone: true } },
+        seller: { select: { fullName: true } },
+        payments: { select: { method: true, amount: true } },
         _count: { select: { items: true } },
       },
     });
@@ -1329,6 +1331,12 @@ export class SalesService {
         if (rank !== 0) return rank;
         return b.soldAt.getTime() - a.soldAt.getTime();
       })
-      .slice(0, limit);
+      .slice(0, limit)
+      // The till shows a hit as a sale card: who sold it and how it was paid, refunds left out.
+      .map(({ payments, seller, ...row }) => ({
+        ...row,
+        sellerName: seller.fullName,
+        paymentMethods: [...new Set(payments.filter((p) => p.amount.gt(0)).map((p) => p.method))],
+      }));
   }
 }

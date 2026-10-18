@@ -19,14 +19,16 @@ import type {
   PaymentMethod,
   PosAlert,
   PosAlertActionKind,
+  RecentSale,
   SaleReceipt,
 } from "../types";
-import { formatAmount, formatMoney, formatTime, round2 } from "../utils";
+import { PosSaleCard, type SaleCardActions } from "./pos-sale-card";
+import { formatAmount, formatMoney, round2 } from "../utils";
 import tcss from "../till.module.css";
 
 export type TenderMode = PaymentMethod | "split";
 
-const METHOD_ICONS: Record<TenderMode, React.ReactNode> = {
+export const METHOD_ICONS: Record<TenderMode, React.ReactNode> = {
   cash: <IconBanknote size={20} />,
   card: <IconCreditCard size={20} />,
   mobile_wallet: <IconSmartphone size={20} />,
@@ -414,7 +416,7 @@ export function PosPayPanel({
         {holdsEnabled && (
           <button
             type="button"
-            className={tcss.secondaryBtn}
+            className={`${tcss.secondaryBtn} ${tcss.holdBtn}`}
             onClick={onHold}
             disabled={busy}
           >
@@ -427,14 +429,6 @@ export function PosPayPanel({
 }
 
 /* ── Between customers ────────────────────────────────────── */
-
-export type LastSaleSummary = {
-  invoiceNo: string;
-  soldAt: string;
-  grandTotal: string;
-  itemCount: number;
-  detail: string | null;
-};
 
 function ago(iso: string): string {
   const minutes = Math.max(
@@ -453,17 +447,20 @@ export function PosIdlePanel({
   onRecall,
   onShowAllHolds,
   lastSale,
-  onReprint,
-  onReturnItems,
+  todaySales,
+  onShowAllSales,
+  ...saleActions
 }: {
   holds: HeldSaleSummary[];
   holdsEnabled: boolean;
   onRecall: (hold: HeldSaleSummary) => void;
   onShowAllHolds: () => void;
-  lastSale: LastSaleSummary | null;
-  onReprint: () => void;
-  onReturnItems: () => void;
-}) {
+  /** Today's most recent sale; null before the first one of the day. */
+  lastSale: RecentSale | null;
+  /** Today's sales at the branch, for the Today card. */
+  todaySales: RecentSale[];
+  onShowAllSales: () => void;
+} & SaleCardActions) {
   const shownHolds = holds.slice(0, 3);
   return (
     <aside aria-label="Held sales and last sale" className={tcss.pay}>
@@ -477,7 +474,7 @@ export function PosIdlePanel({
                 className={tcss.linkBtn}
                 onClick={onShowAllHolds}
               >
-                See all
+                View all
               </button>
             ) : (
               <span className={tcss.picksHint}>Recall with F7</span>
@@ -528,38 +525,20 @@ export function PosIdlePanel({
       <div className={tcss.rule} />
 
       <div className={tcss.payBlock}>
-        <span className={tcss.label}>Last sale</span>
+        <div className={tcss.lastSaleTop}>
+          <span className={tcss.label}>Last completed sale</span>
+          {lastSale && (
+            <button
+              type="button"
+              className={tcss.linkBtn}
+              onClick={onShowAllSales}
+            >
+              View all
+            </button>
+          )}
+        </div>
         {lastSale ? (
-          <>
-            <div className={tcss.lastSaleTop}>
-              <span className={tcss.lastSaleNo}>{lastSale.invoiceNo}</span>
-              <span className={tcss.lastSaleAmount}>
-                {formatMoney(lastSale.grandTotal)}
-              </span>
-            </div>
-            <span className={tcss.heldMeta}>
-              {formatTime(lastSale.soldAt)}
-              {lastSale.detail ? ` · ${lastSale.detail}` : ""} ·{" "}
-              {lastSale.itemCount} item
-              {lastSale.itemCount === 1 ? "" : "s"}
-            </span>
-            <div className={tcss.twoUp}>
-              <button
-                type="button"
-                className={tcss.secondaryBtn}
-                onClick={onReprint}
-              >
-                Reprint receipt
-              </button>
-              <button
-                type="button"
-                className={tcss.secondaryBtn}
-                onClick={onReturnItems}
-              >
-                Return items
-              </button>
-            </div>
-          </>
+          <PosSaleCard sale={lastSale} {...saleActions} />
         ) : (
           <span className={tcss.emptyNote}>
             No sales at this branch yet today.
@@ -569,15 +548,77 @@ export function PosIdlePanel({
 
       <div className={tcss.grow} />
 
-      <div className={tcss.menuHint}>
-        <b>In the ⋯ menu</b>
-        <span>
-          Open cash drawer · Manual item · Set my till PIN · Scan sound ·
-          Shortcuts
-        </span>
-      </div>
+      <TodayCard sales={todaySales} />
     </aside>
   );
+}
+
+/* ── Today at this branch ─────────────────────────────────── */
+
+const TODAY_HOURS = Array.from({ length: 14 }, (_, i) => 8 + i); // 8 am to 9 pm
+
+/** The day so far at a glance: how many sales, what they took, and when the counter was busy. */
+function TodayCard({ sales }: { sales: RecentSale[] }) {
+  // A voided or fully returned sale took nothing in the end.
+  const counted = sales.filter(
+    (s) => s.status === "posted" || s.status === "partially_refunded",
+  );
+  const takings = counted.reduce((sum, s) => sum + Number(s.grandTotal), 0);
+  const average = counted.length ? takings / counted.length : 0;
+  const byHour = TODAY_HOURS.map(
+    (h) => counted.filter((s) => new Date(s.soldAt).getHours() === h).length,
+  );
+  const peak = Math.max(1, ...byHour);
+  const nowHour = new Date().getHours();
+
+  return (
+    <div className={tcss.todayCard}>
+      <div className={tcss.lastSaleTop}>
+        <span className={tcss.label}>Today at this branch</span>
+        <span className={tcss.picksHint}>
+          {counted.length === 0 ? "No sales yet" : `Busiest ${busiest(byHour)}`}
+        </span>
+      </div>
+      <div className={tcss.todayStats}>
+        <div>
+          <b>{counted.length}</b>
+          <span>Sales</span>
+        </div>
+        <div>
+          <b>{formatAmount(takings).replace(/\.00$/, "")}</b>
+          <span>Takings · LKR</span>
+        </div>
+        <div>
+          <b>{formatAmount(average).replace(/\.00$/, "")}</b>
+          <span>Avg sale</span>
+        </div>
+      </div>
+      <div className={tcss.todayBars} aria-label="Sales by hour today">
+        {byHour.map((n, i) => (
+          <span
+            key={TODAY_HOURS[i]}
+            className={`${tcss.todayBar}${TODAY_HOURS[i] === nowHour ? ` ${tcss.todayBarNow}` : ""}`}
+            style={{ height: `${Math.max(6, (n / peak) * 100)}%` }}
+            data-tooltip={`${hourLabel(TODAY_HOURS[i]!)} · ${n} sale${n === 1 ? "" : "s"}`}
+          />
+        ))}
+      </div>
+      <div className={tcss.todayAxis} aria-hidden>
+        <span>8 am</span>
+        <span>2 pm</span>
+        <span>9 pm</span>
+      </div>
+    </div>
+  );
+}
+
+function hourLabel(h: number): string {
+  return h === 12 ? "12 pm" : h > 12 ? `${h - 12} pm` : `${h} am`;
+}
+
+function busiest(byHour: number[]): string {
+  const i = byHour.indexOf(Math.max(...byHour));
+  return `${hourLabel(TODAY_HOURS[i]!)}–${hourLabel(TODAY_HOURS[i]! + 1)}`;
 }
 
 /* ── Sale complete ────────────────────────────────────────── */
@@ -586,13 +627,11 @@ export function PosDonePanel({
   sale,
   printed,
   onPrint,
-  onNoReceipt,
   onNewSale,
 }: {
   sale: SaleReceipt;
   printed: boolean;
   onPrint: () => void;
-  onNoReceipt: () => void;
   onNewSale: () => void;
 }) {
   const change = Number(sale.changeDue) || 0;
@@ -624,35 +663,28 @@ export function PosDonePanel({
         <span className={tcss.changeBoxLabel}>
           {change > 0 ? "Give change" : "No change due"}
         </span>
+        {/* The big figure is only ever money to hand over, so with no change it reads 0.00. */}
         <span className={tcss.changeBoxAmount}>
-          {formatMoney(change > 0 ? change : sale.grandTotal)}
+          {formatMoney(Math.max(change, 0))}
         </span>
         <span className={tcss.changeBoxSub}>
           {change > 0
             ? `Received ${formatAmount(sale.amountPaid)} · Total ${formatAmount(sale.grandTotal)}`
-            : `Paid in full${methodText ? ` by ${methodText}` : ""}`}
+            : `${formatAmount(sale.grandTotal)} paid in full${methodText ? ` by ${methodText}` : ""}`}
         </span>
       </div>
 
       <div className={tcss.payBlock}>
         <span className={tcss.label}>Receipt</span>
-        <div className={tcss.twoUp}>
-          <button
-            type="button"
-            className={`${tcss.receiptBtn} ${tcss.receiptBtnOn}`}
-            onClick={onPrint}
-          >
-            <IconPrinter size={18} />
-            {printed ? "Print again" : "Print receipt"}
-          </button>
-          <button
-            type="button"
-            className={tcss.receiptBtn}
-            onClick={onNoReceipt}
-          >
-            {printed ? "Done" : "No receipt"}
-          </button>
-        </div>
+        {/* "No receipt" was the same as New sale below, so the receipt row is just printing. */}
+        <button
+          type="button"
+          className={`${tcss.receiptBtn} ${tcss.receiptBtnOn}`}
+          onClick={onPrint}
+        >
+          <IconPrinter size={18} />
+          {printed ? "Print again" : "Print receipt"}
+        </button>
         <span className={tcss.emptyNote}>
           {printed
             ? "The receipt went to the printer."
