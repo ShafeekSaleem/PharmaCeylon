@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { IconShoppingCart, IconUserPlus } from "@/components/icons";
 import { StatusStrip } from "@/components/ui";
+import { useAuth } from "@/lib/use-auth";
+import { DailyWorkQueue } from "./components/daily-work-queue";
 import { useRoleAccess } from "@/lib/use-role-access";
 import { AddWidgetDrawer } from "./components/add-widget-drawer";
 import { DashboardHeader } from "./components/dashboard-header";
@@ -20,9 +22,21 @@ import { catalogForRole } from "./widgets/registry";
 import css from "./dashboard.module.css";
 
 export default function DashboardPage() {
+  const { branchId, user } = useAuth();
+  return (
+    <DashboardWorkspace
+      key={`${user?.tenantId ?? "none"}:${user?.id ?? "anonymous"}:${branchId ?? "none"}`}
+    />
+  );
+}
+
+function DashboardWorkspace() {
   const { userRoles } = useRoleAccess();
   const data = useDashboardData();
-  const viewRole = useMemo(() => resolvePrimaryDashboardRole(userRoles), [userRoles]);
+  const viewRole = useMemo(
+    () => resolvePrimaryDashboardRole(userRoles),
+    [userRoles],
+  );
   const isOwner = viewRole === "owner";
   const ownerThisBranch = isOwner && data.ownerScope === "this_branch";
 
@@ -42,9 +56,16 @@ export default function DashboardPage() {
       params.delete("invitation");
     }
     const query = params.toString();
-    window.history.replaceState(null, "", `/dashboard${query ? `?${query}` : ""}`);
+    window.history.replaceState(
+      null,
+      "",
+      `/dashboard${query ? `?${query}` : ""}`,
+    );
   }, []);
-  const activeKeys = useMemo(() => new Set(layout.layout.map((w) => w.key)), [layout.layout]);
+  const activeKeys = useMemo(
+    () => new Set(layout.layout.map((w) => w.key)),
+    [layout.layout],
+  );
 
   return (
     <div className={css.page}>
@@ -52,8 +73,8 @@ export default function DashboardPage() {
         role={viewRole}
         ownerScope={isOwner ? data.ownerScope : undefined}
         onOwnerScopeChange={isOwner ? data.setOwnerScope : undefined}
-        branchLabel={data.branchLabel}
-        loading={data.loading}
+        branchLabel={isOwner ? data.branchLabel : undefined}
+        loading={data.loading || data.refreshing}
         lastUpdatedAt={data.lastUpdatedAt}
         onRefresh={() => void data.reload()}
         branchHint={
@@ -114,16 +135,22 @@ export default function DashboardPage() {
       ) : null}
 
       {!data.branchId ? (
-        <Alert variant="warning">Select a branch in the header to load dashboard metrics.</Alert>
+        <Alert variant="warning">
+          Select a branch in the header to load dashboard metrics.
+        </Alert>
       ) : null}
 
       {data.error ? <Alert variant="error">{data.error}</Alert> : null}
 
       {data.failedSections.size > 0 ? (
         <Alert variant="warning">
-          Couldn&apos;t load: {Array.from(data.failedSections).join(", ")}. The figures below may be
-          incomplete —{" "}
-          <button type="button" className={css.inlineLinkBtn} onClick={() => void data.reload()}>
+          Couldn&apos;t load: {Array.from(data.failedSections).join(", ")}. The
+          figures below may be incomplete —{" "}
+          <button
+            type="button"
+            className={css.inlineLinkBtn}
+            onClick={() => void data.reload()}
+          >
             try refreshing
           </button>
           .
@@ -136,12 +163,30 @@ export default function DashboardPage() {
         </p>
       ) : null}
 
-      {viewRole === "owner" ? <OwnerDashboard data={data} catalog={catalog} layout={layout} /> : null}
-      {viewRole === "manager" ? <ManagerDashboard data={data} catalog={catalog} layout={layout} /> : null}
-      {viewRole === "pharmacist" ? <PharmacistDashboard data={data} catalog={catalog} layout={layout} /> : null}
-      {viewRole === "cashier" ? <CashierDashboard data={data} catalog={catalog} layout={layout} /> : null}
+      <DailyWorkQueue
+        role={viewRole}
+        branchId={data.branchId}
+        refreshKey={data.lastUpdatedAt}
+      />
+
+      {viewRole === "owner" ? (
+        <OwnerDashboard data={data} catalog={catalog} layout={layout} />
+      ) : null}
+      {viewRole === "manager" ? (
+        <ManagerDashboard data={data} catalog={catalog} layout={layout} />
+      ) : null}
+      {viewRole === "pharmacist" ? (
+        <PharmacistDashboard data={data} catalog={catalog} layout={layout} />
+      ) : null}
+      {viewRole === "cashier" ? (
+        <CashierDashboard data={data} catalog={catalog} layout={layout} />
+      ) : null}
       {viewRole === "inventory_clerk" ? (
-        <InventoryClerkDashboard data={data} catalog={catalog} layout={layout} />
+        <InventoryClerkDashboard
+          data={data}
+          catalog={catalog}
+          layout={layout}
+        />
       ) : null}
 
       <AddWidgetDrawer

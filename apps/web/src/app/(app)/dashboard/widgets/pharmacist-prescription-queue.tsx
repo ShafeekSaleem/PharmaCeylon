@@ -35,7 +35,10 @@ function avatarToneClass(name: string): string {
 }
 
 function waitMinutes(iso: string): number {
-  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  return Math.max(
+    0,
+    Math.round((Date.now() - new Date(iso).getTime()) / 60_000),
+  );
 }
 
 type QueueBucket = "urgent" | "awaiting" | "ready";
@@ -47,18 +50,23 @@ function queueBucket(minutes: number): QueueBucket {
 }
 
 const QUEUE_BUCKET_LABEL: Record<QueueBucket, string> = {
-  urgent: "Urgent",
-  awaiting: "Awaiting Rx",
-  ready: "Ready",
+  urgent: "Needs review",
+  awaiting: "Needs review",
+  ready: "Needs review",
 };
 
-const QUEUE_BUCKET_VARIANT: Record<QueueBucket, "danger" | "info" | "success"> = {
-  urgent: "danger",
-  awaiting: "info",
-  ready: "success",
-};
+const QUEUE_BUCKET_VARIANT: Record<QueueBucket, "danger" | "info" | "success"> =
+  {
+    urgent: "info",
+    awaiting: "info",
+    ready: "info",
+  };
 
-export function PharmacistPrescriptionQueueWidget({ data }: { data: DashboardData }) {
+export function PharmacistPrescriptionQueueWidget({
+  data,
+}: {
+  data: DashboardData;
+}) {
   const router = useRouter();
   const { pharmacistHolds } = data;
 
@@ -81,7 +89,9 @@ export function PharmacistPrescriptionQueueWidget({ data }: { data: DashboardDat
       footerMeta={`${pharmacistHolds.length} waiting`}
     >
       {pharmacistHolds.length === 0 ? (
-        <p className={css.emptyState}>No POS holds currently flagged for pharmacist review.</p>
+        <p className={css.emptyState}>
+          No POS holds currently flagged for pharmacist review.
+        </p>
       ) : (
         <>
           <table className={css.salesTable}>
@@ -100,10 +110,17 @@ export function PharmacistPrescriptionQueueWidget({ data }: { data: DashboardDat
               {paginate(queueRows, page, HOLDS_PAGE_SIZE).map((h) => {
                 const name = h.label || h.heldByName;
                 return (
-                  <tr key={h.id} {...rowLinkProps(router, `/pos?panel=holds&holdId=${h.id}`)}>
+                  <tr
+                    key={h.id}
+                    {...rowLinkProps(router, `/pos?panel=holds&holdId=${h.id}`)}
+                  >
                     <td>
                       <span className={css.avatarRow}>
-                        <span className={`${css.avatarChip} ${avatarToneClass(name)}`}>{initials(name)}</span>
+                        <span
+                          className={`${css.avatarChip} ${avatarToneClass(name)}`}
+                        >
+                          {initials(name)}
+                        </span>
                         {name}
                       </span>
                     </td>
@@ -113,7 +130,9 @@ export function PharmacistPrescriptionQueueWidget({ data }: { data: DashboardDat
                     <td>{h.itemCount}</td>
                     <td className={css.teamNum}>{formatMoney(h.total)}</td>
                     <td className={css.muted}>{h.heldByName}</td>
-                    <td className={css.muted}>{formatRelativeTime(h.createdAt)}</td>
+                    <td className={css.muted}>
+                      {formatRelativeTime(h.createdAt)}
+                    </td>
                     <td>
                       <StatusBadge
                         status="pending"

@@ -1,15 +1,11 @@
 /** Builds each role's full (unsliced) AI insight list — live-computed items derived from
- *  `useDashboardData()` merged with static filler, deduped by title. Shared by the small
+ *  `useDashboardData()` with no sample filler in production. Shared by the small
  *  dashboard "AI Insights" widget preview (which slices to a handful) and the `/insights` hub
  *  page (which shows the full list) so the two never drift out of sync. */
 
 import { formatExpiry } from "@/app/(app)/inventory/utils";
 import type { DashboardData } from "../hooks/use-dashboard-data";
-import { CASHIER_AI_INSIGHTS, MANAGER_AI_INSIGHTS, OWNER_AI_INSIGHTS, type AiInsight } from "./placeholder-data";
-
-function mergeWithFiller(live: AiInsight[], filler: AiInsight[]): AiInsight[] {
-  return [...live, ...filler.filter((s) => !live.some((l) => l.title === s.title))];
-}
+import { type AiInsight } from "./placeholder-data";
 
 export function buildOwnerInsights(data: DashboardData): AiInsight[] {
   const {
@@ -107,11 +103,18 @@ export function buildOwnerInsights(data: DashboardData): AiInsight[] {
       })),
     });
   }
-  return mergeWithFiller(live, OWNER_AI_INSIGHTS);
+  return live;
 }
 
 export function buildManagerInsights(data: DashboardData): AiInsight[] {
-  const { inventory, nearExpiryCount, overduePos, lowStockRows, nearExpiryItems, overduePosListFull } = data;
+  const {
+    inventory,
+    nearExpiryCount,
+    overduePos,
+    lowStockRows,
+    nearExpiryItems,
+    overduePosListFull,
+  } = data;
 
   const live: AiInsight[] = [];
   if ((inventory?.lowStock ?? 0) > 0) {
@@ -165,7 +168,7 @@ export function buildManagerInsights(data: DashboardData): AiInsight[] {
       })),
     });
   }
-  return mergeWithFiller(live, MANAGER_AI_INSIGHTS);
+  return live;
 }
 
 export function buildCashierInsights(data: DashboardData): AiInsight[] {
@@ -177,7 +180,8 @@ export function buildCashierInsights(data: DashboardData): AiInsight[] {
     live.push({
       id: "live-lowstock",
       title: "Stock up fast mover",
-      detail: "Counter SKUs running low — check before your next restock round.",
+      detail:
+        "Counter SKUs running low — check before your next restock round.",
       tone: "warning",
       category: "inventory",
       href: "/inventory?view=low",
@@ -204,5 +208,5 @@ export function buildCashierInsights(data: DashboardData): AiInsight[] {
       countLabel: rxWaiting === 1 ? "cart" : "carts",
     });
   }
-  return mergeWithFiller(live, CASHIER_AI_INSIGHTS);
+  return live;
 }

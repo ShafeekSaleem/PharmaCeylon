@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { IconCreditCard } from "@/components/icons";
 import { withBranch } from "@/lib/api-branch";
+import { useDashboardRefresh } from "../hooks/use-dashboard-refresh";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { DashboardPanel } from "./dashboard-panel";
@@ -30,11 +31,14 @@ export function CashFlowPanel({ analyticsBranchId = null }: Props) {
     Array<{ label: string; value: number; color: string }>
   >([]);
   const [paymentMixTotal, setPaymentMixTotal] = useState(0);
+  const refreshVersion = useDashboardRefresh();
+  const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setFailed(false);
     void apiJson<{
       paymentMix: Array<{ method: string; value: number }>;
       paymentMixTotal?: number;
@@ -62,6 +66,7 @@ export function CashFlowPanel({ analyticsBranchId = null }: Props) {
         );
       })
       .catch(() => {
+        if (!cancelled) setFailed(true);
         if (!cancelled) {
           setSlices([]);
           setPaymentMixTotal(0);
@@ -73,7 +78,7 @@ export function CashFlowPanel({ analyticsBranchId = null }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [mixPeriod, analyticsBranchId]);
+  }, [mixPeriod, analyticsBranchId, refreshVersion]);
 
   const centerValue = useMemo(
     () => formatMoney(paymentMixTotal),
@@ -86,12 +91,15 @@ export function CashFlowPanel({ analyticsBranchId = null }: Props) {
   const leader = useMemo(() => {
     if (slices.length === 0) return null;
     const top = slices.reduce((a, b) => (b.value > a.value ? b : a));
-    return { label: top.label, pct: paymentMixTotal > 0 ? (top.value / paymentMixTotal) * 100 : 0 };
+    return {
+      label: top.label,
+      pct: paymentMixTotal > 0 ? (top.value / paymentMixTotal) * 100 : 0,
+    };
   }, [slices, paymentMixTotal]);
 
   return (
     <DashboardPanel
-      title="Cash Flow & Payments"
+      title="Payment Mix"
       compact
       className={css.splitPanel}
       footerHref="/reports?category=sales&report=payment-methods"
@@ -103,7 +111,10 @@ export function CashFlowPanel({ analyticsBranchId = null }: Props) {
               <IconCreditCard size={11} strokeWidth={2.5} aria-hidden />
               {leader.label} leads
             </span>
-            <span className={css.muted}>{leader.pct.toFixed(0)}% of {periodLabel.toLowerCase()}&apos;s tenders</span>
+            <span className={css.muted}>
+              {leader.pct.toFixed(0)}% of {periodLabel.toLowerCase()}&apos;s
+              tenders
+            </span>
           </span>
         ) : undefined
       }
@@ -120,6 +131,10 @@ export function CashFlowPanel({ analyticsBranchId = null }: Props) {
         </div>
         {loading && slices.length === 0 ? (
           <p className={css.emptyState}>Loading payment mix…</p>
+        ) : failed ? (
+          <p className={css.emptyState} role="status">
+            Data unavailable. Refresh the dashboard to try again.
+          </p>
         ) : slices.length === 0 ? (
           <p className={css.emptyState}>No tender data for this period.</p>
         ) : (

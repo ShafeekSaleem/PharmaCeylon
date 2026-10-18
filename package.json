@@ -32,9 +32,11 @@
     "docker:images:ps": "node scripts/docker/images.mjs ps",
     "docker:images:logs": "node scripts/docker/images.mjs logs",
     "docker:images:stop": "node scripts/docker/images.mjs stop",
-    "docker:images:down": "node scripts/docker/images.mjs down"
+    "docker:images:down": "node scripts/docker/images.mjs down",
+    "test:dashboard-browser": "node scripts/dashboard/test-browser.mjs"
   },
   "devDependencies": {
+    "playwright": "1.62.1",
     "prettier": "^3.5.3",
     "turbo": "^2.5.4"
   },

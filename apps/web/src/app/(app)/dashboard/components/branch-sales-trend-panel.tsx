@@ -2,12 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { IconActivity, IconBarChart } from "@/components/icons";
+import { useDashboardRefresh } from "../hooks/use-dashboard-refresh";
 import { apiJson } from "@/lib/auth-client";
 import { formatMoney } from "@/app/(app)/inventory/utils";
 import { BranchMultiSelect } from "./branch-multi-select";
 import { DashboardPanel } from "./dashboard-panel";
 import { PeriodToggle } from "./period-toggle";
-import { formatCompactAxis, MultiLineChart, type MultiSeries } from "./simple-charts";
+import {
+  formatCompactAxis,
+  MultiLineChart,
+  type MultiSeries,
+} from "./simple-charts";
 import { branchColor } from "../lib/branch-colors";
 import css from "../dashboard.module.css";
 
@@ -39,6 +44,8 @@ const MAX_DEFAULT_BRANCHES = 5;
 export function BranchSalesTrendPanel() {
   const [period, setPeriod] = useState<Period>("7");
   const [data, setData] = useState<BranchTrendResponse | null>(null);
+  const refreshVersion = useDashboardRefresh();
+  const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   /** Empty == comparing all branches. */
   const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([]);
@@ -48,11 +55,15 @@ export function BranchSalesTrendPanel() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void apiJson<BranchTrendResponse>(`/analytics/branch-sales-trend?days=${period}`)
+    setFailed(false);
+    void apiJson<BranchTrendResponse>(
+      `/analytics/branch-sales-trend?days=${period}`,
+    )
       .then((res) => {
         if (!cancelled) setData(res);
       })
       .catch(() => {
+        if (!cancelled) setFailed(true);
         if (!cancelled) setData(null);
       })
       .finally(() => {
@@ -61,13 +72,15 @@ export function BranchSalesTrendPanel() {
     return () => {
       cancelled = true;
     };
-  }, [period]);
+  }, [period, refreshVersion]);
 
   // Color assigned by branch identity (alphabetical), not by rank — so a
   // branch keeps its color when the period toggle reshuffles the totals.
   const colorByBranch = useMemo(() => {
     if (!data) return new Map<string, string>();
-    const stable = [...data.branches].sort((a, b) => a.name.localeCompare(b.name));
+    const stable = [...data.branches].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
     return new Map(stable.map((b, i) => [b.branchId, branchColor(i)]));
   }, [data]);
 
@@ -110,16 +123,20 @@ export function BranchSalesTrendPanel() {
   // manual focus isn't (or is no longer) one of them — e.g. after narrowing
   // the compare selection to branches that don't include it.
   const effectiveFocusId =
-    (focusedBranchId && displayedBranches.some((b) => b.branchId === focusedBranchId)
+    (focusedBranchId &&
+    displayedBranches.some((b) => b.branchId === focusedBranchId)
       ? focusedBranchId
       : displayedBranches[0]?.branchId) ?? null;
-  const focusedBranch = data?.branches.find((b) => b.branchId === effectiveFocusId) ?? null;
+  const focusedBranch =
+    data?.branches.find((b) => b.branchId === effectiveFocusId) ?? null;
   const focusedRank = focusedBranch
     ? data!.branches.findIndex((b) => b.branchId === focusedBranch.branchId) + 1
     : null;
   const focusedPctChange =
     focusedBranch && focusedBranch.previousTotal > 0
-      ? ((focusedBranch.total - focusedBranch.previousTotal) / focusedBranch.previousTotal) * 100
+      ? ((focusedBranch.total - focusedBranch.previousTotal) /
+          focusedBranch.previousTotal) *
+        100
       : null;
 
   return (
@@ -159,11 +176,14 @@ export function BranchSalesTrendPanel() {
               <IconActivity size={11} strokeWidth={2.5} aria-hidden />
               {focusedBranch.name}
             </span>
-            <span className={css.muted}>LKR {formatCompactAxis(focusedBranch.total)}</span>
+            <span className={css.muted}>
+              LKR {formatCompactAxis(focusedBranch.total)}
+            </span>
             {focusedPctChange != null ? (
               <span className={css.muted}>
-                {focusedPctChange >= 0 ? "↑" : "↓"} {Math.abs(focusedPctChange).toFixed(1)}% vs previous{" "}
-                {period} days
+                {focusedPctChange >= 0 ? "↑" : "↓"}{" "}
+                {Math.abs(focusedPctChange).toFixed(1)}% vs previous {period}{" "}
+                days
               </span>
             ) : null}
             {focusedRank != null ? (
@@ -177,10 +197,16 @@ export function BranchSalesTrendPanel() {
     >
       {loading && !data ? (
         <p className={css.emptyState}>Loading branch trend…</p>
+      ) : failed ? (
+        <p className={css.emptyState} role="status">
+          Data unavailable. Refresh the dashboard to try again.
+        </p>
       ) : !data || data.branches.length === 0 ? (
         <p className={css.emptyState}>No branch sales data yet.</p>
       ) : displayedBranches.length === 0 ? (
-        <p className={css.emptyState}>No branches selected — choose branches to compare.</p>
+        <p className={css.emptyState}>
+          No branches selected — choose branches to compare.
+        </p>
       ) : (
         <MultiLineChart
           series={series}

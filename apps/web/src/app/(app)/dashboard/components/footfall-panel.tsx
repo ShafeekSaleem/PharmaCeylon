@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { IconActivity } from "@/components/icons";
 import { withBranch } from "@/lib/api-branch";
+import { useDashboardRefresh } from "../hooks/use-dashboard-refresh";
 import { apiJson } from "@/lib/auth-client";
 import { DashboardPanel } from "./dashboard-panel";
 import { PeriodToggle } from "./period-toggle";
@@ -35,16 +36,22 @@ type Props = {
 export function FootfallPanel({ branchId, title = "Footfall" }: Props) {
   const [period, setPeriod] = useState<Period>("today");
   const [data, setData] = useState<FootfallResponse | null>(null);
+  const refreshVersion = useDashboardRefresh();
+  const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void apiJson<FootfallResponse>(withBranch(`/analytics/footfall?period=${period}`, branchId))
+    setFailed(false);
+    void apiJson<FootfallResponse>(
+      withBranch(`/analytics/footfall?period=${period}`, branchId),
+    )
       .then((res) => {
         if (!cancelled) setData(res);
       })
       .catch(() => {
+        if (!cancelled) setFailed(true);
         if (!cancelled) setData(null);
       })
       .finally(() => {
@@ -53,7 +60,7 @@ export function FootfallPanel({ branchId, title = "Footfall" }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [period, branchId]);
+  }, [period, branchId, refreshVersion]);
 
   const points: FootfallPoint[] = data
     ? data.labels.map((label, i) => ({
@@ -95,11 +102,20 @@ export function FootfallPanel({ branchId, title = "Footfall" }: Props) {
     >
       {loading && !data ? (
         <p className={css.emptyState}>Loading footfall…</p>
+      ) : failed ? (
+        <p className={css.emptyState} role="status">
+          Data unavailable. Refresh the dashboard to try again.
+        </p>
       ) : !data || points.length === 0 ? (
         <p className={css.emptyState}>No footfall data yet.</p>
       ) : (
         <>
-          <FootfallIntensityChart points={points} peakIndex={data.peakIndex} unit={data.unit} height={168} />
+          <FootfallIntensityChart
+            points={points}
+            peakIndex={data.peakIndex}
+            unit={data.unit}
+            height={168}
+          />
           <div className={`${css.chartLegend} ${css.chartLegendCenter}`}>
             <span>
               <i className={css.chartLegendSwatch_quiet} />

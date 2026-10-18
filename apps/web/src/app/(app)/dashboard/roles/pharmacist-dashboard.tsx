@@ -113,70 +113,6 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
 
   return (
     <>
-      <HeroBand
-        label="Dispensed Today"
-        value={dispensedToday}
-        scope="Units sold today · vs yesterday"
-        sparkline={hourlyUnitsToday}
-        trend={
-          dispensedTrendLabel
-            ? {
-                label: dispensedTrendLabel,
-                direction: dispensedTrendPositive ? "up" : "down",
-              }
-            : undefined
-        }
-        loading={loading}
-        secondary={[
-          {
-            key: "prescriptions",
-            label: "Prescriptions to Verify",
-            value: pharmacistHolds.length,
-            meta:
-              pharmacistHolds.length > 0
-                ? `Oldest waiting ${oldestHoldWait}`
-                : "Nothing waiting right now",
-            href: "/pos?panel=holds",
-            linkLabel: "Open POS holds",
-          },
-          {
-            key: "controlled",
-            label: "Controlled Products Attention",
-            value: controlledAttentionCount,
-            meta: controlledSubtitle,
-            href: "/inventory?controlled=controlled",
-            linkLabel: "View inventory",
-          },
-          {
-            key: "expiry",
-            label: "Near-Expiry Batches",
-            value: nearExpiryCount,
-            meta:
-              within7DaysCount > 0
-                ? `${within7DaysCount} within 7 days`
-                : "None within 7 days",
-            href: "/inventory/batches?nearExpiryDays=30",
-            linkLabel: "View batches",
-          },
-        ]}
-      />
-
-      <AttentionTicker
-        items={tickerItems}
-        loading={loading}
-        allClearText="No stock or expiry alerts right now"
-      />
-
-      <DashboardCanvas
-        catalog={catalog}
-        layout={layout.layout}
-        data={data}
-        isEditing={layout.isEditing}
-        loading={layout.loading}
-        onLayoutChange={layout.updateLayout}
-        onRemoveWidget={layout.removeWidget}
-      />
-
       <QuickActionsBar
         title="Pharmacist Quick Actions"
         actions={[
@@ -230,6 +166,68 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
             tone: "danger",
           },
         ]}
+      />
+
+      <HeroBand
+        label="Units Sold Today"
+        value={data.salesMetrics ? dispensedToday : "—"}
+        scope="Units sold today · vs yesterday"
+        sparkline={hourlyUnitsToday}
+        trend={
+          dispensedTrendLabel
+            ? {
+                label: dispensedTrendLabel,
+                direction: dispensedTrendPositive ? "up" : "down",
+              }
+            : undefined
+        }
+        loading={loading}
+        secondary={[
+          {
+            key: "prescriptions",
+            label: "Prescriptions to Verify",
+            value: data.salesMetrics?.holds.pharmacist ?? "—",
+            meta: "Flagged POS holds · all open",
+            href: "/pos?panel=holds",
+            linkLabel: "Open POS holds",
+          },
+          {
+            key: "controlled",
+            label: "Controlled Products Attention",
+            value: controlledAttentionCount,
+            meta: controlledSubtitle,
+            href: "/inventory?controlled=controlled",
+            linkLabel: "View inventory",
+          },
+          {
+            key: "expiry",
+            label: "Near-Expiry Batches",
+            value: nearExpiryCount,
+            meta:
+              within7DaysCount > 0
+                ? `${within7DaysCount} within 7 days`
+                : "None within 7 days",
+            href: "/inventory/batches?nearExpiryDays=30",
+            linkLabel: "View batches",
+          },
+        ]}
+      />
+
+      <AttentionTicker
+        items={tickerItems}
+        loading={loading}
+        unavailable={data.failedSections.size > 0}
+        allClearText="No stock or expiry alerts right now"
+      />
+
+      <DashboardCanvas
+        catalog={catalog}
+        layout={layout.layout}
+        data={data}
+        isEditing={layout.isEditing}
+        loading={layout.loading}
+        onLayoutChange={layout.updateLayout}
+        onRemoveWidget={layout.removeWidget}
       />
     </>
   );

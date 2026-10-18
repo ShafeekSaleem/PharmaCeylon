@@ -2757,22 +2757,6 @@ a.alertItem:hover {
     min-height: 0;
   }
 
-  .overviewChartsPair {
-    grid-template-columns: 1fr;
-  }
-
-  .overviewChartsSummary {
-    grid-template-columns: 1fr;
-    padding: 0.35rem 0.25rem;
-  }
-
-  .overviewMetric + .overviewMetric {
-    border-left: none;
-    border-top: 1px solid color-mix(in srgb, var(--pc-border) 88%, transparent);
-    padding-top: 0.55rem;
-    margin-top: 0.15rem;
-  }
-
   .mainSplit {
     grid-template-columns: 1fr;
   }
@@ -4384,6 +4368,44 @@ a.alertItem:hover {
 .canvas {
   margin-bottom: 0.7rem;
 }
+
+.canvas > [data-widget-key] {
+  container-type: inline-size;
+}
+
+@container (max-width: 767px) {
+  .overviewChartsPair {
+    grid-template-columns: 1fr;
+  }
+
+  .overviewChartsSummary {
+    grid-template-columns: 1fr;
+    padding: 0.35rem 0.25rem;
+  }
+
+  .overviewMetric + .overviewMetric {
+    border-left: none;
+    border-top: 1px solid color-mix(in srgb, var(--pc-border) 88%, transparent);
+    padding-top: 0.55rem;
+    margin-top: 0.15rem;
+  }
+
+  .subHeadingRow,
+  .panelFooter,
+  .footfallFooterMeta {
+    flex-wrap: wrap;
+  }
+
+  .panelFooterMeta {
+    white-space: normal;
+  }
+
+  .periodToggle {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
 
 .canvas :global(.react-grid-placeholder) {
   background: color-mix(in srgb, var(--pc-primary) 14%, transparent);

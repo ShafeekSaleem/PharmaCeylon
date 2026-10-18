@@ -1,11 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { IconCheck, IconEdit, IconPlus, IconRefresh, IconRotateCcw, IconX } from "@/components/icons";
+import {
+  IconCheck,
+  IconEdit,
+  IconPlus,
+  IconRefresh,
+  IconRotateCcw,
+  IconX,
+} from "@/components/icons";
 import { PageHeader } from "@/components/ui";
 import { formatRelativeTime } from "@/app/(app)/inventory/utils";
 import type { DashboardRole } from "../lib/dashboard-role";
-import { DASHBOARD_GREETINGS, formatRoleLabel } from "../lib/dashboard-role";
+import { formatRoleLabel } from "../lib/dashboard-role";
 import type { OwnerAnalyticsScope } from "../hooks/use-dashboard-data";
 import css from "../dashboard.module.css";
 
@@ -44,7 +51,6 @@ export function DashboardHeader({
   onRefresh,
   customize,
 }: Props) {
-  const greeting = DASHBOARD_GREETINGS[role];
   const showOwnerScope = role === "owner" && ownerScope && onOwnerScopeChange;
 
   // `formatRelativeTime` reads Date.now() at render time, so without something to force a
@@ -60,7 +66,6 @@ export function DashboardHeader({
   return (
     <PageHeader
       subtitleOnly
-      description={greeting}
       className={css.pageHeader}
       actions={
         <div className={css.headerControls}>
@@ -70,7 +75,11 @@ export function DashboardHeader({
                 className={`${css.refreshDot} ${loading ? css.refreshDotBusy : ""}`}
                 aria-hidden
               />
-              {loading ? "Updating…" : lastUpdatedAt ? `Updated ${formatRelativeTime(lastUpdatedAt)}` : null}
+              {loading
+                ? "Updating…"
+                : lastUpdatedAt
+                  ? `Updated ${formatRelativeTime(lastUpdatedAt)}`
+                  : null}
               <button
                 type="button"
                 className={css.refreshBtn}
@@ -142,15 +151,27 @@ export function DashboardHeader({
           {customize ? (
             customize.isEditing ? (
               <div className={css.customizeBar}>
-                <button type="button" className={css.customizeBtn} onClick={customize.onOpenAddWidget}>
+                <button
+                  type="button"
+                  className={css.customizeBtn}
+                  onClick={customize.onOpenAddWidget}
+                >
                   <IconPlus size={13} strokeWidth={1.75} aria-hidden />
                   Add widget
                 </button>
-                <button type="button" className={css.customizeBtn} onClick={customize.onResetToDefault}>
+                <button
+                  type="button"
+                  className={css.customizeBtn}
+                  onClick={customize.onResetToDefault}
+                >
                   <IconRotateCcw size={13} strokeWidth={1.75} aria-hidden />
                   Reset
                 </button>
-                <button type="button" className={css.customizeBtn} onClick={customize.onDiscard}>
+                <button
+                  type="button"
+                  className={css.customizeBtn}
+                  onClick={customize.onDiscard}
+                >
                   <IconX size={13} strokeWidth={2} aria-hidden />
                   Cancel
                 </button>
@@ -165,7 +186,11 @@ export function DashboardHeader({
                 </button>
               </div>
             ) : (
-              <button type="button" className={css.customizeBtn} onClick={customize.onToggleEdit}>
+              <button
+                type="button"
+                className={css.customizeBtn}
+                onClick={customize.onToggleEdit}
+              >
                 <IconEdit size={13} strokeWidth={1.75} aria-hidden />
                 Customize
               </button>
