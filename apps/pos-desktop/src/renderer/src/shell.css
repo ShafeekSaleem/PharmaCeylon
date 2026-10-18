@@ -1,0 +1,11 @@
+/* A till is one fixed screen: the window never scrolls, panels do. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  user-select: none;
+}
