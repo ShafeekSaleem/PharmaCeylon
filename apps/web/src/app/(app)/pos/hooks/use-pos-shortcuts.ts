@@ -44,6 +44,10 @@ export function usePosShortcuts(handlers: PosShortcutHandlers, enabled = true) {
       const h = ref.current;
 
       switch (event.key) {
+        case "F2":
+          event.preventDefault();
+          h.customerLookup();
+          return;
         case "F3":
           event.preventDefault();
           h.priceCheck();

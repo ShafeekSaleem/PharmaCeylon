@@ -8,17 +8,19 @@ type Props = {
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
+  /** For narrow spaces (a side pane): the count, then just ‹ › — nothing changes width page to page. */
+  compact?: boolean;
 };
 
+/**
+ * Always seven slots once there are more than seven pages (first, last, the current page and its
+ * neighbours, with ellipses filling the gaps), so Prev and Next stay put as the page changes.
+ */
 function getPageRange(current: number, total: number): number[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const pages = new Set<number>();
-  pages.add(1);
-  pages.add(total);
-  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) {
-    pages.add(i);
-  }
-  return Array.from(pages).sort((a, b) => a - b);
+  if (current <= 4) return [1, 2, 3, 4, 5, total];
+  if (current >= total - 3) return [1, total - 4, total - 3, total - 2, total - 1, total];
+  return [1, current - 1, current, current + 1, total];
 }
 
 function renderPageNumbers(
@@ -53,7 +55,7 @@ function renderPageNumbers(
   return pages;
 }
 
-export function TablePager({ page, pageSize, total, onPageChange }: Props) {
+export function TablePager({ page, pageSize, total, onPageChange, compact = false }: Props) {
   const totalPages = Math.max(1, Math.ceil(Math.max(0, total) / pageSize));
 
   // Keep controlled page in range when filters shrink the result set.
@@ -68,7 +70,7 @@ export function TablePager({ page, pageSize, total, onPageChange }: Props) {
   if (total <= pageSize) return null;
 
   return (
-    <div className={tableStyles.pagination}>
+    <div className={`${tableStyles.pagination}${compact ? ` ${tableStyles.paginationCompact}` : ""}`}>
       <span className={tableStyles.pageInfo}>
         {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
       </span>
@@ -78,17 +80,19 @@ export function TablePager({ page, pageSize, total, onPageChange }: Props) {
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
           className={tableStyles.pageBtn}
+          aria-label="Previous page"
         >
-          Prev
+          {compact ? "‹" : "Prev"}
         </button>
-        {renderPageNumbers(page, totalPages, onPageChange)}
+        {!compact && renderPageNumbers(page, totalPages, onPageChange)}
         <button
           type="button"
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
           className={tableStyles.pageBtn}
+          aria-label="Next page"
         >
-          Next
+          {compact ? "›" : "Next"}
         </button>
       </div>
     </div>

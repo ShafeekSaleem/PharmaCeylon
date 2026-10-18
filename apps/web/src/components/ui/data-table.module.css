@@ -227,6 +227,18 @@
   gap: 0.5rem;
 }
 
+/* Compact: no rule above, controls in the flow beside the count rather than centred over it. */
+.paginationCompact {
+  padding: 0;
+  border-top: none;
+  flex-wrap: nowrap;
+}
+
+.paginationCompact .pageControls {
+  position: static;
+  transform: none;
+}
+
 .pageInfo {
   font-size: 0.78rem;
   color: var(--pc-muted-fg);
@@ -289,7 +301,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
+  /* As wide as a page button, so the pager is the same width on every page. */
+  min-width: 32px;
   height: 32px;
   font-size: 0.78rem;
   color: var(--pc-muted-fg);

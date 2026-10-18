@@ -3,7 +3,13 @@ import { SaleStatus } from "@prisma/client";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { TaxService } from "../pricing/tax.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { businessToday, safeTimeZone } from "../common/business-date.util";
+import {
+  addDays,
+  businessToday,
+  dateKeyToUtc,
+  safeTimeZone,
+  startOfBusinessDay,
+} from "../common/business-date.util";
 
 const TOP_PRODUCTS_WINDOW_DAYS = 30;
 const FREQUENT_ITEMS_WINDOW_DAYS = 90;
@@ -42,6 +48,8 @@ export type PosProduct = {
   units30d: number;
   /** Sale lines in the last 90 days (drives "Frequent items"). */
   lines90d: number;
+  /** Products most often bought in the same sale here in the last 90 days, best first. */
+  pairedWith: string[];
   /** Primary COMMERCIAL category — drives the POS category browsing chips. Null if unclassified. */
   commercialCategoryId: string | null;
   commercialCategoryName: string | null;
@@ -146,7 +154,7 @@ export class PosService {
       ]),
     );
 
-    const [units30d, lines90d] = await Promise.all([
+    const [units30d, lines90d, coSoldLines] = await Promise.all([
       this.prisma.saleItem.groupBy({
         by: ["productId"],
         where: {
@@ -171,7 +179,21 @@ export class PosService {
         },
         _count: { _all: true },
       }),
+      // Which products leave in the same basket — the till's "Goes together" picks.
+      this.prisma.saleItem.findMany({
+        where: {
+          tenantId,
+          sale: {
+            branchId,
+            status: { in: [SaleStatus.posted, SaleStatus.partially_refunded] },
+            soldAt: { gte: daysAgo(FREQUENT_ITEMS_WINDOW_DAYS) },
+          },
+        },
+        select: { saleId: true, productId: true },
+        take: 20_000,
+      }),
     ]);
+    const partnersByProduct = coSoldPartners(coSoldLines);
 
     const unitsByProduct = new Map(
       units30d.map((r) => [r.productId, r._sum.qty ?? 0]),
@@ -218,6 +240,7 @@ export class PosService {
           batches: [],
           units30d: unitsByProduct.get(p.id) ?? 0,
           lines90d: linesByProduct.get(p.id) ?? 0,
+          pairedWith: partnersByProduct.get(p.id) ?? [],
           commercialCategoryId: null,
           commercialCategoryName: null,
           commercialDepartmentId: null,
@@ -297,11 +320,44 @@ export class PosService {
   }
 
   /** Compact recent-sale list for the POS "Recent sales" tab and returns lookup. */
-  async recentSales(tenantId: string, branchId: string, take = 12) {
+  /**
+   * The branch's latest sales. A range keeps to the tenant's calendar days — `todayOnly` (the
+   * till's "today's sales"), the last `days` business days, or one `date` (`YYYY-MM-DD`) — and
+   * allows a range's worth of rows rather than the recall lane's 50.
+   */
+  async recentSales(
+    tenantId: string,
+    branchId: string,
+    take = 12,
+    range: { todayOnly?: boolean; days?: number; date?: string } = {},
+  ) {
+    let since: Date | undefined;
+    let until: Date | undefined;
+    const days = range.todayOnly ? 1 : range.days;
+    const ranged = Boolean(days || range.date);
+    if (ranged) {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      const zone = safeTimeZone(tenant?.timezone);
+      if (range.date && /^\d{4}-\d{2}-\d{2}$/.test(range.date)) {
+        const day = dateKeyToUtc(range.date);
+        since = startOfBusinessDay(zone, range.date);
+        until = startOfBusinessDay(zone, addDays(day, 1).toISOString().slice(0, 10));
+      } else if (days) {
+        const first = addDays(businessToday(zone), -(Math.min(Math.max(days, 1), 31) - 1));
+        since = startOfBusinessDay(zone, first.toISOString().slice(0, 10));
+      }
+    }
     const sales = await this.prisma.sale.findMany({
-      where: { tenantId, branchId },
+      where: {
+        tenantId,
+        branchId,
+        ...(since ? { soldAt: { gte: since, ...(until ? { lt: until } : {}) } } : {}),
+      },
       orderBy: { soldAt: "desc" },
-      take: Math.min(Math.max(take, 1), 50),
+      take: Math.min(Math.max(take, 1), ranged ? 500 : 50),
       select: {
         id: true,
         invoiceNo: true,
@@ -317,6 +373,7 @@ export class PosService {
             product: { select: { name: true } },
           },
         },
+        payments: { select: { method: true, amount: true } },
       },
     });
 
@@ -329,6 +386,10 @@ export class PosService {
       itemCount: sale.items.reduce((sum, i) => sum + i.qty, 0),
       customerName: sale.customer?.fullName ?? null,
       sellerName: sale.seller.fullName,
+      // How the customer paid — refund rows are negative and don't count.
+      paymentMethods: [
+        ...new Set(sale.payments.filter((p) => p.amount.gt(0)).map((p) => p.method)),
+      ],
       productIds: [...new Set(sale.items.map((i) => i.productId))],
       summary: sale.items
         .slice(0, 3)
@@ -336,4 +397,45 @@ export class PosService {
         .join(", "),
     }));
   }
+}
+
+/**
+ * For each product, the products most often in the same sale as it — up to six, best first.
+ * Baskets of more than ten products are left out: a big restock order pairs everything with
+ * everything and says nothing about what a customer buys together.
+ */
+function coSoldPartners(lines: Array<{ saleId: string; productId: string }>): Map<string, string[]> {
+  const baskets = new Map<string, Set<string>>();
+  for (const line of lines) {
+    const basket = baskets.get(line.saleId) ?? new Set<string>();
+    basket.add(line.productId);
+    baskets.set(line.saleId, basket);
+  }
+  const counts = new Map<string, Map<string, number>>();
+  const bump = (a: string, b: string) => {
+    const row = counts.get(a) ?? new Map<string, number>();
+    row.set(b, (row.get(b) ?? 0) + 1);
+    counts.set(a, row);
+  };
+  for (const basket of baskets.values()) {
+    if (basket.size < 2 || basket.size > 10) continue;
+    const ids = [...basket];
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        bump(ids[i]!, ids[j]!);
+        bump(ids[j]!, ids[i]!);
+      }
+    }
+  }
+  const partners = new Map<string, string[]>();
+  for (const [id, row] of counts) {
+    partners.set(
+      id,
+      [...row.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([other]) => other),
+    );
+  }
+  return partners;
 }
