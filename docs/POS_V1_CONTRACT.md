@@ -3,7 +3,8 @@
 Status: snapshot architecture and product decisions D1–D14, including staff follow-ups D7a/D7b,
 reviewed and agreed with Shafeek on 2026-10-20. See [POS_V1_REVIEW.md](POS_V1_REVIEW.md) for
 the approved outcomes, changes to initial proposals and user comments.
-Two-developer fixture/ownership sign-off remains pending.
+Per Shafeek's direction, treat Shafeek as the developer; staffing and work allocation are managed
+by Shafeek. No second-developer ownership sign-off is required in this workflow.
 Baseline: develop `4a2fa3ad8440b2fea462c09b766efee2035295d3`, reviewed 2026-10-19.
 Tracking: https://github.com/ShafeekSaleem/PharmaCeylon/issues/46.
 
@@ -374,21 +375,21 @@ Never persist a PIN/password in an envelope or grant. A cached
 pharmacist identity or prior approval cannot authorize offline dispensing. Exceptions and approvals
 must originate from authorized local desktop workflows; remote oversight cannot approve operations.
 
-## Delivery ownership and gates
+## Delivery dependencies
 
-The detailed [developer contract and ownership proposal](POS_V1_DEVELOPER_CONTRACT.md) defines
-the API/desktop promises, file ownership, handoffs and engineering-review checklist for both developers.
+The [developer integration guide](POS_V1_DEVELOPER_CONTRACT.md) defines API/desktop promises,
+component boundaries and verification. Shafeek handles staffing; the dependencies below are technical.
 
-| Deliverable | Proposed accountable owner | Integration gate |
-| --- | --- | --- |
-| P0 shared contracts, API DTO mapping, error codes and Prisma changes | Shafeek | Desktop developer cross-review before schema work |
-| P1 API terminal boundary, permissions, audit and all worker entry points | Shafeek | P0 fixture agreement |
-| P2 desktop enrollment, keys, local session detection and staff sessions | Desktop developer (name pending) | P0 fixture agreement |
-| P3 consistent signed snapshots, permission refresh and journal watermarks | Shafeek | P1; one owner per migration |
-| P4 durable local journal and offline checkout | Desktop developer | P2 + P3 |
-| P5 reconciliation/revocation/replacement | Shafeek API, desktop developer local recovery | P3 + P4; joint recovery review |
-| P6 online operations and oversight | Assign after P1/P2, subject to capacity | Snapshot/conflict integration waits for P3/P5 |
-| P7 Windows release and branch pilot | Joint | P5 + P6; release CI groundwork may start earlier |
+| Deliverable | Technical dependency |
+| --- | --- |
+| P0 shared contracts, API DTO mapping and fixtures | Approved product decisions and compatible shared interfaces |
+| P1 API terminal boundary, permissions, audit and all worker entry points | P0 |
+| P2 desktop enrollment, keys, local session detection and staff sessions | P0 |
+| P3 consistent signed snapshots, permission refresh and journal watermarks | P1 |
+| P4 durable local journal and offline checkout | P2 + P3 |
+| P5 reconciliation/revocation/replacement | P3 + P4 |
+| P6 online operations and oversight | P1 + P2; snapshot/conflict integration waits for P3/P5 |
+| P7 Windows release and branch pilot | P5 + P6; release CI groundwork may start earlier |
 
 Small PRs target develop. Changes to shared fields/invariants require updating fixtures and this
 document in the same PR. Do not independently create competing Prisma migrations for shared tables.
@@ -396,8 +397,8 @@ document in the same PR. Do not independently create competing Prisma migrations
 - [x] P0 contract types, policy model, mutation inventory and six required scenario fixtures prepared.
 - [x] Shafeek chose snapshot v1, one enrolled offline-capable terminal, no advance reservation (2026-10-20).
 - [x] Product policies D1–D14 and staff follow-ups D7a/D7b agreed individually in POS_V1_REVIEW.md (2026-10-20).
-- [ ] Named desktop developer accepts fixtures, wire encoding and ownership.
-- [ ] Both developers approve fixture behaviour before dependent schema changes.
+- [x] Developer coordination clarified: Shafeek is the developer contact and manages allocation;
+  the earlier second-developer naming/ownership requirement is withdrawn at Shafeek's direction.
 
 ## Validation and limits
 

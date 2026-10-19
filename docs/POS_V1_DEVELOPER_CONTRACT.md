@@ -1,31 +1,24 @@
-# POS v1 developer contract and ownership — review proposal
+# POS v1 developer contract and integration guide
 
-Prepared for Shafeek's review on 2026-10-20. Product decisions are agreed in
-[POS_V1_REVIEW.md](POS_V1_REVIEW.md); this document proposes the engineering ownership and
-handoffs. The second developer's name and both developers' engineering acceptance remain open.
-No ownership acceptance is inferred from the completed product walkthrough.
+Updated per Shafeek's direction on 2026-10-20: treat Shafeek as the developer for this work.
+Shafeek manages staffing and allocation. No second developer needs to be named or approve
+ownership before implementation can proceed. Product decisions are agreed in
+[POS_V1_REVIEW.md](POS_V1_REVIEW.md); this document preserves the technical component contracts
+and integration checks, without assigning work to people.
 
-## Proposed owners
+## Component boundaries
 
-| Area | Primary owner | Required reviewer |
-| --- | --- | --- |
-| Shared wire contracts, error codes and contract fixtures (`packages/shared`) | Shafeek | Desktop developer |
-| API authentication/permissions/audit, service and worker boundaries (`apps/api/src`) | Shafeek | Desktop developer for device/sync trust boundaries |
-| All Prisma schema changes and migrations (`apps/api/prisma`) | Shafeek | Desktop developer for contract implications |
-| Server snapshots, signed permissions, journal acceptance, stock and financial reconciliation | Shafeek | Desktop developer |
-| Electron main/preload/renderer, local SQLCipher migrations, credentials and journal (`apps/pos-desktop`) | Desktop developer — name to confirm | Shafeek |
-| Desktop online/offline checkout, staff PIN sign-in and shift/till handover | Desktop developer | Shafeek |
-| Web oversight/read-only changes, desktop handoff and mobile API boundary | Shafeek | Desktop developer for user-flow integration |
-| API/web CI and server deployment groundwork | Shafeek | Desktop developer |
-| Windows CI, packaging, signing, update/restart and local resilience tests | Desktop developer | Shafeek |
-| Integrated recovery scenarios and branch pilot | Both, with responsibilities above | Joint review; pilot acceptance by Shafeek |
+| Component | Technical responsibility |
+| --- | --- |
+| `packages/shared` | Wire types, error codes, signing encoding and contract fixtures |
+| `apps/api/src` | Device/staff authority, operational boundaries, audit, snapshots, sync and reconciliation |
+| `apps/api/prisma` | Central schema and a coherent ordered migration history |
+| `apps/pos-desktop` main/preload | Key custody, attendance checks, SQLCipher migrations, PIN verification and durable journal |
+| `apps/pos-desktop` renderer | Checkout, staff/shift handover, sync/recovery feedback and protected operation screens |
+| `apps/web` and `apps/mobile` | Permitted oversight/administration and the approved operational-write boundary |
+| CI/release tooling | API/database integration, Windows packaging, restart resilience and pilot evidence |
 
-Primary owner implements and maintains that area; the reviewer checks its interface and failure
-behaviour. This is a proposed split, not a requirement to use particular tools or work in parallel.
-Avoid assigning simultaneous full-time epics to the same person. Supporting another owner's area
-is allowed after agreeing the change; ownership is meant to prevent competing implementations.
-
-## Shared contract both developers must preserve
+## Shared contract implementation must preserve
 
 The normative product rules are in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md). In particular:
 
@@ -99,40 +92,40 @@ The normative product rules are in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md). In 
 
 ## Handoffs and delivery order
 
-| Gate | Backend handoff (Shafeek) | Desktop handoff (desktop developer) | Joint evidence |
+| Gate | Backend interface | Desktop interface | Integration evidence |
 | --- | --- | --- | --- |
-| P0 → P1/P2 | Shared types, fixtures, mutation map and proposed DTO mapping | Review field meaning, encoding, trusted inputs and local-store implications | Both accept fixtures and ownership before dependent shared schema changes |
+| P0 → P1/P2 | Shared types, fixtures, mutation map and DTO mapping | Compatible field meaning, encoding, trusted inputs and local-store design | Product decisions recorded; implement against the shared fixtures |
 | P1/P2 → P3 | Device/staff authority and audited write boundary | Enrollment, key custody, attendance detection, prepared staff/PIN flow | Enrolled online multi-counter checkout; remote/browser writes denied |
 | P3 → P4 | Signed coherent snapshots/grants and replay-safe protocol | SQLCipher journal, trusted-clock persistence and verified snapshot installation | No reservation side effects; freshness/expiry boundaries agree |
 | P4 → P5 | Sync acceptance/receipts and discrepancy persistence | Durable offline sales, PIN staff switching and cash-count handovers | Crash/timeout retries, ordered journal and closed-shift restrictions |
-| P5/P6 → P7 | Reconciliation, replacement, oversight and protected online operations | Recovery UI, desktop operations and Windows packaging | Joint resilience checks and recorded branch-pilot results |
+| P5/P6 → P7 | Reconciliation, replacement, oversight and protected online operations | Recovery UI, desktop operations and Windows packaging | Integrated resilience checks and recorded branch-pilot results |
 
-P1 and P2 can proceed independently after the P0 agreement. P4 requires both P2 and P3.
-P5 requires P3/P4. P6 splits API/web work to Shafeek and desktop screens to the desktop developer;
-allocation of actual capacity is agreed when starting P6. Snapshot/status integration waits for
-P3/P5. Windows CI groundwork can begin early; final pilot waits for P5/P6.
+P1 and P2 can proceed independently from the agreed P0 product contract. P4 requires both P2
+and P3; P5 requires P3/P4. P6 includes API/web and desktop integration, with snapshot/status
+integration waiting for P3/P5. Windows CI groundwork can begin early; final pilot waits for
+P5/P6. These are technical dependencies, not staffing or additional human-approval gates.
 
 ## Change and review rules
 
 - Small branches/PRs target `develop`. Shared fields, units, signature encoding, errors or recovery
-  invariants change through a P0 contract update with fixtures and docs in the same PR; both developers
-  review the interface before consumers depend on it. Breaking drafts are coordinated before merge.
-- Shafeek is the single owner of shared Prisma migrations. The desktop developer owns local SQLCipher
-  migrations. Agree the wire change first; do not independently introduce competing shared migrations.
-- Cross-review identity, device authorization, journal replay, stock/money atomicity, lost-device
-  recovery and migration changes. Do not mark another developer's review accepted on their behalf.
+  invariants change through a P0 contract update with fixtures and docs in the same PR. Validate
+  compatibility before consumers depend on it; avoid merging incompatible drafts.
+- Maintain coherent central Prisma and local SQLCipher migration histories. Update the wire contract
+  before dependent schema/consumer changes and avoid competing migrations for the same shared tables.
+- Review identity, device authorization, journal replay, stock/money atomicity, lost-device recovery
+  and migrations as part of engineering verification. Staffing and reviewer allocation belong to Shafeek.
 - Current policy fixtures are shared reference behaviour, not proof that runtime enforcement exists.
   P1–P7 add meaningful API/database/OS integration tests for their actual implementation.
 - API/desktop adapters must prove money, tax and price parity with existing sales behaviour. Product
   approval of saved prices does not authorize a new tax policy. Agree DTO conversions before checkout integration.
 
-## Acceptance for this engineering review
+## Implementation verification
 
-- [ ] Shafeek accepts or edits the proposed area/epic ownership split.
-- [ ] Desktop developer is named and accepts their responsibilities.
-- [ ] Both developers accept shared field semantics, signing encoding, ordered sync outcomes and fixtures.
-- [ ] Both agree API/local-migration ownership and handoffs before dependent schema changes.
+- Shared types, signing encoding, runtime DTO validation and consumers remain compatible.
+- Central/local migrations preserve journal, snapshot, staff/shift and reconciliation evidence.
+- API/database/desktop integration tests verify the relevant contract scenarios as each epic is implemented.
+- Preserve the approved product decisions and report material implementation findings to Shafeek.
 
 Existing verification commands: `npm test -w @pharmaceylon/shared` and
 `node scripts/pos/check-mutation-inventory.mjs`. These run in CI. This proposal adds no runtime
-permissions or schema changes and does not count as either developer's acceptance.
+permissions or schema changes. There is no outstanding staffing or second-developer ownership sign-off.

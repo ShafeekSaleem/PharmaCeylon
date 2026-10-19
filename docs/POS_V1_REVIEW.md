@@ -268,12 +268,11 @@ do not ask the user to choose cryptographic algorithms without a product consequ
 
 All requested product decisions are recorded. No further unanswered product-review forms remain.
 This completes the user policy walkthrough; it does not claim the actual POS features are built.
-The P0 issue's separate two-developer fixture/module-ownership cross-review still needs the named
-desktop developer's agreement before dependent shared schema work. No such agreement is inferred
-from this product review. Follow P1–P7 for runtime enforcement, migrations, local persistence,
+Shafeek subsequently directed that staffing/allocation is his responsibility and that this workflow
+should treat him as the developer. The earlier second-developer naming/ownership sign-off is
+withdrawn; no approval from another person is inferred or required here. Follow P1–P7 for runtime enforcement, migrations, local persistence,
 OS/security testing, reconciliation and rollout. GitHub epic descriptions still need a coordinated
 update to replace the original escrow proposal; no GitHub issue/comment was written by this chat.
 
-The concrete engineering proposal for that next review is
-[POS_V1_DEVELOPER_CONTRACT.md](POS_V1_DEVELOPER_CONTRACT.md), with a proposed two-person split,
-API/desktop handoff promises and an acceptance checklist. It remains a proposal until reviewed.
+The technical [developer integration guide](POS_V1_DEVELOPER_CONTRACT.md) preserves the component
+contracts and verification without assigning people or imposing staffing approval gates.
