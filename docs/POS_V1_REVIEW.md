@@ -17,7 +17,7 @@ The comparison explained that snapshot stock can conflict with sales made by oth
 counters. All decisions below are agreed, including the 24-hour permission limit, 15-minute
 snapshot age at outage start, prepared-staff PIN sign-in and offline shift handover. The current
 decision table is authoritative; answer entries also preserve how earlier proposals changed.
-This local record supersedes older escrow wording in the GitHub epic; no GitHub issue was edited.
+This decision record supersedes the original escrow wording and is the basis for the updated P0 tracker.
 
 ## Review queue
 
@@ -271,8 +271,8 @@ This completes the user policy walkthrough; it does not claim the actual POS fea
 Shafeek subsequently directed that staffing/allocation is his responsibility and that this workflow
 should treat him as the developer. The earlier second-developer naming/ownership sign-off is
 withdrawn; no approval from another person is inferred or required here. Follow P1–P7 for runtime enforcement, migrations, local persistence,
-OS/security testing, reconciliation and rollout. GitHub epic descriptions still need a coordinated
-update to replace the original escrow proposal; no GitHub issue/comment was written by this chat.
+OS/security testing, reconciliation and rollout. Keep GitHub epic descriptions aligned with these
+decisions; downstream implementations must replace any remaining original escrow assumptions.
 
 The technical [developer integration guide](POS_V1_DEVELOPER_CONTRACT.md) preserves the component
 contracts and verification without assigning people or imposing staffing approval gates.

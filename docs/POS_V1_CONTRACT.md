@@ -12,8 +12,8 @@ This document and `packages/shared/src/terminal-contracts.ts` define the contrac
 P1–P7. They do not enable offline sales, enforce terminal authentication on existing
 routes, or change the Prisma schema. Existing API DTOs remain unchanged until the
 relevant implementation epic. This supersedes both the original multi-offline-counter/hub
-proposal and P0's initial preallocated-stock proposal. GitHub #46 and dependent epic descriptions
-may still contain that older design; this local revision records the user's approved change.
+proposal and P0's initial preallocated-stock proposal. Epic #46 tracks this approved contract;
+dependent epic descriptions must use the same decisions when their implementation begins.
 
 ## Scope decisions
 
