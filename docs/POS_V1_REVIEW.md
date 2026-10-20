@@ -2,6 +2,7 @@
 
 Review opened 2026-10-20. Shafeek requested simple questions, one at a time, with comments.
 Product review completed 2026-10-20: D1–D14 and staff follow-ups D7a/D7b are agreed.
+Decision 10 was amended and approved on 2026-10-21; its current rule and history are recorded below.
 Record an answer only when the user explicitly provides it. Recommendations, code, elapsed time,
 or an unanswered/preselected form choice are not approval. Pending behaviour is provisional in
 the contracts/tests and must be revised when the user chooses differently.
@@ -34,7 +35,7 @@ This decision record supersedes the original escrow wording and is the basis for
 | D7b | Can staff close a shift and open the next one during an outage? | Allow recorded closing cash count and next shift opening cash on the same till. Save shifts/sales separately, mark not yet synced, preserve stock usage, limits and expiry. | Approved by Shafeek, 2026-10-20 |
 | D8 | Can the shop sell offline outside configured opening hours? | New sales only within saved hours or extensions preapproved online; cash counting/closing an existing shift is allowed after sales hours. The 24-hour permission expiry still applies. | Approved by Shafeek, 2026-10-20 |
 | D9 | What limits should apply to offline sale count and value? | No additional sale-count/per-sale-value/total-value caps. Use the 24-hour expiry; retain the other approved stock, hours, staff and operation/payment checks. | Approved by Shafeek, 2026-10-20 (expiry only) |
-| D10 | Which online actions require the local desktop app? | Operational sales/stock/catalog/patient/procurement writes require the enrolled desktop used locally at the branch, including for owners. Web/mobile retain permitted oversight/administration; remote desktop cannot perform operational changes. | Approved by Shafeek, 2026-10-20 |
+| D10 | Which online actions require the local desktop app? | Online remote management/approvals are permitted with branch authority; physical stock, branch cash, refund execution and clinical dispensing require local enrolled execution. Existing D13 designation restriction remains. | Revised and approved by Shafeek, 2026-10-21 |
 | D11 | What happens when the offline-capable device is lost or replaced? | Enroll replacement online; online use can begin immediately. Offline use waits for confirmed old-device disable or old permission expiry, plus recovery/review of missing sales. | Approved by Shafeek, 2026-10-20 |
 | D12 | What happens when internet returns? | Pause new checkouts on nominated terminal; sync journal/uncertain submissions and install fresh stock/review blocks before resuming. Other counters continue; accepted discrepancy cases do not block unrelated stock. Failed sync stays paused with a clear issue. | Approved by Shafeek, 2026-10-20 |
 | D13 | Who may assign/change the offline-capable device? | Owner, with explicit delegation to selected branch managers; no automatic manager access. Assignment/change requires online local attendance and audit, with one designation per branch and D11 replacement checks. | Approved by Shafeek, 2026-10-20 |
@@ -192,19 +193,28 @@ do not ask the user to choose cryptographic algorithms without a product consequ
   former example amount caps after a large journal sequence, while still enforcing local stock.
   Earlier entries that mention preserving caps describe the proposal before this D9 decision.
 
-### D10 — Local desktop required for operational changes
+### D10 — Remote management and local physical execution (revised)
 
-- Date: 2026-10-20.
-- User answer: "Approve desktop-only operational changes".
-- Approved behaviour: sales, refunds, stock operations, product/price changes, purchasing and
-  customer/prescription edits require an enrolled desktop used locally at the branch. Remote desktop
-  sessions cannot perform those operations, including for an owner. Web/mobile retain permitted
-  reporting, oversight, user management and settings. Existing web operational editing becomes
-  read-only or directs staff to the desktop; permissions still apply in every client.
-- Additional comments: none provided; no operational-edit exceptions requested.
-- Contract record: operational command and mutation-inventory documentation mark D10 approved.
-  P1/P2 enforce verified device/local-session evidence, rather than trusting client headers or
-  bypassing the boundary for owners. These P0 edits do not yet disable existing web/API operations.
+- Original answer, 2026-10-20: "Approve desktop-only operational changes". That blanket
+  rule is superseded; retained here only as decision history.
+- Revision approved, 2026-10-21: "yes lets first change decision 10 with above proposal as
+  exactly you mentioned." Shafeek also requested alignment of the other epics.
+- Authorized owners/managers can prepare/edit/review/approve/reject purchasing, transfer,
+  return/refund and adjustment requests remotely online; manage products, prices, suppliers
+  and administrative customer contacts; record bank payments with evidence.
+- Physical receiving/dispatch/receipt, goods inspection/disposition, executed refunds, actual
+  counts/stock corrections/quarantine, branch cash and clinical verification/dispensing require
+  the locally attended enrolled terminal with existing branch/role/clinical checks.
+- Approval alone does not post on-hand stock, physical cash or an executed refund. Normal
+  business reservations/commitments remain permitted and may reduce normal availability.
+- Bind approval to the exact document version/content and action; material edits require fresh
+  approval. Audit requester/approver/executor separately. Existing self-approval policy applies;
+  an on-site authorized manager may approve and execute where permitted, retaining both records.
+- Mixed approve-and-post endpoints must be split; until split use local execution restrictions.
+  No owner bypass of physical/clinical checks. D13 designation remains online/local/audited.
+- Offline scope, snapshot, expiry, PIN/shift, reconnect and replacement policies are unchanged.
+  See the normative matrix in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md).
+- This P0 revision updates contracts and plans; runtime enforcement remains P1/P2/P6 work.
 
 ### D11 — Lost-terminal replacement
 

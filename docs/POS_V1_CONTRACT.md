@@ -3,6 +3,8 @@
 Status: snapshot architecture and product decisions D1–D14, including staff follow-ups D7a/D7b,
 reviewed and agreed with Shafeek on 2026-10-20. See [POS_V1_REVIEW.md](POS_V1_REVIEW.md) for
 the approved outcomes, changes to initial proposals and user comments.
+Decision 10 was amended and approved on 2026-10-21: remote online management/authorization,
+with local enrolled physical execution. The revised matrix below supersedes its original wording.
 Per Shafeek's direction, treat Shafeek as the developer; staffing and work allocation are managed
 by Shafeek. No second-developer ownership sign-off is required in this workflow.
 Baseline: develop `4a2fa3ad8440b2fea462c09b766efee2035295d3`, reviewed 2026-10-19.
@@ -38,14 +40,11 @@ dependent epic descriptions must use the same decisions when their implementatio
   Approved D7b (2026-10-20): staff may close the current shift and open the next one offline on
   the same till, recording outgoing closing cash and incoming opening cash separately. Each shift
   keeps its own identity/sales and remains marked not yet synced until server acknowledgement.
-- Approved D10 (2026-10-20): operational writes require an enrolled desktop used locally at
-  the branch and a valid staff session. This includes sales/refunds, stock, product/price edits,
-  purchasing and customer/prescription edits, as mapped in the mutation inventory.
-  Browser/mobile/remote-session operational writes are denied, including owner requests.
-  Oversight reads and non-operational account/configuration actions remain available subject
-  to permissions. Existing web operational editing becomes read-only or directs staff to the
-  desktop; no owner bypass. This is the approved boundary for P1/P2/P6 to implement, not an
-  assertion that today's routes or web screens already enforce it.
+- Revised D10 (approved by Shafeek, 2026-10-21): authorized online management and
+  approvals can use web/mobile or remote desktop; physical branch execution requires the
+  enrolled desktop used locally at the correct branch. See the action matrix below.
+  This supersedes the original blanket desktop-only rule. P1/P2/P6 implement enforcement;
+  these contracts do not claim today's routes already enforce it.
 - Approved D2 (2026-10-20): offline checkout permits ordinary, non-prescription, non-controlled products only.
   The API excludes ineligible products from the offline stock snapshot; clients cannot declare eligibility.
   Returns, voids/cancellations of completed sales, refunds, receipts, transfers, adjustments,
@@ -267,7 +266,7 @@ then persist all effects atomically. It does not implement the durable till or P
 Remote-session status is determined in the trusted desktop process and bound to attestation;
 a request header claiming to be local is not evidence. P2/P7 must test Windows session detection.
 
-Online commands bind method/route, exact body, identity/session, a short server-defined
+Online local-execution commands bind method/route, exact body, identity/session, a short server-defined
 validity window and a one-use server nonce bound to that digest. Staff authority and current
 domain validation are still required. Transport retries reuse command ID and identical bytes.
 Offline sale commands additionally bind grant/nomination and snapshot versions, durable outage ID/start,
@@ -372,8 +371,66 @@ verification time, branch/session and authorization policy version as an approva
 bind its ID to the online command. `PharmacistEvidence.operationDigest` hashes the operation/body,
 identity/session before the evidence ID is attached, avoiding a circular signature dependency.
 Never persist a PIN/password in an envelope or grant. A cached
-pharmacist identity or prior approval cannot authorize offline dispensing. Exceptions and approvals
-must originate from authorized local desktop workflows; remote oversight cannot approve operations.
+pharmacist identity or prior approval cannot authorize offline dispensing. Clinical verification
+and dispensing require the authorized local desktop workflow. Remote managerial approval does
+not replace clinical evidence. Managerial workflow approvals follow revised D10 below; D8 still
+requires operating-hours extensions to be approved online before an outage.
+
+## Revised D10: remote management, local physical execution
+
+Authorized owners/managers may work online from web/mobile or a remote desktop session,
+subject to existing role, branch, amount and self-approval rules. Remote authority is explicit;
+a management permission does not authorize branch execution.
+
+| Workflow | Online remote management | Local enrolled terminal execution |
+| --- | --- | --- |
+| Purchasing | Prepare/edit/issue/review/approve/reject purchase orders; supplier and invoice administration | Confirm actual goods received, batches, quantities and condition; post receiving |
+| Transfers | Prepare/review/approve/reject/cancel requests and normal business reservations | Confirm dispatch and destination receipt under the respective branch authority |
+| Supplier returns | Prepare/review/approve/reject return requests and commercial credit administration | Confirm goods leaving the branch and post the stock movement |
+| Customer returns/refunds | Review the sale, prepare and authorize the return/refund | Inspect returned goods, choose disposition and execute stock/refund effects |
+| Adjustments, write-offs, stocktakes | Plan/request/review/approve corrections and review discrepancies | Capture/confirm actual counts or condition and execute adjustment, write-off or quarantine/release |
+| Products, prices, suppliers, customer contacts | Manage catalog, pricing, suppliers and administrative contact records | Imports/undo that also create/remove batches or stock require local execution |
+| Payments | Record bank payments online with supporting evidence | Actual branch cash collection/payout and till cash movements |
+| Prescription/controlled dispensing | Managerial review does not provide clinical sign-off | Qualified clinical verification and dispensing remain local and online |
+| Offline-terminal designation | Existing D13 delegation may be administered with permitted settings | Assign/change designation online, locally, audited; D11 replacement checks still apply |
+
+A remote approval may create an ordinary business reservation or commercial commitment.
+On-hand stock, physical cash and executed customer refunds do not move merely because approval
+was granted. These business reservations can reduce available stock; they are not advance
+offline reservations. Snapshot/offline rules D1–D9 and D11–D14 remain unchanged.
+
+Bind approval to tenant/branch, document type/ID, exact version and canonical relevant-content
+digest, authorized action, requester, approver, reason/time and policy version. Changes to approved
+quantities, batches, prices, amounts, destination or other material content invalidate approval;
+the changed document needs fresh approval. At execution, fetch persisted evidence and revalidate
+current authorization, document/action binding, existing limits and remaining quantities in the
+same transaction as posting. Prevent duplicate execution with command idempotency and domain
+limits; do not impose a blanket single-use rule on legitimate partial receipts.
+
+Audit requester, approver and executor separately, with execution terminal/enrollment/work session,
+command and timestamps. Preserve the existing branch self-approval policy: approving one's own
+request is distinct from executing a request one approved. An authorized on-site manager may
+approve and execute in one guided flow where policy permits; retain both records. No mandatory
+two-person rule or new approval expiry duration is introduced.
+
+Shared types in `operation-policy.ts` define `OnlineManagementCommand`,
+`ManagementApprovalEvidence` and `ApprovalExecutionAttribution`. Management requests use normal
+online authentication/CSRF and branch permissions; they need no device key. Signed
+`OnlineTerminalCommand.approvalEvidenceId` refers to server-persisted approval when required
+(otherwise null); signing covers it along with the exact execution payload. Clinical evidence
+remains separately required where applicable.
+
+The pure `onlineOperationAccessError` and `approvalUseError` fixtures specify effect-based
+access and approval binding. They are not runtime DTO validators, cryptographic verification,
+API guards or database transactions. Added policy outcomes include `PAYMENT_EVIDENCE_REQUIRED`,
+`APPROVAL_REQUIRED`, `APPROVAL_INVALID`, `APPROVAL_STALE`, `APPROVAL_EXPIRED` and
+`SELF_APPROVAL_DENIED`; adapters must preserve stable actionable outcomes.
+
+Classify complete server-side effects, including nested services, workers and legacy paths.
+Mixed endpoints that both approve and post physical effects must be split; until split they
+require the stricter local execution context. Neither route prefix/HTTP method, button label nor
+client-declared effect is authorization evidence. Owners cannot bypass physical/clinical checks.
+Remote management remains online only; it adds no offline approvals or stock operations.
 
 ## Delivery dependencies
 

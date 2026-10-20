@@ -15,7 +15,7 @@ and integration checks, without assigning work to people.
 | `apps/api/prisma` | Central schema and a coherent ordered migration history |
 | `apps/pos-desktop` main/preload | Key custody, attendance checks, SQLCipher migrations, PIN verification and durable journal |
 | `apps/pos-desktop` renderer | Checkout, staff/shift handover, sync/recovery feedback and protected operation screens |
-| `apps/web` and `apps/mobile` | Permitted oversight/administration and the approved operational-write boundary |
+| `apps/web` and `apps/mobile` | Online management, version-bound approvals and oversight; local execution handoff |
 | CI/release tooling | API/database integration, Windows packaging, restart resilience and pilot evidence |
 
 ## Shared contract implementation must preserve
@@ -42,10 +42,30 @@ The normative product rules are in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md). In 
    bypass StockService to force a negative balance. Accepted cases do not block unrelated stock.
 9. Lost-device replacement works online immediately after enrollment. Its offline permission waits
    for old-device cutoff and recovery/review of missing sales. Server revocation alone is not cutoff.
-10. Operational changes require the locally used enrolled desktop, including for owners. Owner may
-    explicitly delegate terminal designation to selected branch managers; no automatic manager grant.
+10. Revised D10 (2026-10-21): online remote management/approvals and catalog/price/supplier/contact
+    edits are permitted with branch authority. Physical stock, branch cash, executed refunds and
+    clinical dispensing require the locally used enrolled desktop, including for owners. Bank payment
+    recording requires evidence. D13 designation remains online/local; owner may explicitly delegate
+    it to selected branch managers, with no automatic manager grant.
 11. Restart may resume only the same verified durable state. Clock/journal uncertainty requires
     online recovery; preserve recoverable data. Never reset the 24-hour period or erase a sync pause.
+
+## Management approval and execution interface
+
+Use the revised D10 action matrix in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md).
+`OnlineManagementCommand` uses normal online user auth/CSRF and branch permissions.
+`ManagementApprovalEvidence` binds the current document version/digest and exact action.
+Signed `OnlineTerminalCommand` carries `approvalEvidenceId` (null where not required).
+Resolve approval from the server, revalidate authority/material content and domain limits, and
+commit execution, idempotency receipt and accountable audit atomically. Never trust a client effect label.
+
+Retain separate requester/approver/executor attribution with terminal/work session for execution.
+Existing self-request approval rules apply; an approver may also execute where authorized.
+Remote approval may create normal reservations/commitments, but cannot automatically post
+physical stock, branch cash or an executed refund. Split mixed legacy handlers; until split,
+apply local execution restrictions. Imports/workers inherit the complete effect requirements.
+Catalog-only processing may run from authorized remote management; stock-bearing import/undo
+requires verified local execution authority. This changes no offline permission or scope.
 
 ## API promises to the desktop
 
@@ -95,7 +115,7 @@ The normative product rules are in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md). In 
 | Gate | Backend interface | Desktop interface | Integration evidence |
 | --- | --- | --- | --- |
 | P0 → P1/P2 | Shared types, fixtures, mutation map and DTO mapping | Compatible field meaning, encoding, trusted inputs and local-store design | Product decisions recorded; implement against the shared fixtures |
-| P1/P2 → P3 | Device/staff authority and audited write boundary | Enrollment, key custody, attendance detection, prepared staff/PIN flow | Enrolled online multi-counter checkout; remote/browser writes denied |
+| P1/P2 → P3 | Device/staff authority and audited write boundary | Enrollment, key custody, attendance detection, prepared staff/PIN flow | Online multi-counter checkout; remote management allowed, physical execution denied remotely |
 | P3 → P4 | Signed coherent snapshots/grants and replay-safe protocol | SQLCipher journal, trusted-clock persistence and verified snapshot installation | No reservation side effects; freshness/expiry boundaries agree |
 | P4 → P5 | Sync acceptance/receipts and discrepancy persistence | Durable offline sales, PIN staff switching and cash-count handovers | Crash/timeout retries, ordered journal and closed-shift restrictions |
 | P5/P6 → P7 | Reconciliation, replacement, oversight and protected online operations | Recovery UI, desktop operations and Windows packaging | Integrated resilience checks and recorded branch-pilot results |
@@ -122,6 +142,10 @@ P5/P6. These are technical dependencies, not staffing or additional human-approv
 ## Implementation verification
 
 - Shared types, signing encoding, runtime DTO validation and consumers remain compatible.
+- Positive tests allow remote branch-authorized management and normal reservations; negative tests
+  block remote physical effects, mixed-handler bypasses, stale approvals and wrong-branch actions.
+- Test existing self-approval settings, separate actor records, material-edit invalidation and
+  bank-payment evidence without adding offline approvals or a mandatory two-person rule.
 - Central/local migrations preserve journal, snapshot, staff/shift and reconciliation evidence.
 - API/database/desktop integration tests verify the relevant contract scenarios as each epic is implemented.
 - Preserve the approved product decisions and report material implementation findings to Shafeek.

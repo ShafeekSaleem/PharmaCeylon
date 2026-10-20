@@ -176,7 +176,9 @@ export type OfflinePayment =
       approvedAt: number;
     }>;
 
-/** Approved D10: created only by the enrolled local desktop after verified attendance/staff checks. */
+/** Revised D10: offline physical checkout/shift commands still require the nominated local desktop.
+ * Online remote management/approval is separate and does not expand offline scope.
+ */
 export type OfflineCommandContext = Readonly<{
   contractVersion: 1;
   commandId: string;
@@ -224,7 +226,8 @@ export type LocalOpenTillShift = Readonly<{
   openingCashMinor: number;
 }>;
 
-/** Approved D10: local enrolled desktop only, including for owners; no browser/mobile/remote writes.
+/** Revised D10: physical execution requires the local enrolled desktop, including for owners.
+ * Remote preparation/approval uses OnlineManagementCommand and cannot itself post physical effects.
  * P1/P2 must verify device/local-session evidence, live domain DTOs, permissions and approvals.
  * A signed shape or a client-supplied header alone does not establish local attendance.
  */
@@ -239,6 +242,7 @@ export type OnlineTerminalCommand<T> = Readonly<{
   expiresAt: number;
   serverNonce: string; // single-use, server-issued, bound to command digest
   body: T;
+  approvalEvidenceId: string | null; // server-persisted, exact-version management approval where required
   pharmacistEvidenceId: string | null;
   operatingHoursExceptionId: string | null;
 }>;
