@@ -6,3 +6,4 @@ export type HealthStatus = {
   timestamp: string;
 };
 export * from "./dashboard";
+export * from "./terminal-contracts";

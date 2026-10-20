@@ -2,6 +2,11 @@
 
 Single reference for the web team. The machine-readable contract is the **OpenAPI document** served by the API.
 
+The desktop/offline v1 contract and approved D10 local-desktop operational boundary are defined in
+[POS_V1_CONTRACT.md](POS_V1_CONTRACT.md) with the
+[operational mutation inventory](POS_OPERATIONAL_MUTATIONS.md). P0 adds shared contracts
+and fixtures; existing endpoints below retain their current behaviour until P1–P6 implement them.
+
 ## Base URL and prefix
 
 - Local API default: `http://localhost:3001`

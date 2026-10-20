@@ -47,6 +47,11 @@ jobs:
       - name: Build shared package
         run: npm run prepare
 
+      - name: P0 terminal contract fixtures and mutation inventory
+        run: |
+          npm test -w @pharmaceylon/shared
+          node scripts/pos/check-mutation-inventory.mjs
+
       - name: Generate Prisma client
         run: npm run prisma:generate -w api
 

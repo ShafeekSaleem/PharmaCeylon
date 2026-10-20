@@ -1,0 +1,832 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/roles",
+    "source": "apps/api/src/admin/roles-admin.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/roles/:roleId",
+    "source": "apps/api/src/admin/roles-admin.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/roles/:roleId",
+    "source": "apps/api/src/admin/roles-admin.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/roles/:roleId/permissions",
+    "source": "apps/api/src/admin/roles-admin.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/:userId",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/users/:userId",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users/:userId/branch-roles",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/:userId/branch-roles/:mappingId",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users/:userId/force-logout",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users/:userId/reset-pin",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users/invitations",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/users/invitations/:invitationId",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users/invitations/:invitationId/resend",
+    "source": "apps/api/src/admin/admin-users.controller.ts"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/analytics/branch-monthly-targets",
+    "source": "apps/api/src/analytics/analytics.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/login",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/logout-all",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/logout",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/auth/me/avatar",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/me/avatar",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/me/change-password",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/auth/me/profile",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/auth/me/sessions/:sessionId",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/owner-registration",
+    "source": "apps/api/src/auth/owner-registration.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/owner-registration/resend",
+    "source": "apps/api/src/auth/owner-registration.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/owner-registration/verify",
+    "source": "apps/api/src/auth/owner-registration.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/password-reset/confirm",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/password-reset/request",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/refresh",
+    "source": "apps/api/src/auth/auth.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/catalog-tasks/:id/apply",
+    "source": "apps/api/src/catalog-tasks/catalog-task.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/catalog-tasks/:id/dismiss",
+    "source": "apps/api/src/catalog-tasks/catalog-task.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/catalog-tasks/:id/not-applicable",
+    "source": "apps/api/src/catalog-tasks/catalog-task.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/catalog-tasks/:id/reopen",
+    "source": "apps/api/src/catalog-tasks/catalog-task.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/catalog-tasks/apply-safe",
+    "source": "apps/api/src/catalog-tasks/catalog-task.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/catalog-tasks/refresh",
+    "source": "apps/api/src/catalog-tasks/catalog-task.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/customers",
+    "source": "apps/api/src/customers/customers.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/customers/:id",
+    "source": "apps/api/src/customers/customers.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/dashboard/layout",
+    "source": "apps/api/src/dashboard/dashboard.controller.ts"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/dashboard/layout",
+    "source": "apps/api/src/dashboard/dashboard.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/inventory/adjustments",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/inventory/batches/:id/confirm-expiry",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/inventory/batches/:id/quarantine",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/inventory/batches/:id/release-quarantine",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/inventory/held-adjustments/:id/accept",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/inventory/held-adjustments/:id/reject",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/inventory/quarantine-expired",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/notifications/:id/archive",
+    "source": "apps/api/src/notifications/notifications.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/notifications/:id/read",
+    "source": "apps/api/src/notifications/notifications.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/notifications/preferences",
+    "source": "apps/api/src/notifications/notifications.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/notifications/read-all",
+    "source": "apps/api/src/notifications/notifications.controller.ts"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/onboarding",
+    "source": "apps/api/src/auth/onboarding-draft.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/complete",
+    "source": "apps/api/src/auth/onboarding-draft.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/onboarding/logo",
+    "source": "apps/api/src/auth/onboarding-draft.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/logo",
+    "source": "apps/api/src/auth/onboarding-draft.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/prescriptions",
+    "source": "apps/api/src/customers/prescriptions.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/products/:id",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/products/:id",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/products/:id/nmra-link",
+    "source": "apps/api/src/products/product-nmra-link.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/:id/nmra-link",
+    "source": "apps/api/src/products/product-nmra-link.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/:id/nmra-link/preview",
+    "source": "apps/api/src/products/product-nmra-link.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/:productId/aliases",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/products/:productId/aliases/:aliasId",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/barcodes/import",
+    "source": "apps/api/src/nmra/nmra-import.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/bulk",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/bulk/preview",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/bulk/selection",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/categories",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/products/categories/:id",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/products/categories/:id",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/commercial-categories/move-products",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/commercial-categories/onboarding",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/commercial-categories/reorder",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/import/:importId/undo",
+    "source": "apps/api/src/product-import/product-import.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/import/analyze",
+    "source": "apps/api/src/product-import/product-import.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/import/confirm",
+    "source": "apps/api/src/product-import/product-import.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/import/preview",
+    "source": "apps/api/src/product-import/product-import.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/nmra-import/confirm",
+    "source": "apps/api/src/nmra/nmra-import.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/nmra-import/preview",
+    "source": "apps/api/src/nmra/nmra-import.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/nmra-link/bulk",
+    "source": "apps/api/src/products/product-nmra-link.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/range/exit",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/reference/add",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/reference/preview-add",
+    "source": "apps/api/src/products/products.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/products/tags",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/products/tags/:id",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/products/tags/:id",
+    "source": "apps/api/src/products/product-meta.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/debit-notes/:id/apply",
+    "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/debit-notes/:id/void",
+    "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/held-deliveries/:id/accept",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/held-deliveries/:id/reject",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/invoices",
+    "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/invoices/:id/void",
+    "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/payments",
+    "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/payments/:id/void",
+    "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/purchase-orders",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/purchasing/purchase-orders/:id",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/purchase-orders/:id/approve",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/purchasing/purchase-orders/:id/cancel",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/purchase-orders/:id/hold-delivery",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/purchase-orders/:id/issue",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/purchase-orders/:id/reject",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/purchase-orders/:id/short-close",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/purchase-orders/receive",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/returns",
+    "source": "apps/api/src/returns/returns.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/returns/:id",
+    "source": "apps/api/src/returns/returns.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/returns/:id/approve",
+    "source": "apps/api/src/returns/returns.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/returns/:id/cancel",
+    "source": "apps/api/src/returns/returns.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/returns/:id/complete",
+    "source": "apps/api/src/returns/returns.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/returns/:id/mark-logistics",
+    "source": "apps/api/src/returns/returns.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/returns/:id/reject",
+    "source": "apps/api/src/returns/returns.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/returns/:id/submit",
+    "source": "apps/api/src/returns/returns.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/:id/refund",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/:id/void",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/checkout",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/holds",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/sales/holds/:id",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/holds/:id/recall",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/pos/me/pos-pin",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/pos/me/pos-pin/clear",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/setup/readiness/complete",
+    "source": "apps/api/src/setup/setup.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/setup/readiness/confirm",
+    "source": "apps/api/src/setup/setup.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/staff-invitations/:token/accept",
+    "source": "apps/api/src/admin/staff-invitations.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/stocktakes/:id",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/approve",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/cancel",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/complete",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/stocktakes/:id/lines",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/lines/add",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/lines/remove",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/post",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/request-recount",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/stocktakes/:id/review-lines",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/review/start",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/schedule",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/start",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/stocktakes/:id/submit",
+    "source": "apps/api/src/stocktakes/stocktakes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/suppliers",
+    "source": "apps/api/src/suppliers/suppliers.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/suppliers/:id",
+    "source": "apps/api/src/suppliers/suppliers.controller.ts"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/suppliers/:id/prices",
+    "source": "apps/api/src/suppliers/suppliers.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/suppliers/:id/prices/:productId",
+    "source": "apps/api/src/suppliers/suppliers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/suppliers/invoices/:id/payments",
+    "source": "apps/api/src/suppliers/suppliers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tenant/branches",
+    "source": "apps/api/src/tenant/tenant.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/branches/:branchId",
+    "source": "apps/api/src/tenant/tenant.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/profile",
+    "source": "apps/api/src/tenant/tenant.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/profitability-target",
+    "source": "apps/api/src/tenant/tenant.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/alerts",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/approvals",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/dashboard",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/insights",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/inventory",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/pos",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/product-display",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/purchasing",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/receipt",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/security",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/stocktake",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/tax",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/tenant/settings/transfers-returns",
+    "source": "apps/api/src/tenant/tenant-settings.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/transfers",
+    "source": "apps/api/src/transfers/transfers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/transfers/:id/approve",
+    "source": "apps/api/src/transfers/transfers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/transfers/:id/cancel",
+    "source": "apps/api/src/transfers/transfers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/transfers/:id/receive",
+    "source": "apps/api/src/transfers/transfers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/transfers/:id/reject",
+    "source": "apps/api/src/transfers/transfers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/transfers/:id/ship",
+    "source": "apps/api/src/transfers/transfers.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/uploads/image",
+    "source": "apps/api/src/uploads/uploads.controller.ts"
+  }
+]
