@@ -1,3 +1,5 @@
+import type { OfflineSupportRecord } from "./pos-resilience-contracts";
+
 /** P0 wire contract v1. See docs/POS_V1_CONTRACT.md for trust and persistence rules. */
 export const TERMINAL_CONTRACT_VERSION = 1 as const;
 /** Approved D3: expires at most 24 hours after the last successful online permission renewal. */
@@ -63,6 +65,7 @@ export type OfflineStaffAuthorization = Readonly<{
   staffAuthorizationId: string;
   credentialVersion: number;
   signInMethod: "personal_pin";
+  offlineManagerActions: ReadonlyArray<"acknowledge_business_hours" | "assist_shift_handover">;
 }>;
 
 /** Main-process attestation after checking the prepared local credential, never a PIN payload. */
@@ -147,7 +150,9 @@ export type OfflineGrant = Readonly<{
   // Approved D9: no offline sale-count, per-sale-value or cumulative-value caps.
   externalCardAllowed: boolean;
   policyVersion: number;
-  operatingWindows: ReadonlyArray<Readonly<{ startsAt: number; endsAt: number }>>;
+  operatingWindows: ReadonlyArray<Readonly<{ startsAt: number; endsAt: number }>>; // routine business schedule
+  mandatoryOperatingWindows: ReadonlyArray<Readonly<{ startsAt: number; endsAt: number }>> | null;
+  // null = no additional mandatory time restriction; [] = no selling. Managers cannot override.
   operatingHoursException: null | Readonly<{
     approvalId: string;
     approverUserId: string;
@@ -193,6 +198,7 @@ export type OfflineCommandContext = Readonly<{
   nominationVersion: number;
   offlineSessionId: string;
   offlineStartedAt: number;
+  businessHoursAcknowledgementId: string | null;
 }>;
 
 export type OfflineSaleCommand = OfflineCommandContext & Readonly<{
@@ -217,6 +223,7 @@ export type OfflineShiftCloseCommand = OfflineCommandContext & Readonly<{
   currency: "LKR";
   closingCashCountMinor: number;
   expectedCashMinor: number; // derived locally from opening cash and immutable cash postings, not a renderer claim
+  assistance: null | Readonly<{ managerSignInId: string; reason: string }>;
 }>;
 export type OfflineJournalCommand = OfflineSaleCommand | OfflineShiftOpenCommand | OfflineShiftCloseCommand;
 export type LocalOpenTillShift = Readonly<{
@@ -253,7 +260,7 @@ export const TERMINAL_ERROR_CODES = [
   "ONLINE_REQUIRED", "GRANT_INVALID", "GRANT_EXPIRED", "SNAPSHOT_INVALID", "SNAPSHOT_MISMATCH",
   "SNAPSHOT_STALE", "LOCAL_STOCK_EXHAUSTED", "OUTSIDE_OPERATING_HOURS", "CLOCK_UNTRUSTED",
   "PAYMENT_NOT_ALLOWED", "PHARMACIST_REQUIRED", "REPLAY_CONFLICT", "SEQUENCE_GAP",
-  "RECONCILIATION_REQUIRED", "TEMPORARILY_UNAVAILABLE",
+  "RECONCILIATION_REQUIRED", "BUSINESS_HOURS_ACK_REQUIRED", "TEMPORARILY_UNAVAILABLE",
 ] as const;
 export type TerminalErrorCode = typeof TERMINAL_ERROR_CODES[number];
 export type TerminalApiError = Readonly<{
@@ -297,11 +304,16 @@ export type SyncRequest = Readonly<{
   identity: TerminalIdentity;
   staffSignIns: ReadonlyArray<Signed<OfflineStaffSignIn>>;
   commands: ReadonlyArray<Signed<OfflineJournalCommand>>;
+  supportRecords: ReadonlyArray<Signed<OfflineSupportRecord>>; // durable evidence, never financial commands
 }>;
 export type SyncResponse = Readonly<{
   contractVersion: 1;
   identity: TerminalIdentity;
   serverTime: number;
+  supportAcknowledgements: ReadonlyArray<Readonly<{ recordId: string; recordHash: string }> & (
+    | Readonly<{ status: "accepted" | "duplicate" }>
+    | Readonly<{ status: "held"; error: TerminalApiError }>
+  )>;
   acknowledgements: ReadonlyArray<SyncAcknowledgement>;
   committedThroughSequence: number;
   committedThroughHash: string | null;
@@ -315,10 +327,13 @@ export type OnlineCheckoutResumeEvidence = Readonly<{
   uncertainCommandsResolved: boolean;
   freshSnapshotInstalled: boolean;
   stockReviewBlocksInstalled: boolean;
+  supportRecordsAccepted: boolean;
+  paymentAttemptsResolved: boolean;
 }>;
 export function mayResumeOnlineCheckout(evidence: OnlineCheckoutResumeEvidence): boolean {
   return evidence.authenticated && evidence.journalAcceptedThroughLastLocalCommand &&
-    evidence.uncertainCommandsResolved && evidence.freshSnapshotInstalled && evidence.stockReviewBlocksInstalled;
+    evidence.uncertainCommandsResolved && evidence.freshSnapshotInstalled && evidence.stockReviewBlocksInstalled &&
+    evidence.supportRecordsAccepted && evidence.paymentAttemptsResolved;
 }
 
 /** Immutable restart boundary verified against protected durable state by P4. */
@@ -334,6 +349,8 @@ export type OfflineRecoveryBoundary = Readonly<{
   lastJournalHash: string | null;
 }>;
 export type OfflineRestartEvidence = Readonly<{
+  restartKind: "app_restart" | "os_reboot";
+  timeContinuityProof: "same_boot_monotonic" | "verified_cross_boot" | "unproven";
   stateBeforeRestart: OfflineTerminalState;
   original: OfflineRecoveryBoundary;
   restored: OfflineRecoveryBoundary;
@@ -356,6 +373,8 @@ export type OfflineRestartDecision = Readonly<{
 export function offlineRestartDecision(evidence: OfflineRestartEvidence): OfflineRestartDecision {
   if (evidence.stateBeforeRestart === "revoked") return { action: "offline_not_permitted", reason: "TERMINAL_REVOKED" };
   if (!evidence.trustedClockRestored || evidence.timeRollbackDetected ||
+      evidence.timeContinuityProof === "unproven" ||
+      (evidence.restartKind === "os_reboot" && evidence.timeContinuityProof !== "verified_cross_boot") ||
       !Number.isSafeInteger(evidence.trustedNow) || evidence.trustedNow < 0) {
     return { action: "require_online_recovery", reason: "CLOCK_UNTRUSTED" };
   }
@@ -429,22 +448,52 @@ export type OfflineTerminalDelegation = Readonly<{
 /** Server-resolved authorization facts for the target branch; not fields accepted from a client. */
 export type OfflineTerminalManagementContext = Readonly<{
   online: boolean;
-  localAttendanceVerified: boolean;
   isOwner: boolean;
   isManagerAtBranch: boolean;
   hasActiveOwnerDelegation: boolean;
 }>;
 export function mayManageOfflineTerminal(context: OfflineTerminalManagementContext): boolean {
-  return context.online && context.localAttendanceVerified &&
+  return context.online &&
     (context.isOwner || (context.isManagerAtBranch && context.hasActiveOwnerDelegation));
 }
-/** Body for a signed online assignment/change; server derives tenant/branch and audits the actor. */
+/** Remote-capable online authorization request; this does not activate or issue an offline grant. */
 export type OfflineTerminalAssignment = Readonly<{
   targetTerminalId: string;
   targetEnrollmentId: string;
   expectedNominationVersion: number;
   reason: string;
 }>;
+
+/** Persisted online authorization bound to the target and expected nomination version. */
+export type OfflineTerminalAssignmentAuthorization = OfflineTerminalAssignment & Readonly<{
+  authorizationId: string;
+  tenantId: string;
+  branchId: string;
+  authorizedByUserId: string;
+  authorizedAt: number;
+  status: "authorized" | "consumed" | "revoked";
+}>;
+/** Signed local online confirmation on the exact target; server revalidates authorization live. */
+export type OfflineTerminalActivation = Readonly<{
+  authorizationId: string;
+  identity: TerminalIdentity;
+  session: WorkSessionIdentity;
+  expectedNominationVersion: number;
+}>;
+export type OfflineTerminalActivationContext = Readonly<{
+  online: boolean;
+  localAttendanceVerified: boolean;
+  localStaffAuthorized: boolean;
+  authorizationCurrentAndActorStillAuthorized: boolean;
+  targetEnrollmentMatches: boolean;
+  nominationVersionMatches: boolean;
+  previousOfflineAuthorityCleared: boolean; // D11 cutoff AND journal/loss review, or initial nomination
+}>;
+export function mayActivateOfflineTerminal(context: OfflineTerminalActivationContext): boolean {
+  return context.online && context.localAttendanceVerified && context.localStaffAuthorized &&
+    context.authorizationCurrentAndActorStillAuthorized && context.targetEnrollmentMatches &&
+    context.nominationVersionMatches && context.previousOfflineAuthorityCleared;
+}
 
 export function assertSafeInteger(value: number, minimum = 0): void {
   if (!Number.isSafeInteger(value) || value < minimum) throw new Error("Invalid integer amount");
@@ -473,14 +522,18 @@ export function assertOfflineGrantBounds(grant: OfflineGrant): void {
     staffIds.add(staff.staffUserId);
     staffAuthorizationIds.add(staff.staffAuthorizationId);
     assertSafeInteger(staff.credentialVersion, 1);
+    if (!Array.isArray(staff.offlineManagerActions) ||
+        staff.offlineManagerActions.some(a => !["acknowledge_business_hours", "assist_shift_handover"].includes(a)) ||
+        new Set(staff.offlineManagerActions).size !== staff.offlineManagerActions.length) throw new Error("Invalid manager actions");
   }
-  for (const window of [...grant.operatingWindows,
+  for (const window of [...grant.operatingWindows, ...(grant.mandatoryOperatingWindows ?? []),
     ...(grant.operatingHoursException ? [grant.operatingHoursException] : [])]) {
     assertSafeInteger(window.startsAt);
     assertSafeInteger(window.endsAt);
     if (window.startsAt >= window.endsAt || window.startsAt < grant.notBefore ||
         window.endsAt > grant.expiresAt) throw new Error("Invalid operating window");
   }
+  if (grant.mandatoryOperatingWindows !== null && !Array.isArray(grant.mandatoryOperatingWindows)) throw new Error("Missing mandatory hours policy");
   const exception = grant.operatingHoursException;
   if (exception && (!exception.approvalId || !exception.approverUserId || !exception.reason.trim())) {
     throw new Error("Missing operating-hours evidence");
@@ -515,13 +568,66 @@ export function terminalConnectivity(probe: { apiReachable: boolean; authenticat
   return probe.apiReachable && probe.authenticated && probe.syncComplete ? "online" : "partial_outage";
 }
 
-/** Apply only after authenticated parsing, signature verification and trusted-clock checks. */
-export function offlineGrantTimeError(grant: OfflineGrant, trustedNow: number): TerminalErrorCode | null {
+/** Device-signed local manager acknowledgement; never extends mandatory windows or grant expiry. */
+export type OfflineBusinessHoursAcknowledgement = Readonly<{
+  contractVersion: 1;
+  kind: "business_hours_acknowledgement";
+  recordId: string;
+  identity: TerminalIdentity;
+  grantId: string;
+  grantVersion: number;
+  nominationVersion: number;
+  offlineSessionId: string;
+  managerSignInId: string;
+  recordedAt: number;
+  startsAt: number;
+  endsAt: number;
+  reason: string;
+}>;
+export type OfflineBusinessHoursEvidence = Readonly<{
+  acknowledgement: OfflineBusinessHoursAcknowledgement;
+  managerSignIn: OfflineStaffSignIn;
+}>;
+/** Apply only after parsing, signature verification, local attendance and trusted-clock checks.
+ * Mandatory restrictions are separate from routine schedule; acknowledgement is a narrow exception.
+ */
+export function offlineGrantTimeError(
+  grant: OfflineGrant, trustedNow: number, evidence?: OfflineBusinessHoursEvidence,
+  command?: Pick<OfflineCommandContext, "offlineSessionId" | "offlineStartedAt" | "businessHoursAcknowledgementId">,
+): TerminalErrorCode | null {
   assertSafeInteger(trustedNow);
   if (trustedNow >= grant.expiresAt) return "GRANT_EXPIRED";
   if (trustedNow < grant.notBefore) return "GRANT_INVALID";
+  const within = (windows: ReadonlyArray<Readonly<{ startsAt: number; endsAt: number }>>) =>
+    windows.some(w => trustedNow >= w.startsAt && trustedNow < w.endsAt);
+  if (grant.mandatoryOperatingWindows !== null && !within(grant.mandatoryOperatingWindows)) return "OUTSIDE_OPERATING_HOURS";
   const windows = [...grant.operatingWindows, ...(grant.operatingHoursException ? [grant.operatingHoursException] : [])];
-  return windows.some(w => trustedNow >= w.startsAt && trustedNow < w.endsAt) ? null : "OUTSIDE_OPERATING_HOURS";
+  if (within(windows)) return null;
+  if (!evidence || !command) return "BUSINESS_HOURS_ACK_REQUIRED";
+  const ack = evidence.acknowledgement;
+  const signIn = evidence.managerSignIn;
+  const staff = grant.authorizedStaff.find(s => s.staffUserId === signIn.session.staffUserId);
+  const keys: ReadonlyArray<keyof TerminalIdentity> = ["tenantId", "branchId", "terminalId", "enrollmentId", "keyId"];
+  if (!staff?.offlineManagerActions.includes("acknowledge_business_hours") ||
+      ack.contractVersion !== 1 || ack.kind !== "business_hours_acknowledgement" ||
+      !ack.recordId || ack.recordId !== command.businessHoursAcknowledgementId || !ack.reason.trim() ||
+      keys.some(k => ack.identity[k] !== grant.identity[k] || signIn.identity[k] !== grant.identity[k]) ||
+      ack.grantId !== grant.grantId || ack.grantVersion !== grant.grantVersion ||
+      ack.nominationVersion !== grant.nominationVersion || !command.offlineSessionId ||
+      ack.offlineSessionId !== command.offlineSessionId ||
+      ack.managerSignInId !== signIn.staffSignInId || !signIn.staffSignInId ||
+      signIn.contractVersion !== 1 || signIn.kind !== "offline_staff_sign_in" ||
+      signIn.grantId !== grant.grantId || signIn.grantVersion !== grant.grantVersion ||
+      signIn.staffAuthorizationId !== staff.staffAuthorizationId || signIn.credentialVersion !== staff.credentialVersion ||
+      signIn.method !== "personal_pin" || !signIn.session.workSessionId ||
+      signIn.session.registerId !== grant.registerId || signIn.session.tillId !== grant.tillId ||
+      !Number.isSafeInteger(signIn.authenticatedAt) || signIn.authenticatedAt < grant.notBefore ||
+      ![ack.recordedAt, ack.startsAt, ack.endsAt, command.offlineStartedAt].every(Number.isSafeInteger) ||
+      command.offlineStartedAt < grant.notBefore || command.offlineStartedAt > ack.recordedAt ||
+      signIn.authenticatedAt > ack.recordedAt || ack.recordedAt > ack.startsAt ||
+      ack.startsAt < grant.notBefore || ack.startsAt >= ack.endsAt || ack.endsAt > grant.expiresAt ||
+      trustedNow < ack.startsAt || trustedNow >= ack.endsAt) return "BUSINESS_HOURS_ACK_REQUIRED";
+  return null;
 }
 
 export type CommittedCommandReceipt = Readonly<{
@@ -581,6 +687,8 @@ export type OfflineShiftClosingSummary = Readonly<{
   closingCashCountMinor: number;
   varianceMinor: number;
   syncStatus: "pending";
+  countedByUserId: string;
+  assistanceReason: string | null;
 }>;
 
 /** P0 lifecycle policy only: caller verifies signatures/chain and persists command + shift atomically.
@@ -593,6 +701,7 @@ export function offlineShiftTransition(
   signIn: OfflineStaffSignIn,
   trustedNow: number,
   terminalState: OfflineTerminalState,
+  hoursEvidence?: OfflineBusinessHoursEvidence,
 ): Readonly<{ error: TerminalErrorCode | null; next: OfflineTillShiftState; closingSummary: OfflineShiftClosingSummary | null }> {
   const fail = (error: TerminalErrorCode) => ({ error, next: current, closingSummary: null });
   try { assertOfflineGrantBounds(grant); }
@@ -611,13 +720,23 @@ export function offlineShiftTransition(
   } catch { return fail("INVALID_COMMAND"); }
   if (command.occurredAt !== trustedNow || command.offlineStartedAt < grant.notBefore ||
       command.offlineStartedAt > trustedNow) return fail("CLOCK_UNTRUSTED");
-  const timeError = offlineGrantTimeError(grant, trustedNow);
-  // Approved D8: after-hours cash counting/closing is allowed; sales/opening still need a window.
-  if (timeError && !(command.kind === "shift_close" && timeError === "OUTSIDE_OPERATING_HOURS")) return fail(timeError);
+  const timeError = offlineGrantTimeError(grant, trustedNow, hoursEvidence, command);
+  // Closing remains available after sales hours; it cannot reopen selling or bypass expiry.
+  if (timeError && !(command.kind === "shift_close" &&
+      (timeError === "OUTSIDE_OPERATING_HOURS" || timeError === "BUSINESS_HOURS_ACK_REQUIRED"))) return fail(timeError);
   if (!command.commandId || !command.offlineSessionId || command.currency !== "LKR" ||
       (command.sequence === 1 ? command.previousCommandHash !== null :
         !/^[a-f0-9]{64}$/.test(command.previousCommandHash ?? ""))) return fail("INVALID_COMMAND");
-  const staffError = offlineStaffSessionError(grant, command, signIn, trustedNow);
+  let staffCommand: OfflineCommandContext = command;
+  if (command.kind === "shift_close" && command.assistance) {
+    const manager = grant.authorizedStaff.find(s => s.staffUserId === signIn.session.staffUserId);
+    if (!manager?.offlineManagerActions.includes("assist_shift_handover") ||
+        command.assistance.managerSignInId !== signIn.staffSignInId ||
+        command.staffSignInId !== signIn.staffSignInId || !command.assistance.reason.trim() ||
+        signIn.session.staffUserId === command.session.staffUserId) return fail("SESSION_INVALID");
+    staffCommand = { ...command, session: signIn.session };
+  }
+  const staffError = offlineStaffSessionError(grant, staffCommand, signIn, trustedNow);
   if (staffError) return fail(staffError);
   if (command.kind === "shift_open") {
     if (current.openShift || current.usedWorkSessionIds.includes(command.session.workSessionId) ||
@@ -642,6 +761,7 @@ export function offlineShiftTransition(
     session: command.session, closedAt: trustedNow, expectedCashMinor: command.expectedCashMinor,
     closingCashCountMinor: command.closingCashCountMinor,
     varianceMinor: command.closingCashCountMinor - command.expectedCashMinor, syncStatus: "pending",
+    countedByUserId: signIn.session.staffUserId, assistanceReason: command.assistance?.reason ?? null,
   }, next: { openShift: null, expectedCashMinor: null,
     lastClosedWorkSessionId: command.session.workSessionId, usedWorkSessionIds: current.usedWorkSessionIds } };
 }
@@ -668,6 +788,7 @@ export function offlineSalePolicyError(
   state: OfflineTerminalState,
   staffSignIn: OfflineStaffSignIn,
   openShift: LocalOpenTillShift | null,
+  hoursEvidence?: OfflineBusinessHoursEvidence,
 ): TerminalErrorCode | null {
   try {
     assertOfflineGrantBounds(grant);
@@ -701,7 +822,7 @@ export function offlineSalePolicyError(
   if (usage.offlineStartedAt < snapshot.generatedAt || usage.offlineStartedAt > trustedNow ||
       usage.offlineStartedAt < grant.notBefore) return "CLOCK_UNTRUSTED";
   if (usage.offlineStartedAt - snapshot.generatedAt > grant.maxSnapshotAgeAtOutageMs) return "SNAPSHOT_STALE";
-  const timeError = offlineGrantTimeError(grant, trustedNow);
+  const timeError = offlineGrantTimeError(grant, trustedNow, hoursEvidence, sale);
   if (timeError) return timeError;
   if (sale.occurredAt !== trustedNow) return "CLOCK_UNTRUSTED";
   if (sale.currency !== "LKR" || grant.currency !== "LKR") return "INVALID_COMMAND";

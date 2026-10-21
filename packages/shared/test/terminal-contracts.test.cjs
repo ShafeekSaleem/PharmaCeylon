@@ -8,7 +8,7 @@ function shiftCommand(f, kind, fields = {}) {
   return {
     contractVersion: 1, kind, commandId: `command-${kind}`, identity: f.sale.identity,
     session: f.sale.session, staffSignInId: f.sale.staffSignInId,
-    sequence: 2, previousCommandHash: 'a'.repeat(64), occurredAt: f.sale.occurredAt,
+    businessHoursAcknowledgementId: null, assistance: null, sequence: 2, previousCommandHash: 'a'.repeat(64), occurredAt: f.sale.occurredAt,
     grantId: f.grant.grantId, grantVersion: f.grant.grantVersion, nominationVersion: f.grant.nominationVersion,
     offlineSessionId: f.sale.offlineSessionId, offlineStartedAt: f.sale.offlineStartedAt,
     currency: 'LKR', ...fields,
@@ -119,7 +119,7 @@ test('automatic readiness and reconnect: drain journal before installing a fresh
 
 test('approved resume workflow: incomplete sync stays paused; installed review blocks permit other stock', () => {
   const complete = { authenticated: true, journalAcceptedThroughLastLocalCommand: true,
-    uncertainCommandsResolved: true, freshSnapshotInstalled: true, stockReviewBlocksInstalled: true };
+    uncertainCommandsResolved: true, freshSnapshotInstalled: true, stockReviewBlocksInstalled: true, supportRecordsAccepted: true, paymentAttemptsResolved: true };
   assert.equal(c.mayResumeOnlineCheckout(complete), true);
   for (const missing of Object.keys(complete)) {
     assert.equal(c.mayResumeOnlineCheckout({ ...complete, [missing]: false }), false, missing);
@@ -203,10 +203,10 @@ test('approved payments: mobile wallets and customer credit require internet', (
   }
 });
 
-test('hours exception must be preapproved; expired batch cannot be sold under a valid grant', () => {
+test('saved business extension needs evidence; expired batch still cannot be sold', () => {
   const f = fresh();
   f.sale.occurredAt = f.grant.operatingWindows[0].endsAt;
-  assert.equal(check(f), 'OUTSIDE_OPERATING_HOURS');
+  assert.equal(check(f), 'BUSINESS_HOURS_ACK_REQUIRED');
   f.grant.operatingHoursException = { approvalId: 'approval-1', approverUserId: 'manager-1', reason: 'Extended local opening', startsAt: f.sale.occurredAt, endsAt: f.sale.occurredAt + 3600000 };
   assert.equal(check(f), null);
   f.snapshot.lines[0].sellBefore = f.sale.occurredAt;
@@ -376,7 +376,7 @@ test('shift commands use the same durable replay identity as sales', () => {
 test('approved hours: closing/counting cash after sales hours is allowed without reopening sales', () => {
   const f = fresh();
   f.sale.occurredAt = f.grant.operatingWindows[0].endsAt;
-  assert.equal(check(f), 'OUTSIDE_OPERATING_HOURS');
+  assert.equal(check(f), 'BUSINESS_HOURS_ACK_REQUIRED');
   const close = shiftCommand(f, 'shift_close', { closingCashCountMinor: 10000, expectedCashMinor: 10000 });
   const closed = c.offlineShiftTransition(f.grant, close, shiftState(f), f.staffSignIn, close.occurredAt, 'offline');
   assert.equal(closed.error, null);
@@ -385,12 +385,12 @@ test('approved hours: closing/counting cash after sales hours is allowed without
   const open = shiftCommand(f, 'shift_open', { session: newSession, openingCashMinor: 10000,
     previousClosedWorkSessionId: close.session.workSessionId });
   const signIn = { ...f.staffSignIn, session: newSession };
-  assert.equal(c.offlineShiftTransition(f.grant, open, closed.next, signIn, open.occurredAt, 'offline').error, 'OUTSIDE_OPERATING_HOURS');
+  assert.equal(c.offlineShiftTransition(f.grant, open, closed.next, signIn, open.occurredAt, 'offline').error, 'BUSINESS_HOURS_ACK_REQUIRED');
   close.occurredAt = f.grant.expiresAt;
   assert.equal(c.offlineShiftTransition(f.grant, close, shiftState(f), f.staffSignIn, close.occurredAt, 'offline').error, 'GRANT_EXPIRED');
 });
 
-test('approved designation authority: owner or explicitly delegated branch manager, online and local only', () => {
+test('revised designation authority: owner or delegated manager may authorize remotely online', () => {
   const owner = { online: true, localAttendanceVerified: true, isOwner: true,
     isManagerAtBranch: false, hasActiveOwnerDelegation: false };
   assert.equal(c.mayManageOfflineTerminal(owner), true);
@@ -399,8 +399,8 @@ test('approved designation authority: owner or explicitly delegated branch manag
   assert.equal(c.mayManageOfflineTerminal({ ...manager, hasActiveOwnerDelegation: true }), true);
   assert.equal(c.mayManageOfflineTerminal({ ...manager, isManagerAtBranch: false, hasActiveOwnerDelegation: true }), false);
   assert.equal(c.mayManageOfflineTerminal({ ...owner, online: false }), false);
-  assert.equal(c.mayManageOfflineTerminal({ ...owner, localAttendanceVerified: false }), false);
-  assert.equal(c.mayManageOfflineTerminal({ ...manager, hasActiveOwnerDelegation: true, localAttendanceVerified: false }), false);
+  assert.equal(c.mayManageOfflineTerminal({ ...owner, localAttendanceVerified: false }), true);
+  assert.equal(c.mayManageOfflineTerminal({ ...manager, hasActiveOwnerDelegation: true, localAttendanceVerified: false }), true);
 });
 
 function restartEvidence() {
@@ -409,7 +409,8 @@ function restartEvidence() {
     grantExpiresAt: f.grant.expiresAt, offlineSessionId: f.sale.offlineSessionId,
     offlineStartedAt: f.sale.offlineStartedAt, snapshotId: f.snapshot.snapshotId, snapshotVersion: f.snapshot.snapshotVersion,
     lastJournalSequence: 1, lastJournalHash: 'a'.repeat(64) };
-  return { stateBeforeRestart: 'offline', original, restored: structuredClone(original),
+  return { restartKind: 'app_restart', timeContinuityProof: 'same_boot_monotonic',
+    stateBeforeRestart: 'offline', original, restored: structuredClone(original),
     journalIntact: true, stockUsageRestored: true, staffStateRestored: true, shiftStateRestored: true,
     trustedClockRestored: true, timeRollbackDetected: false, trustedNow: f.sale.occurredAt + 1000 };
 }
