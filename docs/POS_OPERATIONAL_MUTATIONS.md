@@ -1,5 +1,11 @@
 # P0 operational mutation inventory
 
+P1 implementation tracking: [first MR and remaining delivery](POS_P1_IMPLEMENTATION.md).
+The API now has an explicit route-profile registry and reviewed internal-entry inventory;
+its tests check coverage and conditional effects. These declarations are not installed guards.
+Current stocktake approval, held acceptance and stock-bearing import handlers remain marked
+mixed/local until their later split; their names do not imply remote-safe approval.
+
 Baseline: develop `4a2fa3a`, 2026-10-19. Exact methods, paths and source files for all
 166 unsafe HTTP routes are recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
 The inventory includes non-operational mutations to make exclusions explicit. P0 classifies
