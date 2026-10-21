@@ -500,10 +500,74 @@ model Branch {
   monthlyTargets     BranchMonthlyTarget[]
   notifications      Notification[]
   productImports     ProductImport[]
+  terminals          OperationalTerminal[]
 
+  @@unique([tenantId, id])
   @@unique([tenantId, code])
   @@index([tenantId])
   @@map("branch")
+}
+
+/// P1 registry foundation, shared by future P1 verification and P2 enrollment.
+/// No private keys, nomination, grants or client-authority flags belong here.
+model OperationalTerminal {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  branchId    String    @map("branch_id") @db.Uuid
+  label       String    @db.VarChar(120)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  retiredAt   DateTime? @map("retired_at")
+  branch      Branch    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  enrollments TerminalEnrollment[]
+
+  @@unique([tenantId, branchId, id])
+  @@map("operational_terminal")
+}
+
+/// Each key rotation creates a new enrollment; historical keys/receipts are retained.
+model TerminalEnrollment {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  branchId         String    @map("branch_id") @db.Uuid
+  terminalId       String    @map("terminal_id") @db.Uuid
+  keyId            String    @map("key_id") @db.VarChar(128)
+  publicKeyHex     String    @map("public_key_hex") @db.Char(64)
+  enrolledByUserId String    @map("enrolled_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at")
+  revokedAt        DateTime? @map("revoked_at")
+  revocationReason String?   @map("revocation_reason") @db.VarChar(500)
+  terminal         OperationalTerminal @relation(fields: [tenantId, branchId, terminalId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
+  receipts         TerminalCommandReceipt[]
+
+  @@unique([tenantId, keyId])
+  @@unique([tenantId, branchId, terminalId, id, keyId])
+  @@index([tenantId, branchId, terminalId])
+  @@map("terminal_enrollment")
+}
+
+/// Final results only. Future execution must insert this in the SAME transaction as
+/// business effects and success audit. A row alone is not proof of runtime enforcement.
+model TerminalCommandReceipt {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  branchId        String   @map("branch_id") @db.Uuid
+  terminalId      String   @map("terminal_id") @db.Uuid
+  enrollmentId    String   @map("enrollment_id") @db.Uuid
+  keyId           String   @map("key_id") @db.VarChar(128)
+  commandId       String   @map("command_id") @db.Uuid
+  operation       String   @db.VarChar(160)
+  requestDigest   String   @map("request_digest") @db.Char(64)
+  offlineSequence BigInt?  @map("offline_sequence")
+  actorUserId     String   @map("actor_user_id") @db.Uuid
+  command         Json
+  result          Json
+  recordedAt      DateTime @default(now()) @map("recorded_at")
+  enrollment      TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, enrollmentId, commandId])
+  @@unique([tenantId, enrollmentId, offlineSequence])
+  @@index([tenantId, branchId, recordedAt])
+  @@map("terminal_command_receipt")
 }
 
 /// Owner-set monthly sales target for a branch; optional manager accountable for achievement.
