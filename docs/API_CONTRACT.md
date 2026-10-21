@@ -6,6 +6,9 @@ The desktop/offline v1 contract and revised D10 remote-management/local-executio
 [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md) with the
 [operational mutation inventory](POS_OPERATIONAL_MUTATIONS.md). P0 adds shared contracts
 and fixtures; existing endpoints below retain their current behaviour until P1–P6 implement them.
+The approved [operational-readiness amendment](POS_V1_OPERATIONAL_READINESS.md) adds revised D8
+business-hours acknowledgement, D13 remote authorization/local activation, payment/incident evidence
+and recovery gates. These describe future interfaces, not live API endpoints.
 
 ## Base URL and prefix
 

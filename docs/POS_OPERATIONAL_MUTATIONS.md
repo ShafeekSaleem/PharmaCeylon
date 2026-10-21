@@ -21,12 +21,15 @@ methods. Online remote management uses existing authenticated branch/role permis
 Physical stock, branch cash, executed refunds and clinical dispensing require an enrolled
 locally attended terminal with current staff/branch/clinical authority, including for owners.
 Remote desktop sessions may manage/approve; they may not perform local physical execution.
-D13 terminal designation also remains online/local/audited.
+Revised D13 assignment authorization may be remote online; activation remains signed,
+online/local on the exact enrolled target with separate authorization, D11 clearance and audit.
 
 Mixed handlers that both approve and physically post must be split. Until split they inherit
 local execution restrictions. Remote approval can create normal business reservations or
 commercial commitments; it cannot automatically post on-hand stock, cash or an executed refund.
-The approved offline sale/shift journal is a distinct exception, unchanged by revised D10.
+The sale/shift journal, revised D8 bounded business-hours acknowledgement, prepared-manager
+assisted close and nonfinancial support records are explicit narrow offline protocols. General
+offline approvals, refunds/voids and stock operations remain blocked.
 
 | Exact route family (prefix under `/api/v1`) | Classification and consequence |
 | --- | --- |
@@ -45,13 +48,15 @@ The approved offline sale/shift journal is a distinct exception, unchanged by re
 | `customers/*`, `prescriptions` | Online remote administrative customer contact editing with existing permissions/privacy. Prescription clinical verification, qualified sign-off and dispensing remain local and online; administrative permission is not clinical authority. |
 | `admin/*`, `staff-invitations/*` | Online identity/access administration; remote management allowed with existing permissions. Changes invalidate sessions/grants according to revocation policy; cannot retroactively undo disconnected sales. |
 | `auth/*` | Authentication/self-profile/password/avatar/session management, allowed online from permitted clients; never confers terminal authority by itself. |
-| `tenant/*` | Online remote tenant/branch/settings management. Settings version future grants, never rewrite signed historical grants or rebind enrolled identity. D13 designation is still local/online/audited. |
+| `tenant/*` | Online remote tenant/branch/settings management. Settings version future grants, never rewrite signed historical grants or rebind enrolled identity. Revised D13 separates remote online assignment authorization from exact-target local online activation. |
 | `onboarding/*`, `setup/readiness/*` | Online setup/configuration; existing permission checks retained. Must not add stock/dispensing operations under this exemption. |
 | `analytics/branch-monthly-targets`, `dashboard/layout` | Non-operational planning/personalization; remote writes allowed with existing permissions. |
 | `notifications/*` | Non-operational user state/preferences; remote writes allowed. Acting on an alert still invokes an operational endpoint. |
 | `uploads/image` | Attachment storage only; remote allowed with current restrictions. Linking an upload to an operational record still requires its protected route. |
 
-Approval evidence must bind exact tenant/branch/document version/content and action.
+Approval evidence must bind exact tenant/branch/material-document version/content and action.
+Administrative notes use separate metadata revisions; approved partial-execution counters must
+not rewrite original approved material content. Never hide quantity/amount changes in metadata.
 Material changes require fresh approval. Keep requester, approver and executor separately,
 preserve existing self-approval policy, and allow an authorized on-site approver to execute
 where permitted. Resolve and revalidate evidence transactionally, with domain quantity/refund
@@ -80,3 +85,19 @@ Search performed: all controllers and `setInterval`, `setTimeout`, `Cron`, `Proc
 under API source, plus StockService call sites and mobile shell. The import runner is the
 current scheduled/background write path found. This is a baseline audit, not a promise that
 future workers or GET side effects are automatically covered by the route scanner.
+
+## Additional entry points required by the readiness amendment
+
+These are future protocol requirements, not additions to the 166 existing-route baseline.
+Inventory actual routes when P1/P2/P5/P6 introduce them; do not claim the route scanner verifies effects.
+
+| Action | Boundary |
+| --- | --- |
+| Assignment authorization / activation | Remote authenticated owner/delegated-manager online request versus signed local online target confirmation; no grant on authorization alone |
+| Business-hours acknowledgement | Prepared manager, own PIN, signed bounded evidence tied to grant/outage; mandatory restrictions and expiry cannot be overridden |
+| Assisted absent-cashier shift close | Prepared manager's explicit capability and reason, original cashier/session retained with counting actor and variance |
+| Sale incident / payment-attempt evidence sync | Signed append-only evidence, idempotent record ID/digest, no stock/refund/cash mutation; online manager recovery for corrections |
+| Stock discrepancy settlement | Remote review/authorization with exact count/timeline linkage; local physical execution and exactly-once movement/existing-settlement accounting |
+
+See [POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md) for scenarios, trust
+boundaries, readiness feedback and release evidence. Worker/internal writers inherit these rules.

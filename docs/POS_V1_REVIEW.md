@@ -2,7 +2,8 @@
 
 Review opened 2026-10-20. Shafeek requested simple questions, one at a time, with comments.
 Product review completed 2026-10-20: D1–D14 and staff follow-ups D7a/D7b are agreed.
-Decision 10 was amended and approved on 2026-10-21; its current rule and history are recorded below.
+Decisions 8, 10 and 13 were amended and approved on 2026-10-21; current rules and history are
+recorded below. The same review approved the operational-readiness improvements.
 Record an answer only when the user explicitly provides it. Recommendations, code, elapsed time,
 or an unanswered/preselected form choice are not approval. Pending behaviour is provisional in
 the contracts/tests and must be revised when the user chooses differently.
@@ -25,7 +26,7 @@ This decision record supersedes the original escrow wording and is the basis for
 | ID | Decision in simple terms | Agreed v1 behaviour | Status |
 | --- | --- | --- | --- |
 | D1 | What if a completed offline sale finds too little stock when it syncs? | Keep the sale/payment once, open a visible stock discrepancy for manager review, pause sales from the affected batches while stock posting is pending. Other products continue normally. Never silently delete a sale or invent stock. | Approved by Shafeek, 2026-10-20 |
-| D2 | Which actions work without internet? | Ordinary non-prescription/non-controlled sales and edits to an unfinished cart only. Returns, refunds, voids of completed sales, stock changes and approvals wait for internet. | Approved by Shafeek, 2026-10-20 |
+| D2 | Which actions work without internet? | Ordinary non-prescription/non-controlled sales/cart edits, approved staff/shift lifecycle and narrow D8/assisted-handover/support-evidence protocols. Returns, refunds, completed-sale voids, stock changes and general approvals wait for internet. | Approved by Shafeek, 2026-10-20 |
 | D3 | How long may offline selling continue? | Permission auto-refreshes online and lasts at most 24 hours from the last successful online renewal; expiry stops new offline sales until online renewal. Saved sales remain available for sync. | Approved by Shafeek, 2026-10-20 (24 hours selected) |
 | D4 | How recent must the saved stock be when an outage starts? | At most 15 minutes old, checked at the original outage start. Older stock blocks starting offline sales until successful sync. This does not shorten a running outage to 15 minutes. | Approved by Shafeek, 2026-10-20 |
 | D5 | What payment methods work offline? | Cash and separately approved external card payments, including cash/card split payments; no wallet or customer credit. | Approved by Shafeek, 2026-10-20 |
@@ -33,12 +34,12 @@ This decision record supersedes the original escrow wording and is the basis for
 | D7 | Can staff switch shifts or sign in while offline? | Staff switching is required; D7a approves prepared staff with personal PINs and D7b approves closing/opening shifts on the same till. Preserve sale attribution, stock usage and expiry. D9 removes proposed sale-count/value caps. | Agreed through D7a/D7b, 2026-10-20; original restriction rejected |
 | D7a | Who can sign in offline, and how? | Staff already authorized/prepared on this terminal while online use their own offline PIN. New accounts, permissions and PIN setup/reset require internet. | Approved by Shafeek, 2026-10-20 |
 | D7b | Can staff close a shift and open the next one during an outage? | Allow recorded closing cash count and next shift opening cash on the same till. Save shifts/sales separately, mark not yet synced, preserve stock usage, limits and expiry. | Approved by Shafeek, 2026-10-20 |
-| D8 | Can the shop sell offline outside configured opening hours? | New sales only within saved hours or extensions preapproved online; cash counting/closing an existing shift is allowed after sales hours. The 24-hour permission expiry still applies. | Approved by Shafeek, 2026-10-20 |
+| D8 | Can selling continue outside scheduled business hours? | Prepared local manager may acknowledge a bounded continuation with a reason. Mandatory restrictions and the original grant expiry cannot be overridden. Closing/counting remains allowed. | Revised and approved, 2026-10-21 |
 | D9 | What limits should apply to offline sale count and value? | No additional sale-count/per-sale-value/total-value caps. Use the 24-hour expiry; retain the other approved stock, hours, staff and operation/payment checks. | Approved by Shafeek, 2026-10-20 (expiry only) |
 | D10 | Which online actions require the local desktop app? | Online remote management/approvals are permitted with branch authority; physical stock, branch cash, refund execution and clinical dispensing require local enrolled execution. Existing D13 designation restriction remains. | Revised and approved by Shafeek, 2026-10-21 |
 | D11 | What happens when the offline-capable device is lost or replaced? | Enroll replacement online; online use can begin immediately. Offline use waits for confirmed old-device disable or old permission expiry, plus recovery/review of missing sales. | Approved by Shafeek, 2026-10-20 |
 | D12 | What happens when internet returns? | Pause new checkouts on nominated terminal; sync journal/uncertain submissions and install fresh stock/review blocks before resuming. Other counters continue; accepted discrepancy cases do not block unrelated stock. Failed sync stays paused with a clear issue. | Approved by Shafeek, 2026-10-20 |
-| D13 | Who may assign/change the offline-capable device? | Owner, with explicit delegation to selected branch managers; no automatic manager access. Assignment/change requires online local attendance and audit, with one designation per branch and D11 replacement checks. | Approved by Shafeek, 2026-10-20 |
+| D13 | Who may assign/change the offline device? | Owner or explicitly delegated manager authorizes online, including remotely; authorized staff activates locally online on the exact target. D11 clearance, uniqueness/version and separate actor audit remain. | Revised and approved, 2026-10-21 |
 | D14 | What if the device restarts and cannot trust its clock or saved journal? | Resume the same outage only with safely restored journal, stock, staff/shift state, trusted clock and original expiry. Otherwise require online recovery; retain recoverable sales and never reset the 24-hour period. | Approved by Shafeek, 2026-10-20 |
 
 Technical integrity defaults support these choices: signed device commands, signed server
@@ -167,18 +168,16 @@ do not ask the user to choose cryptographic algorithms without a product consequ
   new local session IDs and protection against reuse. Sale policy requires the matching open shift.
   Sync/receipt contracts now identify shift resources as well as sales; runtime persistence remains P2/P4/P5 work.
 
-### D8 — Saved opening hours and preapproved extensions
+### D8 — Routine schedule acknowledgement; mandatory restrictions remain hard limits
 
-- Date: 2026-10-20.
-- User answer: "Approve saved hours and preapproved extensions".
-- Approved behaviour: allow new offline sales only during saved branch hours or an extended-hours
-  exception approved and saved while online. No manager-created offline extension. Cash counting
-  and closing an existing shift remain possible after sales hours. The separate 24-hour permission
-  expiry still applies.
-- Additional comments: none provided.
-- Contract changes: existing signed operating windows/exception control sales; shift-close policy
-  now permits after-hours cash recording/closure without permitting new sales or bypassing grant expiry.
-  Fixtures verify sales block, allowed closing, blocked after-hours reopening and unchanged expiry.
+- Original answer, 2026-10-20: "Approve saved hours and preapproved extensions". The blanket
+  prohibition on local offline continuation is superseded by the approved 2026-10-21 scenario review.
+- Current rule: outside the routine business schedule, an authenticated prepared local manager
+  with an explicit signed capability may record a reasoned, bounded acknowledgement. Persist it
+  before dependent sales/shift opening and retain it for sync/audit. It cannot extend the grant's
+  original 24-hour expiry or override mandatory time restrictions, stock/batch/clinical rules.
+- Cash counting/closing remains available outside sales hours with valid permission. This grants
+  no general offline approval authority. See the readiness contract for evidence and scenarios.
 
 ### D9 — No sale-count or value caps
 
@@ -211,7 +210,7 @@ do not ask the user to choose cryptographic algorithms without a product consequ
   approval. Audit requester/approver/executor separately. Existing self-approval policy applies;
   an on-site authorized manager may approve and execute where permitted, retaining both records.
 - Mixed approve-and-post endpoints must be split; until split use local execution restrictions.
-  No owner bypass of physical/clinical checks. D13 designation remains online/local/audited.
+  No owner bypass of physical/clinical checks. Revised D13 now permits remote online assignment authorization with separate local online activation.
 - Offline scope, snapshot, expiry, PIN/shift, reconnect and replacement policies are unchanged.
   See the normative matrix in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md).
 - This P0 revision updates contracts and plans; runtime enforcement remains P1/P2/P6 work.
@@ -245,19 +244,17 @@ do not ask the user to choose cryptographic algorithms without a product consequ
   installed review blocks. Fixtures cover each missing requirement and forbid an incomplete drain
   from directly refreshing or falling back into a new offline session.
 
-### D13 — Owner control with selected-manager delegation
+### D13 — Remote assignment authorization and local target activation
 
-- Date: 2026-10-20.
-- User answer: "Owner, with delegation to selected managers".
-- Approved behaviour: owner has designation control by default and may explicitly delegate it to
-  selected branch managers; manager role alone is insufficient. Assignments/changes require internet,
-  local use at the branch and an audit record of who changed what. One designated terminal per branch;
-  D11's replacement clearance continues to apply.
-- Additional comments: none provided.
-- Contract changes: per-user/per-branch `OfflineTerminalDelegation`, versioned target assignment
-  body and `mayManageOfflineTerminal` policy using trusted context. Fixtures permit owner/delegated
-  manager and reject undelegated managers, other roles, offline requests and remote attendance.
-  P1/P2 must implement live authorization, persistence, audit and uniqueness; no current API guard changed.
+- Original answer, 2026-10-20: "Owner, with delegation to selected managers". Owner/delegation
+  control is retained; requiring that authorizer to attend locally is superseded on 2026-10-21.
+- Owner or explicitly delegated branch manager authorizes the exact target enrollment online,
+  including remotely. No automatic manager entitlement or onward delegation.
+- A separately authorized local staff member confirms activation on the exact enrolled target
+  online. Revalidate live authorizer/delegation, target, expected nomination version and stored
+  authorization. Consume authorization and enforce uniqueness/D11 clearance atomically.
+- Audit authorizer and local activator separately. Authorization alone creates no nomination/grant.
+  Offline authorization/activation and overlapping usable grants remain prohibited.
 
 ### D14 — Safe restart restoration or online recovery
 
@@ -273,6 +270,31 @@ do not ask the user to choose cryptographic algorithms without a product consequ
   preserve the original grant/outage/snapshot/journal boundary, fail closed on lost or altered state,
   preserve interrupted sync pauses and reject expiry/revocation bypass. Fixtures exercise these
   outcomes without modifying the saved evidence. Runtime disk/clock verification remains P4/P5 work.
+
+## Operational-readiness amendments — approved 2026-10-21
+
+Shafeek instructed: "Ok, make those changes, and also the improvements u suggested. Update the
+contracts, epics, descriptions etc. and create the MR also". This approves the prior scenario
+assessment's D8/D13 revisions and supporting improvements; recommendations alone were not treated
+as approval. Other reviewed decisions remain, with these implementation clarifications:
+
+- D1: evidence-led settlement timeline/counts, limited batch blocks and no fabricated/double stock.
+- D2: measure ordinary-item continuity in the pilot; improve backup connectivity rather than
+  implicitly expanding offline prescription/controlled dispensing.
+- D3/D4/D9: frequent online refresh, exact visible expiry and pre-outage readiness. No count/value caps.
+- D5/D6: durable payment intents/reference recovery; discounted carts require explicit review before
+  payment, no silent total changes, repricing or automatic second charge.
+- D7b: narrow prepared-manager assisted closure for an absent cashier, retaining original cashier,
+  actual counting manager and variance. No shared login or rewritten outgoing cashier records.
+- D12: stable authenticated reconnection, safe checkout/payment boundary, persisted support evidence,
+  pause/drain, resolve uncertain outcomes, then fresh stock/review blocks. Failed drain stays paused.
+- D14: separate app restart from OS reboot/power cut; prove time continuity and durable state in
+  runtime tests before rollout. Unknown time/data still requires online recovery.
+- Append-only offline sale-incident notes add no refund, stock or cash authority.
+- Supported local-session checks plus named staff confirmation/audit; no perfect presence claim.
+- Material approval revisions exclude nonmaterial notes and ordinary execution counters.
+
+Normative detail and epic acceptance mapping: [POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md).
 
 ## Review completion and remaining engineering work
 

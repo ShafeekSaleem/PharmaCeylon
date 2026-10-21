@@ -3,6 +3,8 @@
 Status: snapshot architecture and product decisions D1–D14, including staff follow-ups D7a/D7b,
 reviewed and agreed with Shafeek on 2026-10-20. See [POS_V1_REVIEW.md](POS_V1_REVIEW.md) for
 the approved outcomes, changes to initial proposals and user comments.
+Operational-readiness amendments D8/D13 and supporting workflows were approved on 2026-10-21;
+see [the scenario and delivery contract](POS_V1_OPERATIONAL_READINESS.md).
 Decision 10 was amended and approved on 2026-10-21: remote online management/authorization,
 with local enrolled physical execution. The revised matrix below supersedes its original wording.
 Per Shafeek's direction, treat Shafeek as the developer; staffing and work allocation are managed
@@ -24,9 +26,11 @@ dependent epic descriptions must use the same decisions when their implementatio
 - Approved: during online enrollment, at most one terminal per branch is designated offline-capable.
   A branch may have none until nomination. Nomination and replacement require
   an online, authorized, audited transaction with a branch-level uniqueness constraint.
-  Approved D13 (2026-10-20): the owner may assign/change designation and explicitly delegate this
+  Revised D13 (2026-10-21): the owner may authorize designation and explicitly delegate this
   ability to selected managers for their branch. Managers do not receive it automatically. Every
-  assignment/change requires internet and verified local attendance, including for owners.
+  assignment authorization requires internet and may be remote. Activation requires a separately
+  authorized staff confirmation locally on the exact enrolled target, with live approval checks,
+  atomic nomination uniqueness/version and D11 clearance, including for owner-authorized changes.
 - Desktop terminal identity binds tenant, branch, device enrollment and signing key.
   Branch is immutable for the enrollment. Moving a device requires revocation and new
   enrollment, not changing a header. Register identifies the counter, till the cash drawer,
@@ -48,7 +52,9 @@ dependent epic descriptions must use the same decisions when their implementatio
 - Approved D2 (2026-10-20): offline checkout permits ordinary, non-prescription, non-controlled products only.
   The API excludes ineligible products from the offline stock snapshot; clients cannot declare eligibility.
   Returns, voids/cancellations of completed sales, refunds, receipts, transfers, adjustments,
-  stocktakes, approvals, prescriptions and controlled dispensing require online authorization.
+  stocktakes, general approvals, prescriptions and controlled dispensing require online authorization.
+  Narrow prepared-manager business-hours acknowledgement and assisted shift closure, plus
+  nonfinancial incident/payment evidence, are permitted as specified in the readiness contract.
   Editing/removing items from an unfinished local cart remains allowed. Payment methods and
   credit are approved in D5; saved prices and no offline discounts are approved in D6.
   D7b additionally permits the shift-opening/closing records described below; this does not
@@ -153,15 +159,21 @@ automatic preparation, never a manual stock-reserve action. API reachability
 alone is insufficient: authentication and a successful synchronization cycle are required
 to resume online operation. Draining/revoked/expired devices cannot create new offline sales.
 
-Approved D12 (2026-10-20): when connectivity returns, pause new checkouts on the nominated
-terminal and show "Synchronizing". Upload saved sales/shift records and resolve uncertain
+Clarified D12 (2026-10-21): a lone successful probe does not interrupt checkout. Establish a
+stable authenticated connection, finish or durably pause the current checkout/payment attempt,
+then pause new checkouts on the nominated
+terminal and show "Synchronizing". Upload signed support evidence and saved sales/shift records;
+resolve payment uncertainty and uncertain
 submissions before installing a fresh consistent snapshot and resuming online checkout.
 Other connected counters continue normally. A committed sale with a durable discrepancy case
 counts as accepted: it need not wait for manager settlement, but its batch sale blocks must be
 installed before resuming. Incomplete/failed synchronization keeps this terminal paused with a
 clear issue; a network flap must not reset its stock baseline or start a new offline timer.
 `OnlineCheckoutResumeEvidence` / `mayResumeOnlineCheckout` model the required trusted evidence;
-the lifecycle reducer alone is not proof that synchronization finished.
+the lifecycle reducer alone is not proof that synchronization finished. Both support-record
+acceptance and payment-attempt resolution are required before resuming. Recovery uploads may
+resolve uncertainty during draining; uncertainty must not prevent entering recovery itself.
+P4/P5 define/test connection stability and transaction boundaries; no arbitrary delay is a new policy.
 
 The reducer validates transition shape only. P1/P3/P5 validate evidence and persist
 transitions atomically. Server revocation is a desired state until delivered to an offline
@@ -180,20 +192,21 @@ For a lost terminal, enabling replacement offline may require waiting out the re
 old 24-hour permission. Online enrollment and authorized online operation need not wait for that
 offline clearance. `mayEnableOfflineReplacement` models the approved offline-only gate.
 
-Approved D13 delegation is per selected manager user and target branch, not a grant to the shared
-manager role. Only the owner may create/revoke that delegation; a manager cannot delegate it onward
-or obtain it by editing general role permissions. `OfflineTerminalDelegation` preserves owner,
-manager, branch and revocation evidence. Validate current manager assignment and live delegation
-online, rather than accepting a client role flag or stale cached permission. Staff membership,
-tenant/branch access and local-attendance checks still apply.
+Revised D13 (2026-10-21) separates authorization from activation. Owner control and explicit
+per-user/per-branch manager delegation remain; manager role alone is insufficient and managers
+cannot delegate onward. Authorize online remotely with current tenant/branch/delegation checks.
+`OfflineTerminalAssignmentAuthorization` records actor/time, reason, exact target enrollment and
+expected nomination version. This authorization does not nominate a device or issue a grant.
 
-`OfflineTerminalAssignment` identifies the target enrollment, expected nomination version and
-reason; derive its branch from immutable enrollment identity. Atomically enforce the version and
-single designation, preserve old/new terminal and actor/delegation audit evidence, and apply D11's
-replacement clearance before issuing offline permission. The target may be newly enrolling;
-P2's enrollment flow must establish trusted identity and local attendance without requiring an
-already-enrolled device as a bootstrap prerequisite. `mayManageOfflineTerminal` consumes trusted
-server-derived facts only; it is not an implemented API guard or permission-catalog migration.
+On the exact target terminal an authorized local staff member confirms activation online using
+`OfflineTerminalActivation`, a signed command and verified local context. The local confirmer need
+not also hold the owner's assignment permission; they need explicit branch activation permission.
+Fetch the stored authorization, revalidate the original authorizer's live authority, target and
+version, then atomically consume authorization, enforce uniqueness/version, apply D11 clearance
+and audit authorizer versus local activator. Stale/revoked/consumed authorization requires renewal.
+Never issue overlapping usable offline grants. Newly enrolling targets use the same trusted
+bootstrap without requiring a previously enrolled terminal. `mayManageOfflineTerminal` models
+remote authorization; `mayActivateOfflineTerminal` models separate verified activation facts.
 
 ## Signed wire envelopes
 
@@ -258,13 +271,16 @@ Local durability is still required before staff see a successful close/open.
 Shift transitions preserve the original outage/snapshot baseline and terminal-wide stock usage.
 Opening a shift cannot renew permissions or extend their expiry. Approved D9 removes the previously
 proposed sale-count/value caps. Approved D8 permits counting cash
-and closing the existing shift outside sales hours, but does not reopen selling or authorize an
-after-hours selling shift. The existing grant expiry still governs authorization; no fresh snapshot is required solely for a handover
+and closing the existing shift outside sales hours. Revised D8 permits a new shift/sales outside
+the routine schedule only with a prepared manager's bounded acknowledgement; mandatory
+restrictions remain hard limits. The existing grant expiry still governs authorization; no fresh snapshot is required solely for a handover
 inside an already valid outage. `offlineShiftTransition` is a pure lifecycle fixture: callers verify
 signatures, the active outage, ordered journal, credential evidence and trusted local cash totals,
 then persist all effects atomically. It does not implement the durable till or PIN store.
-Remote-session status is determined in the trusted desktop process and bound to attestation;
-a request header claiming to be local is not evidence. P2/P7 must test Windows session detection.
+Supported remote-session evidence is determined in the trusted desktop process and bound to
+attestation; a request header claiming to be local is not evidence. P2/P7 test and document Windows
+and third-party tool coverage. This does not prove actual physical inspection or defeat a hostile
+local administrator; use named staff confirmation, training and audit. Do not claim perfect presence detection.
 
 Online local-execution commands bind method/route, exact body, identity/session, a short server-defined
 validity window and a one-use server nonce bound to that digest. Staff authority and current
@@ -325,7 +341,7 @@ local journal, stock use and counters must likewise commit together.
 | INVALID_COMMAND, UNSUPPORTED_CONTRACT | 400; stop and repair/upgrade; never blindly retry |
 | INVALID_SIGNATURE, IDENTITY_MISMATCH | 401; require authenticated recovery |
 | TERMINAL_REQUIRED, REMOTE_SESSION_DENIED, TERMINAL_REVOKED, SESSION_INVALID, PHARMACIST_REQUIRED | 403; require authorized action |
-| ONLINE_REQUIRED, GRANT_INVALID, GRANT_EXPIRED, SNAPSHOT_INVALID, SNAPSHOT_MISMATCH, SNAPSHOT_STALE, LOCAL_STOCK_EXHAUSTED, OUTSIDE_OPERATING_HOURS, CLOCK_UNTRUSTED, PAYMENT_NOT_ALLOWED | 409; stop new sale; reconnect or correct policy |
+| ONLINE_REQUIRED, GRANT_INVALID, GRANT_EXPIRED, SNAPSHOT_INVALID, SNAPSHOT_MISMATCH, SNAPSHOT_STALE, LOCAL_STOCK_EXHAUSTED, OUTSIDE_OPERATING_HOURS, BUSINESS_HOURS_ACK_REQUIRED, CLOCK_UNTRUSTED, PAYMENT_NOT_ALLOWED | 409; stop new sale; reconnect or correct policy |
 | REPLAY_CONFLICT, SEQUENCE_GAP, RECONCILIATION_REQUIRED | 409; retain journal, resolve/review; never change ID to bypass |
 | TEMPORARILY_UNAVAILABLE | 503; retry identical command with backoff |
 
@@ -335,14 +351,22 @@ outcomes; a successful HTTP response is not evidence every command committed.
 
 ## Hours, clock and pharmacist evidence
 
-Approved D8 (2026-10-20): resolve operating hours in the branch timezone online into signed absolute UTC windows bounded
-by the grant. Outside-window work needs an explicit, reasoned, authorized local-hours exception
-with approver and bounded interval. Offline terminals may use only an exception already present
-in their signed grant; no clock changes, local manager override or self-issued extension. New sales
-stop outside those windows. Staff may still count cash and close the existing shift after sales
-hours without opening a new selling shift. The separate 24-hour permission expiry still applies.
-An hours exception never overrides grant expiry,
-batch expiry, local stock bounds, staff permissions or pharmacist requirements.
+Revised D8 (2026-10-21): resolve routine schedules into signed `operatingWindows` and separate
+mandatory restrictions into `mandatoryOperatingWindows`, both in absolute branch-timezone-derived
+UTC intervals bounded by the grant. Null mandatory windows means no additional mandatory time
+restriction; an empty array prohibits selling. Required restrictions come from verified branch policy,
+not a manager's interpretation of law. This contract does not determine statutory permitted hours.
+
+Outside routine hours, require an authenticated prepared manager with the explicit signed
+`acknowledge_business_hours` capability, a reason and bounded end time. Persist the device-signed
+`OfflineBusinessHoursAcknowledgement` before dependent sales/shift-open commands. Bind it to
+grant/version/nomination, device/branch, original outage and manager sign-in; commands reference
+its record ID. Upload evidence and manager sign-in before dependent commands are accepted.
+This narrow acknowledgement grants no general offline approval power. An existing online-approved
+business extension still works, but neither form overrides mandatory restrictions, grant/batch
+expiry, stock, staff or clinical requirements. New sales/shift opening stop at the applicable limit.
+Cash counting/closing the existing shift remain available outside sales hours with valid permission.
+
 
 Trusted time derives from last authenticated server time plus monotonic elapsed time and durable
 rollback evidence. Local wall-clock time alone is insufficient. P4 must fail closed on rollback,
@@ -374,7 +398,7 @@ Never persist a PIN/password in an envelope or grant. A cached
 pharmacist identity or prior approval cannot authorize offline dispensing. Clinical verification
 and dispensing require the authorized local desktop workflow. Remote managerial approval does
 not replace clinical evidence. Managerial workflow approvals follow revised D10 below; D8 still
-requires operating-hours extensions to be approved online before an outage.
+permits only the narrow prepared-manager business-hours acknowledgement, with mandatory restrictions unchanged.
 
 ## Revised D10: remote management, local physical execution
 
@@ -392,7 +416,7 @@ a management permission does not authorize branch execution.
 | Products, prices, suppliers, customer contacts | Manage catalog, pricing, suppliers and administrative contact records | Imports/undo that also create/remove batches or stock require local execution |
 | Payments | Record bank payments online with supporting evidence | Actual branch cash collection/payout and till cash movements |
 | Prescription/controlled dispensing | Managerial review does not provide clinical sign-off | Qualified clinical verification and dispensing remain local and online |
-| Offline-terminal designation | Existing D13 delegation may be administered with permitted settings | Assign/change designation online, locally, audited; D11 replacement checks still apply |
+| Offline-terminal designation | Owner/delegated manager authorizes the exact assignment online remotely | Authorized staff activates on the exact enrolled target online/local; D11 clearance and uniqueness still apply |
 
 A remote approval may create an ordinary business reservation or commercial commitment.
 On-hand stock, physical cash and executed customer refunds do not move merely because approval
@@ -400,8 +424,10 @@ was granted. These business reservations can reduce available stock; they are no
 offline reservations. Snapshot/offline rules D1–D9 and D11–D14 remain unchanged.
 
 Bind approval to tenant/branch, document type/ID, exact version and canonical relevant-content
-digest, authorized action, requester, approver, reason/time and policy version. Changes to approved
-quantities, batches, prices, amounts, destination or other material content invalidate approval;
+digest, authorized action, requester, approver, reason/time and policy version. The document version/digest represent approved material content, not administrative notes.
+Nonmaterial note edits use separate metadata revisions; execution counters for approved partial
+receipts must not change the original approved material revision. Changes to approved quantities,
+batches, prices, amounts, destination or other material content invalidate approval;
 the changed document needs fresh approval. At execution, fetch persisted evidence and revalidate
 current authorization, document/action binding, existing limits and remaining quantities in the
 same transaction as posting. Prevent duplicate execution with command idempotency and domain
@@ -430,7 +456,12 @@ Classify complete server-side effects, including nested services, workers and le
 Mixed endpoints that both approve and post physical effects must be split; until split they
 require the stricter local execution context. Neither route prefix/HTTP method, button label nor
 client-declared effect is authorization evidence. Owners cannot bypass physical/clinical checks.
-Remote management remains online only; it adds no offline approvals or stock operations.
+Remote management remains online only. D8 manager acknowledgement and assisted handover are
+narrow local exceptions; general offline approvals, refunds and stock operations remain prohibited.
+
+See [POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md) for payment recovery,
+incident evidence, assisted handover, readiness, settlement and launch/pilot acceptance criteria.
+These requirements are normative; pure fixtures do not implement the runtime workflows.
 
 ## Delivery dependencies
 

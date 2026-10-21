@@ -10,6 +10,7 @@ export const ONLINE_OPERATION_EFFECTS = [
   "customer_refund_execution",
   "clinical_dispensing",
   "terminal_designation",
+  "terminal_assignment_authorization",
 ] as const;
 export type OnlineOperationEffect = typeof ONLINE_OPERATION_EFFECTS[number];
 
@@ -73,7 +74,7 @@ export type ApprovalDocumentIdentity = Readonly<{
   branchId: string;
   documentType: string;
   documentId: string;
-  documentVersion: number;
+  documentVersion: number; // approved material-content revision; administrative notes use separate metadata revisions
   documentDigest: string; // SHA-256 of the canonical relevant document, not a caller's summary
   requestedByUserId: string;
 }>;

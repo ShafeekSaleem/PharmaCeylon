@@ -33,8 +33,9 @@ The normative product rules are in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md). In 
 5. Prepared branch staff authenticate using their own preconfigured PIN. They may close/open shifts
    offline on the same till. Keep separate staff/shift attribution and cash counts without resetting
    stock, original outage, expiry or command sequence. New users/rights/PIN resets require internet.
-6. Saved opening hours and extensions approved online govern selling. Counting cash and closing the
-   existing shift after sales hours remain allowed, subject to valid permission.
+6. Revised D8: mandatory time restrictions remain hard limits. Outside routine hours, prepared
+   managers may record a bounded local acknowledgement; it never extends grant expiry. Existing
+   shift cash count/close remains allowed outside selling hours with valid permission.
 7. On reconnect, the nominated terminal pauses new checkouts until the journal is accepted, uncertain
    submissions resolved and fresh stock/review blocks installed. Other online counters continue.
 8. Completed offline sales/payments are retained exactly once. A stock shortage creates an explicit
@@ -45,8 +46,8 @@ The normative product rules are in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md). In 
 10. Revised D10 (2026-10-21): online remote management/approvals and catalog/price/supplier/contact
     edits are permitted with branch authority. Physical stock, branch cash, executed refunds and
     clinical dispensing require the locally used enrolled desktop, including for owners. Bank payment
-    recording requires evidence. D13 designation remains online/local; owner may explicitly delegate
-    it to selected branch managers, with no automatic manager grant.
+    recording requires evidence. Revised D13 permits owner/delegated-manager authorization remotely
+    online, followed by authorized local target activation. Keep D11 clearance and unique nomination.
 11. Restart may resume only the same verified durable state. Clock/journal uncertainty requires
     online recovery; preserve recoverable data. Never reset the 24-hour period or erase a sync pause.
 
@@ -65,7 +66,38 @@ Remote approval may create normal reservations/commitments, but cannot automatic
 physical stock, branch cash or an executed refund. Split mixed legacy handlers; until split,
 apply local execution restrictions. Imports/workers inherit the complete effect requirements.
 Catalog-only processing may run from authorized remote management; stock-bearing import/undo
-requires verified local execution authority. This changes no offline permission or scope.
+requires verified local execution authority. D8 business-hours acknowledgement and prepared-manager assisted shift closure are narrow local
+exceptions, not general offline management. Remote management remains online only.
+
+## Operational-readiness contract
+
+[POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md) defines the approved scenarios
+and acceptance mapping for P1–P7. Shared `pos-resilience-contracts.ts` types expose card-attempt
+evidence/recovery actions, append-only incidents, readiness issues, drain-start facts and count-based
+settlement evidence. `OfflineSupportRecord` sync uses independent immutable record IDs/digests and
+signed acknowledgements, without consuming sale/shift sequence numbers. Resolve evidence dependencies
+before command acceptance; held records are not accepted and cannot be discarded.
+
+Separate assignment authorization from activation in APIs and UI; audit both actors. Prepare explicit
+manager capabilities online; never infer them from a renderer role. Persist after-hours acknowledgement
+before dependent commands. Assisted closure retains original cashier/session and actual counting manager.
+No raw PIN/card credentials are serialized in grants, commands, support records or logs.
+
+Preserve payment intent/draft before charging; resolve unknown outcomes before another charge.
+Keep original charged totals; explicitly review discounted carts before offline tender. Nonfinancial
+incident notes add no refund/stock/cash authority. Show readiness and pending money before an outage.
+Reconnection waits for stable authenticated connectivity and a durably quiesced checkout; recovery
+uploads can resolve uncertainty during drain. Resume includes accepted support evidence and resolved
+payment attempts, alongside the original journal/fresh-stock/review-block gates.
+
+Approval material versions exclude notes and ordinary partial-execution counters. Material edits
+still invalidate approval; remaining quantities/limits and idempotency apply transactionally. Stock
+resolution needs timeline/count evidence and existing-settlement linkage, not a blind approve button.
+
+These are unreleased v1 contract amendments. New grant manager-action/mandatory-hours fields and
+command acknowledgement/assistance fields are explicit; do not default missing fields into authority.
+P1/P2/P3 generate/parse the same amended wire schema and policy version; no production schema is
+migrated here. Runtime DTOs reject unknown/missing evidence. Existing v1 snapshots remain last-known.
 
 ## API promises to the desktop
 
@@ -107,6 +139,9 @@ requires verified local execution authority. This changes no offline permission 
   matching active work session. Signed open/sale/close events use one enrollment-wide journal chain.
 - Present offline mode, last sync, permission expiry, not-yet-synced shifts/sales and recovery cases
   clearly. A reachable API alone is not proof that the terminal is ready to resume online checkout.
+- Distinguish app restart from OS reboot/power loss; prove protected time continuity across each
+  supported scenario before offline rollout. Same-boot monotonic evidence is insufficient after reboot.
+  Test suspend/resume, downtime and rollback; surface unsupported recovery before launch.
 - Recover only verified unchanged state after restart. When recovery cannot prove it safe, retain
   evidence and request online recovery; do not create a fresh grant, enrollment or outage to bypass it.
 
@@ -145,7 +180,11 @@ P5/P6. These are technical dependencies, not staffing or additional human-approv
 - Positive tests allow remote branch-authorized management and normal reservations; negative tests
   block remote physical effects, mixed-handler bypasses, stale approvals and wrong-branch actions.
 - Test existing self-approval settings, separate actor records, material-edit invalidation and
-  bank-payment evidence without adding offline approvals or a mandatory two-person rule.
+  bank-payment evidence without adding general offline approvals or a mandatory two-person rule.
+- Run the scenario matrix for payment crash/retry, after-hours mandatory restrictions, remote
+  authorization/local activation, assisted handover, support-record retries and physical-count settlement.
+- Test supported session-detection coverage and document its limits; named confirmation/audit still apply.
+- Pilot evidence measures eligible ordinary-item trade and outage continuity before expanding scope.
 - Central/local migrations preserve journal, snapshot, staff/shift and reconciliation evidence.
 - API/database/desktop integration tests verify the relevant contract scenarios as each epic is implemented.
 - Preserve the approved product decisions and report material implementation findings to Shafeek.
