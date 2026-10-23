@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import type { ManagementApprovalEvidence } from "@pharmaceylon/shared";
 import { AccessService } from "./access.service";
 import {
   classifyMutation,
@@ -116,6 +117,9 @@ export class OperationAuthorizationService {
     if (boundedCanonical(terminal.command.body) !== boundedCanonical(body))
       denied("INVALID_COMMAND");
     let approval = null;
+    let revalidateApproval:
+      | (() => Promise<ManagementApprovalEvidence>)
+      | undefined;
     if (descriptor.approval) {
       const policy = approvalAction(descriptor.approval.action);
       if (
@@ -124,14 +128,21 @@ export class OperationAuthorizationService {
       )
         denied("INVALID_COMMAND");
       if (!terminal.command.approvalEvidenceId) denied("APPROVAL_REQUIRED");
-      approval = await this.approvals.requireForExecution(
-        tx,
-        user,
-        branchId,
-        descriptor.approval.action,
-        descriptor.approval.documentId(body),
-        terminal.command.approvalEvidenceId,
-      );
+      // Pin the exact signed approval and resolved document once. Evidence providers
+      // must not cause a later check to select another document/action/approval.
+      const action = descriptor.approval.action;
+      const documentId = descriptor.approval.documentId(body);
+      const approvalId = terminal.command.approvalEvidenceId;
+      revalidateApproval = () =>
+        this.approvals.requireForExecution(
+          tx,
+          user,
+          branchId,
+          action,
+          documentId,
+          approvalId,
+        );
+      approval = await revalidateApproval();
     } else if (terminal.command.approvalEvidenceId !== null)
       denied("APPROVAL_INVALID");
     // Re-resolve and check mandatory evidence AFTER terminal/document/evidence locks.
@@ -155,6 +166,9 @@ export class OperationAuthorizationService {
     await this.evidence.hours(tx, terminal.command);
     const current = await this.access.resolveLive(user, branchId, tx);
     if (!current.has(descriptor.permission)) denied("PERMISSION_DENIED");
+    // Locks cannot freeze time or approver grants. Recheck after every evidence
+    // provider and the executor lookup, with no further awaits before returning.
+    if (revalidateApproval) approval = await revalidateApproval();
     return { body, classification, terminal, approval };
   }
 }

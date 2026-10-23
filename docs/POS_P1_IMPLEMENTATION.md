@@ -196,6 +196,9 @@ ordinary reservations without terminal keys; bank records additionally require e
 Local/mixed effects require the signed command and independent attendance before mandatory
 clinical and hours checks. Conditional facts and live authority are rechecked after lock waits;
 owner grants cannot skip these requirements.
+After mandatory evidence providers finish, the boundary revalidates the same pinned
+approval/action/document again as its final asynchronous check. Approval expiry and live
+approver rights can change while a provider waits even with document/evidence locks held.
 
 The production clinical, hours and bank evidence ports fail closed until their domain providers
 are installed. These ports accept exact command/context records, not caller-supplied “verified”
@@ -219,6 +222,12 @@ including legacy purchasing/transfer/return workflows and last-unit stock concur
 The authorization, authentication, access and classification checks passed (69 focused API
 tests in total). API type/tenant/stock checks, the 166-route inventory, 70-model staged RLS
 inventory and migrated-schema comparison passed. CI now runs the complete database suite.
+Review regression coverage adds real enrolled Ed25519 commands paused inside a test evidence
+provider. Expiry or approver-permission removal during that pause rejects authorization and
+rolls back the consumed nonce; downstream document changes and success audit do not commit.
+An unchanged approval succeeds through the same pause, with one nonce consumption/audit.
+Review verification (2026-10-24): 57 P1 PostgreSQL tests, 71 focused API tests and
+API type/tenant/stock checks passed. Both new unit regressions failed before the fix.
 
 ## Remaining P1 MRs, in order
 

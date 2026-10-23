@@ -1,10 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, RoleName } from "@prisma/client";
+import type { TerminalIdentity } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { AccessService } from "../../src/security/access.service";
 import { ManagementApprovalsService } from "../../src/security/management-approvals.service";
 import type { ApprovalAction } from "../../src/security/approval-documents";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
+import { OperationAuthorizationService } from "../../src/security/operation-authorization.service";
+import { MandatoryOperationEvidence } from "../../src/security/mandatory-operation-evidence";
+import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
+import {
+  LocalAttendanceVerifier,
+  type AttendanceExpectation,
+} from "../../src/terminals/local-attendance.verifier";
+import {
+  boundedCanonical,
+  object,
+  sha256,
+  uuid,
+} from "../../src/terminals/terminal-wire";
+import { terminalDevice } from "../fixtures/terminal-device";
 import { createPrisma, createTenant, type TenantFixture } from "./fixtures";
 
 const prisma = createPrisma();
@@ -116,6 +131,69 @@ const use = (p: Awaited<ReturnType<typeof issued>>) =>
       p.approval.approvalId,
     ),
   );
+
+/** Real terminal enrollment/key/session/nonce; only the independent attendance
+ * provider is a test fixture, bound to each exact server-issued challenge.
+ */
+async function enrolledDevice() {
+  const local = new LocalAttendanceVerifier();
+  const proofs = new Map<string, AttendanceExpectation>();
+  jest.spyOn(local, "verify").mockImplementation(async (_tx, id, expected) => {
+    if (boundedCanonical(proofs.get(id) ?? {}) !== boundedCanonical(expected))
+      throw new Error("Unknown test attendance proof");
+    return id;
+  });
+  const trust = new TerminalTrustService(access, audit, local);
+  const device = terminalDevice();
+  const counter = await tx((c) =>
+    trust.createCounter(c, owner, fx.mainBranchId, "Evidence review counter"),
+  );
+  const proof = (
+    payload: { identity: TerminalIdentity },
+    purpose: AttendanceExpectation["purpose"],
+  ) => {
+    const id = randomUUID();
+    proofs.set(id, {
+      purpose,
+      identity: payload.identity,
+      actorUserId: owner.userId,
+      registerId: counter.id,
+      tillId: counter.tillId,
+      payloadDigest: sha256(boundedCanonical(payload)),
+    });
+    return id;
+  };
+  const enrollment = await tx((c) =>
+    trust.beginEnrollment(c, owner, fx.mainBranchId, {
+      registerId: counter.id,
+      keyId: randomUUID(),
+      publicKeyHex: device.publicKeyHex,
+      label: "Review fixture",
+    }),
+  );
+  const identity = await tx((c) =>
+    trust.finishEnrollment(
+      c,
+      owner,
+      fx.mainBranchId,
+      device.sign(enrollment, enrollment.identity.keyId),
+      proof(enrollment, "enrollment"),
+    ),
+  );
+  const sessionCommand = await tx((c) =>
+    trust.beginSession(c, owner, fx.mainBranchId, identity),
+  );
+  const session = await tx((c) =>
+    trust.finishSession(
+      c,
+      owner,
+      fx.mainBranchId,
+      device.sign(sessionCommand, identity.keyId),
+      proof(sessionCommand, "session"),
+    ),
+  );
+  return { trust, device, identity, session, proof };
+}
 beforeAll(async () => {
   fx = await createTenant(prisma, "approvals");
   owner = user(fx.ownerId);
@@ -143,6 +221,174 @@ afterAll(async () => {
 });
 
 describe("P1 persisted exact material approvals", () => {
+  it.each(["expiry", "permission removal", "unchanged"] as const)(
+    "rechecks the exact approval after a mandatory evidence wait: %s",
+    async (change) => {
+      const terminal = await enrolledDevice();
+      const p = await issued("purchase_order.receive", manager);
+      const approval =
+        change === "expiry"
+          ? await tx((c) =>
+              approvals.issue(c, manager, fx.mainBranchId, p.action, p.doc.id, {
+                ...p.input,
+                approvalId: randomUUID(),
+                expiresAt: Date.now() + 5_000,
+              }),
+            )
+          : p.approval;
+      // A protocol fixture parser, not a production goods-receipt DTO or stock writer.
+      const parseBody = (raw: unknown) => {
+        const body = object(raw, ["documentId"]);
+        return { documentId: uuid(body.documentId) };
+      };
+      const body = { documentId: p.doc.id };
+      const payload = await tx((c) =>
+        terminal.trust.prepareCommand(
+          c,
+          owner,
+          fx.mainBranchId,
+          terminal.session.workSessionId,
+          {
+            operation: "POST /api/v1/purchasing/purchase-orders/receive",
+            permission: "purchasing.receive",
+            parseBody,
+          },
+          body,
+          {
+            approvalEvidenceId: approval.approvalId,
+            pharmacistEvidenceId: null,
+            operatingHoursExceptionId: null,
+          },
+        ),
+      );
+      let resume!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const mandatory = new MandatoryOperationEvidence();
+      jest.spyOn(mandatory, "hours").mockImplementation(async () => {
+        entered();
+        await gate;
+      });
+      const boundary = new OperationAuthorizationService(
+        access,
+        terminal.trust,
+        mandatory,
+        approvals,
+      );
+      const executionId = randomUUID();
+      const pending = Promise.allSettled([
+        tx(async (c) => {
+          const authorization = await boundary.authorize(
+            c,
+            owner,
+            fx.mainBranchId,
+            {
+              method: "POST",
+              routeTemplate: "/api/v1/purchasing/purchase-orders/receive",
+              permission: "purchasing.receive",
+              parseBody,
+              approval: {
+                action: p.action,
+                documentId: (value) => value.documentId,
+              },
+            },
+            {
+              body,
+              signedCommand: terminal.device.sign(
+                payload,
+                terminal.identity.keyId,
+              ),
+              attendanceProofId: terminal.proof(payload, "command"),
+            },
+          );
+          // Surrogate execution and success audit must never commit after stale authorization.
+          await c.purchaseOrder.update({
+            where: { tenantId: fx.tenantId, id: p.doc.id },
+            data: { notes: "Executed after authorization" },
+          });
+          await audit.log(
+            {
+              tenantId: fx.tenantId,
+              branchId: fx.mainBranchId,
+              actorUserId: owner.userId,
+              eventName: "test.authorized_execution",
+              entityName: "purchase_order",
+              entityId: executionId,
+            },
+            c,
+          );
+          return authorization;
+        }),
+      ]);
+      let clock: jest.SpyInstance | undefined;
+      try {
+        await Promise.race([
+          waiting,
+          pending.then(() => {
+            throw new Error("Operation stopped before the evidence wait");
+          }),
+        ]);
+        if (change === "expiry")
+          clock = jest.spyOn(Date, "now").mockReturnValue(approval.expiresAt!);
+        if (change === "permission removal")
+          await prisma.userBranchRole.updateMany({
+            where: {
+              tenantId: fx.tenantId,
+              branchId: fx.mainBranchId,
+              userId: manager.userId,
+            },
+            data: { role: "cashier" },
+          });
+        resume();
+        const [result] = await pending;
+        if (change === "unchanged") {
+          expect(result.status).toBe("fulfilled");
+          if (result.status === "fulfilled")
+            expect(result.value.approval?.approvalId).toBe(approval.approvalId);
+        } else {
+          expect(result.status).toBe("rejected");
+          if (result.status === "rejected")
+            expect(result.reason.response.code).toBe(
+              change === "expiry" ? "APPROVAL_EXPIRED" : "APPROVAL_INVALID",
+            );
+        }
+        const challenge = await prisma.terminalChallenge.findUniqueOrThrow({
+          where: { nonceHash: sha256(payload.serverNonce) },
+        });
+        const current = await prisma.purchaseOrder.findFirstOrThrow({
+          where: { tenantId: fx.tenantId, id: p.doc.id },
+        });
+        expect(challenge.consumedAt !== null).toBe(change === "unchanged");
+        expect(current.notes).toBe(
+          change === "unchanged" ? "Executed after authorization" : null,
+        );
+        expect(
+          await prisma.auditEvent.count({
+            where: { tenantId: fx.tenantId, entityId: executionId },
+          }),
+        ).toBe(change === "unchanged" ? 1 : 0);
+      } finally {
+        resume();
+        await pending;
+        clock?.mockRestore();
+        if (change === "permission removal")
+          await prisma.userBranchRole.updateMany({
+            where: {
+              tenantId: fx.tenantId,
+              branchId: fx.mainBranchId,
+              userId: manager.userId,
+            },
+            data: { role: "manager" },
+          });
+      }
+    },
+  );
+
   it("rechecks the approver after a real approval-row lock wait", async () => {
     const p = await issued("transfer.ship", manager);
     let release!: () => void;

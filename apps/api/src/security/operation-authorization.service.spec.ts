@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ForbiddenException } from "@nestjs/common";
 import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import type { RequestUser } from "./interfaces/authenticated-request.interface";
 import {
@@ -87,6 +88,50 @@ const stock = {
 };
 
 describe("Transactional operation authorization independently of owner permissions", () => {
+  it.each(["APPROVAL_EXPIRED", "APPROVAL_INVALID"])(
+    "rejects %s discovered after a mandatory evidence wait",
+    async (code) => {
+      const evidence = new MandatoryOperationEvidence();
+      const f = fixture(evidence);
+      const approvalId = randomUUID();
+      const documentId = randomUUID();
+      f.terminal.command = {
+        ...f.terminal.command,
+        approvalEvidenceId: approvalId,
+      };
+      let evidenceFinished = false;
+      jest.spyOn(evidence, "hours").mockImplementation(async () => {
+        await Promise.resolve();
+        evidenceFinished = true;
+      });
+      f.approvals.requireForExecution.mockImplementation(async () => {
+        if (evidenceFinished) throw new ForbiddenException({ code });
+        return { approvalId };
+      });
+      const documentSelector = jest.fn().mockReturnValue(documentId);
+      const transaction = {} as never;
+      await expect(
+        f.service.authorize(
+          transaction,
+          user,
+          branchId,
+          {
+            ...base,
+            routeTemplate: "/api/v1/transfers/:id/ship",
+            permission: "transfers.manage",
+            approval: { action: "transfer.ship", documentId: documentSelector },
+          },
+          localInput,
+        ),
+      ).rejects.toMatchObject({ response: { code } });
+      expect(f.approvals.requireForExecution.mock.calls).toEqual([
+        [transaction, user, branchId, "transfer.ship", documentId, approvalId],
+        [transaction, user, branchId, "transfer.ship", documentId, approvalId],
+      ]);
+      expect(documentSelector).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it.each([
     "/api/v1/products",
     "/api/v1/transfers",
