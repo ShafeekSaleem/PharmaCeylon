@@ -67,8 +67,8 @@ jobs:
           JWT_ACCESS_SECRET: ci-access-secret
           JWT_REFRESH_SECRET: ci-refresh-secret
 
-      - name: P1 terminal isolation, signatures and command challenges
-        run: npm run test:integration -w api -- terminal
+      - name: PostgreSQL workflows, stock concurrency and P1 authorization
+        run: npm run test:integration -w api
 
       - name: Web component tests
         run: npm test -w web -- --runInBand

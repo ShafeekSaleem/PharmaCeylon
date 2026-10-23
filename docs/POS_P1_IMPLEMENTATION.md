@@ -148,21 +148,99 @@ custom-permission removal reject without consuming a challenge, creating a bindi
 a success audit. The original four command/session token cases and permission-removal case
 were reproduced failing before the fix.
 
+## MR 3: transactional permissions and exact material approvals
+
+Builds on merged [MR #58](https://github.com/ShafeekSaleem/PharmaCeylon/pull/58).
+`OperationalAuthorizationModule` exports `OperationAuthorizationService` and
+`ManagementApprovalsService`, reusing `AccessService` and `TerminalTrustService` rather
+than adding another HTTP guard. Existing JWT/CSRF/branch/permission guards retain their order.
+
+### Exact approvals
+
+The initial document adapters read and lock real purchase orders, source-branch transfers and
+supplier returns. They support `purchase_order.receive`, `transfer.ship` and
+`goods_return.complete`, with the existing approval/execution permissions. Customer refunds
+remain a separate POS workflow; legacy customer returns cannot use supplier completion.
+
+1. `preview` returns the server-derived material identity/content under the document lock.
+2. `issue` requires that displayed revision/digest, the current approval permission and existing
+   self-approval settings. Its caller-generated approval UUID is a retry identity, not authority.
+   Reusing it with changed document/action/reason/expiry/approver fails. Authorization and its
+   success audit commit together. It does not change domain status, reservations or stock.
+3. `requireForExecution` locks the current domain document and immutable evidence, then checks
+   exact tenant/branch/action/document/requester/version/digest, revocation, workflow expiry and
+   the approver's current account/membership/branch permission/self-approval settings. A completed,
+   cancelled or ineligible document cannot execute merely because evidence exists.
+
+No mandatory approval TTL or additional approver/executor separation is introduced. Logging
+out the approver does not erase their commercial approval: current rights are revalidated
+independently of the old login token. Executing staff still need a current authenticated token.
+Revocation retains the original approval and material snapshot. The service returns requester
+and approver attribution alongside the separately authenticated executor; the future business
+executor must persist all three with terminal/session/command identifiers.
+
+Database triggers maintain `approvalVersion` and `metadataVersion` on these three document
+types, including legacy/internal writes. Header or line material changes advance the approval
+revision, even when a value is later restored. Notes advance only metadata; status and normal
+partial-receipt counters do not restate approved material. Line edits serialize against the
+parent document lock. New evidence retains exact material JSON/digest and cannot be rewritten
+or deleted through ordinary writes. Existing documents receive revision counters; **no old
+approval evidence is fabricated or backfilled**. Existing RLS policies remain staged/disabled.
+
+### Transactional operation boundary
+
+Server-owned descriptors select the registered route, existing permission, strict body parser,
+resolved product/payment facts and any exact approval requirement. They are code adapters,
+never deserialized request fields. The boundary permits authorized online management and
+ordinary reservations without terminal keys; bank records additionally require evidence.
+Local/mixed effects require the signed command and independent attendance before mandatory
+clinical and hours checks. Conditional facts and live authority are rechecked after lock waits;
+owner grants cannot skip these requirements.
+After mandatory evidence providers finish, the boundary revalidates the same pinned
+approval/action/document again as its final asynchronous check. Approval expiry and live
+approver rights can change while a provider waits even with document/evidence locks held.
+
+The production clinical, hours and bank evidence ports fail closed until their domain providers
+are installed. These ports accept exact command/context records, not caller-supplied “verified”
+booleans. Test providers/mocks are confined to tests. Domain adapters must hold their business
+locks and enforce current quantities, remaining receipts/refund limits, policy thresholds and
+receipt idempotency. Do not turn an approval-optional workflow into a mandatory approval step.
+
+All calls use the caller's READ COMMITTED transaction. Authorization, business effects, success
+audit and final command receipt must share it; let denials/errors escape so consumed nonces
+roll back. The boundary does not itself execute business callbacks or claim final-result replay.
+
+**Rollout:** this MR exposes no new HTTP endpoints and does not redirect existing browser or
+desktop workflows. Legacy approval handlers are not wired to this evidence yet; that migration
+belongs with handler separation and transactional execution. Mixed adjustment/delivery/stocktake
+and stock-bearing import adapters, POS refund approvals, real clinical/hours/bank evidence,
+D13 delegation/activation with D11 clearance, P2 attendance/P4 shifts and P6 UI integration remain
+explicit rollout work. Generic registry permissions confer none of that authority.
+
+Validation (2026-10-23): all eight PostgreSQL integration suites passed (131 tests),
+including legacy purchasing/transfer/return workflows and last-unit stock concurrency.
+The authorization, authentication, access and classification checks passed (69 focused API
+tests in total). API type/tenant/stock checks, the 166-route inventory, 70-model staged RLS
+inventory and migrated-schema comparison passed. CI now runs the complete database suite.
+Review regression coverage adds real enrolled Ed25519 commands paused inside a test evidence
+provider. Expiry or approver-permission removal during that pause rejects authorization and
+rolls back the consumed nonce; downstream document changes and success audit do not commit.
+An unchanged approval succeeds through the same pause, with one nonce consumption/audit.
+Review verification (2026-10-24): 57 P1 PostgreSQL tests, 71 focused API tests and
+API type/tenant/stock checks passed. Both new unit regressions failed before the fix.
+
 ## Remaining P1 MRs, in order
 
-1. **Permissions and exact approvals:** extend the existing auth pipeline; enforce mandatory
-   execution checks independently of owner shortcuts. Persist material document approval and
-   live authority checks; preserve self-approval rules. Remote assignment authorization and
-   exact-target local activation remain separate, atomic actions with D11 checks.
-2. **Separate approval from execution:** split held-adjustment acceptance, held-delivery
+1. **Separate approval from execution:** split held-adjustment acceptance, held-delivery
    acceptance, stocktake approval/completion and stock-bearing import/undo stages. Retain
    remote commercial management and normal reservations; coordinate P6 screens.
-3. **Transactional command execution:** integrate receipts with existing business services,
+2. **Transactional command execution:** integrate exact approvals and receipts with existing business services,
    StockService and AuditService; prove retries/lost responses, digest conflicts, rollback and
    import/worker provenance. No parallel stock writer or user-key-only replay shortcut.
-4. **Readiness evidence and integration:** hours acknowledgements, assisted handover, incident
+3. **Readiness evidence and integration:** hours acknowledgements, assisted handover, incident
    and card-attempt records, dependency ordering, failure/alternate-path tests and coordinated
-   P2/P6 rollout, including the MR 2 attendance port and actual financial-shift binding.
+   P2/P6 rollout, including attendance/mandatory-evidence providers, D13 authorizations/delegation
+   and local activation with D11 clearance, and actual financial-shift binding.
    P5 owns offline business replay and discrepancy settlement.
 
 Production enforcement waits for a usable enrolled desktop client and integrated evidence.

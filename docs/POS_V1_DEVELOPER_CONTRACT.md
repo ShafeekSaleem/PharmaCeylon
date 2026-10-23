@@ -13,6 +13,10 @@ P1 implementation status and service integration examples/boundaries are tracked
 and additive enrollment/session challenge types. Local attendance currently fails closed
 pending P2 integration; financial shifts, operational endpoint enforcement and business replay
 remain subsequent work. A terminal staff authorization binding is not a posted till shift.
+MR 3 adds exact approval persistence for purchase orders, transfers and supplier returns,
+database material/metadata revisions, and a transactional operation authorization service.
+These services still require endpoint/domain adapters and production evidence providers;
+legacy approval routes are not silently cut over.
 
 | Component | Technical responsibility |
 | --- | --- |

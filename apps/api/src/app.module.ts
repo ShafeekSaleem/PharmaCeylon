@@ -36,6 +36,7 @@ import { TransfersModule } from "./transfers/transfers.module";
 import { UploadsModule } from "./uploads/uploads.module";
 import { SetupModule } from "./setup/setup.module";
 import { TerminalsModule } from "./terminals/terminals.module";
+import { OperationalAuthorizationModule } from "./security/operational-authorization.module";
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { TerminalsModule } from "./terminals/terminals.module";
     UploadsModule,
     SetupModule,
     TerminalsModule,
+    OperationalAuthorizationModule,
   ],
   controllers: [HealthController],
   providers: [

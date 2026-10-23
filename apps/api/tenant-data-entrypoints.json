@@ -119,6 +119,16 @@
   "backgroundWorkers": [],
   "rawSqlReview": [
     {
+      "path": "src/security/approval-documents.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks the exact PO, source-branch transfer or return by tenant, branch and document id before fetching approval material and through execution."
+    },
+    {
+      "path": "src/security/management-approvals.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Serializes approval execution and revocation in document-then-evidence order using explicit tenant, branch and id predicates."
+    },
+    {
       "path": "src/terminals/terminal-trust.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one enrollment by bound tenant, branch and enrollment id to serialize command/session verification, revocation and session closure through the caller's transaction."
