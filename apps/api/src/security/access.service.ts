@@ -40,12 +40,24 @@ export class AccessService {
    * This permission resolution never substitutes for device/attendance/clinical checks.
    */
   async resolveLive(user: RequestUser, branchId: string, tx: Prisma.TransactionClient): Promise<ActorAccess> {
+    if (!Number.isSafeInteger(user.tokenVersion) || user.tokenVersion! < 0) throw new ForbiddenException("Live branch authentication required");
+    return this.resolveCurrentAuthority(user, branchId, tx, user.tokenVersion);
+  }
+
+  /** Revalidate the actor of persisted approval evidence, not an incoming request.
+   * An old approval needs current rights, not the approver's old access token.
+   */
+  async resolveApprovalAuthority(identity: Pick<RequestUser, "tenantId" | "userId">, branchId: string, tx: Prisma.TransactionClient): Promise<ActorAccess> {
+    return this.resolveCurrentAuthority(identity, branchId, tx);
+  }
+
+  private async resolveCurrentAuthority(user: Pick<RequestUser, "tenantId" | "userId">, branchId: string, tx: Prisma.TransactionClient, expectedTokenVersion?: number): Promise<ActorAccess> {
     const account = await tx.appUser.findFirst({
       where: { id: user.userId, isActive: true, tenantMemberships: { some: { tenantId: user.tenantId, isActive: true } } },
       select: { tokenVersion: true },
     });
     const branch = await tx.branch.findFirst({ where: { id: branchId, tenantId: user.tenantId, isActive: true, tenant: { isActive: true } }, select: { id: true } });
-    if (!account || !branch || user.tokenVersion !== account.tokenVersion) throw new ForbiddenException("Live branch authentication required");
+    if (!account || !branch || (expectedTokenVersion !== undefined && expectedTokenVersion !== account.tokenVersion)) throw new ForbiddenException("Live branch authentication required");
     const roles = await tx.userBranchRole.findMany({
       where: { tenantId: user.tenantId, userId: user.userId },
       include: { roleRef: { include: { permissions: true } } },

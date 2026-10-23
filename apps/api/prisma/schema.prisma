@@ -503,6 +503,7 @@ model Branch {
   terminals          OperationalTerminal[]
   terminalCounters   TerminalCounter[]
   terminalChallenges TerminalChallenge[]
+  managementApprovals ManagementApproval[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -606,6 +607,31 @@ model TerminalChallenge {
 
   @@index([tenantId, branchId, expiresAt])
   @@map("terminal_challenge")
+}
+
+/// Exact immutable commercial authorization. Does not post or record business execution.
+model ManagementApproval {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  documentType      String    @map("document_type") @db.VarChar(40)
+  documentId        String    @map("document_id") @db.Uuid
+  documentVersion   Int       @map("document_version")
+  documentDigest    String    @map("document_digest") @db.Char(64)
+  material          Json
+  requestedByUserId String    @map("requested_by_user_id") @db.Uuid
+  authorizedAction  String    @map("authorized_action") @db.VarChar(80)
+  approvedByUserId  String    @map("approved_by_user_id") @db.Uuid
+  approvedAt        DateTime  @default(now()) @map("approved_at")
+  expiresAt         DateTime? @map("expires_at")
+  policyVersion     Int       @default(1) @map("policy_version")
+  reason            String    @db.VarChar(500)
+  revokedAt         DateTime? @map("revoked_at")
+  revocationReason  String?   @map("revocation_reason") @db.VarChar(500)
+  branch            Branch    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, branchId, documentType, documentId])
+  @@map("management_approval")
 }
 
 /// Final results only. Future execution must insert this in the SAME transaction as
@@ -1839,6 +1865,8 @@ model PurchaseOrder {
   createdBy            String     @map("created_by") @db.Uuid
   createdAt            DateTime   @default(now()) @map("created_at")
   updatedAt            DateTime   @updatedAt @map("updated_at")
+  approvalVersion      Int        @default(1) @map("approval_version")
+  metadataVersion      Int        @default(1) @map("metadata_version")
 
   branch   Branch   @relation(fields: [branchId], references: [id])
   supplier Supplier @relation(fields: [supplierId], references: [id])
@@ -2272,6 +2300,8 @@ model Transfer {
   receivedBy     String?        @map("received_by") @db.Uuid
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
+  approvalVersion Int          @default(1) @map("approval_version")
+  metadataVersion Int          @default(1) @map("metadata_version")
 
   fromBranch Branch   @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
   toBranch   Branch   @relation("TransferToBranch", fields: [toBranchId], references: [id])
@@ -2327,6 +2357,8 @@ model GoodsReturn {
   processedBy     String?           @map("processed_by") @db.Uuid
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
+  approvalVersion Int              @default(1) @map("approval_version")
+  metadataVersion Int              @default(1) @map("metadata_version")
 
   branch        Branch         @relation(fields: [branchId], references: [id])
   sale          Sale?          @relation(fields: [saleId], references: [id])
