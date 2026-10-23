@@ -501,6 +501,8 @@ model Branch {
   notifications      Notification[]
   productImports     ProductImport[]
   terminals          OperationalTerminal[]
+  terminalCounters   TerminalCounter[]
+  terminalChallenges TerminalChallenge[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -517,6 +519,9 @@ model OperationalTerminal {
   label       String    @db.VarChar(120)
   createdAt   DateTime  @default(now()) @map("created_at")
   retiredAt   DateTime? @map("retired_at")
+  registerId  String?   @map("register_id") @db.Uuid
+  tillId      String?   @map("till_id") @db.Uuid
+  counter     TerminalCounter? @relation(fields: [tenantId, branchId, registerId, tillId], references: [tenantId, branchId, id, tillId], onDelete: Restrict, onUpdate: Restrict)
   branch      Branch    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   enrollments TerminalEnrollment[]
 
@@ -538,11 +543,69 @@ model TerminalEnrollment {
   revocationReason String?   @map("revocation_reason") @db.VarChar(500)
   terminal         OperationalTerminal @relation(fields: [tenantId, branchId, terminalId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
   receipts         TerminalCommandReceipt[]
+  sessions         TerminalStaffSession[]
 
   @@unique([tenantId, keyId])
   @@unique([tenantId, branchId, terminalId, id, keyId])
   @@index([tenantId, branchId, terminalId])
   @@map("terminal_enrollment")
+}
+
+/// Backend counter/drawer identity; not a cash balance or an open financial shift.
+model TerminalCounter {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  tillId    String   @default(uuid()) @map("till_id") @db.Uuid
+  label     String   @db.VarChar(120)
+  isActive  Boolean  @default(true) @map("is_active")
+  branch    Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  terminals OperationalTerminal[]
+  sessions  TerminalStaffSession[]
+
+  @@unique([tenantId, branchId, id, tillId])
+  @@unique([tenantId, tillId])
+  @@map("terminal_counter")
+}
+
+/// Online staff authorization binding. Cash/shift posting and offline PIN access are separate protocols.
+model TerminalStaffSession {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  branchId     String    @map("branch_id") @db.Uuid
+  terminalId   String    @map("terminal_id") @db.Uuid
+  enrollmentId String    @map("enrollment_id") @db.Uuid
+  keyId        String    @map("key_id") @db.VarChar(128)
+  registerId   String    @map("register_id") @db.Uuid
+  tillId       String    @map("till_id") @db.Uuid
+  staffUserId  String    @map("staff_user_id") @db.Uuid
+  tokenVersion Int       @map("token_version")
+  openedAt     DateTime  @default(now()) @map("opened_at")
+  closedAt     DateTime? @map("closed_at")
+  enrollment   TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+  counter      TerminalCounter @relation(fields: [tenantId, branchId, registerId, tillId], references: [tenantId, branchId, id, tillId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, branchId, enrollmentId])
+  @@map("terminal_staff_session")
+}
+
+/// Short-lived server nonce and exact canonical payload; consumed in the caller's transaction.
+model TerminalChallenge {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  branchId      String    @map("branch_id") @db.Uuid
+  actorUserId   String    @map("actor_user_id") @db.Uuid
+  purpose       String    @db.VarChar(24)
+  nonceHash     String    @unique @map("nonce_hash") @db.Char(64)
+  payloadDigest String    @map("payload_digest") @db.Char(64)
+  payload       Json
+  createdAt     DateTime  @default(now()) @map("created_at")
+  expiresAt     DateTime  @map("expires_at")
+  consumedAt    DateTime? @map("consumed_at")
+  branch        Branch @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, branchId, expiresAt])
+  @@map("terminal_challenge")
 }
 
 /// Final results only. Future execution must insert this in the SAME transaction as

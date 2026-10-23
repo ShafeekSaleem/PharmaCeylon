@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
-import { RoleName } from "@prisma/client";
+import { Prisma, RoleName } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { PERMISSION_KEYS } from "./permission-catalog";
+import { defaultPermissionsForRole, PERMISSION_KEYS } from "./permission-catalog";
 import { RequestUser } from "./interfaces/authenticated-request.interface";
 import { PermissionsService } from "./permissions.service";
 
@@ -34,6 +34,39 @@ export class AccessService {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
   ) {}
+
+  /** Terminal trust changes cannot use the bounded-staleness user/role caches.
+   * Read membership, token version, branch roles and grants on the caller's transaction.
+   * This permission resolution never substitutes for device/attendance/clinical checks.
+   */
+  async resolveLive(user: RequestUser, branchId: string, tx: Prisma.TransactionClient): Promise<ActorAccess> {
+    const account = await tx.appUser.findFirst({
+      where: { id: user.userId, isActive: true, tenantMemberships: { some: { tenantId: user.tenantId, isActive: true } } },
+      select: { tokenVersion: true },
+    });
+    const branch = await tx.branch.findFirst({ where: { id: branchId, tenantId: user.tenantId, isActive: true, tenant: { isActive: true } }, select: { id: true } });
+    if (!account || !branch || user.tokenVersion !== account.tokenVersion) throw new ForbiddenException("Live branch authentication required");
+    const roles = await tx.userBranchRole.findMany({
+      where: { tenantId: user.tenantId, userId: user.userId },
+      include: { roleRef: { include: { permissions: true } } },
+    });
+    const atBranch = roles.filter(role => role.branchId === branchId);
+    if (!atBranch.length) throw new ForbiddenException("No current branch assignment");
+    const isOwner = roles.some(role => role.role === RoleName.owner);
+    const grants = new Set<string>(isOwner ? PERMISSION_KEYS : []);
+    const roleKeys = new Set<string>(isOwner ? [RoleName.owner] : []);
+    for (const role of atBranch) {
+      if (role.roleRef && role.roleRef.tenantId !== user.tenantId) throw new ForbiddenException("Role tenant mismatch");
+      roleKeys.add(role.roleRef?.key ?? role.role);
+      for (const key of role.roleRef
+        ? role.roleRef.permissions.filter(p => p.tenantId === user.tenantId).map(p => p.permissionKey)
+        : defaultPermissionsForRole(role.role)) grants.add(key);
+    }
+    const settings = await tx.tenantSettings.findUnique({ where: { tenantId: user.tenantId }, select: { selfApprovalRoleKeys: true } });
+    const selfApprovers = new Set<string>(settings?.selfApprovalRoleKeys ?? DEFAULT_SELF_APPROVAL_ROLE_KEYS);
+    return { userId: user.userId, permissions: grants, roleKeys: [...roleKeys],
+      canSelfApprove: [...roleKeys].some(key => selfApprovers.has(key)), has: key => grants.has(key) };
+  }
 
   async resolve(user: RequestUser, branchId: string | undefined): Promise<ActorAccess> {
     const isOwner = user.branchRoles.some((entry) => entry.role === RoleName.owner);

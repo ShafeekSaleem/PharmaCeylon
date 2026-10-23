@@ -1,4 +1,4 @@
-# P1 delivery plan and first MR
+# P1 delivery plan and implementation progress
 
 Baseline: merged P0 amendments through PR #56 (`b317edf`), 2026-10-22.
 Epic: [#47](https://github.com/ShafeekSaleem/PharmaCeylon/issues/47).
@@ -75,24 +75,85 @@ transaction rollback. CI runs both suites and the existing stock/tenant checks.
 operations behave as before. No claim of verified attendance, signature validation, business
 exactly-once execution or completed P1 acceptance follows from merging this foundation.
 
+## MR 2: terminal trust services and signed challenges
+
+Builds on merged [MR #57](https://github.com/ShafeekSaleem/PharmaCeylon/pull/57).
+`TerminalTrustService` supplies backend counter creation, enrollment, staff authorization,
+command preparation/verification, session deauthorization, key revocation and terminal retirement.
+`TerminalsModule` exports these services; it exposes no HTTP endpoints and does not change
+existing checkout or browser behavior.
+
+### Trusted identity and protocol
+
+- `TerminalCounter` supplies server-generated register and drawer identities, scoped to one
+  branch. Only one nonretired terminal can occupy a counter. Counter bindings are immutable;
+  legacy unbound registry rows cannot pass verification.
+- Enrollment uses a server-created two-minute challenge, candidate Ed25519 key possession
+  and independent local-attendance verification. Subsequent signatures use the pinned public
+  key in the central enrollment, never a public key supplied with an operational command.
+- `TerminalStaffSession` binds the authenticated staff member and token version to the exact
+  enrollment/register/drawer. Live account, membership, branch assignment and permission
+  checks read the database rather than cached role claims. Identity-session authorization is
+  available to branch staff; each operation separately requires its server-selected permission.
+- `TerminalChallenge` retains the exact server-issued payload digest, actor, purpose, expiry
+  and single-use nonce hash. Runtime parsing rejects unknown fields, malformed signatures,
+  coercion, excessive payloads and altered identity/body/evidence. Shared enrollment/session
+  types are additive; their two-minute challenges are unrelated to the 24-hour offline grant.
+- Registry administration uses the existing `tenant.management` permission. This grants no
+  D13 offline nomination or delegation. Retirement releases a counter for online replacement;
+  it does not establish D11 journal recovery or old offline-grant expiry/disablement.
+
+The counter/drawer records hold no cash balance. Staff authorization is a terminal identity
+binding, **not a posted financial shift**. P2/P4 must bind actual shift opening, closing and
+handover records before operational checkout uses these identities.
+
+### Transaction and P2 integration boundary
+
+Every service call takes the caller's Prisma transaction. Verification locks the enrollment
+against revocation/session closure, rechecks current session state and consumes the nonce in
+that transaction. Enrollment, revocation and session success audits share their writes.
+Business adapters must pass strict server-owned operation/permission/body parsers; request
+fields must never select those adapters.
+
+The future executor must verify and execute effects/audit/final receipt in the **same**
+transaction. A failure rolls back nonce consumption, allowing retry. This MR does not yet
+implement business-result replay: the executor must check a scoped original receipt and
+matching digest before treating a consumed challenge as a retry. Exact approval, clinical,
+hours and business-limit checks also remain mandatory executor work.
+
+`LocalAttendanceVerifier` is an integration port whose production implementation currently
+denies every proof. P2 must supply independently authenticated installation/current local
+session evidence bound to purpose, enrollment/key, staff, counter and payload digest;
+remote or unknown attendance must fail, including for owners. A key signature alone does
+not prove local use. The permissive proof authority exists only in the database test fixture;
+there is no production mock/configuration bypass. Windows attendance and client enrollment
+are not claimed complete by merging this backend MR.
+
+Validation uses real Ed25519 fixtures and PostgreSQL migrations, including wrong bindings,
+revocation races, concurrent nonce consumption, live permission changes, audit/downstream
+rollback and online replacement. CI runs both terminal database suites. Tenant policies
+remain staged/disabled consistently with the existing RLS inventory; stock is unchanged.
+
+Local verification (2026-10-23): 28 terminal PostgreSQL tests, 53 focused API tests and
+63 shared-contract tests passed. API type/tenant/stock checks, the 166-route inventory,
+69-model RLS policy inventory and migrated-database/schema comparison also passed.
+
 ## Remaining P1 MRs, in order
 
-1. **Trusted terminal verification:** enrollment/revocation services and strict signed-command
-   parsing, signature/nonce/time checks, tenant/branch and staff/register/till/session binding.
-   Provide API device fixtures; integrate with P2 keys and local-attendance evidence.
-2. **Permissions and exact approvals:** extend the existing auth pipeline; enforce mandatory
+1. **Permissions and exact approvals:** extend the existing auth pipeline; enforce mandatory
    execution checks independently of owner shortcuts. Persist material document approval and
    live authority checks; preserve self-approval rules. Remote assignment authorization and
    exact-target local activation remain separate, atomic actions with D11 checks.
-3. **Separate approval from execution:** split held-adjustment acceptance, held-delivery
+2. **Separate approval from execution:** split held-adjustment acceptance, held-delivery
    acceptance, stocktake approval/completion and stock-bearing import/undo stages. Retain
    remote commercial management and normal reservations; coordinate P6 screens.
-4. **Transactional command execution:** integrate receipts with existing business services,
+3. **Transactional command execution:** integrate receipts with existing business services,
    StockService and AuditService; prove retries/lost responses, digest conflicts, rollback and
    import/worker provenance. No parallel stock writer or user-key-only replay shortcut.
-5. **Readiness evidence and integration:** hours acknowledgements, assisted handover, incident
+4. **Readiness evidence and integration:** hours acknowledgements, assisted handover, incident
    and card-attempt records, dependency ordering, failure/alternate-path tests and coordinated
-   P2/P6 rollout. P5 owns offline business replay and discrepancy settlement.
+   P2/P6 rollout, including the MR 2 attendance port and actual financial-shift binding.
+   P5 owns offline business replay and discrepancy settlement.
 
 Production enforcement waits for a usable enrolled desktop client and integrated evidence.
 The first MR's declarations do not silently disable browser operations or introduce an owner bypass.
