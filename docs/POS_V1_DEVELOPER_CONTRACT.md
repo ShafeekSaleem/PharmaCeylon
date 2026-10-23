@@ -8,6 +8,12 @@ and integration checks, without assigning work to people.
 
 ## Component boundaries
 
+P1 implementation status and service integration examples/boundaries are tracked in
+[POS_P1_IMPLEMENTATION.md](POS_P1_IMPLEMENTATION.md). MR 2 adds backend terminal trust services
+and additive enrollment/session challenge types. Local attendance currently fails closed
+pending P2 integration; financial shifts, operational endpoint enforcement and business replay
+remain subsequent work. A terminal staff authorization binding is not a posted till shift.
+
 | Component | Technical responsibility |
 | --- | --- |
 | `packages/shared` | Wire types, error codes, signing encoding and contract fixtures |

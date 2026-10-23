@@ -119,6 +119,11 @@
   "backgroundWorkers": [],
   "rawSqlReview": [
     {
+      "path": "src/terminals/terminal-trust.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one enrollment by bound tenant, branch and enrollment id to serialize command/session verification, revocation and session closure through the caller's transaction."
+    },
+    {
       "path": "scripts/test-rls-canary-activation.mjs",
       "mode": "ephemeral-test",
       "reason": "CI-only scoped transaction setup in a self-cleaning database proof."

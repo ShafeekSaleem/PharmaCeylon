@@ -75,6 +75,7 @@ export class JwtAuthGuard implements CanActivate {
       fullName: ctx.fullName,
       branchRoles: ctx.branchRoles,
       authMethod: extracted.method,
+      tokenVersion: payload.tokenVersion,
     };
 
     return true;

@@ -16,6 +16,8 @@ export type RequestUser = {
   branchRoles: BranchRole[];
   /** "cookie" for browser flows, "bearer" for mobile/scripts. Used by CsrfGuard. */
   authMethod: "cookie" | "bearer";
+  /** Validated access-token version; mandatory for fresh terminal authorization. */
+  tokenVersion?: number;
 };
 
 /** Omit `cookies` so we can keep it optional before `cookie-parser` runs. */

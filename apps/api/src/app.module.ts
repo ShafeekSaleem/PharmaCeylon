@@ -35,6 +35,7 @@ import { StocktakesModule } from "./stocktakes/stocktakes.module";
 import { TransfersModule } from "./transfers/transfers.module";
 import { UploadsModule } from "./uploads/uploads.module";
 import { SetupModule } from "./setup/setup.module";
+import { TerminalsModule } from "./terminals/terminals.module";
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { SetupModule } from "./setup/setup.module";
     AnalyticsModule,
     UploadsModule,
     SetupModule,
+    TerminalsModule,
   ],
   controllers: [HealthController],
   providers: [
