@@ -111,7 +111,12 @@ handover records before operational checkout uses these identities.
 
 Every service call takes the caller's Prisma transaction. Verification locks the enrollment
 against revocation/session closure, rechecks current session state and consumes the nonce in
-that transaction. Enrollment, revocation and session success audits share their writes.
+that transaction. Command/session flows re-read live actor authority after acquiring the
+enrollment lock, so a logout or permission removal committed during the wait cannot authorize
+the operation. Session deauthorization, revocation and retirement use the same ordering.
+Callers use PostgreSQL's default READ COMMITTED isolation for these fresh post-lock reads;
+a repeatable snapshot must not be substituted for current authorization.
+Enrollment, revocation and session success audits share their writes.
 Business adapters must pass strict server-owned operation/permission/body parsers; request
 fields must never select those adapters.
 
@@ -134,9 +139,14 @@ revocation races, concurrent nonce consumption, live permission changes, audit/d
 rollback and online replacement. CI runs both terminal database suites. Tenant policies
 remain staged/disabled consistently with the existing RLS inventory; stock is unchanged.
 
-Local verification (2026-10-23): 28 terminal PostgreSQL tests, 53 focused API tests and
+Local verification (2026-10-23): 35 terminal PostgreSQL tests, 53 focused API tests and
 63 shared-contract tests passed. API type/tenant/stock checks, the 166-route inventory,
 69-model RLS policy inventory and migrated-database/schema comparison also passed.
+Review regression tests confirm an actual PostgreSQL enrollment lock wait before changing
+authority on another connection. Token changes across command/session/lifecycle methods and
+custom-permission removal reject without consuming a challenge, creating a binding or emitting
+a success audit. The original four command/session token cases and permission-removal case
+were reproduced failing before the fix.
 
 ## Remaining P1 MRs, in order
 

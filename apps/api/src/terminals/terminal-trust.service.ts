@@ -345,6 +345,7 @@ export class TerminalTrustService {
     if (identity.tenantId !== user.tenantId || identity.branchId !== branchId)
       denied("IDENTITY_MISMATCH");
     // Serialize revocation and verification through the business transaction's end.
+    // Callers recheck live authority after this lock wait before issuing/accepting a challenge.
     await tx.$queryRaw`SELECT id FROM terminal_enrollment WHERE tenant_id = ${user.tenantId}::uuid
       AND branch_id = ${branchId}::uuid AND id = ${identity.enrollmentId}::uuid FOR UPDATE`;
     const enrollment = await tx.terminalEnrollment.findFirst({
@@ -380,6 +381,8 @@ export class TerminalTrustService {
     const identity = parseIdentity(rawIdentity);
     await this.actor(tx, user, branchId);
     const enrollment = await this.enrollment(tx, user, branchId, identity);
+    // Authority may have changed while the enrollment lock was blocked.
+    await this.actor(tx, user, branchId);
     return this.challenge(tx, user, branchId, "session", {
       contractVersion: 1,
       kind: "terminal_session",
@@ -423,6 +426,7 @@ export class TerminalTrustService {
     const session = parseSession(p.session);
     await this.actor(tx, user, branchId);
     const enrollment = await this.enrollment(tx, user, branchId, identity);
+    await this.actor(tx, user, branchId);
     if (
       session.staffUserId !== user.userId ||
       p.tokenVersion !== user.tokenVersion ||
@@ -559,6 +563,7 @@ export class TerminalTrustService {
       branchId,
       workSessionId,
     );
+    await this.actor(tx, user, branchId, descriptor.permission);
     const payload: OnlineTerminalCommand<T> = {
       contractVersion: 1,
       kind: "online_operation",
@@ -618,6 +623,7 @@ export class TerminalTrustService {
       branchId,
       payload.session.workSessionId,
     );
+    await this.actor(tx, user, branchId, descriptor.permission);
     if (
       Object.keys(identity).some(
         (k) =>
@@ -674,6 +680,7 @@ export class TerminalTrustService {
     if (!existing) denied("SESSION_INVALID");
     await tx.$queryRaw`SELECT id FROM terminal_enrollment WHERE tenant_id = ${user.tenantId}::uuid
       AND branch_id = ${branchId}::uuid AND id = ${existing.enrollmentId}::uuid FOR UPDATE`;
+    await this.actor(tx, user, branchId);
     const closed = await tx.terminalStaffSession.updateMany({
       where: {
         tenantId: user.tenantId,
@@ -710,6 +717,7 @@ export class TerminalTrustService {
     uuid(enrollmentId);
     await tx.$queryRaw`SELECT id FROM terminal_enrollment WHERE tenant_id = ${user.tenantId}::uuid
       AND branch_id = ${branchId}::uuid AND id = ${enrollmentId}::uuid FOR UPDATE`;
+    await this.actor(tx, user, branchId, "tenant.management");
     const enrollment = await tx.terminalEnrollment.findFirst({
       where: { tenantId: user.tenantId, branchId, id: enrollmentId },
     });
@@ -769,6 +777,7 @@ export class TerminalTrustService {
     });
     for (const enrollment of enrollments)
       await this.revokeEnrollment(tx, user, branchId, enrollment.id, reason);
+    await this.actor(tx, user, branchId, "tenant.management");
     const changed = await tx.operationalTerminal.updateMany({
       where: {
         tenantId: user.tenantId,

@@ -145,6 +145,72 @@ function user(userId: string): RequestUser {
     branchRoles: [],
   };
 }
+
+/** Prove PostgreSQL has blocked the operation behind this enrollment before changing
+ * authority on another connection. No mocked access/lock responses or timing sleeps.
+ */
+async function changeAuthorityWhileWaiting<T>(
+  identity: TerminalIdentity,
+  operation: (client: Prisma.TransactionClient) => Promise<T>,
+  changeAuthority: () => Promise<unknown>,
+) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let lockReady!: (pid: number) => void;
+  const ready = new Promise<number>((resolve) => {
+    lockReady = resolve;
+  });
+  const blocker = tx(async (c) => {
+    const [{ pid }] = await c.$queryRaw<
+      { pid: number }[]
+    >`SELECT pg_backend_pid() AS pid`;
+    await c.$queryRaw`SELECT id FROM terminal_enrollment WHERE tenant_id = ${identity.tenantId}::uuid
+      AND branch_id = ${identity.branchId}::uuid AND id = ${identity.enrollmentId}::uuid FOR UPDATE`;
+    lockReady(pid);
+    await gate;
+  });
+  let pending: Promise<PromiseSettledResult<T>[]> | undefined;
+  try {
+    const blockerPid = await Promise.race([
+      ready,
+      blocker.then(() => {
+        throw new Error("Lock holder exited before ready");
+      }),
+    ]);
+    let operationReady!: (pid: number) => void;
+    const operationPid = new Promise<number>((resolve) => {
+      operationReady = resolve;
+    });
+    pending = Promise.allSettled([
+      tx(async (c) => {
+        const [{ pid }] = await c.$queryRaw<
+          { pid: number }[]
+        >`SELECT pg_backend_pid() AS pid`;
+        operationReady(pid);
+        return operation(c);
+      }),
+    ]);
+    const pid = await operationPid;
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const [{ blocked }] = await prisma.$queryRaw<{ blocked: boolean }[]>`
+        SELECT ${blockerPid}::int = ANY(pg_blocking_pids(${pid}::int)) AS blocked`;
+      if (blocked) break;
+      if (Date.now() >= deadline)
+        throw new Error("Operation did not wait on the enrollment lock");
+    }
+    await changeAuthority();
+  } finally {
+    release();
+    await blocker;
+    // Drain even on a failed assertion/change so fixture cleanup cannot race the operation.
+    if (pending) await pending;
+  }
+  return (await pending!)[0];
+}
+
 beforeAll(async () => {
   fx = await createTenant(prisma, "terminal-trust");
   owner = user(fx.ownerId);
@@ -180,6 +246,139 @@ afterEach(() => {
 });
 
 describe("P1 terminal verification with real PostgreSQL and Ed25519 devices", () => {
+  it.each([
+    "beginSession",
+    "finishSession",
+    "prepareCommand",
+    "verifyCommand",
+    "endSession",
+    "revokeEnrollment",
+    "retireTerminal",
+  ] as const)(
+    "%s rejects a token-version bump committed during its enrollment lock wait",
+    async (method) => {
+      const p = await prepared();
+      let sessionPayload: TerminalSessionCommand | undefined;
+      if (method === "finishSession") {
+        await tx((c) =>
+          trust.endSession(c, owner, fx.mainBranchId, p.session.workSessionId),
+        );
+        sessionPayload = await tx((c) =>
+          trust.beginSession(c, owner, fx.mainBranchId, p.identity),
+        );
+      }
+      const beforeChallenges = await prisma.terminalChallenge.count({
+        where: { tenantId: fx.tenantId },
+      });
+      const beforeSessions = await prisma.terminalStaffSession.count({
+        where: { tenantId: fx.tenantId },
+      });
+      const beforeAudits = await prisma.auditEvent.count({
+        where: { tenantId: fx.tenantId },
+      });
+      try {
+        const result = await changeAuthorityWhileWaiting(
+          p.identity,
+          async (c) => {
+            if (method === "beginSession")
+              return trust.beginSession(c, owner, fx.mainBranchId, p.identity);
+            if (method === "finishSession")
+              return trust.finishSession(
+                c,
+                owner,
+                fx.mainBranchId,
+                p.device.sign(sessionPayload!, p.identity.keyId),
+                attendance.allow(sessionPayload!, "session"),
+              );
+            if (method === "prepareCommand")
+              return trust.prepareCommand(
+                c,
+                owner,
+                fx.mainBranchId,
+                p.session.workSessionId,
+                descriptor,
+                { quantity: 1 },
+              );
+            if (method === "endSession")
+              return trust.endSession(
+                c,
+                owner,
+                fx.mainBranchId,
+                p.session.workSessionId,
+              );
+            if (method === "revokeEnrollment")
+              return trust.revokeEnrollment(
+                c,
+                owner,
+                fx.mainBranchId,
+                p.identity.enrollmentId,
+                "Authority race",
+              );
+            if (method === "retireTerminal")
+              return trust.retireTerminal(
+                c,
+                owner,
+                fx.mainBranchId,
+                p.identity.terminalId,
+                "Authority race",
+              );
+            return trust.verifyCommand(
+              c,
+              owner,
+              fx.mainBranchId,
+              descriptor,
+              p.signed,
+              p.proof,
+            );
+          },
+          () =>
+            prisma.appUser.update({
+              where: { id: fx.ownerId },
+              data: { tokenVersion: { increment: 1 } },
+            }),
+        );
+        expect(result.status).toBe("rejected");
+        if (result.status === "rejected")
+          expect(result.reason.message).toBe(
+            "Live branch authentication required",
+          );
+        expect(
+          await prisma.terminalChallenge.count({
+            where: { tenantId: fx.tenantId },
+          }),
+        ).toBe(beforeChallenges);
+        expect(
+          await prisma.terminalStaffSession.count({
+            where: { tenantId: fx.tenantId },
+          }),
+        ).toBe(beforeSessions);
+        expect(
+          await prisma.auditEvent.count({ where: { tenantId: fx.tenantId } }),
+        ).toBe(beforeAudits);
+        expect(
+          (
+            await prisma.terminalStaffSession.findUniqueOrThrow({
+              where: { id: p.session.workSessionId },
+            })
+          ).closedAt !== null,
+        ).toBe(method === "finishSession");
+        const nonce = sessionPayload?.serverNonce ?? p.payload.serverNonce;
+        expect(
+          (
+            await prisma.terminalChallenge.findUniqueOrThrow({
+              where: { nonceHash: sha256(nonce) },
+            })
+          ).consumedAt,
+        ).toBeNull();
+      } finally {
+        await prisma.appUser.update({
+          where: { id: fx.ownerId },
+          data: { tokenVersion: owner.tokenVersion },
+        });
+      }
+    },
+  );
+
   it("rejects an empty server permission descriptor rather than skipping authorization", async () => {
     const p = await prepared();
     await expect(
@@ -843,7 +1042,7 @@ describe("P1 terminal verification with real PostgreSQL and Ed25519 devices", ()
     }
   });
 
-  it("reads custom-role grants live and permits non-POS staff only their domain operations", async () => {
+  it("rejects a custom permission removed during verification's enrollment lock wait", async () => {
     const p = await deviceSetup();
     await tx((c) =>
       trust.endSession(c, owner, fx.mainBranchId, p.session.workSessionId),
@@ -899,25 +1098,57 @@ describe("P1 terminal verification with real PostgreSQL and Ed25519 devices", ()
           { quantity: 1 },
         ),
       );
-      await prisma.rolePermission.deleteMany({
-        where: {
-          tenantId: fx.tenantId,
-          roleId: role.id,
-          permissionKey: "inventory.manage",
-        },
-      });
-      await expect(
-        tx((c) =>
+      const proof = attendance.allow(command, "command");
+      const result = await changeAuthorityWhileWaiting(
+        p.identity,
+        (c) =>
           trust.verifyCommand(
             c,
             clerk,
             fx.mainBranchId,
             descriptor,
             p.device.sign(command, p.identity.keyId),
-            attendance.allow(command, "command"),
+            proof,
           ),
+        () =>
+          prisma.rolePermission.deleteMany({
+            where: {
+              tenantId: fx.tenantId,
+              roleId: role.id,
+              permissionKey: "inventory.manage",
+            },
+          }),
+      );
+      expect(result.status).toBe("rejected");
+      if (result.status === "rejected")
+        expect(result.reason.getResponse()).toMatchObject({
+          code: "PERMISSION_DENIED",
+        });
+      expect(
+        (
+          await prisma.terminalChallenge.findUniqueOrThrow({
+            where: { nonceHash: sha256(command.serverNonce) },
+          })
+        ).consumedAt,
+      ).toBeNull();
+      // Restoring the grant allows the unchanged command; rejection did not burn its nonce.
+      await prisma.rolePermission.create({
+        data: {
+          tenantId: fx.tenantId,
+          roleId: role.id,
+          permissionKey: "inventory.manage",
+        },
+      });
+      await tx((c) =>
+        trust.verifyCommand(
+          c,
+          clerk,
+          fx.mainBranchId,
+          descriptor,
+          p.device.sign(command, p.identity.keyId),
+          proof,
         ),
-      ).rejects.toThrow();
+      );
     } finally {
       await prisma.userBranchRole.updateMany({
         where: {
