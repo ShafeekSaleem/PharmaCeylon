@@ -262,16 +262,22 @@ export class HeldDeliveryService {
       const previous = (held.preparedPayload ?? held.payload) as unknown as ReceiveGoodsDto;
       const lines = dto.delivery.lines.map(line => {
         const stored = previous.lines.find(l => l.productId === line.productId);
+        // Omission means retain saved fields (including redacted costs and exception choices).
+        const changes = Object.fromEntries(Object.entries(line).filter(([, value]) => value !== undefined));
         if (!actor.has("costs.view")) {
           if (!stored || line.costPrice !== undefined && line.costPrice !== stored.costPrice
             || line.packCost !== undefined && line.packCost !== stored.packCost || dto.updateSupplierPrice)
             throw new BadRequestException("Cost changes require permission to view costs");
-          return { ...line, costPrice: stored.costPrice, packCost: stored.packCost };
+          return { ...line, ...stored, ...changes, costPrice: stored.costPrice, packCost: stored.packCost };
         }
-        return line;
+        return { ...line, ...stored, ...changes,
+          ...(line.costPrice !== undefined && line.packCost === undefined ? { packCost: undefined } : {}),
+        };
       });
-      const delivery = { ...storedPayload({ ...dto.delivery, lines }, held.purchaseOrderId),
-        updateSupplierPrice: dto.updateSupplierPrice === true };
+      const changes = Object.fromEntries(Object.entries(storedPayload({ ...dto.delivery, lines }, held.purchaseOrderId))
+        .filter(([, value]) => value !== undefined));
+      const delivery = { ...previous, ...changes, purchaseOrderId: held.purchaseOrderId, lines,
+        updateSupplierPrice: dto.updateSupplierPrice ?? previous.updateSupplierPrice ?? false };
       // JSON persistence deliberately omits optional undefined fields, matching the displayed preview.
       const payload = JSON.parse(JSON.stringify(delivery)) as Prisma.InputJsonValue;
       await tx.heldDelivery.update({ where: { id, tenantId: user.tenantId, branchId }, data: {

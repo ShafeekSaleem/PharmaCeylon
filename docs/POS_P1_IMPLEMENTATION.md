@@ -313,6 +313,15 @@ new mandatory TTL or additional approver/executor separation is introduced.
 
 ## Remaining P1 MRs, in order
 
+MR #61 review fixes (2026-10-27): supplier-price choices are hydrated from the current held
+delivery and reset across order/receipt lifecycles. Corrections send the choice only when explicitly
+changed. Approvers can confirm the current saved document without rebuilding its form, including
+when costs are redacted. Corrections retain omitted supplier notes, exact costs and exception choices
+on the server; unchanged costs are not rounded through the form. Confirmation displays the saved
+document and explains that unsaved form edits are excluded. Regression validation passed 56 real
+PostgreSQL tests across held approvals and purchasing, the complete 181-test web suite before the
+final opt-out case, all four final modal regression tests, API/web type checks and tenant/stock checks.
+
 MR #60 review fixes (2026-10-26): persisted approval material uses deterministic document-sized
 encoding without incoming-command size limits. Existing digest encoding is preserved, and signed
 terminal commands retain their bounds. PostgreSQL regressions cover list/detail, issuance and

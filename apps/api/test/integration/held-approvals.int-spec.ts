@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { AuditService } from "../../src/audit/audit.service";
 import { AdjustmentService } from "../../src/inventory/adjustment.service";
 import { InventoryService } from "../../src/inventory/inventory.service";
@@ -217,4 +218,39 @@ it("blocks an alternate receipt while a delivery is approved but unposted", asyn
   const purchasing = new PurchasingService(prisma as never, audit, stock, read);
   await expect(purchasing.receiveGoods(fx.tenantId, branch(), fx.ownerId, actor(fx.ownerId, "all"), row.payload as never)).rejects.toThrow(/waiting for approval|saved delivery/);
   expect((await batchTotals(prisma, c.batchId)).onHand).toBe(20);
+});
+
+it.each([false, true])("preserves costs, supplier note and supplier-price choice through corrections (cost access: %s)", async canViewCost => {
+  const c = await fixture("delivery");
+  const row = await prisma.heldDelivery.findFirstOrThrow({ where: { id: c.id, tenantId: fx.tenantId } });
+  const original = row.payload as Prisma.JsonObject;
+  await prisma.heldDelivery.update({ where: { id: c.id, tenantId: fx.tenantId }, data: {
+    preparedPayload: { ...original, supplierDeliveryNote: "DN-RETAIN-123", updateSupplierPrice: true },
+  } });
+  await prisma.permission.createMany({ data: ["purchasing.approve", "costs.view"].map(key => ({
+    key, module: "purchasing", label: key, description: "Integration test permission",
+  })), skipDuplicates: true });
+  const role = await prisma.role.create({ data: { tenantId: fx.tenantId, key: `review-${randomUUID()}`,
+    name: "Delivery approver", permissions: { create: ["purchasing.approve", ...(canViewCost ? ["costs.view"] : [])]
+      .map(permissionKey => ({ tenantId: fx.tenantId, permissionKey })) } } });
+  await prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, userId: fx.managerId }, data: { roleId: role.id } });
+  try {
+    const redacted = (await deliveries.list(fx.tenantId, branch(), { canViewCost })).find(h => h.id === c.id)!;
+    if (!canViewCost) expect(redacted.delivery.lines[0].costPrice).toBeUndefined();
+    const prepared = await deliveries.prepare(user(fx.managerId), branch(), c.id, {
+      ...redacted.approvalReview, delivery: { ...redacted.delivery, supplierDeliveryNote: undefined,
+        lines: redacted.delivery.lines.map(line => ({ ...line, costPrice: undefined, packCost: undefined, receivedQty: 3 })) },
+    });
+    // Approve the current server document; no prices need to be submitted by the approver.
+    await deliveries.accept(user(fx.managerId), branch(), c.id, { approvalId: randomUUID(), ...prepared.approvalReview });
+    const preparedRow = await prisma.heldDelivery.findFirstOrThrow({ where: { id: c.id, tenantId: fx.tenantId } });
+    expect(preparedRow.preparedPayload).toMatchObject({ supplierDeliveryNote: "DN-RETAIN-123", updateSupplierPrice: true,
+      lines: [{ costPrice: "10.00", receivedQty: 3 }] });
+    await post("delivery", c.id);
+    const receipt = await prisma.goodsReceipt.findFirstOrThrow({ where: { tenantId: fx.tenantId, purchaseOrderId: c.poId } });
+    expect(receipt.supplierDeliveryNote).toBe("DN-RETAIN-123");
+    expect((await batchTotals(prisma, c.batchId)).onHand).toBe(23);
+  } finally {
+    await prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, userId: fx.managerId }, data: { roleId: null } });
+  }
 });
