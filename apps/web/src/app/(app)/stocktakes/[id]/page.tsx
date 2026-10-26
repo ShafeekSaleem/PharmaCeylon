@@ -620,26 +620,28 @@ export default function StocktakeDetailPage() {
       label: "Request recount",
       onClick: () => void requestRecount(),
     });
-    if (canApprovePerm && (canApprove(row.status) || (row.status === "approved" && !row.executionApprovalId))) {
-      const approveBlocked = [
-        ...(counterMayNotReview ? [counterMayNotReview] : []),
-        ...reviewApprovalBlockers(row, reviews),
-      ];
-      primaryActions.push(
-        <ActionButton
-          key="approve"
-          onClick={() => void approveStocktake()}
-          disabled={saving || approveBlocked.length > 0}
-          tooltip={
-            approveBlocked.length > 0
-              ? approveBlocked.join("; ")
-              : "Authorizes this count; stock changes when adjustments are posted"
-          }
-        >
-          {row.status === "approved" ? "Review approval" : "Approve count"}
-        </ActionButton>,
-      );
-    }
+  }
+  // Existing evidence may be unusable after revocation or a change in approver rights.
+  // Permit a current reviewer to inspect and explicitly replace it with a fresh approval.
+  if (canReview && canApprovePerm && (canApprove(row.status) || row.status === "approved")) {
+    const approveBlocked = [
+      ...(counterMayNotReview ? [counterMayNotReview] : []),
+      ...reviewApprovalBlockers(row, reviews),
+    ];
+    primaryActions.push(
+      <ActionButton
+        key="approve"
+        onClick={() => void approveStocktake()}
+        disabled={saving || approveBlocked.length > 0}
+        tooltip={
+          approveBlocked.length > 0
+            ? approveBlocked.join("; ")
+            : "Authorizes this count; stock changes when adjustments are posted"
+        }
+      >
+        {row.status === "approved" ? "Review approval" : "Approve count"}
+      </ActionButton>,
+    );
   }
 
   if (canPostPerm && canPost(row.status) && row.executionApprovalId) {

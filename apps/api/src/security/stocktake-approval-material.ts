@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { boundedCanonical, sha256 } from "../terminals/terminal-wire";
+import { approvalMaterialDigest } from "./approval-material-digest";
 
 export type StocktakeApprovalRow = Prisma.StocktakeGetPayload<{
   include: { lines: true; snapshotLines: true; countEntries: true };
@@ -47,7 +47,7 @@ export function stocktakeApprovalMaterial(doc: StocktakeApprovalRow) {
   };
   return {
     material,
-    digest: sha256(boundedCanonical({ kind: "approval_material", documentType: "stocktake", material })),
+    digest: approvalMaterialDigest("stocktake", material),
     requesters: [...new Set([doc.countedBy, ...doc.countEntries.map((entry) => entry.countedBy)])],
   };
 }

@@ -1,13 +1,9 @@
 import { stocktakeApprovalMaterial } from "./stocktake-approval-material";
+import { approvalMaterialDigest } from "./approval-material-digest";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ApprovalDocumentIdentity } from "@pharmaceylon/shared";
-import {
-  boundedCanonical,
-  denied,
-  sha256,
-  uuid,
-} from "../terminals/terminal-wire";
+import { denied, uuid } from "../terminals/terminal-wire";
 
 /** Exact domain actions, never a client's HTTP/effect/permission label. More adapters
  * are added with the mixed-handler split; no generic fallback is authorized.
@@ -194,13 +190,7 @@ export async function approvalDocument(
       documentType: policy.documentType,
       documentId,
       documentVersion: version,
-      documentDigest: sha256(
-        boundedCanonical({
-          kind: "approval_material",
-          documentType: policy.documentType,
-          material,
-        }),
-      ),
+      documentDigest: approvalMaterialDigest(policy.documentType, material),
       requestedByUserId: requester,
     },
     material,

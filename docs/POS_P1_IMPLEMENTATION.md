@@ -272,6 +272,15 @@ instance; remote CI/publishing has not run for this change.
 
 ## Remaining P1 MRs, in order
 
+MR #60 review fixes (2026-10-26): persisted approval material uses deterministic document-sized
+encoding without incoming-command size limits. Existing digest encoding is preserved, and signed
+terminal commands retain their bounds. PostgreSQL regressions cover list/detail, issuance and
+execution validation for 500-batch custom and 750-batch full counts. Approved counts offer explicit
+fresh approval even with an existing evidence ID, allowing recovery after approver rights change;
+prior evidence is retained and current self-approval rules still apply. Review validation passed:
+50 PostgreSQL workflow/approval tests, 50 focused API tests, 2 UI recovery tests, API/web types,
+tenant/stock scanners and the 166-route inventory.
+
 1. **Separate approval from execution:** finish held-adjustment acceptance, held-delivery
    acceptance and stock-bearing import/undo stages. Stocktake approval/posting is split in MR 4a. Retain
    remote commercial management and normal reservations; coordinate P6 screens.
