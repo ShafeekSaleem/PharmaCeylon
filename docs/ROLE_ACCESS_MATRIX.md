@@ -39,9 +39,10 @@ Tenants may also create **custom roles** (see `docs/API_CONTRACT.md` and the Use
 
 ## After desktop POS (target, decided 2026-10-27)
 
-Decided in [POS_V1_REVIEW.md](POS_V1_REVIEW.md) (D10, D-W1, D-W4); page-by-page detail in
+Decided in [POS_V1_REVIEW.md](POS_V1_REVIEW.md) (D10, D-W1, D-W3, D-W4); page-by-page detail in
 [WEB_BACKOFFICE_TARGET.md](WEB_BACKOFFICE_TARGET.md). Nothing below is implemented yet. Each
-change applies to a branch once its "desktop POS live" switch is on.
+change applies to a branch once its "desktop POS live" switch is on. While an owner-started
+web-POS fallback is active, that branch's `/pos` access returns to today's matrix until it ends.
 
 | Page | Route | Change from today | Who, by default |
 | --- | --- | --- | --- |
@@ -49,7 +50,7 @@ change applies to a branch once its "desktop POS live" switch is on.
 | Sales (new) | `/sales` | Sales history, sale detail and receipt copies; remote refund authorization | Reading: `sales.view` (owner, manager, pharmacist, inventory clerk). Authorizing refunds: a new remote-refund permission |
 | Counters (new) | Settings → Counters | Registers, enrollment, revoke, retire, offline-counter readiness | `tenant.management` (owner, manager), the key the terminal registry already checks. Offline-device assignment: owner, or a manager the owner delegated (D13) |
 | Every page except the user's own account | — | Cashier-only users see only My Profile, Password & Security and personal display settings, and land on a "Use PharmaCeylon POS" page (D-W4) | Built-in cashier, and any custom role without back-office access |
-| Operations pages | `/inventory`, `/purchasing`, `/suppliers`, `/transfers`, `/stocktakes` | Same people keep access. Physical steps (receive, dispatch, count, adjust, write off, quarantine, cash payout) become handoffs to the counter | Unchanged |
+| Operations pages | `/inventory`, `/purchasing`, `/suppliers`, `/transfers`, `/stocktakes` | Same people keep access. Physical steps (receive, dispatch, start and submit a count, adjust, write off, quarantine, cash payout) become handoffs to the counter. Count lines can still be entered on phones while a count is open (D-W3) | Unchanged |
 
 Cashier-only access is web scoping, not authorization. The cashier keeps its API permissions
 (`products.view`, `customers.view`, `prescriptions.view`, `inventory.view`, `sales.view`,

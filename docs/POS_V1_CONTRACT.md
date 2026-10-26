@@ -7,9 +7,10 @@ Operational-readiness amendments D8/D13 and supporting workflows were approved o
 see [the scenario and delivery contract](POS_V1_OPERATIONAL_READINESS.md).
 Decision 10 was amended and approved on 2026-10-21: remote online management/authorization,
 with local enrolled physical execution. The revised matrix below supersedes its original wording.
-Web back-office decisions D-W2 and D-W3 (2026-10-27, [POS_V1_REVIEW.md](POS_V1_REVIEW.md)) clarify
-that matrix for onboarding opening stock and stocktake count capture; they add no exemption. The
-web target state for all seven web decisions is in [WEB_BACKOFFICE_TARGET.md](WEB_BACKOFFICE_TARGET.md).
+Web back-office decisions D-W1–D-W3 (decided and amended 2026-10-27, [POS_V1_REVIEW.md](POS_V1_REVIEW.md))
+refine that matrix: an owner-invoked web-POS fallback, opening stock staged on the web and posted
+at the counter, and attributed count entry before the counter submits. The web target state for
+all seven web decisions is in [WEB_BACKOFFICE_TARGET.md](WEB_BACKOFFICE_TARGET.md).
 Per Shafeek's direction, treat Shafeek as the developer; staffing and work allocation are managed
 by Shafeek. No second-developer ownership sign-off is required in this workflow.
 Baseline: develop `4a2fa3ad8440b2fea462c09b766efee2035295d3`, reviewed 2026-10-19.
@@ -415,9 +416,10 @@ a management permission does not authorize branch execution.
 | Transfers | Prepare/review/approve/reject/cancel requests and normal business reservations | Confirm dispatch and destination receipt under the respective branch authority |
 | Supplier returns | Prepare/review/approve/reject return requests and commercial credit administration | Confirm goods leaving the branch and post the stock movement |
 | Customer returns/refunds | Review the sale, prepare and authorize the return/refund | Inspect returned goods, choose disposition and execute stock/refund effects |
-| Adjustments, write-offs, stocktakes | Plan/request/review/approve corrections and review discrepancies; plan, schedule, assign and select stocktake lines; request recounts; view count progress read-only | Capture/confirm actual counts or condition and execute adjustment, write-off or quarantine/release. D-W3: in v1 stocktake counts are captured only in the enrolled desktop app |
+| Adjustments, write-offs, stocktakes | Plan/request/review/approve corrections and review discrepancies; plan, schedule, assign and select stocktake lines; request recounts. D-W3: while a count started at the counter is open, enter count lines, each attributed to the person entering it | Capture/confirm actual condition and execute adjustment, write-off or quarantine/release. Start a stocktake count, submit and complete it, and post it |
 | Products, prices, suppliers, customer contacts | Manage catalog, pricing, suppliers and administrative contact records | Imports/undo that also create/remove batches or stock require local execution |
-| Onboarding opening stock (D-W2) | Import or enter opening stock as a staged draft with no stock effect | Confirm the staged figures against the shelf and post them |
+| Onboarding opening stock (D-W2, live branches) | Import or enter opening stock as a staged draft with no stock effect; replace the draft until it is posted | Post the staged stock in one action or in chunks by category |
+| Web-POS fallback (D-W1) | Owner starts or ends a time-limited, audited fallback for one live branch whose counters can't sell | While it is active, that branch's web POS works as before desktop POS; counter checkout resumes when it ends |
 | Payments | Record bank payments online with supporting evidence | Actual branch cash collection/payout and till cash movements |
 | Prescription/controlled dispensing | Managerial review does not provide clinical sign-off | Qualified clinical verification and dispensing remain local and online |
 | Offline-terminal designation | Owner/delegated manager authorizes the exact assignment online remotely | Authorized staff activates on the exact enrolled target online/local; D11 clearance and uniqueness still apply |
@@ -427,25 +429,40 @@ On-hand stock, physical cash and executed customer refunds do not move merely be
 was granted. These business reservations can reduce available stock; they are not advance
 offline reservations. Snapshot/offline rules D1–D9 and D11–D14 remain unchanged.
 
-### Web back-office clarifications (D-W2, D-W3) — 2026-10-27
+### Web back-office refinements (D-W1, D-W2, D-W3) — 2026-10-27
 
-D-W2, opening stock. There is no pre-go-live or onboarding exemption from local execution. The
-web may stage opening stock during onboarding, from an import file or by entry. A staged document
-is a management record: it writes no `stock_ledger`, `batch_stock` or `stock_reservation` row and
-changes no available quantity. An import whose rows carry stock stages those rows instead of
-posting them; its catalog-only work stays remote. Posting is an ordinary local stock-bearing
-execution on an enrolled counter: it binds the exact staged version, posts through StockService
-once, and records the staging actor and the counter executor separately. Corrections after
-posting are ordinary local adjustments. The existing `opening_inventory` readiness confirmation
-remains local.
+These apply to branches whose per-branch "desktop POS live" switch is on (D-W1, D-W7). A branch
+that is not live keeps today's web behaviour. Once desktop POS is generally available, new
+branches start live.
 
-D-W3, stocktake counts. Count capture and confirmation are local physical execution, and in v1
-the enrolled desktop app (on a laptop or tablet) is the only capture surface. The routes that
-capture counts (`PATCH /stocktakes/:id/lines`, `start`, `submit`, `complete`) are already
-local. The web keeps planning, scheduling, assignment, line selection, review, recount requests and
-approval, and shows count progress read-only, including on phones. Counting on a mobile device
-needs its own enrollment, key custody and attendance design, and is deferred to a later epic.
-Stocktake approval and posting rules are unchanged.
+D-W1, web-POS fallback. This is the one exception to local checkout. When a live branch's
+counters can't sell, for example because its only desktop has failed, an owner may start a
+fallback for that branch. While it is active, that branch's web POS page works as it did before
+desktop POS: online only, including refunds and prescription sales with the existing online
+pharmacist co-sign. P1's denial of browser checkout follows the fallback state, so it is lifted
+for that branch only. Other operations pages keep their counter handoffs, and nothing offline is
+added. A banner shows while the fallback is on, every sale is labelled a fallback sale, and the
+fallback ends automatically at the time the owner set, or earlier if they end it. Only owners
+start or end it, and both are audited.
+
+D-W2, opening stock. A live branch has no pre-go-live or onboarding exemption from local
+execution. The web may stage opening stock during onboarding, from an import file or by entry,
+and may replace the staged draft until it is posted. A staged document is a management record:
+it writes no `stock_ledger`, `batch_stock` or `stock_reservation` row and changes no available
+quantity. An import whose rows carry stock stages those rows instead of posting them; its
+catalog-only work stays remote. Posting is an ordinary local stock-bearing execution on an
+enrolled counter, in one action or in chunks by category. It binds the exact staged version,
+posts through StockService once per chunk, and records the staging actor and the counter
+executor separately. Corrections after posting are ordinary local adjustments. The existing
+`opening_inventory` readiness confirmation remains local.
+
+D-W3, stocktake counts. Starting a count, submitting it, completing it and posting it are local.
+While a count started at the counter is open, count lines may be entered from phones or the web.
+Each line records who entered it and when, and blind counts still hide on-hand quantities.
+Entered lines are not a count result until a counter submits them, and review, approval and
+posting rules are unchanged. `PATCH /stocktakes/:id/lines` moves from `local_record` to an
+attributed draft-entry classification when W5 implements phone entry; until then the registry is
+unchanged. Counting on an enrolled mobile device is not needed for v1.
 
 Bind approval to tenant/branch, document type/ID, exact version and canonical relevant-content
 digest, authorized action, requester, approver, reason/time and policy version. The document version/digest represent approved material content, not administrative notes.
