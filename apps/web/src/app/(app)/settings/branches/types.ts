@@ -1,3 +1,5 @@
+import type { BranchHoursOrigin } from "@pharmaceylon/shared";
+
 export type Branch = {
   id: string;
   code: string;
@@ -13,7 +15,11 @@ export type Branch = {
   pharmacyLicenceExpiry: string | null;
   responsiblePharmacist: string | null;
   pharmacistSlmcNo: string | null;
-  openingHours: string | null;
+  /** Hours as typed before structured hours existed; read-only now. */
+  legacyOpeningHours: string | null;
+  /** null = no hours yet; "legacy_text" = read from the old text, not yet checked by a person. */
+  operatingHoursOrigin: BranchHoursOrigin | null;
+  operatingHoursVersion: number;
   timezone: string;
   isActive: boolean;
 };
@@ -32,7 +38,6 @@ export type CreateBranchInput = {
   pharmacyLicenceExpiry?: string;
   responsiblePharmacist?: string;
   pharmacistSlmcNo?: string;
-  openingHours?: string;
   timezone?: string;
 };
 

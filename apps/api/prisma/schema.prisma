@@ -460,7 +460,19 @@ model Branch {
   pharmacyLicenceExpiry   DateTime? @map("pharmacy_licence_expiry") @db.Date
   responsiblePharmacist   String?   @map("responsible_pharmacist")
   pharmacistSlmcNo        String?   @map("pharmacist_slmc_no")
-  openingHours            String?   @map("opening_hours")
+  /// Free text entered before structured hours existed (D-W6). Kept exactly as it was and never
+  /// written again; `operatingHours` replaces it.
+  legacyOpeningHours      String?   @map("opening_hours")
+  /// Structured hours — `BranchHours` in @pharmaceylon/shared, checked with
+  /// `validateBranchHours`. Null until the branch has hours. P3 signs these into grants.
+  operatingHours          Json?     @map("operating_hours")
+  /// "legacy_text" (read from `legacyOpeningHours` by the migration, not yet saved by a person)
+  /// or "editor".
+  operatingHoursOrigin    String?   @map("operating_hours_origin") @db.VarChar(20)
+  /// Bumps on every change to hours or business extensions, so grants can say which they used.
+  operatingHoursVersion   Int       @default(1) @map("operating_hours_version")
+  operatingHoursUpdatedAt DateTime? @map("operating_hours_updated_at")
+  operatingHoursUpdatedBy String?   @map("operating_hours_updated_by") @db.Uuid
   isActive                Boolean   @default(true) @map("is_active")
   /// First-run readiness is enabled only for branches created by the guided
   /// owner onboarding flow. Existing branches keep normal POS behaviour.
@@ -504,11 +516,34 @@ model Branch {
   terminalCounters   TerminalCounter[]
   terminalChallenges TerminalChallenge[]
   managementApprovals ManagementApproval[]
+  hoursExtensions    BranchHoursExtension[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
   @@index([tenantId])
   @@map("branch")
+}
+
+/// An online-approved business extension: extra selling time on top of the routine schedule for
+/// one bounded interval. It never extends a mandatory limit. P3 signs one into a grant as
+/// `operatingHoursException`, with this id as its approval id. Content is immutable once
+/// approved; only a revocation is recorded, once (see the migration's trigger).
+model BranchHoursExtension {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  branchId         String    @map("branch_id") @db.Uuid
+  startsAt         DateTime  @map("starts_at")
+  endsAt           DateTime  @map("ends_at")
+  reason           String    @db.VarChar(500)
+  approvedByUserId String    @map("approved_by_user_id") @db.Uuid
+  approvedAt       DateTime  @default(now()) @map("approved_at")
+  revokedAt        DateTime? @map("revoked_at")
+  revokedByUserId  String?   @map("revoked_by_user_id") @db.Uuid
+  revocationReason String?   @map("revocation_reason") @db.VarChar(500)
+  branch           Branch    @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, branchId, endsAt])
+  @@map("branch_hours_extension")
 }
 
 /// P1 registry foundation, shared by future P1 verification and P2 enrollment.

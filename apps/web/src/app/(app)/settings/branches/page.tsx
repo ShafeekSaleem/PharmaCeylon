@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Alert } from "@/components/alert";
 import { PageHeader, ActionButton, StatusBadge, DataTable, type Column } from "@/components/ui";
 import { IconPlus, IconEdit, IconMapPin } from "@/components/icons";
@@ -9,7 +10,7 @@ import { notifyBranchesChanged } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
 import css from "../settings.module.css";
 import { fetchAllBranches } from "./api";
-import { BranchFormModal } from "./components/branch-form-modal";
+import { BranchFormModal, hoursStatus } from "./components/branch-form-modal";
 import { BranchTargetsSection } from "./components/branch-targets-section";
 import type { Branch } from "./types";
 
@@ -89,6 +90,20 @@ export default function BranchesPage() {
           </span>
         );
       },
+    },
+    {
+      key: "hours",
+      header: "Opening hours",
+      getValue: (b) => b.operatingHoursOrigin ?? "",
+      render: (b) => (
+        <Link
+          href={`/settings/branches/hours?branch=${b.id}`}
+          className={b.operatingHoursOrigin === "editor" ? undefined : css.mutedText}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {hoursStatus(b)}
+        </Link>
+      ),
     },
     {
       key: "status",

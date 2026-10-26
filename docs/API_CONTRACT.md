@@ -294,6 +294,33 @@ lists were recomputed on each request, which meant a dismissal could not be reco
 `GET /products` additionally accepts `importId`, which scopes the list to one import run — this
 is what the import completion screen's "View imported products" links to.
 
+## Branch hours (W7 / D-W6)
+
+Structured hours replace the free-text `Branch.openingHours`. The document is `BranchHours` in
+`packages/shared/src/branch-hours.ts`, checked by `validateBranchHours` on both sides; P3 reads it
+(and the active extensions) when it resolves a grant's `operatingWindows` /
+`mandatoryOperatingWindows`. Every change applies to counters after their next sync.
+
+| Route                                                         | Permission              | Notes |
+| ------------------------------------------------------------- | ----------------------- | ----- |
+| `GET /tenant/branches/:branchId/hours`                        | `tenant.branches_view`  | `BranchHoursView`: the document (or `null` if none yet), `origin`, `version`, the old free text as `legacyText`, and extensions that haven't ended or been revoked. |
+| `PUT /tenant/branches/:branchId/hours`                        | `tenant.branches_manage` | Replaces the document. Needs `expectedVersion` (stale → 409 `HOURS_VERSION_CONFLICT`). Saving an empty mandatory list over anything else needs `confirmNoSelling: true` (else 400 `NO_SELLING_CONFIRMATION_REQUIRED`). |
+| `GET /tenant/branches/:branchId/hours/holiday-suggestions`    | `tenant.branches_view`  | Upcoming public and poya holidays to offer as dated exceptions. `source: null` and no dates until a holiday source is agreed. Never applied by the server. |
+| `POST /tenant/branches/:branchId/hours/extensions`            | `tenant.branches_manage` | Online business extension: `startsAt`, `endsAt` (at most 24 hours, not in the past, no overlap) and `reason`. The caller is the approver. |
+| `POST /tenant/branches/:branchId/hours/extensions/:id/revoke` | `tenant.branches_manage` | Needs a `reason`. The row is kept; content is immutable and a revocation is recorded once (database trigger). |
+
+- **Times** are branch-local `HH:MM`. A closing time earlier than the opening time runs past
+  midnight; `24:00` is midnight at the end of the day. A range belongs to the day it opens on.
+- **Mandatory** follows D8: `null` = no mandatory restriction, `[]` = no selling, otherwise
+  selling only inside the listed weekly windows. It is `null` unless the owner sets it.
+- **Who**: like `PATCH /tenant/branches/:branchId` — an owner on any branch, or the manager of
+  this branch. Changing mandatory limits is owner-only (403 `MANDATORY_HOURS_OWNER_ONLY`).
+- **Version**: `operatingHoursVersion` bumps on every change to the document or to extensions.
+- **Migration** `20261027000000_structured_branch_hours` keeps `opening_hours` as it was and reads
+  it into a document only when the text is unambiguous (`origin: "legacy_text"` until a person
+  saves). It never writes a mandatory restriction, and the database refuses one with that origin.
+- `openingHours` is no longer accepted by `POST /tenant/branches` or `PATCH /tenant/branches/:branchId`.
+
 ## Versioning
 
 Pilot uses **`/api/v1`**. Breaking changes should move to `/api/v2` or be gated by explicit API version headers if you outgrow this model.

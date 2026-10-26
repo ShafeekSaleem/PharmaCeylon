@@ -126,6 +126,10 @@ the web epics W1–W10 below deliver it.
   before saving "no selling". Support 24-hour branches.
 - Offer Sri Lanka public and poya holidays as dated exceptions for the owner to confirm. The app
   suggests holidays; it does not decide legal trading hours.
+- Built in W7: the model is `BranchHours` in `packages/shared/src/branch-hours.ts`, the API and
+  migration are described in `API_CONTRACT.md` ("Branch hours"), and the editor is Settings →
+  Branches → Opening hours. Mandatory limits are owner-only. The holiday list ships empty until
+  its source is agreed (`apps/api/src/tenant/holiday-suggestions.ts`).
 
 ## Copy patterns
 

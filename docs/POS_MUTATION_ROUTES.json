@@ -735,6 +735,21 @@
     "source": "apps/api/src/tenant/tenant.controller.ts"
   },
   {
+    "method": "PUT",
+    "path": "/api/v1/tenant/branches/:branchId/hours",
+    "source": "apps/api/src/tenant/branch-hours.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tenant/branches/:branchId/hours/extensions",
+    "source": "apps/api/src/tenant/branch-hours.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tenant/branches/:branchId/hours/extensions/:extensionId/revoke",
+    "source": "apps/api/src/tenant/branch-hours.controller.ts"
+  },
+  {
     "method": "PATCH",
     "path": "/api/v1/tenant/profile",
     "source": "apps/api/src/tenant/tenant.controller.ts"
