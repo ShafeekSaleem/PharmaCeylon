@@ -118,9 +118,10 @@ export class DailyWorkService {
 
     if (allowed("stocktakes.use")) {
       const review = Prisma.sql`s.status IN ('submitted', 'under_review', 'approved', 'posted')`;
+      const needsApproval = Prisma.sql`(s.status IN ('submitted', 'under_review') OR (s.status = 'approved' AND s.execution_approval_id IS NULL))`;
       sources.push(Prisma.sql`
         SELECT 'stocktake:' || s.id, 'stocktakes',
-          CASE WHEN s.status = 'approved' THEN 'Post approved stocktake' WHEN s.status = 'posted' THEN 'Complete posted stocktake'
+          CASE WHEN s.status = 'approved' AND s.execution_approval_id IS NULL THEN 'Review legacy stocktake approval' WHEN s.status = 'approved' THEN 'Post approved stocktake' WHEN s.status = 'posted' THEN 'Complete posted stocktake'
             WHEN ${review} THEN 'Review stocktake' WHEN s.status = 'counting' THEN 'Continue stock count' ELSE 'Prepare stock count' END,
           concat(COALESCE(s.title, 'Stocktake'), CASE WHEN s.area_label IS NOT NULL THEN ' · ' || s.area_label ELSE '' END),
           s.stocktake_number, s.status::text, '/stocktakes/' || s.id,
@@ -129,8 +130,8 @@ export class DailyWorkService {
           CASE WHEN ${review} THEN COALESCE(reviewer.full_name, 'Branch reviewers') ELSE counter.full_name END,
           CASE WHEN ${review} THEN s.reviewer_id = ${uid}::uuid ELSE
             (s.counted_by = ${uid}::uuid OR EXISTS(SELECT 1 FROM stocktake_assignment a WHERE a.tenant_id = ${tenant}::uuid AND a.stocktake_id = s.id AND a.user_id = ${uid}::uuid)) END,
-          (${review}) AS approval,
-          (${review} AND NOT ${actor.canSelfApprove} AND (s.counted_by = ${uid}::uuid OR EXISTS(
+          (${needsApproval}) AS approval,
+          (${needsApproval} AND NOT ${actor.canSelfApprove} AND (s.counted_by = ${uid}::uuid OR EXISTS(
             SELECT 1 FROM stocktake_count_entry e WHERE e.tenant_id = ${tenant}::uuid AND e.stocktake_id = s.id AND e.counted_by = ${uid}::uuid))), 2
         FROM stocktake s JOIN app_user counter ON counter.id = s.counted_by LEFT JOIN app_user reviewer ON reviewer.id = s.reviewer_id
         WHERE s.tenant_id = ${tenant}::uuid AND s.branch_id = ${branchId}::uuid AND (

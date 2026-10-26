@@ -102,7 +102,7 @@ export class ManagementApprovalsService {
       denied("PERMISSION_DENIED");
     assertMayApprove(
       actor,
-      [doc.identity.requestedByUserId],
+      doc.requesters,
       doc.identity.documentType,
     );
     if (
@@ -210,6 +210,7 @@ export class ManagementApprovalsService {
       mayApproveOwnRequests: approver.canSelfApprove,
     });
     if (error) denied(error);
+    assertMayApprove(approver, doc.requesters, doc.identity.documentType);
     return approval;
   }
 
@@ -258,7 +259,9 @@ export class ManagementApprovalsService {
   }
 
   private async lockDocumentForRevocation(tx: Tx, row: Stored) {
-    if (row.documentType === "purchase_order")
+    if (row.documentType === "stocktake")
+      await tx.$queryRaw`SELECT id FROM stocktake WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
+    else if (row.documentType === "purchase_order")
       await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else if (row.documentType === "transfer")
       await tx.$queryRaw`SELECT id FROM transfer WHERE tenant_id = ${row.tenantId}::uuid AND from_branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;

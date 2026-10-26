@@ -2398,6 +2398,9 @@ model GoodsReturnItem {
 }
 
 model Stocktake {
+  approvalVersion      Int                   @default(1) @map("approval_version")
+  metadataVersion      Int                   @default(1) @map("metadata_version")
+  executionApprovalId  String?               @map("execution_approval_id") @db.Uuid
   id                   String                @id @default(uuid()) @db.Uuid
   tenantId             String                @map("tenant_id") @db.Uuid
   branchId             String                @map("branch_id") @db.Uuid
