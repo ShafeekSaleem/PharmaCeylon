@@ -1,5 +1,6 @@
 import { stocktakeApprovalMaterial } from "./stocktake-approval-material";
 import { approvalMaterialDigest } from "./approval-material-digest";
+import { heldAdjustmentMaterial, heldDeliveryMaterial } from "./held-approval-material";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ApprovalDocumentIdentity } from "@pharmaceylon/shared";
@@ -9,6 +10,14 @@ import { denied, uuid } from "../terminals/terminal-wire";
  * are added with the mixed-handler split; no generic fallback is authorized.
  */
 export const APPROVAL_ACTIONS = {
+  "held_adjustment.post": {
+    documentType: "held_adjustment", approvalPermission: "inventory.write_off",
+    executionPermission: "inventory.write_off", operation: "POST /api/v1/inventory/held-adjustments/:id/post",
+  },
+  "held_delivery.post": {
+    documentType: "held_delivery", approvalPermission: "purchasing.approve",
+    executionPermission: "purchasing.receive", operation: "POST /api/v1/purchasing/held-deliveries/:id/post",
+  },
   "stocktake.post": {
     documentType: "stocktake",
     approvalPermission: "stocktakes.review",
@@ -67,7 +76,24 @@ export async function approvalDocument(
   let version: number;
   let requester: string;
   let requesters: string[] | undefined;
-  if (policy.documentType === "stocktake") {
+  if (policy.documentType === "held_adjustment") {
+    await tx.$queryRaw`SELECT id FROM held_adjustment WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
+    const doc = await tx.heldAdjustment.findFirst({ where: { tenantId, branchId, id: documentId } });
+    if (!doc || !(use === "execution" ? ["approved"] : ["awaiting_approval", "approved"]).includes(doc.status)) denied("APPROVAL_INVALID");
+    version = doc.approvalVersion; requester = doc.requestedBy; material = heldAdjustmentMaterial(doc);
+  } else if (policy.documentType === "held_delivery") {
+    // Every delivery path locks its PO first, then the held request, including revocation.
+    const binding = await tx.heldDelivery.findFirst({ where: { tenantId, branchId, id: documentId }, select: { purchaseOrderId: true } });
+    if (!binding) denied("APPROVAL_INVALID");
+    await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${binding.purchaseOrderId}::uuid FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM held_delivery WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
+    const doc = await tx.heldDelivery.findFirst({ where: { tenantId, branchId, id: documentId }, include: { purchaseOrder: true } });
+    if (!doc || doc.purchaseOrder.tenantId !== tenantId || doc.purchaseOrder.branchId !== branchId
+      || !["issued", "partially_received"].includes(doc.purchaseOrder.status)
+      || !(use === "execution" ? ["approved"] : ["awaiting_approval", "approved"]).includes(doc.status)) denied("APPROVAL_INVALID");
+    version = doc.approvalVersion; requester = doc.requestedBy;
+    material = heldDeliveryMaterial(doc, doc.purchaseOrder.approvalVersion);
+  } else if (policy.documentType === "stocktake") {
     await tx.$queryRaw`SELECT id FROM stocktake WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
     const doc = await tx.stocktake.findFirst({
       where: { tenantId, branchId, id: documentId },
@@ -181,7 +207,7 @@ export async function approvalDocument(
       })),
     };
   }
-  if (!Array.isArray(material.items) || !material.items.length)
+  if (policy.documentType !== "held_adjustment" && policy.documentType !== "held_delivery" && (!Array.isArray(material.items) || !material.items.length))
     denied("APPROVAL_INVALID");
   return {
     identity: {

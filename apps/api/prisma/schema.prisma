@@ -1945,14 +1945,21 @@ enum HeldDeliveryStatus {
   awaiting_approval
   accepted
   rejected
+  approved
 }
 
 /// A delivery the receiver could not book in themselves — more arrived than was ordered, or it
 /// is billed above the price the order agreed — kept exactly as they typed it until someone who
 /// may approve purchase orders accepts or rejects it. Nothing here touches stock or the supplier
 /// ledger: accepting books it in through the normal receiving path and links the delivery it
-/// created, so what the receiver typed and what was accepted can both be read afterwards.
+/// created. Approval and physical posting are separate; the original input is retained.
 model HeldDelivery {
+  preparedPayload Json? @map("prepared_payload")
+  approvalVersion Int @default(1) @map("approval_version")
+  metadataVersion Int @default(1) @map("metadata_version")
+  executionApprovalId String? @map("execution_approval_id") @db.Uuid
+  executedBy String? @map("executed_by") @db.Uuid
+  executedAt DateTime? @map("executed_at")
   id              String             @id @default(uuid()) @db.Uuid
   tenantId        String             @map("tenant_id") @db.Uuid
   branchId        String             @map("branch_id") @db.Uuid
@@ -1989,12 +1996,18 @@ enum HeldAdjustmentStatus {
   awaiting_approval
   accepted
   rejected
+  approved
 }
 
 /// A write-off someone entered but may not post themselves — they can't write off stock, or it
 /// is worth more than the tenant's write-off threshold — kept exactly as entered until someone
-/// who may write off stock accepts or rejects it. Nothing moves until it is accepted.
+/// who may write off stock approves or rejects it. Approval is separate from stock posting.
 model HeldAdjustment {
+  approvalVersion Int @default(1) @map("approval_version")
+  metadataVersion Int @default(1) @map("metadata_version")
+  executionApprovalId String? @map("execution_approval_id") @db.Uuid
+  executedBy String? @map("executed_by") @db.Uuid
+  executedAt DateTime? @map("executed_at")
   id           String               @id @default(uuid()) @db.Uuid
   tenantId     String               @map("tenant_id") @db.Uuid
   branchId     String               @map("branch_id") @db.Uuid

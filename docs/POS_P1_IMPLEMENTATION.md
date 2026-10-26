@@ -270,7 +270,57 @@ inventory passed. All 70 tenant-model RLS policies remain staged/disabled; the m
 PostgreSQL schema matches Prisma. Database verification used a disposable PostgreSQL 16
 instance; remote CI/publishing has not run for this change.
 
+## MR 4b: held-adjustment and held-delivery approval/posting split
+
+Both `accept` routes now record exact ManagementApproval evidence and leave stock unchanged
+in a new `approved` state. Separate `post` routes execute through the existing InventoryService,
+PurchasingService and StockService in caller-owned READ COMMITTED transactions. Document state,
+stock/quarantine, reference/receipt, supplier invoice and success audit commit together. Repeats
+return the saved posting link; signed command receipts/replay remain later executor work.
+
+Held deliveries retain original input and a separate correction draft. Saving corrections requires
+the displayed material/PO digest; approval confirms the fresh returned preview. Approved payload,
+PO material revision and exception choices are revalidated at execution. A receiving-only operator
+can post the approver's scoped delivery without acquiring `purchasing.approve`. Both workflows
+recheck live approver/executor authority after actual stock-lock waits. Current self-approval rules
+are retained; the requester may execute someone else's valid approval. Revoked/obsolete approvals
+can be explicitly replaced. Notes preserve approvals; changed-and-restored material does not.
+
+Approved deliveries block alternate receipt routes. PO-first locking serializes held creation,
+approval, receipt posting, revocation and closed-order cleanup. A failed stock/audit operation
+leaves the approved request intact. Existing posted history is retained without fabricated evidence.
+The screens, notifications and daily-work queue distinguish approval from posting. API/web must
+deploy together because `accept` now requires the preview and stable approval UUID.
+
+Posting requires the approval ID displayed to the operator. A replaced approval invalidates a
+stale posting confirmation, even if the old evidence would otherwise remain valid. Requester
+notifications are sent after commit and distinguish authorization from actual stock posting.
+
+Validation (2026-10-26): the complete API unit suite passed 890 tests, the complete web suite
+passed 178 tests, and all nine PostgreSQL suites passed 167 tests before the final posting-ID
+checks. The final four affected PostgreSQL suites passed 89 tests (including stale posting IDs
+and the added receiving-queue regression), and the four UI regressions and API/web types passed.
+The API production build passed. Migrated schema comparison has no differences; the 169-route
+inventory, tenant/stock checks and 70 staged/disabled RLS policy inventory passed. The local web
+build hit the Windows cross-drive dependency-junction resolver limitation; CI validates its build
+from a clean installation.
+
+The registry now covers 169 routes: three additions for held adjustment posting, held delivery
+correction preparation and held delivery posting. Approval is management; physical posting is local
+in policy metadata. Production terminal/attendance enforcement still awaits the coordinated P1/P2/P6
+cutover. Approval-optional direct adjustments/receipts retain existing policies. No offline allocation,
+new mandatory TTL or additional approver/executor separation is introduced.
+
 ## Remaining P1 MRs, in order
+
+MR #61 review fixes (2026-10-27): supplier-price choices are hydrated from the current held
+delivery and reset across order/receipt lifecycles. Corrections send the choice only when explicitly
+changed. Approvers can confirm the current saved document without rebuilding its form, including
+when costs are redacted. Corrections retain omitted supplier notes, exact costs and exception choices
+on the server; unchanged costs are not rounded through the form. Confirmation displays the saved
+document and explains that unsaved form edits are excluded. Regression validation passed 56 real
+PostgreSQL tests across held approvals and purchasing, the complete 181-test web suite before the
+final opt-out case, all four final modal regression tests, API/web type checks and tenant/stock checks.
 
 MR #60 review fixes (2026-10-26): persisted approval material uses deterministic document-sized
 encoding without incoming-command size limits. Existing digest encoding is preserved, and signed
@@ -281,8 +331,8 @@ prior evidence is retained and current self-approval rules still apply. Review v
 50 PostgreSQL workflow/approval tests, 50 focused API tests, 2 UI recovery tests, API/web types,
 tenant/stock scanners and the 166-route inventory.
 
-1. **Separate approval from execution:** finish held-adjustment acceptance, held-delivery
-   acceptance and stock-bearing import/undo stages. Stocktake approval/posting is split in MR 4a. Retain
+1. **Separate approval from execution:** finish stock-bearing import/undo stages.
+   Stocktakes are split in MR 4a and held requests in MR 4b. Retain
    remote commercial management and normal reservations; coordinate P6 screens.
 2. **Transactional command execution:** integrate exact approvals and receipts with existing business services,
    StockService and AuditService; prove retries/lost responses, digest conflicts, rollback and

@@ -64,24 +64,26 @@ export class DailyWorkService {
           (${approve} AND p.status = 'pending_approval') OR
           (${manage} AND p.status = 'draft' AND p.created_by = ${uid}::uuid) OR
           (${receive} AND p.status IN ('issued', 'partially_received')))`);
-      if (approve)
+      if (approve || receive)
         sources.push(Prisma.sql`
-        SELECT 'delivery:' || h.id, 'purchasing', 'Review held delivery',
+        SELECT 'delivery:' || h.id, 'purchasing', CASE WHEN h.status = 'approved' THEN 'Post approved delivery' ELSE 'Review held delivery' END,
           concat(p.po_number, ' · ', array_to_string(h.reasons, ', ')), p.po_number, h.status::text,
-          '/purchasing?po=' || p.id || '&held=' || h.id, 'Review delivery', h.requested_at, NULL::timestamp,
-          'Branch approvers', false, true, ${blocked(Prisma.sql`h.requested_by`)}, 1
+          '/purchasing?po=' || p.id || '&held=' || h.id, CASE WHEN h.status = 'approved' THEN 'Post receipt' ELSE 'Review delivery' END, h.requested_at, NULL::timestamp,
+          CASE WHEN h.status = 'approved' THEN 'Receiving team' ELSE 'Branch approvers' END, false,
+          (h.status = 'awaiting_approval'), (h.status = 'awaiting_approval' AND ${blocked(Prisma.sql`h.requested_by`)}), 1
         FROM held_delivery h JOIN purchase_order p ON p.id = h.purchase_order_id AND p.tenant_id = h.tenant_id AND p.branch_id = h.branch_id
-        WHERE h.tenant_id = ${tenant}::uuid AND h.branch_id = ${branchId}::uuid AND h.status = 'awaiting_approval'`);
+        WHERE h.tenant_id = ${tenant}::uuid AND h.branch_id = ${branchId}::uuid AND ((h.status = 'awaiting_approval' AND ${approve}) OR (h.status = 'approved' AND ${receive}))`);
     }
     if (allowed("inventory.view", "inventory.write_off"))
       sources.push(Prisma.sql`
-      SELECT 'adjustment:' || h.id, 'inventory', 'Review write-off request',
+      SELECT 'adjustment:' || h.id, 'inventory', CASE WHEN h.status = 'approved' THEN 'Post approved write-off' ELSE 'Review write-off request' END,
         concat(p.name, ' · ', h.qty, ' units · ', h.kind), b.batch_no, h.status::text,
-        '/inventory?heldAdjustment=' || h.id, 'Review write-off', h.requested_at, NULL::timestamp,
-        'Branch approvers', false, true, ${blocked(Prisma.sql`h.requested_by`)}, 1
+        '/inventory?heldAdjustment=' || h.id, CASE WHEN h.status = 'approved' THEN 'Post write-off' ELSE 'Review write-off' END, h.requested_at, NULL::timestamp,
+        'Branch approvers', false, (h.status = 'awaiting_approval'),
+        (h.status = 'awaiting_approval' AND ${blocked(Prisma.sql`h.requested_by`)}), 1
       FROM held_adjustment h JOIN product p ON p.id = h.product_id AND p.tenant_id = h.tenant_id
         JOIN batch b ON b.id = h.batch_id AND b.tenant_id = h.tenant_id AND b.branch_id = h.branch_id
-      WHERE h.tenant_id = ${tenant}::uuid AND h.branch_id = ${branchId}::uuid AND h.status = 'awaiting_approval'`);
+      WHERE h.tenant_id = ${tenant}::uuid AND h.branch_id = ${branchId}::uuid AND h.status IN ('awaiting_approval','approved')`);
 
     if (allowed("transfers.view"))
       sources.push(Prisma.sql`

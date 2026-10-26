@@ -1,3 +1,4 @@
+import type { ManagementApprovalEvidence } from "@pharmaceylon/shared";
 import {
   BadRequestException,
   Injectable,
@@ -530,9 +531,12 @@ export class PurchasingService {
     access: ActorAccess,
     dto: ReceiveGoodsDto,
     idempotencyKeyRaw?: string,
-    /** Set when an approver is accepting a held delivery, which is then not "another" delivery. */
-    opts: { heldDeliveryId?: string } = {},
+    /** Server-owned composition only: exact held approval on the caller transaction. Never deserialized from a request. */
+    opts: { heldDeliveryId?: string; tx?: Prisma.TransactionClient; authorizeHeldDelivery?: () => Promise<ManagementApprovalEvidence> } = {},
   ) {
+    const db = opts.tx ?? this.prisma;
+    if (opts.heldDeliveryId && (!opts.tx || !opts.authorizeHeldDelivery))
+      throw new BadRequestException("Held deliveries require transactional exact approval");
     assertNoDuplicateProductIds(
       dto.lines.map((l) => l.productId),
       "goods receipt",
@@ -540,7 +544,7 @@ export class PurchasingService {
 
     const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
     if (idemKey) {
-      const existing = await this.prisma.idempotencyRecord.findUnique({
+      const existing = await db.idempotencyRecord.findUnique({
         where: {
           tenantId_userId_scope_idempotencyKey: {
             tenantId,
@@ -551,7 +555,7 @@ export class PurchasingService {
         },
       });
       if (existing) {
-        const replay = await this.prisma.goodsReceipt.findFirst({
+        const replay = await db.goodsReceipt.findFirst({
           where: { id: existing.resourceId, tenantId, branchId },
           include: { items: { include: { batch: true, product: true } } },
         });
@@ -569,7 +573,7 @@ export class PurchasingService {
       }
     }
 
-    const po = await this.prisma.purchaseOrder.findFirst({
+    const po = await db.purchaseOrder.findFirst({
       where: { id: dto.purchaseOrderId, tenantId, branchId },
       include: { items: true },
     });
@@ -591,12 +595,12 @@ export class PurchasingService {
     // One delivery at a time. While a receiver's delivery waits for an approver, booking another
     // against the same order lands beside it — and accepting the held one afterwards counts the
     // same goods twice, or finds the order already closed.
-    const waiting = await this.prisma.heldDelivery.findFirst({
+    const waiting = await db.heldDelivery.findFirst({
       where: {
         tenantId,
         branchId,
         purchaseOrderId: po.id,
-        status: "awaiting_approval",
+        status: { in: ["awaiting_approval", "approved"] },
         ...(opts.heldDeliveryId ? { id: { not: opts.heldDeliveryId } } : {}),
       },
       select: { id: true, requester: { select: { fullName: true } } },
@@ -618,7 +622,7 @@ export class PurchasingService {
 
     // Batch number and expiry are what recalls, FEFO picking and expiry alerts all run on, so
     // they must be what is printed on the pack — never a value the form made up.
-    const tenant = await this.prisma.tenant.findUnique({
+    const tenant = await db.tenant.findUnique({
       where: { id: tenantId },
       select: { timezone: true },
     });
@@ -628,7 +632,7 @@ export class PurchasingService {
       throw new BadRequestException("The received date can't be in the future");
     }
 
-    const settings = await this.prisma.tenantSettings.findUnique({
+    const settings = await db.tenantSettings.findUnique({
       where: { tenantId },
       select: {
         goodsReceiptOverTolerancePercent: true,
@@ -639,12 +643,12 @@ export class PurchasingService {
     const priceTolerancePercent = Number(settings?.purchasePriceVarianceTolerancePercent ?? 0);
 
     const receiptProductIds = [...new Set(dto.lines.map((l) => l.productId))];
-    const receiptProducts = await this.prisma.product.findMany({
+    const receiptProducts = await db.product.findMany({
       where: { tenantId, id: { in: receiptProductIds } },
       select: { id: true, name: true, unitsPerPack: true },
     });
     const receiptProductById = new Map(receiptProducts.map((p) => [p.id, p]));
-    const supplierPrices = await this.prisma.supplierProductPrice.findMany({
+    const supplierPrices = await db.supplierProductPrice.findMany({
       where: { tenantId, supplierId: po.supplierId, productId: { in: receiptProductIds } },
     });
     const supplierPriceByProduct = new Map(supplierPrices.map((row) => [row.productId, row]));
@@ -727,7 +731,7 @@ export class PurchasingService {
     });
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const run = async (tx: Prisma.TransactionClient) => {
         await tx.$queryRaw`
           SELECT id FROM purchase_order
           WHERE id = ${dto.purchaseOrderId}::uuid
@@ -751,6 +755,16 @@ export class PurchasingService {
           throw poNotOpen(locked.status);
         }
 
+        const pendingHeld = await tx.heldDelivery.findFirst({ where: {
+          tenantId, branchId, purchaseOrderId: locked.id, status: { in: ["awaiting_approval", "approved"] },
+          ...(opts.heldDeliveryId ? { id: { not: opts.heldDeliveryId } } : {}),
+        }, select: { id: true } });
+        if (pendingHeld) throw new BadRequestException({ code: "DELIVERY_AWAITING_APPROVAL",
+          heldDeliveryId: pendingHeld.id, message: "Approve and post or reject the saved delivery before receiving another." });
+        const approval = await opts.authorizeHeldDelivery?.();
+        const heldAuthorized = approval?.authorizedAction === "held_delivery.post"
+          && approval.document.documentId === opts.heldDeliveryId && approval.document.tenantId === tenantId
+          && approval.document.branchId === branchId;
         const lockedItemByProduct = new Map(locked.items.map((item) => [item.productId, item]));
 
         // How much more than the outstanding quantity this delivery may contain. Suppliers do
@@ -771,7 +785,7 @@ export class PurchasingService {
           }
         }
         if (overDeliveries.length > 0) {
-          const mayAccept = access.has("purchasing.approve");
+          const mayAccept = access.has("purchasing.approve") || heldAuthorized;
           if (!dto.acceptOverDelivery || !mayAccept) {
             const first = overDeliveries[0]!;
             // "only 0 are outstanding" is true but reads like nonsense. When a line is already
@@ -803,7 +817,7 @@ export class PurchasingService {
             variancePercent: line.variancePercent!,
           }));
         if (priceRises.length > 0) {
-          const mayAccept = access.has("purchasing.approve");
+          const mayAccept = access.has("purchasing.approve") || heldAuthorized;
           if (!dto.acceptPriceVariance || !mayAccept) {
             const first = priceRises[0]!;
             const movement = `${first.product} was ordered at Rs ${first.orderedUnitCost} a unit and is billed at Rs ${first.billedUnitCost} (+${first.variancePercent}%)`;
@@ -1055,6 +1069,10 @@ export class PurchasingService {
 
         // One posting for the whole delivery: the stock service locks every batch at once, adds
         // the units, and ranges any product still sitting in the reference catalog.
+        if (opts.authorizeHeldDelivery) {
+          await this.stock.lockBatches(tx, tenantId, arrivals.map(line => line.batchId));
+          await opts.authorizeHeldDelivery();
+        }
         await this.stock.receive(
           tx,
           {
@@ -1183,10 +1201,12 @@ export class PurchasingService {
           where: { id: gr.id },
           include: { items: { include: { batch: true, product: true } } },
         });
-      });
+      };
+      return opts.tx ? await run(opts.tx) : await this.prisma.$transaction(run);
     } catch (e) {
+      if (opts.tx) throw e;
       if (idemKey && isPrismaUniqueFieldError(e, "idempotency")) {
-        const row = await this.prisma.idempotencyRecord.findUnique({
+        const row = await db.idempotencyRecord.findUnique({
           where: {
             tenantId_userId_scope_idempotencyKey: {
               tenantId,
@@ -1197,7 +1217,7 @@ export class PurchasingService {
           },
         });
         if (row) {
-          return this.prisma.goodsReceipt.findFirst({
+          return db.goodsReceipt.findFirst({
             where: { id: row.resourceId, tenantId, branchId },
             include: { items: { include: { batch: true, product: true } } },
           });

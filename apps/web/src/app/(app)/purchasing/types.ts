@@ -166,7 +166,9 @@ export type GoodsReceipt = {
 /** A delivery the receiver typed but couldn't book in, waiting for an approver. */
 export type HeldDelivery = {
   id: string;
-  status: "awaiting_approval" | "accepted" | "rejected";
+  status: "awaiting_approval" | "approved" | "accepted" | "rejected";
+  approvalReview: { expectedVersion: number; expectedDigest: string };
+  executionApprovalId: string | null;
   reasons: Array<"over_delivery" | "price_variance">;
   detail: string | null;
   requestedAt: string;
@@ -181,6 +183,7 @@ export type HeldDelivery = {
     purchaseOrderId: string;
     receivedOn: string;
     supplierDeliveryNote?: string;
+    updateSupplierPrice?: boolean;
     lines: Array<{
       productId: string;
       batchNo: string;
@@ -195,6 +198,8 @@ export type HeldDelivery = {
       /** Absent when you may not see costs. */
       costPrice?: string;
       sellingPrice: string;
+      onCostConflict?: "keep_existing" | "update_cost";
+      onExpiryConflict?: "use_existing" | "correct_existing";
     }>;
   };
 };

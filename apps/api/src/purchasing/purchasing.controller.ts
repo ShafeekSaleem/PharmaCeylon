@@ -1,3 +1,4 @@
+import { PostHeldDto } from "../security/dto/approve-held.dto";
 import {
   Body,
   Controller,
@@ -23,6 +24,7 @@ import { NotificationCategory, NotificationSeverity } from "@prisma/client";
 import { NotificationsService } from "../notifications/notifications.service";
 import {
   AcceptHeldDeliveryDto,
+  PrepareHeldDeliveryDto,
   HoldDeliveryDto,
   RejectHeldDeliveryDto,
 } from "./dto/held-delivery.dto";
@@ -264,7 +266,7 @@ export class PurchasingController {
     @Query("status") status?: string,
   ) {
     const access = await this.access.resolve(user, branchId);
-    const allowed = ["awaiting_approval", "accepted", "rejected"] as const;
+    const allowed = ["awaiting_approval", "approved", "accepted", "rejected"] as const;
     return this.heldDeliveries.list(user.tenantId, branchId, {
       status: allowed.find((value) => value === status),
       canViewCost: access.has("costs.view"),
@@ -277,19 +279,23 @@ export class PurchasingController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
-    @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Body() dto: AcceptHeldDeliveryDto,
   ) {
-    const access = await this.access.resolve(user, branchId);
-    return this.heldDeliveries.accept(
-      user.tenantId,
-      branchId,
-      user.userId,
-      access,
-      id,
-      dto,
-      idempotencyKey,
-    );
+    return this.heldDeliveries.accept(user, branchId, id, dto);
+  }
+
+  @RequirePermission("purchasing.approve")
+  @Patch("held-deliveries/:id")
+  async prepareHeldDelivery(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string, @Body() dto: PrepareHeldDeliveryDto) {
+    return this.heldDeliveries.prepare(user, branchId, id, dto);
+  }
+
+  @RequirePermission("purchasing.receive")
+  @Post("held-deliveries/:id/post")
+  async postHeldDelivery(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string, @Body() dto: PostHeldDto) {
+    return this.heldDeliveries.post(user, branchId, id, dto);
   }
 
   @RequirePermission("purchasing.approve")

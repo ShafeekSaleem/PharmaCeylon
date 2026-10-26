@@ -221,6 +221,11 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/inventory/held-adjustments/:id/post",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/inventory/held-adjustments/:id/reject",
     "source": "apps/api/src/inventory/inventory.controller.ts"
   },
@@ -440,8 +445,18 @@
     "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
   },
   {
+    "method": "PATCH",
+    "path": "/api/v1/purchasing/held-deliveries/:id",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
     "method": "POST",
     "path": "/api/v1/purchasing/held-deliveries/:id/accept",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/held-deliveries/:id/post",
     "source": "apps/api/src/purchasing/purchasing.controller.ts"
   },
   {

@@ -117,6 +117,8 @@ export function PoDetailModal({
   const [escalationNotice, setEscalationNotice] = useState<string | null>(null);
   const [receiveMode, setReceiveMode] = useState(false);
   /** The held delivery being reviewed: the receive form, filled with what the receiver typed. */
+  const [heldApprovalIntent, setHeldApprovalIntent] = useState<{ row: HeldDelivery; approvalId: string } | null>(null);
+  const [heldPostIntent, setHeldPostIntent] = useState<HeldDelivery | null>(null);
   const [heldReview, setHeldReview] = useState<HeldDelivery | null>(null);
   const [rejectHeld, setRejectHeld] = useState<HeldDelivery | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -153,12 +155,17 @@ export function PoDetailModal({
   >({});
   const [preparingReceive, setPreparingReceive] = useState(false);
   const [updateSupplierPrice, setUpdateSupplierPrice] = useState(false);
+  const [supplierPriceChoiceMade, setSupplierPriceChoiceMade] = useState(false);
 
   useEffect(() => {
     setActionError(null);
     setEscalationNotice(null);
     setReceiveMode(false);
     setHeldReview(null);
+    setHeldApprovalIntent(null);
+    setHeldPostIntent(null);
+    setUpdateSupplierPrice(false);
+    setSupplierPriceChoiceMade(false);
     setRejectHeld(null);
     openedHeldRef.current = null;
     setBusy(false);
@@ -170,6 +177,11 @@ export function PoDetailModal({
     receiveIdempotency.current = null;
     receiveAnswers.current = {};
   }, [poId]);
+
+  useEffect(() => {
+    setUpdateSupplierPrice(heldReview?.delivery.updateSupplierPrice === true);
+    setSupplierPriceChoiceMade(false);
+  }, [heldReview]);
 
   useEffect(() => {
     if (!poId || !startInEdit || !detail || loading) return;
@@ -184,7 +196,7 @@ export function PoDetailModal({
   useEffect(() => {
     if (!detail || !reviewHeldId || !canApprovePo || openedHeldRef.current === reviewHeldId) return;
     const held = detail.heldDeliveries?.find((row) => row.id === reviewHeldId);
-    if (!held) return;
+    if (!held || held.status === "approved") return;
     openedHeldRef.current = reviewHeldId;
     setHeldReview(held);
     setReceiveMode(true);
@@ -218,7 +230,7 @@ export function PoDetailModal({
           batchNo: line?.batchNo ?? "",
           expiryDate: line?.expiryDate.slice(0, 10) ?? "",
           orderedCostPrice: item.unitCost ? Number(item.unitCost).toFixed(2) : null,
-          costPrice: line?.costPrice != null ? Number(line.costPrice).toFixed(2) : "",
+          costPrice: line ? heldInitialCost(line, item.unitCost, unitsPerPack) : "",
           sellingPrice: line ? Number(line.sellingPrice).toFixed(2) : "",
           include: line != null,
         };
@@ -228,6 +240,8 @@ export function PoDetailModal({
 
   useEffect(() => {
     if (!detail || !receiveMode || heldReview) return;
+    setUpdateSupplierPrice(false);
+    setSupplierPriceChoiceMade(false);
     setReceivedOn(todayIsoDate());
     setReceiveLines(
       detail.items
@@ -298,13 +312,12 @@ export function PoDetailModal({
         // broken" three weeks later is not a claim a supplier accepts.
         (Number(l.rejectedQty || 0) === 0 ||
           l.rejectedReason.trim().length > 0) &&
-        l.costPrice !== "" &&
-        Number(l.costPrice) >= 0 &&
+        (heldCostRedacted(l.productId) || l.costPrice !== "" && Number(l.costPrice) >= 0) &&
         l.sellingPrice !== "" &&
         Number(l.sellingPrice) >= 0
       );
     });
-  }, [receiveLines, receivedOn]);
+  }, [receiveLines, receivedOn, heldReview, detail]);
 
   /** Any line bringing in more good units than the order still has outstanding. */
   const overDelivering = useMemo(
@@ -316,6 +329,8 @@ export function PoDetailModal({
   );
 
   async function completeAndReturnToList() {
+    setUpdateSupplierPrice(false);
+    setSupplierPriceChoiceMade(false);
     onChanged();
     onClose();
   }
@@ -539,6 +554,12 @@ export function PoDetailModal({
     }
   }
 
+  function heldCostRedacted(productId: string) {
+    const line = heldReview?.delivery.lines.find(line => line.productId === productId);
+    return !!line && line.costPrice == null && line.packCost == null
+      && detail?.items.find(item => item.productId === productId)?.unitCost == null;
+  }
+
   function linesBody(opts: ReceiveAnswers) {
     return receiveLines
       .filter((l) => l.include)
@@ -549,15 +570,14 @@ export function PoDetailModal({
         receivedQty: receivedUnits(l),
         ...(l.countMode === "packs"
           ? { packs: Number(l.packs), unitsPerPack: l.unitsPerPack }
-          : {}),
-        ...(Number(l.freeQty) > 0 ? { freeQty: Number(l.freeQty) } : {}),
-        ...(Number(l.rejectedQty) > 0
-          ? {
-              rejectedQty: Number(l.rejectedQty),
-              rejectedReason: l.rejectedReason.trim(),
-            }
-          : {}),
-        costPrice: Number(l.costPrice).toFixed(2),
+          : heldReview ? { packs: null, unitsPerPack: l.unitsPerPack } : {}),
+        freeQty: Number(l.freeQty || 0),
+        rejectedQty: Number(l.rejectedQty || 0),
+        rejectedReason: l.rejectedReason.trim(),
+        ...(!heldCostRedacted(l.productId) && (!heldReview || l.costPrice !== heldInitialCost(
+          heldReview.delivery.lines.find(line => line.productId === l.productId),
+          detail?.items.find(item => item.productId === l.productId)?.unitCost, l.unitsPerPack,
+        )) ? { costPrice: Number(l.costPrice).toFixed(2) } : {}),
         sellingPrice: Number(l.sellingPrice).toFixed(2),
         ...(opts.resolveCosts
           ? { onCostConflict: costChoices[l.productId] ?? "keep_existing" }
@@ -569,6 +589,8 @@ export function PoDetailModal({
   }
 
   function exitHeldReview() {
+    setUpdateSupplierPrice(false);
+    setSupplierPriceChoiceMade(false);
     setHeldReview(null);
     setReceiveMode(false);
   }
@@ -595,6 +617,31 @@ export function PoDetailModal({
     }
   }
 
+  async function confirmHeldApproval() {
+    if (!heldApprovalIntent) return;
+    setBusy(true); setActionError(null);
+    try {
+      await apiJson(`/purchasing/held-deliveries/${heldApprovalIntent.row.id}/accept`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approvalId: heldApprovalIntent.approvalId, ...heldApprovalIntent.row.approvalReview }),
+      });
+      setHeldApprovalIntent(null); setHeldReview(null); setReceiveMode(false);
+      onChanged(); await reload();
+    } catch (error) { setActionError(error instanceof Error ? error.message : "Approval failed"); }
+    finally { setBusy(false); }
+  }
+
+  async function confirmHeldPost() {
+    if (!heldPostIntent) return;
+    setBusy(true); setActionError(null);
+    try {
+      await apiJson(`/purchasing/held-deliveries/${heldPostIntent.id}/post`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approvalId: heldPostIntent.executionApprovalId }) });
+      setHeldPostIntent(null); onChanged(); await reload();
+    } catch (error) { setActionError(error instanceof Error ? error.message : "Posting failed"); }
+    finally { setBusy(false); }
+  }
+
   async function receive(answer: ReceiveAnswers = {}) {
     if (!detail || !receiveValid) return;
     if (
@@ -614,20 +661,15 @@ export function PoDetailModal({
     try {
       const lines = linesBody(opts);
       if (heldReview) {
-        // Accepting a held delivery books in the form as it stands now — as the receiver typed
-        // it, or as the approver corrected it.
-        await apiJson(`/purchasing/held-deliveries/${heldReview.id}/accept`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": receiveIdempotency.current.key,
-          },
-          body: JSON.stringify({
+        const prepared = await apiJson<HeldDelivery>(`/purchasing/held-deliveries/${heldReview.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...heldReview.approvalReview,
             delivery: { purchaseOrderId: detail.id, receivedOn, lines },
-            updateSupplierPrice,
-          }),
+            ...(supplierPriceChoiceMade ? { updateSupplierPrice } : {}) }),
         });
-        setHeldReview(null);
+        setHeldReview(prepared);
+        setHeldApprovalIntent({ row: prepared, approvalId: crypto.randomUUID() });
+        return;
       } else {
         await apiJson("/purchasing/purchase-orders/receive", {
           method: "POST",
@@ -704,6 +746,18 @@ export function PoDetailModal({
 
   return (
     <>
+      <ConfirmDialog open={heldApprovalIntent !== null} title="Approve this delivery?" variant="primary" confirmLabel="Approve delivery"
+        loading={busy} onCancel={() => !busy && setHeldApprovalIntent(null)} onConfirm={() => void confirmHeldApproval()}>
+        <p>Approval confirms the saved delivery shown below and its exceptions. Unsaved form changes are not included. Stock and the supplier balance change only when the receipt is posted.</p>
+        {heldApprovalIntent && detail ? <HeldDeliveryBanner held={heldApprovalIntent.row} order={detail} canDecide={false}
+          busy={busy} onReview={() => {}} onReject={() => {}} /> : null}
+      </ConfirmDialog>
+      <ConfirmDialog open={heldPostIntent !== null} title="Post the approved receipt?" variant="primary" confirmLabel="Post receipt"
+        loading={busy} onCancel={() => !busy && setHeldPostIntent(null)} onConfirm={() => void confirmHeldPost()}>
+        <p>This receives the approved quantities into stock, records damaged goods in quarantine, and updates the supplier balance.</p>
+        {heldPostIntent && detail ? <HeldDeliveryBanner held={heldPostIntent} order={detail} canDecide={false}
+          busy={busy} onReview={() => {}} onReject={() => {}} /> : null}
+      </ConfirmDialog>
       <Modal
         open={open}
         onClose={onClose}
@@ -725,13 +779,16 @@ export function PoDetailModal({
                 >
                   Reject
                 </ModalButton>
+                <ModalButton onClick={() => setHeldApprovalIntent({ row: heldReview, approvalId: crypto.randomUUID() })} disabled={busy}>
+                  Approve unchanged
+                </ModalButton>
                 <ModalButton
                   variant="primary"
                   onClick={() => void receive()}
                   loading={busy}
                   disabled={!receiveValid}
                 >
-                  Accept delivery
+                  Save corrections and review approval
                 </ModalButton>
               </>
             ) : receiveMode ? (
@@ -1123,6 +1180,8 @@ export function PoDetailModal({
                       held={held}
                       order={detail}
                       canDecide={canApprovePo}
+                      canPost={canReceiveGoods}
+                      onPost={() => setHeldPostIntent(held)}
                       busy={busy}
                       onReview={() => {
                         setHeldReview(held);
@@ -1147,7 +1206,7 @@ export function PoDetailModal({
                       </strong>
                       {heldReview.detail ? <> · {heldReview.detail}</> : null}
                       <br />
-                      Fix anything that&apos;s wrong, then accept.
+                      Save any corrections, then confirm approval. Receiving posts the receipt separately.
                     </Alert>
                   ) : null}
                   {heldReview &&
@@ -1156,7 +1215,7 @@ export function PoDetailModal({
                       <input
                         type="checkbox"
                         checked={updateSupplierPrice}
-                        onChange={(e) => setUpdateSupplierPrice(e.target.checked)}
+                        onChange={(e) => { setUpdateSupplierPrice(e.target.checked); setSupplierPriceChoiceMade(true); }}
                         disabled={busy}
                       />
                       Also update this supplier&apos;s agreed price to what was billed, so the next
@@ -1414,7 +1473,7 @@ export function PoDetailModal({
                                     ),
                                   )
                                 }
-                                disabled={busy}
+                                disabled={busy || heldCostRedacted(line.productId)}
                               />
                               {(() => {
                                 // What the order agreed, and how far this bill has moved from it.
@@ -1916,7 +1975,7 @@ export function PoDetailModal({
             <input
               type="checkbox"
               checked={updateSupplierPrice}
-              onChange={(e) => setUpdateSupplierPrice(e.target.checked)}
+              onChange={(e) => { setUpdateSupplierPrice(e.target.checked); setSupplierPriceChoiceMade(true); }}
               disabled={busy}
             />
             Also update this supplier&apos;s agreed price, so the next order
@@ -2061,4 +2120,10 @@ export function PoDetailModal({
       </ConfirmDialog>
     </>
   );
+}
+
+function heldInitialCost(line: HeldDelivery["delivery"]["lines"][number] | undefined, orderedCost: string | null | undefined, unitsPerPack: number): string {
+  if (line?.costPrice != null) return Number(line.costPrice).toFixed(2);
+  if (line?.packCost != null) return (Number(line.packCost) / unitsPerPack).toFixed(2);
+  return orderedCost != null ? Number(orderedCost).toFixed(2) : "";
 }

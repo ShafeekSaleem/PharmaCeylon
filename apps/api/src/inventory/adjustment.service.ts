@@ -1,3 +1,7 @@
+import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { ManagementApprovalsService } from "../security/management-approvals.service";
+import { ApproveHeldDto, PostHeldDto } from "../security/dto/approve-held.dto";
+import { heldAdjustmentMaterial, heldReview } from "../security/held-approval-material";
 import {
   BadRequestException,
   ConflictException,
@@ -16,7 +20,7 @@ import { AuditService } from "../audit/audit.service";
 import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { assertMayApprove, type ActorAccess } from "../security/access.service";
+import { AccessService, type ActorAccess } from "../security/access.service";
 import {
   ADJUSTMENT_KIND_LABELS,
   ADJUSTMENT_KINDS,
@@ -50,6 +54,8 @@ export class AdjustmentService {
     private readonly inventory: InventoryService,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
+    private readonly access: AccessService,
+    private readonly approvals: ManagementApprovalsService,
   ) {}
 
   async adjust(tenantId: string, branchId: string, access: ActorAccess, dto: StockAdjustmentDto) {
@@ -135,74 +141,88 @@ export class AdjustmentService {
 
   async listHeld(tenantId: string, branchId: string, canViewCost: boolean) {
     const rows = await this.prisma.heldAdjustment.findMany({
-      where: { tenantId, branchId, status: HeldAdjustmentStatus.awaiting_approval },
+      where: { tenantId, branchId, status: { in: [HeldAdjustmentStatus.awaiting_approval, HeldAdjustmentStatus.approved] } },
       include: HELD_INCLUDE,
       orderBy: { requestedAt: "desc" },
     });
     return rows.map((row) => this.map(row, canViewCost));
   }
 
-  async accept(tenantId: string, branchId: string, access: ActorAccess, id: string) {
-    const held = await this.load(tenantId, branchId, id);
-    if (held.status !== HeldAdjustmentStatus.awaiting_approval) {
-      throw new ConflictException("This write-off has already been decided — refresh to see it");
-    }
-    assertMayApprove(access, [held.requestedBy], "write-off");
-    const claimed = await this.prisma.heldAdjustment.updateMany({
-      where: { id, tenantId, branchId, status: HeldAdjustmentStatus.awaiting_approval },
-      data: { status: HeldAdjustmentStatus.accepted, decidedBy: access.userId, decidedAt: new Date() },
+  async accept(user: RequestUser, branchId: string, id: string, input: ApproveHeldDto) {
+    let changed = false;
+    const actor = await this.prisma.$transaction(async tx => {
+      const row = await this.lock(tx, user.tenantId, branchId, id);
+      if (!["awaiting_approval", "approved"].includes(row.status)) throw new ConflictException("This write-off has already been decided");
+      const actor = await this.access.resolveLive(user, branchId, tx);
+      const evidence = await this.approvals.issue(tx, user, branchId, "held_adjustment.post", id,
+        { ...input, reason: "Approve the held write-off", expiresAt: null });
+      if (row.status === "approved" && row.executionApprovalId === evidence.approvalId) return actor;
+      await tx.heldAdjustment.update({ where: { id, tenantId: user.tenantId, branchId }, data: {
+        status: "approved", executionApprovalId: evidence.approvalId, decidedBy: user.userId, decidedAt: new Date(),
+      } });
+      await this.audit.log({ tenantId: user.tenantId, branchId, actorUserId: user.userId,
+        eventName: "inventory.write_off_approved", entityName: "held_adjustment", entityId: id,
+        payload: { approvalId: evidence.approvalId, requestedByUserId: row.requestedBy, stockPosted: false } }, tx);
+      await this.resolveRequests(user.tenantId, id, tx);
+      changed = true;
+      return actor;
     });
-    if (claimed.count !== 1) {
-      throw new ConflictException("Someone else is deciding this write-off — refresh to see it");
-    }
-    let posted: { referenceId: string };
-    try {
-      posted = await this.inventory.adjustment(
-        tenantId,
-        branchId,
-        access,
-        held.payload as unknown as StockAdjustmentDto,
-      );
-    } catch (error) {
-      // Not enough stock any more, say: it goes back to waiting with nothing posted.
-      await this.prisma.heldAdjustment.updateMany({
-        where: { id, tenantId, branchId, status: HeldAdjustmentStatus.accepted, referenceId: null },
-        data: { status: HeldAdjustmentStatus.awaiting_approval, decidedBy: null, decidedAt: null },
-      });
-      throw error;
-    }
-    await this.prisma.heldAdjustment.update({
-      where: { id, tenantId },
-      data: { referenceId: posted.referenceId },
+    const row = await this.load(user.tenantId, branchId, id);
+    if (changed) await this.notifications.notifyUser(user.tenantId, row.requestedBy, NotificationCategory.inventory, {
+      severity: NotificationSeverity.info, title: "Write-off approved", message: "The write-off is approved. Stock remains unchanged until it is posted.",
+      actionLabel: "Open request", actionHref: `/inventory?heldAdjustment=${id}`, entityType: "held_adjustment", entityId: id,
+    }, { branchId });
+    return this.map(row, actor.has("costs.view"));
+  }
+
+  async post(user: RequestUser, branchId: string, id: string, input: PostHeldDto) {
+    let changed = false;
+    const actor = await this.prisma.$transaction(async tx => {
+      const row = await this.lock(tx, user.tenantId, branchId, id);
+      const actor = await this.access.resolveLive(user, branchId, tx);
+      if (!actor.has("inventory.write_off")) throw new ForbiddenException("Your role cannot post write-offs");
+      if (row.executionApprovalId !== input.approvalId) throw new ConflictException("Approval changed; refresh and review before posting");
+      if (row.status === "accepted" && row.referenceId) return actor;
+      if (row.status !== "approved" || !row.executionApprovalId) throw new ConflictException("Approve this write-off before posting");
+      const authorize = () => this.approvals.requireForExecution(tx, user, branchId, "held_adjustment.post", id, row.executionApprovalId!);
+      const evidence = await authorize();
+      const payload = row.payload as unknown as StockAdjustmentDto;
+      if (payload.productId !== row.productId || payload.batchId !== row.batchId || payload.qty !== row.qty
+        || (payload.kind ?? "correction") !== row.kind || ["found", "opening"].includes(row.kind)
+        || payload.newBatch || payload.movementType !== "adjustment_out") throw new BadRequestException("Invalid saved write-off");
+      const posted = await this.inventory.adjustment(user.tenantId, branchId, actor, payload, { tx, authorize });
+      await tx.heldAdjustment.update({ where: { id, tenantId: user.tenantId, branchId }, data: {
+        status: "accepted", referenceId: posted.referenceId, executedBy: user.userId, executedAt: new Date(),
+      } });
+      await this.audit.log({ tenantId: user.tenantId, branchId, actorUserId: user.userId,
+        eventName: "inventory.write_off_posted", entityName: "held_adjustment", entityId: id,
+        payload: { approvalId: evidence.approvalId, referenceId: posted.referenceId,
+          requestedByUserId: row.requestedBy, approvedByUserId: evidence.approvedByUserId, executedByUserId: user.userId } }, tx);
+      changed = true;
+      return actor;
     });
-    await this.resolveRequests(tenantId, id);
-    await this.notifications.notifyUser(
-      tenantId,
-      held.requestedBy,
-      NotificationCategory.inventory,
-      {
-        severity: NotificationSeverity.info,
-        title: `Write-off approved · ${held.product.name}`,
-        message: `${held.qty} unit${held.qty === 1 ? "" : "s"} of batch ${held.batch.batchNo} written off.`,
-        actionLabel: "Open inventory",
-        actionHref: `/inventory/movements`,
-        entityType: "product",
-        entityId: held.productId,
-      },
-      { branchId },
-    );
-    return this.map(await this.load(tenantId, branchId, id), access.has("costs.view"));
+    const row = await this.load(user.tenantId, branchId, id);
+    if (changed) await this.notifications.notifyUser(user.tenantId, row.requestedBy, NotificationCategory.inventory, {
+      severity: NotificationSeverity.info, title: "Write-off posted", message: "The approved write-off has been posted to inventory.",
+      actionLabel: "Open request", actionHref: `/inventory?heldAdjustment=${id}`, entityType: "held_adjustment", entityId: id,
+    }, { branchId });
+    return this.map(row, actor.has("costs.view"));
+  }
+
+  private async lock(tx: Prisma.TransactionClient, tenantId: string, branchId: string, id: string) {
+    await tx.$queryRaw`SELECT id FROM held_adjustment WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+    return this.load(tenantId, branchId, id, tx);
   }
 
   async reject(tenantId: string, branchId: string, access: ActorAccess, id: string, reason: string) {
     const held = await this.load(tenantId, branchId, id);
-    if (held.status !== HeldAdjustmentStatus.awaiting_approval) {
+    if (![HeldAdjustmentStatus.awaiting_approval, HeldAdjustmentStatus.approved].includes(held.status as "awaiting_approval" | "approved")) {
       throw new ConflictException("This write-off has already been decided — refresh to see it");
     }
     const note = reason.trim();
     if (!note) throw new BadRequestException("Say why it's rejected");
     const claimed = await this.prisma.heldAdjustment.updateMany({
-      where: { id, tenantId, branchId, status: HeldAdjustmentStatus.awaiting_approval },
+      where: { id, tenantId, branchId, status: { in: [HeldAdjustmentStatus.awaiting_approval, HeldAdjustmentStatus.approved] } },
       data: {
         status: HeldAdjustmentStatus.rejected,
         decidedBy: access.userId,
@@ -289,15 +309,15 @@ export class AdjustmentService {
     };
   }
 
-  private async resolveRequests(tenantId: string, id: string) {
-    await this.prisma.notification.updateMany({
+  private async resolveRequests(tenantId: string, id: string, tx: Prisma.TransactionClient = this.prisma) {
+    await tx.notification.updateMany({
       where: { tenantId, entityType: "held_adjustment", entityId: id, resolvedAt: null },
       data: { resolvedAt: new Date() },
     });
   }
 
-  private async load(tenantId: string, branchId: string, id: string): Promise<HeldRow> {
-    const row = await this.prisma.heldAdjustment.findFirst({
+  private async load(tenantId: string, branchId: string, id: string, tx: Prisma.TransactionClient = this.prisma): Promise<HeldRow> {
+    const row = await tx.heldAdjustment.findFirst({
       where: { id, tenantId, branchId },
       include: HELD_INCLUDE,
     });
@@ -309,9 +329,14 @@ export class AdjustmentService {
     return {
       id: row.id,
       status: row.status,
+      referenceId: row.referenceId, executionApprovalId: row.executionApprovalId,
+      executedBy: row.executedBy, executedAt: row.executedAt?.toISOString() ?? null,
+      approvalReview: heldReview("held_adjustment", row.approvalVersion, heldAdjustmentMaterial(row)),
       kind: row.kind,
       kindLabel: ADJUSTMENT_KIND_LABELS[row.kind as AdjustmentKind] ?? row.kind,
       qty: row.qty,
+      requestReason: (row.payload as unknown as StockAdjustmentDto).reason ?? null,
+      fromQuarantine: (row.payload as unknown as StockAdjustmentDto).fromQuarantine === true,
       value: canViewCost ? row.value.toFixed(2) : null,
       note: row.note,
       product: row.product,
