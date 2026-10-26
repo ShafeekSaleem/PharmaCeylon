@@ -7,6 +7,9 @@ Operational-readiness amendments D8/D13 and supporting workflows were approved o
 see [the scenario and delivery contract](POS_V1_OPERATIONAL_READINESS.md).
 Decision 10 was amended and approved on 2026-10-21: remote online management/authorization,
 with local enrolled physical execution. The revised matrix below supersedes its original wording.
+Web back-office decisions D-W2 and D-W3 (2026-10-27, [POS_V1_REVIEW.md](POS_V1_REVIEW.md)) clarify
+that matrix for onboarding opening stock and stocktake count capture; they add no exemption. The
+web target state for all seven web decisions is in [WEB_BACKOFFICE_TARGET.md](WEB_BACKOFFICE_TARGET.md).
 Per Shafeek's direction, treat Shafeek as the developer; staffing and work allocation are managed
 by Shafeek. No second-developer ownership sign-off is required in this workflow.
 Baseline: develop `4a2fa3ad8440b2fea462c09b766efee2035295d3`, reviewed 2026-10-19.
@@ -412,8 +415,9 @@ a management permission does not authorize branch execution.
 | Transfers | Prepare/review/approve/reject/cancel requests and normal business reservations | Confirm dispatch and destination receipt under the respective branch authority |
 | Supplier returns | Prepare/review/approve/reject return requests and commercial credit administration | Confirm goods leaving the branch and post the stock movement |
 | Customer returns/refunds | Review the sale, prepare and authorize the return/refund | Inspect returned goods, choose disposition and execute stock/refund effects |
-| Adjustments, write-offs, stocktakes | Plan/request/review/approve corrections and review discrepancies | Capture/confirm actual counts or condition and execute adjustment, write-off or quarantine/release |
+| Adjustments, write-offs, stocktakes | Plan/request/review/approve corrections and review discrepancies; plan, schedule, assign and select stocktake lines; request recounts; view count progress read-only | Capture/confirm actual counts or condition and execute adjustment, write-off or quarantine/release. D-W3: in v1 stocktake counts are captured only in the enrolled desktop app |
 | Products, prices, suppliers, customer contacts | Manage catalog, pricing, suppliers and administrative contact records | Imports/undo that also create/remove batches or stock require local execution |
+| Onboarding opening stock (D-W2) | Import or enter opening stock as a staged draft with no stock effect | Confirm the staged figures against the shelf and post them |
 | Payments | Record bank payments online with supporting evidence | Actual branch cash collection/payout and till cash movements |
 | Prescription/controlled dispensing | Managerial review does not provide clinical sign-off | Qualified clinical verification and dispensing remain local and online |
 | Offline-terminal designation | Owner/delegated manager authorizes the exact assignment online remotely | Authorized staff activates on the exact enrolled target online/local; D11 clearance and uniqueness still apply |
@@ -422,6 +426,26 @@ A remote approval may create an ordinary business reservation or commercial comm
 On-hand stock, physical cash and executed customer refunds do not move merely because approval
 was granted. These business reservations can reduce available stock; they are not advance
 offline reservations. Snapshot/offline rules D1–D9 and D11–D14 remain unchanged.
+
+### Web back-office clarifications (D-W2, D-W3) — 2026-10-27
+
+D-W2, opening stock. There is no pre-go-live or onboarding exemption from local execution. The
+web may stage opening stock during onboarding, from an import file or by entry. A staged document
+is a management record: it writes no `stock_ledger`, `batch_stock` or `stock_reservation` row and
+changes no available quantity. An import whose rows carry stock stages those rows instead of
+posting them; its catalog-only work stays remote. Posting is an ordinary local stock-bearing
+execution on an enrolled counter: it binds the exact staged version, posts through StockService
+once, and records the staging actor and the counter executor separately. Corrections after
+posting are ordinary local adjustments. The existing `opening_inventory` readiness confirmation
+remains local.
+
+D-W3, stocktake counts. Count capture and confirmation are local physical execution, and in v1
+the enrolled desktop app (on a laptop or tablet) is the only capture surface. The routes that
+capture counts (`PATCH /stocktakes/:id/lines`, `start`, `submit`, `complete`) are already
+local. The web keeps planning, scheduling, assignment, line selection, review, recount requests and
+approval, and shows count progress read-only, including on phones. Counting on a mobile device
+needs its own enrollment, key custody and attendance design, and is deferred to a later epic.
+Stocktake approval and posting rules are unchanged.
 
 Bind approval to tenant/branch, document type/ID, exact version and canonical relevant-content
 digest, authorized action, requester, approver, reason/time and policy version. The document version/digest represent approved material content, not administrative notes.

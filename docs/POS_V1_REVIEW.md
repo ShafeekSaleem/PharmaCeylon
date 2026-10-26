@@ -4,6 +4,7 @@ Review opened 2026-10-20. Shafeek requested simple questions, one at a time, wit
 Product review completed 2026-10-20: D1–D14 and staff follow-ups D7a/D7b are agreed.
 Decisions 8, 10 and 13 were amended and approved on 2026-10-21; current rules and history are
 recorded below. The same review approved the operational-readiness improvements.
+Web back-office decisions D-W1–D-W7 were decided on 2026-10-27; see the section of that name below.
 Record an answer only when the user explicitly provides it. Recommendations, code, elapsed time,
 or an unanswered/preselected form choice are not approval. Pending behaviour is provisional in
 the contracts/tests and must be revised when the user chooses differently.
@@ -296,9 +297,115 @@ as approval. Other reviewed decisions remain, with these implementation clarific
 
 Normative detail and epic acceptance mapping: [POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md).
 
+## Web back-office decisions — decided 2026-10-27
+
+Shafeek reviewed seven questions about how the web app changes once checkout and physical
+execution move to the enrolled desktop. Each question was asked separately with its options and
+trade-offs, and Shafeek selected an option for every one. Each selection happened to be the
+recommended option; it is recorded because Shafeek selected it, not because it was recommended.
+The resulting web target state is in [WEB_BACKOFFICE_TARGET.md](WEB_BACKOFFICE_TARGET.md).
+
+| ID | Decision in simple terms | Agreed behaviour | Status |
+| --- | --- | --- | --- |
+| D-W1 | How does the web POS go away? | A per-branch "desktop POS live" switch hides the web POS one branch at a time; branches not yet live keep it. Delete the web POS code after the P7 pilot, once every branch is live. | Decided by Shafeek, 2026-10-27 |
+| D-W2 | How does opening stock get in during onboarding? | Stage it on the web (import or entry) as a draft with no stock effect. The enrolled counter confirms it against the shelf and posts it. No pre-go-live exemption. | Decided by Shafeek, 2026-10-27 |
+| D-W3 | How are stocktake counts captured? | Only in the enrolled desktop app in v1, on a laptop or tablet. Web and phone count sheets become read-only progress views; counting on an enrolled mobile device is a later epic. | Decided by Shafeek, 2026-10-27 |
+| D-W4 | What web access do cashier-only staff have? | My Profile and Password & Security only, landing on a "Use PharmaCeylon POS" page. Their API permissions are unchanged because the desktop uses them. | Decided by Shafeek, 2026-10-27 |
+| D-W5 | How do staff PINs work? | One personal PIN, set at the counter while online. The server keeps its verifier for online co-sign and refund approval; each prepared terminal keeps its own local verifier. The web shows PIN status and resets it, but never sets one. | Decided by Shafeek, 2026-10-27 |
+| D-W6 | Who owns branch hours? | The web settings epic (W7) owns the structured model, API, migration from free-text `openingHours` and the web editor. P3 signs it into grants; P2 uses it on the desktop. | Decided by Shafeek, 2026-10-27 |
+| D-W7 | Where is the per-branch rollout switch built? | Once, in the web foundation epic (W1). P7 reuses it for release. It controls rollout only, never authorization. | Decided by Shafeek, 2026-10-27 |
+
+### D-W1 — Web POS sunset per branch
+
+- Date: 2026-10-27.
+- User answer: selected "Per-branch switch".
+- Agreed behaviour: when a branch's switch is on, the web hides POS navigation, the Quick Sale
+  button, the search action and every deep link into `/pos`, and `/pos` explains that checkout has
+  moved to PharmaCeylon POS. Branches not yet live keep the web POS. The web POS code is deleted
+  after the P7 pilot, once every branch is live.
+- Alternatives not chosen: removing the web POS for every tenant at once; keeping it as a
+  permanent fallback, which would have needed a D10 change.
+- Contract record: no contract change. P1's denial of browser checkout and the switch must flip
+  together for each branch, or that branch cannot sell.
+
+### D-W2 — Opening stock staged on the web, posted at the counter
+
+- Date: 2026-10-27.
+- User answer: selected "Stage on web, post at counter".
+- Agreed behaviour: during onboarding, the owner imports or enters opening stock on the web as a
+  staged draft (products, batches, expiry dates, quantities and costs) with no stock effect. The
+  enrolled counter confirms the figures against the shelf and posts them.
+- Alternatives not chosen: a pre-go-live exemption letting the web post stock until the first
+  sale or first enrolled counter; entering all opening stock at the counter.
+- Contract record: clarifies the D10 matrix in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md) and the
+  `onboarding/*`, `setup/readiness/*` and `products/*` rows of
+  [POS_OPERATIONAL_MUTATIONS.md](POS_OPERATIONAL_MUTATIONS.md). The existing `opening_inventory`
+  readiness confirmation already requires a local terminal. No onboarding exemption may post stock.
+
+### D-W3 — Stocktake counts captured in the desktop app only
+
+- Date: 2026-10-27.
+- User answer: selected "Desktop app only in v1".
+- Agreed behaviour: counts are captured in PharmaCeylon POS on an enrolled laptop or tablet. The
+  web keeps planning, scheduling, assignment, line selection, review, recount requests and
+  approval, and shows count progress read-only, including on phones.
+- Alternatives not chosen: phone drafts confirmed at the desktop, where the confirmer rather than
+  the counter would be the attested person; enrolling phones as counting devices before v1.
+- Contract record: clarifies the D10 matrix. `PATCH /stocktakes/:id/lines` and the `start`,
+  `submit` and `complete` routes are already classified `local_record`; no route changes.
+
+### D-W4 — Cashier-only staff use the web for their own account only
+
+- Date: 2026-10-27.
+- User answer: selected "Profile and password only".
+- Agreed behaviour: a user whose roles at the selected branch give no back-office access sees
+  My Profile and Password & Security (and personal display settings), and lands on a
+  "Use PharmaCeylon POS" page.
+- Alternatives not chosen: a small cashier dashboard of their own sales and shifts; no web
+  sign-in at all.
+- Contract record: none. This is web scoping, not authorization. Built-in cashiers keep their API
+  permissions (`products.view`, `customers.view`, `sales.view` and others) because the desktop
+  needs them. W3 decides it through a role setting, not a role-name check, so custom roles work too.
+
+### D-W5 — One personal PIN, set at the counter
+
+- Date: 2026-10-27.
+- User answer: selected "One PIN, set at the counter".
+- Agreed behaviour: each person has one PIN. They set or change it on the desktop while online.
+  The server keeps a verifier for online pharmacist co-sign and refund approval; each terminal the
+  person is prepared on keeps its own local verifier. The web shows PIN status and can reset it.
+- Alternatives not chosen: separate till and offline PINs; leaving the choice to P2.
+- Contract record: refines D7a without changing it. PIN setup and reset still require internet;
+  self-service setup moves from web POS Quick Actions to the desktop. P2 must still keep PINs and
+  verifiers out of grants, commands, sign-in evidence, logs and sync payloads.
+
+### D-W6 — Branch hours owned by the web settings epic
+
+- Date: 2026-10-27.
+- User answer: selected "W7 owns it".
+- Agreed behaviour: W7 replaces free-text `Branch.openingHours` with a structured weekly schedule,
+  dated exceptions, mandatory restrictions and online business extensions, migrates the existing
+  text, and builds the web editor. P3 signs these into grants; P2 uses them on the desktop.
+- Alternatives not chosen: P3 owning it; P2 owning it.
+- Contract record: D8's signed `operatingWindows` / `mandatoryOperatingWindows` semantics,
+  including null versus empty, are unchanged. P2 #48 and P3 #49 should name W7 as the source.
+
+### D-W7 — One rollout switch, built by the web foundation epic
+
+- Date: 2026-10-27.
+- User answer: selected "Build in W1, P7 reuses".
+- Agreed behaviour: the per-branch "desktop POS live" switch is built once, early, in W1. P7's
+  tenant/branch rollout controls reuse it.
+- Alternatives not chosen: waiting for P7's controls, which would delay the per-branch sunset;
+  separate web and release flags that could drift apart.
+- Contract record: the switch controls rollout only. It never grants authority or bypasses an
+  API check. P7 #53's rollout-controls item should point at the W1 switch.
+
 ## Review completion and remaining engineering work
 
 All requested product decisions are recorded. No further unanswered product-review forms remain.
+The 2026-10-27 web back-office decisions extend this review to the web app; the remaining
+edits to GitHub epic descriptions are listed in [WEB_BACKOFFICE_TARGET.md](WEB_BACKOFFICE_TARGET.md).
 This completes the user policy walkthrough; it does not claim the actual POS features are built.
 Shafeek subsequently directed that staffing/allocation is his responsibility and that this workflow
 should treat him as the developer. The earlier second-developer naming/ownership sign-off is

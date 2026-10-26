@@ -1,6 +1,8 @@
 # Role-Based Access Matrix
 
-This document defines which pages each role can access in PharmaCeylon.
+This document defines which pages each role can access in PharmaCeylon. The tables describe the
+web app as it behaves today; [After desktop POS](#after-desktop-pos-target-decided-2026-10-27)
+describes the decided target once a branch moves checkout to PharmaCeylon POS.
 
 ## Roles
 
@@ -34,6 +36,38 @@ Tenants may also create **custom roles** (see `docs/API_CONTRACT.md` and the Use
 > **yes\*** = access with limitations (e.g. manager cannot escalate roles to owner, cannot modify tenant-level settings).
 >
 > **view** = page is visible (nav shown) but write operations (create/edit/delete) are restricted at the page and API level.
+
+## After desktop POS (target, decided 2026-10-27)
+
+Decided in [POS_V1_REVIEW.md](POS_V1_REVIEW.md) (D10, D-W1, D-W4); page-by-page detail in
+[WEB_BACKOFFICE_TARGET.md](WEB_BACKOFFICE_TARGET.md). Nothing below is implemented yet. Each
+change applies to a branch once its "desktop POS live" switch is on.
+
+| Page | Route | Change from today | Who, by default |
+| --- | --- | --- | --- |
+| POS / Checkout | `/pos` | Removed. Checkout, held carts, refunds and prescription capture move to PharmaCeylon POS | Everyone who has `sales.pos_use` today uses the desktop instead |
+| Sales (new) | `/sales` | Sales history, sale detail and receipt copies; remote refund authorization | Reading: `sales.view` (owner, manager, pharmacist, inventory clerk). Authorizing refunds: a new remote-refund permission |
+| Counters (new) | Settings → Counters | Registers, enrollment, revoke, retire, offline-counter readiness | `tenant.management` (owner, manager), the key the terminal registry already checks. Offline-device assignment: owner, or a manager the owner delegated (D13) |
+| Every page except the user's own account | — | Cashier-only users see only My Profile, Password & Security and personal display settings, and land on a "Use PharmaCeylon POS" page (D-W4) | Built-in cashier, and any custom role without back-office access |
+| Operations pages | `/inventory`, `/purchasing`, `/suppliers`, `/transfers`, `/stocktakes` | Same people keep access. Physical steps (receive, dispatch, count, adjust, write off, quarantine, cash payout) become handoffs to the counter | Unchanged |
+
+Cashier-only access is web scoping, not authorization. The cashier keeps its API permissions
+(`products.view`, `customers.view`, `prescriptions.view`, `inventory.view`, `sales.view`,
+`sales.refund` and others) because the desktop POS uses the same keys. Back-office access is a
+role setting, not a `RoleName` check, so custom roles can be given it or not.
+
+Roles & Permissions groups the catalog three ways:
+
+| Group | What it covers | Keys |
+| --- | --- | --- |
+| Manage from anywhere | Viewing, editing, approving and administration from the web, mobile or a remote desktop session | Today's view, manage, approve, invoice and pay keys |
+| At the counter | Physical effects that work only from an enrolled, locally used desktop, owners included | Today's `sales.pos_use`, `sales.refund`, `purchasing.receive`, `inventory.*` stock keys and similar; their names stay, their physical effects need a counter |
+| Offline capabilities | What a prepared person may do on the offline counter | New: offline-device assignment (owner, delegable), local activation, business-hours acknowledgement, assisted shift handover |
+
+New keys are added to `apps/api/src/security/permission-catalog.ts` by the epic that introduces
+each endpoint (P1, P2, P4, P5 or W3). Planned: back-office web access (D-W4), terminal management,
+offline assignment and activation, the two offline capabilities, discrepancy review and remote
+refund authorization. Exact names are chosen when they are added.
 
 ## Inventory actions (built-in defaults)
 
@@ -100,6 +134,9 @@ These are the named groups used in `app-shell.tsx` for nav-level visibility:
 
 Pages without a `roles` restriction (Dashboard) are visible to all authenticated users.
 
+Target: nav gates on permissions (`usePermissions()`) rather than these role groups, and
+`POS_ROLES` leaves the nav when the web POS is removed (W1, W2).
+
 ## Enforcement Layers
 
 Access is enforced at three levels:
@@ -119,4 +156,5 @@ Access is enforced at three levels:
 - **Reports** (the analytics/financial section labeled "Insights" in the nav group) is restricted to owner and manager to protect sensitive financial data.
 - **AI Insights** (`/insights`) is a separate, unrestricted hub aggregating every role's own dashboard recommendations — every role sees their own relevant insights, reached via the "View all insights" link on their dashboard rather than a sidebar entry (same pattern as `/notifications`). Owner/manager additionally see insights sourced from the 6 report sections whose backend already computes them (stock movement, transfers, stocktakes, purchase summary, supplier spend, supplier performance); that report-sourced content is gated inline by the `reports.view` permission, not by a route-level restriction, so it simply doesn't fetch/render for the other three roles.
 - **Admin** pages are limited to owner and manager to prevent privilege escalation.
+- **Owners can't skip the counter.** After desktop POS, physical stock, branch cash, refund execution and dispensing need an enrolled, locally used desktop for every role, owners included (revised D10). The owner shortcut in `RolesGuard` covers permissions, not that local-execution check.
 - Owner/manager can grant any of the above to a custom role via Users & Roles → Roles & Permissions — this matrix describes the built-in defaults, not a hard ceiling.
