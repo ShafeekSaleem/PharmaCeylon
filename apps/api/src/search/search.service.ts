@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PoStatus, Prisma, RoleName } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { SaleReadService } from "../sales/sale-read.service";
 import { PERMISSION_KEYS } from "../security/permission-catalog";
 import { PermissionsService } from "../security/permissions.service";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -30,6 +31,7 @@ export class SearchService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
+    private readonly saleRead: SaleReadService,
   ) {}
 
   async globalSearch(
@@ -45,7 +47,7 @@ export class SearchService {
     if (granted.has("products.view"))
       tasks.push(this.searchProducts(user.tenantId, branchId, q, limit));
     if (granted.has("sales.view"))
-      tasks.push(this.searchSales(user.tenantId, branchId, q, limit));
+      tasks.push(this.searchSales(user, branchId, q, limit));
     if (granted.has("customers.view"))
       tasks.push(this.searchCustomers(user.tenantId, q, limit));
     if (granted.has("suppliers.view"))
@@ -163,29 +165,20 @@ export class SearchService {
     return 2;
   }
 
+  /**
+   * Invoice number or customer, through the same read the till's invoice lookup uses. With a
+   * branch selected it stays on that branch; without one it covers the branches where the caller
+   * holds `sales.view` — never the whole tenant. A hit opens the sale on the Sales page.
+   */
   private async searchSales(
-    tenantId: string,
+    user: RequestUser,
     branchId: string | undefined,
     q: string,
     limit: number,
   ): Promise<SearchGroup> {
-    const rows = await this.prisma.sale.findMany({
-      where: {
-        tenantId,
-        ...(branchId ? { branchId } : {}),
-        OR: [
-          { invoiceNo: { contains: q, mode: "insensitive" } },
-          { customer: { fullName: { contains: q, mode: "insensitive" } } },
-          { customer: { phone: { contains: q, mode: "insensitive" } } },
-        ],
-      },
-      include: {
-        customer: { select: { fullName: true } },
-        branch: { select: { name: true } },
-      },
-      orderBy: { soldAt: "desc" },
-      take: limit,
-    });
+    const scope =
+      branchId ?? (await this.saleRead.viewableBranches(user)).map((branch) => branch.id);
+    const rows = await this.saleRead.searchInvoices(user.tenantId, scope, q, limit);
     return {
       key: "sales",
       label: "Sales & invoices",
@@ -195,7 +188,7 @@ export class SearchService {
         title: row.invoiceNo,
         subtitle: `${row.customer?.fullName ?? "Walk-in customer"} · ${row.branch.name}`,
         meta: `LKR ${Number(row.grandTotal).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`,
-        href: "/reports?category=sales&report=sales-summary",
+        href: `/sales/${row.id}`,
         badge: row.status,
       })),
     };

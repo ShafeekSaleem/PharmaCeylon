@@ -22,6 +22,7 @@ Tenants may also create **custom roles** (see `docs/API_CONTRACT.md` and the Use
 | ------------------ | ------------------ | ----- | ------- | ---------- | ------- | --------------- |
 | Dashboard          | `/dashboard`       | yes   | yes     | yes        | yes     | yes             |
 | POS / Checkout     | `/pos`             | yes   | yes     | yes        | yes     | —               |
+| Sales history      | `/sales`           | yes   | yes     | yes        | yes     | yes             |
 | Products           | `/products`        | yes   | yes     | view       | view    | yes             |
 | Catalog management | `/products/manage` | yes   | yes     | view       | view    | yes             |
 | Suppliers          | `/suppliers`       | yes   | yes     | yes        | —       | yes             |

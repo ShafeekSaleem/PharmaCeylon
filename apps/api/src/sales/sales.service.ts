@@ -43,18 +43,7 @@ import {
   saleLineKey,
   totalRemainingQty,
 } from "./sale-returnable";
-
-/** Everything a receipt / POS success state needs, in one shape. */
-const SALE_INCLUDE = {
-  items: { include: { product: true, batch: true } },
-  payments: true,
-  customer: { select: { id: true, fullName: true, phone: true } },
-  prescription: {
-    select: { id: true, rxNumber: true, patientName: true, doctorName: true },
-  },
-  seller: { select: { id: true, fullName: true } },
-  dispenser: { select: { id: true, fullName: true } },
-} satisfies Prisma.SaleInclude;
+import { SALE_INCLUDE } from "./sale-read.service";
 
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
@@ -1246,98 +1235,5 @@ export class SalesService {
     });
     if (!sale) throw new NotFoundException("Sale not found");
     return sale;
-  }
-
-  /** Invoice lookup for the POS returns lane (exact, contains, then suffix). */
-  async findByInvoice(tenantId: string, branchId: string, invoiceNo: string) {
-    const term = invoiceNo.trim().replace(/\s+/g, "");
-    if (!term) throw new BadRequestException("Enter an invoice number");
-
-    const base = { tenantId, branchId } as const;
-
-    const sale =
-      (await this.prisma.sale.findFirst({
-        where: { ...base, invoiceNo: { equals: term, mode: "insensitive" } },
-        include: SALE_INCLUDE,
-      })) ??
-      (await this.prisma.sale.findFirst({
-        where: { ...base, invoiceNo: { contains: term, mode: "insensitive" } },
-        orderBy: { soldAt: "desc" },
-        include: SALE_INCLUDE,
-      })) ??
-      (await this.prisma.sale.findFirst({
-        where: { ...base, invoiceNo: { endsWith: term, mode: "insensitive" } },
-        orderBy: { soldAt: "desc" },
-        include: SALE_INCLUDE,
-      }));
-
-    if (!sale) throw new NotFoundException(`No sale found for invoice ${term}`);
-    return sale;
-  }
-
-  /**
-   * Typeahead for the POS returns lane — match invoice number or customer name.
-   * Prefers posted sales (refundable) but still surfaces voided/refunded so cashiers
-   * can see why a bill cannot be refunded again.
-   */
-  async searchInvoices(
-    tenantId: string,
-    branchId: string,
-    q: string,
-    take = 12,
-  ) {
-    const term = q.trim();
-    if (term.length < 1) return [];
-
-    const limit = Math.min(Math.max(take, 1), 25);
-
-    const rows = await this.prisma.sale.findMany({
-      where: {
-        tenantId,
-        branchId,
-        OR: [
-          { invoiceNo: { contains: term, mode: "insensitive" } },
-          {
-            customer: {
-              is: { fullName: { contains: term, mode: "insensitive" } },
-            },
-          },
-          { customer: { is: { phone: { contains: term } } } },
-        ],
-      },
-      orderBy: { soldAt: "desc" },
-      take: Math.min(limit * 3, 50),
-      select: {
-        id: true,
-        invoiceNo: true,
-        status: true,
-        soldAt: true,
-        grandTotal: true,
-        customer: { select: { fullName: true, phone: true } },
-        seller: { select: { fullName: true } },
-        payments: { select: { method: true, amount: true } },
-        _count: { select: { items: true } },
-      },
-    });
-
-    const statusRank = (status: SaleStatus) => {
-      if (status === SaleStatus.posted) return 0;
-      if (status === SaleStatus.partially_refunded) return 1;
-      return 2;
-    };
-
-    return rows
-      .sort((a, b) => {
-        const rank = statusRank(a.status) - statusRank(b.status);
-        if (rank !== 0) return rank;
-        return b.soldAt.getTime() - a.soldAt.getTime();
-      })
-      .slice(0, limit)
-      // The till shows a hit as a sale card: who sold it and how it was paid, refunds left out.
-      .map(({ payments, seller, ...row }) => ({
-        ...row,
-        sellerName: seller.fullName,
-        paymentMethods: [...new Set(payments.filter((p) => p.amount.gt(0)).map((p) => p.method))],
-      }));
   }
 }

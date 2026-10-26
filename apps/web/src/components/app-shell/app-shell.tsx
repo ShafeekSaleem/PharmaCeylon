@@ -40,6 +40,7 @@ import {
   IconTarget,
   IconMaximize,
   IconMinimize,
+  IconReceipt,
 } from "@/components/icons";
 import styles from "./app-shell.module.css";
 import {
@@ -49,6 +50,7 @@ import {
   OPERATIONS_ROLES,
   POS_ROLES,
   PURCHASING_ROLES,
+  SALES_ROLES,
   STOCKTAKE_ROLES,
   collectUserRoles,
   hasRoleAccess,
@@ -94,6 +96,20 @@ const NAV_GROUPS: NavGroup[] = [
         icon: <IconShoppingCart size={18} />,
         roles: POS_ROLES,
         permission: "sales.pos_use",
+      },
+    ],
+  },
+  {
+    // Reading sales back — history, a sale's detail, a receipt copy. Ringing them up is POS,
+    // which moves to the desktop counter; this group is where the web keeps sales afterwards.
+    label: "Sales",
+    items: [
+      {
+        href: "/sales",
+        label: "Sales history",
+        icon: <IconReceipt size={18} />,
+        roles: SALES_ROLES,
+        permission: "sales.view",
       },
     ],
   },

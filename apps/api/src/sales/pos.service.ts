@@ -3,13 +3,7 @@ import { SaleStatus } from "@prisma/client";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { TaxService } from "../pricing/tax.service";
 import { PrismaService } from "../prisma/prisma.service";
-import {
-  addDays,
-  businessToday,
-  dateKeyToUtc,
-  safeTimeZone,
-  startOfBusinessDay,
-} from "../common/business-date.util";
+import { businessToday, safeTimeZone } from "../common/business-date.util";
 
 const TOP_PRODUCTS_WINDOW_DAYS = 30;
 const FREQUENT_ITEMS_WINDOW_DAYS = 90;
@@ -317,85 +311,6 @@ export class PosService {
       /** Active COMMERCIAL departments — drives the POS browsing chips (tenant-scoped, never empty departments the tenant hasn't enabled). */
       departments,
     };
-  }
-
-  /** Compact recent-sale list for the POS "Recent sales" tab and returns lookup. */
-  /**
-   * The branch's latest sales. A range keeps to the tenant's calendar days — `todayOnly` (the
-   * till's "today's sales"), the last `days` business days, or one `date` (`YYYY-MM-DD`) — and
-   * allows a range's worth of rows rather than the recall lane's 50.
-   */
-  async recentSales(
-    tenantId: string,
-    branchId: string,
-    take = 12,
-    range: { todayOnly?: boolean; days?: number; date?: string } = {},
-  ) {
-    let since: Date | undefined;
-    let until: Date | undefined;
-    const days = range.todayOnly ? 1 : range.days;
-    const ranged = Boolean(days || range.date);
-    if (ranged) {
-      const tenant = await this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: { timezone: true },
-      });
-      const zone = safeTimeZone(tenant?.timezone);
-      if (range.date && /^\d{4}-\d{2}-\d{2}$/.test(range.date)) {
-        const day = dateKeyToUtc(range.date);
-        since = startOfBusinessDay(zone, range.date);
-        until = startOfBusinessDay(zone, addDays(day, 1).toISOString().slice(0, 10));
-      } else if (days) {
-        const first = addDays(businessToday(zone), -(Math.min(Math.max(days, 1), 31) - 1));
-        since = startOfBusinessDay(zone, first.toISOString().slice(0, 10));
-      }
-    }
-    const sales = await this.prisma.sale.findMany({
-      where: {
-        tenantId,
-        branchId,
-        ...(since ? { soldAt: { gte: since, ...(until ? { lt: until } : {}) } } : {}),
-      },
-      orderBy: { soldAt: "desc" },
-      take: Math.min(Math.max(take, 1), ranged ? 500 : 50),
-      select: {
-        id: true,
-        invoiceNo: true,
-        status: true,
-        soldAt: true,
-        grandTotal: true,
-        customer: { select: { id: true, fullName: true } },
-        seller: { select: { id: true, fullName: true } },
-        items: {
-          select: {
-            qty: true,
-            productId: true,
-            product: { select: { name: true } },
-          },
-        },
-        payments: { select: { method: true, amount: true } },
-      },
-    });
-
-    return sales.map((sale) => ({
-      id: sale.id,
-      invoiceNo: sale.invoiceNo,
-      status: sale.status,
-      soldAt: sale.soldAt.toISOString(),
-      grandTotal: sale.grandTotal.toFixed(2),
-      itemCount: sale.items.reduce((sum, i) => sum + i.qty, 0),
-      customerName: sale.customer?.fullName ?? null,
-      sellerName: sale.seller.fullName,
-      // How the customer paid — refund rows are negative and don't count.
-      paymentMethods: [
-        ...new Set(sale.payments.filter((p) => p.amount.gt(0)).map((p) => p.method)),
-      ],
-      productIds: [...new Set(sale.items.map((i) => i.productId))],
-      summary: sale.items
-        .slice(0, 3)
-        .map((i) => `${i.qty}× ${i.product.name}`)
-        .join(", "),
-    }));
   }
 }
 

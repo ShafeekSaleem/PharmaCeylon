@@ -26,6 +26,14 @@ export const RETURNS_ROLES: RoleName[] = [
   "cashier",
   "inventory_clerk",
 ];
+/** Built-in roles granted `sales.view` by default — reading sales history, not ringing sales up. */
+export const SALES_ROLES: RoleName[] = [
+  "owner",
+  "manager",
+  "pharmacist",
+  "cashier",
+  "inventory_clerk",
+];
 export const PURCHASING_ROLES: RoleName[] = ["owner", "manager", "pharmacist", "inventory_clerk"];
 export const STOCKTAKE_ROLES: RoleName[] = ["owner", "manager", "inventory_clerk"];
 export const INSIGHTS_ROLES: RoleName[] = ["owner", "manager"];
@@ -89,6 +97,7 @@ export function rolesForPath(pathname: string): RoleName[] | undefined {
     { prefix: "/returns", roles: RETURNS_ROLES },
     { prefix: "/stocktakes", roles: STOCKTAKE_ROLES },
     { prefix: "/pos", roles: POS_ROLES },
+    { prefix: "/sales", roles: SALES_ROLES },
     // Counter-facing, same audience as the till.
     { prefix: "/customers", roles: POS_ROLES },
     { prefix: "/prescriptions", roles: POS_ROLES },

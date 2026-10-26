@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Alert } from "@/components/alert";
 import { IconFileText, IconSearch } from "@/components/icons";
 import {
@@ -47,8 +48,19 @@ type PrescriptionRow = {
  * this list follows whichever branch is selected in the header.
  */
 export default function PrescriptionsPage() {
+  // `useSearchParams` needs a Suspense boundary for this route to stay static.
+  return (
+    <Suspense fallback={null}>
+      <PrescriptionsPageContent />
+    </Suspense>
+  );
+}
+
+function PrescriptionsPageContent() {
   const { branchId } = useAuth();
-  const [q, setQ] = useState("");
+  // `?q=` opens the register already searched — how a sale links to its prescription.
+  const searchParams = useSearchParams();
+  const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   const [validity, setValidity] = useState("all");
   const [page, setPage] = useState(1);
 

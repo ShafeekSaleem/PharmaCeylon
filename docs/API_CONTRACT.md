@@ -76,6 +76,12 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
   - **How the money goes back**: omit `refundMethod` and the refund goes back the way the sale was paid — card first, then mobile wallet, then credit, then cash (cash net of change given), with anything left over in cash. One `SalePayment` row per method, referenced `POS refund <returnNumber>`. Send `refundMethod` to put the whole refund on one method.
   - `GET /api/v1/sales/refunds` (`sales.refund`) lists the branch's customer returns, newest first, with `reasonCode` and `refundedTo: [{ method, amount }]`; `GET /api/v1/sales/pos/refund-approvers` lists who can approve one at the till.
 
+**Reading sales back (back office)** — all three need `sales.view` and no `x-branch-id` header; they cover the branches where the caller holds `sales.view` (every active branch for an owner), never the whole tenant. `SaleReadService` (`sales/sale-read.service.ts`) is the one read path: the till's recall, invoice lookup and typeahead (`/sales/pos/*`) and global search use it too.
+
+- `GET /api/v1/sales/history` — newest first, paged on the server: `page` (from 1), `pageSize` (default 25, max 100), `branchId` (a branch id or `all`; omitted means the header's branch, or every viewable branch without one), `from` / `to` (tenant calendar days, `YYYY-MM-DD`, inclusive), `soldBy` (user id), `paymentMethod` (`cash`, `card`, `mobile_wallet`, `credit` — refund rows don't count), `invoiceNo` (contains, spaces ignored). Returns `{ items, total, page, pageSize }`. A `branchId` the caller can't view is **403**.
+- `GET /api/v1/sales/history/options` — `{ branches, sellers }` for the filters.
+- `GET /api/v1/sales/history/:id` — items with batch, payments (refunds are negative rows), customer, prescription, seller, dispenser and completed refunds. `unitCost` and `costTotal` are `null` without `costs.view` at the sale's branch. A sale outside the caller's branches is **404**.
+
 **Controlled products** (`Product.isControlled`): checkout requires **pharmacist**, **manager**, or **owner** effective on the branch (owners may be recognized tenant-wide per service rules).
 
 ## Approval thresholds (server-enforced)
