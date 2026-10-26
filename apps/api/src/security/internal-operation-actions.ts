@@ -15,7 +15,7 @@ export const INTERNAL_OPERATION_ACTIONS = [
   { source: "purchasing/purchasing.service.ts", profile: "stock", authority: "domain", note: "receiveGoods posts; PO management methods use management profile." },
   { source: "purchasing/held-delivery.service.ts", profile: "mixed_stock", authority: "domain", note: "accept currently approves and receives; hold records local quantities/condition; reject is management." },
   { source: "returns/returns.service.ts", profile: "stock", authority: "domain", note: "complete posts goods departure; markLogistics is local confirmation; draft/approve/reject are management." },
-  { source: "stocktakes/stocktakes.service.ts", profile: "mixed_stock", authority: "domain", note: "approve/complete post today; counts/start/submit are local records; planning/review/recount are management." },
+  { source: "stocktakes/stocktakes.service.ts", profile: "mixed_stock", authority: "domain", note: "approve persists exact evidence only; post applies stock/quarantine; legacy complete closes already-posted counts only. Counts/start/submit are local records; planning/review/recount are management." },
   { source: "product-import/product-import.service.ts", profile: "mixed_stock", authority: "worker", note: "startImport/runImport/postOpeningStock and undo retain initiating command provenance; catalog-only stages are management." },
   { source: "product-import/import-job-runner.ts", profile: "mixed_stock", authority: "worker", note: "start delegates work with persisted authority; heartbeat/sweepStale are job bookkeeping only." },
   { source: "product-import/product-import-jobs.ts", profile: "management", authority: "inherited", note: "In-memory progress bookkeeping conveys no stock authority." },

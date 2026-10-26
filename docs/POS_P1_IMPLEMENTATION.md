@@ -229,10 +229,60 @@ An unchanged approval succeeds through the same pause, with one nonce consumptio
 Review verification (2026-10-24): 57 P1 PostgreSQL tests, 71 focused API tests and
 API type/tenant/stock checks passed. Both new unit regressions failed before the fix.
 
+## MR 4a: separate stocktake approval and posting
+
+Stocktake approval now records exact `stocktake.post` management evidence and changes
+status to `approved` only. Posting applies stock adjustments/quarantine through the existing
+StockService, then completes the count. Both transitions commit their success audit in their
+own database transaction. The screen presents separate approval and posting confirmations;
+it pins the displayed material revision/digest and a stable approval retry ID.
+
+Database triggers advance material revisions for count/condition/reason/resolution, baseline
+and counter-evidence changes, including internal writers and change-then-revert edits.
+Material changes clear the active approval and reopen approved counts for review. Notes
+advance metadata only. Completed/posted material is immutable. Every counter participates
+in the existing self-approval check; posting revalidates the approver's current branch rights
+independently from the executor. There is no new two-person rule or mandatory TTL.
+
+Posting locks the document and counted batches before its final approval/authority check.
+Repeated posting cannot produce a second stock effect; stock, quarantine, posting records,
+completion and success audit roll back together. Legacy approved counts have no fabricated
+exact evidence: review and approve them again before posting. Already posted/completed
+counts retain their history. The schema change is additive and creates no new tenant model.
+
+This is the stocktake portion of the mixed-handler split. Held adjustments/deliveries and
+stock-bearing import/undo remain mixed and retain local-required classifications. The
+production terminal/attendance boundary still waits for P2 and the coordinated P1 executor;
+this MR does not claim signed command receipts, full P1 acceptance or offline replay.
+API/web must deploy together because approval now requires the displayed revision/digest
+and no longer posts inventory. Existing clients must use the separate posting action.
+The daily-work queue treats authorized counts as posting work; it does not apply a counter's
+self-approval block to execution of another person's valid approval. Legacy approvals still
+appear as review work until fresh exact evidence exists.
+
+Validation (2026-10-25): 75 API unit suites / 888 tests, 63 shared-contract tests,
+19 web suites / 172 tests and all eight PostgreSQL integration suites / 144 tests passed.
+The database suite includes an actual batch-lock wait with authority removal, identical
+approval/post retries, revoked approval, material change/revert, note preservation, all-counter
+self-approval, audit rollback and dashboard action routing. API and web production builds,
+API/web/integration TypeScript checks, tenant/stock scanners and the unchanged 166-route
+inventory passed. All 70 tenant-model RLS policies remain staged/disabled; the migrated
+PostgreSQL schema matches Prisma. Database verification used a disposable PostgreSQL 16
+instance; remote CI/publishing has not run for this change.
+
 ## Remaining P1 MRs, in order
 
-1. **Separate approval from execution:** split held-adjustment acceptance, held-delivery
-   acceptance, stocktake approval/completion and stock-bearing import/undo stages. Retain
+MR #60 review fixes (2026-10-26): persisted approval material uses deterministic document-sized
+encoding without incoming-command size limits. Existing digest encoding is preserved, and signed
+terminal commands retain their bounds. PostgreSQL regressions cover list/detail, issuance and
+execution validation for 500-batch custom and 750-batch full counts. Approved counts offer explicit
+fresh approval even with an existing evidence ID, allowing recovery after approver rights change;
+prior evidence is retained and current self-approval rules still apply. Review validation passed:
+50 PostgreSQL workflow/approval tests, 50 focused API tests, 2 UI recovery tests, API/web types,
+tenant/stock scanners and the 166-route inventory.
+
+1. **Separate approval from execution:** finish held-adjustment acceptance, held-delivery
+   acceptance and stock-bearing import/undo stages. Stocktake approval/posting is split in MR 4a. Retain
    remote commercial management and normal reservations; coordinate P6 screens.
 2. **Transactional command execution:** integrate exact approvals and receipts with existing business services,
    StockService and AuditService; prove retries/lost responses, digest conflicts, rollback and

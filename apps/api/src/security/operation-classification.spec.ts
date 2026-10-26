@@ -26,13 +26,17 @@ describe("P1 server action classification", () => {
     expect(() => classifyProfile("unknown" as never)).toThrow();
   });
 
-  it.each(["inventory/held-adjustments/:id/accept", "purchasing/held-deliveries/:id/accept", "stocktakes/:id/approve", "stocktakes/:id/complete", "products/import/confirm", "products/import/:importId/undo"])("does not mistake mixed handler %s for remote approval", path => {
+  it.each(["inventory/held-adjustments/:id/accept", "purchasing/held-deliveries/:id/accept", "products/import/confirm", "products/import/:importId/undo"])("does not mistake mixed handler %s for remote approval", path => {
     expect(route(path)).toMatchObject({ requiresLocalTerminal: true, needsApprovalExecutionSplit: true });
     expect(route(path).effects).toContain("physical_stock");
   });
 
-  it.each(["purchasing/purchase-orders/:id/approve", "returns/:id/approve", "inventory/held-adjustments/:id/reject", "stocktakes/:id/request-recount", "products"])("permits remote management classification for %s", path => {
+  it.each(["purchasing/purchase-orders/:id/approve", "returns/:id/approve", "inventory/held-adjustments/:id/reject", "stocktakes/:id/request-recount", "stocktakes/:id/approve", "products"])("permits remote management classification for %s", path => {
     expect(route(path).requiresLocalTerminal).toBe(false);
+  });
+
+  it("keeps stocktake posting physical after approval is separated", () => {
+    expect(route("stocktakes/:id/post")).toMatchObject({ effects: ["physical_stock"], requiresLocalTerminal: true, needsApprovalExecutionSplit: false });
   });
 
   it("keeps normal reservations remote but both transfer execution ends local", () => {
@@ -68,7 +72,7 @@ describe("P1 server action classification", () => {
   });
 
   it("keeps local confirmations local even without a ledger movement", () => {
-    for (const path of ["sales/holds", "returns/:id/mark-logistics", "purchasing/purchase-orders/:id/hold-delivery"]) expect(route(path).requiresLocalTerminal).toBe(true);
+    for (const path of ["stocktakes/:id/complete", "sales/holds", "returns/:id/mark-logistics", "purchasing/purchase-orders/:id/hold-delivery"]) expect(route(path).requiresLocalTerminal).toBe(true);
     expect(classifyProfile("readiness_confirmation", { readinessTask: "sales_settings" }).requiresLocalTerminal).toBe(false);
     expect(classifyProfile("readiness_confirmation", { readinessTask: "opening_inventory" }).requiresLocalTerminal).toBe(true);
     expect(() => route("setup/readiness/confirm")).toThrow();

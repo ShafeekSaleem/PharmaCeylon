@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { DailyWorkService } from "../../src/dashboard/daily-work.service";
 import { DashboardMetricsService } from "../../src/dashboard/dashboard-metrics.service";
 import { StockReadService } from "../../src/inventory/stock/stock-read.service";
@@ -172,6 +173,25 @@ describe("Daily dashboard read models against PostgreSQL", () => {
       page: 1,
     });
     expect(after.total).toBe(0);
+  });
+
+  it("shows approved stocktakes as posting work without a counter self-approval block", async () => {
+    const count = await prisma.stocktake.create({ data: {
+      tenantId: fx.tenantId, branchId: fx.mainBranchId, stocktakeNumber: randomUUID(),
+      countedBy: fx.clerkId, status: "approved", approvedBy: fx.managerId, executionApprovalId: randomUUID(),
+    } });
+    const all = await queue().get(user, fx.mainBranchId, { filter: "all", category: "stocktakes", page: 1 });
+    expect(all.items.find(item => item.id === `stocktake:${count.id}`)).toMatchObject({
+      title: "Post approved stocktake", approval: false, blocked: false,
+    });
+    const approvals = await queue().get(user, fx.mainBranchId, { filter: "approvals", category: "stocktakes", page: 1 });
+    expect(approvals.items.some(item => item.id === `stocktake:${count.id}`)).toBe(false);
+    // Legacy approval has no fabricated evidence and still needs an actual reviewer.
+    await prisma.stocktake.update({ where: { id: count.id, tenantId: fx.tenantId }, data: { executionApprovalId: null } });
+    const legacy = await queue().get(user, fx.mainBranchId, { filter: "all", category: "stocktakes", page: 1 });
+    expect(legacy.items.find(item => item.id === `stocktake:${count.id}`)).toMatchObject({
+      title: "Review legacy stocktake approval", approval: true, blocked: true,
+    });
   });
 
   it("gates sources by effective permissions, including custom roles", async () => {

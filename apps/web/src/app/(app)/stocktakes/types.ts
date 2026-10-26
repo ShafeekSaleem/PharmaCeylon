@@ -140,6 +140,8 @@ export type StocktakePosting = {
 
 export type StocktakeListItem = {
   id: string;
+  approvalReview?: { expectedVersion: number; expectedDigest: string } | null;
+  executionApprovalId?: string | null;
   stocktakeNumber: string;
   status: StocktakeStatus;
   scope: StocktakeScope;

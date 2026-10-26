@@ -1,17 +1,20 @@
+import { stocktakeApprovalMaterial } from "./stocktake-approval-material";
+import { approvalMaterialDigest } from "./approval-material-digest";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ApprovalDocumentIdentity } from "@pharmaceylon/shared";
-import {
-  boundedCanonical,
-  denied,
-  sha256,
-  uuid,
-} from "../terminals/terminal-wire";
+import { denied, uuid } from "../terminals/terminal-wire";
 
 /** Exact domain actions, never a client's HTTP/effect/permission label. More adapters
  * are added with the mixed-handler split; no generic fallback is authorized.
  */
 export const APPROVAL_ACTIONS = {
+  "stocktake.post": {
+    documentType: "stocktake",
+    approvalPermission: "stocktakes.review",
+    executionPermission: "stocktakes.review",
+    operation: "POST /api/v1/stocktakes/:id/post",
+  },
   "purchase_order.receive": {
     documentType: "purchase_order",
     approvalPermission: "purchasing.approve",
@@ -41,6 +44,7 @@ export function approvalAction(raw: string) {
 export type ApprovalDocument = {
   identity: ApprovalDocumentIdentity;
   material: Prisma.InputJsonObject;
+  requesters: string[];
 };
 
 /** Lock BEFORE reading material lines, and keep that lock through execution.
@@ -62,7 +66,23 @@ export async function approvalDocument(
   let material: Prisma.InputJsonObject;
   let version: number;
   let requester: string;
-  if (policy.documentType === "purchase_order") {
+  let requesters: string[] | undefined;
+  if (policy.documentType === "stocktake") {
+    await tx.$queryRaw`SELECT id FROM stocktake WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
+    const doc = await tx.stocktake.findFirst({
+      where: { tenantId, branchId, id: documentId },
+      include: { lines: true, snapshotLines: true, countEntries: true },
+    });
+    if (!doc || !(use === "execution" ? ["approved"] : ["under_review", "approved"]).includes(doc.status))
+      denied("APPROVAL_INVALID");
+    if (!doc.lines.length || doc.lines.some(line => line.countedQty === null || line.status === "recount_requested"))
+      denied("APPROVAL_INVALID");
+    const content = stocktakeApprovalMaterial(doc);
+    material = content.material;
+    requesters = content.requesters;
+    requester = doc.countedBy;
+    version = doc.approvalVersion;
+  } else if (policy.documentType === "purchase_order") {
     await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
     const doc = await tx.purchaseOrder.findFirst({
       where: { tenantId, branchId, id: documentId },
@@ -170,15 +190,10 @@ export async function approvalDocument(
       documentType: policy.documentType,
       documentId,
       documentVersion: version,
-      documentDigest: sha256(
-        boundedCanonical({
-          kind: "approval_material",
-          documentType: policy.documentType,
-          material,
-        }),
-      ),
+      documentDigest: approvalMaterialDigest(policy.documentType, material),
       requestedByUserId: requester,
     },
     material,
+    requesters: requesters ?? [requester],
   };
 }

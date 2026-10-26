@@ -12,6 +12,7 @@ import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { ApproveStocktakeDto } from "./dto/approve-stocktake.dto";
 import { CreateStocktakeDto } from "./dto/create-stocktake.dto";
 import { UpsertStocktakeLinesDto } from "./dto/upsert-stocktake-lines.dto";
 import {
@@ -240,14 +241,9 @@ export class StocktakesController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ApproveStocktakeDto,
   ) {
-    return this.stocktakes.approve(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      await this.access.resolve(user, branchId),
-    );
+    return this.stocktakes.approve(user, branchId, id, dto);
   }
 
   @RequirePermission("stocktakes.review")
@@ -257,13 +253,7 @@ export class StocktakesController {
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.stocktakes.post(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      await this.access.resolve(user, branchId),
-    );
+    return this.stocktakes.post(user, branchId, id);
   }
 
   @RequirePermission("stocktakes.review")

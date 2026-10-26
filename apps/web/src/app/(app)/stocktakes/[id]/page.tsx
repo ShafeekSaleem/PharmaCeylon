@@ -141,6 +141,11 @@ export default function StocktakeDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
+  const [postOpen, setPostOpen] = useState(false);
+  const [approvalIntent, setApprovalIntent] = useState<{
+    row: StocktakeListItem;
+    input: { approvalId: string; expectedVersion: number; expectedDigest: string };
+  } | null>(null);
   const [linesModal, setLinesModal] = useState<"add" | "remove" | null>(null);
 
   const dirtyLinesRef = useRef<DirtyLine[]>([]);
@@ -314,8 +319,10 @@ export default function StocktakeDetailPage() {
         return;
       }
       await reloadSoft();
+      return true;
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Action failed");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -345,7 +352,7 @@ export default function StocktakeDetailPage() {
       })
       .filter((line): line is NonNullable<typeof line> => !!line);
 
-    if (lines.length === 0) return true;
+    if (lines.length === 0) return detail.data;
     setSaving(true);
     setActionError(null);
     try {
@@ -359,7 +366,7 @@ export default function StocktakeDetailPage() {
       );
       applyServerDetail(updated);
       setLastSavedLabel(new Date().toLocaleTimeString());
-      return true;
+      return updated;
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to save review");
       return false;
@@ -377,7 +384,11 @@ export default function StocktakeDetailPage() {
       return;
     }
     const saved = await saveReviewNow({ includeIncomplete: true });
-    if (!saved) return;
+    if (!saved || !saved.approvalReview) {
+      if (saved) setActionError("Reload this stocktake before approving it.");
+      return;
+    }
+    setApprovalIntent({ row: saved, input: { approvalId: crypto.randomUUID(), ...saved.approvalReview } });
     setApproveOpen(true);
   }
 
@@ -598,7 +609,7 @@ export default function StocktakeDetailPage() {
     );
   }
 
-  if (row.status === "under_review" && canReview) {
+  if ((row.status === "under_review" || (row.status === "approved" && !row.executionApprovalId)) && canReview) {
     moreActions.push({
       id: "save-review",
       label: "Save review notes",
@@ -609,33 +620,35 @@ export default function StocktakeDetailPage() {
       label: "Request recount",
       onClick: () => void requestRecount(),
     });
-    if (canApprovePerm && canApprove(row.status)) {
-      const approveBlocked = [
-        ...(counterMayNotReview ? [counterMayNotReview] : []),
-        ...reviewApprovalBlockers(row, reviews),
-      ];
-      primaryActions.push(
-        <ActionButton
-          key="approve"
-          onClick={() => void approveStocktake()}
-          disabled={saving || approveBlocked.length > 0}
-          tooltip={
-            approveBlocked.length > 0
-              ? approveBlocked.join("; ")
-              : "Adjusts stock to the count and closes the stocktake"
-          }
-        >
-          Approve
-        </ActionButton>,
-      );
-    }
+  }
+  // Existing evidence may be unusable after revocation or a change in approver rights.
+  // Permit a current reviewer to inspect and explicitly replace it with a fresh approval.
+  if (canReview && canApprovePerm && (canApprove(row.status) || row.status === "approved")) {
+    const approveBlocked = [
+      ...(counterMayNotReview ? [counterMayNotReview] : []),
+      ...reviewApprovalBlockers(row, reviews),
+    ];
+    primaryActions.push(
+      <ActionButton
+        key="approve"
+        onClick={() => void approveStocktake()}
+        disabled={saving || approveBlocked.length > 0}
+        tooltip={
+          approveBlocked.length > 0
+            ? approveBlocked.join("; ")
+            : "Authorizes this count; stock changes when adjustments are posted"
+        }
+      >
+        {row.status === "approved" ? "Review approval" : "Approve count"}
+      </ActionButton>,
+    );
   }
 
-  if (canPostPerm && canPost(row.status)) {
+  if (canPostPerm && canPost(row.status) && row.executionApprovalId) {
     primaryActions.push(
       <ActionButton
         key="post"
-        onClick={() => void runAction("post")}
+        onClick={() => setPostOpen(true)}
         disabled={saving}
         tooltip="Adjusts stock to the count and closes the stocktake"
       >
@@ -776,6 +789,14 @@ export default function StocktakeDetailPage() {
             </Alert>
           ) : null;
         })()
+      ) : null}
+
+      {row.status === "approved" ? (
+        <Alert variant="info">
+          {row.executionApprovalId
+            ? "Count approved. Stock remains unchanged until adjustments are posted."
+            : "This count needs a fresh approval before adjustments can be posted."}
+        </Alert>
       ) : null}
 
       <StocktakeHeader
@@ -1048,12 +1069,25 @@ export default function StocktakeDetailPage() {
 
 
       <ApproveStocktakeModal
-        stocktake={row}
+        stocktake={approvalIntent?.row ?? row}
         open={approveOpen}
         busy={saving}
         onCancel={() => setApproveOpen(false)}
         onApprove={() => {
-          void runAction("approve").then(() => setApproveOpen(false));
+          if (approvalIntent) void runAction("approve", approvalIntent.input).then((ok) => {
+            if (ok) setApproveOpen(false);
+          });
+        }}
+      />
+
+      <ApproveStocktakeModal
+        stocktake={row}
+        mode="post"
+        open={postOpen}
+        busy={saving}
+        onCancel={() => setPostOpen(false)}
+        onApprove={() => {
+          void runAction("post").then((ok) => { if (ok) setPostOpen(false); });
         }}
       />
 

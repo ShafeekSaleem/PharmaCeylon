@@ -207,6 +207,11 @@
       "path": "src/dashboard/dashboard-metrics.service.ts",
       "mode": "tenant-filtered-aggregate",
       "reason": "Read-only business-day sales rollups, explicitly bound to tenant and active branch, with operator filtering for cashier-only users. Child joins also constrain tenant_id."
+    },
+    {
+      "path": "src/stocktakes/stocktakes.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks stocktakes by bound tenant, branch and document before approval/posting; all child reads, approval evidence, StockService effects and success audit share the caller transaction."
     }
   ]
 }

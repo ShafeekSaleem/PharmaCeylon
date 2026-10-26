@@ -256,7 +256,7 @@ export function completeBlockers(
   return blockers;
 }
 
-/** True when a variance line has a reason (draft or saved). Approving adjusts stock to the
+/** True when a variance line has a reason (draft or saved). Approval authorizes the count; posting adjusts stock to the
  *  count, so what to do about a variance is never a separate choice — only why it happened. */
 export function lineHasCompleteReview(
   line: Pick<StocktakeLine, "reviewReason">,

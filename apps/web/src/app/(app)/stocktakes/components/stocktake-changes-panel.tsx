@@ -156,6 +156,7 @@ export function StocktakeChangesPanel({ stocktake }: { stocktake: StocktakeListI
 }
 
 type ApproveProps = {
+  mode?: "approve" | "post";
   stocktake: StocktakeListItem;
   open: boolean;
   busy: boolean;
@@ -168,7 +169,7 @@ type ApproveProps = {
  * batches, so this is a full window with the list, not a two-line confirmation: the reviewer signs
  * off on each change they can see.
  */
-export function ApproveStocktakeModal({ stocktake, open, busy, onCancel, onApprove }: ApproveProps) {
+export function ApproveStocktakeModal({ stocktake, open, busy, onCancel, onApprove, mode = "approve" }: ApproveProps) {
   const p = approvalPreview(stocktake);
   const rows = stocktake.lines.filter((line) => {
     const variance = line.countedQty == null ? 0 : (line.adjustedVariance ?? 0);
@@ -180,8 +181,8 @@ export function ApproveStocktakeModal({ stocktake, open, busy, onCancel, onAppro
       onClose={() => {
         if (!busy) onCancel();
       }}
-      title={`Approve ${stocktake.stocktakeNumber}`}
-      description="Approving adjusts stock to the count and closes the stocktake."
+      title={`${mode === "post" ? "Post adjustments for" : "Approve count for"} ${stocktake.stocktakeNumber}`}
+      description={mode === "post" ? "Posting applies the approved count, quarantines unfit units and completes the stocktake." : "Approve the reviewed count and condition. Stock changes separately when adjustments are posted."}
       size="lg"
       footer={
         <ModalFooter>
@@ -189,7 +190,7 @@ export function ApproveStocktakeModal({ stocktake, open, busy, onCancel, onAppro
             Not yet
           </ModalButton>
           <ModalButton variant="primary" onClick={onApprove} loading={busy}>
-            Approve and adjust stock
+            {mode === "post" ? "Post adjustments" : "Approve count"}
           </ModalButton>
         </ModalFooter>
       }
@@ -197,15 +198,15 @@ export function ApproveStocktakeModal({ stocktake, open, busy, onCancel, onAppro
       <div className={scss.approveSummary}>
         <div>
           <span className={scss.approveFigure}>{p.adjusted}</span>
-          <span className={scss.approveLabel}>batches adjusted</span>
+          <span className={scss.approveLabel}>batches to adjust</span>
         </div>
         <div>
           <span className={scss.approveFigure}>{p.unitsIn > 0 ? `+${p.unitsIn}` : 0}</span>
-          <span className={scss.approveLabel}>units added</span>
+          <span className={scss.approveLabel}>units to add</span>
         </div>
         <div>
           <span className={scss.approveFigure}>{p.unitsOut > 0 ? `−${p.unitsOut}` : 0}</span>
-          <span className={scss.approveLabel}>units removed</span>
+          <span className={scss.approveLabel}>units to remove</span>
         </div>
         <div>
           <span className={scss.approveFigure}>{p.toHold}</span>

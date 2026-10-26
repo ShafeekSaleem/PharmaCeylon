@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { ForbiddenException } from "@nestjs/common";
-import { PrismaClient, StockMovementType } from "@prisma/client";
+import { PrismaClient, RoleName, StockMovementType } from "@prisma/client";
+import { AccessService } from "../../src/security/access.service";
+import { ManagementApprovalsService } from "../../src/security/management-approvals.service";
+import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { AuditService } from "../../src/audit/audit.service";
 import { InventoryService } from "../../src/inventory/inventory.service";
 import { AdjustmentService } from "../../src/inventory/adjustment.service";
@@ -31,6 +34,9 @@ describe("Operations workflows against PostgreSQL", () => {
     stock = new StockService();
     audit = new AuditService(prisma as never);
     fx = await createTenant(prisma, "flows");
+    await prisma.userBranchRole.create({ data: {
+      tenantId: fx.tenantId, userId: fx.managerId, branchId: fx.mainBranchId, role: RoleName.manager,
+    } });
   });
 
   afterAll(async () => {
@@ -38,7 +44,20 @@ describe("Operations workflows against PostgreSQL", () => {
   });
 
   describe("stocktakes", () => {
-    const stocktakes = () => new StocktakesService(prisma as never, audit, stock);
+    const liveAccess = () => new AccessService(prisma as never, {} as never);
+    const approvals = () => new ManagementApprovalsService(liveAccess(), audit);
+    const stocktakes = () => new StocktakesService(prisma as never, audit, stock, liveAccess(), approvals());
+    const user = (userId = fx.managerId): RequestUser => ({
+      tenantId: fx.tenantId, userId, tokenVersion: 0, branchRoles: [], email: "stocktake@it.test", fullName: "Stocktake actor", authMethod: "bearer",
+    });
+    async function approvalInput(id: string) {
+      const row = await stocktakes().getOne(fx.tenantId, fx.mainBranchId, id, reviewer());
+      return { approvalId: randomUUID(), ...row.approvalReview! };
+    }
+    async function approve(id: string) {
+      return stocktakes().approve(user(), fx.mainBranchId, id, await approvalInput(id));
+    }
+    const post = (id: string) => stocktakes().post(user(), fx.mainBranchId, id);
     const reviewer = () => actor(fx.managerId, "all", { canSelfApprove: true });
     const counter = () => actor(fx.clerkId, ["stocktakes.use"]);
 
@@ -90,13 +109,13 @@ describe("Operations workflows against PostgreSQL", () => {
       const detail = await stocktakes().getOne(fx.tenantId, fx.mainBranchId, id, reviewer());
       expect(detail.lines[0]!.adjustedVariance).toBe(0);
 
-      await stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer());
+      await approve(id);
       expect(await batchTotals(prisma, batchId)).toEqual(
         expect.objectContaining({ onHand: 30, reserved: 10, available: 20 }),
       );
     });
 
-    it("adjusts stock exactly once when Approve is sent twice at the same time", async () => {
+    it("authorizes without stock effects, then posts exactly once under concurrent retries", async () => {
       const batchId = await createStockedBatch(prisma, stock, fx, { qty: 50 });
       const id = await countedStocktake(batchId, 47);
       const counted = await stocktakes().getOne(fx.tenantId, fx.mainBranchId, id, reviewer());
@@ -110,10 +129,15 @@ describe("Operations workflows against PostgreSQL", () => {
       );
 
       const results = await Promise.allSettled([
-        stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer()),
-        stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer()),
+        approve(id),
+        approve(id),
       ]);
       expect(results.some((r) => r.status === "fulfilled")).toBe(true);
+
+      expect((await prisma.stocktake.findUniqueOrThrow({ where: { id } })).status).toBe("approved");
+      expect((await batchTotals(prisma, batchId)).onHand).toBe(50);
+      expect(await prisma.stocktakePosting.count({ where: { stocktakeId: id } })).toBe(0);
+      await Promise.all([post(id), post(id)]);
 
       const stocktakeRows = await prisma.stockLedger.count({
         where: { referenceType: "stocktake", referenceId: id },
@@ -130,17 +154,215 @@ describe("Operations workflows against PostgreSQL", () => {
       const batchId = await createStockedBatch(prisma, stock, fx, { qty: 20 });
       const id = await countedStocktake(batchId, 18);
       await expect(
-        stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer()),
+        approve(id),
       ).rejects.toThrow(/Give a reason/);
     });
 
-    it("quarantines units counted as damaged when the count is approved", async () => {
+    it("quarantines damaged units only when the approved count is posted", async () => {
       const batchId = await createStockedBatch(prisma, stock, fx, { qty: 12 });
       const id = await countedStocktake(batchId, 12, "damaged");
-      await stocktakes().approve(fx.tenantId, fx.mainBranchId, fx.managerId, id, reviewer());
+      await approve(id);
+      expect((await batchTotals(prisma, batchId)).quarantined).toBe(0);
+      await post(id);
       expect(await batchTotals(prisma, batchId)).toEqual(
         expect.objectContaining({ onHand: 12, quarantined: 12, available: 0 }),
       );
+    });
+
+    it("replays an identical approval once without duplicating approval audit", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+      const id = await countedStocktake(batchId, 5);
+      const input = await approvalInput(id);
+      await Promise.all([
+        stocktakes().approve(user(), fx.mainBranchId, id, input),
+        stocktakes().approve(user(), fx.mainBranchId, id, input),
+      ]);
+      expect(await prisma.managementApproval.count({ where: { documentId: id } })).toBe(1);
+      expect(await prisma.auditEvent.count({ where: { entityId: id, eventName: "stocktake.approved" } })).toBe(1);
+      expect((await batchTotals(prisma, batchId)).onHand).toBe(5);
+    });
+
+    it("preserves approval on note edits and invalidates material edits even when restored", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+      const id = await countedStocktake(batchId, 5);
+      const approved = await approve(id);
+      const before = await prisma.stocktake.findUniqueOrThrow({ where: { id } });
+      await prisma.stocktakeLine.updateMany({ where: { stocktakeId: id, tenantId: fx.tenantId }, data: { reviewNote: "Administrative note" } });
+      const noted = await prisma.stocktake.findUniqueOrThrow({ where: { id } });
+      expect(noted.executionApprovalId).toBe(approved.executionApprovalId);
+      expect(noted.approvalVersion).toBe(before.approvalVersion);
+      expect(noted.metadataVersion).toBeGreaterThan(before.metadataVersion);
+      const staleInput = await approvalInput(id);
+      for (const qty of [4, 5]) await prisma.stocktakeLine.updateMany({
+        where: { stocktakeId: id, tenantId: fx.tenantId }, data: { countedQty: qty },
+      });
+      const edited = await prisma.stocktake.findUniqueOrThrow({ where: { id } });
+      expect(edited.status).toBe("under_review");
+      expect(edited.executionApprovalId).toBeNull();
+      expect(edited.approvalVersion).toBeGreaterThan(noted.approvalVersion);
+      await expect(stocktakes().approve(user(), fx.mainBranchId, id, staleInput)).rejects.toThrow();
+      await expect(post(id)).rejects.toThrow(/Only approved/);
+      await approve(id);
+      await post(id);
+    });
+
+    it("invalidates approval when condition or snapshot evidence changes", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+      const id = await countedStocktake(batchId, 5);
+      await approve(id);
+      await prisma.stocktakeLine.updateMany({ where: { stocktakeId: id, tenantId: fx.tenantId }, data: { condition: "damaged" } });
+      expect((await prisma.stocktake.findUniqueOrThrow({ where: { id } })).executionApprovalId).toBeNull();
+      await approve(id);
+      // An internal snapshot writer must not preserve the earlier approval either.
+      await prisma.stocktakeSnapshotLine.updateMany({ where: { stocktakeId: id, tenantId: fx.tenantId }, data: { snapshotQty: 4 } });
+      expect((await prisma.stocktake.findUniqueOrThrow({ where: { id } })).status).toBe("under_review");
+    });
+
+    it("requires a fresh explicit approval for a legacy approved count", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+      const id = await countedStocktake(batchId, 5);
+      await prisma.stocktake.update({ where: { id, tenantId: fx.tenantId }, data: { status: "approved", approvedBy: fx.managerId } });
+      await expect(post(id)).rejects.toThrow(/no historical approval/);
+      await approve(id);
+      await post(id);
+      expect((await prisma.stocktake.findUniqueOrThrow({ where: { id } })).status).toBe("completed");
+    });
+
+    it("rolls back stock, quarantine, completion and execution audit when audit fails", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 8 });
+      const id = await countedStocktake(batchId, 8, "damaged");
+      await approve(id);
+      const realLog = audit.log.bind(audit);
+      const failure = jest.spyOn(audit, "log").mockImplementation(async (input, client) => {
+        if (input.eventName === "stocktake.posted") throw new Error("Injected execution audit failure");
+        return realLog(input, client);
+      });
+      try { await expect(post(id)).rejects.toThrow(/Injected/); }
+      finally { failure.mockRestore(); }
+      expect((await prisma.stocktake.findUniqueOrThrow({ where: { id } })).status).toBe("approved");
+      expect(await prisma.stocktakePosting.count({ where: { stocktakeId: id } })).toBe(0);
+      expect(await prisma.stockLedger.count({ where: { referenceId: id } })).toBe(0);
+      expect((await batchTotals(prisma, batchId)).quarantined).toBe(0);
+      await post(id);
+      expect((await batchTotals(prisma, batchId)).quarantined).toBe(8);
+    });
+
+    it("rejects revoked approval and cross-branch posting without stock effects", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+      const id = await countedStocktake(batchId, 5);
+      const approved = await approve(id);
+      await prisma.$transaction(c => approvals().revoke(c, user(), fx.mainBranchId, approved.executionApprovalId!, "Withdraw approval"));
+      await expect(post(id)).rejects.toThrow();
+      await expect(stocktakes().post(user(), fx.otherBranchId, id)).rejects.toThrow();
+      expect((await batchTotals(prisma, batchId)).onHand).toBe(5);
+      expect(await prisma.stocktakePosting.count({ where: { stocktakeId: id } })).toBe(0);
+    });
+
+    it("rechecks the approver's current authority separately from the executor", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+      const id = await countedStocktake(batchId, 5);
+      const original = await approve(id);
+      await prisma.userBranchRole.create({ data: { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.ownerId, role: "owner" } });
+      await prisma.userBranchRole.deleteMany({ where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId } });
+      try {
+        await expect(stocktakes().post(user(fx.ownerId), fx.mainBranchId, id)).rejects.toThrow();
+        expect(await prisma.stocktakePosting.count({ where: { stocktakeId: id } })).toBe(0);
+        const replacement = await stocktakes().approve(user(fx.ownerId), fx.mainBranchId, id, await approvalInput(id));
+        expect(replacement.executionApprovalId).not.toBe(original.executionApprovalId);
+        const retained = await prisma.managementApproval.findFirstOrThrow({ where: { id: original.executionApprovalId!, tenantId: fx.tenantId } });
+        expect(retained.approvedByUserId).toBe(fx.managerId);
+        await stocktakes().post(user(fx.ownerId), fx.mainBranchId, id);
+      } finally {
+        await prisma.userBranchRole.create({ data: { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId, role: "manager" } });
+      }
+      const event = await prisma.auditEvent.findFirstOrThrow({ where: { entityId: id, eventName: "stocktake.posted" } });
+      expect(event.payload).toMatchObject({ requestedByUserId: fx.clerkId, approvedByUserId: fx.ownerId, executedByUserId: fx.ownerId });
+    });
+
+    it.each([{ scope: "custom" as const, size: 500 }, { scope: "full" as const, size: 750 }])(
+      "lists, displays and approves a normal large $scope stocktake ($size batches)", async ({ scope, size }) => {
+        const id = randomUUID();
+        await prisma.stocktake.create({ data: { id, tenantId: fx.tenantId, branchId: fx.mainBranchId,
+          stocktakeNumber: randomUUID(), status: "under_review", countedBy: fx.clerkId, scope, snapshotAt: new Date() } });
+        const batches = Array.from({ length: size }, () => ({ id: randomUUID(), tenantId: fx.tenantId,
+          branchId: fx.mainBranchId, productId: fx.productId, batchNo: randomUUID(),
+          expiryDate: daysFromToday(365), costPrice: "10.00", sellingPrice: "15.00" }));
+        await prisma.batch.createMany({ data: batches });
+        const lines = batches.map(batch => ({ id: randomUUID(), tenantId: fx.tenantId, stocktakeId: id,
+          productId: fx.productId, batchId: batch.id, systemQty: 0, countedQty: 0 }));
+        await prisma.stocktakeLine.createMany({ data: lines });
+        await prisma.stocktakeSnapshotLine.createMany({ data: lines.map(line => ({ tenantId: fx.tenantId,
+          stocktakeId: id, lineId: line.id, productId: line.productId, batchId: line.batchId, snapshotQty: 0 })) });
+        await prisma.stocktakeCountEntry.createMany({ data: lines.map(line => ({ tenantId: fx.tenantId,
+          stocktakeId: id, lineId: line.id, countedQty: 0, countedBy: fx.clerkId })) });
+        const listed = (await stocktakes().list(fx.tenantId, fx.mainBranchId, reviewer())).find(row => row.id === id)!;
+        const detail = await stocktakes().getOne(fx.tenantId, fx.mainBranchId, id, reviewer());
+        expect(detail.lines).toHaveLength(size);
+        expect(listed.approvalReview).toEqual(detail.approvalReview);
+        const approved = await stocktakes().approve(user(), fx.mainBranchId, id, { approvalId: randomUUID(), ...detail.approvalReview! });
+        expect(approved.status).toBe("approved");
+        expect(approved.approvalReview).toEqual(detail.approvalReview);
+        const evidence = await prisma.$transaction(tx => approvals().requireForExecution(tx, user(), fx.mainBranchId,
+          "stocktake.post", id, approved.executionApprovalId!));
+        expect(evidence.document.documentDigest).toBe(detail.approvalReview!.expectedDigest);
+      },
+    );
+
+    it("enforces self-approval for every counter, not only the stocktake creator", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+      const id = await countedStocktake(batchId, 5);
+      const line = await prisma.stocktakeLine.findFirstOrThrow({ where: { stocktakeId: id } });
+      await prisma.stocktakeCountEntry.create({ data: {
+        tenantId: fx.tenantId, stocktakeId: id, lineId: line.id, countedQty: 5, countedBy: fx.managerId,
+      } });
+      await prisma.tenantSettings.upsert({ where: { tenantId: fx.tenantId }, create: { tenantId: fx.tenantId, selfApprovalRoleKeys: ["owner"] }, update: { selfApprovalRoleKeys: ["owner"] } });
+      try {
+        await expect(approve(id)).rejects.toThrow(/own|counted/);
+        const input = await approvalInput(id);
+        await expect(prisma.$transaction(c => approvals().issue(c, user(), fx.mainBranchId, "stocktake.post", id, { ...input, reason: "Review", expiresAt: null }))).rejects.toThrow(/own/);
+      } finally {
+        await prisma.tenantSettings.update({ where: { tenantId: fx.tenantId }, data: { selfApprovalRoleKeys: ["owner", "manager"] } });
+      }
+    });
+
+    it("rejects authority removed during a real batch-lock wait before posting", async () => {
+      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+      const id = await countedStocktake(batchId, 5, "damaged");
+      await approve(id);
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let ready!: (pid: number) => void;
+      const locked = new Promise<number>(resolve => { ready = resolve; });
+      const blocker = prisma.$transaction(async tx => {
+        const [{ pid }] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+        await stock.lockBatches(tx, fx.tenantId, [batchId]);
+        ready(pid);
+        await gate;
+      }, { timeout: 15_000 });
+      let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+      try {
+        const blockerPid = await Promise.race([locked, blocker.then(() => { throw new Error("Blocker exited"); })]);
+        pending = Promise.allSettled([post(id)]);
+        const deadline = Date.now() + 2_000;
+        for (;;) {
+          const [{ blocked }] = await prisma.$queryRaw<{ blocked: boolean }[]>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND ${blockerPid}::int = ANY(pg_blocking_pids(pid))) AS blocked`;
+          if (blocked) break;
+          if (Date.now() > deadline) throw new Error("Expected actual stocktake batch lock wait");
+        }
+        await prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId }, data: { role: "cashier" } });
+        release();
+        await blocker;
+        expect((await pending)[0].status).toBe("rejected");
+        expect(await prisma.stocktakePosting.count({ where: { stocktakeId: id } })).toBe(0);
+        expect((await batchTotals(prisma, batchId)).quarantined).toBe(0);
+      } finally {
+        release();
+        await blocker;
+        if (pending) await pending;
+        await prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId }, data: { role: "manager" } });
+      }
+      await post(id);
+      expect((await batchTotals(prisma, batchId)).quarantined).toBe(5);
     });
 
     it("stops a counter reviewing their own count when their role can't self-approve", async () => {

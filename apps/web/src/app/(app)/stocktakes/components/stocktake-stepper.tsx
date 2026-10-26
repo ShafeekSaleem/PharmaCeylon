@@ -11,7 +11,7 @@ const STEPS: Array<{ key: StepKey; label: string }> = [
   { key: "counting", label: "Counting" },
   { key: "submitted", label: "Submitted" },
   { key: "review", label: "Review" },
-  { key: "completed", label: "Approved" },
+  { key: "completed", label: "Completed" },
 ];
 
 function currentStepIndex(status: StocktakeStatus): number {
@@ -23,8 +23,7 @@ function currentStepIndex(status: StocktakeStatus): number {
       return 1;
     case "submitted":
       return 2;
-    // Approved and posted are only reached by stocktakes approved before approval also
-    // posted; they sit at review until someone finishes them.
+    // Authorization is distinct from posting and completion.
     case "under_review":
     case "approved":
     case "posted":

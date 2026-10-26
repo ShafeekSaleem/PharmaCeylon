@@ -18,7 +18,11 @@ import { nextDocumentNumber } from "../common/document-sequence.util";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { StockService, type QuarantineLine } from "../inventory/stock/stock.service";
-import { type ActorAccess } from "../security/access.service";
+import { AccessService, type ActorAccess } from "../security/access.service";
+import { ManagementApprovalsService } from "../security/management-approvals.service";
+import { stocktakeApprovalMaterial } from "../security/stocktake-approval-material";
+import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { ApproveStocktakeDto } from "./dto/approve-stocktake.dto";
 import { CreateStocktakeDto } from "./dto/create-stocktake.dto";
 import { UpsertStocktakeLinesDto } from "./dto/upsert-stocktake-lines.dto";
 import {
@@ -118,6 +122,7 @@ const STOCKTAKE_INCLUDE = {
     orderBy: { createdAt: "asc" as const },
   },
   snapshotLines: true,
+  countEntries: true,
   postings: {
     include: { lines: true },
     orderBy: { postedAt: "asc" as const },
@@ -218,6 +223,8 @@ export class StocktakesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly stock: StockService,
+    private readonly access: AccessService,
+    private readonly approvals: ManagementApprovalsService,
   ) {}
 
   private assertReviewer(access: ActorAccess) {
@@ -396,8 +403,8 @@ export class StocktakesService {
     }
   }
 
-  private async loadOneRow(tenantId: string, branchId: string, id: string) {
-    const row = await this.prisma.stocktake.findFirst({
+  private async loadOneRow(tenantId: string, branchId: string, id: string, client: Prisma.TransactionClient = this.prisma) {
+    const row = await client.stocktake.findFirst({
       where: { id, tenantId, branchId },
       include: STOCKTAKE_INCLUDE,
     });
@@ -598,6 +605,10 @@ export class StocktakesService {
 
     return {
       id: row.id,
+      approvalReview: flags.canReview && !blindRestricted && [StocktakeStatus.under_review, StocktakeStatus.approved].includes(row.status as "under_review" | "approved")
+        ? { expectedVersion: row.approvalVersion, expectedDigest: stocktakeApprovalMaterial(row).digest }
+        : null,
+      executionApprovalId: row.executionApprovalId,
       stocktakeNumber: row.stocktakeNumber,
       status: row.status,
       scope: row.scope,
@@ -1268,134 +1279,87 @@ export class StocktakesService {
     return this.getOne(tenantId, branchId, id, access);
   }
 
-  /**
-   * Approve the count: adjust stock to it, hold back what was counted as unfit to sell, and close
-   * the stocktake, all in one transaction. Approve, Post adjustments and Complete used to be three
-   * buttons; only the second changed anything, and none of them said so.
-   */
-  async approve(
-    tenantId: string,
-    branchId: string,
-    userId: string,
-    id: string,
-    access: ActorAccess,
-  ) {
-    const row = await this.loadOneRow(tenantId, branchId, id);
-    if (row.status === StocktakeStatus.completed) {
-      // A double-click or a retried request: the first one went through, so report that.
-      return this.getOne(tenantId, branchId, id, access);
-    }
-    if (row.status !== StocktakeStatus.under_review) {
-      throw new BadRequestException("Only stocktakes under review can be approved");
-    }
-    this.assertMayReview(access, row);
-
-    const movementMap = await this.movementMapForRow(row);
-    const snapshotByLineId = new Map(row.snapshotLines.map((snapshot) => [snapshot.lineId, snapshot.snapshotQty]));
-    const missingReason = row.lines.filter((line) => {
-      const expected = (snapshotByLineId.get(line.id) ?? line.systemQty) + (movementMap.get(line.batchId)?.delta ?? 0);
-      const variance = line.countedQty == null ? null : line.countedQty - expected;
-      return variance !== null && variance !== 0 && !line.reviewReason;
-    });
-    if (missingReason.length > 0) {
-      throw new BadRequestException(
-        `Give a reason for ${missingReason.length} line(s) whose count differs from what was expected. Lines that match need nothing.`,
-      );
-    }
-
-    const recountPending = row.lines.filter(
-      (line) => line.status === StocktakeCountStatus.recount_requested,
-    );
-    if (recountPending.length > 0) {
-      throw new BadRequestException(
-        `Cannot approve while ${recountPending.length} line(s) are awaiting recount`,
-      );
-    }
-
-    const now = new Date();
-    let result = { adjustments: 0, quarantined: 0 };
-    await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.stocktake.updateMany({
-        where: { id, tenantId, branchId, status: StocktakeStatus.under_review },
-        data: {
-          status: StocktakeStatus.completed,
-          approvedBy: userId,
-          approvedAt: now,
-          postedBy: userId,
-          postedAt: now,
-          completedBy: userId,
-          completedAt: now,
-        },
+  /** Approval authorizes exact reviewed material; it never posts stock or closes the count. */
+  async approve(user: RequestUser, branchId: string, id: string, input: ApproveStocktakeDto) {
+    const tenantId = user.tenantId;
+    const access = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM stocktake WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+      const row = await this.loadOneRow(tenantId, branchId, id, tx);
+      if (![StocktakeStatus.under_review, StocktakeStatus.approved].includes(row.status as "under_review" | "approved"))
+        throw new BadRequestException("Only reviewed stocktakes can be approved");
+      const actor = await this.access.resolveLive(user, branchId, tx);
+      this.assertMayReview(actor, row);
+      await this.assertReadyForApproval(row, tx);
+      const evidence = await this.approvals.issue(tx, user, branchId, "stocktake.post", id, {
+        ...input, reason: "Reviewed stocktake count and condition", expiresAt: null,
       });
-      if (claimed.count !== 1) {
-        throw new BadRequestException("This stocktake is no longer under review — refresh to see its status");
-      }
+      if (row.status === StocktakeStatus.approved && row.executionApprovalId === evidence.approvalId)
+        return actor;
+      const now = new Date();
+      await tx.stocktake.update({
+        where: { id, tenantId, branchId },
+        data: { status: StocktakeStatus.approved, approvedBy: user.userId, approvedAt: now, executionApprovalId: evidence.approvalId },
+      });
       await tx.stocktakeLine.updateMany({
         where: { stocktakeId: id, tenantId },
-        data: { approvedBy: userId, approvedAt: now },
+        data: { approvedBy: user.userId, approvedAt: now },
       });
-      result = await this.postAdjustments(tx, row, userId, now);
+      await this.audit.log({
+        tenantId, branchId, actorUserId: user.userId, eventName: "stocktake.approved",
+        entityName: "stocktake", entityId: id,
+        payload: { approvalId: evidence.approvalId, documentVersion: evidence.document.documentVersion,
+          documentDigest: evidence.document.documentDigest, requestedByUserId: row.countedBy,
+          approvedByUserId: user.userId },
+      }, tx);
+      return actor;
     });
-
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: userId,
-      eventName: "stocktake.approved",
-      entityName: "stocktake",
-      entityId: id,
-      payload: result,
-    });
-
     return this.getOne(tenantId, branchId, id, access);
   }
 
-  /**
-   * For a stocktake approved before approval also posted: adjust stock and close it. Nothing
-   * reaches the approved status any more, so this only finishes counts already in flight.
+  private async assertReadyForApproval(row: StocktakeRow, tx: Prisma.TransactionClient) {
+    if (!row.lines.length || row.lines.some(line => line.countedQty == null))
+      throw new BadRequestException("Count every line before approval");
+    if (row.lines.some(line => line.status === StocktakeCountStatus.recount_requested))
+      throw new BadRequestException("Cannot approve while lines are awaiting recount");
+    const movementMap = await this.movementMapForRow(row, tx);
+    const snapshots = new Map(row.snapshotLines.map(line => [line.lineId, line.snapshotQty]));
+    if (row.lines.some(line => line.countedQty !== (snapshots.get(line.id) ?? line.systemQty) + (movementMap.get(line.batchId)?.delta ?? 0) && !line.reviewReason))
+      throw new BadRequestException("Give a reason for every line whose count differs from what was expected");
+  }
+
+  /** Apply an approved count and quarantine through StockService, with its execution audit.
+   * Terminal command/attendance enforcement is coordinated with P2, as for the other
+   * existing stock routes. This split does not enable the production terminal cutover.
    */
-  async post(
-    tenantId: string,
-    branchId: string,
-    userId: string,
-    id: string,
-    access: ActorAccess,
-  ) {
-    this.assertReviewer(access);
-    const row = await this.loadOneRow(tenantId, branchId, id);
-    if (row.status === StocktakeStatus.posted || row.status === StocktakeStatus.completed) {
-      return this.getOne(tenantId, branchId, id, access);
-    }
-    if (row.status !== StocktakeStatus.approved) {
-      throw new BadRequestException("Only approved stocktakes can be posted");
-    }
-    const now = new Date();
-    let result = { adjustments: 0, quarantined: 0 };
-    await this.prisma.$transaction(async (tx) => {
-      // Claim the stocktake first, so two posts running together can't both adjust stock.
-      const claimed = await tx.stocktake.updateMany({
-        where: { id, tenantId, branchId, status: StocktakeStatus.approved },
-        data: {
-          status: StocktakeStatus.completed,
-          postedBy: userId,
-          postedAt: now,
-          completedBy: userId,
-          completedAt: now,
-        },
+  async post(user: RequestUser, branchId: string, id: string) {
+    const tenantId = user.tenantId;
+    const access = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM stocktake WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+      const row = await this.loadOneRow(tenantId, branchId, id, tx);
+      const actor = await this.access.resolveLive(user, branchId, tx);
+      this.assertReviewer(actor);
+      if (row.status === StocktakeStatus.posted || row.status === StocktakeStatus.completed) return actor;
+      if (row.status !== StocktakeStatus.approved)
+        throw new BadRequestException("Only approved stocktakes can be posted");
+      if (!row.executionApprovalId)
+        throw new BadRequestException("Review and approve this count again before posting; no historical approval evidence is assumed");
+      // Lock stock before final authority/approval checks, including after a lock wait.
+      await this.stock.lockBatches(tx, tenantId, row.lines.map(line => line.batchId));
+      await this.assertReadyForApproval(row, tx);
+      const evidence = await this.approvals.requireForExecution(tx, user, branchId, "stocktake.post", id, row.executionApprovalId);
+      const now = new Date();
+      const result = await this.postAdjustments(tx, row, user.userId, now);
+      await tx.stocktake.update({
+        where: { id, tenantId, branchId },
+        data: { status: StocktakeStatus.completed, postedBy: user.userId, postedAt: now, completedBy: user.userId, completedAt: now },
       });
-      if (claimed.count !== 1) {
-        throw new BadRequestException("This stocktake has already been posted — refresh to see the result");
-      }
-      result = await this.postAdjustments(tx, row, userId, now);
-    });
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: userId,
-      eventName: "stocktake.posted",
-      entityName: "stocktake",
-      entityId: id,
-      payload: result,
+      await this.audit.log({
+        tenantId, branchId, actorUserId: user.userId, eventName: "stocktake.posted", entityName: "stocktake", entityId: id,
+        payload: { ...result, approvalId: evidence.approvalId,
+          requestedByUserId: evidence.document.requestedByUserId, approvedByUserId: evidence.approvedByUserId,
+          executedByUserId: user.userId, documentVersion: evidence.document.documentVersion },
+      }, tx);
+      return actor;
     });
     return this.getOne(tenantId, branchId, id, access);
   }
