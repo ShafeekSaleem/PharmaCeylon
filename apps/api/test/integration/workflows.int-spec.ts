@@ -576,7 +576,16 @@ describe("Operations workflows against PostgreSQL", () => {
         notifyUser: jest.fn().mockResolvedValue(undefined),
       };
       const adjustments = () =>
-        new AdjustmentService(prisma as never, inventory(), notifications as never, audit);
+        new AdjustmentService(prisma as never, inventory(), notifications as never, audit,
+          new AccessService(prisma as never, {} as never), new ManagementApprovalsService(new AccessService(prisma as never, {} as never), audit));
+      const liveUser = (userId = fx.managerId): RequestUser => ({ tenantId: fx.tenantId, userId, tokenVersion: 0,
+        branchRoles: [], email: "writeoff@it.test", fullName: "Write-off actor", authMethod: "bearer" });
+      async function approvalInput(id: string) {
+        const row = (await adjustments().listHeld(fx.tenantId, fx.mainBranchId, true)).find(row => row.id === id)!;
+        return { approvalId: randomUUID(), ...row.approvalReview };
+      }
+      const postWriteOff = async (id: string) => adjustments().post(liveUser(), fx.mainBranchId, id,
+        { approvalId: (await prisma.heldAdjustment.findUniqueOrThrow({ where: { id } })).executionApprovalId! });
       const clerk = () => actor(fx.clerkId, ["inventory.view", "inventory.manage"]);
       const manager = () => actor(fx.managerId, "all", { canSelfApprove: true });
 
@@ -623,14 +632,13 @@ describe("Operations workflows against PostgreSQL", () => {
         expect((await batchTotals(prisma, batchId)).onHand).toBe(8);
 
         const id = (result as { heldAdjustment: { id: string } }).heldAdjustment.id;
-        await expect(
-          adjustments().accept(fx.tenantId, fx.mainBranchId, clerk(), id),
-        ).rejects.toBeInstanceOf(ForbiddenException);
-        await adjustments().accept(fx.tenantId, fx.mainBranchId, manager(), id);
+        const input = await approvalInput(id);
+        await expect(adjustments().accept(liveUser(fx.clerkId), fx.mainBranchId, id, input)).rejects.toBeInstanceOf(ForbiddenException);
+        await adjustments().accept(liveUser(), fx.mainBranchId, id, input);
+        expect((await batchTotals(prisma, batchId)).onHand).toBe(8);
+        await Promise.all([postWriteOff(id), postWriteOff(id)]);
         expect((await batchTotals(prisma, batchId)).onHand).toBe(6);
-        await expect(
-          adjustments().accept(fx.tenantId, fx.mainBranchId, manager(), id),
-        ).rejects.toThrow(/already been decided/);
+        await expect(adjustments().accept(liveUser(), fx.mainBranchId, id, input)).rejects.toThrow(/already been decided/);
       });
 
       it("holds a write-off over the threshold even for a manager who can't self-approve", async () => {

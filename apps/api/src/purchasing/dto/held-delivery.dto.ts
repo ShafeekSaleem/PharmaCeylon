@@ -1,9 +1,14 @@
+import { ApproveHeldDto } from "../../security/dto/approve-held.dto";
 import { Type } from "class-transformer";
 import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
+  Min,
+  Matches,
+  IsDefined,
   IsOptional,
   IsString,
   MaxLength,
@@ -33,18 +38,26 @@ export class HoldDeliveryDto {
   delivery!: ReceiveGoodsDto;
 }
 
-export class AcceptHeldDeliveryDto {
-  /** The delivery as the approver corrected it. Omitted, it is accepted as the receiver typed it. */
-  @IsOptional()
+export class PrepareHeldDeliveryDto {
+  @IsInt()
+  @Min(1)
+  expectedVersion!: number;
+
+  @Matches(/^[0-9a-f]{64}$/)
+  expectedDigest!: string;
+  /** The complete corrected delivery to save before reviewing a fresh approval. */
+  @IsDefined()
   @ValidateNested()
   @Type(() => ReceiveGoodsDto)
-  delivery?: ReceiveGoodsDto;
+  delivery!: ReceiveGoodsDto;
 
   /** Also move the supplier's agreed price to what was billed. */
   @IsOptional()
   @IsBoolean()
   updateSupplierPrice?: boolean;
 }
+
+export class AcceptHeldDeliveryDto extends ApproveHeldDto {}
 
 export class RejectHeldDeliveryDto {
   @IsString()

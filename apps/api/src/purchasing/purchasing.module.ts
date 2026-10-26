@@ -1,3 +1,4 @@
+import { OperationalAuthorizationModule } from "../security/operational-authorization.module";
 import { Module } from "@nestjs/common";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { HeldDeliveryService } from "./held-delivery.service";
@@ -7,7 +8,7 @@ import { PurchasingController } from "./purchasing.controller";
 import { PurchasingService } from "./purchasing.service";
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, OperationalAuthorizationModule],
   // The ledger's routes are more specific (`invoices/unbilled-deliveries` before `invoices/:id`),
   // and live under the same `purchasing` prefix, so its controller is registered first.
   controllers: [SupplierLedgerController, PurchasingController],

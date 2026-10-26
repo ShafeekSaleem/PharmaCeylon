@@ -3,11 +3,12 @@
 P1 implementation tracking: [first MR and remaining delivery](POS_P1_IMPLEMENTATION.md).
 The API now has an explicit route-profile registry and reviewed internal-entry inventory;
 its tests check coverage and conditional effects. These declarations are not installed guards.
-Current stocktake approval, held acceptance and stock-bearing import handlers remain marked
-mixed/local until their later split; their names do not imply remote-safe approval.
+Stocktake and held-request approval now record authorization without stock effects; their
+separate posting routes remain physical. Stock-bearing import/undo handlers remain mixed/local.
 
-Baseline: develop `4a2fa3a`, 2026-10-19. Exact methods, paths and source files for all
-166 unsafe HTTP routes are recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
+Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
+169, including three held-workflow split routes. Exact methods, paths and source files are
+recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
 The inventory includes non-operational mutations to make exclusions explicit. P0 classifies
 future enforcement; existing routes are not protected by the new terminal boundary yet.
 Revised 2026-10-21: Shafeek approved remote online management/authorization with local
@@ -43,11 +44,11 @@ offline approvals, refunds/voids and stock operations remain blocked.
 | `sales/holds`, `sales/holds/:id`, `sales/holds/:id/recall` | Local POS cart writes/recall tied to till/session; current holds reserve no stock and are not a snapshot/journal. |
 | `sales/pos/me/pos-pin`, `sales/pos/me/pos-pin/clear` | Staff credential administration; online authenticated self-service, not sale approval. No offline credential changes. |
 | Future signed offline `shift_open` / `shift_close` commands | Approved D7b lifecycle exception on the nominated terminal's same till: local cash-count handover and new shift, prepared staff only. Not existing HTTP routes; sync them in the same durable command sequence as sales. No stock/outage/expiry reset; D9 adds no sale-count/value caps. |
-| `inventory/*` | Online remote adjustment requests/review/approve/reject. Local actual counts/condition confirmation and stock posting, expiry confirmation, quarantine/release. Split held accept if it currently posts stock. |
+| `inventory/*` | Online remote adjustment requests/review/approve/reject. Local actual counts/condition confirmation and stock posting, expiry confirmation, quarantine/release. Held accept authorizes exact material; the separate held post executes stock. |
 | `transfers/*` | Online remote draft/review/approve/reject/cancel and ordinary reservation/release. Local source dispatch and destination receiving, each with its branch authority. No new offline reservations. |
 | `stocktakes/*` | Online remote planning/scheduling/review/recount request/approval. Local physical count capture/confirmation and post/complete, including legacy completion. Stocktake approval now persists exact management evidence only; `post` applies stock/quarantine and completes. Preserve event timing to avoid double counting offline sales. |
 | `returns/*` | Online remote supplier-return preparation/review/approval/rejection and commercial credit records. Local actual goods departure and stock posting. Customer return inspection/disposition and refund execution remain local sales workflows. |
-| `purchasing/*` | Online remote PO drafts/edit/issue/review/approve/reject, invoices/debit notes and bank-payment records with evidence. Local receipt/batch/quantity/condition confirmation, held-delivery stock acceptance and branch cash payout. Split mixed approve/post handlers. |
+| `purchasing/*` | Online remote PO drafts/edit/issue/review/approve/reject, invoices/debit notes and bank-payment records with evidence. Local receipt/batch/quantity/condition confirmation, held-delivery receipt posting and branch cash payout. Held prepare/accept are management-only; held post is physical. |
 | `suppliers/*` | Online remote supplier/master/price management. Legacy invoice payments use the same evidence/authority rules: bank-payment record remote, actual branch cash local. |
 | `products/*` | Online remote catalog/prices/eligibility/categories/tags/aliases/NMRA/barcode and catalog-only import/analyze/preview/selection. Import confirm/undo creating/removing batches or stock requires local execution; split mixed jobs. Preserve historical snapshot identities. |
 | `catalog-tasks/*` | Online remote catalog refresh/apply/dismiss/reopen, including bulk safe apply, with permissions and provenance. A stock-bearing side effect requires local execution. |

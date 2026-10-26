@@ -212,6 +212,16 @@
       "path": "src/stocktakes/stocktakes.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks stocktakes by bound tenant, branch and document before approval/posting; all child reads, approval evidence, StockService effects and success audit share the caller transaction."
+    },
+    {
+      "path": "src/inventory/adjustment.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks exact tenant/branch held requests for approval and execution; deliveries lock their scoped PO before the held row."
+    },
+    {
+      "path": "src/purchasing/held-delivery.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks exact tenant/branch held requests for approval and execution; deliveries lock their scoped PO before the held row."
     }
   ]
 }

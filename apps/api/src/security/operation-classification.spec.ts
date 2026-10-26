@@ -26,12 +26,12 @@ describe("P1 server action classification", () => {
     expect(() => classifyProfile("unknown" as never)).toThrow();
   });
 
-  it.each(["inventory/held-adjustments/:id/accept", "purchasing/held-deliveries/:id/accept", "products/import/confirm", "products/import/:importId/undo"])("does not mistake mixed handler %s for remote approval", path => {
+  it.each(["products/import/confirm", "products/import/:importId/undo"])("does not mistake mixed handler %s for remote approval", path => {
     expect(route(path)).toMatchObject({ requiresLocalTerminal: true, needsApprovalExecutionSplit: true });
     expect(route(path).effects).toContain("physical_stock");
   });
 
-  it.each(["purchasing/purchase-orders/:id/approve", "returns/:id/approve", "inventory/held-adjustments/:id/reject", "stocktakes/:id/request-recount", "stocktakes/:id/approve", "products"])("permits remote management classification for %s", path => {
+  it.each(["purchasing/purchase-orders/:id/approve", "returns/:id/approve", "inventory/held-adjustments/:id/reject", "stocktakes/:id/request-recount", "stocktakes/:id/approve", "inventory/held-adjustments/:id/accept", "purchasing/held-deliveries/:id/accept", "products"])("permits remote management classification for %s", path => {
     expect(route(path).requiresLocalTerminal).toBe(false);
   });
 

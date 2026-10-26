@@ -258,4 +258,17 @@ describe("Daily dashboard read models against PostgreSQL", () => {
         .total,
     ).toBe(0);
   });
+
+  it("routes approved deliveries to receiving without an approval permission or self-approval block", async () => {
+    const po = await prisma.purchaseOrder.create({ data: { tenantId: fx.tenantId, branchId: fx.mainBranchId,
+      supplierId: fx.supplierId, poNumber: randomUUID(), status: "issued", createdBy: fx.clerkId } });
+    const held = await prisma.heldDelivery.create({ data: { tenantId: fx.tenantId, branchId: fx.mainBranchId,
+      purchaseOrderId: po.id, requestedBy: fx.clerkId, reasons: ["over_delivery"], payload: {} } });
+    const receiving = new DailyWorkService(prisma as never, { resolve: async () => ({ canSelfApprove: false,
+      has: (key: string) => ["purchasing.view", "purchasing.receive"].includes(key) }) } as never);
+    expect((await receiving.get(user, fx.mainBranchId, { filter: "all", page: 1 })).items.some(item => item.id === `delivery:${held.id}`)).toBe(false);
+    await prisma.heldDelivery.update({ where: { id: held.id, tenantId: fx.tenantId }, data: { status: "approved" } });
+    const work = await receiving.get(user, fx.mainBranchId, { filter: "all", page: 1 });
+    expect(work.items.find(item => item.id === `delivery:${held.id}`)).toMatchObject({ action: "Post receipt", approval: false, blocked: false });
+  });
 });

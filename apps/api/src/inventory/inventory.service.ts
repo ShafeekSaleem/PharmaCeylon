@@ -1151,7 +1151,10 @@ export class InventoryService {
     branchId: string,
     access: ActorAccess,
     dto: StockAdjustmentDto,
+    /** Server-owned composition hook, never populated from a request DTO. */
+    execution?: { tx: Prisma.TransactionClient; authorize: () => Promise<unknown> },
   ) {
+    const db = execution?.tx ?? this.prisma;
     const userId = access.userId;
     // What happened sets the direction; only a correction says it itself.
     const kind = dto.kind;
@@ -1204,7 +1207,7 @@ export class InventoryService {
         ? ("quarantine_first" as const)
         : ("sellable" as const);
 
-    const product = await this.prisma.product.findFirst({
+    const product = await db.product.findFirst({
       where: { id: dto.productId, tenantId, isActive: true },
     });
     if (!product) throw new BadRequestException("Invalid product");
@@ -1212,7 +1215,7 @@ export class InventoryService {
     const { today } = await this.clock(tenantId);
     const referenceId = randomUUID();
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       let batchId = dto.batchId;
 
       if (dto.newBatch) {
@@ -1254,6 +1257,10 @@ export class InventoryService {
         batchId = created.id;
       }
 
+      if (execution) {
+        await this.stock.lockBatches(tx, tenantId, [batchId!]);
+        await execution.authorize();
+      }
       const ctx = {
         tenantId,
         branchId,
@@ -1308,7 +1315,8 @@ export class InventoryService {
         tx,
       );
       return { batchId: batchId! };
-    });
+    };
+    const result = execution ? await run(execution.tx) : await this.prisma.$transaction(run);
 
     return { ok: true, referenceId, batchId: result.batchId };
   }

@@ -1,3 +1,4 @@
+import { ApproveHeldDto, PostHeldDto } from "../security/dto/approve-held.dto";
 import {
   Body,
   Controller,
@@ -299,9 +300,16 @@ export class InventoryController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ApproveHeldDto,
   ) {
-    const access = await this.access.resolve(user, branchId);
-    return this.adjustments.accept(user.tenantId, branchId, access, id);
+    return this.adjustments.accept(user, branchId, id, dto);
+  }
+
+  @RequirePermission("inventory.write_off")
+  @Post("held-adjustments/:id/post")
+  async postHeldAdjustment(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string, @Body() dto: PostHeldDto) {
+    return this.adjustments.post(user, branchId, id, dto);
   }
 
   @RequirePermission("inventory.write_off")

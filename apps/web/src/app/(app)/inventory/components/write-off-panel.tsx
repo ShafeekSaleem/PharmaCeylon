@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ModalButton } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
@@ -12,10 +12,15 @@ import css from "../inventory.module.css";
 
 type HeldWriteOff = {
   id: string;
+  status: "awaiting_approval" | "approved" | "accepted" | "rejected";
+  approvalReview: { expectedVersion: number; expectedDigest: string };
+  executionApprovalId: string | null;
   kindLabel: string;
   qty: number;
   value: string | null;
   note: string | null;
+  requestReason?: string | null;
+  fromQuarantine?: boolean;
   product: { id: string; sku: string; name: string };
   batch: { id: string; batchNo: string };
   requester: { id: string; fullName: string };
@@ -42,6 +47,7 @@ export function WriteOffPanel({ focusId, onChanged, onError }: Props) {
   const { branchId, user } = useAuth();
   const access = useInventoryAccess();
   const { canSelfApprove } = usePermissions();
+  const approvalIds = useRef(new Map<string, string>());
   const [held, setHeld] = useState<HeldWriteOff[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [busy, setBusy] = useState(false);
@@ -59,20 +65,25 @@ export function WriteOffPanel({ focusId, onChanged, onError }: Props) {
   }, [branchId]);
   useEffect(load, [load]);
 
-  async function decide(row: HeldWriteOff, action: "accept" | "reject") {
+  async function decide(row: HeldWriteOff, action: "accept" | "reject" | "post") {
     setBusy(true);
     try {
+      const key = `${row.id}:${row.approvalReview.expectedDigest}:${row.executionApprovalId ?? ""}`;
+      if (action === "accept" && !approvalIds.current.has(key)) approvalIds.current.set(key, crypto.randomUUID());
       await apiJson(`/inventory/held-adjustments/${row.id}/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(action === "reject" ? { reason } : {}),
+        body: JSON.stringify(action === "reject" ? { reason } : action === "accept"
+          ? { approvalId: approvalIds.current.get(key), ...row.approvalReview } : { approvalId: row.executionApprovalId }),
       });
+      approvalIds.current.delete(key);
       setRejecting(null);
       setReason("");
       load();
       onChanged(
         action === "accept"
-          ? `Wrote off ${row.qty} × ${row.product.name}.`
+          ? "Write-off approved. Stock changes only when posted."
+          : action === "post" ? `Wrote off ${row.qty} × ${row.product.name}.`
           : `Write-off rejected; ${row.requester.fullName} has been told why.`,
       );
     } catch (err) {
@@ -90,7 +101,7 @@ export function WriteOffPanel({ focusId, onChanged, onError }: Props) {
       {held.length > 0 ? (
         <>
           <h3 className={css.adjStepTitle}>
-            {held.length} write-off{held.length === 1 ? "" : "s"} waiting for approval
+            {held.length} write-off{held.length === 1 ? "" : "s"} awaiting approval or posting
           </h3>
           <ul className={css.writeOffList}>
             {held.map((row) => (
@@ -103,23 +114,24 @@ export function WriteOffPanel({ focusId, onChanged, onError }: Props) {
                     {row.product.name} · {row.qty} unit{row.qty === 1 ? "" : "s"}
                   </strong>
                   <span className={css.fieldHint}>
-                    {row.kindLabel} · batch {row.batch.batchNo} · {row.requester.fullName}
+                    {row.status === "approved" ? "Approved, awaiting posting · " : "Awaiting approval · "}{row.kindLabel} · batch {row.batch.batchNo} · {row.requester.fullName}
                     {row.value != null ? ` · ${formatMoney(Number(row.value))}` : ""}
-                    {row.note ? ` · ${row.note}` : ""}
+                    {row.requestReason ? ` · ${row.requestReason}` : ""}
+                    {row.note && row.note !== row.requestReason ? ` · Note: ${row.note}` : ""}
+                    {row.fromQuarantine ? " · From quarantine only" : ""}
                   </span>
                 </div>
-                {access.canWriteOff && row.requester.id === user?.id && !canSelfApprove ? (
-                  <span className={css.fieldHint}>Waiting for someone else to approve it</span>
-                ) : access.canWriteOff ? (
-                  <div className={css.writeOffActions}>
-                    <ModalButton variant="danger" onClick={() => setRejecting(row)} disabled={busy}>
-                      Reject
+                {access.canWriteOff ? <div className={css.writeOffActions}>
+                  <ModalButton variant="danger" onClick={() => setRejecting(row)} disabled={busy}>Reject</ModalButton>
+                  {row.requester.id !== user?.id || canSelfApprove ? (
+                    <ModalButton onClick={() => void decide(row, "accept")} loading={busy}>
+                      {row.status === "approved" ? "Review approval" : "Approve write-off"}
                     </ModalButton>
-                    <ModalButton variant="primary" onClick={() => void decide(row, "accept")} loading={busy}>
-                      Write off
-                    </ModalButton>
-                  </div>
-                ) : null}
+                  ) : <span className={css.fieldHint}>Waiting for someone else to approve it</span>}
+                  {row.status === "approved" && row.executionApprovalId ? <ModalButton variant="primary" onClick={() => void decide(row, "post")} loading={busy}>
+                    Post write-off
+                  </ModalButton> : null}
+                </div> : null}
               </li>
             ))}
           </ul>

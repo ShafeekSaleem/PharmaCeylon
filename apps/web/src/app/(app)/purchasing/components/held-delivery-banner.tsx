@@ -20,6 +20,8 @@ type Props = {
   held: HeldDelivery;
   order: PurchaseOrderDetail;
   canDecide: boolean;
+  canPost?: boolean;
+  onPost?: () => void;
   busy: boolean;
   onReview: () => void;
   onReject: () => void;
@@ -30,7 +32,7 @@ type Props = {
  * what the order still has outstanding and agreed to pay, so the decision is made on the facts
  * the receiver had in front of them.
  */
-export function HeldDeliveryBanner({ held, order, canDecide, busy, onReview, onReject }: Props) {
+export function HeldDeliveryBanner({ held, order, canDecide, canPost, onPost, busy, onReview, onReject }: Props) {
   const itemByProduct = new Map(order.items.map((item) => [item.productId, item]));
   const who = held.requester.fullName || "A colleague";
   const why = held.reasons.map((reason) => REASON_LABELS[reason]).join(" · ");
@@ -40,23 +42,29 @@ export function HeldDeliveryBanner({ held, order, canDecide, busy, onReview, onR
       <div className={css.heldBannerHead}>
         <div>
           <h3 id={`held-${held.id}`} className={css.heldBannerTitle}>
-            A delivery is waiting for approval
+            {held.status === "approved" ? "Delivery approved, awaiting posting" : "A delivery is waiting for approval"}
           </h3>
           <p className={css.heldBannerMeta}>
             {who} · {formatDateTime(held.requestedAt)} · {why}
           </p>
         </div>
-        {canDecide ? (
+        {canDecide || canPost && held.status === "approved" ? (
           <div className={css.heldBannerActions}>
+            {canDecide ? <>
             <ModalButton variant="danger" onClick={onReject} disabled={busy}>
               Reject
             </ModalButton>
             <ModalButton variant="primary" onClick={onReview} disabled={busy}>
-              Review delivery
-            </ModalButton>
+              {held.status === "approved" ? "Review approval" : "Review delivery"}
+            </ModalButton></> : null}
+            {canPost && held.status === "approved" && held.executionApprovalId ? <ModalButton variant="primary" onClick={onPost} disabled={busy}>Post receipt</ModalButton> : null}
           </div>
         ) : null}
       </div>
+      <p className={css.heldBannerMeta}>Received on {held.delivery.receivedOn.slice(0, 10)}
+        {held.delivery.supplierDeliveryNote ? ` · Note ${held.delivery.supplierDeliveryNote}` : ""}
+        {held.delivery.updateSupplierPrice ? " · Update the supplier's agreed prices" : ""}
+      </p>
       <div className={css.heldTableScroll}>
         <table className={css.heldTable}>
           <thead>
@@ -84,7 +92,10 @@ export function HeldDeliveryBanner({ held, order, canDecide, busy, onReview, onR
                     <span className={css.heldLineMeta}>
                       Batch {line.batchNo}
                       {line.freeQty ? ` · ${line.freeQty} free` : ""}
-                      {line.rejectedQty ? ` · ${line.rejectedQty} damaged` : ""}
+                      {line.rejectedQty ? ` · ${line.rejectedQty} damaged (${line.rejectedReason ?? ""})` : ""}
+                      {` · Expiry ${line.expiryDate.slice(0, 10)} · Selling price ${formatMoney(Number(line.sellingPrice))}`}
+                      {line.onCostConflict ? ` · Cost choice: ${line.onCostConflict}` : ""}
+                      {line.onExpiryConflict ? ` · Expiry choice: ${line.onExpiryConflict}` : ""}
                     </span>
                   </td>
                   <td className={css.heldNum}>{outstanding}</td>
@@ -101,7 +112,7 @@ export function HeldDeliveryBanner({ held, order, canDecide, busy, onReview, onR
       </div>
       {!canDecide ? (
         <p className={css.heldBannerMeta}>
-          Nothing is booked in until someone who approves orders accepts it.
+          Approval leaves stock unchanged. The receiving team posts the approved receipt separately.
         </p>
       ) : null}
     </section>

@@ -202,3 +202,14 @@ P5/P6. These are technical dependencies, not staffing or additional human-approv
 Existing verification commands: `npm test -w @pharmaceylon/shared` and
 `node scripts/pos/check-mutation-inventory.mjs`. These run in CI. This proposal adds no runtime
 permissions or schema changes. There is no outstanding staffing or second-developer ownership sign-off.
+
+
+### Held-request integration (P1 MR 4b)
+
+`accept` records exact approval only. Clients submit the displayed `approvalReview` plus a stable
+approval UUID; physical posting pins the displayed `{ approvalId }` and uses the new `/held-adjustments/:id/post` or `/held-deliveries/:id/post`.
+Save corrected delivery input with its old preview before reviewing the returned fresh one.
+Receivers consume persisted, scoped exception approval rather than impersonating an approver.
+Keep requester/approver/executor attribution and all business effects/audit in one transaction.
+See [API contract](API_CONTRACT.md) and [P1 delivery guide](POS_P1_IMPLEMENTATION.md) for recovery,
+169-route inventory and the pending terminal/attendance rollout boundary. Import/undo is next.

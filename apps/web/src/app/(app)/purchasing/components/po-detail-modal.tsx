@@ -117,6 +117,8 @@ export function PoDetailModal({
   const [escalationNotice, setEscalationNotice] = useState<string | null>(null);
   const [receiveMode, setReceiveMode] = useState(false);
   /** The held delivery being reviewed: the receive form, filled with what the receiver typed. */
+  const [heldApprovalIntent, setHeldApprovalIntent] = useState<{ row: HeldDelivery; approvalId: string } | null>(null);
+  const [heldPostIntent, setHeldPostIntent] = useState<HeldDelivery | null>(null);
   const [heldReview, setHeldReview] = useState<HeldDelivery | null>(null);
   const [rejectHeld, setRejectHeld] = useState<HeldDelivery | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -184,7 +186,7 @@ export function PoDetailModal({
   useEffect(() => {
     if (!detail || !reviewHeldId || !canApprovePo || openedHeldRef.current === reviewHeldId) return;
     const held = detail.heldDeliveries?.find((row) => row.id === reviewHeldId);
-    if (!held) return;
+    if (!held || held.status === "approved") return;
     openedHeldRef.current = reviewHeldId;
     setHeldReview(held);
     setReceiveMode(true);
@@ -595,6 +597,31 @@ export function PoDetailModal({
     }
   }
 
+  async function confirmHeldApproval() {
+    if (!heldApprovalIntent) return;
+    setBusy(true); setActionError(null);
+    try {
+      await apiJson(`/purchasing/held-deliveries/${heldApprovalIntent.row.id}/accept`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approvalId: heldApprovalIntent.approvalId, ...heldApprovalIntent.row.approvalReview }),
+      });
+      setHeldApprovalIntent(null); setHeldReview(null); setReceiveMode(false);
+      onChanged(); await reload();
+    } catch (error) { setActionError(error instanceof Error ? error.message : "Approval failed"); }
+    finally { setBusy(false); }
+  }
+
+  async function confirmHeldPost() {
+    if (!heldPostIntent) return;
+    setBusy(true); setActionError(null);
+    try {
+      await apiJson(`/purchasing/held-deliveries/${heldPostIntent.id}/post`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approvalId: heldPostIntent.executionApprovalId }) });
+      setHeldPostIntent(null); onChanged(); await reload();
+    } catch (error) { setActionError(error instanceof Error ? error.message : "Posting failed"); }
+    finally { setBusy(false); }
+  }
+
   async function receive(answer: ReceiveAnswers = {}) {
     if (!detail || !receiveValid) return;
     if (
@@ -614,20 +641,14 @@ export function PoDetailModal({
     try {
       const lines = linesBody(opts);
       if (heldReview) {
-        // Accepting a held delivery books in the form as it stands now — as the receiver typed
-        // it, or as the approver corrected it.
-        await apiJson(`/purchasing/held-deliveries/${heldReview.id}/accept`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": receiveIdempotency.current.key,
-          },
-          body: JSON.stringify({
-            delivery: { purchaseOrderId: detail.id, receivedOn, lines },
-            updateSupplierPrice,
-          }),
+        const prepared = await apiJson<HeldDelivery>(`/purchasing/held-deliveries/${heldReview.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...heldReview.approvalReview,
+            delivery: { purchaseOrderId: detail.id, receivedOn, lines }, updateSupplierPrice }),
         });
-        setHeldReview(null);
+        setHeldReview(prepared);
+        setHeldApprovalIntent({ row: prepared, approvalId: crypto.randomUUID() });
+        return;
       } else {
         await apiJson("/purchasing/purchase-orders/receive", {
           method: "POST",
@@ -704,6 +725,18 @@ export function PoDetailModal({
 
   return (
     <>
+      <ConfirmDialog open={heldApprovalIntent !== null} title="Approve this delivery?" variant="primary" confirmLabel="Approve delivery"
+        loading={busy} onCancel={() => !busy && setHeldApprovalIntent(null)} onConfirm={() => void confirmHeldApproval()}>
+        <p>Approval saves this delivery and its exceptions. Stock and the supplier balance change only when the receipt is posted.</p>
+        {heldApprovalIntent && detail ? <HeldDeliveryBanner held={heldApprovalIntent.row} order={detail} canDecide={false}
+          busy={busy} onReview={() => {}} onReject={() => {}} /> : null}
+      </ConfirmDialog>
+      <ConfirmDialog open={heldPostIntent !== null} title="Post the approved receipt?" variant="primary" confirmLabel="Post receipt"
+        loading={busy} onCancel={() => !busy && setHeldPostIntent(null)} onConfirm={() => void confirmHeldPost()}>
+        <p>This receives the approved quantities into stock, records damaged goods in quarantine, and updates the supplier balance.</p>
+        {heldPostIntent && detail ? <HeldDeliveryBanner held={heldPostIntent} order={detail} canDecide={false}
+          busy={busy} onReview={() => {}} onReject={() => {}} /> : null}
+      </ConfirmDialog>
       <Modal
         open={open}
         onClose={onClose}
@@ -731,7 +764,7 @@ export function PoDetailModal({
                   loading={busy}
                   disabled={!receiveValid}
                 >
-                  Accept delivery
+                  Save corrections and review approval
                 </ModalButton>
               </>
             ) : receiveMode ? (
@@ -1123,6 +1156,8 @@ export function PoDetailModal({
                       held={held}
                       order={detail}
                       canDecide={canApprovePo}
+                      canPost={canReceiveGoods}
+                      onPost={() => setHeldPostIntent(held)}
                       busy={busy}
                       onReview={() => {
                         setHeldReview(held);
@@ -1147,7 +1182,7 @@ export function PoDetailModal({
                       </strong>
                       {heldReview.detail ? <> · {heldReview.detail}</> : null}
                       <br />
-                      Fix anything that&apos;s wrong, then accept.
+                      Save any corrections, then confirm approval. Receiving posts the receipt separately.
                     </Alert>
                   ) : null}
                   {heldReview &&

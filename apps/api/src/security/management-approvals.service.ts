@@ -259,7 +259,14 @@ export class ManagementApprovalsService {
   }
 
   private async lockDocumentForRevocation(tx: Tx, row: Stored) {
-    if (row.documentType === "stocktake")
+    if (row.documentType === "held_adjustment")
+      await tx.$queryRaw`SELECT id FROM held_adjustment WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
+    else if (row.documentType === "held_delivery") {
+      const doc = await tx.heldDelivery.findFirst({ where: { tenantId: row.tenantId, branchId: row.branchId, id: row.documentId }, select: { purchaseOrderId: true } });
+      if (!doc) denied("APPROVAL_INVALID");
+      await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${doc.purchaseOrderId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM held_delivery WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
+    } else if (row.documentType === "stocktake")
       await tx.$queryRaw`SELECT id FROM stocktake WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else if (row.documentType === "purchase_order")
       await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
