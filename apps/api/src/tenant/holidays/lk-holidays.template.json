@@ -3,7 +3,8 @@
   "source": {
     "name": "Gazette Extraordinary No. ____ of YYYY-MM-DD: Public, Bank and Mercantile Holidays for YYYY",
     "reference": null,
-    "publishedOn": null
+    "publishedOn": null,
+    "copiedFrom": null
   },
   "checkedBy": "Name of the person who compared every row with the gazette",
   "checkedOn": "YYYY-MM-DD",

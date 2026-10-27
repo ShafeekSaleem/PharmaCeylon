@@ -23,6 +23,9 @@ Government Printing publishes the gazettes at <https://documents.gov.lk>.
    - `year`: the year the holidays are in.
    - `source.name`: the gazette's number and title. `source.reference`: an https link to it, or
      `null`. `source.publishedOn`: its publication date, or `null`.
+   - `source.copiedFrom`: `null` when you copied from the gazette itself. If you couldn't open the
+     gazette and copied an official reproduction of it instead (the Central Bank's list, say), give
+     that list's name and link, so the file doesn't pass for a check against the gazette.
    - `holidays`: one row per holiday the gazette lists. `date` is `YYYY-MM-DD`. `name` is the
      name as printed (80 characters at most). `kinds` lists the columns the gazette ticks, from
      `public`, `bank` and `mercantile`, plus `poya` for a Full Moon Poya Day. When the gazette puts
@@ -32,6 +35,18 @@ Government Printing publishes the gazettes at <https://documents.gov.lk>.
 4. Import the file in `index.ts` and add it to `HOLIDAY_YEAR_FILES`.
 5. Run `npx jest src/tenant/holidays` in `apps/api`. A typo, a date outside the year, an
    unknown field or a missing check fails the tests.
+
+## The years in the repo
+
+| Year | Gazette | Copied from | Status |
+| --- | --- | --- | --- |
+| 2026 | Extraordinary No. 2438/22 of 27 May 2025 | [CBSL, Bank Holidays for 2026](https://www.cbsl.gov.lk/en/about/about-the-bank/bank-holidays-2026) | Every row checked against the CBSL list (date, name, B/P/M marks, weekday). **Still to be compared with the gazette PDF.** |
+| 2027 | Extraordinary No. 2493/05 (reported 6 July 2026) | [CBSL, Bank Holidays for 2027](https://www.cbsl.gov.lk/en/about/about-the-bank/bank-holidays-2027) | As 2026. The gazette's date and link still need filling in from the PDF. |
+
+Both were copied on 27 October 2026, when documents.gov.lk couldn't be reached from where the files
+were made. The Central Bank publishes the gazetted holidays for banks, marking each date B (bank),
+P (public) and M (mercantile). Whoever compares these files with the gazette PDFs should fill in
+anything missing, set `copiedFrom` to `null` and put their own name in `checkedBy`.
 
 ## Checking every year
 

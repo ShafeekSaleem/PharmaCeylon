@@ -30,14 +30,22 @@ export function parseHolidayYearFile(input: unknown, file: string): HolidayYearL
   if (typeof year !== "number" || !Number.isInteger(year) || year < 2020 || year > 2100) {
     errors.push("year must be a four-digit year");
   }
-  const source = record(doc.source, "source", ["name", "reference", "publishedOn"], errors);
+  const source = record(doc.source, "source", ["name", "reference", "publishedOn", "copiedFrom"], errors);
   if (source) {
     if (!text(source.name, 200)) errors.push("source.name must name the gazette");
-    if (source.reference !== null && !(typeof source.reference === "string" && /^https:\/\/\S+$/.test(source.reference))) {
+    if (source.reference !== null && !isHttpsLink(source.reference)) {
       errors.push("source.reference must be an https link to the gazette, or null");
     }
     if (source.publishedOn !== null && !isRealDate(source.publishedOn)) {
       errors.push("source.publishedOn must be a date (YYYY-MM-DD), or null");
+    }
+    // When the gazette itself couldn't be opened, the official list the rows were copied from
+    // instead (the Central Bank's, say) — so nobody mistakes it for a check against the gazette.
+    if (source.copiedFrom !== null) {
+      const copied = record(source.copiedFrom, "source.copiedFrom", ["name", "reference"], errors);
+      if (copied && (!text(copied.name, 200) || !isHttpsLink(copied.reference))) {
+        errors.push("source.copiedFrom must give the list's name and an https link, or be null");
+      }
     }
   }
   if (!text(doc.checkedBy, 120)) errors.push("checkedBy must name the person who checked the file against the gazette");
@@ -107,6 +115,10 @@ export function parseHolidayYearFile(input: unknown, file: string): HolidayYearL
     },
     holidays,
   };
+}
+
+function isHttpsLink(value: unknown): boolean {
+  return typeof value === "string" && /^https:\/\/\S+$/.test(value);
 }
 
 function text(value: unknown, max: number): string | null {

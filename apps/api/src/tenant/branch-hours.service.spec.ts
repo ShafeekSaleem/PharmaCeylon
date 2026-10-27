@@ -383,10 +383,11 @@ describe("BranchHoursService", () => {
       expect(holidays.forYear).toHaveBeenCalledWith(2028);
     });
 
-    it("ships with no years until each one is copied from its gazette", () => {
+    it("ships the gazetted years only, and nothing for a year without a gazette file", () => {
       const source = new HolidaySuggestionsSource();
-      expect(source.forYear(2026)).toBeNull();
-      expect(source.forYear(2027)).toBeNull();
+      expect(source.forYear(2026)?.year).toBe(2026);
+      expect(source.forYear(2027)?.year).toBe(2027);
+      expect(source.forYear(2028)).toBeNull();
     });
   });
 });

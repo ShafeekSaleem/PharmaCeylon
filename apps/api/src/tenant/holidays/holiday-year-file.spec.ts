@@ -6,7 +6,7 @@ import { HOLIDAY_YEAR_FILES, loadHolidayYears, parseHolidayYearFile } from ".";
 function yearFile(overrides: Record<string, unknown> = {}) {
   return {
     year: 2099,
-    source: { name: "Test gazette 2099", reference: "https://example.test/gazette.pdf", publishedOn: "2098-09-01" },
+    source: { name: "Test gazette 2099", reference: "https://example.test/gazette.pdf", publishedOn: "2098-09-01", copiedFrom: null },
     checkedBy: "Test Reviewer",
     checkedOn: "2098-09-05",
     holidays: [
@@ -43,7 +43,9 @@ it.each([
   ["a repeated row", { holidays: [
     { date: "2099-01-01", name: "x", kinds: ["public"] }, { date: "2099-01-01", name: "x", kinds: ["bank"] }] }, /repeats x/],
   ["nobody having checked it", { checkedBy: " " }, /checkedBy/],
-  ["a link that isn't https", { source: { name: "G", reference: "http://example.test", publishedOn: null } }, /https link/],
+  ["a link that isn't https", { source: { name: "G", reference: "http://example.test", publishedOn: null, copiedFrom: null } }, /https link/],
+  ["a copy with no link", { source: { name: "G", reference: null, publishedOn: null, copiedFrom: { name: "A list", reference: null } } }, /copiedFrom/],
+  ["a source that doesn't say whether it was copied", { source: { name: "G", reference: null, publishedOn: null } }, /missing copiedFrom/],
   ["an unknown field", { notes: "x" }, /unexpected notes/],
   ["a joined name too long for an exception", { holidays: [
     { date: "2099-01-01", name: "A".repeat(45), kinds: ["public"] },
@@ -67,9 +69,38 @@ it("refuses a file whose name doesn't match its year, or a year loaded twice", (
   expect(loadHolidayYears([["lk-holidays-2099.json", yearFile()]]).get(2099)?.holidays).toHaveLength(2);
 });
 
-it("loads every year file in the repo (none until a year is copied from its gazette)", () => {
-  expect(HOLIDAY_YEAR_FILES).toEqual([]);
-  expect(loadHolidayYears().size).toBe(0);
+describe("the gazetted years in the repo", () => {
+  const years = loadHolidayYears();
+
+  it("loads every file, each citing its gazette", () => {
+    expect(HOLIDAY_YEAR_FILES.map(([file]) => file)).toEqual(["lk-holidays-2026.json", "lk-holidays-2027.json"]);
+    expect(years.get(2026)?.source.name).toMatch(/^Gazette Extraordinary No\. 2438\/22 /);
+    expect(years.get(2027)?.source.name).toMatch(/^Gazette Extraordinary No\. 2493\/05:/);
+  });
+
+  // Shapes every gazetted year has, so a slip in copying shows up here.
+  it.each([2026, 2027])("%i: every holiday is a public and bank holiday, and its poya days are marked", (year) => {
+    const list = years.get(year)!;
+    for (const holiday of list.holidays) {
+      expect(holiday.kinds).toEqual(expect.arrayContaining(["public", "bank"]));
+      const poyaDay = holiday.name.split(" / ").some((n) => /Full Moon Poya Day$/.test(n) && !n.startsWith("Day following"));
+      expect(holiday.kinds.includes("poya")).toBe(poyaDay);
+    }
+    const poyaDays = list.holidays.filter((h) => h.kinds.includes("poya"));
+    // Twelve full moons a year; 2026 has a thirteenth, Adhi Poson.
+    expect(poyaDays).toHaveLength(year === 2026 ? 13 : 12);
+  });
+
+  it("offers 2026's Vesak Poya and May Day, which share 1 May, as one date", () => {
+    expect(years.get(2026)?.holidays.find((h) => h.date === "2026-05-01")).toEqual({
+      key: "lk:2026-05-01",
+      date: "2026-05-01",
+      name: "Vesak Full Moon Poya Day / May Day (International Workers’ Day)",
+      kinds: ["public", "poya", "bank", "mercantile"],
+    });
+    expect(years.get(2026)?.holidays).toHaveLength(25);
+    expect(years.get(2027)?.holidays).toHaveLength(25);
+  });
 });
 
 it("keeps the template unusable until it is filled in from a gazette", () => {
