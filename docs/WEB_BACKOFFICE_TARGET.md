@@ -4,8 +4,8 @@ Decided by Shafeek on 2026-10-27 and amended the same day: web decisions D-W1–
 [POS_V1_REVIEW.md](POS_V1_REVIEW.md). This document translates the POS v1 contract into what each
 web page keeps, what moves to the enrolled desktop counter, and what the web shows instead. The
 normative rules stay in [POS_V1_CONTRACT.md](POS_V1_CONTRACT.md) (revised D10) and
-[POS_OPERATIONAL_MUTATIONS.md](POS_OPERATIONAL_MUTATIONS.md). Nothing here is implemented yet;
-the web epics W1–W10 below deliver it.
+[POS_OPERATIONAL_MUTATIONS.md](POS_OPERATIONAL_MUTATIONS.md). The web epics W1–W10 below
+deliver it; W1's foundation is built (see "Built in W1"), the rest is not yet.
 
 ## Principles
 
@@ -46,6 +46,27 @@ the web epics W1–W10 below deliver it.
   pilot review sets its length.
 - P7's tenant/branch rollout controls reuse this state. It decides where the counter-only rules
   apply and when a fallback is active. It gives no one extra permissions.
+
+### Built in W1
+
+- `Branch.desktopPosRollout` (`not_live` | `live`) with `desktopPosLiveAt`, and
+  `posFallbackStartedAt` / `posFallbackEndsAt` (migration `20261027000000_branch_pos_rollout`).
+  A fallback is active while the branch is live and its end is in the future, so it ends on its
+  own. `GET /tenant/context` returns each branch's `posRollout` as `{ state: "not_live" | "live" |
+  "fallback", liveSince, fallback: { startedAt, endsAt } | null }`.
+- Owner-only routes under `/tenant/branches/:branchId/pos-rollout`: `GET` (state and checklist,
+  `tenant.management`), `POST` / `DELETE` `live`, and `POST` (`{ endsAt, reason? }`) / `DELETE`
+  `fallback`. Each change is a conditional update audited in the same transaction
+  (`branch.pos_rollout_live`, `branch.pos_rollout_not_live`, `branch.pos_fallback_started`,
+  `branch.pos_fallback_extended`, `branch.pos_fallback_ended`). A fallback lasts at most 7 days
+  per start.
+- Go-live checklist: at least one active enrollment on a terminal that isn't retired is checked
+  now. Staff prepared on a counter and a printed test receipt are reported as `pending` until P2
+  records them, and Shafeek decided on 2026-10-27 that pending items block going live, so no
+  branch can go live before P2. Refusals carry `code: "GO_LIVE_CHECKLIST_INCOMPLETE"` and the
+  checklist.
+- No web screen changes the switch or starts a fallback yet; W2 owns the owner fallback and the
+  labelling of fallback sales.
 
 ## Page by page
 

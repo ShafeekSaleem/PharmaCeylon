@@ -380,6 +380,13 @@ enum ProductRangeStatus {
   RANGED
 }
 
+/// Whether a branch sells from PharmaCeylon POS on its enrolled counters (`live`) or still from
+/// the web POS (`not_live`). A fallback is a time-limited state of a live branch, not a value here.
+enum DesktopPosRollout {
+  not_live
+  live
+}
+
 /// Client-supplied idempotency keys (e.g. `Idempotency-Key` header) to avoid duplicate money mutations.
 model IdempotencyRecord {
   id             String   @id @default(uuid()) @db.Uuid
@@ -473,6 +480,13 @@ model Branch {
   openingStockConfirmedAt DateTime? @map("opening_stock_confirmed_at")
   checkoutPreparedAt      DateTime? @map("checkout_prepared_at")
   setupCompletedAt        DateTime? @map("setup_completed_at")
+  /// D-W1/D-W7 desktop POS rollout switch. Only owners change it and every change is audited
+  /// (`tenant/pos-rollout.service.ts`). A fallback is active while the branch is live and
+  /// `posFallbackEndsAt` is in the future, so it ends on its own without a job.
+  desktopPosRollout       DesktopPosRollout @default(not_live) @map("desktop_pos_rollout")
+  desktopPosLiveAt        DateTime? @map("desktop_pos_live_at")
+  posFallbackStartedAt    DateTime? @map("pos_fallback_started_at")
+  posFallbackEndsAt       DateTime? @map("pos_fallback_ends_at")
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 

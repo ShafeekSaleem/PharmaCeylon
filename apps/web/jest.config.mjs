@@ -15,7 +15,11 @@ const createJestConfig = nextJest({ dir: "./" });
 export default createJestConfig({
   testEnvironment: "jsdom",
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
-  testMatch: ["<rootDir>/src/**/*.spec.tsx", "<rootDir>/src/**/*.spec.ts"],
+  // `roots` rather than `<rootDir>` inside the globs: on Windows a checkout path containing
+  // `\.claude` (every Claude Code worktree) puts `\.` into the glob, which escapes the dot and
+  // matches no spec at all.
+  roots: ["<rootDir>/src"],
+  testMatch: ["**/*.spec.tsx", "**/*.spec.ts"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
   },
