@@ -1,11 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Alert } from "@/components/alert";
 import { Modal, ModalFooter, ModalButton, FormField, ToggleSwitch } from "@/components/ui";
 import css from "../../settings.module.css";
+import hoursCss from "./branch-hours.module.css";
 import { createBranch, updateBranch } from "../api";
 import type { Branch } from "../types";
+
+/** One line for the branch list and the edit dialog. */
+export function hoursStatus(branch: Pick<Branch, "operatingHoursOrigin">): string {
+  if (branch.operatingHoursOrigin === "editor") return "Hours set";
+  if (branch.operatingHoursOrigin === "legacy_text") return "Hours imported — check them";
+  return "No hours set";
+}
 
 type Props = {
   open: boolean;
@@ -33,7 +42,6 @@ const EMPTY = {
   pharmacyLicenceExpiry: "",
   responsiblePharmacist: "",
   pharmacistSlmcNo: "",
-  openingHours: "",
 };
 
 export function BranchFormModal({ open, onClose, onSaved, branch, canEditIdentity }: Props) {
@@ -61,7 +69,6 @@ export function BranchFormModal({ open, onClose, onSaved, branch, canEditIdentit
         pharmacyLicenceExpiry: branch.pharmacyLicenceExpiry?.slice(0, 10) ?? "",
         responsiblePharmacist: branch.responsiblePharmacist ?? "",
         pharmacistSlmcNo: branch.pharmacistSlmcNo ?? "",
-        openingHours: branch.openingHours ?? "",
       });
       setIsActive(branch.isActive);
     } else {
@@ -94,7 +101,6 @@ export function BranchFormModal({ open, onClose, onSaved, branch, canEditIdentit
         pharmacyLicenceExpiry: form.pharmacyLicenceExpiry || undefined,
         responsiblePharmacist: form.responsiblePharmacist.trim() || undefined,
         pharmacistSlmcNo: form.pharmacistSlmcNo.trim() || undefined,
-        openingHours: form.openingHours.trim() || undefined,
       };
       const saved = branch
         ? await updateBranch(branch.id, {
@@ -110,7 +116,6 @@ export function BranchFormModal({ open, onClose, onSaved, branch, canEditIdentit
             pharmacyLicenceExpiry: form.pharmacyLicenceExpiry || null,
             responsiblePharmacist: form.responsiblePharmacist.trim() || null,
             pharmacistSlmcNo: form.pharmacistSlmcNo.trim() || null,
-            openingHours: form.openingHours.trim() || null,
             // Identity (code/name), timezone, and activation are owner-only — a manager's
             // request omits them entirely rather than sending unchanged values, since the
             // server rejects a manager PATCH that includes any of these keys at all.
@@ -206,12 +211,23 @@ export function BranchFormModal({ open, onClose, onSaved, branch, canEditIdentit
         <FormField label="Licence expiry" type="date" value={form.pharmacyLicenceExpiry} onChange={(e) => set("pharmacyLicenceExpiry", e.target.value)} />
         <FormField label="Responsible pharmacist" value={form.responsiblePharmacist} onChange={(e) => set("responsiblePharmacist", e.target.value)} />
         <FormField label="Pharmacist SLMC registration no." value={form.pharmacistSlmcNo} onChange={(e) => set("pharmacistSlmcNo", e.target.value)} />
-        <FormField
-          label="Opening hours"
-          value={form.openingHours}
-          onChange={(e) => set("openingHours", e.target.value)}
-          placeholder="Mon–Fri 08:00–20:00; Sat 08:00–18:00"
-        />
+      </div>
+
+      {/* Hours are a structured schedule now, with their own page; counters sign them into the
+          permission they sell under offline. */}
+      <p className={css.modalSectionTitle}>Opening hours</p>
+      <div className={css.rowItem}>
+        <div>
+          <div className={css.rowLabel}>{branch ? hoursStatus(branch) : "Set after the branch is added"}</div>
+          <div className={css.rowHint}>
+            Routine hours, holidays and mandatory selling limits. Applies to counters after their next sync.
+          </div>
+        </div>
+        {branch ? (
+          <Link className={hoursCss.linkBtn} href={`/settings/branches/hours?branch=${branch.id}`} onClick={onClose}>
+            Edit hours
+          </Link>
+        ) : null}
       </div>
       {branch && canEditIdentity ? (
         <div className={css.rowItem} style={{ marginTop: "0.75rem" }}>

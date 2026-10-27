@@ -153,6 +153,10 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/suppliers/invoices/:id/payments": "supplier_payment",
   "POST /api/v1/tenant/branches": "management",
   "PATCH /api/v1/tenant/branches/:branchId": "management",
+  // W7 hours feed future grants only ("applies to counters after their next sync").
+  "PUT /api/v1/tenant/branches/:branchId/hours": "management",
+  "POST /api/v1/tenant/branches/:branchId/hours/extensions": "management",
+  "POST /api/v1/tenant/branches/:branchId/hours/extensions/:extensionId/revoke": "management",
   "DELETE /api/v1/tenant/branches/:branchId/pos-rollout/fallback": "management",
   "POST /api/v1/tenant/branches/:branchId/pos-rollout/fallback": "management",
   "DELETE /api/v1/tenant/branches/:branchId/pos-rollout/live": "management",

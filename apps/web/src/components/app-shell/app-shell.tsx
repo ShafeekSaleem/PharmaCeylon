@@ -247,6 +247,7 @@ PAGE_TITLES["/notifications"] = "Notifications";
 PAGE_TITLES["/settings/my-profile"] = "My Profile";
 PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
 PAGE_TITLES["/settings/branches"] = "Branches";
+PAGE_TITLES["/settings/branches/hours"] = "Opening Hours";
 PAGE_TITLES["/settings/main"] = "Point of Sale & Receipts";
 PAGE_TITLES["/settings/catalog"] = "Catalog";
 PAGE_TITLES["/settings/operations"] = "Inventory & Operations";

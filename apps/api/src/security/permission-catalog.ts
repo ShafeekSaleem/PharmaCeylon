@@ -568,7 +568,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     module: "tenant",
     label: "Manage branches",
     description:
-      "Edit branch details. Managers may only edit a branch where they hold the manager role, and cannot rename/recode it, change its timezone, or activate/deactivate it — those require tenant.branches_create-level (owner) access.",
+      "Edit branch details, opening hours and extended selling hours. Managers may only edit a branch where they hold the manager role, and cannot rename/recode it, change its timezone, activate/deactivate it, or change its mandatory selling limits — those require tenant.branches_create-level (owner) access.",
     defaultRoles: [owner, manager],
     dependencies: ["tenant.branches_view"],
   },

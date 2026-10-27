@@ -66,10 +66,8 @@ export class CreateBranchDto {
   @MaxLength(80)
   pharmacistSlmcNo?: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(240)
-  openingHours?: string;
+  // Hours are no longer free text: a new branch starts without hours and they are set through
+  // PUT /tenant/branches/:branchId/hours (D-W6).
 
   @IsOptional()
   @IsString()

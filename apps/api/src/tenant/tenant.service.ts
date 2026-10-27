@@ -29,7 +29,6 @@ const MANAGER_EDITABLE_BRANCH_FIELDS: readonly (keyof UpdateBranchDto)[] = [
   "pharmacyLicenceExpiry",
   "responsiblePharmacist",
   "pharmacistSlmcNo",
-  "openingHours",
 ];
 
 @Injectable()
@@ -168,7 +167,10 @@ export class TenantService {
         pharmacyLicenceExpiry: true,
         responsiblePharmacist: true,
         pharmacistSlmcNo: true,
-        openingHours: true,
+        legacyOpeningHours: true,
+        // Enough for the list to say whether hours are set; the editor loads the full view.
+        operatingHoursOrigin: true,
+        operatingHoursVersion: true,
         timezone: true,
         isActive: true,
       },
@@ -231,7 +233,6 @@ export class TenantService {
             pharmacyLicenceExpiry: dto.pharmacyLicenceExpiry ? new Date(dto.pharmacyLicenceExpiry) : null,
             responsiblePharmacist: dto.responsiblePharmacist?.trim() || null,
             pharmacistSlmcNo: dto.pharmacistSlmcNo?.trim() || null,
-            openingHours: dto.openingHours?.trim() || null,
             timezone: dto.timezone?.trim() || "Asia/Colombo",
           },
         });
@@ -343,7 +344,6 @@ export class TenantService {
             : {}),
           ...(dto.responsiblePharmacist !== undefined ? { responsiblePharmacist: dto.responsiblePharmacist?.trim() || null } : {}),
           ...(dto.pharmacistSlmcNo !== undefined ? { pharmacistSlmcNo: dto.pharmacistSlmcNo?.trim() || null } : {}),
-          ...(dto.openingHours !== undefined ? { openingHours: dto.openingHours?.trim() || null } : {}),
           ...(dto.timezone != null ? { timezone: dto.timezone.trim() } : {}),
           ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
         },

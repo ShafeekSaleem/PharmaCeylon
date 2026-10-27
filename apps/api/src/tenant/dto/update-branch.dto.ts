@@ -68,10 +68,8 @@ export class UpdateBranchDto {
   @MaxLength(80)
   pharmacistSlmcNo?: string | null;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(240)
-  openingHours?: string | null;
+  // Opening hours moved to PUT /tenant/branches/:branchId/hours (D-W6); the old free text is
+  // kept read-only and can no longer be written here.
 
   @IsOptional()
   @IsString()

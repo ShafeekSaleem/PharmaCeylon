@@ -147,6 +147,11 @@ deliver it; W1's foundation is built (see "Built in W1"), the rest is not yet.
   before saving "no selling". Support 24-hour branches.
 - Offer Sri Lanka public and poya holidays as dated exceptions for the owner to confirm. The app
   suggests holidays; it does not decide legal trading hours.
+- Built in W7: the model is `BranchHours` in `packages/shared/src/branch-hours.ts`, the API and
+  migration are described in `API_CONTRACT.md` ("Branch hours"), and the editor is Settings →
+  Branches → Opening hours. Mandatory limits are owner-only. Holidays come from one JSON file per
+  year, copied from that year's government gazette and checked by a person
+  (`apps/api/src/tenant/holidays/README.md`); a year without a file suggests nothing.
 
 ## Copy patterns
 
