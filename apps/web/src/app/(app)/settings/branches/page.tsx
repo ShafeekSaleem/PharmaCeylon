@@ -99,6 +99,9 @@ export default function BranchesPage() {
         <Link
           href={`/settings/branches/hours?branch=${b.id}`}
           className={b.operatingHoursOrigin === "editor" ? undefined : css.mutedText}
+          // One line: a wrapped link leaves a gap between its lines where a click opens the
+          // row's edit dialog instead.
+          style={{ whiteSpace: "nowrap" }}
           onClick={(event) => event.stopPropagation()}
         >
           {hoursStatus(b)}
