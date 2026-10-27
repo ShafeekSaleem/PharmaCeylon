@@ -16,7 +16,14 @@ describe("SearchService", () => {
     const permissions = {
       resolveGrantedKeys: jest.fn().mockResolvedValue(new Set(granted)),
     };
-    const service = new SearchService(prisma as never, permissions as never);
+    const saleRead = {
+      viewableBranches: jest.fn().mockResolvedValue([
+        { id: "branch-1", name: "Colombo" },
+        { id: "branch-2", name: "Kandy" },
+      ]),
+      searchInvoices: jest.fn().mockResolvedValue([]),
+    };
+    const service = new SearchService(prisma as never, permissions as never, saleRead as never);
     const user = {
       userId: "user-1",
       tenantId: "tenant-1",
@@ -27,7 +34,7 @@ describe("SearchService", () => {
         { branchId: "branch-1", role: RoleName.custom, roleId: "role-1" },
       ],
     };
-    return { prisma, permissions, service, user };
+    return { prisma, permissions, saleRead, service, user };
   }
 
   it("queries only domains granted to the active branch role", async () => {
@@ -75,5 +82,41 @@ describe("SearchService", () => {
     expect(result).toEqual({ query: "secret", groups: [], total: 0 });
     expect(prisma.product.findMany).not.toHaveBeenCalled();
     expect(prisma.customer.findMany).not.toHaveBeenCalled();
+  });
+
+  it("finds sales by invoice through the shared sale read and opens them on the Sales page", async () => {
+    const { saleRead, service, user } = setup(["sales.view"]);
+    saleRead.searchInvoices.mockResolvedValue([
+      {
+        id: "sale-1",
+        invoiceNo: "INV-2610-000042",
+        status: "posted",
+        grandTotal: "950.00",
+        branch: { id: "branch-1", name: "Colombo" },
+        customer: null,
+      },
+    ]);
+
+    const result = await service.globalSearch(user, "branch-1", "0042", 5);
+
+    expect(saleRead.searchInvoices).toHaveBeenCalledWith("tenant-1", "branch-1", "0042", 5);
+    expect(saleRead.viewableBranches).not.toHaveBeenCalled();
+    expect(result.groups[0]?.items[0]).toEqual(
+      expect.objectContaining({
+        type: "sale",
+        title: "INV-2610-000042",
+        subtitle: "Walk-in customer · Colombo",
+        href: "/sales/sale-1",
+      }),
+    );
+  });
+
+  it("without a branch, searches sales only where the caller may view them", async () => {
+    const { saleRead, service, user } = setup(["sales.view"]);
+
+    await service.globalSearch(user, undefined, "0042", 5);
+
+    expect(saleRead.viewableBranches).toHaveBeenCalledWith(user);
+    expect(saleRead.searchInvoices).toHaveBeenCalledWith("tenant-1", ["branch-1", "branch-2"], "0042", 5);
   });
 });

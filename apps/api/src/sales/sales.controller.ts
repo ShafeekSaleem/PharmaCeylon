@@ -10,21 +10,27 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
 } from "@nestjs/common";
 import { ApiBody, ApiHeader, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { AccessService } from "../security/access.service";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
-import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import {
+  AuthenticatedRequest,
+  RequestUser,
+} from "../security/interfaces/authenticated-request.interface";
 import { CheckoutDto } from "./dto/checkout.dto";
 import { HoldSaleDto } from "./dto/hold-sale.dto";
 import { ClearPosPinDto, SetPosPinDto } from "./dto/pharmacist-approval.dto";
 import { RefundSaleDto } from "./dto/refund-sale.dto";
+import { SalesHistoryQueryDto } from "./dto/sales-history-query.dto";
 import { VoidSaleDto } from "./dto/void-sale.dto";
 import { HeldSalesService } from "./held-sales.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { PosService } from "./pos.service";
+import { SaleReadService } from "./sale-read.service";
 import { SalesService } from "./sales.service";
 
 @ApiTags("sales")
@@ -33,6 +39,7 @@ export class SalesController {
   constructor(
     private readonly sales: SalesService,
     private readonly pos: PosService,
+    private readonly saleRead: SaleReadService,
     private readonly held: HeldSalesService,
     private readonly pharmacistApproval: PharmacistApprovalService,
     private readonly access: AccessService,
@@ -104,7 +111,7 @@ export class SalesController {
     @Query("days") days?: string,
     @Query("date") date?: string,
   ) {
-    return this.pos.recentSales(user.tenantId, branchId, take ? Number(take) : undefined, {
+    return this.saleRead.recent(user.tenantId, branchId, take ? Number(take) : undefined, {
       todayOnly: today === "1" || today === "true",
       days: days ? Number(days) || undefined : undefined,
       date: date || undefined,
@@ -119,7 +126,7 @@ export class SalesController {
     @RequireBranchId() branchId: string,
     @Query("invoiceNo") invoiceNo: string,
   ) {
-    return this.sales.findByInvoice(user.tenantId, branchId, invoiceNo ?? "");
+    return this.saleRead.findByInvoice(user.tenantId, branchId, invoiceNo ?? "");
   }
 
   @ApiOperation({ summary: "Search invoices for the POS returns lane (invoice no. or customer)" })
@@ -131,7 +138,7 @@ export class SalesController {
     @Query("q") q: string,
     @Query("take") take?: string,
   ) {
-    return this.sales.searchInvoices(
+    return this.saleRead.searchInvoices(
       user.tenantId,
       branchId,
       q ?? "",
@@ -263,6 +270,38 @@ export class SalesController {
     @Param("id", ParseUUIDPipe) id: string,
   ) {
     return this.sales.getSaleReturnable(user.tenantId, branchId, id);
+  }
+
+  // The back-office Sales page. No branch header is required: the list covers the branches
+  // where the caller holds `sales.view`, narrowed by `branchId`. Declared before `:id` so
+  // "history" is never read as a sale id.
+  @ApiOperation({
+    summary: "Sales history across the branches you can view, paged and filtered on the server",
+  })
+  @RequirePermission("sales.view")
+  @Get("history")
+  history(
+    @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
+    @Query() query: SalesHistoryQueryDto,
+  ) {
+    return this.saleRead.history(user, req.branchId, query);
+  }
+
+  @ApiOperation({ summary: "Branches and staff the sales history can be filtered by" })
+  @RequirePermission("sales.view")
+  @Get("history/options")
+  historyOptions(@CurrentUser() user: RequestUser) {
+    return this.saleRead.historyOptions(user);
+  }
+
+  @ApiOperation({
+    summary: "One sale for the back office: items, payments, customer, prescription, refunds",
+  })
+  @RequirePermission("sales.view")
+  @Get("history/:id")
+  historyDetail(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+    return this.saleRead.detail(user, id);
   }
 
   @RequirePermission("sales.view")

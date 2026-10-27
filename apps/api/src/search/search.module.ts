@@ -1,6 +1,11 @@
 import { Module } from "@nestjs/common";
+import { SalesModule } from "../sales/sales.module";
 import { SearchController } from "./search.controller";
 import { SearchService } from "./search.service";
 
-@Module({ controllers: [SearchController], providers: [SearchService] })
+@Module({
+  imports: [SalesModule],
+  controllers: [SearchController],
+  providers: [SearchService],
+})
 export class SearchModule {}
