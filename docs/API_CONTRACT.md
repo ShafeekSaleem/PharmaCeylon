@@ -80,7 +80,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 
 - `GET /api/v1/sales/history` — newest first, paged on the server: `page` (from 1), `pageSize` (default 25, max 100), `branchId` (a branch id or `all`; omitted means the header's branch, or every viewable branch without one), `from` / `to` (tenant calendar days, `YYYY-MM-DD`, inclusive), `soldBy` (user id), `paymentMethod` (`cash`, `card`, `mobile_wallet`, `credit` — refund rows don't count), `invoiceNo` (contains, spaces ignored). Returns `{ items, total, page, pageSize }`. A `branchId` the caller can't view is **403**.
 - `GET /api/v1/sales/history/options` — `{ branches, sellers }` for the filters.
-- `GET /api/v1/sales/history/:id` — items with batch, payments (refunds are negative rows), customer, prescription, seller, dispenser and completed refunds. `unitCost` and `costTotal` are `null` without `costs.view` at the sale's branch. A sale outside the caller's branches is **404**.
+- `GET /api/v1/sales/history/:id` — items with batch, payments (refunds are negative rows), customer, prescription, seller, dispenser and completed refunds. `unitCost` and `costTotal` are currently `null` for every caller: sales do not store a sale-time cost snapshot, and the current batch cost cannot establish historical COGS. A sale outside the caller's branches is **404**.
 
 **Controlled products** (`Product.isControlled`): checkout requires **pharmacist**, **manager**, or **owner** effective on the branch (owners may be recognized tenant-wide per service rules).
 

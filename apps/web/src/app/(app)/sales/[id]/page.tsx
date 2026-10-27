@@ -238,6 +238,11 @@ export default function SaleDetailPage() {
               <span>Cost of goods</span>
               <span className={css.amount}>{formatMoney(sale.costTotal)}</span>
             </div>
+            {sale.costTotal === null ? (
+              <p className={css.cellSub}>
+                Historical cost is unavailable because unit costs were not saved with this sale.
+              </p>
+            ) : null}
           </section>
 
           <section className={css.card} aria-label="Payments">
