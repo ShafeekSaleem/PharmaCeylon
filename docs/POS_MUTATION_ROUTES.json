@@ -735,6 +735,26 @@
     "source": "apps/api/src/tenant/tenant.controller.ts"
   },
   {
+    "method": "DELETE",
+    "path": "/api/v1/tenant/branches/:branchId/pos-rollout/fallback",
+    "source": "apps/api/src/tenant/pos-rollout.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tenant/branches/:branchId/pos-rollout/fallback",
+    "source": "apps/api/src/tenant/pos-rollout.controller.ts"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/tenant/branches/:branchId/pos-rollout/live",
+    "source": "apps/api/src/tenant/pos-rollout.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tenant/branches/:branchId/pos-rollout/live",
+    "source": "apps/api/src/tenant/pos-rollout.controller.ts"
+  },
+  {
     "method": "PATCH",
     "path": "/api/v1/tenant/profile",
     "source": "apps/api/src/tenant/tenant.controller.ts"

@@ -36,6 +36,17 @@ export {
   type CategoryPickerExtra,
 } from "./category-picker";
 export { StatusStrip } from "./status-strip";
+export {
+  ApprovalEvidencePanel,
+  STALE_APPROVAL_MESSAGE,
+  type ApprovalEvidencePanelProps,
+  type ApprovalParty,
+} from "./approval-evidence-panel";
+export {
+  CounterHandoff,
+  COUNTER_HANDOFF_HEADLINES,
+  type CounterHandoffProps,
+} from "./counter-handoff";
 export { DateRangeField } from "./date-range-field";
 export { DatePicker, formatPickerDate } from "./date-picker";
 export { DateTimeField } from "./date-time-field";

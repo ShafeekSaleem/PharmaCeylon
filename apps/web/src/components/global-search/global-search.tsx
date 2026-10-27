@@ -150,7 +150,18 @@ const ICON_TONE: Record<SearchResultType, string> = {
   action: "icon_action",
 };
 
-export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
+function isPosHref(href: string): boolean {
+  return href === "/pos" || href.startsWith("/pos?") || href.startsWith("/pos/");
+}
+
+export function GlobalSearch({
+  permissionKeys,
+  posHidden = false,
+}: {
+  permissionKeys: string[];
+  /** Desktop POS is live at the selected branch (D-W1): offer no way into the web POS. */
+  posHidden?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -235,17 +246,18 @@ export function GlobalSearch({ permissionKeys }: { permissionKeys: string[] }) {
       !needle ||
       `${item.title} ${item.subtitle}`.toLowerCase().includes(needle);
     const groups: SearchGroup[] = [];
+    const reachable = (item: { href: string }) => !posHidden || !isPosHref(item.href);
     const actions = QUICK_ACTIONS.filter(
-      (item) => allowed(item.permission) && matches(item),
+      (item) => allowed(item.permission) && reachable(item) && matches(item),
     );
-    const visibleRecent = recent.filter((item) => allowed(item.permission));
+    const visibleRecent = recent.filter((item) => allowed(item.permission) && reachable(item));
     if (!needle && visibleRecent.length) {
       groups.push({ key: "recent", label: "Recent", items: visibleRecent });
     }
     if (actions.length)
       groups.push({ key: "actions", label: "Quick actions", items: actions });
     return groups;
-  }, [allowed, query, recent]);
+  }, [allowed, posHidden, query, recent]);
 
   const groups = useMemo(
     () => [...remoteGroups, ...localGroups],

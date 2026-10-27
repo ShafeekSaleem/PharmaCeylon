@@ -58,6 +58,11 @@ export const CRITICAL_AUDIT_EVENT_NAMES: ReadonlySet<string> = new Set([
   "return.cancelled",
   "batch.quarantined",
   "auth.login_failed",
+  // Where a branch may sell from (D-W1): each moves checkout between the web and the counter.
+  "branch.pos_rollout_live",
+  "branch.pos_rollout_not_live",
+  "branch.pos_fallback_started",
+  "branch.pos_fallback_extended",
 ]);
 
 export function isCriticalAuditEvent(eventName: string): boolean {
