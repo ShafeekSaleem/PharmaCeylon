@@ -23,9 +23,18 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { PermissionsService } from "../security/permissions.service";
 
-/** Everything a receipt / POS success state needs, in one shape. */
+const SALE_PRODUCT_SELECT = { id: true, name: true, sku: true, unit: true } satisfies Prisma.ProductSelect;
+const SALE_BATCH_SELECT = { id: true, batchNo: true, expiryDate: true } satisfies Prisma.BatchSelect;
+
+/**
+ * Everything a receipt / POS success state needs, in one shape. Checkout, void, refund, invoice
+ * lookup and `GET /sales[/:id]` all send it to till users, who don't hold `costs.view` — so the
+ * batch is named fields only, never a whole row with its cost.
+ */
 export const SALE_INCLUDE = {
-  items: { include: { product: true, batch: true } },
+  items: {
+    include: { product: { select: SALE_PRODUCT_SELECT }, batch: { select: SALE_BATCH_SELECT } },
+  },
   payments: true,
   customer: { select: { id: true, fullName: true, phone: true } },
   prescription: {
@@ -95,8 +104,8 @@ const SALE_DETAIL_INCLUDE = {
   branch: { select: { id: true, name: true } },
   items: {
     include: {
-      product: { select: { id: true, name: true, sku: true, unit: true } },
-      batch: { select: { id: true, batchNo: true, expiryDate: true } },
+      product: { select: SALE_PRODUCT_SELECT },
+      batch: { select: SALE_BATCH_SELECT },
     },
     orderBy: { createdAt: "asc" },
   },
