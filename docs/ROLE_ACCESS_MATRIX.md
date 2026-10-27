@@ -128,7 +128,7 @@ These are the named groups used in `app-shell.tsx` for nav-level visibility:
 | Constant           | Roles                                       | Used by                                     |
 | ------------------ | ------------------------------------------- | ------------------------------------------- |
 | `ADMIN_ROLES`      | owner, manager                              | Audit Log, Users & Roles, Settings          |
-| `POS_ROLES`        | owner, manager, pharmacist, cashier         | POS / Checkout                              |
+| `POS_ROLES`        | owner, manager, pharmacist, cashier         | `/pos` page guard and its deep links (not the nav since W1) |
 | `CATALOG_ROLES`    | owner, manager, cashier, inventory_clerk    | Products                                    |
 | `OPERATIONS_ROLES` | owner, manager, pharmacist, inventory_clerk | Suppliers, Inventory, Purchasing, Transfers |
 | `INSIGHTS_ROLES`   | owner, manager                              | Reports                                     |
@@ -136,7 +136,11 @@ These are the named groups used in `app-shell.tsx` for nav-level visibility:
 Pages without a `roles` restriction (Dashboard) are visible to all authenticated users.
 
 Target: nav gates on permissions (`usePermissions()`) rather than these role groups, and
-`POS_ROLES` leaves the nav when the web POS is removed (W1, W2).
+`POS_ROLES` leaves the nav when the web POS is removed (W1, W2). Since W1, POS / Checkout,
+Customers and Prescriptions gate on `sales.pos_use`, `customers.view` and `prescriptions.view`
+alone, and POS / Checkout, the Quick Sale button and the search's POS action are hidden at a
+branch where desktop POS is live without a fallback. `/pos` itself and its deep links still use
+`POS_ROLES` until W2.
 
 ## Enforcement Layers
 

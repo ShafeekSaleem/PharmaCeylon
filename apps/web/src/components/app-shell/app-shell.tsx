@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
+import { useBranchRollout, webPosHidden } from "@/lib/branch-rollout";
 import {
   fetchSetupReadiness,
   SETUP_JOURNEY_CHANGED_EVENT,
@@ -20,6 +21,7 @@ import {
 import { GlobalSearch } from "@/components/global-search/global-search";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { AppearanceEffect } from "./appearance-effect";
+import { PosFallbackBanner } from "./pos-fallback-banner";
 import {
   IconGrid,
   IconShoppingCart,
@@ -47,7 +49,6 @@ import {
   CATALOG_ROLES,
   INSIGHTS_ROLES,
   OPERATIONS_ROLES,
-  POS_ROLES,
   PURCHASING_ROLES,
   STOCKTAKE_ROLES,
   collectUserRoles,
@@ -88,11 +89,12 @@ const NAV_GROUPS: NavGroup[] = [
         icon: <IconTarget size={18} />,
         roles: ["owner"],
       },
+      // Gated on the permission alone: a custom role can hold `sales.pos_use` without being one
+      // of the built-in till roles. Hidden at a branch where desktop POS is live (D-W1).
       {
         href: "/pos",
         label: "POS / Checkout",
         icon: <IconShoppingCart size={18} />,
-        roles: POS_ROLES,
         permission: "sales.pos_use",
       },
     ],
@@ -123,14 +125,12 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/customers",
         label: "Customers",
         icon: <IconUser size={18} />,
-        roles: POS_ROLES,
         permission: "customers.view",
       },
       {
         href: "/prescriptions",
         label: "Prescriptions",
         icon: <IconFileText size={18} />,
-        roles: POS_ROLES,
         permission: "prescriptions.view",
       },
     ],
@@ -322,6 +322,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, ready, isAuthenticated, branchId, setBranchId, logout } =
     useAuth();
   const { permissionKeys } = usePermissions();
+  // Until the branch's state is known it reads as not live, so nothing changes for a branch that
+  // isn't live — including while the first answer loads.
+  const { rollout } = useBranchRollout();
+  const posHidden = webPosHidden(rollout);
   const { extraCrumbs, lastSegmentLabel, chromeHidden } = usePageChrome();
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
 
@@ -443,7 +447,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ctrl &&
         e.shiftKey &&
         e.code === "KeyP" &&
-        permissionKeys.includes("sales.pos_use")
+        permissionKeys.includes("sales.pos_use") &&
+        !posHidden
       ) {
         e.preventDefault();
         if (document.querySelector('[role="dialog"][aria-modal="true"]'))
@@ -464,7 +469,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [toggleCollapsed, router, permissionKeys, toggleFullscreen]);
+  }, [toggleCollapsed, router, permissionKeys, posHidden, toggleFullscreen]);
 
   const handleLogout = useCallback(async () => {
     setAvatarOpen(false);
@@ -486,7 +491,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/get-started") ||
     pathname.startsWith("/notifications");
 
-  const showQuickSale = canUsePos && !quickSaleHidden && !chromeHidden;
+  const showQuickSale = canUsePos && !posHidden && !quickSaleHidden && !chromeHidden;
   // Whole pages opt out above by route; this gets the button out of the way of a single
   // action row, which is what a route list can never keep up with.
   const fabObstructed = useFabClearance(showQuickSale);
@@ -496,10 +501,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       NAV_GROUPS.map((group) => ({
         ...group,
         items: group.items.filter(
-          (item) => item.href !== "/get-started" || showSetupJourney,
+          (item) =>
+            (item.href !== "/get-started" || showSetupJourney) &&
+            (item.href !== "/pos" || !posHidden),
         ),
       })),
-    [showSetupJourney],
+    [showSetupJourney, posHidden],
   );
 
   if (!ready || !isAuthenticated) {
@@ -662,7 +669,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
             <span className={styles.pageTitle}>{pageTitle}</span>
 
-            <GlobalSearch permissionKeys={permissionKeys} />
+            <GlobalSearch permissionKeys={permissionKeys} posHidden={posHidden} />
 
             <div className={styles.topbarRight}>
               <button
@@ -802,6 +809,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
+        )}
+
+        {/* Every page of the branch while a fallback runs, the full-screen till included. */}
+        {rollout?.state === "fallback" && rollout.fallback && (
+          <PosFallbackBanner endsAt={rollout.fallback.endsAt} />
         )}
 
         {/* Page content. The FAB is fixed over this, so reserve its footprint at the

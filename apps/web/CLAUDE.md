@@ -30,7 +30,9 @@ There is no test script in this package (no test runner configured yet) — veri
 
 ## Components
 
-- `components/app-shell/` + `components/pms-nav.tsx` — the authenticated layout shell and nav; nav-level role filtering lives here and reads the same `role-access.ts` role groups (`ADMIN_ROLES`, `POS_ROLES`, `CATALOG_ROLES`, `OPERATIONS_ROLES`, `INSIGHTS_ROLES`, etc.) documented in `docs/ROLE_ACCESS_MATRIX.md`.
+- `components/app-shell/` + `components/pms-nav.tsx` — the authenticated layout shell and nav; nav-level filtering lives here. Items with a `permission` gate on `usePermissions()` keys; the `role-access.ts` role groups (`ADMIN_ROLES`, `CATALOG_ROLES`, `OPERATIONS_ROLES`, `INSIGHTS_ROLES`, etc., documented in `docs/ROLE_ACCESS_MATRIX.md`) only feed the denied tooltip there.
+- `lib/branch-rollout.ts` — `useBranchRollout()` reads the selected branch's desktop POS state (`not_live` / `live` / `fallback`, D-W1) from `GET /tenant/context`. Unknown or loading reads as not live, so a branch that isn't live keeps today's web. At a live branch the shell hides POS / Checkout, Quick Sale, its shortcut and the search's POS action; during a fallback it shows `PosFallbackBanner` on every page.
+- Counter-boundary refusals (`TERMINAL_REQUIRED`, `APPROVAL_STALE`, …) are mapped to their one web message in `lib/api-error.ts` (`COUNTER_BOUNDARY_MESSAGES`), so any caller showing an `ApiError` message gets the right copy. `components/ui/approval-evidence-panel.tsx` and `components/ui/counter-handoff.tsx` are the shared approval-evidence and "do it at the counter" blocks for page epics.
 - `components/ui/` — shared primitives (`data-table`, `modal`, `form-field`, `stat-card`, `status-badge`, `page-header`, `image-upload`, `floating-tooltip`) with colocated `*.module.css`. Reuse these before writing new page-local styled components.
 - Styling is CSS Modules throughout (no Tailwind/CSS-in-JS) — follow the `*.module.css` per-component pattern.
 

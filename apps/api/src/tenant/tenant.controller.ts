@@ -11,6 +11,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { PermissionsService } from "../security/permissions.service";
 import { PERMISSION_KEYS } from "../security/permission-catalog";
 import { UpdateProfitabilityTargetDto } from "./dto/update-profitability-target.dto";
+import { POS_ROLLOUT_SELECT, resolvePosRollout } from "./pos-rollout";
 import { TenantService } from "./tenant.service";
 import { UpdateTenantProfileDto } from "./dto/update-tenant-profile.dto";
 import { CreateBranchDto } from "./dto/create-branch.dto";
@@ -25,17 +26,29 @@ export class TenantController {
     private readonly access: AccessService,
   ) {}
 
+  /** Each branch carries its desktop POS rollout state (D-W1), so nav and pages can follow it
+   *  without asking again. */
   @Get("context")
   async getContext(@CurrentUser() user: RequestUser) {
-    const branches = await this.prisma.branch.findMany({
+    const rows = await this.prisma.branch.findMany({
       where: {
         tenantId: user.tenantId,
         isActive: true,
         id: { in: user.branchRoles.map((b) => b.branchId) },
       },
-      select: { id: true, code: true, name: true, city: true },
+      select: { id: true, code: true, name: true, city: true, ...POS_ROLLOUT_SELECT },
       orderBy: { code: "asc" },
     });
+    const now = new Date();
+    const branches = rows.map(
+      ({ desktopPosRollout, desktopPosLiveAt, posFallbackStartedAt, posFallbackEndsAt, ...branch }) => ({
+        ...branch,
+        posRollout: resolvePosRollout(
+          { desktopPosRollout, desktopPosLiveAt, posFallbackStartedAt, posFallbackEndsAt },
+          now,
+        ),
+      }),
+    );
     const branchById = new Map(branches.map((b) => [b.id, b]));
     return {
       tenantId: user.tenantId,
