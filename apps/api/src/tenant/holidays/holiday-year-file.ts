@@ -33,15 +33,16 @@ export function parseHolidayYearFile(input: unknown, file: string): HolidayYearL
   const source = record(doc.source, "source", ["name", "reference", "publishedOn", "copiedFrom"], errors);
   if (source) {
     if (!text(source.name, 200)) errors.push("source.name must name the gazette");
-    if (source.reference !== null && !isHttpsLink(source.reference)) {
-      errors.push("source.reference must be an https link to the gazette, or null");
+    if (!isHttpsLink(source.reference)) {
+      errors.push("source.reference must be an https link to the gazette");
     }
-    if (source.publishedOn !== null && !isRealDate(source.publishedOn)) {
-      errors.push("source.publishedOn must be a date (YYYY-MM-DD), or null");
+    if (!isRealDate(source.publishedOn)) {
+      errors.push("source.publishedOn must be a date (YYYY-MM-DD)");
     }
     // When the gazette itself couldn't be opened, the official list the rows were copied from
     // instead (the Central Bank's, say) — so nobody mistakes it for a check against the gazette.
     if (source.copiedFrom !== null) {
+      errors.push("source.copiedFrom must be null after verification against the gazette; draft copies cannot be loaded");
       const copied = record(source.copiedFrom, "source.copiedFrom", ["name", "reference"], errors);
       if (copied && (!text(copied.name, 200) || !isHttpsLink(copied.reference))) {
         errors.push("source.copiedFrom must give the list's name and an https link, or be null");
@@ -49,6 +50,9 @@ export function parseHolidayYearFile(input: unknown, file: string): HolidayYearL
     }
   }
   if (!text(doc.checkedBy, 120)) errors.push("checkedBy must name the person who checked the file against the gazette");
+  if (typeof doc.checkedBy === "string" && /still to be|pending|unverified|not (yet )?(checked|verified|compared)|to be (checked|verified|compared)|TBD/i.test(doc.checkedBy)) {
+    errors.push("checkedBy must record a completed gazette verification, not pending work");
+  }
   if (!isRealDate(doc.checkedOn)) errors.push("checkedOn must be a date (YYYY-MM-DD)");
 
   const byDate = new Map<string, { names: string[]; kinds: Set<HolidayKind> }>();

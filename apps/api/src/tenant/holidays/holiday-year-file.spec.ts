@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { HOLIDAY_YEAR_FILES, loadHolidayYears, parseHolidayYearFile } from ".";
+import lk2026Draft from "./lk-holidays-2026.json";
+import lk2027Draft from "./lk-holidays-2027.json";
 
 // Fixture data in a far-off year. These are not real holiday dates.
 function yearFile(overrides: Record<string, unknown> = {}) {
@@ -43,6 +45,10 @@ it.each([
   ["a repeated row", { holidays: [
     { date: "2099-01-01", name: "x", kinds: ["public"] }, { date: "2099-01-01", name: "x", kinds: ["bank"] }] }, /repeats x/],
   ["nobody having checked it", { checkedBy: " " }, /checkedBy/],
+  ["a pending gazette check", { checkedBy: "Still to be compared with the gazette PDF" }, /completed gazette verification/],
+  ["a missing gazette link", { source: { name: "G", reference: null, publishedOn: "2098-09-01", copiedFrom: null } }, /https link/],
+  ["a missing publication date", { source: { name: "G", reference: "https:\/\/example.test/gazette.pdf", publishedOn: null, copiedFrom: null } }, /publishedOn/],
+  ["an unverified official reproduction", { source: { name: "G", reference: "https:\/\/example.test/gazette.pdf", publishedOn: "2098-09-01", copiedFrom: { name: "Another official list", reference: "https:\/\/example.test/list" } } }, /draft copies cannot be loaded/],
   ["a link that isn't https", { source: { name: "G", reference: "http://example.test", publishedOn: null, copiedFrom: null } }, /https link/],
   ["a copy with no link", { source: { name: "G", reference: null, publishedOn: null, copiedFrom: { name: "A list", reference: null } } }, /copiedFrom/],
   ["a source that doesn't say whether it was copied", { source: { name: "G", reference: null, publishedOn: null } }, /missing copiedFrom/],
@@ -69,38 +75,16 @@ it("refuses a file whose name doesn't match its year, or a year loaded twice", (
   expect(loadHolidayYears([["lk-holidays-2099.json", yearFile()]]).get(2099)?.holidays).toHaveLength(2);
 });
 
-describe("the gazetted years in the repo", () => {
-  const years = loadHolidayYears();
+it("keeps the unverified 2026/2027 drafts out of runtime suggestions", () => {
+  expect(HOLIDAY_YEAR_FILES).toEqual([]);
+  expect(loadHolidayYears().size).toBe(0);
+});
 
-  it("loads every file, each citing its gazette", () => {
-    expect(HOLIDAY_YEAR_FILES.map(([file]) => file)).toEqual(["lk-holidays-2026.json", "lk-holidays-2027.json"]);
-    expect(years.get(2026)?.source.name).toMatch(/^Gazette Extraordinary No\. 2438\/22 /);
-    expect(years.get(2027)?.source.name).toMatch(/^Gazette Extraordinary No\. 2493\/05:/);
-  });
-
-  // Shapes every gazetted year has, so a slip in copying shows up here.
-  it.each([2026, 2027])("%i: every holiday is a public and bank holiday, and its poya days are marked", (year) => {
-    const list = years.get(year)!;
-    for (const holiday of list.holidays) {
-      expect(holiday.kinds).toEqual(expect.arrayContaining(["public", "bank"]));
-      const poyaDay = holiday.name.split(" / ").some((n) => /Full Moon Poya Day$/.test(n) && !n.startsWith("Day following"));
-      expect(holiday.kinds.includes("poya")).toBe(poyaDay);
-    }
-    const poyaDays = list.holidays.filter((h) => h.kinds.includes("poya"));
-    // Twelve full moons a year; 2026 has a thirteenth, Adhi Poson.
-    expect(poyaDays).toHaveLength(year === 2026 ? 13 : 12);
-  });
-
-  it("offers 2026's Vesak Poya and May Day, which share 1 May, as one date", () => {
-    expect(years.get(2026)?.holidays.find((h) => h.date === "2026-05-01")).toEqual({
-      key: "lk:2026-05-01",
-      date: "2026-05-01",
-      name: "Vesak Full Moon Poya Day / May Day (International Workers’ Day)",
-      kinds: ["public", "poya", "bank", "mercantile"],
-    });
-    expect(years.get(2026)?.holidays).toHaveLength(25);
-    expect(years.get(2027)?.holidays).toHaveLength(25);
-  });
+it.each([
+  ["lk-holidays-2026.json", lk2026Draft],
+  ["lk-holidays-2027.json", lk2027Draft],
+])("rejects draft %s if accidentally registered", (file, draft) => {
+  expect(() => loadHolidayYears([[file, draft]])).toThrow(/draft copies cannot be loaded/);
 });
 
 it("keeps the template unusable until it is filled in from a gazette", () => {

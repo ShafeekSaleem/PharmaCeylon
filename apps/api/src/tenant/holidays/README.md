@@ -5,7 +5,8 @@ apply and saves. Nothing is added to a branch by itself, and PharmaCeylon does n
 hours the law permits on a holiday.
 
 There is one file per year, `lk-holidays-YYYY.json`, copied by hand from that year's government
-gazette. If a year has no file, the editor says "No holiday list for YYYY yet" and suggests nothing
+gazette. Only verified files registered in `HOLIDAY_YEAR_FILES` are offered. If a year has no
+registered file, the editor says "No holiday list for YYYY yet" and suggests nothing
 for that year. Dates are never guessed, so never fill a year from a calendar website, an earlier
 year or memory.
 
@@ -21,22 +22,28 @@ Government Printing publishes the gazettes at <https://documents.gov.lk>.
 1. Find that year's holiday gazette and keep its number, its publication date and a link to it.
 2. Copy `lk-holidays.template.json` to `lk-holidays-YYYY.json` and fill it in:
    - `year`: the year the holidays are in.
-   - `source.name`: the gazette's number and title. `source.reference`: an https link to it, or
-     `null`. `source.publishedOn`: its publication date, or `null`.
+   - `source.name`: the gazette's number and title. `source.reference`: an https link to it.
+     `source.publishedOn`: its publication date. Both are required before registration.
    - `source.copiedFrom`: `null` when you copied from the gazette itself. If you couldn't open the
      gazette and copied an official reproduction of it instead (the Central Bank's list, say), give
-     that list's name and link, so the file doesn't pass for a check against the gazette.
+     that list's name and link. Such a file is a draft and cannot be loaded. After completing
+     the comparison with the gazette, set this to `null`.
    - `holidays`: one row per holiday the gazette lists. `date` is `YYYY-MM-DD`. `name` is the
      name as printed (80 characters at most). `kinds` lists the columns the gazette ticks, from
      `public`, `bank` and `mercantile`, plus `poya` for a Full Moon Poya Day. When the gazette puts
      two holidays on one date, add both rows; the editor offers them as one date.
    - `checkedBy` and `checkedOn`: who compared every row with the gazette, and when.
 3. Have a second person compare every row with the gazette.
-4. Import the file in `index.ts` and add it to `HOLIDAY_YEAR_FILES`.
+4. Only after that comparison, import the file in `index.ts` and add it to `HOLIDAY_YEAR_FILES`.
 5. Run `npx jest src/tenant/holidays` in `apps/api`. A typo, a date outside the year, an
    unknown field or a missing check fails the tests.
 
-## The years in the repo
+## Draft years in the repo
+
+Neither draft below is registered or offered by the API. The loader rejects pending verification,
+secondary-source copies, and missing gazette metadata. Keep the drafts out of `HOLIDAY_YEAR_FILES`
+until a person has compared every row with the original gazette and recorded the completed check.
+Owners may enter dated exceptions manually in the meantime.
 
 | Year | Gazette | Copied from | Status |
 | --- | --- | --- | --- |
