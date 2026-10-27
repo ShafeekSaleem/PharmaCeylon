@@ -306,14 +306,21 @@ describe("SaleReadService.detail", () => {
     expect(JSON.stringify(sale)).not.toContain("costPrice");
   });
 
-  it("includes costs with costs.view at the sale's branch", async () => {
+  it("does not substitute the current batch cost for a missing sale-time snapshot", async () => {
     const { prisma, service } = setup();
     prisma.sale.findFirst.mockResolvedValue(detailRow("branch-a"));
 
     const sale = await service.detail(multiBranch, "sale-1");
 
-    expect(sale.items[0]!.unitCost).toBe("120.50");
-    expect(sale.costTotal).toBe("482.00");
+    expect(sale.items[0]!.unitCost).toBeNull();
+    expect(sale.costTotal).toBeNull();
+    expect(prisma.sale.findFirst.mock.calls.at(-1)![0].include.items.include.batch.select)
+      .not.toHaveProperty("costPrice");
+
+    const repriced = detailRow("branch-a");
+    repriced.items[0]!.batch.costPrice = dec("999");
+    prisma.sale.findFirst.mockResolvedValue(repriced);
+    expect(await service.detail(multiBranch, "sale-1")).toEqual(sale);
   });
 
   it("returns items, payments, customer, prescription and refunds", async () => {
@@ -341,7 +348,7 @@ describe("SaleReadService.detail", () => {
         expect.objectContaining({ amount: "-237.50", reference: "POS refund RET-2026-00003" }),
       ],
       refunds: [expect.objectContaining({ returnNumber: "RET-2026-00003", amount: "237.50" })],
-      costTotal: "482.00",
+      costTotal: null,
     });
   });
 });

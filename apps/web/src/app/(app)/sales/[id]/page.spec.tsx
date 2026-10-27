@@ -117,6 +117,7 @@ it("shows a dash for costs the API withheld, and the figure when it didn't", asy
   const { unmount } = render(<SaleDetailPage />);
   const totals = await screen.findByRole("region", { name: "Totals" });
   expect(within(totals).getByText("Cost of goods").nextSibling).toHaveTextContent("—");
+  expect(within(totals).getByText(/Historical cost is unavailable because unit costs were not saved/)).toBeInTheDocument();
   unmount();
 
   mockApi(

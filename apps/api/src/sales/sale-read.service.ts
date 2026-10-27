@@ -105,8 +105,7 @@ const SALE_DETAIL_INCLUDE = {
   items: {
     include: {
       product: { select: SALE_PRODUCT_SELECT },
-      // `toSaleDetail` drops the cost unless the caller holds `costs.view`.
-      batch: { select: { ...SALE_BATCH_SELECT, costPrice: true } },
+      batch: { select: SALE_BATCH_SELECT },
     },
     orderBy: { createdAt: "asc" },
   },
@@ -126,11 +125,7 @@ const SALE_DETAIL_INCLUDE = {
 
 type SaleDetailRow = Prisma.SaleGetPayload<{ include: typeof SALE_DETAIL_INCLUDE }>;
 
-function toSaleDetail(sale: SaleDetailRow, opts: { canViewCost: boolean }) {
-  const costTotal = sale.items.reduce(
-    (sum, item) => sum.add(item.batch.costPrice.mul(item.qty)),
-    new Prisma.Decimal(0),
-  );
+function toSaleDetail(sale: SaleDetailRow) {
   return {
     id: sale.id,
     invoiceNo: sale.invoiceNo,
@@ -142,8 +137,9 @@ function toSaleDetail(sale: SaleDetailRow, opts: { canViewCost: boolean }) {
     grandTotal: sale.grandTotal.toFixed(2),
     amountPaid: sale.amountPaid.toFixed(2),
     changeDue: sale.changeDue.toFixed(2),
-    // Without `costs.view` the figure is left out, not zeroed — the page shows a dash.
-    costTotal: opts.canViewCost ? costTotal.toFixed(2) : null,
+    // SaleItem has no sale-time cost snapshot. Current batch costs can change after a
+    // receipt/repricing, so they cannot establish historical COGS, even for an owner.
+    costTotal: null,
     notes: sale.notes,
     branch: sale.branch,
     customer: sale.customer,
@@ -157,7 +153,7 @@ function toSaleDetail(sale: SaleDetailRow, opts: { canViewCost: boolean }) {
       discountAmount: item.discountAmount.toFixed(2),
       taxAmount: item.taxAmount.toFixed(2),
       lineTotal: item.lineTotal.toFixed(2),
-      unitCost: opts.canViewCost ? item.batch.costPrice.toFixed(2) : null,
+      unitCost: null,
       product: item.product,
       batch: {
         id: item.batch.id,
@@ -484,7 +480,8 @@ export class SaleReadService {
 
   /**
    * One sale for the back office, at any branch the caller can view — so a row from "All
-   * branches" opens without switching branch. Costs follow `costs.view` at the sale's own branch.
+   * branches" opens without switching branch. Historical costs are unavailable until sales
+   * store a sale-time cost snapshot.
    * A sale outside that scope is a 404, not a 403, so its existence isn't confirmed.
    */
   async detail(user: RequestUser, id: string) {
@@ -495,7 +492,6 @@ export class SaleReadService {
       include: SALE_DETAIL_INCLUDE,
     });
     if (!sale) throw new NotFoundException("Sale not found");
-    const canViewCost = grants === null || (grants.get(sale.branchId)?.has("costs.view") ?? false);
-    return toSaleDetail(sale, { canViewCost });
+    return toSaleDetail(sale);
   }
 }
