@@ -54,7 +54,7 @@ beforeEach(() => {
   roles = [{ branchId: "branch-1", role: "manager" }];
   keys = ["tenant.branches_view", "tenant.branches_manage"];
   (fetchBranchHours as jest.Mock).mockResolvedValue(loaded);
-  (fetchHolidaySuggestions as jest.Mock).mockResolvedValue({ source: null, holidays: [] });
+  (fetchHolidaySuggestions as jest.Mock).mockResolvedValue({ years: [{ year: 2026, source: null }], holidays: [] });
   (approveHoursExtension as jest.Mock).mockResolvedValue(loaded);
   (revokeHoursExtension as jest.Mock).mockResolvedValue({ ...loaded, extensions: [] });
 });

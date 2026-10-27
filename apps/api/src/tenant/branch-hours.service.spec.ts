@@ -67,7 +67,7 @@ describe("BranchHoursService", () => {
   };
   let audit: { log: jest.Mock };
   let notifications: { notifyByPermission: jest.Mock };
-  let holidays: { list: jest.Mock };
+  let holidays: { forYear: jest.Mock };
   let service: BranchHoursService;
 
   beforeEach(() => {
@@ -85,7 +85,7 @@ describe("BranchHoursService", () => {
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
     audit = { log: jest.fn() };
     notifications = { notifyByPermission: jest.fn().mockResolvedValue(0) };
-    holidays = { list: jest.fn().mockReturnValue({ source: null, holidays: [] }) };
+    holidays = { forYear: jest.fn().mockReturnValue(null) };
     service = new BranchHoursService(
       prisma as never,
       audit as unknown as AuditService,
@@ -347,23 +347,46 @@ describe("BranchHoursService", () => {
   });
 
   describe("holidaySuggestions", () => {
-    it("offers only upcoming holidays from the branch's today, and applies none", async () => {
-      holidays.list.mockReturnValue({
-        source: { name: "Test list", reference: null },
-        holidays: [
-          { key: "lk:2026-12-25:christmas", date: "2026-12-25", name: "Christmas Day", kinds: ["public"] },
-          { key: "lk:2026-10-26:old", date: "2026-10-26", name: "Yesterday", kinds: ["poya"] },
-          { key: "lk:2026-10-27:today", date: "2026-10-27", name: "Today", kinds: ["poya"] },
-          { key: "lk:2028-01-01:far", date: "2028-01-01", name: "Too far", kinds: ["public"] },
-        ],
-      });
+    // Test fixture, not real holiday dates.
+    const source = { name: "Test gazette", reference: null, checkedOn: "2026-01-02" };
+    const list2026 = {
+      year: 2026,
+      source,
+      holidays: [
+        { key: "lk:2026-10-26", date: "2026-10-26", name: "Yesterday", kinds: ["poya"] },
+        { key: "lk:2026-10-27", date: "2026-10-27", name: "Today", kinds: ["poya"] },
+        { key: "lk:2026-12-25", date: "2026-12-25", name: "Later", kinds: ["public"] },
+      ],
+    };
+
+    it("offers the rest of this year from the branch's today, and applies none", async () => {
+      holidays.forYear.mockImplementation((year: number) => (year === 2026 ? list2026 : null));
       const result = await service.holidaySuggestions(tenantId, branchId, now);
-      expect(result.holidays.map((h) => h.key)).toEqual(["lk:2026-10-27:today", "lk:2026-12-25:christmas"]);
+      expect(holidays.forYear).toHaveBeenCalledWith(2026);
+      expect(holidays.forYear).toHaveBeenCalledWith(2027);
+      expect(result.holidays.map((h) => h.key)).toEqual(["lk:2026-10-27", "lk:2026-12-25"]);
       expect(prisma.branch.updateMany).not.toHaveBeenCalled();
     });
 
-    it("has no dates until a holiday source is agreed", async () => {
-      expect(new HolidaySuggestionsSource().list()).toEqual({ source: null, holidays: [] });
+    it("says which years have no list instead of guessing their dates", async () => {
+      holidays.forYear.mockImplementation((year: number) => (year === 2026 ? list2026 : null));
+      const result = await service.holidaySuggestions(tenantId, branchId, now);
+      expect(result.years).toEqual([
+        { year: 2026, source },
+        { year: 2027, source: null },
+      ]);
+    });
+
+    it("uses the branch's calendar for the year: 1 January in Colombo is still 31 December in UTC", async () => {
+      await service.holidaySuggestions(tenantId, branchId, new Date("2026-12-31T19:00:00.000Z"));
+      expect(holidays.forYear).toHaveBeenCalledWith(2027);
+      expect(holidays.forYear).toHaveBeenCalledWith(2028);
+    });
+
+    it("ships with no years until each one is copied from its gazette", () => {
+      const source = new HolidaySuggestionsSource();
+      expect(source.forYear(2026)).toBeNull();
+      expect(source.forYear(2027)).toBeNull();
     });
   });
 });

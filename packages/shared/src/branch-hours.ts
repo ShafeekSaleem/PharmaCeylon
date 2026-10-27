@@ -98,19 +98,31 @@ export type BranchHoursView = Readonly<{
   extensions: ReadonlyArray<BranchHoursExtensionView>;
 }>;
 
-export type HolidayKind = "public" | "poya" | "bank" | "mercantile";
+export const HOLIDAY_KINDS = ["public", "poya", "bank", "mercantile"] as const;
+export type HolidayKind = (typeof HOLIDAY_KINDS)[number];
 
+/** One date. Holidays the gazette puts on the same date are offered together, because a branch
+ *  has one set of hours per date. */
 export type HolidaySuggestion = Readonly<{
-  key: string;
+  key: string; // "lk:YYYY-MM-DD", kept on the exception so the date isn't offered again
   date: string; // YYYY-MM-DD
   name: string;
   kinds: ReadonlyArray<HolidayKind>;
 }>;
 
-/** GET `/tenant/branches/:branchId/hours/holiday-suggestions`. `source` is null until a holiday
- * list has been chosen; suggestions are only ever offered, never applied. */
+/** Where one year's list was copied from, and when a person last checked it. */
+export type HolidayListSource = Readonly<{
+  name: string;
+  reference: string | null;
+  checkedOn: string; // YYYY-MM-DD
+}>;
+
+/** GET `/tenant/branches/:branchId/hours/holiday-suggestions`. One entry per year the suggestions
+ *  cover (this year and next); `source` is null when there is no list for that year yet, and then
+ *  nothing is suggested for it — dates are never guessed. Suggestions are only ever offered,
+ *  never applied. */
 export type HolidaySuggestionsView = Readonly<{
-  source: Readonly<{ name: string; reference: string | null }> | null;
+  years: ReadonlyArray<Readonly<{ year: number; source: HolidayListSource | null }>>;
   holidays: ReadonlyArray<HolidaySuggestion>;
 }>;
 

@@ -128,8 +128,9 @@ the web epics W1–W10 below deliver it.
   suggests holidays; it does not decide legal trading hours.
 - Built in W7: the model is `BranchHours` in `packages/shared/src/branch-hours.ts`, the API and
   migration are described in `API_CONTRACT.md` ("Branch hours"), and the editor is Settings →
-  Branches → Opening hours. Mandatory limits are owner-only. The holiday list ships empty until
-  its source is agreed (`apps/api/src/tenant/holiday-suggestions.ts`).
+  Branches → Opening hours. Mandatory limits are owner-only. Holidays come from one JSON file per
+  year, copied from that year's government gazette and checked by a person
+  (`apps/api/src/tenant/holidays/README.md`); a year without a file suggests nothing.
 
 ## Copy patterns
 

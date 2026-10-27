@@ -1,0 +1,14 @@
+{
+  "year": 0,
+  "source": {
+    "name": "Gazette Extraordinary No. ____ of YYYY-MM-DD: Public, Bank and Mercantile Holidays for YYYY",
+    "reference": null,
+    "publishedOn": null
+  },
+  "checkedBy": "Name of the person who compared every row with the gazette",
+  "checkedOn": "YYYY-MM-DD",
+  "holidays": [
+    { "date": "YYYY-MM-DD", "name": "Name exactly as the gazette prints it", "kinds": ["public", "bank", "mercantile"] },
+    { "date": "YYYY-MM-DD", "name": "Name of a Full Moon Poya Day", "kinds": ["poya", "public", "bank"] }
+  ]
+}

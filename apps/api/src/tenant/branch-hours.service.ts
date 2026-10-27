@@ -18,7 +18,7 @@ import {
   type HolidaySuggestionsView,
 } from "@pharmaceylon/shared";
 import { AuditService } from "../audit/audit.service";
-import { addDays, businessDateKey, dateKeyToUtc } from "../common/business-date.util";
+import { addDays, businessDateKey } from "../common/business-date.util";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { BranchRole } from "../security/interfaces/authenticated-request.interface";
@@ -34,7 +34,6 @@ const TENANT_NOTIFICATION_PERMISSION = "tenant.management";
 /** A person picking "now" in a minute-precision field is a little in the past. */
 const EXTENSION_START_GRACE_MS = 5 * 60 * 1000;
 const EXTENSION_MAX_LEAD_DAYS = 366;
-const HOLIDAY_LOOKAHEAD_DAYS = 400;
 
 const HOURS_SELECT = {
   id: true,
@@ -317,7 +316,8 @@ export class BranchHoursService {
     return this.view(tenantId, branchId);
   }
 
-  /** Upcoming holidays from the agreed list, for the editor to offer. Never applied here. */
+  /** The rest of this year's gazetted holidays and next year's, for the editor to offer. A year
+   *  with no list says so instead of suggesting anything. Never applied here. */
   async holidaySuggestions(
     tenantId: string,
     branchId: string,
@@ -325,13 +325,11 @@ export class BranchHoursService {
   ): Promise<HolidaySuggestionsView> {
     const branch = await this.findBranch(tenantId, branchId);
     const today = businessDateKey(branch.timezone, now);
-    const until = addDays(dateKeyToUtc(today), HOLIDAY_LOOKAHEAD_DAYS).toISOString().slice(0, 10);
-    const { source, holidays } = this.holidays.list();
+    const thisYear = Number(today.slice(0, 4));
+    const lists = [thisYear, thisYear + 1].map((year) => ({ year, list: this.holidays.forYear(year) }));
     return {
-      source,
-      holidays: holidays
-        .filter((holiday) => holiday.date >= today && holiday.date <= until)
-        .sort((a, b) => a.date.localeCompare(b.date)),
+      years: lists.map(({ year, list }) => ({ year, source: list?.source ?? null })),
+      holidays: lists.flatMap(({ list }) => list?.holidays ?? []).filter((holiday) => holiday.date >= today),
     };
   }
 

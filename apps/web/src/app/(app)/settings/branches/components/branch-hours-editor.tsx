@@ -476,18 +476,26 @@ function ExceptionsCard({ draft, today, canEdit, holidays, onChange }: Exception
       </p>
       {holidays === null ? (
         <p className={css.muted}>Holiday suggestions couldn&apos;t be loaded.</p>
-      ) : holidays.source === null ? (
-        <p className={css.muted}>
-          No public or poya holiday list has been set up yet, so there&apos;s nothing to suggest. Add holidays as dates
-          above.
-        </p>
       ) : (
         <>
-          <p className={css.muted}>
-            From {holidays.source.name}. These are suggestions: check what each one means for this branch before adding
-            it. PharmaCeylon suggests holidays but doesn&apos;t decide legal trading hours.
-          </p>
-          {offered.length === 0 ? <p className={css.muted}>Every upcoming holiday is already added.</p> : null}
+          {holidays.years.map(({ year, source }) => (
+            <p className={css.muted} key={year}>
+              {source
+                ? `${year}: from ${source.name}, checked ${formatDate(source.checkedOn)}.`
+                : `No holiday list for ${year} yet.`}
+            </p>
+          ))}
+          {holidays.years.every((y) => y.source === null) ? (
+            <p className={css.muted}>Add holidays as dates above.</p>
+          ) : (
+            <p className={css.muted}>
+              These are suggestions: check what each one means for this branch before adding it. PharmaCeylon suggests
+              holidays but doesn&apos;t decide legal trading hours.
+            </p>
+          )}
+          {holidays.years.some((y) => y.source !== null) && offered.length === 0 ? (
+            <p className={css.muted}>Every upcoming holiday is already added.</p>
+          ) : null}
           {offered.map((holiday) => (
             <label className={css.suggestion} key={holiday.key}>
               <input

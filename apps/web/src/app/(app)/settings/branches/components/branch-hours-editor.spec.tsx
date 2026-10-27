@@ -32,7 +32,13 @@ function view(overrides: Partial<BranchHoursView> = {}): BranchHoursView {
     ...overrides,
   };
 }
-const noHolidayList: HolidaySuggestionsView = { source: null, holidays: [] };
+const noHolidayList: HolidaySuggestionsView = {
+  years: [
+    { year: 2026, source: null },
+    { year: 2027, source: null },
+  ],
+  holidays: [],
+};
 
 function renderEditor(props: Partial<Parameters<typeof BranchHoursEditor>[0]> = {}) {
   const onSaved = jest.fn();
@@ -215,17 +221,24 @@ describe("dates and holidays", () => {
     ]);
   });
 
-  it("says there is nothing to suggest until a holiday list is set up", () => {
+  it("says which years have no holiday list instead of suggesting anything", () => {
     renderEditor();
-    expect(screen.getByText(/No public or poya holiday list has been set up yet/)).toBeInTheDocument();
+    expect(screen.getByText("No holiday list for 2026 yet.")).toBeInTheDocument();
+    expect(screen.getByText("No holiday list for 2027 yet.")).toBeInTheDocument();
+    expect(screen.getByText("Add holidays as dates above.")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
   it("offers holidays for the owner to confirm, never adding them by itself", async () => {
+    // Test fixture in a far-off year, not real holiday dates.
     const holidays: HolidaySuggestionsView = {
-      source: { name: "Test holiday list", reference: null },
+      years: [
+        { year: 2099, source: { name: "Test gazette 2099", reference: null, checkedOn: "2098-09-05" } },
+        { year: 2100, source: null },
+      ],
       holidays: [
-        { key: "lk:2099-05-01:vesak", date: "2099-05-01", name: "Vesak Full Moon Poya Day", kinds: ["poya", "public"] },
-        { key: "lk:2099-12-25:christmas", date: "2099-12-25", name: "Christmas Day", kinds: ["public"] },
+        { key: "lk:2099-05-01", date: "2099-05-01", name: "Vesak Full Moon Poya Day", kinds: ["poya", "public"] },
+        { key: "lk:2099-12-25", date: "2099-12-25", name: "Christmas Day", kinds: ["public"] },
       ],
     };
     renderEditor({
@@ -239,6 +252,8 @@ describe("dates and holidays", () => {
       }),
     });
     expect(screen.getByText(/doesn't decide legal trading hours/)).toBeInTheDocument();
+    expect(screen.getByText(/2099: from Test gazette 2099, checked/)).toBeInTheDocument();
+    expect(screen.getByText("No holiday list for 2100 yet.")).toBeInTheDocument();
     // Christmas is already a dated exception, so only Vesak is offered.
     expect(screen.queryByRole("checkbox", { name: /Christmas Day/ })).not.toBeInTheDocument();
     const vesak = screen.getByRole("checkbox", { name: /Vesak Full Moon Poya Day/ });
@@ -255,7 +270,7 @@ describe("dates and holidays", () => {
       label: "Vesak Full Moon Poya Day",
       hours: { mode: "closed" },
       source: "holiday_suggestion",
-      holidayKey: "lk:2099-05-01:vesak",
+      holidayKey: "lk:2099-05-01",
     });
   });
 });
