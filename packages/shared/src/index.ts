@@ -12,4 +12,5 @@ export * from "./pos-resilience-contracts";
 export * from "./terminal-online-protocol";
 export * from "./branch-hours";
 export * from "./counter-policy";
+export * from "./counter-alerts";
 export * from "./counter-grant-settings";

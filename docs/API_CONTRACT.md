@@ -370,6 +370,23 @@ selected branch's role IDs and tenant, or all the caller's mappings without a br
 This field only scopes web presentation: operation permission keys and API checks remain intact.
 Apply migration `20261028000000_role_back_office_access` before deploying API/web together.
 
+## Counter alert settings (W7)
+
+`GET /tenant/settings/counter-alerts` and `PUT` on the same path require `tenant.management`.
+The tenant-wide version-1 document has one rule per counter alert type (`counter_offline`,
+`permission_expiring`, `snapshot_stale`, `sync_failed`, `discrepancy_opened`, `incident_note`,
+`device_lost`, `fallback_changed`): `{ type, enabled, recipientRoleKeys }`. Recipients are role
+keys (built-in names or this tenant's custom role slugs); a switched-on alert needs at least one.
+Null stored means every type on for owners and managers. Reads fill types added since a policy
+was saved with their defaults and drop removed ones; saves are strict. A deleted custom role is
+dropped from recipients on read rather than blocking its deletion, and GET lists in
+`unreachableTypes` any switched-on alert left with no recipient, which a save then refuses until
+someone is chosen or it is switched off. PUT takes `{ expectedVersion, policy }`; stale versions
+return 409, a role deleted since loading 400 (naming it); the update and its audit
+(`tenant_settings.counter_alerts_updated`) commit together. The open `GET /tenant/settings` no
+longer returns these columns. Settings only: W9 #71 generates and delivers the alerts, to holders
+of a recipient role at the alert's branch.
+
 ## Versioning
 
 Pilot uses **`/api/v1`**. Breaking changes should move to `/api/v2` or be gated by explicit API version headers if you outgrow this model.
