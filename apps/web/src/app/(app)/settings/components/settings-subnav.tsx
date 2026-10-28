@@ -45,7 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Modules",
     items: [
-      { href: "/settings/main", label: "Main", icon: <IconGrid size={16} />, adminOnly: true },
+      { href: "/settings/main", label: "Counters & receipts", icon: <IconGrid size={16} />, adminOnly: true },
       {
         href: "/settings/catalog",
         label: "Catalog",

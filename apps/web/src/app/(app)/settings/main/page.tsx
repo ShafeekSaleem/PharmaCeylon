@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
 import { SettingLabel } from "../components/pending-badge";
 import { isPendingSetting } from "../lib/pending-settings";
+import { CounterPolicyCard } from "./counter-policy-card";
 import {
   fetchTenantSettings,
   saveDashboardSettings,
@@ -44,8 +45,8 @@ export default function MainSettingsPage() {
   return (
     <div>
       <PageHeader
-        title="Point of Sale & Receipts"
-        description="Checkout behavior and customer-facing receipt defaults."
+        title="Counters & receipts"
+        description="Counter preferences, customer-facing receipts and branch offline policy."
       />
       {error ? <Alert variant="error">{error}</Alert> : null}
 
@@ -55,6 +56,7 @@ export default function MainSettingsPage() {
         <div className={css.panel}>
           <PosDefaultsCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
           <ReceiptCard settings={settings} onSaved={setSettings} canEdit={canEdit} />
+          <CounterPolicyCard />
         </div>
       )}
     </div>
@@ -179,9 +181,9 @@ function PosDefaultsCard({ settings, onSaved, canEdit }: CardProps) {
       <div className={css.cardHead}>
         <div>
           <h2 className={css.cardTitle}>
-            <IconShoppingCart size={16} /> POS / Checkout Defaults
+            <IconShoppingCart size={16} /> Counter defaults
           </h2>
-          <p className={css.cardDesc}>Defaults and optional features for the checkout screen.</p>
+          <p className={css.cardDesc}>Defaults for checkout. Counter preferences apply after the next counter sync once desktop support is available.</p>
         </div>
       </div>
       {error ? <Alert variant="error">{error}</Alert> : null}
@@ -217,6 +219,7 @@ function PosDefaultsCard({ settings, onSaved, canEdit }: CardProps) {
           onChange={(e) => setDraft((d) => ({ ...d, posMaxDiscountPercent: Number(e.target.value) }))}
           disabled={!canEdit}
         />
+        <p className={css.rowHint}>This discount limit applies online. Offline discounts and price overrides are not allowed.</p>
       </div>
       {canEdit ? (
         <div className={css.saveRow}>
@@ -268,7 +271,7 @@ function ReceiptCard({ settings, onSaved, canEdit }: CardProps) {
           <h2 className={css.cardTitle}>
             <IconReceipt size={16} /> Receipt &amp; Invoice Customization
           </h2>
-          <p className={css.cardDesc}>What appears on POS receipts and the printed bill.</p>
+          <p className={css.cardDesc}>Receipt layout and printed bill. Applies to counters after their next sync once desktop support is available; completed receipts keep their original amounts.</p>
         </div>
       </div>
       {error ? <Alert variant="error">{error}</Alert> : null}
