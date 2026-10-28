@@ -144,6 +144,18 @@ export class InsufficientStockException extends BadRequestException {
  */
 @Injectable()
 export class StockService {
+  /** Legacy import cancellation only, before any later trade/movement. The caller holds the
+   * import/product locks; recheck batch activity under stock locks before removing its rows.
+   * Posted D-W2 drafts retain their ledger and use ordinary adjustment corrections instead. */
+  async removeUnusedImportStock(tx: Tx, tenantId: string, importId: string, batchIds: string[]) {
+    await this.lockBatches(tx, tenantId, batchIds);
+    if (await tx.stockLedger.findFirst({ where: { tenantId, batchId: { in: batchIds }, NOT: { referenceType: "product_import", referenceId: importId } }, select: { id: true } }) ||
+      await tx.stockReservation.findFirst({ where: { tenantId, batchId: { in: batchIds } }, select: { id: true } })) {
+      throw new ConflictException("Stock from this import has already been sold, reserved or moved.");
+    }
+    await tx.stockLedger.deleteMany({ where: { tenantId, batchId: { in: batchIds }, referenceType: "product_import", referenceId: importId } });
+  }
+
   async lockBatches(tx: Tx, tenantId: string, batchIds: readonly string[]): Promise<void> {
     const ids = [...new Set(batchIds.filter(Boolean))].sort();
     if (ids.length === 0) return;

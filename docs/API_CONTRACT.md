@@ -1,5 +1,36 @@
 # PharmaCeylon API contract (pilot, v1)
 
+## Product-import stock staging (P1 / D-W2)
+
+- `POST /products/import/stage`: same multipart upload, mapping/category decisions and
+  Idempotency-Key as `/confirm`, with no physical stock effect. `/confirm` retains legacy
+  not-live behavior but auto-stages at desktop-live branches, including checkout fallback.
+- `GET /products/import/:importId/stock`: selected-branch draft, version, rows, staging actor
+  and first posting time. Requires current `products.import`; saved `costPrice` is null without
+  `costs.view`. Row `postedBatchId` is the durable posting result.
+- `POST /products/import/:importId/stock/replace`: `{ version, rows }`, at most 20,000 rows.
+  Requires `products.import` and `costs.view`. Large drafts may send that JSON document as a
+  multipart `file` (20 MB limit). Each row has `rowNumber`, `productId`, `name`, `categoryName`
+  (string or null), positive integer `qty`, nonnegative numeric `costPrice`/`sellingPrice`,
+  `batchNo`, and `expiryDate` (midnight UTC ISO string or null). Unknown fields and client
+  posting identities are rejected. Replacement is allowed only before any row is posted.
+- `POST /products/import/:importId/stock/post`: `{ version, categoryName? }`; omit the category
+  to post all remaining rows, or send null for the uncategorized group. Physical execution
+  requires `products.import` at the selected branch. It uses saved costs, preserving redaction
+  for cost-hidden executors. Repeating a selection/version returns its saved batch identities
+  without additional stock or audit. Any failure rolls back the entire selected chunk.
+- `POST /products/import/:importId/undo` is management-only and refuses posted stock.
+  `POST /products/import/:importId/undo-stock` is the physical legacy cancellation path, with
+  the import's branch selected. Prior trade/reservations block it. Posted D-W2 drafts retain
+  their ledger and require ordinary counter adjustments for corrections.
+
+The history API returns `stockStaged`, pending `unitsStaged` and `stockUndo`. It disables web
+stock undo at live/fallback branches and when the selected branch differs. Import job results
+describe the original import; the draft/history endpoints supply current posting state.
+API and web deploy together for the legacy undo route change. Terminal signing, independent
+attendance, command receipts and full desktop screens remain the later coordinated P1/P2/P6
+cutover; these route declarations do not claim that enforcement is active.
+
 Single reference for the web team. The machine-readable contract is the **OpenAPI document** served by the API.
 
 The desktop/offline v1 contract and revised D10 remote-management/local-execution boundary are defined in

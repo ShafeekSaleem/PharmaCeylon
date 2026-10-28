@@ -57,7 +57,7 @@ function phaseLabel(phase: string): string {
     case "products":
       return "Creating and updating products…";
     case "stock":
-      return "Posting opening stock…";
+      return "Preparing opening stock…";
     case "done":
       return "Finishing…";
     default:
@@ -463,7 +463,12 @@ export function ProductImportPage() {
             />
             {io.preview.hasStockColumns && (
               <>
-                <Stat label="Batches to create" value={io.preview.withStock} />
+                <Stat
+                  label={
+                    io.stagesStock ? "Stock rows to stage" : "Batches to create"
+                  }
+                  value={io.preview.withStock}
+                />
                 <Stat
                   label="Units of stock"
                   value={io.preview.unitsToPost.toLocaleString()}
@@ -696,6 +701,13 @@ export function ProductImportPage() {
                 value={io.result.productsRanged}
               />
             )}
+            {(io.result.unitsStaged ?? 0) > 0 && (
+              <p className={css.dim}>
+                {io.result.unitsStaged!.toLocaleString()} units staged — post
+                opening stock at the counter in PharmaCeylon POS. Available
+                stock has not changed.
+              </p>
+            )}
             <Stat label="Batches created" value={io.result.batchesCreated} />
             <Stat
               label="Units posted"
@@ -866,9 +878,10 @@ export function ProductImportPage() {
         <section className={css.card}>
           <h2 className={css.cardTitle}>Recent imports</h2>
           <p className={css.dim}>
-            An import can be undone while nothing has been sold from it. Undo
-            removes the products it created and the stock it posted; products it
-            only matched and updated stay as they are.
+            Unposted imports can be undone here. Posted opening stock is
+            corrected at the counter. Untouched legacy imports can still be
+            undone at their branch. Products only matched and updated stay as
+            they are.
           </p>
           <table className={css.historyTable}>
             <thead>
@@ -907,6 +920,8 @@ export function ProductImportPage() {
                       <>
                         {h.productsCreated} created · {h.productsUpdated}{" "}
                         updated
+                        {(h.unitsStaged ?? 0) > 0 &&
+                          ` · ${h.unitsStaged} units waiting at the counter`}
                         {h.batchesCreated > 0 &&
                           ` · ${h.batchesCreated} batches`}
                       </>
@@ -918,7 +933,7 @@ export function ProductImportPage() {
                         type="button"
                         className={css.undoBtn}
                         disabled={io.busy}
-                        onClick={() => void io.undo(h.id)}
+                        onClick={() => void io.undo(h.id, h.stockUndo)}
                       >
                         <IconRotateCcw size={14} />
                         Undo

@@ -26,9 +26,14 @@ describe("P1 server action classification", () => {
     expect(() => classifyProfile("unknown" as never)).toThrow();
   });
 
-  it.each(["products/import/confirm", "products/import/:importId/undo"])("does not mistake mixed handler %s for remote approval", path => {
+  it.each(["products/import/confirm"])("does not mistake mixed handler %s for remote approval", path => {
     expect(route(path)).toMatchObject({ requiresLocalTerminal: true, needsApprovalExecutionSplit: true });
     expect(route(path).effects).toContain("physical_stock");
+  });
+
+  it("separates management import drafts from physical posting and legacy stock undo", () => {
+    for (const path of ["products/import/stage", "products/import/:importId/stock/replace", "products/import/:importId/undo"]) expect(route(path).requiresLocalTerminal).toBe(false);
+    for (const path of ["products/import/:importId/stock/post", "products/import/:importId/undo-stock"]) expect(route(path)).toMatchObject({ requiresLocalTerminal: true, needsApprovalExecutionSplit: false });
   });
 
   it.each(["purchasing/purchase-orders/:id/approve", "returns/:id/approve", "inventory/held-adjustments/:id/reject", "stocktakes/:id/request-recount", "stocktakes/:id/approve", "inventory/held-adjustments/:id/accept", "purchasing/held-deliveries/:id/accept", "products"])("permits remote management classification for %s", path => {

@@ -22,6 +22,8 @@ import {
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
 import { ProductImportService } from "./product-import.service";
+import { ImportStockService } from "./import-stock.service";
+import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import {
   IMPORT_FIELDS,
   type ImportCategoryChoices,
@@ -41,7 +43,10 @@ const UPLOAD_LIMITS = { limits: { fileSize: 20 * 1024 * 1024 } };
  */
 @Controller("products/import")
 export class ProductImportController {
-  constructor(private readonly imports: ProductImportService) {}
+  constructor(
+    private readonly imports: ProductImportService,
+    private readonly stockDrafts: ImportStockService,
+  ) {}
 
   /** Blank CSV with the columns the importer understands, for a pharmacy starting from zero. */
   @RequirePermission("products.import")
@@ -84,10 +89,15 @@ export class ProductImportController {
    */
   @RequirePermission("products.import")
   @Get("history")
-  list(@CurrentUser() user: RequestUser, @Query("take") take?: string) {
+  list(
+    @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
+    @Query("take") take?: string,
+  ) {
     return this.imports.listImports(
       user.tenantId,
       take ? Number(take) : undefined,
+      req.branchId,
     );
   }
 
@@ -142,6 +152,32 @@ export class ProductImportController {
     return this.imports.getJobProgress(user.tenantId, jobId);
   }
 
+  /** Explicit remote catalog/staging path, including before desktop go-live. */
+  @RequirePermission("products.import")
+  @UseInterceptors(FileInterceptor("file", UPLOAD_LIMITS))
+  @Post("stage")
+  stage(
+    @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
+    @UploadedFile() file: Express.Multer.File,
+    @Body("mapping") mappingRaw?: string,
+    @Body("confirmedRows") confirmedRowsRaw?: string,
+    @Body("categoryChoices") categoryChoicesRaw?: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.imports.startImport(
+      user.tenantId,
+      user.userId,
+      req.branchId,
+      file,
+      parseMapping(mappingRaw),
+      parseConfirmedRows(confirmedRowsRaw),
+      parseCategoryChoices(categoryChoicesRaw),
+      idempotencyKey,
+      true,
+    );
+  }
+
   @RequirePermission("products.import")
   @Get(":importId/errors")
   async errors(
@@ -156,12 +192,83 @@ export class ProductImportController {
   }
 
   @RequirePermission("products.import")
+  @Get(":importId/stock")
+  stockDraft(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("importId", ParseUUIDPipe) importId: string,
+  ) {
+    return this.stockDrafts.read(user, branchId, importId);
+  }
+
+  @RequirePermission("products.import")
+  @UseInterceptors(FileInterceptor("file", UPLOAD_LIMITS))
+  @Post(":importId/stock/replace")
+  replaceStock(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("importId", ParseUUIDPipe) importId: string,
+    @Body() body: unknown,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    // Multipart JSON file supports document-sized replacements without increasing global JSON limits.
+    let input = body;
+    if (file) {
+      try {
+        input = JSON.parse(file.buffer.toString("utf8"));
+      } catch {
+        throw new BadRequestException(
+          "Stock draft file must contain valid JSON.",
+        );
+      }
+    }
+    return this.stockDrafts.replace(user, branchId, importId, input);
+  }
+
+  @RequirePermission("products.import")
+  @Post(":importId/stock/post")
+  postStock(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("importId", ParseUUIDPipe) importId: string,
+    @Body() body: unknown,
+  ) {
+    return this.stockDrafts.post(user, branchId, importId, body);
+  }
+
+  @RequirePermission("products.import")
+  @Post(":importId/undo-stock")
+  undoStock(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("importId", ParseUUIDPipe) importId: string,
+  ) {
+    return this.imports.undo(
+      user.tenantId,
+      user.userId,
+      importId,
+      true,
+      branchId,
+      (tx) => this.stockDrafts.authorize(user, branchId, tx),
+    );
+  }
+
+  @RequirePermission("products.import")
   @Post(":importId/undo")
   undo(
     @CurrentUser() user: RequestUser,
+    @Req() req: AuthenticatedRequest,
     @Param("importId", ParseUUIDPipe) importId: string,
   ) {
-    return this.imports.undo(user.tenantId, user.userId, importId);
+    return this.imports.undo(
+      user.tenantId,
+      user.userId,
+      importId,
+      false,
+      undefined,
+      (tx, importBranchId) =>
+        this.stockDrafts.authorizeUndo(user, req.branchId, tx, importBranchId),
+    );
   }
 }
 
@@ -182,7 +289,9 @@ function parseMapping(raw: string | undefined): ImportMapping {
   }
   const allowed = new Set<string>(IMPORT_FIELDS);
   const mapping: ImportMapping = {};
-  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+  for (const [key, value] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
     if (!allowed.has(key)) continue;
     if (typeof value !== "string" || !value.trim()) continue;
     mapping[key as ImportField] = value;
@@ -209,8 +318,11 @@ function parseCategoryChoices(raw: string | undefined): ImportCategoryChoices {
   }
 
   const out: ImportCategoryChoices = {};
-  for (const [incoming, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!incoming.trim() || typeof value !== "object" || value === null) continue;
+  for (const [incoming, value] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    if (!incoming.trim() || typeof value !== "object" || value === null)
+      continue;
     const decision = value as Record<string, unknown>;
     if (decision.action === "use" && typeof decision.categoryId === "string") {
       out[incoming] = { action: "use", categoryId: decision.categoryId };
@@ -233,7 +345,9 @@ function parseConfirmedRows(raw: string | undefined): number[] {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new BadRequestException("Confirmed rows must be a JSON array of row numbers.");
+    throw new BadRequestException(
+      "Confirmed rows must be a JSON array of row numbers.",
+    );
   }
   if (!Array.isArray(parsed)) return [];
   return parsed

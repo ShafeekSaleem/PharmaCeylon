@@ -4,10 +4,13 @@ P1 implementation tracking: [first MR and remaining delivery](POS_P1_IMPLEMENTAT
 The API now has an explicit route-profile registry and reviewed internal-entry inventory;
 its tests check coverage and conditional effects. These declarations are not installed guards.
 Stocktake and held-request approval now record authorization without stock effects; their
-separate posting routes remain physical. Stock-bearing import/undo handlers remain mixed/local.
+separate posting routes remain physical. Product import now has management staging/replacement
+and catalog undo, with separate physical stock posting and legacy stock undo. Only the legacy
+not-live `/products/import/confirm` path retains a mixed/local classification; live/fallback
+imports always stage. The web uses the management `/stage` path outside known not-live branches.
 
 Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
-169, including three held-workflow split routes. Exact methods, paths and source files are
+180, including held-workflow splits, rollout/hours and four import-split routes. Exact methods, paths and source files are
 recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
 The inventory includes non-operational mutations to make exclusions explicit. P0 classifies
 future enforcement; existing routes are not protected by the new terminal boundary yet.

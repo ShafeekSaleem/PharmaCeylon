@@ -313,6 +313,44 @@ new mandatory TTL or additional approver/executor separation is introduced.
 
 ## Remaining P1 MRs, in order
 
+### MR 4c: product-import stock staging and separate posting
+
+`POST /products/import/stage` is the remote catalog/staging path. It writes products and a
+durable `ProductImport.stagedStock` draft, never batches, ledger, running stock or reservations.
+The existing `/confirm` keeps legacy not-live imports working, but independently stages stock
+when the branch is live, including checkout fallback. Worker stock transactions share-lock the
+branch and refuse legacy posting after go-live. The web uses `/stage` for live/fallback or unknown
+rollout state and `/confirm` only for known not-live branches.
+
+The draft has a database-maintained material version. Bulk replacement requires the displayed
+version and cost access; internal material writes and change-then-revert advance the version too.
+The first posting freezes all material and its staging actor. The counter posts the whole draft
+or a category at a time, binding that version. Each chunk creates batches and calls StockService
+once; saved row/batch identities prevent duplicate receipt on retries and concurrent requests.
+Stock effects, posted markers/counters and actor audit share one transaction. Posted chunks retain
+their original identities; corrections use ordinary local stock adjustments, not draft replacement
+or deletion. Read/post responses redact saved cost without `costs.view`; stock-only executors
+can post the server-held values without seeing costs.
+
+Management `/undo` refuses imports with posted stock. `/undo-stock` retains guarded cancellation
+of untouched legacy imports and is classified physical. Both paths revalidate live import permission
+after document/product/batch locks and again after cascading deletes, so a permission revocation
+during a child-row wait rolls back deletion, stock, status and audit. StockService now owns the
+legacy ledger deletion too; no import-service stock-write exemption remains. History suppresses
+physical web undo for live/fallback branches and requests switching branches for a legacy import
+belonging elsewhere. API and web must deploy together for the legacy undo route change.
+
+This is a handler/data split, like MR 4a/4b, not the signed terminal executor. New physical routes
+have local policy classifications; production proof/attendance enforcement still waits for the
+coordinated P1/P2 cutover. P2 remains outside this change. W5/W8 own the full draft editor, counter
+execution screens and onboarding handoff. The additive migration preserves existing import/stock
+history; no historical command receipt or terminal executor identity is fabricated.
+
+Validation: PostgreSQL regressions cover staging, categories, retry/concurrency, rollback,
+scope, cost redaction, material history, legacy behavior and real cascade lock-wait permission
+removal in both undo modes. Focused API import/policy tests and rollout-aware web caller tests
+cover strict row validation and management-versus-physical route selection.
+
 MR #61 review fixes (2026-10-27): supplier-price choices are hydrated from the current held
 delivery and reset across order/receipt lifecycles. Corrections send the choice only when explicitly
 changed. Approvers can confirm the current saved document without rebuilding its form, including

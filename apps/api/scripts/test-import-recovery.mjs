@@ -9,6 +9,9 @@ import { AuditService } from "../dist/src/audit/audit.service.js";
 import { ProductImportService } from "../dist/src/product-import/product-import.service.js";
 import { ImportJobRunner } from "../dist/src/product-import/import-job-runner.js";
 import { StockService } from "../dist/src/inventory/stock/stock.service.js";
+import { ImportStockService } from "../dist/src/product-import/import-stock.service.js";
+import { AccessService } from "../dist/src/security/access.service.js";
+import { PermissionsService } from "../dist/src/security/permissions.service.js";
 
 if (
   process.env.PHASE67_DB_TEST_ACK !== "ephemeral-database" ||
@@ -36,17 +39,39 @@ const taxonomy = {
   applyDeterministicMedicineClassification: async () => ({ reclassified: 0 }),
 };
 const tasks = { refresh: async () => ({ created: 0, updated: 0, closed: 0 }) };
+const stock = new StockService();
 const service = new ProductImportService(
   prisma,
   audit,
   taxonomy,
   runner,
   tasks,
-  new StockService(),
+  stock,
 );
+// The same live-authority check the undo-stock route passes: membership, token version, branch
+// assignment and the products.import grant, all read on undo's own transaction.
+const access = new AccessService(
+  prisma,
+  new PermissionsService(prisma, new ConfigService({})),
+);
+const importStock = new ImportStockService(prisma, stock, audit, access);
 const tenantId = randomUUID(),
   branchId = randomUUID(),
   userId = randomUUID();
+const actor = (tokenVersion = 0) => ({
+  tenantId,
+  userId,
+  tokenVersion,
+  branchRoles: [{ branchId, role: "inventory_clerk", roleId: null }],
+  email: `${userId}@example.invalid`,
+  fullName: "Test",
+  authMethod: "bearer",
+});
+// Physical undo at the import's branch, exactly as POST /products/import/:id/undo-stock calls it.
+const undoAtCounter = (importId, user = actor()) =>
+  service.undo(tenantId, userId, importId, true, branchId, (tx) =>
+    importStock.authorize(user, branchId, tx),
+  );
 const mapping = {
   name: "Name",
   barcode: "Barcode",
@@ -103,6 +128,12 @@ try {
       passwordHash: "unused-test-identity",
     },
   });
+  await prisma.tenantMembership.create({ data: { tenantId, userId } });
+  // A built-in role without a roleRef resolves to the catalog defaults, which grant
+  // inventory_clerk products.import: real authority, not the owner bypass.
+  await prisma.userBranchRole.create({
+    data: { tenantId, userId, branchId, role: "inventory_clerk" },
+  });
 
   // Stop after a committed stock chunk: counters and guarded undo must reflect real writes.
   const post = service.postOpeningStock.bind(service);
@@ -126,7 +157,15 @@ try {
   assert.equal(stopped.productsCreated, 101);
   assert.equal(stopped.batchesCreated, 100);
   assert.equal(stopped.unitsPosted, 100);
-  await service.undo(tenantId, userId, partial.importId);
+  // The authority callback is live: a stale token is refused and the transaction leaves the
+  // partial chunk untouched, so the cleanup below is genuinely done by the authorized undo.
+  await assert.rejects(
+    undoAtCounter(partial.importId, actor(1)),
+    /Live branch authentication required/,
+  );
+  assert.equal(await prisma.batch.count({ where: { tenantId } }), 100);
+  assert.equal(await prisma.product.count({ where: { tenantId } }), 101);
+  await undoAtCounter(partial.importId);
   assert.equal(await prisma.batch.count({ where: { tenantId } }), 0);
   assert.equal(await prisma.product.count({ where: { tenantId } }), 0);
   await assert.rejects(
@@ -209,7 +248,7 @@ try {
       ],
     );
     let settled = false;
-    const undo = service.undo(tenantId, userId, one.importId).then(
+    const undo = undoAtCounter(one.importId).then(
       () => {
         settled = true;
         return null;
@@ -245,6 +284,8 @@ try {
     "auditEvent",
     "idempotencyRecord",
     "productImport",
+    "userBranchRole",
+    "tenantMembership",
     "appUser",
     "branch",
   ]) {

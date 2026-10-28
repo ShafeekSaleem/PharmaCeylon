@@ -4,12 +4,13 @@ import { CatalogTaskModule } from "../catalog-tasks/catalog-task.module";
 import { ImportJobRunner } from "./import-job-runner";
 import { ProductImportController } from "./product-import.controller";
 import { ProductImportService } from "./product-import.service";
+import { ImportStockService } from "./import-stock.service";
 
 /** "Bring your own product list" import: products plus optional opening stock, in one file. */
 @Module({
   imports: [CatalogModule, CatalogTaskModule],
   controllers: [ProductImportController],
-  providers: [ProductImportService, ImportJobRunner],
+  providers: [ProductImportService, ImportJobRunner, ImportStockService],
   exports: [ProductImportService],
 })
 export class ProductImportModule {}

@@ -19,10 +19,6 @@ const ALLOWED = new Map([
     "src/inventory/stock/stock.service.ts",
     "The stock service itself.",
   ],
-  [
-    "src/product-import/product-import.service.ts",
-    "Import undo deletes an import's ledger rows together with the batches they created; batch_stock rows cascade with the batch.",
-  ],
 ]);
 
 const WRITE = /\.(stockLedger|batchStock|stockReservation)\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(/g;
