@@ -2379,6 +2379,12 @@ model Transfer {
   updatedAt      DateTime       @updatedAt @map("updated_at")
   approvalVersion Int          @default(1) @map("approval_version")
   metadataVersion Int          @default(1) @map("metadata_version")
+  /// The exact approval dispatch is pinned to. Null: unapproved, or approval waived by tenant policy.
+  executionApprovalId String?  @map("execution_approval_id") @db.Uuid
+  approvedAt      DateTime?    @map("approved_at")
+  dispatchedBy    String?      @map("dispatched_by") @db.Uuid
+  dispatchedAt    DateTime?    @map("dispatched_at")
+  receivedAt      DateTime?    @map("received_at")
 
   fromBranch Branch   @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
   toBranch   Branch   @relation("TransferToBranch", fields: [toBranchId], references: [id])

@@ -414,6 +414,43 @@ Validation (2026-10-28, local PostgreSQL 18):
   - `npm run lint -w api` (types, tenant and stock-write checks) and the 183-route mutation
     inventory passed. CI runs everything again.
 
+## P6 #52 slice: transfer approval, dispatch and receipt
+
+Transfers already reserved on approval and moved stock on ship/receive; what was missing was the
+exact approval and the shared cores. Now:
+
+- **Approve (remote, `reservation`)** issues `ManagementApproval` evidence for action
+  `transfer.ship` at the source branch (exact lines, route and expected date; version/digest from
+  `GET /transfers/:id` `approvalReview`) and reserves stock. No ledger row is written. A
+  self-approving requester gets the same evidence on create. Re-approval after revocation, or of
+  a transfer approved before this change, repoints `executionApprovalId` without reserving twice.
+- **Dispatch (source counter, `stock`)** — `TransfersService.dispatchInTransaction` — locks the
+  transfer through its source branch, requires live `transfers.manage` there, pins the caller's
+  approval ID to `executionApprovalId`, locks the batches, then revalidates the approval
+  (`requireForExecution`, which catches revocation, approver rights and material edits through
+  the transfer revision trigger), consumes the reservation and issues `transfer_out`. A second
+  dispatch is a no-op (`effect: "already_applied"`).
+- **Receive (destination counter, `stock`)** — `receiveInTransaction` — locks through the
+  destination branch and requires live `transfers.manage` there. In-transit is dispatched −
+  received (`inTransitQty`). Signed receipts count each line with `receivedQtyBefore`, so a
+  distinct second command for the same arrival is a 409, never a second receipt.
+- **Waived approval**: with `approvalRequiredForBranchTransfers = false` a transfer is created
+  approved with no evidence and dispatches with `approvalId: null`.
+  `OperationDescriptor.approval.waived` lets the signed adapter accept a null
+  `approvalEvidenceId` only while that holds, re-read after evidence providers. Turning approval
+  back on makes such transfers need approval before dispatch.
+- Migration `20261029100000_transfer_dispatch_receive_split` adds `execution_approval_id`,
+  `approved_at`, `dispatched_by/at`, `received_at`, and a transfer-only revision trigger that
+  treats those as bookkeeping rather than material. No historical approval is backfilled.
+- Signed operations `POST /api/v1/transfers/:id/ship` and `/receive` call the same cores; the
+  success audits (`transfer.shipped`, `transfer.received`) carry requester/approver/executor and
+  `command` provenance. Routes and their classifications are unchanged.
+
+Tests: `test/integration/transfers.int-spec.ts` (approval without stock effect, stale/self
+approval, pinned/revoked/edited dispatch, concurrent dispatch, destination authority, partial
+receipt, signed dispatch/receipt end to end with replay, concurrent retries, a source counter
+refused at the destination, waiver on/off, rollback on an injected audit failure).
+
 ## Remaining P1 MRs, in order
 
 ### MR 4c: product-import stock staging and separate posting

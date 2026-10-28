@@ -322,6 +322,57 @@ describe("Transactional operation authorization independently of owner permissio
     expect(result.terminal?.command.session.staffUserId).toBe(user.userId);
   });
 
+  describe("approval waived by persisted domain policy", () => {
+    const ship = (waived: () => Promise<boolean>) => ({
+      ...base,
+      routeTemplate: "/api/v1/transfers/:id/ship",
+      permission: "transfers.manage",
+      approval: { action: "transfer.ship" as const, documentId: () => randomUUID(), waived },
+    });
+    const ready = () => {
+      const evidence = new MandatoryOperationEvidence();
+      jest.spyOn(evidence, "hours").mockResolvedValue(undefined);
+      return fixture(evidence);
+    };
+
+    it("runs without approval evidence only while the domain waives it", async () => {
+      const f = ready();
+      const result = await f.service.authorize({} as never, user, branchId, ship(async () => true), localInput);
+      expect(result.approval).toBeNull();
+      expect(f.approvals.requireForExecution).not.toHaveBeenCalled();
+    });
+
+    it("rejects evidence on a waived document", async () => {
+      const f = ready();
+      f.terminal.command = { ...f.terminal.command, approvalEvidenceId: randomUUID() };
+      await expect(
+        f.service.authorize({} as never, user, branchId, ship(async () => true), localInput),
+      ).rejects.toMatchObject({ response: { code: "APPROVAL_INVALID" } });
+    });
+
+    it("requires approval when the waiver is lifted during an evidence wait", async () => {
+      const evidence = new MandatoryOperationEvidence();
+      let waived = true;
+      jest.spyOn(evidence, "hours").mockImplementation(async () => {
+        waived = false;
+      });
+      const f = fixture(evidence);
+      await expect(
+        f.service.authorize({} as never, user, branchId, ship(async () => waived), localInput),
+      ).rejects.toMatchObject({ response: { code: "APPROVAL_REQUIRED" } });
+    });
+
+    it("falls back to exact approval when not waived", async () => {
+      const f = ready();
+      await expect(
+        f.service.authorize({} as never, user, branchId, ship(async () => false), localInput),
+      ).rejects.toMatchObject({ response: { code: "APPROVAL_REQUIRED" } });
+      f.terminal.command = { ...f.terminal.command, approvalEvidenceId: randomUUID() };
+      const result = await f.service.authorize({} as never, user, branchId, ship(async () => false), localInput);
+      expect(result.approval).not.toBeNull();
+    });
+  });
+
   it("requires bank evidence when cash becomes a bank record during the terminal wait", async () => {
     const f = fixture();
     let paymentKind: "bank" | "cash" = "cash";

@@ -232,6 +232,11 @@
       "path": "src/purchasing/held-delivery.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks exact tenant/branch held requests for approval and execution; deliveries lock their scoped PO before the held row."
+    },
+    {
+      "path": "src/transfers/transfers.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one tenant transfer through its source branch (approval, dispatch) or destination branch (receipt); approval evidence, StockService effects and success audit share the caller transaction."
     }
   ]
 }

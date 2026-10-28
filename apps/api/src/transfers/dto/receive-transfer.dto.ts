@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsUUID,
   Min,
+  ValidateIf,
   ValidateNested,
 } from "class-validator";
 
@@ -21,6 +22,12 @@ export class ReceiveTransferLineDto {
 
 /** Omit `lines` (or pass empty) to receive all remaining qty on every line. */
 export class ReceiveTransferDto {
+  /** Optional pin: the dispatch (its approval, null if waived) the counter is receiving. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  dispatchApprovalId?: string | null;
+
   @IsOptional()
   @IsArray()
   @ArrayMinSize(1)

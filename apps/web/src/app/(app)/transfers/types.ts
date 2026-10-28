@@ -70,6 +70,21 @@ export type TransferListItem = {
   dispatchedQty?: number;
   receivedQty?: number;
   receivedPercent?: number;
+  /** Dispatched but not yet booked in at the destination. */
+  inTransitQty?: number;
+  approvalVersion?: number;
+  /** The approval dispatch is pinned to; null until approved (or when approval is waived). */
+  executionApprovalId?: string | null;
+  approvedVersion?: number | null;
+  approvalRevoked?: boolean;
+  /** Approved with no approval step because the tenant doesn't require transfer approval. */
+  approvalWaived?: boolean;
+  /** The exact content an approver confirms; only for the source branch while undecided. */
+  approvalReview?: { expectedVersion: number; expectedDigest: string } | null;
+  approvedAt?: string | null;
+  dispatchedAt?: string | null;
+  receivedAt?: string | null;
+  dispatcher?: TransferUserRef | null;
 };
 
 export type CreateTransferLine = {
