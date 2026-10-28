@@ -90,8 +90,12 @@ it.each([
 });
 
 it("passes every other check once the 2026 file's second check is recorded", () => {
-  const checked = { ...lk2026Draft, checkedBy: "Second Reviewer" };
-  expect(loadHolidayYears([["lk-holidays-2026.json", checked]]).get(2026)?.holidays).toHaveLength(25);
+  // The reviewer records who checked it and when, replacing the first-pass copy's date.
+  const checked = { ...lk2026Draft, checkedBy: "Second Reviewer", checkedOn: "2026-11-02" };
+  const year = loadHolidayYears([["lk-holidays-2026.json", checked]]).get(2026);
+  expect(year?.source.checkedOn).toBe("2026-11-02");
+  // Holidays sharing a date are offered as one suggestion.
+  expect(year?.holidays).toHaveLength(new Set(lk2026Draft.holidays.map((row) => row.date)).size);
 });
 
 it("keeps the template unusable until it is filled in from a gazette", () => {
