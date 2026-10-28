@@ -115,6 +115,10 @@ operations are unchanged and are not yet restricted to terminals.
 ### Endpoints
 
 Both take a Bearer staff token and `x-branch-id`, pass the normal guard chain, and return 200.
+The route permission is `terminal.execute`. By default it goes to owner, manager and inventory
+clerk, and to every role holding one of the v1 operation permissions. It is only a gate: each
+command also needs its own operation permission, and both are rechecked live inside the
+transaction.
 
 - `POST /terminal-commands/prepare` — body `{ workSessionId, operation, body,
   approvalEvidenceId, pharmacistEvidenceId, operatingHoursExceptionId }` (exactly these keys).
@@ -184,14 +188,23 @@ had no second effect.
 The server handles `execute` in one READ COMMITTED transaction:
 
 1. Strict parse. The signed tenant and branch must equal the caller's tenant and `x-branch-id`.
-2. Lock the enrollment row. A revoked enrollment or retired terminal is `TERMINAL_REVOKED`.
+2. Take a transaction-scoped lock on this command identity (tenant + enrollment +
+   `commandId`). Only requests carrying the same command wait on each other.
 3. Look up the receipt by tenant + enrollment + `commandId`.
-4. **Receipt found: replay.** The signature must verify with the pinned key, the caller must
-   be the original staff user, and branch, terminal, key, operation and `requestDigest` must
-   match. The server returns the stored receipt with `replayed: true` and writes nothing. No
-   attendance proof, live challenge, open staff session or time limit is required. A content
-   difference is `409 REPLAY_CONFLICT`.
-5. **No receipt: execute.** The server verifies the session, live permission, challenge,
+4. **Receipt found: replay.** All of the following must hold:
+   - the enrollment is active (otherwise `TERMINAL_REVOKED`);
+   - the signature verifies with the pinned key;
+   - the caller is the original staff user with a current token;
+   - the caller still has the branch assignment, `terminal.execute` and the operation's
+     permission (otherwise 403, usually `PERMISSION_DENIED`);
+   - branch, terminal, key, operation and `requestDigest` match.
+
+   The server returns the stored receipt with `replayed: true` and writes nothing. No
+   attendance proof, live challenge, open staff session or time limit is required, and replay
+   does not wait for the enrollment lock. A content difference is `409 REPLAY_CONFLICT`.
+5. **No receipt: execute.** The server locks the enrollment row, which serializes execution
+   per terminal; a revoked enrollment or retired terminal is `TERMINAL_REVOKED`. It then
+   verifies the session, live permission, challenge,
    signature, attendance, exact approval and evidence ports, then rechecks them after lock
    waits. It runs the same domain core the browser route uses (StockService only). The
    domain success audit records requester, approver and executor plus terminal, session,
@@ -200,14 +213,20 @@ The server handles `execute` in one READ COMMITTED transaction:
    consumption.
 6. Notifications run only after commit, and their failure never affects the receipt.
 
-Identical concurrent retries wait on the enrollment lock and then replay, giving one effect,
-one audit chain and the same receipt.
+Identical concurrent retries wait on the command lock and then replay, giving one effect,
+one audit chain and the same receipt. A retry of an already-committed command never queues
+behind other work on the terminal. A replay that overlaps a revocation still being committed
+may succeed, because it is read-only and runs without the enrollment lock.
 
 **Client rules:**
 
 - Persist the signed envelope before sending `execute`, and keep it until you get a receipt or
   a definitive error.
 - After a timeout, 5xx or dropped connection, resend the identical envelope.
+- Allow at least 130 seconds for a response. A retry sent while its original is still running
+  (a large import post can take up to the server's 120-second transaction limit) waits for that
+  original, then returns its receipt. Retrying sooner is harmless: the request is still
+  uncertain, so resend the same envelope again.
 - `CHALLENGE_EXPIRED` / `CHALLENGE_INVALID` for that envelope means it was definitively not
   executed, because the receipt lookup runs first. Prepare a new command if you still want the
   operation.

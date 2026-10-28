@@ -343,21 +343,26 @@ existing requester, approver and executor attribution.
 
 One READ COMMITTED transaction per `execute`:
 
-1. Lock the enrollment.
-2. Report a revoked or retired device as `TERMINAL_REVOKED`.
-3. Look up the receipt scoped by tenant + enrollment + command ID.
-4. Then do one of the following:
-   - **Replay.** Requires the same staff user, a valid signature with the pinned key and the
-     identical digest, operation and identity. Otherwise the result is `REPLAY_CONFLICT`
-     (409). Replay writes nothing.
-   - **Authorize and execute.** Runs the existing boundary (session, live permission,
+1. Take a transaction-scoped advisory lock on the command identity (tenant + enrollment +
+   command ID).
+2. Look up the receipt scoped by tenant + enrollment + command ID.
+3. Then do one of the following:
+   - **Replay.** Requires an active enrollment, a valid signature with the pinned key, the same
+     staff user with live branch authority for `terminal.execute` and the operation
+     permission, and the identical digest, operation and identity. Otherwise the result is
+     `REPLAY_CONFLICT` (409) or a 403. Replay writes nothing and does not take the enrollment
+     lock.
+   - **Authorize and execute.** Locks the enrollment, reports a revoked or retired device as
+     `TERMINAL_REVOKED`, then runs the existing boundary (session, live permission,
      challenge, signature, attendance, exact approval, evidence ports, final rechecks), then
      the domain core, then the `terminal.command_executed` audit, then the receipt insert.
 
 Any failure rolls back business effects, both audits, the receipt and nonce consumption. The
 same signed envelope can therefore be retried within its challenge window.
 
-Identical concurrent retries serialize on the enrollment lock and replay the committed receipt.
+Identical concurrent retries serialize on the command lock and replay the committed receipt.
+A retry of a committed command therefore never waits behind a long import post holding the
+enrollment lock.
 A defensive unique-violation path replays the original too and never re-executes. Online
 receipts have `offline_sequence` NULL. Notifications move to explicit post-commit helpers.
 
@@ -371,8 +376,10 @@ Nothing is activated:
 - Browser routes keep their current behaviour, and W1 rollout state is not consulted yet.
 - P2 still owns enrollment/session HTTP endpoints, the attendance provider, PIN sign-in and the
   desktop client. This MR adds none of them.
-- No schema migration: the MR 1 `terminal_command_receipt` table already has every field the
-  receipt needs.
+- The MR 1 `terminal_command_receipt` table already has every field the receipt needs. The
+  only migration adds the `terminal.execute` route permission. It is granted to every role,
+  built-in or custom, that holds one of the four v1 operation permissions, so nobody loses
+  access.
 
 The registry gains two routes (183 in the inventory):
 
