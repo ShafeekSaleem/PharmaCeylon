@@ -11,6 +11,6 @@ import { ImportStockService } from "./import-stock.service";
   imports: [CatalogModule, CatalogTaskModule],
   controllers: [ProductImportController],
   providers: [ProductImportService, ImportJobRunner, ImportStockService],
-  exports: [ProductImportService],
+  exports: [ProductImportService, ImportStockService],
 })
 export class ProductImportModule {}

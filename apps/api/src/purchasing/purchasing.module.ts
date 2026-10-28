@@ -13,6 +13,6 @@ import { PurchasingService } from "./purchasing.service";
   // and live under the same `purchasing` prefix, so its controller is registered first.
   controllers: [SupplierLedgerController, PurchasingController],
   providers: [PurchasingService, SupplierLedgerService, HeldDeliveryService],
-  exports: [PurchasingService, SupplierLedgerService],
+  exports: [PurchasingService, SupplierLedgerService, HeldDeliveryService],
 })
 export class PurchasingModule {}

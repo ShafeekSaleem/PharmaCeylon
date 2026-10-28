@@ -871,6 +871,16 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminal-commands/execute",
+    "source": "apps/api/src/terminal-commands/terminal-commands.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminal-commands/prepare",
+    "source": "apps/api/src/terminal-commands/terminal-commands.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/transfers",
     "source": "apps/api/src/transfers/transfers.controller.ts"
   },
