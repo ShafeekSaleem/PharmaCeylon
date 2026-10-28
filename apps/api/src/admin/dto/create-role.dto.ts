@@ -1,6 +1,18 @@
-import { ArrayUnique, IsArray, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import {
+  IsBoolean,
+  ArrayUnique,
+  IsArray,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 
 export class CreateRoleDto {
+  @IsOptional()
+  @IsBoolean()
+  backOfficeAccess?: boolean;
+
   @IsString()
   @MinLength(2)
   @MaxLength(60)

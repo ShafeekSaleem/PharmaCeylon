@@ -7,10 +7,7 @@ import { usePageChrome } from "@/lib/page-chrome-context";
 import { useAuth } from "@/lib/use-auth";
 import { hasPermission, usePermissions } from "@/lib/permissions";
 import { useBranchRollout, webPosHidden } from "@/lib/branch-rollout";
-import {
-  fetchSetupReadiness,
-  SETUP_JOURNEY_CHANGED_EVENT,
-} from "@/lib/setup-readiness-client";
+import { fetchSetupReadiness, SETUP_JOURNEY_CHANGED_EVENT } from "@/lib/setup-readiness-client";
 import { useFullscreen } from "@/lib/use-fullscreen";
 import {
   BRANCHES_CHANGED_EVENT,
@@ -58,6 +55,7 @@ import {
   roleDeniedMessage,
   type RoleName,
 } from "@/lib/role-access";
+import { isPersonalAccountPath, mayOpenWebPath } from "@/lib/back-office-access";
 import { useFabClearance } from "./use-fab-clearance";
 
 type NavEntry = {
@@ -277,11 +275,7 @@ function readCollapsed(): boolean {
   }
 }
 
-function navItemAllowed(
-  item: NavEntry,
-  userRoles: string[],
-  permissionKeys: string[],
-): boolean {
+function navItemAllowed(item: NavEntry, userRoles: string[], permissionKeys: string[]): boolean {
   if (item.permission) {
     return hasPermission(permissionKeys, [item.permission].flat());
   }
@@ -301,17 +295,11 @@ function buildBreadcrumbs(
   pathname: string,
   lastSegmentLabel?: string | null,
 ): { label: string; href?: string }[] {
-  const navBases = new Set(
-    NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href)),
-  );
-  const base = [...navBases].find(
-    (k) => pathname === k || pathname.startsWith(k + "/"),
-  );
+  const navBases = new Set(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href)));
+  const base = [...navBases].find((k) => pathname === k || pathname.startsWith(k + "/"));
   if (!base) return [{ label: resolvePageTitle(pathname) }];
 
-  const crumbs: { label: string; href?: string }[] = [
-    { label: PAGE_TITLES[base], href: base },
-  ];
+  const crumbs: { label: string; href?: string }[] = [{ label: PAGE_TITLES[base], href: base }];
   const rest = pathname.slice(base.length).replace(/^\//, "");
   if (rest) {
     const segments = rest.split("/").filter(Boolean);
@@ -322,9 +310,7 @@ function buildBreadcrumbs(
       const isLast = i === segments.length - 1;
       const known = PAGE_TITLES[path];
       const label =
-        isLast && lastSegmentLabel
-          ? lastSegmentLabel
-          : (known ?? seg.replace(/-/g, " "));
+        isLast && lastSegmentLabel ? lastSegmentLabel : (known ?? seg.replace(/-/g, " "));
       crumbs.push(isLast ? { label } : { label, href: path });
     }
   }
@@ -335,13 +321,24 @@ function buildBreadcrumbs(
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, ready, isAuthenticated, branchId, setBranchId, logout } =
-    useAuth();
-  const { permissionKeys } = usePermissions();
-  // Until the branch's state is known it reads as not live, so nothing changes for a branch that
-  // isn't live — including while the first answer loads.
-  const { rollout } = useBranchRollout();
+  const { user, ready, isAuthenticated, branchId, setBranchId, logout } = useAuth();
+  const {
+    permissionKeys,
+    backOfficeAccess,
+    accessResolved,
+    loading: permissionsLoading,
+  } = usePermissions();
+  // The branch's web scope is only established by a current rollout answer. While the first read
+  // loads, or after a read failed (a failed refresh clears the earlier answer), it is unknown and
+  // the shell fails closed: no back-office page mounts, so none of its requests run either.
+  const { rollout, resolved: rolloutResolved, failed: rolloutFailed } = useBranchRollout();
+  const scopeRollout = rolloutResolved ? rollout : null;
   const posHidden = webPosHidden(rollout);
+  const webScopeRestricted =
+    !accessResolved || !scopeRollout || (scopeRollout.state !== "not_live" && !backOfficeAccess);
+  const pageAllowed =
+    isPersonalAccountPath(pathname) ||
+    (accessResolved && mayOpenWebPath(pathname, backOfficeAccess, scopeRollout));
   const { extraCrumbs, lastSegmentLabel, chromeHidden } = usePageChrome();
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
 
@@ -403,8 +400,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [ready, isAuthenticated]);
 
   const loadSetupJourney = useCallback(() => {
-    const isOwner =
-      user?.branchRoles.some((entry) => entry.role === "owner") ?? false;
+    const isOwner = user?.branchRoles.some((entry) => entry.role === "owner") ?? false;
     if (!ready || !isAuthenticated || !branchId || !isOwner) {
       setShowSetupJourney(false);
       return () => {};
@@ -442,10 +438,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
-      if (avatarRef.current && !avatarRef.current.contains(e.target as Node))
-        setAvatarOpen(false);
-      if (branchRef.current && !branchRef.current.contains(e.target as Node))
-        setBranchOpen(false);
+      if (avatarRef.current && !avatarRef.current.contains(e.target as Node)) setAvatarOpen(false);
+      if (branchRef.current && !branchRef.current.contains(e.target as Node)) setBranchOpen(false);
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -464,11 +458,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         e.shiftKey &&
         e.code === "KeyP" &&
         permissionKeys.includes("sales.pos_use") &&
+        accessResolved &&
+        !!rollout &&
+        (backOfficeAccess || rollout.state !== "live") &&
         !posHidden
       ) {
         e.preventDefault();
-        if (document.querySelector('[role="dialog"][aria-modal="true"]'))
-          return;
+        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
         router.push("/pos");
         return;
       }
@@ -485,7 +481,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [toggleCollapsed, router, permissionKeys, posHidden, toggleFullscreen]);
+  }, [
+    toggleCollapsed,
+    router,
+    permissionKeys,
+    posHidden,
+    toggleFullscreen,
+    accessResolved,
+    rollout,
+    backOfficeAccess,
+  ]);
 
   const handleLogout = useCallback(async () => {
     setAvatarOpen(false);
@@ -493,11 +498,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.push("/login");
   }, [logout, router]);
 
-  const userRoles = useMemo(
-    () => collectUserRoles(user, branchId),
-    [user, branchId],
-  );
-  const canUsePos = permissionKeys.includes("sales.pos_use");
+  const userRoles = useMemo(() => collectUserRoles(user, branchId), [user, branchId]);
+  const canUsePos =
+    permissionKeys.includes("sales.pos_use") &&
+    accessResolved &&
+    !!rollout &&
+    (backOfficeAccess || rollout.state !== "live");
   const quickSaleHidden =
     pathname === "/pos" ||
     pathname.startsWith("/pos/") ||
@@ -536,20 +542,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const currentBranch = branches.find((b) => b.id === branchId);
   const branchName = currentBranch?.name ?? "Select Branch";
   const pageTitle = resolvePageTitle(pathname);
-  const breadcrumbs = [
-    ...buildBreadcrumbs(pathname, lastSegmentLabel),
-    ...extraCrumbs,
-  ];
+  const breadcrumbs = [...buildBreadcrumbs(pathname, lastSegmentLabel), ...extraCrumbs];
   const initials = user ? getInitials(user.fullName) : "??";
-  const isSettings =
-    pathname === "/settings" || pathname.startsWith("/settings/");
+  const isSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   // Owner/manager settings reach tenant-wide (or, for a manager, several branches they
   // manage) — show the tenant name. Every other role's settings are personal or scoped to
   // their one branch, so the branch name reads more accurately there.
   const settingsScopedToTenant =
-    user?.branchRoles.some(
-      (br) => br.role === "owner" || br.role === "manager",
-    ) ?? false;
+    user?.branchRoles.some((br) => br.role === "owner" || br.role === "manager") ?? false;
 
   const sidebarCls = [
     styles.sidebar,
@@ -572,91 +572,69 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <aside className={sidebarCls}>
           <div className={styles.sidebarHeader}>
             <div className={styles.sidebarLogo}>
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 48 48"
-                fill="none"
-                aria-hidden
-              >
-                <rect
-                  x="8"
-                  y="12"
-                  width="28"
-                  height="22"
-                  rx="3"
-                  stroke="white"
-                  strokeWidth="3"
-                />
+              <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden>
+                <rect x="8" y="12" width="28" height="22" rx="3" stroke="white" strokeWidth="3" />
                 <path
                   d="M16 12V9a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"
                   stroke="white"
                   strokeWidth="3"
                   strokeLinecap="round"
                 />
-                <path
-                  d="M24 22v8M20 26h8"
-                  stroke="white"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                />
+                <path d="M24 22v8M20 26h8" stroke="white" strokeWidth="3" strokeLinecap="round" />
               </svg>
             </div>
-            {!collapsed && (
-              <span className={styles.sidebarBrand}>PharmaCeylon</span>
-            )}
+            {!collapsed && <span className={styles.sidebarBrand}>PharmaCeylon</span>}
           </div>
 
           <nav className={styles.sidebarNav}>
             {navGroups.map((group) => (
               <div key={group.label} className={styles.navGroup}>
                 <span className={styles.navGroupLabel}>{group.label}</span>
-                {group.items.map((item) => {
-                  const active =
-                    pathname === item.href ||
-                    pathname.startsWith(item.href + "/");
-                  const allowed = navItemAllowed(
-                    item,
-                    userRoles,
-                    permissionKeys,
-                  );
-                  const deniedTip = roleDeniedMessage(item.roles);
+                {group.items
+                  .filter(
+                    (item) =>
+                      !webScopeRestricted ||
+                      item.href === "/settings" ||
+                      (item.href === "/pos" && rollout?.state === "fallback"),
+                  )
+                  .map((item) => {
+                    const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                    const allowed = navItemAllowed(item, userRoles, permissionKeys);
+                    const deniedTip = roleDeniedMessage(item.roles);
 
-                  if (!allowed) {
+                    if (!allowed) {
+                      return (
+                        <span
+                          key={item.href}
+                          className={`${styles.navItem} ${styles.navItemRestricted}`}
+                          aria-disabled="true"
+                          data-tooltip={deniedTip}
+                          data-tooltip-placement="right"
+                        >
+                          <span className={styles.navItemIcon}>{item.icon}</span>
+                          <span className={styles.navItemLabel}>{item.label}</span>
+                        </span>
+                      );
+                    }
+
                     return (
-                      <span
+                      <Link
                         key={item.href}
-                        className={`${styles.navItem} ${styles.navItemRestricted}`}
-                        aria-disabled="true"
-                        data-tooltip={deniedTip}
-                        data-tooltip-placement="right"
+                        href={item.href}
+                        className={`${styles.navItem}${active ? ` ${styles.navItemActive}` : ""}`}
+                        onClick={() => setMobileOpen(false)}
+                        {...(collapsed
+                          ? {
+                              "data-tooltip": item.label,
+                              "data-tooltip-placement": "right",
+                            }
+                          : {})}
                       >
                         <span className={styles.navItemIcon}>{item.icon}</span>
-                        <span className={styles.navItemLabel}>
-                          {item.label}
-                        </span>
-                      </span>
+                        <span className={styles.navItemLabel}>{item.label}</span>
+                      </Link>
                     );
-                  }
-
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`${styles.navItem}${active ? ` ${styles.navItemActive}` : ""}`}
-                      onClick={() => setMobileOpen(false)}
-                      {...(collapsed
-                        ? {
-                            "data-tooltip": item.label,
-                            "data-tooltip-placement": "right",
-                          }
-                        : {})}
-                    >
-                      <span className={styles.navItemIcon}>{item.icon}</span>
-                      <span className={styles.navItemLabel}>{item.label}</span>
-                    </Link>
-                  );
-                })}
+                  })}
               </div>
             ))}
           </nav>
@@ -685,7 +663,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
             <span className={styles.pageTitle}>{pageTitle}</span>
 
-            <GlobalSearch permissionKeys={permissionKeys} posHidden={posHidden} />
+            {!webScopeRestricted && (
+              <GlobalSearch permissionKeys={permissionKeys} posHidden={posHidden} />
+            )}
 
             <div className={styles.topbarRight}>
               <button
@@ -693,22 +673,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={`${styles.iconBtn}${isFullscreen ? ` ${styles.iconBtnActive}` : ""}`}
                 onClick={toggleFullscreen}
                 aria-pressed={isFullscreen}
-                aria-label={
-                  isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
-                }
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 data-tooltip={
                   isFullscreen
                     ? "Exit fullscreen (Ctrl+Shift+F)"
                     : "Enter fullscreen (Ctrl+Shift+F)"
                 }
               >
-                {isFullscreen ? (
-                  <IconMinimize size={16} />
-                ) : (
-                  <IconMaximize size={16} />
-                )}
+                {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
               </button>
-              <NotificationCenter />
+              {!webScopeRestricted && <NotificationCenter />}
 
               {/* Avatar */}
               <div className={styles.avatarWrap} ref={avatarRef}>
@@ -718,21 +692,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   onClick={() => setAvatarOpen((v) => !v)}
                   aria-label="User menu"
                 >
-                  {user?.avatarUrl ? (
-                    <img src={user.avatarUrl} alt="" />
-                  ) : (
-                    initials
-                  )}
+                  {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initials}
                 </button>
                 {avatarOpen && (
                   <div className={styles.avatarMenu}>
                     <div className={styles.avatarMenuHeader}>
-                      <div className={styles.avatarMenuName}>
-                        {user?.fullName}
-                      </div>
-                      <div className={styles.avatarMenuEmail}>
-                        {user?.email}
-                      </div>
+                      <div className={styles.avatarMenuName}>{user?.fullName}</div>
+                      <div className={styles.avatarMenuEmail}>{user?.email}</div>
                     </div>
                     <div className={styles.avatarMenuBody}>
                       <button
@@ -774,7 +740,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {breadcrumbs.map((crumb, i) => (
               <span key={i} className={styles.breadcrumbSegment}>
                 <IconChevronRight size={12} />
-                {crumb.href ? (
+                {crumb.href && !webScopeRestricted ? (
                   <Link href={crumb.href} className={styles.breadcrumbLink}>
                     {crumb.label}
                   </Link>
@@ -834,10 +800,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Page content. The FAB is fixed over this, so reserve its footprint at the
             bottom — otherwise a fully scrolled page ends underneath it. */}
-        <main
-          className={`${styles.content}${showQuickSale ? ` ${styles.contentWithFab}` : ""}`}
-        >
-          {children}
+        <main className={`${styles.content}${showQuickSale ? ` ${styles.contentWithFab}` : ""}`}>
+          {pageAllowed ? (
+            children
+          ) : permissionsLoading || (!scopeRollout && !rolloutFailed) ? (
+            <p role="status">Checking web access…</p>
+          ) : !accessResolved || rolloutFailed ? (
+            <p role="alert">Web access could not be checked. Refresh this page to try again.</p>
+          ) : (
+            <section aria-label="Counter access">
+              <h1>Use PharmaCeylon POS</h1>
+              <p>
+                Work at your branch counter in PharmaCeylon POS. You can manage your personal
+                account here.
+              </p>
+              <Link href="/settings/my-profile">My Profile</Link>
+              {" · "}
+              <Link href="/settings/password-login">Password &amp; Security</Link>
+              {" · "}
+              <Link href="/settings/appearance">Display settings</Link>
+              {rollout?.state === "fallback" && permissionKeys.includes("sales.pos_use") && (
+                <p>
+                  <Link href="/pos">Open web POS fallback</Link>
+                </p>
+              )}
+            </section>
+          )}
         </main>
       </div>
 

@@ -4,12 +4,26 @@ import { useEffect, useState } from "react";
 import { apiJson } from "./auth-client";
 import { useAuth } from "./use-auth";
 
-type MyPermissionsResponse = { permissionKeys: string[]; canSelfApprove?: boolean };
-type Granted = { keys: string[]; canSelfApprove: boolean };
+type MyPermissionsResponse = {
+  permissionKeys: string[];
+  canSelfApprove?: boolean;
+  backOfficeAccess?: boolean;
+};
+type Granted = {
+  keys: string[];
+  canSelfApprove: boolean;
+  backOfficeAccess: boolean;
+  accessResolved: boolean;
+};
 
 async function fetchMyPermissions(): Promise<Granted> {
   const data = await apiJson<MyPermissionsResponse>("/tenant/my-permissions");
-  return { keys: data.permissionKeys, canSelfApprove: data.canSelfApprove ?? false };
+  return {
+    keys: data.permissionKeys,
+    canSelfApprove: data.canSelfApprove ?? false,
+    backOfficeAccess: data.backOfficeAccess === true,
+    accessResolved: true,
+  };
 }
 
 export function hasPermission(granted: string[], required?: string[]): boolean {
@@ -21,9 +35,18 @@ export function hasPermission(granted: string[], required?: string[]): boolean {
  * One shared answer per branch, so the several components that ask on a page make one request
  * between them, and a revalidation reaches all of them at once.
  */
-const subscribers = new Set<(granted: Granted) => void>();
+const subscribers = new Set<{
+  branchKey: string;
+  notify: (granted: Granted) => void;
+}>();
 let cache: { branchKey: string; granted: Granted } | null = null;
 let inFlight: { branchKey: string; promise: Promise<Granted> } | null = null;
+
+/** Test seam, matching the branch rollout cache. */
+export function resetPermissionsCache(): void {
+  cache = null;
+  inFlight = null;
+}
 
 function load(branchKey: string, force = false): Promise<Granted> {
   if (!force && cache?.branchKey === branchKey) return Promise.resolve(cache.granted);
@@ -31,8 +54,21 @@ function load(branchKey: string, force = false): Promise<Granted> {
   const promise = fetchMyPermissions()
     .then((granted) => {
       cache = { branchKey, granted };
-      for (const notify of subscribers) notify(granted);
+      for (const subscriber of subscribers)
+        if (subscriber.branchKey === branchKey) subscriber.notify(granted);
       return granted;
+    })
+    .catch(() => {
+      cache = null;
+      const denied = {
+        keys: [],
+        canSelfApprove: false,
+        backOfficeAccess: false,
+        accessResolved: false,
+      };
+      for (const subscriber of subscribers)
+        if (subscriber.branchKey === branchKey) subscriber.notify(denied);
+      return denied;
     })
     .finally(() => {
       if (inFlight?.promise === promise) inFlight = null;
@@ -58,7 +94,12 @@ function load(branchKey: string, force = false): Promise<Granted> {
 export function usePermissions() {
   const { user, branchId, ready } = useAuth();
   const [permissionKeys, setPermissionKeys] = useState<string[]>(() => cache?.granted.keys ?? []);
-  const [canSelfApprove, setCanSelfApprove] = useState(() => cache?.granted.canSelfApprove ?? false);
+  const [canSelfApprove, setCanSelfApprove] = useState(
+    () => cache?.granted.canSelfApprove ?? false,
+  );
+  const [resolvedKey, setResolvedKey] = useState<string | null>(null);
+  const [accessResolved, setAccessResolved] = useState(false);
+  const [backOfficeAccess, setBackOfficeAccess] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
@@ -67,7 +108,7 @@ export function usePermissions() {
       setLoading(false);
       return;
     }
-    const branchKey = branchId ?? "none";
+    const branchKey = `${user.id}:${branchId ?? "none"}`;
     let cancelled = false;
     setLoading(true);
 
@@ -75,8 +116,12 @@ export function usePermissions() {
       if (cancelled) return;
       setPermissionKeys(granted.keys);
       setCanSelfApprove(granted.canSelfApprove);
+      setBackOfficeAccess(granted.backOfficeAccess);
+      setAccessResolved(granted.accessResolved);
+      setResolvedKey(branchKey);
     };
-    subscribers.add(notify);
+    const subscriber = { branchKey, notify };
+    subscribers.add(subscriber);
 
     const settle = (granted: Granted) => {
       if (cancelled) return;
@@ -86,23 +131,46 @@ export function usePermissions() {
     };
     load(branchKey)
       .then(settle)
-      .catch(() => settle({ keys: [], canSelfApprove: false }));
+      .catch(() =>
+        settle({
+          keys: [],
+          canSelfApprove: false,
+          backOfficeAccess: false,
+          accessResolved: false,
+        }),
+      );
 
     // A permission someone else changed should take effect when this tab is looked at again,
     // not only after a full reload.
     const revalidate = () => {
-      if (document.visibilityState === "visible") void load(branchKey, true).catch(() => {});
+      if (document.visibilityState === "visible")
+        void load(branchKey, true).catch(() =>
+          notify({
+            keys: [],
+            canSelfApprove: false,
+            backOfficeAccess: false,
+            accessResolved: false,
+          }),
+        );
     };
     window.addEventListener("focus", revalidate);
     document.addEventListener("visibilitychange", revalidate);
 
     return () => {
       cancelled = true;
-      subscribers.delete(notify);
+      subscribers.delete(subscriber);
       window.removeEventListener("focus", revalidate);
       document.removeEventListener("visibilitychange", revalidate);
     };
   }, [ready, user, branchId]);
 
-  return { permissionKeys, canSelfApprove, loading, hasLoadedOnce };
+  const scopeMatches = resolvedKey === `${user?.id}:${branchId ?? "none"}`;
+  return {
+    permissionKeys,
+    canSelfApprove,
+    backOfficeAccess: scopeMatches && backOfficeAccess,
+    accessResolved: scopeMatches && accessResolved,
+    loading: loading || !scopeMatches,
+    hasLoadedOnce,
+  };
 }

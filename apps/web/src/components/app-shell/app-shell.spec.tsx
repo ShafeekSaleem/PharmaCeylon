@@ -8,8 +8,11 @@ import {
 import { AppShell } from "./app-shell";
 
 const push = jest.fn();
+let mockPathname = "/dashboard";
+let mockBackOfficeAccess = true;
+let mockAccessResolved = true;
 jest.mock("next/navigation", () => ({
-  usePathname: () => "/dashboard",
+  usePathname: () => mockPathname,
   useRouter: () => ({ push, replace: jest.fn() }),
 }));
 
@@ -39,6 +42,8 @@ jest.mock("@/lib/permissions", () => ({
   usePermissions: () => ({
     permissionKeys: mockKeys,
     canSelfApprove: false,
+    backOfficeAccess: mockBackOfficeAccess,
+    accessResolved: mockAccessResolved,
     loading: false,
     hasLoadedOnce: true,
   }),
@@ -46,9 +51,15 @@ jest.mock("@/lib/permissions", () => ({
 
 jest.mock("@/lib/auth-client", () => ({
   apiJson: jest.fn(),
-  fetchTenantBranches: jest
-    .fn()
-    .mockResolvedValue([{ id: "b-1", code: "CMB", name: "Colombo", city: null, timezone: "Asia/Colombo" }]),
+  fetchTenantBranches: jest.fn().mockResolvedValue([
+    {
+      id: "b-1",
+      code: "CMB",
+      name: "Colombo",
+      city: null,
+      timezone: "Asia/Colombo",
+    },
+  ]),
   fetchTenantDisplayName: jest.fn().mockResolvedValue("Tenant"),
   BRANCHES_CHANGED_EVENT: "pharmaceylon-branches-changed",
 }));
@@ -61,14 +72,28 @@ jest.mock("@/components/notifications/notification-center", () => ({
 }));
 
 const request = jest.mocked(apiJson);
-const NOT_LIVE: PosRollout = { state: "not_live", liveSince: null, fallback: null };
-const LIVE: PosRollout = { state: "live", liveSince: "2026-10-01T00:00:00Z", fallback: null };
+const NOT_LIVE: PosRollout = {
+  state: "not_live",
+  liveSince: null,
+  fallback: null,
+};
+const LIVE: PosRollout = {
+  state: "live",
+  liveSince: "2026-10-01T00:00:00Z",
+  fallback: null,
+};
 const inHours = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
 
 let rollout: PosRollout = NOT_LIVE;
 function contextResponse() {
   return {
-    branchRoles: [{ branchId: "b-1", role: "cashier", branch: { id: "b-1", posRollout: rollout } }],
+    branchRoles: [
+      {
+        branchId: "b-1",
+        role: "cashier",
+        branch: { id: "b-1", posRollout: rollout },
+      },
+    ],
   };
 }
 
@@ -92,24 +117,33 @@ async function renderShell() {
 
 beforeEach(() => {
   resetBranchRolloutCache();
+  mockPathname = "/dashboard";
+  mockBackOfficeAccess = true;
+  mockAccessResolved = true;
   rollout = NOT_LIVE;
   mockRoles = [{ branchId: "b-1", role: "cashier" }];
   mockKeys = ["sales.pos_use", "customers.view", "prescriptions.view"];
   push.mockReset();
   request.mockReset();
-  request.mockImplementation(async (path: string) =>
-    (path === "/tenant/context" ? contextResponse() : { groups: [] }) as never,
+  request.mockImplementation(
+    async (path: string) =>
+      (path === "/tenant/context" ? contextResponse() : { groups: [] }) as never,
   );
 });
 
 describe("AppShell and the branch's desktop POS state", () => {
   it("keeps POS exactly as today at a branch that isn't live", async () => {
     await renderShell();
+    await waitFor(() => expect(screen.getByText("Page body")).toBeInTheDocument());
     expect(posNavLink()).toHaveAttribute("href", "/pos");
     expect(quickSale()).toHaveAttribute("href", "/pos");
     expect(screen.queryByText(/Web POS fallback is on/)).not.toBeInTheDocument();
 
-    fireEvent.keyDown(document, { code: "KeyP", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(document, {
+      code: "KeyP",
+      ctrlKey: true,
+      shiftKey: true,
+    });
     expect(push).toHaveBeenCalledWith("/pos");
   });
 
@@ -120,7 +154,11 @@ describe("AppShell and the branch's desktop POS state", () => {
     expect(quickSale()).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Customers" })).toBeInTheDocument();
 
-    fireEvent.keyDown(document, { code: "KeyP", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(document, {
+      code: "KeyP",
+      ctrlKey: true,
+      shiftKey: true,
+    });
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -153,14 +191,15 @@ describe("AppShell and the branch's desktop POS state", () => {
     await waitFor(() => expect(posNavLink()).toBeInTheDocument());
   });
 
-  it("keeps today's behaviour if the state can't be loaded", async () => {
+  it("does not expose branch pages when rollout state cannot be checked", async () => {
     request.mockImplementation(async (path: string) => {
       if (path === "/tenant/context") throw new Error("offline");
       return { groups: [] } as never;
     });
     await renderShell();
-    expect(posNavLink()).toBeInTheDocument();
-    expect(quickSale()).toBeInTheDocument();
+    expect(posNavLink()).not.toBeInTheDocument();
+    expect(quickSale()).not.toBeInTheDocument();
+    expect(screen.queryByText("Page body")).not.toBeInTheDocument();
   });
 });
 
@@ -185,5 +224,104 @@ describe("AppShell nav gates on permission keys, not built-in role names", () =>
       "true",
     );
     expect(quickSale()).not.toBeInTheDocument();
+  });
+});
+
+describe("W3 back-office web scope", () => {
+  it("never mounts a direct back-office page for a counter-only custom role at a live branch", async () => {
+    rollout = LIVE;
+    mockBackOfficeAccess = false;
+    mockRoles = [{ branchId: "b-1", role: "custom" }];
+    mockPathname = "/sales/private-sale";
+    mockKeys = ["sales.pos_use", "sales.view", "inventory.view"];
+    await renderShell();
+    expect(screen.queryByText("Page body")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Use PharmaCeylon POS" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sales history" })).not.toBeInTheDocument();
+    expect(quickSale()).not.toBeInTheDocument();
+    fireEvent.keyDown(document, {
+      code: "KeyP",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("blocks content on a permission fetch failure, including before branch go-live", async () => {
+    mockAccessResolved = false;
+    await renderShell();
+    expect(screen.queryByText("Page body")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Web access could not be checked");
+  });
+
+  it("unmounts a back-office page when the branch goes live and the rollout refresh fails", async () => {
+    mockBackOfficeAccess = false;
+    mockPathname = "/inventory";
+    await renderShell();
+    expect(screen.getByText("Page body")).toBeInTheDocument();
+
+    // The owner moves the branch live; this tab's forced re-read of the context fails, while
+    // its permissions resolve without back-office scope.
+    rollout = LIVE;
+    request.mockImplementation(async (path: string) => {
+      if (path === "/tenant/context") throw new Error("offline");
+      return { groups: [] } as never;
+    });
+    await act(async () => notifyPosRolloutChanged());
+
+    await waitFor(() => expect(screen.queryByText("Page body")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("Web access could not be checked");
+    expect(posNavLink()).not.toBeInTheDocument();
+    expect(quickSale()).not.toBeInTheDocument();
+
+    // The next read that lands establishes the scope again.
+    request.mockImplementation(
+      async (path: string) =>
+        (path === "/tenant/context" ? contextResponse() : { groups: [] }) as never,
+    );
+    await act(async () => notifyPosRolloutChanged());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Use PharmaCeylon POS" })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Page body")).not.toBeInTheDocument();
+  });
+
+  it("applies a successful rollout refresh to the page in place", async () => {
+    mockBackOfficeAccess = false;
+    mockPathname = "/inventory";
+    await renderShell();
+    expect(screen.getByText("Page body")).toBeInTheDocument();
+
+    rollout = LIVE;
+    await act(async () => notifyPosRolloutChanged());
+    await waitFor(() => expect(screen.queryByText("Page body")).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Use PharmaCeylon POS" })).toBeInTheDocument();
+
+    // Back-office scope keeps the page open at a live branch.
+    mockBackOfficeAccess = true;
+    await act(async () => notifyPosRolloutChanged());
+    await waitFor(() => expect(screen.getByText("Page body")).toBeInTheDocument());
+  });
+
+  it("keeps personal account pages available without back-office scope", async () => {
+    rollout = LIVE;
+    mockBackOfficeAccess = false;
+    mockPathname = "/settings/my-profile";
+    await renderShell();
+    expect(screen.getByText("Page body")).toBeInTheDocument();
+  });
+
+  it("keeps web POS available in an owner fallback without granting the rest of the back office", async () => {
+    rollout = {
+      state: "fallback",
+      liveSince: LIVE.liveSince,
+      fallback: { startedAt: new Date().toISOString(), endsAt: inHours(2) },
+    };
+    mockBackOfficeAccess = false;
+    mockPathname = "/pos";
+    await renderShell();
+    expect(screen.getByText("Page body")).toBeInTheDocument();
+    expect(posNavLink()).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Customers" })).not.toBeInTheDocument();
   });
 });

@@ -31,11 +31,12 @@ export function updateRole(
 export function updateRolePermissions(
   roleId: string,
   permissionKeys: string[],
+  backOfficeAccess?: boolean,
 ): Promise<{ id: string; permissionKeys: string[] }> {
   return apiJson(`/admin/roles/${roleId}/permissions`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ permissionKeys }),
+    body: JSON.stringify({ permissionKeys, backOfficeAccess }),
   });
 }
 

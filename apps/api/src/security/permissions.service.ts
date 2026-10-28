@@ -70,6 +70,29 @@ export class PermissionsService {
     return granted;
   }
 
+  /** Web scope only: never changes the operation permission keys used by desktop/API clients. */
+  async resolveBackOfficeAccess(
+    tenantId: string,
+    candidates: PermissionCandidate[],
+  ): Promise<boolean> {
+    const roleIds = candidates.flatMap((candidate) => (candidate.roleId ? [candidate.roleId] : []));
+    if (
+      candidates.some(
+        (candidate) =>
+          !candidate.roleId &&
+          candidate.role !== RoleName.cashier &&
+          candidate.role !== RoleName.custom,
+      )
+    )
+      return true;
+    if (!roleIds.length) return false;
+    const role = await this.prisma.role.findFirst({
+      where: { tenantId, id: { in: roleIds }, backOfficeAccess: true },
+      select: { id: true },
+    });
+    return role !== null;
+  }
+
   async hasAnyPermission(
     candidates: PermissionCandidate[],
     requiredKeys: string[],

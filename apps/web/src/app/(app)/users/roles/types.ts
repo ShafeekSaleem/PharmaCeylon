@@ -7,6 +7,7 @@ export type RoleRow = {
   description: string | null;
   isSystem: boolean;
   isLocked: boolean;
+  backOfficeAccess: boolean;
   assignedCount: number;
   permissionKeys: string[];
   /** Catalog defaults for a built-in role (for "Reset to recommended defaults"); null for custom roles. */
@@ -29,6 +30,7 @@ export type PermissionModule = {
 };
 
 export type CreateRolePayload = {
+  backOfficeAccess?: boolean;
   name: string;
   description?: string;
   permissionKeys: string[];

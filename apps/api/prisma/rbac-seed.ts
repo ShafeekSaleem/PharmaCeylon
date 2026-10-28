@@ -21,7 +21,11 @@ export async function ensureRbacSeed(prisma: PrismaClient): Promise<void> {
   for (const perm of PERMISSION_CATALOG) {
     await prisma.permission.upsert({
       where: { key: perm.key },
-      update: { module: perm.module, label: perm.label, description: perm.description },
+      update: {
+        module: perm.module,
+        label: perm.label,
+        description: perm.description,
+      },
       create: {
         key: perm.key,
         module: perm.module,
@@ -53,6 +57,7 @@ export async function ensureRbacSeed(prisma: PrismaClient): Promise<void> {
               tenantId,
               key: role,
               name: BUILT_IN_ROLE_LABELS[role],
+              backOfficeAccess: role !== RoleName.cashier,
               isSystem: true,
               isLocked: role === RoleName.owner,
             },

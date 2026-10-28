@@ -36,15 +36,32 @@ export class TenantController {
         isActive: true,
         id: { in: user.branchRoles.map((b) => b.branchId) },
       },
-      select: { id: true, code: true, name: true, city: true, ...POS_ROLLOUT_SELECT },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        city: true,
+        ...POS_ROLLOUT_SELECT,
+      },
       orderBy: { code: "asc" },
     });
     const now = new Date();
     const branches = rows.map(
-      ({ desktopPosRollout, desktopPosLiveAt, posFallbackStartedAt, posFallbackEndsAt, ...branch }) => ({
+      ({
+        desktopPosRollout,
+        desktopPosLiveAt,
+        posFallbackStartedAt,
+        posFallbackEndsAt,
+        ...branch
+      }) => ({
         ...branch,
         posRollout: resolvePosRollout(
-          { desktopPosRollout, desktopPosLiveAt, posFallbackStartedAt, posFallbackEndsAt },
+          {
+            desktopPosRollout,
+            desktopPosLiveAt,
+            posFallbackStartedAt,
+            posFallbackEndsAt,
+          },
           now,
         ),
       }),
@@ -128,13 +145,21 @@ export class TenantController {
     const access = await this.access.resolve(user, req.branchId);
     const hasOwnerRole = user.branchRoles.some((entry) => entry.role === RoleName.owner);
     if (hasOwnerRole) {
-      return { permissionKeys: PERMISSION_KEYS, canSelfApprove: access.canSelfApprove };
+      return {
+        permissionKeys: PERMISSION_KEYS,
+        canSelfApprove: access.canSelfApprove,
+        backOfficeAccess: true,
+      };
     }
     const candidates = req.branchId
       ? user.branchRoles.filter((entry) => entry.branchId === req.branchId)
       : user.branchRoles;
     const granted = await this.permissions.resolveGrantedKeys(candidates);
-    return { permissionKeys: [...granted], canSelfApprove: access.canSelfApprove };
+    return {
+      permissionKeys: [...granted],
+      canSelfApprove: access.canSelfApprove,
+      backOfficeAccess: await this.permissions.resolveBackOfficeAccess(user.tenantId, candidates),
+    };
   }
 
   /** Settings → General → Tenant Profile. Open read (any authenticated user); only

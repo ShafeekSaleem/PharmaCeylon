@@ -359,6 +359,17 @@ Structured hours replace the free-text `Branch.openingHours`. The document is `B
   saves). It never writes a mandatory restriction, and the database refuses one with that origin.
 - `openingHours` is no longer accepted by `POST /tenant/branches` or `PATCH /tenant/branches/:branchId`.
 
+### Role back-office web access (W3)
+
+Role list/create responses include `backOfficeAccess: boolean`. `POST /admin/roles` accepts
+an optional boolean (new custom-role default false). `PATCH /admin/roles/:id/permissions`
+accepts optional `backOfficeAccess` alongside `permissionKeys`; both save in the same database
+transaction. Omission preserves the setting. The locked owner role rejects edits.
+`GET /tenant/my-permissions` includes effective `backOfficeAccess`, resolved for only the
+selected branch's role IDs and tenant, or all the caller's mappings without a branch header.
+This field only scopes web presentation: operation permission keys and API checks remain intact.
+Apply migration `20261028000000_role_back_office_access` before deploying API/web together.
+
 ## Versioning
 
 Pilot uses **`/api/v1`**. Breaking changes should move to `/api/v2` or be gated by explicit API version headers if you outgrow this model.

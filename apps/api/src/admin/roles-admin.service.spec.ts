@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
 import { AuditService } from "../audit/audit.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PermissionsService } from "../security/permissions.service";
@@ -17,7 +22,11 @@ describe("RolesAdminService", () => {
       update: jest.Mock;
       delete: jest.Mock;
     };
-    rolePermission: { findMany: jest.Mock; deleteMany: jest.Mock; createMany: jest.Mock };
+    rolePermission: {
+      findMany: jest.Mock;
+      deleteMany: jest.Mock;
+      createMany: jest.Mock;
+    };
     userBranchRole: { count: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -36,18 +45,64 @@ describe("RolesAdminService", () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
-      rolePermission: { findMany: jest.fn(), deleteMany: jest.fn(), createMany: jest.fn() },
+      rolePermission: {
+        findMany: jest.fn(),
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
+      },
       userBranchRole: { count: jest.fn() },
       $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
     };
     audit = { log: jest.fn() } as unknown as AuditService;
     permissions = { invalidateRole: jest.fn() };
-    notifications = { notifyByPermission: jest.fn().mockResolvedValue(undefined) };
+    notifications = {
+      notifyByPermission: jest.fn().mockResolvedValue(undefined),
+    };
     service = new RolesAdminService(
       prisma as never,
       audit,
       permissions as unknown as PermissionsService,
       notifications as unknown as NotificationsService,
+    );
+  });
+
+  it("groups each existing key once and labels mixed workflows with their physical boundary", () => {
+    const groups = service.listPermissionCatalog();
+    const entries = groups.flatMap((group) => group.permissions);
+    expect(new Set(entries.map((entry) => entry.key)).size).toBe(entries.length);
+    expect(
+      groups.find((group) => group.permissions.some((entry) => entry.key === "sales.pos_use"))
+        ?.moduleLabel,
+    ).toContain("At the counter (desktop)");
+    expect(
+      groups.find((group) => group.permissions.some((entry) => entry.key === "users.manage"))
+        ?.moduleLabel,
+    ).toContain("Manage from anywhere");
+    expect(entries.find((entry) => entry.key === "transfers.manage")?.description).toContain(
+      "physical counts",
+    );
+  });
+
+  it("saves web scope without removing unchanged desktop grants and audits it", async () => {
+    prisma.role.findFirst.mockResolvedValue({
+      id: "role-1",
+      isLocked: false,
+      backOfficeAccess: true,
+    });
+    prisma.rolePermission.findMany.mockResolvedValue([{ permissionKey: "sales.pos_use" }]);
+    await service.updateRolePermissions(tenantId, actorUserId, "role-1", {
+      permissionKeys: ["sales.pos_use"],
+      backOfficeAccess: false,
+    });
+    expect(prisma.role.update).toHaveBeenCalledWith({
+      where: { id: "role-1", tenantId },
+      data: { backOfficeAccess: false },
+    });
+    expect(prisma.rolePermission.deleteMany).not.toHaveBeenCalled();
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ backOfficeAccess: false }),
+      }),
     );
   });
 
@@ -71,7 +126,12 @@ describe("RolesAdminService", () => {
 
       expect(prisma.role.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ tenantId, key: "shift-lead", isSystem: false, isLocked: false }),
+          data: expect.objectContaining({
+            tenantId,
+            key: "shift-lead",
+            isSystem: false,
+            isLocked: false,
+          }),
         }),
       );
       expect(result.permissionKeys).toEqual(["inventory.view"]);
@@ -104,10 +164,15 @@ describe("RolesAdminService", () => {
         permissions: [],
       });
 
-      await service.createRole(tenantId, actorUserId, { name: "Shift Lead", permissionKeys: [] });
+      await service.createRole(tenantId, actorUserId, {
+        name: "Shift Lead",
+        permissionKeys: [],
+      });
 
       expect(prisma.role.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ key: "shift-lead-2" }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ key: "shift-lead-2" }),
+        }),
       );
     });
   });
@@ -116,12 +181,17 @@ describe("RolesAdminService", () => {
     it("blocks renaming a built-in role", async () => {
       prisma.role.findFirst.mockResolvedValue({ id: "role-1", isSystem: true });
       await expect(
-        service.updateRole(tenantId, actorUserId, "role-1", { name: "New Name" }),
+        service.updateRole(tenantId, actorUserId, "role-1", {
+          name: "New Name",
+        }),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it("scopes the final role update to the tenant", async () => {
-      prisma.role.findFirst.mockResolvedValue({ id: "role-1", isSystem: false });
+      prisma.role.findFirst.mockResolvedValue({
+        id: "role-1",
+        isSystem: false,
+      });
       prisma.role.update.mockResolvedValue({
         id: "role-1",
         name: "Shift Supervisor",
@@ -140,14 +210,19 @@ describe("RolesAdminService", () => {
     it("404s for a role outside the tenant", async () => {
       prisma.role.findFirst.mockResolvedValue(null);
       await expect(
-        service.updateRole(tenantId, actorUserId, "role-x", { name: "New Name" }),
+        service.updateRole(tenantId, actorUserId, "role-x", {
+          name: "New Name",
+        }),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe("updateRolePermissions", () => {
     it("blocks editing the locked owner role's permissions", async () => {
-      prisma.role.findFirst.mockResolvedValue({ id: "owner-role", isLocked: true });
+      prisma.role.findFirst.mockResolvedValue({
+        id: "owner-role",
+        isLocked: true,
+      });
       await expect(
         service.updateRolePermissions(tenantId, actorUserId, "owner-role", {
           permissionKeys: ["users.view"],
@@ -157,7 +232,10 @@ describe("RolesAdminService", () => {
     });
 
     it("diffs added/removed permissions and invalidates the permissions cache", async () => {
-      prisma.role.findFirst.mockResolvedValue({ id: "role-1", isLocked: false });
+      prisma.role.findFirst.mockResolvedValue({
+        id: "role-1",
+        isLocked: false,
+      });
       prisma.rolePermission.findMany.mockResolvedValue([
         { permissionKey: "inventory.view" },
         { permissionKey: "products.view" },
@@ -168,7 +246,11 @@ describe("RolesAdminService", () => {
       });
 
       expect(prisma.rolePermission.deleteMany).toHaveBeenCalledWith({
-        where: { tenantId, roleId: "role-1", permissionKey: { in: ["products.view"] } },
+        where: {
+          tenantId,
+          roleId: "role-1",
+          permissionKey: { in: ["products.view"] },
+        },
       });
       expect(prisma.rolePermission.createMany).toHaveBeenCalledWith({
         data: [{ tenantId, roleId: "role-1", permissionKey: "stocktakes.use" }],
@@ -177,7 +259,10 @@ describe("RolesAdminService", () => {
     });
 
     it("rejects an unknown permission key before touching the database", async () => {
-      prisma.role.findFirst.mockResolvedValue({ id: "role-1", isLocked: false });
+      prisma.role.findFirst.mockResolvedValue({
+        id: "role-1",
+        isLocked: false,
+      });
       await expect(
         service.updateRolePermissions(tenantId, actorUserId, "role-1", {
           permissionKeys: ["nonsense.key"],
@@ -196,7 +281,11 @@ describe("RolesAdminService", () => {
     });
 
     it("blocks deleting a custom role that still has staff assigned", async () => {
-      prisma.role.findFirst.mockResolvedValue({ id: "role-1", isSystem: false, name: "Shift Lead" });
+      prisma.role.findFirst.mockResolvedValue({
+        id: "role-1",
+        isSystem: false,
+        name: "Shift Lead",
+      });
       prisma.userBranchRole.count.mockResolvedValue(2);
       await expect(service.deleteRole(tenantId, actorUserId, "role-1")).rejects.toThrow(
         ConflictException,
@@ -205,12 +294,18 @@ describe("RolesAdminService", () => {
     });
 
     it("deletes an unassigned custom role and invalidates its cache", async () => {
-      prisma.role.findFirst.mockResolvedValue({ id: "role-1", isSystem: false, name: "Shift Lead" });
+      prisma.role.findFirst.mockResolvedValue({
+        id: "role-1",
+        isSystem: false,
+        name: "Shift Lead",
+      });
       prisma.userBranchRole.count.mockResolvedValue(0);
 
       const result = await service.deleteRole(tenantId, actorUserId, "role-1");
 
-      expect(prisma.role.delete).toHaveBeenCalledWith({ where: { id: "role-1", tenantId } });
+      expect(prisma.role.delete).toHaveBeenCalledWith({
+        where: { id: "role-1", tenantId },
+      });
       expect(permissions.invalidateRole).toHaveBeenCalledWith("role-1");
       expect(result).toEqual({ ok: true });
     });

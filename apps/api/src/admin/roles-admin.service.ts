@@ -40,24 +40,59 @@ export class RolesAdminService {
 
   /** Full catalog grouped into page/context-sized sections, for the Roles & Permissions editor. */
   listPermissionCatalog() {
-    const bySection = new Map<string, typeof PERMISSION_CATALOG>();
-    for (const perm of PERMISSION_CATALOG) {
-      const section = MODULE_SECTIONS[perm.module] ?? perm.module;
-      const list = bySection.get(section) ?? [];
-      list.push(perm);
-      bySection.set(section, list);
+    const counterKeys = new Set([
+      "sales.pos_use",
+      "sales.pos_pin_manage",
+      "sales.void",
+      "sales.refund",
+      "sales.approve_controlled",
+      "prescriptions.create",
+      "inventory.manage",
+      "inventory.write_off",
+      "inventory.quarantine",
+      "inventory.release_quarantine",
+      "inventory.manage_bulk",
+      "purchasing.receive",
+    ]);
+    const mixedKeys = new Set([
+      "stocktakes.use",
+      "stocktakes.review",
+      "transfers.manage",
+      "returns.process",
+      "products.import",
+      "suppliers.pay",
+    ]);
+    const result = [];
+    for (const [context, label] of [
+      ["remote", "Manage from anywhere"],
+      ["counter", "At the counter (desktop)"],
+    ] as const) {
+      const bySection = new Map<string, typeof PERMISSION_CATALOG>();
+      for (const perm of PERMISSION_CATALOG) {
+        if (counterKeys.has(perm.key) !== (context === "counter")) continue;
+        const section = MODULE_SECTIONS[perm.module] ?? perm.module;
+        const list = bySection.get(section) ?? [];
+        list.push(perm);
+        bySection.set(section, list);
+      }
+      for (const [section, permissions] of bySection)
+        result.push({
+          module: `${context}:${section}`,
+          moduleLabel: `${label} - ${SECTION_LABELS[section] ?? section}`,
+          permissions: permissions.map((entry) => ({
+            key: entry.key,
+            label: entry.label,
+            description:
+              entry.description +
+              (mixedKeys.has(entry.key)
+                ? " Planning, preparation and approval can be remote; physical counts, posting, dispatch/receipt, cash and executed refunds require the counter after go-live."
+                : ""),
+            riskLevel: entry.riskLevel,
+            dependencies: entry.dependencies,
+          })),
+        });
     }
-    return [...bySection.entries()].map(([section, permissions]) => ({
-      module: section,
-      moduleLabel: SECTION_LABELS[section] ?? section,
-      permissions: permissions.map((p) => ({
-        key: p.key,
-        label: p.label,
-        description: p.description,
-        riskLevel: p.riskLevel,
-        dependencies: p.dependencies,
-      })),
-    }));
+    return result;
   }
 
   async listRoles(tenantId: string) {
@@ -77,6 +112,7 @@ export class RolesAdminService {
       description: role.description,
       isSystem: role.isSystem,
       isLocked: role.isLocked,
+      backOfficeAccess: role.backOfficeAccess,
       assignedCount: role._count.userBranchRoles,
       permissionKeys: role.permissions.map((p) => p.permissionKey),
       // Lets a built-in role offer "Reset to recommended defaults" without
@@ -98,11 +134,15 @@ export class RolesAdminService {
         key,
         name: dto.name.trim(),
         description: dto.description?.trim() || null,
+        backOfficeAccess: dto.backOfficeAccess ?? false,
         isSystem: false,
         isLocked: false,
         permissions: {
           createMany: {
-            data: dto.permissionKeys.map((permissionKey) => ({ tenantId, permissionKey })),
+            data: dto.permissionKeys.map((permissionKey) => ({
+              tenantId,
+              permissionKey,
+            })),
           },
         },
       },
@@ -115,7 +155,11 @@ export class RolesAdminService {
       eventName: "role.created",
       entityName: "role",
       entityId: role.id,
-      payload: { name: role.name, permissionKeys: dto.permissionKeys },
+      payload: {
+        name: role.name,
+        permissionKeys: dto.permissionKeys,
+        backOfficeAccess: role.backOfficeAccess,
+      },
     });
 
     await this.notifications.notifyByPermission(
@@ -138,6 +182,7 @@ export class RolesAdminService {
       description: role.description,
       isSystem: role.isSystem,
       isLocked: role.isLocked,
+      backOfficeAccess: role.backOfficeAccess,
       assignedCount: 0,
       permissionKeys: role.permissions.map((p) => p.permissionKey),
       defaultPermissionKeys: null,
@@ -145,7 +190,9 @@ export class RolesAdminService {
   }
 
   async updateRole(tenantId: string, actorUserId: string, roleId: string, dto: UpdateRoleDto) {
-    const role = await this.prisma.role.findFirst({ where: { id: roleId, tenantId } });
+    const role = await this.prisma.role.findFirst({
+      where: { id: roleId, tenantId },
+    });
     if (!role) throw new NotFoundException("Role not found");
     if (role.isSystem) {
       throw new ForbiddenException("Built-in roles can't be renamed");
@@ -168,7 +215,11 @@ export class RolesAdminService {
       payload: { name: dto.name, description: dto.description },
     });
 
-    return { id: updated.id, name: updated.name, description: updated.description };
+    return {
+      id: updated.id,
+      name: updated.name,
+      description: updated.description,
+    };
   }
 
   async updateRolePermissions(
@@ -179,7 +230,9 @@ export class RolesAdminService {
   ) {
     this.assertValidKeys(dto.permissionKeys);
 
-    const role = await this.prisma.role.findFirst({ where: { id: roleId, tenantId } });
+    const role = await this.prisma.role.findFirst({
+      where: { id: roleId, tenantId },
+    });
     if (!role) throw new NotFoundException("Role not found");
     if (role.isLocked) {
       throw new ForbiddenException(
@@ -198,6 +251,14 @@ export class RolesAdminService {
     const toRemove = [...current].filter((k) => !desired.has(k));
 
     await this.prisma.$transaction([
+      ...(dto.backOfficeAccess != null
+        ? [
+            this.prisma.role.update({
+              where: { id: roleId, tenantId },
+              data: { backOfficeAccess: dto.backOfficeAccess },
+            }),
+          ]
+        : []),
       ...(toRemove.length
         ? [
             this.prisma.rolePermission.deleteMany({
@@ -208,7 +269,11 @@ export class RolesAdminService {
       ...(toAdd.length
         ? [
             this.prisma.rolePermission.createMany({
-              data: toAdd.map((permissionKey) => ({ tenantId, roleId, permissionKey })),
+              data: toAdd.map((permissionKey) => ({
+                tenantId,
+                roleId,
+                permissionKey,
+              })),
             }),
           ]
         : []),
@@ -222,10 +287,18 @@ export class RolesAdminService {
       eventName: "role.permissions_updated",
       entityName: "role",
       entityId: roleId,
-      payload: { added: toAdd, removed: toRemove },
+      payload: {
+        added: toAdd,
+        removed: toRemove,
+        backOfficeAccess: dto.backOfficeAccess,
+      },
     });
 
-    if (toAdd.length || toRemove.length) {
+    if (
+      toAdd.length ||
+      toRemove.length ||
+      (dto.backOfficeAccess != null && dto.backOfficeAccess !== role.backOfficeAccess)
+    ) {
       await this.notifications.notifyByPermission(
         tenantId,
         ACCESS_NOTIFICATION_PERMISSION,
@@ -242,21 +315,27 @@ export class RolesAdminService {
       );
     }
 
-    return { id: roleId, permissionKeys: [...desired] };
+    return {
+      id: roleId,
+      permissionKeys: [...desired],
+      backOfficeAccess: dto.backOfficeAccess ?? role.backOfficeAccess,
+    };
   }
 
   async deleteRole(tenantId: string, actorUserId: string, roleId: string) {
-    const role = await this.prisma.role.findFirst({ where: { id: roleId, tenantId } });
+    const role = await this.prisma.role.findFirst({
+      where: { id: roleId, tenantId },
+    });
     if (!role) throw new NotFoundException("Role not found");
     if (role.isSystem) {
       throw new ForbiddenException("Built-in roles can't be deleted");
     }
 
-    const assignedCount = await this.prisma.userBranchRole.count({ where: { tenantId, roleId } });
+    const assignedCount = await this.prisma.userBranchRole.count({
+      where: { tenantId, roleId },
+    });
     if (assignedCount > 0) {
-      throw new ConflictException(
-        "Reassign every staff member off this role before deleting it.",
-      );
+      throw new ConflictException("Reassign every staff member off this role before deleting it.");
     }
 
     await this.prisma.role.delete({ where: { id: roleId, tenantId } });
