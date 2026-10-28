@@ -62,14 +62,19 @@ export class RolesAdminService {
       "products.import",
       "suppliers.pay",
     ]);
+    // What a prepared person may do on an offline counter; signed into its grant (W7).
+    const offlineKeys = new Set(["sales.offline_hours_acknowledge", "sales.offline_handover_assist"]);
+    const contextOf = (key: string) =>
+      offlineKeys.has(key) ? "offline" : counterKeys.has(key) ? "counter" : "remote";
     const result = [];
     for (const [context, label] of [
       ["remote", "Manage from anywhere"],
       ["counter", "At the counter (desktop)"],
+      ["offline", "Offline capabilities"],
     ] as const) {
       const bySection = new Map<string, typeof PERMISSION_CATALOG>();
       for (const perm of PERMISSION_CATALOG) {
-        if (counterKeys.has(perm.key) !== (context === "counter")) continue;
+        if (contextOf(perm.key) !== context) continue;
         const section = MODULE_SECTIONS[perm.module] ?? perm.module;
         const list = bySection.get(section) ?? [];
         list.push(perm);

@@ -9,7 +9,9 @@ import {
 import { Prisma } from "@prisma/client";
 import {
   defaultCounterPolicy,
+  parseStoredCounterPolicy,
   validateCounterPolicy,
+  type CounterPolicy,
   type CounterPolicyView,
 } from "@pharmaceylon/shared";
 import { AuditService } from "../audit/audit.service";
@@ -40,18 +42,21 @@ export class CounterPolicyService {
       throw new ForbiddenException(
         "Counter settings require settings access at this branch.",
       );
-    const parsed = validateCounterPolicy(
-      branch.counterPolicy ?? defaultCounterPolicy(),
-    );
-    if (!parsed.ok)
-      throw new ServiceUnavailableException(
-        "The saved counter policy needs repair before it can be used.",
-      );
+    const registers = await this.prisma.terminalCounter.findMany({
+      where: { tenantId: user.tenantId, branchId },
+      select: { id: true, label: true, isActive: true },
+      orderBy: [{ isActive: "desc" }, { label: "asc" }],
+    });
     return {
       branchId,
       branchName: branch.name,
       version: branch.counterPolicyVersion,
-      policy: parsed.value,
+      policy: storedPolicy(branch.counterPolicy),
+      registers: registers.map((r) => ({
+        registerId: r.id,
+        label: r.label,
+        isActive: r.isActive,
+      })),
       canEdit: true,
     };
   }
@@ -72,6 +77,7 @@ export class CounterPolicyService {
         throw new ForbiddenException(
           "Counter settings require settings access at this branch.",
         );
+      await this.assertRegistersAtBranch(user.tenantId, branchId, parsed.value, tx);
       const saved = await tx.branch.updateMany({
         where: {
           id: branchId,
@@ -111,6 +117,24 @@ export class CounterPolicyService {
     return this.get(user, branchId);
   }
 
+  /** Retired registers may keep their prefixes (so the series isn't reused); unknown ones may not. */
+  private async assertRegistersAtBranch(
+    tenantId: string,
+    branchId: string,
+    policy: CounterPolicy,
+    tx: Prisma.TransactionClient,
+  ) {
+    const ids = policy.registerNumbering.map((row) => row.registerId);
+    if (ids.length === 0) return;
+    const found = await tx.terminalCounter.count({
+      where: { tenantId, branchId, id: { in: ids } },
+    });
+    if (found !== ids.length)
+      throw new BadRequestException(
+        "Numbering lists a register that isn't at this branch. Reload and try again.",
+      );
+  }
+
   private async find(tenantId: string, branchId: string) {
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchId, tenantId, isActive: true },
@@ -136,4 +160,15 @@ export class CounterPolicyService {
       throw new ForbiddenException("No current authority over this branch.");
     return actor;
   }
+}
+
+/** Null stored policy means the safe defaults. An invalid document fails closed: it is never
+ * silently replaced by defaults that might grant less — or more — than the owner chose. */
+export function storedPolicy(raw: Prisma.JsonValue | null): CounterPolicy {
+  const parsed = parseStoredCounterPolicy(raw ?? defaultCounterPolicy());
+  if (!parsed.ok)
+    throw new ServiceUnavailableException(
+      "The saved counter policy needs repair before it can be used.",
+    );
+  return parsed.value;
 }

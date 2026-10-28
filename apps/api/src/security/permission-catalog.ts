@@ -491,6 +491,29 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     dependencies: ["sales.pos_use"],
   },
 
+  // Offline manager capabilities (D8, assisted handover). Not endpoint permissions: P3 signs
+  // them into a branch's offline grant for each prepared staff member who holds them here.
+  {
+    key: "sales.offline_hours_acknowledge",
+    module: "sales",
+    label: "Acknowledge after-hours selling offline",
+    description:
+      "While a counter is offline, let selling continue past routine closing time with a reason and end time. Never overrides mandatory restrictions or the 24-hour offline permission. Applies to counters after their next sync.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["sales.pos_use"],
+  },
+  {
+    key: "sales.offline_handover_assist",
+    module: "sales",
+    label: "Close an absent cashier's shift offline",
+    description:
+      "While a counter is offline, count and close an absent cashier's shift under their own sign-in, keeping the cashier's sales and any shortage. Applies to counters after their next sync.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["sales.pos_use"],
+  },
+
   // ── Stocktakes ──
   {
     key: "stocktakes.use",

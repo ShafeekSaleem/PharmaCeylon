@@ -64,12 +64,18 @@ Roles & Permissions groups the catalog three ways:
 | --- | --- | --- |
 | Manage from anywhere | Viewing, editing, approving and administration from the web, mobile or a remote desktop session | Today's view, manage, approve, invoice and pay keys |
 | At the counter | Physical effects that work only from an enrolled, locally used desktop, owners included | Today's `sales.pos_use`, `sales.refund`, `purchasing.receive`, `inventory.*` stock keys and similar; their names stay, their physical effects need a counter |
-| Offline capabilities | What a prepared person may do on the offline counter | New: offline-device assignment (owner, delegable), local activation, business-hours acknowledgement, assisted shift handover |
+| Offline capabilities | What a prepared person may do on the offline counter | `sales.offline_hours_acknowledge` (business-hours acknowledgement) and `sales.offline_handover_assist` (assisted shift handover), owner and manager by default (W7). Planned: offline-device assignment (owner, delegable), local activation |
 
 New keys are added to `apps/api/src/security/permission-catalog.ts` by the epic that introduces
 each endpoint (P1, P2, P4, P5 or W3). Planned: back-office web access (D-W4), terminal management,
 offline assignment and activation, the two offline capabilities, discrepancy review and remote
 refund authorization. Exact names are chosen when they are added.
+
+The two offline capabilities protect no endpoint: P3 signs them into the branch's offline grant
+for each prepared staff member who holds them there (see [W7_COUNTER_POLICY.md](W7_COUNTER_POLICY.md)).
+Settings → Payments and Settings → Offline policy use `tenant.management`, like the rest of
+Settings, and the read-only `GET /tenant/branches/:branchId/counter-settings` checks it at the
+target branch.
 
 ## Inventory actions (built-in defaults)
 

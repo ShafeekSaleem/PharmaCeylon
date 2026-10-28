@@ -6,6 +6,7 @@ import { PageHeader, ActionButton, FormField, ToggleSwitch } from "@/components/
 import { IconCheckCircle, IconLock, IconUsers } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
+import { SyncNote } from "../lib/counter-policy";
 import {
   fetchApprovalRoles,
   fetchTenantSettings,
@@ -107,6 +108,13 @@ export default function ApprovalRulesPage() {
               <h2 className={css.cardTitle}>
                 <IconCheckCircle size={16} /> Approval Rules
               </h2>
+              <p className={css.cardDesc}>
+                Approving and doing are separate. An approver can approve from anywhere online,
+                here on the web. Whatever moves stock or cash — receiving goods, writing off stock,
+                dispatching a transfer, paying a refund — is then done at the counter, against the
+                exact version that was approved. If the request changes in a way that matters
+                after approval, it needs approving again.
+              </p>
             </div>
           </div>
 
@@ -183,9 +191,11 @@ export default function ApprovalRulesPage() {
             <div style={{ flex: 1 }}>
               <div className={css.rowLabel}>Refunds over a threshold</div>
               <div className={css.rowHint}>
-                Refunds at or above this value need someone who can approve returns to enter
-                their till PIN.
+                Refunds at or above this value need someone who can approve returns. They can
+                approve remotely from Sales, or by entering their own PIN at the counter. Either
+                way the refund is paid out and the goods taken back at the counter.
               </div>
+              <SyncNote>Offline counters can&apos;t refund at all.</SyncNote>
               {draft.approvalRequiredReturnThreshold != null ? (
                 <div style={{ marginTop: "0.5rem", maxWidth: 220 }}>
                   <FormField

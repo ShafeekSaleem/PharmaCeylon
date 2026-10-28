@@ -1,5 +1,9 @@
 import { Module } from "@nestjs/common";
-import { CounterPolicyController } from "./counter-policy.controller";
+import {
+  CounterGrantSettingsController,
+  CounterPolicyController,
+} from "./counter-policy.controller";
+import { CounterGrantSettingsService } from "./counter-grant-settings.service";
 import { CounterPolicyService } from "./counter-policy.service";
 import { AuthModule } from "../auth/auth.module";
 import { NotificationsModule } from "../notifications/notifications.module";
@@ -22,6 +26,7 @@ import { TenantSettingsService } from "./tenant-settings.service";
     BranchHoursController,
     PosRolloutController,
     CounterPolicyController,
+    CounterGrantSettingsController,
   ],
   providers: [
     TenantService,
@@ -30,6 +35,7 @@ import { TenantSettingsService } from "./tenant-settings.service";
     HolidaySuggestionsSource,
     PosRolloutService,
     CounterPolicyService,
+    CounterGrantSettingsService,
   ],
 })
 export class TenantModule {}
