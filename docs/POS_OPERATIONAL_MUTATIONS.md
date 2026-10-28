@@ -10,8 +10,8 @@ not-live `/products/import/confirm` path retains a mixed/local classification; l
 imports always stage. The web uses the management `/stage` path outside known not-live branches.
 
 Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
-183, including held-workflow splits, rollout/hours, four import-split routes, counter policy and
-the two signed terminal-command routes. Exact methods, paths and source files are
+184, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
+counter alerts and the two signed terminal-command routes. Exact methods, paths and source files are
 recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
 The inventory includes non-operational mutations to make exclusions explicit. P0 classifies
 future enforcement; existing routes are not protected by the new terminal boundary yet.
@@ -116,6 +116,11 @@ Inventory actual routes when P1/P2/P5/P6 introduce them; do not claim the route 
 
 See [POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md) for scenarios, trust
 boundaries, readiness feedback and release evidence. Worker/internal writers inherit these rules.
+
+## W7 counter alert settings
+
+`PUT /tenant/settings/counter-alerts` is `management`: tenant-wide alert types and recipient
+roles, versioned and audited together, with no stock/cash/grant effects and no delivery.
 
 ## W7 branch counter policy
 

@@ -827,6 +827,9 @@ model TenantSettings {
   alertNotifyManager        Boolean @default(true) @map("alert_notify_manager")
   alertNotifyPharmacist     Boolean @default(false) @map("alert_notify_pharmacist")
   alertNotifyInventoryClerk Boolean @default(true) @map("alert_notify_inventory_clerk")
+  /// W7 counter alert types and recipient role keys (`CounterAlertPolicy`). Null = defaults.
+  counterAlertPolicy        Json?   @map("counter_alert_policy")
+  counterAlertPolicyVersion Int     @default(1) @map("counter_alert_policy_version")
 
   // ── Approval rules ──
   approvalRequiredPurchaseOrderThreshold Decimal? @map("approval_required_po_threshold") @db.Decimal(14, 2)

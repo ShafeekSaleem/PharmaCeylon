@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { CounterAlertsController } from "./counter-alerts.controller";
+import { CounterAlertsService } from "./counter-alerts.service";
 import {
   CounterGrantSettingsController,
   CounterPolicyController,
@@ -26,6 +28,7 @@ import { TenantSettingsService } from "./tenant-settings.service";
     BranchHoursController,
     PosRolloutController,
     CounterPolicyController,
+    CounterAlertsController,
     CounterGrantSettingsController,
   ],
   providers: [
@@ -35,6 +38,7 @@ import { TenantSettingsService } from "./tenant-settings.service";
     HolidaySuggestionsSource,
     PosRolloutService,
     CounterPolicyService,
+    CounterAlertsService,
     CounterGrantSettingsService,
   ],
 })

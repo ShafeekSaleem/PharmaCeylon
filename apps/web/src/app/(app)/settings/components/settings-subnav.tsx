@@ -81,6 +81,12 @@ const NAV_GROUPS: NavGroup[] = [
         icon: <IconBox size={16} />,
         adminOnly: true,
       },
+      {
+        href: "/settings/counter-alerts",
+        label: "Counter alerts",
+        icon: <IconBell size={16} />,
+        adminOnly: true,
+      },
     ],
   },
   {

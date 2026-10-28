@@ -247,6 +247,7 @@ PAGE_TITLES["/settings/tenant-profile"] = "Organization Profile";
 PAGE_TITLES["/settings/branches"] = "Branches";
 PAGE_TITLES["/settings/branches/hours"] = "Opening Hours";
 PAGE_TITLES["/settings/main"] = "Counters & receipts";
+PAGE_TITLES["/settings/counter-alerts"] = "Counter alerts";
 PAGE_TITLES["/settings/payments"] = "Payments";
 PAGE_TITLES["/settings/offline-policy"] = "Offline policy";
 PAGE_TITLES["/settings/catalog"] = "Catalog";
