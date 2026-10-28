@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { RoleLink } from "@/components/role-access";
 import type { RoleName } from "@/lib/role-access";
+import { isPosHref, usePosHidden } from "../lib/pos-links";
 import css from "../dashboard.module.css";
 
 export type QuickActionTone =
@@ -36,7 +37,15 @@ const TONE_CLASS: Record<QuickActionTone, string> = {
   info: css.quickBarIcon_info,
 };
 
-export function QuickActionsBar({ title = "Quick actions", actions }: Props) {
+export function QuickActionsBar({
+  title = "Quick actions",
+  actions: requested,
+}: Props) {
+  const posHidden = usePosHidden();
+  const actions = requested.filter(
+    (action) => !(posHidden && isPosHref(action.href)),
+  );
+  if (!actions.length) return null;
   return (
     <section className={css.quickBar}>
       <h2 className={css.panelTitle}>{title}</h2>

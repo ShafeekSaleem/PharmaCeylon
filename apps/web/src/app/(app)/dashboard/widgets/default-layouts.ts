@@ -39,12 +39,14 @@ const DEFAULT_KEYS: Record<DashboardRole, string[]> = {
   owner: [
     "owner.business-overview",
     "owner.inventory-health",
+    "counter.waiting",
     "owner.branch-revenue-contribution",
     "owner.cash-flow",
   ],
   manager: [
     "manager.business-overview",
     "manager.inventory-health",
+    "counter.waiting",
     "manager.staff-productivity",
     "manager.branch-sales-vs-target",
   ],
