@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { HOLIDAY_YEAR_FILES, loadHolidayYears, parseHolidayYearFile } from ".";
-import lk2026Draft from "./lk-holidays-2026.json";
-import lk2027Draft from "./lk-holidays-2027.json";
+import lk2026 from "./lk-holidays-2026.json";
+import lk2027 from "./lk-holidays-2027.json";
 
 // Fixture data in a far-off year. These are not real holiday dates.
 function yearFile(overrides: Record<string, unknown> = {}) {
@@ -75,28 +75,19 @@ it("refuses a file whose name doesn't match its year, or a year loaded twice", (
   expect(loadHolidayYears([["lk-holidays-2099.json", yearFile()]]).get(2099)?.holidays).toHaveLength(2);
 });
 
-it("keeps the unverified 2026/2027 drafts out of runtime suggestions", () => {
-  expect(HOLIDAY_YEAR_FILES).toEqual([]);
-  expect(loadHolidayYears().size).toBe(0);
+it("offers the registered gazette years, one suggestion per date", () => {
+  const years = loadHolidayYears();
+  expect([...years.keys()]).toEqual([2026, 2027]);
+  for (const [year, file] of [[2026, lk2026], [2027, lk2027]] as const) {
+    expect(years.get(year)?.holidays).toHaveLength(new Set(file.holidays.map((row) => row.date)).size);
+  }
+  expect(HOLIDAY_YEAR_FILES).toHaveLength(2);
 });
 
-// Both are copied from their gazettes and await the second person's check.
-const drafts = [
-  [2026, lk2026Draft],
-  [2027, lk2027Draft],
-] as const;
-
-it.each(drafts)("rejects the %i draft if accidentally registered", (year, draft) => {
-  expect(() => loadHolidayYears([[`lk-holidays-${year}.json`, draft]])).toThrow(/completed gazette verification/);
-});
-
-it.each(drafts)("passes every other check once the %i file's second check is recorded", (year, draft) => {
-  // The reviewer records who checked it and when, replacing the first-pass copy's date.
-  const checked = { ...draft, checkedBy: "Second Reviewer", checkedOn: "2026-11-02" };
-  const list = loadHolidayYears([[`lk-holidays-${year}.json`, checked]]).get(year);
-  expect(list?.source.checkedOn).toBe("2026-11-02");
-  // Holidays sharing a date are offered as one suggestion.
-  expect(list?.holidays).toHaveLength(new Set(draft.holidays.map((row) => row.date)).size);
+it("offers the 2026 amendment: 2 May bank only, 31 May public", () => {
+  const byDate = new Map(loadHolidayYears().get(2026)!.holidays.map((h) => [h.date, h.kinds]));
+  expect(byDate.get("2026-05-02")).toEqual(["bank"]);
+  expect(byDate.get("2026-05-31")).toEqual(["public"]);
 });
 
 it("keeps the template unusable until it is filled in from a gazette", () => {

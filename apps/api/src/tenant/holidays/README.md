@@ -38,17 +38,16 @@ Government Printing publishes the gazettes at <https://documents.gov.lk>.
 5. Run `npx jest src/tenant/holidays` in `apps/api`. A typo, a date outside the year, an
    unknown field or a missing check fails the tests.
 
-## Draft years in the repo
+## Years in the repo
 
-Neither draft below is registered or offered by the API. The loader rejects pending verification,
-secondary-source copies, and missing gazette metadata. Keep the drafts out of `HOLIDAY_YEAR_FILES`
-until a person has compared every row with the original gazette and recorded the completed check.
-Owners may enter dated exceptions manually in the meantime.
+Both years are registered in `HOLIDAY_YEAR_FILES` and offered in the hours editor. Each was compared
+row by row with its gazette PDF by Claude Code on 28 October 2026 and accepted for release by
+Shafeek Saleem without a separate row-by-row check by a second person, as `checkedBy` records.
 
-| Year | Gazette | Copied from | Status |
-| --- | --- | --- | --- |
-| 2026 | Extraordinary No. 2438/22 of 27 May 2025, amended by No. 2485/14 of 21 April 2026 | — (the gazettes) | Copied from both PDFs on 28 October 2026: names as printed, every 2438/22 date marked public and bank. 2485/14 (Vesak Week, 27 May–2 June) moves "the public holiday granted for 2nd May 2026" to 31 May, so 2 May keeps only `bank` and 31 May is `public` only; the order names no holiday for 31 May. **Before registering:** the second person confirms that reading (in particular that 2 May stays a bank holiday), re-searches the Extra Gazettes for later amendments, and records their name in `checkedBy` and the date in `checkedOn`. |
-| 2027 | Extraordinary No. 2493/05 of 16 June 2026 | — (the gazette) | Copied from the gazette PDF on 28 October 2026: names as printed, every date marked public and bank. No amending gazette found yet. **Before registering:** the second person re-searches the Extra Gazettes for amendments and records their name in `checkedBy` and the date in `checkedOn`. |
+| Year | Gazette | Notes |
+| --- | --- | --- |
+| 2026 | Extraordinary No. 2438/22 of 27 May 2025, amended by No. 2485/14 of 21 April 2026 | Names as printed, every 2438/22 date marked public and bank. 2485/14 (Vesak Week, 27 May–2 June) moves "the public holiday granted for 2nd May 2026" to 31 May. The file reads that as: 2 May keeps only `bank` and 31 May is `public` only. The order names no holiday for 31 May. |
+| 2027 | Extraordinary No. 2493/05 of 16 June 2026 | Names as printed, every date marked public and bank. No amending gazette found as of 28 October 2026. |
 
 The 2026 and 2027 gazettes both declare their dates "Public and Bank Holidays" and mark each with only
 those two symbols, so neither file has `mercantile` rows. The Central Bank's list also marks some

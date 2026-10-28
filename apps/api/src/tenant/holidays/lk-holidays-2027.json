@@ -6,7 +6,7 @@
     "publishedOn": "2026-06-16",
     "copiedFrom": null
   },
-  "checkedBy": "Claude Code compared every row with the gazette PDF; still to be checked by a second person",
+  "checkedBy": "Claude Code, row by row against the gazette PDF; accepted for release by Shafeek Saleem",
   "checkedOn": "2026-10-28",
   "holidays": [
     { "date": "2027-01-15", "name": "Tamil Thai Pongal Day", "kinds": ["bank", "public"] },

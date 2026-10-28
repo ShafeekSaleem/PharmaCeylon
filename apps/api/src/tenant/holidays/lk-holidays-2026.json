@@ -6,7 +6,7 @@
     "publishedOn": "2025-05-27",
     "copiedFrom": null
   },
-  "checkedBy": "Claude Code compared every row with the gazette PDF; still to be checked by a second person",
+  "checkedBy": "Claude Code, row by row against the gazette PDF; accepted for release by Shafeek Saleem",
   "checkedOn": "2026-10-28",
   "holidays": [
     { "date": "2026-01-03", "name": "Duruthu Full Moon Poya Day", "kinds": ["poya", "bank", "public"] },
