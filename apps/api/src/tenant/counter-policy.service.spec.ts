@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
   ValidationPipe,
 } from "@nestjs/common";
 import { defaultCounterPolicy } from "@pharmaceylon/shared";
@@ -11,6 +12,7 @@ import { CounterPolicyController } from "./counter-policy.controller";
 import { UpdateCounterPolicyDto } from "./dto/counter-policy.dto";
 
 const branchId = "11111111-1111-4111-8111-111111111111";
+const registerId = "33333333-3333-4333-8333-333333333333";
 const user = {
   userId: "user-1",
   tenantId: "tenant-1",
@@ -38,6 +40,10 @@ describe("branch counter policy settings", () => {
       branch: {
         findFirst: jest.fn().mockResolvedValue(row),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      terminalCounter: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
       },
       $transaction: jest.fn(),
     };
@@ -171,6 +177,55 @@ describe("branch counter policy settings", () => {
         policy: defaultCounterPolicy(),
       }),
     ).rejects.toThrow("audit unavailable");
+  });
+  it("reads a version 1 document as version 2 and lists the branch's registers", async () => {
+    prisma.branch.findFirst.mockResolvedValue({
+      ...row,
+      counterPolicy: {
+        schemaVersion: 1,
+        offlineEnabled: true,
+        offlineExternalCardEnabled: false,
+        externalCardMerchants: [],
+      },
+    });
+    prisma.terminalCounter.findMany.mockResolvedValue([
+      { id: registerId, label: "Front counter", isActive: true },
+    ]);
+    const view = await service.get(user, branchId);
+    expect(view.policy).toEqual({ ...defaultCounterPolicy(), offlineEnabled: true });
+    expect(view.registers).toEqual([
+      { registerId, label: "Front counter", isActive: true },
+    ]);
+    expect(prisma.terminalCounter.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: "tenant-1", branchId } }),
+    );
+  });
+  it("fails closed on a stored document it can't read", async () => {
+    prisma.branch.findFirst.mockResolvedValue({
+      ...row,
+      counterPolicy: { schemaVersion: 9 },
+    });
+    await expect(service.get(user, branchId)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+  it("numbers only registers of this tenant and branch, inside the transaction", async () => {
+    const policy = {
+      ...defaultCounterPolicy(),
+      registerNumbering: [
+        { registerId, receiptPrefix: "C1R-", invoicePrefix: "C1I-" },
+      ],
+    };
+    await expect(
+      service.update(user, branchId, { expectedVersion: 1, policy }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.terminalCounter.count).toHaveBeenCalledWith({
+      where: { tenantId: "tenant-1", branchId, id: { in: [registerId] } },
+    });
+    expect(prisma.branch.updateMany).not.toHaveBeenCalled();
+    prisma.terminalCounter.count.mockResolvedValue(1);
+    await service.update(user, branchId, { expectedVersion: 1, policy });
+    expect(prisma.branch.updateMany).toHaveBeenCalled();
   });
   it("validates version and rejects unknown top-level request fields", async () => {
     const pipe = new ValidationPipe({
