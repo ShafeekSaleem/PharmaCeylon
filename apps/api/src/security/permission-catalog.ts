@@ -541,8 +541,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     module: "terminal",
     label: "Post stock from the desktop counter",
     description:
-      "Send signed posting commands (stocktake, write-off, held delivery, import stock) from an enrolled desktop counter. Each command also needs that operation's own permission.",
-    defaultRoles: [owner, manager, inventory_clerk],
+      "Send signed posting commands (stocktake, write-off, deliveries, import stock, supplier return dispatch) from an enrolled desktop counter. Each command also needs that operation's own permission.",
+    defaultRoles: [owner, manager, pharmacist, inventory_clerk],
     riskLevel: "elevated",
   },
 

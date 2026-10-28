@@ -9,6 +9,8 @@ import { AdjustmentService } from "../inventory/adjustment.service";
 import { ImportStockService } from "../product-import/import-stock.service";
 import { ProductImportService } from "../product-import/product-import.service";
 import { HeldDeliveryService } from "../purchasing/held-delivery.service";
+import { PreparedReceiptService } from "../purchasing/prepared-receipt.service";
+import { ReturnsService } from "../returns/returns.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import type { OperationDescriptor } from "../security/operation-authorization.service";
 import { StocktakesService } from "../stocktakes/stocktakes.service";
@@ -78,6 +80,8 @@ export class SignedOperations {
     deliveries: HeldDeliveryService,
     importStock: ImportStockService,
     imports: ProductImportService,
+    preparedReceipts: PreparedReceiptService,
+    returns: ReturnsService,
   ) {
     this.registry = Object.freeze<Registry>({
       "POST /api/v1/stocktakes/:id/post": {
@@ -197,6 +201,53 @@ export class SignedOperations {
               batchesRemoved: removed.batches,
               productsRemoved: removed.products,
               productsLeftInPlace: removed.productsLeftInPlace,
+            },
+          };
+        },
+      },
+      "POST /api/v1/purchasing/prepared-receipts/:id/post": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/purchasing/prepared-receipts/:id/post",
+          permission: "purchasing.receive",
+          parseBody: idBody("preparedReceiptId"),
+          approval: { action: "prepared_receipt.post", documentId: (b) => b.preparedReceiptId },
+        },
+        async execute(tx, user, branchId, body, context) {
+          const posted = await preparedReceipts.postInTransaction(tx, user, branchId, body.preparedReceiptId,
+            { approvalId: approvalId(context) }, context.command);
+          return {
+            result: {
+              type: "prepared_receipt.posted",
+              preparedReceiptId: body.preparedReceiptId,
+              approvalId: approvalId(context),
+              goodsReceiptId: posted.goodsReceiptId as string,
+              effect: posted.changed ? "applied" : "already_applied",
+            },
+            afterCommit: posted.changed
+              ? () => preparedReceipts.notifyPosted(user.tenantId, branchId, body.preparedReceiptId)
+              : undefined,
+          };
+        },
+      },
+      "POST /api/v1/returns/:id/complete": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/returns/:id/complete",
+          permission: "returns.process",
+          parseBody: idBody("goodsReturnId"),
+          approval: { action: "goods_return.complete", documentId: (b) => b.goodsReturnId },
+        },
+        async execute(tx, user, branchId, body, context) {
+          const done = await returns.completeInTransaction(tx, user, branchId, body.goodsReturnId,
+            { approvalId: approvalId(context) }, context.command);
+          return {
+            result: {
+              type: "goods_return.completed",
+              goodsReturnId: body.goodsReturnId,
+              approvalId: approvalId(context),
+              debitNoteId: done.debitNoteId,
+              effect: done.changed ? "applied" : "already_applied",
             },
           };
         },

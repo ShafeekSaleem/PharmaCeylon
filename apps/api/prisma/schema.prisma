@@ -520,6 +520,7 @@ model Branch {
   purchaseOrders     PurchaseOrder[]
   goodsReceipts      GoodsReceipt[]
   heldDeliveries     HeldDelivery[]
+  preparedReceipts   PreparedReceipt[]
   heldAdjustments    HeldAdjustment[]
   supplierPayments   SupplierPayment[]
   supplierDebitNotes SupplierDebitNote[]
@@ -894,6 +895,7 @@ model AppUser {
   goodsReceiptsReceived    GoodsReceipt[]           @relation("GoodsReceiptReceiver")
   heldDeliveriesRequested  HeldDelivery[]           @relation("HeldDeliveryRequester")
   heldDeliveriesDecided    HeldDelivery[]           @relation("HeldDeliveryDecider")
+  preparedReceipts         PreparedReceipt[]        @relation("PreparedReceiptPreparer")
   heldAdjustmentsRequested HeldAdjustment[]         @relation("HeldAdjustmentRequester")
   heldAdjustmentsDecided   HeldAdjustment[]         @relation("HeldAdjustmentDecider")
   supplierPaymentsMade     SupplierPayment[]        @relation("SupplierPaymentCreator")
@@ -1939,6 +1941,7 @@ model PurchaseOrder {
   items          PurchaseOrderItem[]
   goodsReceipts  GoodsReceipt[]
   heldDeliveries HeldDelivery[]
+  preparedReceipts PreparedReceipt[]
   goodsReturns   GoodsReturn[]
 
   @@unique([tenantId, branchId, poNumber])
@@ -2000,6 +2003,7 @@ model GoodsReceipt {
   supplierInvoice SupplierInvoice?
   invoiceLinks    SupplierInvoiceReceipt[]
   heldDelivery    HeldDelivery?
+  preparedReceipt PreparedReceipt?
 
   @@unique([tenantId, branchId, grnNumber])
   @@map("goods_receipt")
@@ -2054,6 +2058,53 @@ model HeldDelivery {
   @@index([tenantId, branchId, status])
   @@index([purchaseOrderId, status])
   @@map("held_delivery")
+}
+
+enum PreparedReceiptStatus {
+  draft
+  approved
+  posted
+  cancelled
+}
+
+/// A delivery prepared and approved remotely (from the supplier's delivery note or invoice) and
+/// received later at the branch counter. Preparing and approving it touch neither stock nor the
+/// supplier ledger; posting books it in through the normal receiving path, pinned to the exact
+/// approval, and links the goods receipt it created. Database triggers advance
+/// `approvalVersion` on any material change and clear the approval.
+model PreparedReceipt {
+  id                  String                @id @default(uuid()) @db.Uuid
+  tenantId            String                @map("tenant_id") @db.Uuid
+  branchId            String                @map("branch_id") @db.Uuid
+  purchaseOrderId     String                @map("purchase_order_id") @db.Uuid
+  status              PreparedReceiptStatus @default(draft)
+  /// The receiving form (`ReceiveGoodsDto` without `purchaseOrderId`), including the exception
+  /// choices the approver authorizes (`acceptOverDelivery`, `acceptPriceVariance`, `updateSupplierPrice`).
+  payload             Json
+  notes               String?               @db.VarChar(1000)
+  approvalVersion     Int                   @default(1) @map("approval_version")
+  metadataVersion     Int                   @default(1) @map("metadata_version")
+  preparedBy          String                @map("prepared_by") @db.Uuid
+  preparedAt          DateTime              @default(now()) @map("prepared_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  executionApprovalId String?               @map("execution_approval_id") @db.Uuid
+  approvedBy          String?               @map("approved_by") @db.Uuid
+  approvedAt          DateTime?             @map("approved_at")
+  executedBy          String?               @map("executed_by") @db.Uuid
+  executedAt          DateTime?             @map("executed_at")
+  goodsReceiptId      String?               @unique @map("goods_receipt_id") @db.Uuid
+  cancelledBy         String?               @map("cancelled_by") @db.Uuid
+  cancelledAt         DateTime?             @map("cancelled_at")
+  cancelReason        String?               @map("cancel_reason") @db.VarChar(500)
+
+  branch        Branch        @relation(fields: [branchId], references: [id])
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  preparer      AppUser       @relation("PreparedReceiptPreparer", fields: [preparedBy], references: [id])
+  goodsReceipt  GoodsReceipt? @relation(fields: [goodsReceiptId], references: [id])
+
+  @@index([tenantId, branchId, status])
+  @@index([purchaseOrderId, status])
+  @@map("prepared_receipt")
 }
 
 enum HeldAdjustmentStatus {

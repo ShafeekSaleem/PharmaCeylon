@@ -1,4 +1,4 @@
-import { PostHeldDto } from "../security/dto/approve-held.dto";
+import { ApproveHeldDto, PostHeldDto } from "../security/dto/approve-held.dto";
 import {
   Body,
   Controller,
@@ -28,6 +28,12 @@ import {
   HoldDeliveryDto,
   RejectHeldDeliveryDto,
 } from "./dto/held-delivery.dto";
+import {
+  CancelPreparedReceiptDto,
+  CreatePreparedReceiptDto,
+  UpdatePreparedReceiptDto,
+} from "./dto/prepared-receipt.dto";
+import { PreparedReceiptService } from "./prepared-receipt.service";
 import { PurchasingService } from "./purchasing.service";
 
 @Controller("purchasing")
@@ -37,6 +43,7 @@ export class PurchasingController {
     private readonly access: AccessService,
     private readonly heldDeliveries: HeldDeliveryService,
     private readonly notifications: NotificationsService,
+    private readonly preparedReceipts: PreparedReceiptService,
   ) {}
 
   /**
@@ -138,11 +145,16 @@ export class PurchasingController {
       purchaseOrderId: id,
       canViewCost,
     });
+    const preparedReceipts = (await this.preparedReceipts.list(user.tenantId, branchId, {
+      purchaseOrderId: id,
+      canViewCost,
+    })).map((row) => ({ ...row, selfApprovalBlocked: !access.canSelfApprove && row.preparedBy.id === user.userId }));
     // The same rule `assertMayApprove` enforces, said up front so the page can disable Approve
     // with the reason on it instead of letting someone click and read a refusal.
     return {
       ...po,
       heldDeliveries,
+      preparedReceipts,
       selfApprovalBlocked: !access.canSelfApprove && po.createdBy === user.userId,
     };
   }
@@ -308,6 +320,61 @@ export class PurchasingController {
   ) {
     const access = await this.access.resolve(user, branchId);
     return this.heldDeliveries.reject(user.tenantId, branchId, user.userId, access, id, dto);
+  }
+
+  /**
+   * A delivery prepared remotely, from the supplier's note, for the counter to receive later.
+   * Preparing, changing and approving it never touch stock or the supplier ledger; posting is
+   * the physical step and happens at the branch.
+   */
+  @RequirePermission("purchasing.view")
+  @Get("prepared-receipts")
+  async listPreparedReceipts(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Query("status") status?: string,
+  ) {
+    const access = await this.access.resolve(user, branchId);
+    const allowed = ["draft", "approved", "posted", "cancelled"] as const;
+    return (await this.preparedReceipts.list(user.tenantId, branchId, {
+      status: allowed.find((value) => value === status),
+      canViewCost: access.has("costs.view"),
+    })).map((row) => ({ ...row, selfApprovalBlocked: !access.canSelfApprove && row.preparedBy.id === user.userId }));
+  }
+
+  @RequirePermission("purchasing.manage")
+  @Post("purchase-orders/:id/prepared-receipts")
+  prepareReceipt(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string, @Body() dto: CreatePreparedReceiptDto) {
+    return this.preparedReceipts.create(user, branchId, id, dto);
+  }
+
+  @RequirePermission("purchasing.manage")
+  @Patch("prepared-receipts/:id")
+  updatePreparedReceipt(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string, @Body() dto: UpdatePreparedReceiptDto) {
+    return this.preparedReceipts.update(user, branchId, id, dto);
+  }
+
+  @RequirePermission("purchasing.approve")
+  @Post("prepared-receipts/:id/approve")
+  approvePreparedReceipt(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string, @Body() dto: ApproveHeldDto) {
+    return this.preparedReceipts.approve(user, branchId, id, dto);
+  }
+
+  @RequirePermission("purchasing.receive")
+  @Post("prepared-receipts/:id/post")
+  postPreparedReceipt(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string, @Body() dto: PostHeldDto) {
+    return this.preparedReceipts.post(user, branchId, id, dto);
+  }
+
+  @RequirePermission("purchasing.manage", "purchasing.approve")
+  @Post("prepared-receipts/:id/cancel")
+  cancelPreparedReceipt(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string,
+    @Param("id", ParseUUIDPipe) id: string, @Body() dto: CancelPreparedReceiptDto) {
+    return this.preparedReceipts.cancel(user, branchId, id, dto);
   }
 
   // Receiving is its own permission: a storekeeper books deliveries in without being able to

@@ -232,6 +232,16 @@
       "path": "src/purchasing/held-delivery.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks exact tenant/branch held requests for approval and execution; deliveries lock their scoped PO before the held row."
+    },
+    {
+      "path": "src/purchasing/prepared-receipt.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks the tenant/branch-scoped PO, then the prepared receipt, for preparation, approval, cancellation and posting; evidence, receiving effects and audit share the caller transaction."
+    },
+    {
+      "path": "src/returns/returns.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks the tenant/branch-scoped supplier return before exact approval and dispatch; evidence, StockService effects, debit note and audit share the caller transaction."
     }
   ]
 }
