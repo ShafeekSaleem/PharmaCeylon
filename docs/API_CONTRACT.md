@@ -540,7 +540,13 @@ Pilot uses **`/api/v1`**. Breaking changes should move to `/api/v2` or be gated 
 
 `GET /tenant/branches/:branchId/counter-policy` and `PUT` on the same path require
 `tenant.management` on the target branch. PUT accepts `{ expectedVersion, policy }`; version
-conflicts return 409. The version-1 document configures branch offline enablement and approved
-external-card provider/merchant identifiers; default is disabled. Fixed offline rules cannot
-be edited. Saving is not offline activation or grant renewal. See [W7_COUNTER_POLICY.md](W7_COUNTER_POLICY.md)
+conflicts return 409. The version-2 document configures online payment methods (cash is always
+accepted), branch offline enablement, approved external-card provider/merchant identifiers and
+per-register receipt/invoice prefixes; offline defaults to disabled. Stored version-1 documents
+are read as version 2. GET also lists the branch's registers. Fixed offline rules cannot be
+edited. Saving is not offline activation or grant renewal.
+
+`GET /tenant/branches/:branchId/counter-settings` (`tenant.management` at the branch) is the
+read-only grant settings source: every value settings contribute to an offline grant, with the
+counter-policy and operating-hours versions P3 re-issues on. See [W7_COUNTER_POLICY.md](W7_COUNTER_POLICY.md)
 for validation, atomic audit, live authority, examples and downstream integration boundaries.
