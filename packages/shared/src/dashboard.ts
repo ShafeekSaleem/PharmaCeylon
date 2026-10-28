@@ -19,6 +19,8 @@ export const DAILY_WORK_KINDS = [
   "purchase_order.receive",
   "held_delivery.approve",
   "held_delivery.post",
+  "prepared_receipt.approve",
+  "prepared_receipt.post",
   "held_adjustment.approve",
   "held_adjustment.post",
   "transfer.approve",
