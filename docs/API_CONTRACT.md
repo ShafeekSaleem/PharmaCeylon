@@ -27,9 +27,10 @@
 The history API returns `stockStaged`, pending `unitsStaged` and `stockUndo`. It disables web
 stock undo at live/fallback branches and when the selected branch differs. Import job results
 describe the original import; the draft/history endpoints supply current posting state.
-API and web deploy together for the legacy undo route change. Terminal signing, independent
-attendance, command receipts and full desktop screens remain the later coordinated P1/P2/P6
-cutover; these route declarations do not claim that enforcement is active.
+API and web deploy together for the legacy undo route change. Both physical import routes can
+also run as signed terminal commands with original-result receipts (see "Signed terminal
+commands" below). Independent attendance, full desktop screens and enforcement on the browser
+routes remain the later coordinated P1/P2/P6 cutover.
 
 Single reference for the web team. The machine-readable contract is the **OpenAPI document** served by the API.
 
@@ -95,6 +96,148 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 - First request with a key performs the mutation and records the key → resource id.
 - Retries with the **same** key return the **same** resource (replay).
 - Reusing a key for a **different** logical operation (e.g. different PO on receive, different transfer id on ship/receive) returns **400** with a clear message—do not silently post twice.
+
+## Signed terminal commands (P1, desktop contract v1)
+
+How an enrolled desktop counter executes a physical operation and recovers its original
+result. The P2 desktop client is built against this section and the shared types in
+`packages/shared/src/terminal-command-execution.ts` (`TerminalCommandPrepareRequest`,
+`TerminalCommandExecuteRequest`, `OnlineCommandReceipt`, `SignedOperationBody`,
+`SignedOperationResult`). Enrollment and staff-session binding use the existing
+`TerminalTrustService` protocol (`terminal_enrollment` / `terminal_session` challenges); their
+HTTP endpoints, PIN sign-in and the attendance provider belong to P2.
+
+**Not active in production.** The attendance port still denies every proof
+(`LOCAL_ATTENDANCE_UNAVAILABLE`) and the hours port denies every command
+(`TEMPORARILY_UNAVAILABLE`) until P2/W7 install real providers. The browser routes for these
+operations are unchanged and are not yet restricted to terminals.
+
+### Endpoints
+
+Both take a Bearer staff token and `x-branch-id`, pass the normal guard chain, and return 200.
+
+- `POST /terminal-commands/prepare` — body `{ workSessionId, operation, body,
+  approvalEvidenceId, pharmacistEvidenceId, operatingHoursExceptionId }` (exactly these keys).
+  Checks the staff session, the operation's permission and the strict body, then returns an
+  unsigned `OnlineTerminalCommand` with a server-issued `commandId`, single-use `serverNonce`
+  and a 2-minute `issuedAt`/`expiresAt` window. No business effect.
+- `POST /terminal-commands/execute` — body `{ command: Signed<OnlineTerminalCommand>,
+  attendanceProofId }` (exactly these keys). Returns an `OnlineCommandReceipt`, for the first
+  execution and for every replay.
+
+### v1 operations
+
+| `operation` | `body` (exact keys) | `approvalEvidenceId` | Permission |
+| --- | --- | --- | --- |
+| `POST /api/v1/stocktakes/:id/post` | `{ stocktakeId }` | the stocktake's current approval | `stocktakes.review` |
+| `POST /api/v1/inventory/held-adjustments/:id/post` | `{ heldAdjustmentId }` | the request's current approval | `inventory.write_off` |
+| `POST /api/v1/purchasing/held-deliveries/:id/post` | `{ heldDeliveryId }` | the delivery's current approval | `purchasing.receive` |
+| `POST /api/v1/products/import/:importId/stock/post` | `{ importId, version, selection, categoryName }` | `null` | `products.import` |
+| `POST /api/v1/products/import/:importId/undo-stock` | `{ importId }` | `null` | `products.import` |
+
+Import posting: `selection: "all"` posts every remaining staged row and needs
+`categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
+uncategorised rows). `version` is the displayed staged-stock version. `pharmacistEvidenceId`
+and `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
+key, type or coercion is `INVALID_COMMAND`.
+
+### Envelope, canonical bytes and digest
+
+```text
+Signed      = { algorithm: "Ed25519", keyId, payload, signature }        // exactly 4 keys
+payload     = { contractVersion: 1, kind: "online_operation", commandId,
+                identity: { tenantId, branchId, terminalId, enrollmentId, keyId },
+                session:  { registerId, tillId, workSessionId, staffUserId },
+                operation, issuedAt, expiresAt, serverNonce, body,
+                approvalEvidenceId, pharmacistEvidenceId, operatingHoursExceptionId }
+signingText = "PharmaCeylon:terminal:v1:command\n" + canonicalJson(payload)
+signature   = base64url(Ed25519(UTF-8(signingText))), no padding (86 chars)
+requestDigest = lowercase hex SHA-256 of UTF-8(signingText)
+```
+
+- Sign the payload returned by `prepare` **verbatim**. Do not add, drop or change any field.
+  The server verifies with the public key pinned at enrollment; `keyId` must equal
+  `identity.keyId`.
+- `canonicalJson` is `terminalSigningText` in `@pharmaceylon/shared`: object keys sorted in JS
+  default string order, no whitespace, `JSON.stringify` for strings/booleans/null, safe
+  integers only (no floats or `-0`), plain objects/arrays only. Quantities are base units and
+  money is LKR minor units. Limits: depth 16, 10,000 values, 32,768-char strings, 128-char keys,
+  131,072 encoded bytes.
+- `requestDigest` is also the challenge digest and the value an attendance proof must bind. The
+  signature is not part of it.
+- `attendanceProofId` (1–128 chars) is opaque to P1. P2's provider must bind it to purpose
+  `command`, the terminal identity, the staff user, register/till and `requestDigest`.
+
+### Receipt and replay
+
+```text
+OnlineCommandReceipt = { contractVersion: 1, kind: "online_command_receipt", receiptId,
+  commandId, identity, workSessionId, operation, requestDigest, actorUserId,
+  recordedAt /* epoch ms */, replayed, result }
+```
+
+`result` is a compact per-operation summary (`SignedOperationResult`), not the screen view.
+It is stored with the receipt and returned identically every time; only `replayed` differs.
+`effect: "already_applied"` means a *different* command found the work already done, so it
+had no second effect.
+
+The server handles `execute` in one READ COMMITTED transaction:
+
+1. Strict parse. The signed tenant and branch must equal the caller's tenant and `x-branch-id`.
+2. Lock the enrollment row. A revoked enrollment or retired terminal is `TERMINAL_REVOKED`.
+3. Look up the receipt by tenant + enrollment + `commandId`.
+4. **Receipt found: replay.** The signature must verify with the pinned key, the caller must
+   be the original staff user, and branch, terminal, key, operation and `requestDigest` must
+   match. The server returns the stored receipt with `replayed: true` and writes nothing. No
+   attendance proof, live challenge, open staff session or time limit is required. A content
+   difference is `409 REPLAY_CONFLICT`.
+5. **No receipt: execute.** The server verifies the session, live permission, challenge,
+   signature, attendance, exact approval and evidence ports, then rechecks them after lock
+   waits. It runs the same domain core the browser route uses (StockService only). The
+   domain success audit records requester, approver and executor plus terminal, session,
+   command and attendance provenance. Then it writes `terminal.command_executed` and inserts
+   the receipt (`offline_sequence` NULL). Any failure rolls back all of it, including nonce
+   consumption.
+6. Notifications run only after commit, and their failure never affects the receipt.
+
+Identical concurrent retries wait on the enrollment lock and then replay, giving one effect,
+one audit chain and the same receipt.
+
+**Client rules:**
+
+- Persist the signed envelope before sending `execute`, and keep it until you get a receipt or
+  a definitive error.
+- After a timeout, 5xx or dropped connection, resend the identical envelope.
+- `CHALLENGE_EXPIRED` / `CHALLENGE_INVALID` for that envelope means it was definitively not
+  executed, because the receipt lookup runs first. Prepare a new command if you still want the
+  operation.
+
+**Sequences:** online commands carry none. Their identity is the server-issued `commandId`, and
+ordering per terminal is the server's lock order. Offline sequences belong to P5: positive,
+unique per tenant + enrollment, strictly increasing and never reset.
+
+### Errors
+
+Bodies are `{ statusCode, code, message }`. The shared `TerminalApiError` shape with
+`correlationId`/`retryable` is not used yet.
+
+| HTTP | `code` | Meaning |
+| --- | --- | --- |
+| 400 | `INVALID_COMMAND` | Malformed or unknown operation, bad keys or evidence IDs, non-canonical body. Definitive. |
+| 403 | `IDENTITY_MISMATCH` | Tenant, branch, terminal, key, operation or staff mismatch, or a replay by another user. Definitive. |
+| 403 | `INVALID_SIGNATURE` | Definitive. |
+| 403 | `TERMINAL_REVOKED` | Revoked enrollment or retired terminal. Also blocks replay; recover in the back office. |
+| 403 | `SESSION_INVALID` | Staff session closed or token version changed. Re-authorize and prepare again. |
+| 403 | `CHALLENGE_EXPIRED`, `CHALLENGE_INVALID`, `CHALLENGE_USED_OR_EXPIRED` | Not executed. Prepare again. |
+| 403 | `LOCAL_ATTENDANCE_UNAVAILABLE` | Attendance not proven. Not executed. |
+| 403 | `PERMISSION_DENIED`, `APPROVAL_REQUIRED`, `APPROVAL_INVALID` | Not executed. |
+| 403 | `TEMPORARILY_UNAVAILABLE` | Hours evidence provider unavailable. Not executed. |
+| 409 | `REPLAY_CONFLICT` | This `commandId` already committed with different content. Definitive. |
+| 400/404/409 | Domain message, e.g. "Approval changed; refresh and review before posting" | Not executed. |
+| 5xx / network | — | **Uncertain.** Resend the identical envelope. |
+
+Receipts are not server-signed in v1; the client trusts them over TLS. A signed `sync_response`
+is reserved for P5 offline sync.
 
 ## Sales lifecycle (pilot)
 
