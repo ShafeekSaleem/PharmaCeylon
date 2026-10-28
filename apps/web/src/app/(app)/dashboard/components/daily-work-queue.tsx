@@ -10,6 +10,8 @@ import { IconChevronRight, IconCheck, IconRefresh } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 import { useDailyWork } from "../hooks/use-daily-work";
 import type { DashboardRole } from "../lib/dashboard-role";
+import { dashboardHref, usePosHidden } from "../lib/pos-links";
+import { asOfLabel } from "../widgets/counter-waiting";
 import css from "./daily-work.module.css";
 
 const ROLE_COPY: Record<
@@ -38,10 +40,10 @@ const ROLE_COPY: Record<
   },
   pharmacist: {
     title: "A clear view of your counter",
-    detail: "Review flagged holds and keep stock safe to dispense.",
-    action: "Open pharmacist holds",
-    href: "/pos?panel=holds",
-    permission: "sales.pos_use",
+    detail: "Review prescriptions and keep stock safe to dispense.",
+    action: "Open prescriptions",
+    href: "/prescriptions",
+    permission: "prescriptions.view",
   },
   cashier: {
     title: "Ready for your next customer",
@@ -72,6 +74,8 @@ const FILTERS: Array<{ key: WorkFilter; label: string }> = [
   { key: "approvals", label: "Needs my decision" },
   { key: "overdue", label: "Overdue" },
 ];
+/** Shown only at a live branch, where some work is done in PharmaCeylon POS. */
+const COUNTER_FILTER = { key: "counter" as const, label: "At the counter" };
 
 export function workTiming(
   item: DailyWorkItem,
@@ -109,7 +113,13 @@ export function DailyWorkQueue({
   const work = useDailyWork(branchId, refreshKey);
   const { permissionKeys } = usePermissions();
   const copy = ROLE_COPY[role];
+  const posHidden = usePosHidden();
+  const headerHref = dashboardHref(copy.href, posHidden);
   const { data, error, loading } = work;
+  const filters =
+    data?.counterLive || work.filter === "counter"
+      ? [...FILTERS, COUNTER_FILTER]
+      : FILTERS;
   const categories = Object.entries(data?.categories ?? {}) as Array<
     [WorkCategory, number]
   >;
@@ -132,8 +142,8 @@ export function DailyWorkQueue({
           <h1 id="daily-work-title">{copy.title}</h1>
           <p>{copy.detail}</p>
         </div>
-        {permissionKeys.includes(copy.permission) ? (
-          <Link href={copy.href} className={css.primary}>
+        {headerHref && permissionKeys.includes(copy.permission) ? (
+          <Link href={headerHref} className={css.primary}>
             {copy.action}
             <IconChevronRight size={16} />
           </Link>
@@ -148,6 +158,7 @@ export function DailyWorkQueue({
               <p>
                 {data?.branchName ?? "Active branch"} · Relevant work, including
                 carry-over and upcoming counts
+                {data ? ` · ${asOfLabel(data.asOf, data.timezone)}` : null}
               </p>
             </div>
             <button
@@ -166,7 +177,7 @@ export function DailyWorkQueue({
               role="group"
               aria-label="Filter daily work"
             >
-              {FILTERS.map(({ key, label }) => (
+              {filters.map(({ key, label }) => (
                 <button
                   type="button"
                   key={key}
@@ -220,50 +231,67 @@ export function DailyWorkQueue({
           {!error && data ? (
             <>
               <div className={css.rows} aria-busy={loading}>
-                {data.items.map((item) => (
-                  <article
-                    key={item.id}
-                    className={`${css.row} ${item.overdue || item.priority === 0 ? css.urgent : ""}`}
-                  >
-                    <div className={css.marker} aria-hidden>
-                      {item.approval
-                        ? "!"
-                        : item.category === "counter"
-                          ? "↗"
-                          : "•"}
-                    </div>
-                    <div className={css.task}>
-                      <div className={css.taskTitle}>
-                        <h3>{item.title}</h3>
-                        <span className={css.reference}>{item.reference}</span>
-                        <span className={css.status}>
-                          {item.status.replace(/_/g, " ")}
-                        </span>
-                      </div>
-                      <p>{item.detail.replace(/_/g, " ")}</p>
-                      <div className={css.meta}>
-                        <span>{CATEGORY_LABELS[item.category]}</span>
-                        <span>{item.mine ? "You" : item.owner}</span>
-                        <span className={item.overdue ? css.overdue : ""}>
-                          {workTiming(item, data.timezone, data.asOf)}
-                        </span>
-                      </div>
-                      {item.blocked ? (
-                        <p className={css.blocked}>
-                          Your request needs another approver.
-                        </p>
-                      ) : null}
-                    </div>
-                    <Link
-                      className={css.taskAction}
-                      href={item.href}
-                      aria-label={`${item.action}: ${item.reference}`}
+                {data.items.map((item) => {
+                  const href = dashboardHref(item.href, posHidden);
+                  return (
+                    <article
+                      key={item.id}
+                      className={`${css.row} ${item.overdue || item.priority === 0 ? css.urgent : ""}`}
                     >
-                      {item.action}
-                      <IconChevronRight size={14} />
-                    </Link>
-                  </article>
-                ))}
+                      <div className={css.marker} aria-hidden>
+                        {item.approval
+                          ? "!"
+                          : item.category === "counter"
+                            ? "↗"
+                            : "•"}
+                      </div>
+                      <div className={css.task}>
+                        <div className={css.taskTitle}>
+                          <h3>{item.title}</h3>
+                          <span className={css.reference}>
+                            {item.reference}
+                          </span>
+                          <span className={css.status}>
+                            {item.status.replace(/_/g, " ")}
+                          </span>
+                          {item.where === "counter" ? (
+                            <span className={css.counterBadge}>
+                              At the counter
+                            </span>
+                          ) : null}
+                        </div>
+                        <p>{item.detail.replace(/_/g, " ")}</p>
+                        <div className={css.meta}>
+                          <span>{CATEGORY_LABELS[item.category]}</span>
+                          <span>{item.mine ? "You" : item.owner}</span>
+                          <span className={item.overdue ? css.overdue : ""}>
+                            {workTiming(item, data.timezone, data.asOf)}
+                          </span>
+                        </div>
+                        {item.blocked ? (
+                          <p className={css.blocked}>
+                            Your request needs another approver.
+                          </p>
+                        ) : null}
+                        {item.where === "counter" ? (
+                          <p className={css.counterNote}>
+                            Done in PharmaCeylon POS at {data.branchName}.
+                          </p>
+                        ) : null}
+                      </div>
+                      {href ? (
+                        <Link
+                          className={css.taskAction}
+                          href={href}
+                          aria-label={`${item.action}: ${item.reference}`}
+                        >
+                          {item.action}
+                          <IconChevronRight size={14} />
+                        </Link>
+                      ) : null}
+                    </article>
+                  );
+                })}
                 {data.items.length === 0 ? (
                   <div className={css.empty}>
                     <IconCheck size={25} />
@@ -368,10 +396,12 @@ export function DailyWorkQueue({
               <p>
                 {first.reference} · {first.detail.replace(/_/g, " ")}
               </p>
-              <Link href={first.href}>
-                {first.action}
-                <IconChevronRight size={15} />
-              </Link>
+              {dashboardHref(first.href, posHidden) ? (
+                <Link href={first.href}>
+                  {first.action}
+                  <IconChevronRight size={15} />
+                </Link>
+              ) : null}
             </div>
           ) : null}
           <p className={css.note}>

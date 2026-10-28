@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { IconCheck } from "@/components/icons";
+import { isPosHref, usePosHidden } from "../lib/pos-links";
 import css from "../dashboard.module.css";
 
 export type TickerTone = "danger" | "warning" | "info";
@@ -23,11 +24,15 @@ type Props = {
 
 /** Horizontal row of severity-colored pills — replaces a wall of low-signal stat cards. */
 export function AttentionTicker({
-  items,
+  items: requested,
   loading,
   unavailable,
   allClearText = "Nothing needs attention right now",
 }: Props) {
+  const posHidden = usePosHidden();
+  const items = requested.filter(
+    (item) => !(posHidden && isPosHref(item.href)),
+  );
   if (unavailable) {
     return (
       <div className={css.tickerAllClear} role="status">
