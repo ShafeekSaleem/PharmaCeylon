@@ -169,6 +169,7 @@ export const MUTATION_ACTIONS = Object.freeze({
   "PATCH /api/v1/tenant/profile": "management",
   "PATCH /api/v1/tenant/profitability-target": "management",
   "PATCH /api/v1/tenant/settings/alerts": "management",
+  "PUT /api/v1/tenant/settings/counter-alerts": "management",
   "PATCH /api/v1/tenant/settings/approvals": "management",
   "PATCH /api/v1/tenant/settings/dashboard": "management",
   "PATCH /api/v1/tenant/settings/insights": "management",

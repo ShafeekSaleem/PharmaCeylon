@@ -202,8 +202,11 @@ export class TenantSettingsService {
 /** Prisma's Decimal doesn't serialize to a plain JSON number on its own — convert every
  *  Decimal column explicitly, same as `tenant.controller.ts`'s profitability-target routes do. */
 function serializeSettings(settings: TenantSettings) {
+  // Counter alert recipients have their own endpoint and permission check; this read is open.
+  const { counterAlertPolicy: _alerts, counterAlertPolicyVersion: _alertsVersion, ...rest } =
+    settings;
   return {
-    ...settings,
+    ...rest,
     posMaxDiscountPercent: Number(settings.posMaxDiscountPercent),
     vatRatePercent: settings.vatRatePercent == null ? null : Number(settings.vatRatePercent),
     stocktakeVarianceTolerancePercent: Number(settings.stocktakeVarianceTolerancePercent),
