@@ -371,7 +371,8 @@ receipts have `offline_sequence` NULL. Notifications move to explicit post-commi
 Nothing is activated:
 
 - The production `LocalAttendanceVerifier` still denies every proof, and the hours evidence
-  port still denies every local command. In production, `execute` therefore fails closed with
+  port still denied every local command at the time (MR 7 replaces it with the real branch-hours
+  provider). In production, `execute` therefore fails closed with
   `LOCAL_ATTENDANCE_UNAVAILABLE` (a test proves both denials).
 - Browser routes keep their current behaviour, and W1 rollout state is not consulted yet.
 - P2 still owns enrollment/session HTTP endpoints, the attendance provider, PIN sign-in and the
@@ -413,6 +414,58 @@ Validation (2026-10-28, local PostgreSQL 18):
     exceeded its timeout on a memory-starved machine; it passes 14/14 on its own;
   - `npm run lint -w api` (types, tenant and stock-write checks) and the 183-route mutation
     inventory passed. CI runs everything again.
+
+## MR 7: operating-hours evidence and D8 acknowledgement records
+
+### Real hours provider
+
+`OperatingHoursEvidence` (`terminals/operating-hours.evidence.ts`) replaces the always-deny hours
+port. `MandatoryOperationEvidence.hours` delegates to it when the application module installs it
+(Nest `@Optional`); a bare instance without a provider still fails closed with
+`TEMPORARILY_UNAVAILABLE`, so tests and scripts cannot silently open hours. The pure evaluator
+(`terminals/operating-hours.ts`) reads, on the caller's transaction and at authorization time:
+
+- the branch's structured hours (`Branch.operatingHours`, validated with `validateBranchHours`)
+  in the branch's own timezone; ranges belong to the day they open on, so overnight ranges run
+  into the next morning;
+- dated exceptions, including gazette holidays a person confirmed, which replace that date's
+  weekly hours;
+- the owner's mandatory weekly limits — a hard ceiling that exceptions and extensions never
+  widen (`[]` = no selling);
+- unrevoked online business extensions, which add routine time only.
+
+Unset or unreadable hours, an unusable timezone or an inactive/foreign branch is **unknown** and
+fails closed (`TEMPORARILY_UNAVAILABLE`); outside a mandatory limit is `OUTSIDE_OPERATING_HOURS`;
+outside routine time without an extension is `BUSINESS_HOURS_ACK_REQUIRED`. Online commands never
+carry a per-command hours exception (`operatingHoursExceptionId` must be null).
+
+Revised D8 limits new sales and shift opening; it puts no hours limit on back-room stock work. The
+five v1 signed operations (stocktake post, held write-off/delivery post, import stock post/undo)
+are therefore listed in `OPERATIONS_WITHOUT_SELLING_HOURS`. Any operation not on that reviewed list
+— every future checkout/shift adapter — is hours-checked by default. **Decision for review:** if
+stock posting should also stop at selling hours, remove those five entries.
+
+### D8 after-hours acknowledgement records
+
+`BusinessHoursAcknowledgements.record` (`terminals/business-hours-acknowledgements.service.ts`)
+is the runtime intake for the shared `OfflineBusinessHoursAcknowledgement` DTO, for P5 sync to
+call (no HTTP route yet). It parses the signed envelope with exact keys, matches identity to the
+caller's tenant and branch, verifies Ed25519 against the enrollment's pinned key, refuses device
+clocks more than five minutes ahead (`CLOCK_UNTRUSTED`) and bounds the window to 24 hours.
+`business_hours_acknowledgement` keeps the exact envelope and the SHA-256 of its signing text,
+unique per tenant + enrollment + record ID: identical uploads (including concurrent ones, under a
+transaction-scoped advisory lock) replay the stored receipt; changed content under the same ID is
+`REPLAY_CONFLICT`. Records are stored `held` (`grant_unverified`, or `enrollment_revoked` for a
+revoked/retired device, retained for reconciliation) until P3/P5 verify the grant, nomination and
+prepared-manager sign-in they cite; a trigger keeps signed content immutable, forbids deletion and
+lets the verification outcome change once. They never post a sale, shift, stock or cash effect
+and never authorize an online command.
+
+Tests: `operating-hours.spec.ts` (evaluator, provider codes, exempt operations, fail-closed port)
+and `test/integration/hours-evidence.int-spec.ts` (PostgreSQL): unset hours, routine in/out,
+gazette exception, approved/revoked extension, mandatory ceiling and no-selling, foreign tenant,
+exempt stock posting; acknowledgement persistence, identical/concurrent replay, changed-content
+replay, wrong device/branch/clock/window, revoked device and immutability.
 
 ## Remaining P1 MRs, in order
 
@@ -482,7 +535,8 @@ tenant/stock scanners and the 166-route inventory.
    - persisted provenance for import/background workers and maintenance writers;
    - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
    - restricting browser routes to terminals once W1 rollout and P2 are ready.
-3. **Readiness evidence and integration:** hours acknowledgements, assisted handover, incident
+3. **Readiness evidence and integration:** hours acknowledgements (intake and persistence done in
+   MR 7; grant/sign-in verification needs P3/P2), assisted handover, incident
    and card-attempt records, dependency ordering, failure/alternate-path tests and coordinated
    P2/P6 rollout, including attendance/mandatory-evidence providers, D13 authorizations/delegation
    and local activation with D11 clearance, and actual financial-shift binding.
