@@ -50,8 +50,12 @@ function setup(existing: Record<string, unknown> | null = null) {
   const calls: string[] = [];
   const receipts: Record<string, unknown>[] = [];
   const tx = {
+    $executeRaw: jest.fn(async () => {
+      calls.push("commandLock");
+      return 1;
+    }),
     $queryRaw: jest.fn(async () => {
-      calls.push("lock");
+      calls.push("enrollmentLock");
       return [];
     }),
     terminalCommandReceipt: {
@@ -111,14 +115,22 @@ function setup(existing: Record<string, unknown> | null = null) {
     }),
   };
   const trust = { prepareCommand: jest.fn(async () => ({ prepared: true })) };
+  const granted = new Set(["terminal.execute", "stocktakes.review"]);
+  const access = {
+    resolveLive: jest.fn(async () => {
+      calls.push("live");
+      return { has: (key: string) => granted.has(key) };
+    }),
+  };
   const executor = new TerminalCommandExecutor(
     prisma as never,
     trust as never,
     authorization as never,
     operations,
     audit as never,
+    access as never,
   );
-  return { executor, tx, prisma, stocktakes, authorization, audit, trust, calls, receipts };
+  return { executor, tx, prisma, stocktakes, authorization, audit, trust, access, granted, calls, receipts };
 }
 
 const signed = (p: ReturnType<typeof payload>) => device.sign(p, identity.keyId);
@@ -126,11 +138,11 @@ const execute = (ctx: ReturnType<typeof setup>, command: unknown, branch = branc
   ctx.executor.execute(user as never, branch, { command, attendanceProofId: "proof-1" });
 
 describe("TerminalCommandExecutor", () => {
-  it("locks, looks up, authorizes, executes, then writes receipt and audit in one transaction", async () => {
+  it("locks the command, looks up, locks the enrollment, authorizes, executes, then writes receipt and audit", async () => {
     const ctx = setup();
     const p = payload();
     const receipt = await execute(ctx, signed(p));
-    expect(ctx.calls).toEqual(["lock", "lookup", "authorize", "domain", "receipt", "audit"]);
+    expect(ctx.calls).toEqual(["commandLock", "lookup", "enrollmentLock", "authorize", "live", "domain", "receipt", "audit"]);
     expect(ctx.prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(receipt).toMatchObject({
       contractVersion: 1,
@@ -170,7 +182,9 @@ describe("TerminalCommandExecutor", () => {
     };
     const ctx = setup(stored);
     const receipt = await execute(ctx, signed(p));
-    expect(ctx.calls).toEqual(["lock", "lookup"]);
+    // Replay never waits for the enrollment lock that unrelated long commands hold.
+    expect(ctx.calls).toEqual(["commandLock", "lookup", "live"]);
+    expect(ctx.tx.terminalEnrollment.findFirst).toHaveBeenCalledTimes(1);
     expect(ctx.authorization.authorize).not.toHaveBeenCalled();
     expect(ctx.audit.log).not.toHaveBeenCalled();
     expect(receipt).toMatchObject({ receiptId: stored.id, replayed: true, recordedAt: 5,
@@ -216,6 +230,31 @@ describe("TerminalCommandExecutor", () => {
     await expect(execute(revoked, signed(p))).rejects.toMatchObject({
       response: { code: "TERMINAL_REVOKED" },
     });
+  });
+
+  it.each(["stocktakes.review", "terminal.execute"])(
+    "refuses replay once the staff member no longer holds %s", async (removed) => {
+      const p = payload();
+      const ctx = setup({
+        id: randomUUID(), tenantId, branchId, terminalId: identity.terminalId,
+        enrollmentId: identity.enrollmentId, keyId: identity.keyId, commandId: p.commandId,
+        operation: STOCKTAKE, requestDigest: sha256(boundedCanonical(p)), actorUserId: user.userId,
+        command: signed(p), result: {}, recordedAt: new Date(),
+      });
+      ctx.granted.delete(removed);
+      await expect(execute(ctx, signed(p))).rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+    });
+
+  it("refuses replay when live branch authority is gone", async () => {
+    const p = payload();
+    const ctx = setup({
+      id: randomUUID(), tenantId, branchId, terminalId: identity.terminalId,
+      enrollmentId: identity.enrollmentId, keyId: identity.keyId, commandId: p.commandId,
+      operation: STOCKTAKE, requestDigest: sha256(boundedCanonical(p)), actorUserId: user.userId,
+      command: signed(p), result: {}, recordedAt: new Date(),
+    });
+    ctx.access.resolveLive.mockRejectedValueOnce(new Error("No current branch assignment"));
+    await expect(execute(ctx, signed(p))).rejects.toThrow("No current branch assignment");
   });
 
   it("rejects a branch header or tenant that differs from the signed identity before any transaction", async () => {

@@ -67,6 +67,7 @@ export const MODULE_SECTIONS: Record<string, string> = {
   costs: "costs_money",
   inventory: "inventory_stocktakes",
   stocktakes: "inventory_stocktakes",
+  terminal: "inventory_stocktakes",
   purchasing: "purchasing_suppliers",
   suppliers: "purchasing_suppliers",
   transfers: "transfers",
@@ -507,6 +508,19 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     defaultRoles: [owner, manager],
     riskLevel: "elevated",
     dependencies: ["stocktakes.use"],
+  },
+
+  // ── Desktop counter (signed commands) ──
+  {
+    // Coarse route gate for /terminal-commands/*. Each command still needs its operation's own
+    // permission; defaults are every role holding any of those (see the backfill migration).
+    key: "terminal.execute",
+    module: "terminal",
+    label: "Post stock from the desktop counter",
+    description:
+      "Send signed posting commands (stocktake, write-off, held delivery, import stock) from an enrolled desktop counter. Each command also needs that operation's own permission.",
+    defaultRoles: [owner, manager, inventory_clerk],
+    riskLevel: "elevated",
   },
 
   // ── Suppliers ──

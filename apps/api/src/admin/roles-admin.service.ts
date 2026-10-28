@@ -53,6 +53,7 @@ export class RolesAdminService {
       "inventory.release_quarantine",
       "inventory.manage_bulk",
       "purchasing.receive",
+      "terminal.execute",
     ]);
     const mixedKeys = new Set([
       "stocktakes.use",

@@ -104,7 +104,7 @@ const imports = new ProductImportService(proxy as never, audit, new CategoryTaxo
     runImport = () => work({ jobId: id, importId: id, progress: () => {} });
   } } as never, { refresh: async () => {} } as never, stock);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
-  new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports), audit);
+  new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports), audit, access);
 
 let fx: TenantFixture;
 let foreign: TenantFixture;
@@ -371,6 +371,77 @@ describe("identity and device rejection, including owners", () => {
   });
 });
 
+describe("live authority and lock scope", () => {
+  const setManagerRole = (data: Prisma.UserBranchRoleUncheckedUpdateManyInput) =>
+    prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, branchId: branch(), userId: fx.managerId }, data });
+  afterEach(() => setManagerRole({ role: "manager", roleId: null }));
+
+  it("refuses execution and replay after the operation permission is removed", async () => {
+    const counter = await counterFor(fx.managerId);
+    const done = await approvedStocktake(39, 50);
+    const committed = await signedCommand(counter, "POST /api/v1/stocktakes/:id/post", { stocktakeId: done.id }, done.approvalId);
+    await run(counter, committed.request);
+    const pendingSt = await approvedStocktake(38, 50);
+    const pending = await signedCommand(counter, "POST /api/v1/stocktakes/:id/post", { stocktakeId: pendingSt.id }, pendingSt.approvalId);
+    await setManagerRole({ role: "cashier" });
+    await expect(run(counter, committed.request)).rejects.toMatchObject({ status: 403 });
+    await expect(run(counter, pending.request)).rejects.toMatchObject({ status: 403 });
+    expect((await batchTotals(prisma, pendingSt.batchId)).onHand).toBe(50);
+    expect(await receiptsFor(pending.payload.commandId)).toBe(0);
+    await setManagerRole({ role: "manager" });
+    expect((await run(counter, committed.request)).replayed).toBe(true);
+  });
+
+  it("refuses execution and replay to a custom role without terminal.execute", async () => {
+    const counter = await counterFor(fx.managerId);
+    const done = await approvedStocktake(37, 50);
+    const committed = await signedCommand(counter, "POST /api/v1/stocktakes/:id/post", { stocktakeId: done.id }, done.approvalId);
+    await run(counter, committed.request);
+    const pendingSt = await approvedStocktake(36, 50);
+    const pending = await signedCommand(counter, "POST /api/v1/stocktakes/:id/post", { stocktakeId: pendingSt.id }, pendingSt.approvalId);
+    // Migrations seed only migration-added keys; the catalog rows come from the app seed.
+    await prisma.permission.createMany({ skipDuplicates: true, data: ["stocktakes.use", "stocktakes.review"]
+      .map(key => ({ key, module: "stocktakes", label: key, description: key })) });
+    const role = await prisma.role.create({ data: {
+      tenantId: fx.tenantId, key: `reviewer-${randomUUID().slice(0, 8)}`, name: "Count reviewer",
+      permissions: { create: ["stocktakes.use", "stocktakes.review"].map(permissionKey => ({ tenantId: fx.tenantId, permissionKey })) },
+    } });
+    await setManagerRole({ role: "custom", roleId: role.id });
+    await expect(run(counter, committed.request)).rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+    await expect(run(counter, pending.request)).rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+    expect((await batchTotals(prisma, pendingSt.batchId)).onHand).toBe(50);
+    expect(await challengeConsumed(pending.payload.serverNonce)).toBe(false);
+  });
+
+  it("replays a committed command while unrelated work holds the enrollment lock", async () => {
+    const counter = await counterFor(fx.managerId);
+    const st = await approvedStocktake(35, 50);
+    const { request } = await signedCommand(counter, "POST /api/v1/stocktakes/:id/post", { stocktakeId: st.id }, st.approvalId);
+    const first = await run(counter, request);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let locked!: () => void;
+    const held = new Promise<void>(resolve => { locked = resolve; });
+    const blocker = tx(async c => {
+      await c.$queryRaw`SELECT id FROM terminal_enrollment WHERE tenant_id = ${fx.tenantId}::uuid
+        AND id = ${counter.identity.enrollmentId}::uuid FOR UPDATE`;
+      locked();
+      await gate;
+    });
+    try {
+      await held;
+      const replay = await Promise.race([
+        run(counter, request),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Replay queued behind the enrollment lock")), 5_000)),
+      ]);
+      expect(replay).toEqual({ ...first, replayed: true });
+    } finally {
+      release();
+      await blocker;
+    }
+  });
+});
+
 describe("injected failures roll back business effects, audit, receipt and nonce", () => {
   const failures: Array<[string, (commandId: string) => Promise<void>]> = [
     ["business", async () => {
@@ -506,12 +577,12 @@ describe("production providers stay fail-closed", () => {
     const productionTrust = new TerminalTrustService(access, audit, new LocalAttendanceVerifier());
     const production = new TerminalCommandExecutor(proxy as never, productionTrust,
       new OperationAuthorizationService(access, productionTrust, new MandatoryOperationEvidence(), approvals),
-      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports), audit);
+      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports), audit, access);
     await expect(production.execute(counter.staff, branch(), request)).rejects.toMatchObject({
       response: { code: "LOCAL_ATTENDANCE_UNAVAILABLE" } });
     const hoursOnly = new TerminalCommandExecutor(proxy as never, trust,
       new OperationAuthorizationService(access, trust, new MandatoryOperationEvidence(), approvals),
-      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports), audit);
+      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports), audit, access);
     await expect(hoursOnly.execute(counter.staff, branch(), request)).rejects.toMatchObject({
       response: { code: "TEMPORARILY_UNAVAILABLE" } });
     expect((await batchTotals(prisma, st.batchId)).onHand).toBe(50);

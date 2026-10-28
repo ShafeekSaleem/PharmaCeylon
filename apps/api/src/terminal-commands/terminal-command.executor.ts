@@ -9,6 +9,7 @@ import type {
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { tenantTransactionStorage } from "../prisma/tenant-transaction.store";
+import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { OperationAuthorizationService } from "../security/operation-authorization.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
@@ -41,16 +42,19 @@ function replayConflict(): never {
     message: "This command was already executed with different content",
   });
 }
+/** Route gate for /terminal-commands/*, also required live inside the transaction. */
+export const TERMINAL_EXECUTE = "terminal.execute";
 const isUniqueViolation = (error: unknown) =>
   typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002";
 
 /** Online signed execution with original-result receipts (contract: docs/API_CONTRACT.md).
  *
- * One READ COMMITTED transaction per request: lock the enrollment, look up the scoped receipt,
- * then either replay it or verify/authorize, run the domain core, write the execution audit and
- * insert the receipt. Every failure rolls back all of it, including nonce consumption. The
- * enrollment lock serializes identical retries, so a waiting retry sees the committed receipt
- * and replays it instead of reaching the consumed challenge.
+ * One READ COMMITTED transaction per request: take a transaction-scoped advisory lock on the
+ * command identity, look up the scoped receipt, then either replay it or lock the enrollment,
+ * verify/authorize, run the domain core, write the execution audit and insert the receipt.
+ * Every failure rolls back all of it, including nonce consumption. The command lock serializes
+ * identical retries only: a retry waits for its own in-flight original (then sees the committed
+ * receipt and replays it), never for unrelated work holding the enrollment lock.
  */
 @Injectable()
 export class TerminalCommandExecutor {
@@ -62,6 +66,7 @@ export class TerminalCommandExecutor {
     private readonly authorization: OperationAuthorizationService,
     private readonly operations: SignedOperations,
     private readonly audit: AuditService,
+    private readonly access: AccessService,
   ) {}
 
   /** Issues the payload the enrolled desktop signs verbatim. Has no business effect. */
@@ -125,14 +130,14 @@ export class TerminalCommandExecutor {
       );
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
-      // Defensive only: the enrollment lock already serializes one command identity. Never
+      // Defensive only: the command lock already serializes one command identity. Never
       // execute twice; replay the committed original or report the conflict.
       afterCommit.length = 0;
       receipt = await this.transaction(user, branchId, async (tx) => {
-        await this.lockEnrollment(tx, user.tenantId, branchId, command.identity.enrollmentId);
+        await this.lockCommand(tx, user.tenantId, command);
         const existing = await this.findReceipt(tx, user.tenantId, command);
         if (!existing) throw error;
-        return this.replay(tx, user, branchId, envelope, requestDigest, existing);
+        return this.replay(tx, user, branchId, operation, envelope, requestDigest, existing);
       });
     }
     for (const hook of afterCommit)
@@ -153,12 +158,14 @@ export class TerminalCommandExecutor {
     afterCommit: Array<() => Promise<void>>,
   ): Promise<OnlineCommandReceipt> {
     const command = envelope.payload;
+    await this.lockCommand(tx, user.tenantId, command);
+    const existing = await this.findReceipt(tx, user.tenantId, command);
+    if (existing)
+      return this.replay(tx, user, branchId, operation, envelope, requestDigest, existing);
+
     await this.lockEnrollment(tx, user.tenantId, branchId, command.identity.enrollmentId);
     // Report a revoked/retired device as such, before session or challenge checks.
     await this.activeEnrollment(tx, user, branchId, envelope);
-    const existing = await this.findReceipt(tx, user.tenantId, command);
-    if (existing)
-      return this.replay(tx, user, branchId, envelope, requestDigest, existing);
 
     const authorized = await this.authorization.authorize(
       tx,
@@ -169,6 +176,8 @@ export class TerminalCommandExecutor {
     );
     if (!authorized.terminal || authorized.terminal.digest !== requestDigest)
       denied("TERMINAL_REQUIRED");
+    // The route gate read cached claims; require it live, as the operation permission is.
+    await this.requireLiveAuthority(tx, user, branchId, operation);
     const provenance: CommandProvenance = {
       commandId: command.commandId,
       requestDigest,
@@ -221,14 +230,16 @@ export class TerminalCommandExecutor {
     return this.toReceipt(row, false);
   }
 
-  /** Authenticated retrieval of the original result: same staff user, active enrollment and
-   * a valid signature over the identical payload. No attendance proof, nonce or open session is
-   * needed, and nothing is written. Any content difference is REPLAY_CONFLICT.
+  /** Authenticated retrieval of the original result: same staff user with current branch
+   * authority for the operation, active enrollment and a valid signature over the identical
+   * payload. No attendance proof, nonce, open session or enrollment lock is needed, and nothing
+   * is written. Any content difference is REPLAY_CONFLICT.
    */
   private async replay(
     tx: Tx,
     user: RequestUser,
     branchId: string,
+    operation: Operation,
     envelope: Envelope,
     requestDigest: string,
     existing: TerminalCommandReceipt,
@@ -238,6 +249,7 @@ export class TerminalCommandExecutor {
     verifySignature(envelope, enrollment.publicKeyHex);
     if (existing.actorUserId !== user.userId || existing.branchId !== branchId)
       denied("IDENTITY_MISMATCH");
+    await this.requireLiveAuthority(tx, user, branchId, operation);
     if (
       existing.requestDigest !== requestDigest ||
       existing.operation !== envelope.payload.operation ||
@@ -277,6 +289,19 @@ export class TerminalCommandExecutor {
     )
       denied("IDENTITY_MISMATCH");
     return enrollment;
+  }
+
+  /** Live account, token version, branch assignment and both the route and operation grants. */
+  private async requireLiveAuthority(tx: Tx, user: RequestUser, branchId: string, operation: Operation) {
+    const actor = await this.access.resolveLive(user, branchId, tx);
+    if (!actor.has(TERMINAL_EXECUTE) || !actor.has(operation.descriptor.permission))
+      denied("PERMISSION_DENIED");
+  }
+
+  /** Transaction-scoped lock on one command identity. Hash collisions only over-serialize. */
+  private async lockCommand(tx: Tx, tenantId: string, command: OnlineTerminalCommand<unknown>) {
+    const key = `terminal_command:${tenantId}:${command.identity.enrollmentId}:${command.commandId}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
   }
 
   private async lockEnrollment(tx: Tx, tenantId: string, branchId: string, enrollmentId: string) {
