@@ -139,6 +139,11 @@
       "reason": "Locks one enrollment by the caller's tenant, branch header and signed enrollment id before the scoped receipt lookup, so identical command retries serialize and replay the committed original result."
     },
     {
+      "path": "src/terminals/offline-assignment.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one branch row by the caller's tenant and branch id to serialize offline-counter delegation, assignment authorization, revocation and activation-time revalidation; no data is written by raw SQL."
+    },
+    {
       "path": "scripts/test-rls-canary-activation.mjs",
       "mode": "ephemeral-test",
       "reason": "CI-only scoped transaction setup in a self-cleaning database proof."
