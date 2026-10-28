@@ -254,6 +254,55 @@ describe("W3 back-office web scope", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Web access could not be checked");
   });
 
+  it("unmounts a back-office page when the branch goes live and the rollout refresh fails", async () => {
+    mockBackOfficeAccess = false;
+    mockPathname = "/inventory";
+    await renderShell();
+    expect(screen.getByText("Page body")).toBeInTheDocument();
+
+    // The owner moves the branch live; this tab's forced re-read of the context fails, while
+    // its permissions resolve without back-office scope.
+    rollout = LIVE;
+    request.mockImplementation(async (path: string) => {
+      if (path === "/tenant/context") throw new Error("offline");
+      return { groups: [] } as never;
+    });
+    await act(async () => notifyPosRolloutChanged());
+
+    await waitFor(() => expect(screen.queryByText("Page body")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("Web access could not be checked");
+    expect(posNavLink()).not.toBeInTheDocument();
+    expect(quickSale()).not.toBeInTheDocument();
+
+    // The next read that lands establishes the scope again.
+    request.mockImplementation(
+      async (path: string) =>
+        (path === "/tenant/context" ? contextResponse() : { groups: [] }) as never,
+    );
+    await act(async () => notifyPosRolloutChanged());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Use PharmaCeylon POS" })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Page body")).not.toBeInTheDocument();
+  });
+
+  it("applies a successful rollout refresh to the page in place", async () => {
+    mockBackOfficeAccess = false;
+    mockPathname = "/inventory";
+    await renderShell();
+    expect(screen.getByText("Page body")).toBeInTheDocument();
+
+    rollout = LIVE;
+    await act(async () => notifyPosRolloutChanged());
+    await waitFor(() => expect(screen.queryByText("Page body")).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Use PharmaCeylon POS" })).toBeInTheDocument();
+
+    // Back-office scope keeps the page open at a live branch.
+    mockBackOfficeAccess = true;
+    await act(async () => notifyPosRolloutChanged());
+    await waitFor(() => expect(screen.getByText("Page body")).toBeInTheDocument());
+  });
+
   it("keeps personal account pages available without back-office scope", async () => {
     rollout = LIVE;
     mockBackOfficeAccess = false;

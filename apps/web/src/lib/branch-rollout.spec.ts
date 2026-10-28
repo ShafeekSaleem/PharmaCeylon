@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { apiJson } from "./auth-client";
 import {
   currentRollout,
+  notifyPosRolloutChanged,
   resetBranchRolloutCache,
   useBranchRollout,
   webPosHidden,
@@ -83,6 +84,39 @@ describe("useBranchRollout", () => {
     const hook = renderHook(() => useBranchRollout());
     await waitFor(() => expect(hook.result.current.loading).toBe(false));
     expect(hook.result.current.rollout).toBeNull();
+  });
+
+  it("forgets an earlier answer when a forced refresh fails, and recovers on the next read", async () => {
+    const context = (state: PosRollout["state"]) =>
+      ({
+        branchRoles: [{ branchId: "b-1", branch: { posRollout: { state, liveSince: null, fallback: null } } }],
+      }) as never;
+    request.mockResolvedValueOnce(context("not_live"));
+    const hook = renderHook(() => useBranchRollout());
+    await waitFor(() => expect(hook.result.current.rollout?.state).toBe("not_live"));
+    expect(hook.result.current).toMatchObject({ resolved: true, failed: false, loading: false });
+
+    request.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => notifyPosRolloutChanged());
+    await waitFor(() => expect(hook.result.current.failed).toBe(true));
+    expect(hook.result.current).toMatchObject({ rollout: null, resolved: false, loading: false });
+
+    // A second component mounting now must not be handed the stale answer either.
+    const late = renderHook(() => useBranchRollout());
+    expect(late.result.current.rollout).toBeNull();
+
+    request.mockResolvedValue(context("live"));
+    await act(async () => notifyPosRolloutChanged());
+    await waitFor(() => expect(hook.result.current.rollout?.state).toBe("live"));
+    expect(hook.result.current).toMatchObject({ resolved: true, failed: false });
+    expect(late.result.current.rollout?.state).toBe("live");
+  });
+
+  it("reports a failed first read rather than loading forever", async () => {
+    request.mockRejectedValue(new Error("offline"));
+    const hook = renderHook(() => useBranchRollout());
+    await waitFor(() => expect(hook.result.current.failed).toBe(true));
+    expect(hook.result.current).toMatchObject({ rollout: null, loading: false, resolved: false });
   });
 
   it("ends a fallback on time in an open tab", async () => {

@@ -328,15 +328,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     accessResolved,
     loading: permissionsLoading,
   } = usePermissions();
-  // Until the branch's state is known it reads as not live, so nothing changes for a branch that
-  // isn't live — including while the first answer loads.
-  const { rollout } = useBranchRollout();
+  // The branch's web scope is only established by a current rollout answer. While the first read
+  // loads, or after a read failed (a failed refresh clears the earlier answer), it is unknown and
+  // the shell fails closed: no back-office page mounts, so none of its requests run either.
+  const { rollout, resolved: rolloutResolved, failed: rolloutFailed } = useBranchRollout();
+  const scopeRollout = rolloutResolved ? rollout : null;
   const posHidden = webPosHidden(rollout);
   const webScopeRestricted =
-    !accessResolved || !rollout || (rollout.state !== "not_live" && !backOfficeAccess);
+    !accessResolved || !scopeRollout || (scopeRollout.state !== "not_live" && !backOfficeAccess);
   const pageAllowed =
     isPersonalAccountPath(pathname) ||
-    (accessResolved && mayOpenWebPath(pathname, backOfficeAccess, rollout));
+    (accessResolved && mayOpenWebPath(pathname, backOfficeAccess, scopeRollout));
   const { extraCrumbs, lastSegmentLabel, chromeHidden } = usePageChrome();
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
 
@@ -801,9 +803,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className={`${styles.content}${showQuickSale ? ` ${styles.contentWithFab}` : ""}`}>
           {pageAllowed ? (
             children
-          ) : permissionsLoading || !rollout ? (
+          ) : permissionsLoading || (!scopeRollout && !rolloutFailed) ? (
             <p role="status">Checking web access…</p>
-          ) : !accessResolved ? (
+          ) : !accessResolved || rolloutFailed ? (
             <p role="alert">Web access could not be checked. Refresh this page to try again.</p>
           ) : (
             <section aria-label="Counter access">
