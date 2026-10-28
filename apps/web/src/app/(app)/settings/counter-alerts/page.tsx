@@ -113,6 +113,15 @@ export default function CounterAlertsSettingsPage() {
         description="Which counter problems raise an alert, and which roles receive it. Every branch uses the same rules."
       />
       {error ? <Alert variant="error">{error}</Alert> : null}
+      {view && view.unreachableTypes.length > 0 ? (
+        <Alert variant="warning">
+          {view.unreachableTypes.map((type) => COUNTER_ALERT_LABELS[type].label).join(", ")}{" "}
+          lost {view.unreachableTypes.length === 1 ? "its" : "their"} only recipient role when it
+          was deleted, so nobody receives {view.unreachableTypes.length === 1 ? "it" : "them"}.
+          Choose who gets {view.unreachableTypes.length === 1 ? "it" : "them"}, or switch{" "}
+          {view.unreachableTypes.length === 1 ? "it" : "them"} off, and save.
+        </Alert>
+      ) : null}
       {view ? (
         <section className={css.card} aria-label="Counter alerts">
           <h2 className={css.cardTitle}>

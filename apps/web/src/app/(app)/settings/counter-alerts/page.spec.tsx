@@ -18,7 +18,9 @@ beforeEach(() => {
   (apiJson as jest.Mock).mockReset();
   (apiJson as jest.Mock).mockImplementation((path: string) =>
     Promise.resolve(
-      path.endsWith("approval-roles") ? roles : { version: 2, policy: defaultCounterAlertPolicy() },
+      path.endsWith("approval-roles")
+        ? roles
+        : { version: 2, policy: defaultCounterAlertPolicy(), unreachableTypes: [] },
     ),
   );
 });
@@ -75,4 +77,20 @@ it("is read-only without settings access", async () => {
   render(<CounterAlertsSettingsPage />);
   expect((await screen.findAllByRole("switch"))[0]).toBeDisabled();
   expect(screen.queryByRole("button", { name: "Save counter alerts" })).not.toBeInTheDocument();
+});
+
+it("warns about alerts whose only recipient role was deleted", async () => {
+  const policy = defaultCounterAlertPolicy();
+  policy.rules[0] = { ...policy.rules[0], recipientRoleKeys: [] };
+  (apiJson as jest.Mock).mockImplementation((path: string) =>
+    Promise.resolve(
+      path.endsWith("approval-roles")
+        ? roles
+        : { version: 3, policy, unreachableTypes: ["counter_offline"] },
+    ),
+  );
+  render(<CounterAlertsSettingsPage />);
+  expect(
+    await screen.findByText(/Counter offline lost its only recipient role when it was deleted/),
+  ).toBeInTheDocument();
 });

@@ -54,3 +54,33 @@ test("refuses missing, duplicate or unknown types and malformed recipients", () 
     assert.equal(validateCounterAlertPolicy(doc).ok, false, JSON.stringify(doc)?.slice(0, 80));
   }
 });
+
+test("a stored policy survives alert types being added or removed by a later release", () => {
+  const { parseStoredCounterAlertPolicy } = require("../dist");
+  const base = defaultCounterAlertPolicy();
+  const saved = {
+    schemaVersion: 1,
+    rules: [
+      // Saved before "fallback_changed" existed, and with a type a later release removed.
+      ...base.rules
+        .filter((r) => r.type !== "fallback_changed")
+        .map((r) => (r.type === "device_lost" ? { ...r, recipientRoleKeys: ["owner"] } : r)),
+      { type: "retired_type", enabled: true, recipientRoleKeys: ["owner"] },
+    ],
+  };
+  assert.equal(validateCounterAlertPolicy(saved).ok, false);
+  const parsed = parseStoredCounterAlertPolicy(saved);
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.value.rules.map((r) => r.type), [...COUNTER_ALERT_TYPES]);
+  assert.deepEqual(parsed.value.rules.find((r) => r.type === "device_lost").recipientRoleKeys, ["owner"]);
+  assert.deepEqual(
+    parsed.value.rules.find((r) => r.type === "fallback_changed"),
+    base.rules.find((r) => r.type === "fallback_changed"),
+  );
+  // Still strict about everything else.
+  assert.equal(
+    parseStoredCounterAlertPolicy({ ...saved, rules: [...saved.rules, saved.rules[0]] }).ok,
+    false,
+  );
+  assert.equal(parseStoredCounterAlertPolicy({ schemaVersion: 2, rules: [] }).ok, false);
+});

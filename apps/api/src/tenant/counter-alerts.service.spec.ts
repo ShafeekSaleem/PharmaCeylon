@@ -42,6 +42,7 @@ describe("counter alert settings", () => {
     expect(await service.get("tenant-1")).toEqual({
       version: 3,
       policy: defaultCounterAlertPolicy(),
+      unreachableTypes: [],
     });
     expect(prisma.tenantSettings.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tenantId: "tenant-1" } }),
@@ -50,7 +51,10 @@ describe("counter alert settings", () => {
 
   it("fails closed on a stored document it can't read", async () => {
     prisma.tenantSettings.upsert.mockResolvedValue({
-      counterAlertPolicy: { schemaVersion: 1, rules: [] },
+      counterAlertPolicy: {
+        schemaVersion: 1,
+        rules: [{ type: "counter_offline", enabled: "yes", recipientRoleKeys: [] }],
+      },
       counterAlertPolicyVersion: 2,
     });
     await expect(service.get("tenant-1")).rejects.toBeInstanceOf(ServiceUnavailableException);
@@ -99,8 +103,42 @@ describe("counter alert settings", () => {
     prisma.tenantSettings.updateMany.mockClear();
     await expect(
       service.update(user, { expectedVersion: 3, policy: withRecipients(["ghost"]) }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toThrow('"ghost" is no longer a role. Remove it from the recipients and save again.');
     expect(prisma.tenantSettings.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("reads a policy saved before a new alert type existed", async () => {
+    const saved = defaultCounterAlertPolicy();
+    saved.rules = saved.rules.filter((rule) => rule.type !== "fallback_changed");
+    prisma.tenantSettings.upsert.mockResolvedValue({
+      counterAlertPolicy: saved,
+      counterAlertPolicyVersion: 4,
+    });
+    expect((await service.get("tenant-1")).policy).toEqual(defaultCounterAlertPolicy());
+  });
+
+  it("drops a deleted recipient role on read and flags alerts it leaves with nobody", async () => {
+    const saved = defaultCounterAlertPolicy();
+    saved.rules[0] = { ...saved.rules[0], recipientRoleKeys: ["shift-lead"] };
+    saved.rules[1] = { ...saved.rules[1], recipientRoleKeys: ["owner", "shift-lead"] };
+    saved.rules[2] = { ...saved.rules[2], enabled: false, recipientRoleKeys: ["shift-lead"] };
+    prisma.tenantSettings.upsert.mockResolvedValue({
+      counterAlertPolicy: saved,
+      counterAlertPolicyVersion: 5,
+    });
+    prisma.role.findMany.mockResolvedValue([]);
+    const view = await service.get("tenant-1");
+    expect(view.policy.rules.slice(0, 3).map((rule) => rule.recipientRoleKeys)).toEqual([
+      [],
+      ["owner"],
+      [],
+    ]);
+    // Only the switched-on alert with no one left is unreachable.
+    expect(view.unreachableTypes).toEqual(["counter_offline"]);
+    expect(prisma.role.findMany).toHaveBeenCalledWith({
+      where: { tenantId: "tenant-1", key: { in: ["shift-lead"] } },
+      select: { key: true },
+    });
   });
 
   it("refuses an alert switched on with nobody to receive it", async () => {

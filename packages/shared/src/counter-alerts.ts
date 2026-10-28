@@ -44,7 +44,13 @@ export type CounterAlertRule = {
   recipientRoleKeys: string[];
 };
 export type CounterAlertPolicy = { schemaVersion: 1; rules: CounterAlertRule[] };
-export type CounterAlertPolicyView = { version: number; policy: CounterAlertPolicy };
+export type CounterAlertPolicyView = {
+  version: number;
+  policy: CounterAlertPolicy;
+  /** Switched-on alerts whose every recipient role has been deleted. Nobody receives them until
+   * a role is chosen or they are switched off; saving refuses them as they are. */
+  unreachableTypes: CounterAlertType[];
+};
 
 export function defaultCounterAlertPolicy(): CounterAlertPolicy {
   return {
@@ -106,4 +112,28 @@ export function validateCounterAlertPolicy(
     ok: true,
     value: { schemaVersion: 1, rules: COUNTER_ALERT_TYPES.map((type) => byType.get(type)!) },
   };
+}
+
+/**
+ * Reads a stored document. Types added since it was saved get their defaults and types since
+ * removed are dropped, so a release that changes the list doesn't make every saved policy
+ * unreadable. Everything else must still be valid; saves use the strict validator.
+ */
+export function parseStoredCounterAlertPolicy(input: unknown) {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    const doc = input as Record<string, unknown>;
+    if (Array.isArray(doc.rules)) {
+      const known = doc.rules.filter(
+        (rule) =>
+          rule &&
+          typeof rule === "object" &&
+          (COUNTER_ALERT_TYPES as readonly unknown[]).includes((rule as { type?: unknown }).type),
+      ) as { type: CounterAlertType }[];
+      const missing = defaultCounterAlertPolicy().rules.filter(
+        (rule) => !known.some((stored) => stored.type === rule.type),
+      );
+      return validateCounterAlertPolicy({ ...doc, rules: [...known, ...missing] });
+    }
+  }
+  return validateCounterAlertPolicy(input);
 }
