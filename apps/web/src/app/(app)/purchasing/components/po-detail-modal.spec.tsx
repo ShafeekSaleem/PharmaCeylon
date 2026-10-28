@@ -7,6 +7,9 @@ import type { HeldDelivery, PurchaseOrderDetail } from "../types";
 jest.mock("../hooks/use-purchase-orders", () => ({ usePurchaseOrderDetail: jest.fn() }));
 jest.mock("../hooks/use-batch-lookup", () => ({ useBatchLookup: () => ({ results: {}, lookup: jest.fn() }) }));
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
+jest.mock("@/lib/branch-rollout", () => ({
+  useBranchRollout: () => ({ rollout: { state: "not_live", liveSince: null, fallback: null }, loading: false, resolved: true, failed: false }),
+}));
 
 const reload = jest.fn();
 function order(id: string, cost: string | null, updateSupplierPrice = false): PurchaseOrderDetail {

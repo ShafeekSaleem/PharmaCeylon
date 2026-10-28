@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
 import {
+  CounterHandoff,
   DatePicker,
   Modal,
   ModalButton,
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
 import { ApiError } from "@/lib/api-error";
+import { useBranchRollout } from "@/lib/branch-rollout";
 import { createIdempotencyKey } from "@/lib/idempotency";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { useBatchLookup } from "../hooks/use-batch-lookup";
@@ -49,6 +51,7 @@ import {
 } from "../types";
 import { PurchasingSelect } from "./purchasing-select";
 import { HeldDeliveryBanner, heldLineUnits } from "./held-delivery-banner";
+import { PreparedReceiptPanel } from "./prepared-receipt-panel";
 
 type Props = {
   poId: string | null;
@@ -116,6 +119,12 @@ export function PoDetailModal({
   /** What happened when a receiver who can't accept asked an approver to. */
   const [escalationNotice, setEscalationNotice] = useState<string | null>(null);
   const [receiveMode, setReceiveMode] = useState(false);
+  /** The receive form is filling a delivery to prepare for approval, not booking one in. */
+  const [prepareMode, setPrepareMode] = useState(false);
+  const { rollout } = useBranchRollout();
+  // Booking goods in is physical: the web does it only where the branch still works without
+  // PharmaCeylon POS. Live, fallback or not-yet-known branches prepare and approve here instead.
+  const counterOnly = rollout?.state !== "not_live";
   /** The held delivery being reviewed: the receive form, filled with what the receiver typed. */
   const [heldApprovalIntent, setHeldApprovalIntent] = useState<{ row: HeldDelivery; approvalId: string } | null>(null);
   const [heldPostIntent, setHeldPostIntent] = useState<HeldDelivery | null>(null);
@@ -479,6 +488,34 @@ export function PoDetailModal({
   }
 
   /** Re-read the order, then open the receive form on quantities that are actually current. */
+  async function openPrepare() {
+    setPrepareMode(true);
+    await openReceive();
+  }
+
+  /** Saves the form as a prepared delivery: nothing is received, an approver reviews it next. */
+  async function prepare() {
+    if (!detail || !receiveValid) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiJson(`/purchasing/purchase-orders/${detail.id}/prepared-receipts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delivery: { lines: linesBody({}) } }),
+      });
+      setPrepareMode(false);
+      setReceiveMode(false);
+      setEscalationNotice("Prepared. An approver reviews it next; stock changes only when the counter receives the goods.");
+      await reload();
+      onChanged();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Couldn't prepare the delivery");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function openReceive() {
     setPreparingReceive(true);
     setActionError(null);
@@ -795,19 +832,30 @@ export function PoDetailModal({
               <>
                 <ModalButton
                   variant="secondary"
-                  onClick={() => setReceiveMode(false)}
+                  onClick={() => { setReceiveMode(false); setPrepareMode(false); }}
                   disabled={busy}
                 >
                   Back
                 </ModalButton>
-                <ModalButton
-                  variant="primary"
-                  onClick={() => void receive()}
-                  loading={busy}
-                  disabled={!receiveValid}
-                >
-                  Post goods receipt
-                </ModalButton>
+                {prepareMode ? (
+                  <ModalButton
+                    variant="primary"
+                    onClick={() => void prepare()}
+                    loading={busy}
+                    disabled={!receiveValid}
+                  >
+                    Save for approval
+                  </ModalButton>
+                ) : (
+                  <ModalButton
+                    variant="primary"
+                    onClick={() => void receive()}
+                    loading={busy}
+                    disabled={!receiveValid}
+                  >
+                    Post goods receipt
+                  </ModalButton>
+                )}
               </>
             ) : editMode ? (
               <>
@@ -908,21 +956,38 @@ export function PoDetailModal({
                     )}
                     {/* While a delivery waits for approval, that delivery is the next thing booked
                         in: approvers review it from the banner, and nobody books another beside it. */}
+                    {canWrite &&
+                      canReceive(detail.status) &&
+                      (detail.heldDeliveries?.length ?? 0) === 0 &&
+                      (detail.preparedReceipts?.length ?? 0) === 0 && (
+                        <ModalButton
+                          variant={counterOnly ? "primary" : "secondary"}
+                          onClick={() => void openPrepare()}
+                          loading={preparingReceive}
+                          disabled={busy}
+                        >
+                          Prepare delivery
+                        </ModalButton>
+                      )}
                     {canReceiveGoods &&
+                      !counterOnly &&
                       canReceive(detail.status) &&
                       !(canApprovePo && (detail.heldDeliveries?.length ?? 0) > 0) && (
                         <span
                           data-tooltip={
                             (detail.heldDeliveries?.length ?? 0) > 0
                               ? "A delivery on this order is waiting for approval. It has to be accepted or rejected first."
-                              : undefined
+                              : detail.preparedReceipts?.some((row) => row.status === "approved")
+                                ? "An approved delivery is waiting to be posted on this order. Post or cancel it first."
+                                : undefined
                           }
                         >
                           <ModalButton
                             variant="primary"
-                            onClick={() => void openReceive()}
+                            onClick={() => { setPrepareMode(false); void openReceive(); }}
                             loading={preparingReceive}
-                            disabled={busy || (detail.heldDeliveries?.length ?? 0) > 0}
+                            disabled={busy || (detail.heldDeliveries?.length ?? 0) > 0
+                              || !!detail.preparedReceipts?.some((row) => row.status === "approved")}
                           >
                             Receive goods
                           </ModalButton>
@@ -1180,7 +1245,7 @@ export function PoDetailModal({
                       held={held}
                       order={detail}
                       canDecide={canApprovePo}
-                      canPost={canReceiveGoods}
+                      canPost={canReceiveGoods && !counterOnly}
                       onPost={() => setHeldPostIntent(held)}
                       busy={busy}
                       onReview={() => {
@@ -1192,11 +1257,32 @@ export function PoDetailModal({
                   ))
                 : null}
 
+              {!receiveMode
+                ? (detail.preparedReceipts ?? []).map((row) => (
+                    <PreparedReceiptPanel
+                      key={row.id}
+                      receipt={row}
+                      order={detail}
+                      branchName="this branch"
+                      canApprove={canApprovePo}
+                      canCancel={canWrite || canApprovePo}
+                      canPost={canReceiveGoods}
+                      counterOnly={counterOnly}
+                      onChanged={async () => { await reload(); onChanged(); }}
+                    />
+                  ))
+                : null}
+              {!receiveMode && counterOnly && canReceiveGoods && canReceive(detail.status)
+                && (detail.preparedReceipts?.length ?? 0) === 0 ? (
+                <CounterHandoff variant="counter_only" branchName="this branch" action="Receive goods"
+                  className={css.modalAlert} />
+              ) : null}
+
               {receiveMode ? (
                 <>
                   <div className={css.linesHead}>
                     <h3 className={css.sectionTitle} style={{ margin: 0 }}>
-                      {heldReview ? "Review the held delivery" : "Receive goods"}
+                      {heldReview ? "Review the held delivery" : prepareMode ? "Prepare a delivery" : "Receive goods"}
                     </h3>
                   </div>
                   {heldReview ? (

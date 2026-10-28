@@ -91,7 +91,13 @@ export type ReturnListItem = {
   requester: ReturnUserRef;
   approver?: ReturnUserRef | null;
   processor?: ReturnUserRef | null;
+  branch?: { id: string; code: string; name: string } | null;
   items: ReturnItem[];
+  /** The exact revision/digest an approver confirms; null once it can no longer be approved. */
+  approvalReview?: { expectedVersion: number; expectedDigest: string } | null;
+  /** Dispatch posts against exactly this approval; null means approve (again) first. */
+  executionApprovalId?: string | null;
+  approvalApprovedAt?: string | null;
 };
 
 export type CreateReturnLine = {

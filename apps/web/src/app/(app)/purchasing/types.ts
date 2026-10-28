@@ -204,11 +204,45 @@ export type HeldDelivery = {
   };
 };
 
+type PersonRef = { id: string; fullName: string | null };
+
+/**
+ * A delivery prepared away from the counter (from the supplier's note) and approved remotely.
+ * Approval changes nothing; the counter posts it when the goods arrive, received that day.
+ */
+export type PreparedReceipt = {
+  id: string;
+  purchaseOrderId: string;
+  status: "draft" | "approved" | "posted" | "cancelled";
+  orderOpen: boolean;
+  notes: string | null;
+  approvalVersion: number;
+  approvalReview: { expectedVersion: number; expectedDigest: string } | null;
+  executionApprovalId: string | null;
+  selfApprovalBlocked?: boolean;
+  preparedBy: PersonRef;
+  preparedAt: string;
+  approvedBy: PersonRef | null;
+  approvedAt: string | null;
+  executedBy: PersonRef | null;
+  executedAt: string | null;
+  goodsReceiptId: string | null;
+  delivery: {
+    supplierDeliveryNote?: string;
+    acceptOverDelivery?: boolean;
+    acceptPriceVariance?: boolean;
+    updateSupplierPrice?: boolean;
+    lines: HeldDelivery["delivery"]["lines"];
+  };
+};
+
 export type PurchaseOrderDetail = Omit<PurchaseOrderListItem, "supplier" | "goodsReceipts"> & {
   supplier: SupplierOption;
   goodsReceipts: GoodsReceipt[];
   /** Deliveries on this order waiting for an approver. */
   heldDeliveries?: HeldDelivery[];
+  /** A delivery prepared remotely and still open (draft or approved, not yet posted). */
+  preparedReceipts?: PreparedReceipt[];
   /** You raised this order and your role can't approve its own requests. */
   selfApprovalBlocked?: boolean;
 };

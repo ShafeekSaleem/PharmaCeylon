@@ -414,6 +414,50 @@ Validation (2026-10-28, local PostgreSQL 18):
   - `npm run lint -w api` (types, tenant and stock-write checks) and the 183-route mutation
     inventory passed. CI runs everything again.
 
+## P6 slice: prepared receipts and supplier returns (approval vs counter execution)
+
+Epic P6 [#52](https://github.com/ShafeekSaleem/PharmaCeylon/issues/52) with its P1 signed adapters.
+
+- **Prepared receipts** (new `PreparedReceipt`, `draft → approved → posted | cancelled`). A buyer
+  prepares a delivery remotely from the supplier's note; an approver records exact
+  `prepared_receipt.post` evidence. The material binds the delivery (lines, batches, exception
+  choices), the PO revision and every PO line's received counters, so a delivery booked in
+  between or an order edit makes the approval stale instead of counting goods twice. A
+  database trigger advances the revision on any material change (including change-then-restore
+  and internal writers) and clears the approval; notes are metadata. Posting is the counter's
+  step: `postInTransaction` locks PO then receipt, requires the displayed approval ID, verifies
+  the evidence, and books the goods in through `PurchasingService.receiveGoods` (StockService,
+  tolerances, price variance, cost/expiry conflicts, damaged quarantine, placeholder invoice
+  unchanged), received on the branch's business date. After the batch-lock wait it re-verifies
+  live approver/executor authority against the already-verified, still-locked document
+  (`ManagementApprovalsService.recheckAuthority`), because receiving has by then moved the PO's
+  received counters itself. Direct `purchase-orders/receive` stays approval-optional and local,
+  and refuses while an approved prepared receipt is open.
+- **Supplier returns.** `approve` records exact `goods_return.complete` evidence and changes no
+  stock; a self-approving create/submit records it in the same transaction. The return's
+  "current approval" is the latest `management_approval` row (no new column, so
+  `pc_document_approval_revision` is untouched). `completeInTransaction` requires that approval
+  ID, rechecks under the return lock and again after the batch locks, then issues stock and
+  raises the debit note together. Legacy approved returns have no evidence and must be approved
+  again; nothing is backfilled.
+- **Signed adapters.** `POST /api/v1/purchasing/prepared-receipts/:id/post`
+  (`{ preparedReceiptId }`, `purchasing.receive`) and `POST /api/v1/returns/:id/complete`
+  (`{ goodsReturnId }`, `returns.process`) join the closed registry, sharing the browser cores.
+  The success audits carry command provenance; receipts replay the original result.
+  `terminal.execute` is backfilled to roles holding `returns.process` (pharmacists by default).
+- **Web.** The order screen prepares, approves and cancels prepared deliveries and shows the
+  requester/approver/executor evidence; returns approve against `approvalReview`. Posting a
+  prepared or held delivery, direct receiving and return dispatch appear only at a known
+  not-live branch; live, fallback or unknown branches show the counter handoff.
+
+Validation (2026-10-29, disposable PostgreSQL 18): all 16 PostgreSQL suites (266 tests),
+including the new `receiving-returns.int-spec.ts`: approval without stock/receipt/invoice,
+post pinned to the approval, material edit and intervening receipt make it stale, notes keep it,
+concurrent posts/dispatches apply once, self-approval rules, revoked evidence, approver rights
+removed during an actual batch-lock wait, injected audit failure rollback and signed execution
+end to end with replay and failure rollback. API unit suite 88/1068 + new material spec,
+`lint -w api` scanners and the 189-route inventory.
+
 ## Remaining P1 MRs, in order
 
 ### MR 4c: product-import stock staging and separate posting
@@ -477,8 +521,8 @@ tenant/stock scanners and the 166-route inventory.
    remote commercial management and normal reservations; coordinate P6 screens.
 2. **Transactional command execution:** done for the five split physical operations (MR 5).
    Still open:
-   - further adapters as more handlers are split (transfers, returns, receipts, sales/refunds,
-     cash);
+   - further adapters as more handlers are split (transfers, sales/refunds, cash); prepared
+     receipts and supplier returns are done (P6 slice above);
    - persisted provenance for import/background workers and maintenance writers;
    - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
    - restricting browser routes to terminals once W1 rollout and P2 are ready.
