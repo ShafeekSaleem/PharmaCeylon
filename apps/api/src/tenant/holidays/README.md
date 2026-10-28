@@ -48,16 +48,11 @@ Owners may enter dated exceptions manually in the meantime.
 | Year | Gazette | Copied from | Status |
 | --- | --- | --- | --- |
 | 2026 | Extraordinary No. 2438/22 of 27 May 2025, amended by No. 2485/14 of 21 April 2026 | — (the gazettes) | Copied from both PDFs on 28 October 2026: names as printed, every 2438/22 date marked public and bank. 2485/14 (Vesak Week, 27 May–2 June) moves "the public holiday granted for 2nd May 2026" to 31 May, so 2 May keeps only `bank` and 31 May is `public` only; the order names no holiday for 31 May. **Before registering:** the second person confirms that reading (in particular that 2 May stays a bank holiday), re-searches the Extra Gazettes for later amendments, and records their name in `checkedBy` and the date in `checkedOn`. |
-| 2027 | Extraordinary No. 2493/05 of 16 June 2026 (listed on documents.gov.lk, not yet compared) | [CBSL, Bank Holidays for 2027](https://www.cbsl.gov.lk/en/about/about-the-bank/bank-holidays-2027) | Every row checked against the CBSL list. The gazette's date and link still need filling in from the PDF. |
+| 2027 | Extraordinary No. 2493/05 of 16 June 2026 | — (the gazette) | Copied from the gazette PDF on 28 October 2026: names as printed, every date marked public and bank. No amending gazette found yet. **Before registering:** the second person re-searches the Extra Gazettes for amendments and records their name in `checkedBy` and the date in `checkedOn`. |
 
-The 2027 file was copied on 27 October 2026, when documents.gov.lk couldn't be reached. The Central
-Bank's list marks each date B (bank), P (public) and M (mercantile). Whoever compares it with the
-gazette PDF should copy names as printed, keep only the kinds the gazette gives, fill in anything
-missing, set `copiedFrom` to `null` and put their own name in `checkedBy`.
-
-The 2026 gazette declares its dates "Public and Bank Holidays" and marks each with only those two
-symbols, so its file has no `mercantile` rows. The Central Bank's M marks come from elsewhere and are
-not copied into a gazette file.
+The 2026 and 2027 gazettes both declare their dates "Public and Bank Holidays" and mark each with only
+those two symbols, so neither file has `mercantile` rows. The Central Bank's list also marks some
+dates M (mercantile); those marks come from elsewhere and are not copied into a gazette file.
 
 On the new documents.gov.lk the old `view/extra-gazettes/...` links return 404. Find the gazette under
 Publications → Extra Gazettes (filter by year and month, search "Holiday") and use the English PDF's

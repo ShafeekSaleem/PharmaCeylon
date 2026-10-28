@@ -8,9 +8,9 @@ export { parseHolidayYearFile, type HolidayYearList } from "./holiday-year-file"
  * gazette and checked by a person (README.md has the steps). A year without a file shows
  * "No holiday list for YYYY yet" in the editor. Never fill a year from anywhere but its gazette.
  */
-// The 2026/2027 files are retained as drafts. 2026 is copied from its gazette but awaits a second
-// person's check; 2027 is still the Central Bank's copy. Registering either here would present
-// unverified rows as gazette-backed suggestions.
+// The 2026/2027 files are retained as drafts: both are copied from their gazettes but await a
+// second person's check. Registering either here would present unchecked rows as gazette-backed
+// suggestions.
 export const HOLIDAY_YEAR_FILES: ReadonlyArray<readonly [file: string, data: unknown]> = [];
 
 export function loadHolidayYears(

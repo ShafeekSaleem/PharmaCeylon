@@ -80,22 +80,23 @@ it("keeps the unverified 2026/2027 drafts out of runtime suggestions", () => {
   expect(loadHolidayYears().size).toBe(0);
 });
 
-it.each([
-  // Copied from the gazette, awaiting the second person's check.
-  ["lk-holidays-2026.json", lk2026Draft, /completed gazette verification/],
-  // Still the Central Bank's reproduction.
-  ["lk-holidays-2027.json", lk2027Draft, /draft copies cannot be loaded/],
-])("rejects draft %s if accidentally registered", (file, draft, reason) => {
-  expect(() => loadHolidayYears([[file, draft]])).toThrow(reason);
+// Both are copied from their gazettes and await the second person's check.
+const drafts = [
+  [2026, lk2026Draft],
+  [2027, lk2027Draft],
+] as const;
+
+it.each(drafts)("rejects the %i draft if accidentally registered", (year, draft) => {
+  expect(() => loadHolidayYears([[`lk-holidays-${year}.json`, draft]])).toThrow(/completed gazette verification/);
 });
 
-it("passes every other check once the 2026 file's second check is recorded", () => {
+it.each(drafts)("passes every other check once the %i file's second check is recorded", (year, draft) => {
   // The reviewer records who checked it and when, replacing the first-pass copy's date.
-  const checked = { ...lk2026Draft, checkedBy: "Second Reviewer", checkedOn: "2026-11-02" };
-  const year = loadHolidayYears([["lk-holidays-2026.json", checked]]).get(2026);
-  expect(year?.source.checkedOn).toBe("2026-11-02");
+  const checked = { ...draft, checkedBy: "Second Reviewer", checkedOn: "2026-11-02" };
+  const list = loadHolidayYears([[`lk-holidays-${year}.json`, checked]]).get(year);
+  expect(list?.source.checkedOn).toBe("2026-11-02");
   // Holidays sharing a date are offered as one suggestion.
-  expect(year?.holidays).toHaveLength(new Set(lk2026Draft.holidays.map((row) => row.date)).size);
+  expect(list?.holidays).toHaveLength(new Set(draft.holidays.map((row) => row.date)).size);
 });
 
 it("keeps the template unusable until it is filled in from a gazette", () => {
