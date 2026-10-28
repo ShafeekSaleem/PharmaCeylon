@@ -10,7 +10,8 @@ not-live `/products/import/confirm` path retains a mixed/local classification; l
 imports always stage. The web uses the management `/stage` path outside known not-live branches.
 
 Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
-180, including held-workflow splits, rollout/hours and four import-split routes. Exact methods, paths and source files are
+184, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
+counter alerts and the two signed terminal-command routes. Exact methods, paths and source files are
 recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
 The inventory includes non-operational mutations to make exclusions explicit. P0 classifies
 future enforcement; existing routes are not protected by the new terminal boundary yet.
@@ -127,3 +128,22 @@ roles, versioned and audited together, with no stock/cash/grant effects and no d
 preferences only, with no stock/cash/grant/nomination effects. Tenant and exact branch settings
 authority are enforced separately from the selected header branch; update and audit commit
 together. It does not activate the terminal boundary or offline trading.
+
+## P1 signed terminal commands
+
+`POST /terminal-commands/prepare` is classified `identity`: it issues a single-use command
+challenge for an authorized staff session and has no business effect.
+`POST /terminal-commands/execute` is classified `stock`. It runs only the closed v1
+signed-operation registry:
+
+- stocktake post;
+- held adjustment post;
+- held delivery post;
+- import stock post;
+- import undo-stock.
+
+Each of these remains classified as `stock` on its own route. Execution reuses those routes'
+domain cores and StockService, and commits effects, audit and the original-result receipt
+together. Adding an operation to the registry needs the same classification review as a new
+route. Production attendance and hours providers still deny every command, so these routes do
+not activate the terminal boundary. Contract: [API_CONTRACT.md](API_CONTRACT.md).

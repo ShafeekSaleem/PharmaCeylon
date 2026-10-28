@@ -182,6 +182,10 @@ export const MUTATION_ACTIONS = Object.freeze({
   "PATCH /api/v1/tenant/settings/stocktake": "management",
   "PATCH /api/v1/tenant/settings/tax": "management",
   "PATCH /api/v1/tenant/settings/transfers-returns": "management",
+  // Prepare issues a single-use challenge only. Execute runs the closed signed-operation registry,
+  // whose v1 operations are all physical stock; each is reclassified by its own route profile.
+  "POST /api/v1/terminal-commands/prepare": "identity",
+  "POST /api/v1/terminal-commands/execute": "stock",
   "POST /api/v1/transfers": "reservation",
   "POST /api/v1/transfers/:id/approve": "reservation",
   "POST /api/v1/transfers/:id/cancel": "reservation",

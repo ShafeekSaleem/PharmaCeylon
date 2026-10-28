@@ -7,5 +7,6 @@ import { StocktakesService } from "./stocktakes.service";
   imports: [OperationalAuthorizationModule],
   controllers: [StocktakesController],
   providers: [StocktakesService],
+  exports: [StocktakesService],
 })
 export class StocktakesModule {}

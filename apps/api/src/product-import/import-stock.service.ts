@@ -12,6 +12,7 @@ import { AuditService } from "../audit/audit.service";
 import { StockService } from "../inventory/stock/stock.service";
 import { AccessService } from "../security/access.service";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import type { CommandProvenance } from "../terminals/command-provenance";
 
 export type StagedStockRow = {
   rowNumber: number;
@@ -145,6 +146,25 @@ export class ImportStockService {
     importId: string,
     input: unknown,
   ) {
+    return (
+      await this.prisma.$transaction(
+        (tx) => this.postInTransaction(tx, user, branchId, importId, input),
+        { timeout: 120_000, maxWait: 60_000 },
+      )
+    ).view;
+  }
+
+  /** Posting core shared by the browser route and the signed terminal executor, in the caller's
+   * READ COMMITTED transaction. `command` is verified provenance copied into the success audit.
+   */
+  async postInTransaction(
+    tx: Prisma.TransactionClient,
+    user: RequestUser,
+    branchId: string,
+    importId: string,
+    input: unknown,
+    command?: CommandProvenance,
+  ) {
     const body = this.body(input, ["version", "categoryName"]);
     const version = this.version(body.version);
     if (
@@ -156,7 +176,7 @@ export class ImportStockService {
         "Choose a staged category or post the whole draft.",
       );
     }
-    return this.transaction(user, branchId, importId, async (tx, record) => {
+    return this.locked(tx, user, branchId, importId, async (tx, record) => {
       this.checkVersion(record, version);
       const rows = record.stagedStock as unknown as StagedStockRow[];
       const selected = rows.filter(
@@ -168,7 +188,12 @@ export class ImportStockService {
         throw new BadRequestException("No stock rows in this selection.");
       const pending = selected.filter((row) => !row.postedBatchId);
       // Same immutable version/selection replays saved batch IDs after response loss.
-      if (!pending.length) return this.view(record, user, branchId, tx);
+      if (!pending.length)
+        return {
+          view: await this.view(record, user, branchId, tx),
+          batchesPosted: 0,
+          unitsPosted: 0,
+        };
       const lines = [];
       for (const row of pending) {
         const product = await tx.product.findFirst({
@@ -261,11 +286,16 @@ export class ImportStockService {
               batchId: row.postedBatchId,
               qty: row.qty,
             })),
+            ...(command ? { command } : {}),
           },
         },
         tx,
       );
-      return this.view(next, user, branchId, tx);
+      return {
+        view: await this.view(next, user, branchId, tx),
+        batchesPosted: pending.length,
+        unitsPosted: pending.reduce((n, row) => n + row.qty, 0),
+      };
     });
   }
 
@@ -276,25 +306,32 @@ export class ImportStockService {
     work: (tx: Prisma.TransactionClient, record: ProductImport) => Promise<T>,
   ) {
     return this.prisma.$transaction(
-      async (tx) =>
-        tenantTransactionStorage.run(
-          { tenantId: user.tenantId, branchId, client: tx },
-          async () => {
-            await tx.$queryRaw`SELECT id FROM product_import WHERE id = ${importId}::uuid AND tenant_id = ${user.tenantId}::uuid AND branch_id = ${branchId}::uuid FOR UPDATE`;
-            const record = await tx.productImport.findFirst({
-              where: { id: importId, tenantId: user.tenantId, branchId },
-            });
-            if (!record)
-              throw new NotFoundException("Import not found at this branch.");
-            await this.requireAccess(user, branchId, tx);
-            if (!record.stockStaged || record.status !== "completed")
-              throw new ConflictException(
-                "A completed staged import is required.",
-              );
-            return work(tx, record);
-          },
-        ),
+      (tx) => this.locked(tx, user, branchId, importId, work),
       { timeout: 120_000, maxWait: 60_000 },
+    );
+  }
+
+  private async locked<T>(
+    tx: Prisma.TransactionClient,
+    user: RequestUser,
+    branchId: string,
+    importId: string,
+    work: (tx: Prisma.TransactionClient, record: ProductImport) => Promise<T>,
+  ) {
+    return tenantTransactionStorage.run(
+      { tenantId: user.tenantId, branchId, client: tx },
+      async () => {
+        await tx.$queryRaw`SELECT id FROM product_import WHERE id = ${importId}::uuid AND tenant_id = ${user.tenantId}::uuid AND branch_id = ${branchId}::uuid FOR UPDATE`;
+        const record = await tx.productImport.findFirst({
+          where: { id: importId, tenantId: user.tenantId, branchId },
+        });
+        if (!record)
+          throw new NotFoundException("Import not found at this branch.");
+        await this.requireAccess(user, branchId, tx);
+        if (!record.stockStaged || record.status !== "completed")
+          throw new ConflictException("A completed staged import is required.");
+        return work(tx, record);
+      },
     );
   }
 

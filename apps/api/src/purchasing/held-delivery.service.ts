@@ -1,6 +1,7 @@
 import { PostHeldDto } from "../security/dto/approve-held.dto";
 import { ManagementApprovalsService } from "../security/management-approvals.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import type { CommandProvenance } from "../terminals/command-provenance";
 import { heldDeliveryMaterial, heldReview } from "../security/held-approval-material";
 import {
   BadRequestException,
@@ -319,37 +320,48 @@ export class HeldDeliveryService {
   }
 
   async post(user: RequestUser, branchId: string, id: string, input: PostHeldDto) {
-    let changed = false;
-    const actor = await this.prisma.$transaction(async tx => {
-      const held = await this.lock(tx, user.tenantId, branchId, id);
-      const actor = await this.access.resolveLive(user, branchId, tx);
-      if (!actor.has("purchasing.receive")) throw new ForbiddenException("Receiving permission required");
-      if (held.executionApprovalId !== input.approvalId) throw new ConflictException("Approval changed; refresh and review before posting");
-      if (held.status === "accepted" && held.goodsReceiptId) return actor;
-      if (held.status !== "approved" || !held.executionApprovalId) throw new ConflictException("Approve this delivery before posting");
-      const authorize = () => this.approvals.requireForExecution(tx, user, branchId, "held_delivery.post", id, held.executionApprovalId!);
-      const evidence = await authorize();
-      const dto = { ...(held.preparedPayload ?? held.payload) as unknown as ReceiveGoodsDto,
-        purchaseOrderId: held.purchaseOrderId, acceptOverDelivery: true, acceptPriceVariance: true };
-      const receipt = await this.purchasing.receiveGoods(user.tenantId, branchId, user.userId, actor, dto, undefined,
-        { heldDeliveryId: id, tx, authorizeHeldDelivery: authorize });
-      if (!receipt) throw new BadRequestException("The delivery could not be posted");
-      await tx.heldDelivery.update({ where: { id, tenantId: user.tenantId, branchId }, data: {
-        status: "accepted", goodsReceiptId: receipt.id, executedBy: user.userId, executedAt: new Date(),
-      } });
-      await this.audit.log({ tenantId: user.tenantId, branchId, actorUserId: user.userId,
-        eventName: "purchase_order.held_delivery_posted", entityName: "held_delivery", entityId: id,
-        payload: { approvalId: evidence.approvalId, goodsReceiptId: receipt.id, requestedByUserId: held.requestedBy,
-          approvedByUserId: evidence.approvedByUserId, executedByUserId: user.userId } }, tx);
-      changed = true;
-      return actor;
-    });
-    const row = await this.load(user.tenantId, branchId, id);
-    if (changed) await this.notifications.notifyUser(user.tenantId, row.requestedBy, NotificationCategory.purchasing, {
+    const { actor, changed } = await this.prisma.$transaction(tx => this.postInTransaction(tx, user, branchId, id, input));
+    if (changed) await this.notifyPosted(user.tenantId, branchId, id);
+    return this.map(await this.load(user.tenantId, branchId, id), actor.has("costs.view"));
+  }
+
+  /** Posting core shared by the browser route and the signed terminal executor, in the caller's
+   * READ COMMITTED transaction. `command` is verified provenance copied into the success audit.
+   */
+  async postInTransaction(tx: Prisma.TransactionClient, user: RequestUser, branchId: string, id: string,
+    input: PostHeldDto, command?: CommandProvenance) {
+    const held = await this.lock(tx, user.tenantId, branchId, id);
+    const actor = await this.access.resolveLive(user, branchId, tx);
+    if (!actor.has("purchasing.receive")) throw new ForbiddenException("Receiving permission required");
+    if (held.executionApprovalId !== input.approvalId) throw new ConflictException("Approval changed; refresh and review before posting");
+    if (held.status === "accepted" && held.goodsReceiptId)
+      return { actor, changed: false, approvalId: held.executionApprovalId, goodsReceiptId: held.goodsReceiptId };
+    if (held.status !== "approved" || !held.executionApprovalId) throw new ConflictException("Approve this delivery before posting");
+    const authorize = () => this.approvals.requireForExecution(tx, user, branchId, "held_delivery.post", id, held.executionApprovalId!);
+    const evidence = await authorize();
+    const dto = { ...(held.preparedPayload ?? held.payload) as unknown as ReceiveGoodsDto,
+      purchaseOrderId: held.purchaseOrderId, acceptOverDelivery: true, acceptPriceVariance: true };
+    const receipt = await this.purchasing.receiveGoods(user.tenantId, branchId, user.userId, actor, dto, undefined,
+      { heldDeliveryId: id, tx, authorizeHeldDelivery: authorize });
+    if (!receipt) throw new BadRequestException("The delivery could not be posted");
+    await tx.heldDelivery.update({ where: { id, tenantId: user.tenantId, branchId }, data: {
+      status: "accepted", goodsReceiptId: receipt.id, executedBy: user.userId, executedAt: new Date(),
+    } });
+    await this.audit.log({ tenantId: user.tenantId, branchId, actorUserId: user.userId,
+      eventName: "purchase_order.held_delivery_posted", entityName: "held_delivery", entityId: id,
+      payload: { approvalId: evidence.approvalId, goodsReceiptId: receipt.id, requestedByUserId: held.requestedBy,
+        approvedByUserId: evidence.approvedByUserId, executedByUserId: user.userId,
+        ...(command ? { command } : {}) } }, tx);
+    return { actor, changed: true, approvalId: evidence.approvalId, goodsReceiptId: receipt.id };
+  }
+
+  /** After commit only: the requester learns the delivery was actually received. */
+  async notifyPosted(tenantId: string, branchId: string, id: string) {
+    const row = await this.load(tenantId, branchId, id);
+    await this.notifications.notifyUser(tenantId, row.requestedBy, NotificationCategory.purchasing, {
       severity: NotificationSeverity.info, title: "Delivery posted", message: "The approved delivery has been received. Open the order for the receipt.",
       actionLabel: "Open request", actionHref: `/purchasing?po=${row.purchaseOrderId}`, entityType: "held_delivery", entityId: id,
     }, { branchId });
-    return this.map(row, actor.has("costs.view"));
   }
 
   private async lock(tx: Prisma.TransactionClient, tenantId: string, branchId: string, id: string) {

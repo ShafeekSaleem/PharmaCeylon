@@ -311,6 +311,109 @@ in policy metadata. Production terminal/attendance enforcement still awaits the 
 cutover. Approval-optional direct adjustments/receipts retain existing policies. No offline allocation,
 new mandatory TTL or additional approver/executor separation is introduced.
 
+## MR 5: signed command execution with original-result receipts
+
+Builds on MR 1–4c. `TerminalCommandExecutor` (`apps/api/src/terminal-commands/`) is the
+executor that MR 1–3 deferred. Two endpoints expose it: `POST /terminal-commands/prepare` and
+`POST /terminal-commands/execute`. The wire contract the P2 client implements is the
+"Signed terminal commands" section of [API_CONTRACT.md](API_CONTRACT.md), with shared types in
+`packages/shared/src/terminal-command-execution.ts`.
+
+### What executes
+
+A closed, frozen `SignedOperations` registry wires the five already-split physical routes:
+
+- stocktake post;
+- held adjustment post;
+- held delivery post;
+- import stock post;
+- import undo-stock.
+
+A request selects an adapter only through the exact signed `operation` string. Each adapter
+supplies the descriptor that `OperationAuthorizationService` consumes (permission, strict body
+parser, exact approval action and document). It then calls a new in-transaction domain core
+(`postInTransaction` / `undoInTransaction`). The browser routes now wrap the same cores, so
+each operation still has one implementation, and StockService remains the only stock writer
+(`check:stock-writes` is unchanged). Signed posts pin the approval ID the command carried.
+Each domain success audit records the verified command provenance: command ID, digest,
+terminal, enrollment, key, register, till, work session and attendance ID. It also keeps the
+existing requester, approver and executor attribution.
+
+### Transaction and replay
+
+One READ COMMITTED transaction per `execute`:
+
+1. Take a transaction-scoped advisory lock on the command identity (tenant + enrollment +
+   command ID).
+2. Look up the receipt scoped by tenant + enrollment + command ID.
+3. Then do one of the following:
+   - **Replay.** Requires an active enrollment, a valid signature with the pinned key, the same
+     staff user with live branch authority for `terminal.execute` and the operation
+     permission, and the identical digest, operation and identity. Otherwise the result is
+     `REPLAY_CONFLICT` (409) or a 403. Replay writes nothing and does not take the enrollment
+     lock.
+   - **Authorize and execute.** Locks the enrollment, reports a revoked or retired device as
+     `TERMINAL_REVOKED`, then runs the existing boundary (session, live permission,
+     challenge, signature, attendance, exact approval, evidence ports, final rechecks), then
+     the domain core, then the `terminal.command_executed` audit, then the receipt insert.
+
+Any failure rolls back business effects, both audits, the receipt and nonce consumption. The
+same signed envelope can therefore be retried within its challenge window.
+
+Identical concurrent retries serialize on the command lock and replay the committed receipt.
+A retry of a committed command therefore never waits behind a long import post holding the
+enrollment lock.
+A defensive unique-violation path replays the original too and never re-executes. Online
+receipts have `offline_sequence` NULL. Notifications move to explicit post-commit helpers.
+
+### Rollout boundary
+
+Nothing is activated:
+
+- The production `LocalAttendanceVerifier` still denies every proof, and the hours evidence
+  port still denies every local command. In production, `execute` therefore fails closed with
+  `LOCAL_ATTENDANCE_UNAVAILABLE` (a test proves both denials).
+- Browser routes keep their current behaviour, and W1 rollout state is not consulted yet.
+- P2 still owns enrollment/session HTTP endpoints, the attendance provider, PIN sign-in and the
+  desktop client. This MR adds none of them.
+- The MR 1 `terminal_command_receipt` table already has every field the receipt needs. The
+  only migration adds the `terminal.execute` route permission. It is granted to every role,
+  built-in or custom, that holds one of the four v1 operation permissions, so nobody loses
+  access.
+
+The registry gains two routes (183 in the inventory):
+
+- `prepare` is classified `identity`: it issues a challenge and has no effect.
+- `execute` is classified `stock`: every v1 operation is physical stock.
+
+### Validation
+
+Validation (2026-10-28, local PostgreSQL 18):
+
+- **New `terminal-execution.int-spec.ts` (19 tests):**
+  - a lost response replays an identical receipt with one stock effect, one domain audit and one
+    execution audit;
+  - three concurrent identical executes produce one receipt and one effect;
+  - an altered committed command is `REPLAY_CONFLICT`, and an altered prepared command is
+    `CHALLENGE_INVALID`;
+  - owner calls are rejected for another tenant, a wrong branch header, another enrollment's
+    identity, another device's signature and unverified attendance;
+  - a revoked device is rejected for both execution and replay, and another staff member's
+    replay is refused;
+  - injected business, domain-audit, execution-audit and receipt (database trigger) failures
+    each leave no stock, audit, receipt or consumed nonce, and the same envelope then succeeds
+    once;
+  - held write-off, held delivery, import posting (including `already_applied`) and legacy
+    import undo all run end to end with replay;
+  - the production providers deny the command.
+- **Full suites:**
+  - all 15 PostgreSQL suites (244 tests) passed, including stock last-unit concurrency, held,
+    stocktake and import regressions;
+  - API unit tests: 1046 of 1047 passed in the full run. `security.guards.spec.ts` (unchanged)
+    exceeded its timeout on a memory-starved machine; it passes 14/14 on its own;
+  - `npm run lint -w api` (types, tenant and stock-write checks) and the 183-route mutation
+    inventory passed. CI runs everything again.
+
 ## Remaining P1 MRs, in order
 
 ### MR 4c: product-import stock staging and separate posting
@@ -372,9 +475,13 @@ tenant/stock scanners and the 166-route inventory.
 1. **Separate approval from execution:** finish stock-bearing import/undo stages.
    Stocktakes are split in MR 4a and held requests in MR 4b. Retain
    remote commercial management and normal reservations; coordinate P6 screens.
-2. **Transactional command execution:** integrate exact approvals and receipts with existing business services,
-   StockService and AuditService; prove retries/lost responses, digest conflicts, rollback and
-   import/worker provenance. No parallel stock writer or user-key-only replay shortcut.
+2. **Transactional command execution:** done for the five split physical operations (MR 5).
+   Still open:
+   - further adapters as more handlers are split (transfers, returns, receipts, sales/refunds,
+     cash);
+   - persisted provenance for import/background workers and maintenance writers;
+   - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
+   - restricting browser routes to terminals once W1 rollout and P2 are ready.
 3. **Readiness evidence and integration:** hours acknowledgements, assisted handover, incident
    and card-attempt records, dependency ordering, failure/alternate-path tests and coordinated
    P2/P6 rollout, including attendance/mandatory-evidence providers, D13 authorizations/delegation

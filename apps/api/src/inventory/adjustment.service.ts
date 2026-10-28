@@ -1,4 +1,5 @@
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import type { CommandProvenance } from "../terminals/command-provenance";
 import { ManagementApprovalsService } from "../security/management-approvals.service";
 import { ApproveHeldDto, PostHeldDto } from "../security/dto/approve-held.dto";
 import { heldAdjustmentMaterial, heldReview } from "../security/held-approval-material";
@@ -176,37 +177,48 @@ export class AdjustmentService {
   }
 
   async post(user: RequestUser, branchId: string, id: string, input: PostHeldDto) {
-    let changed = false;
-    const actor = await this.prisma.$transaction(async tx => {
-      const row = await this.lock(tx, user.tenantId, branchId, id);
-      const actor = await this.access.resolveLive(user, branchId, tx);
-      if (!actor.has("inventory.write_off")) throw new ForbiddenException("Your role cannot post write-offs");
-      if (row.executionApprovalId !== input.approvalId) throw new ConflictException("Approval changed; refresh and review before posting");
-      if (row.status === "accepted" && row.referenceId) return actor;
-      if (row.status !== "approved" || !row.executionApprovalId) throw new ConflictException("Approve this write-off before posting");
-      const authorize = () => this.approvals.requireForExecution(tx, user, branchId, "held_adjustment.post", id, row.executionApprovalId!);
-      const evidence = await authorize();
-      const payload = row.payload as unknown as StockAdjustmentDto;
-      if (payload.productId !== row.productId || payload.batchId !== row.batchId || payload.qty !== row.qty
-        || (payload.kind ?? "correction") !== row.kind || ["found", "opening"].includes(row.kind)
-        || payload.newBatch || payload.movementType !== "adjustment_out") throw new BadRequestException("Invalid saved write-off");
-      const posted = await this.inventory.adjustment(user.tenantId, branchId, actor, payload, { tx, authorize });
-      await tx.heldAdjustment.update({ where: { id, tenantId: user.tenantId, branchId }, data: {
-        status: "accepted", referenceId: posted.referenceId, executedBy: user.userId, executedAt: new Date(),
-      } });
-      await this.audit.log({ tenantId: user.tenantId, branchId, actorUserId: user.userId,
-        eventName: "inventory.write_off_posted", entityName: "held_adjustment", entityId: id,
-        payload: { approvalId: evidence.approvalId, referenceId: posted.referenceId,
-          requestedByUserId: row.requestedBy, approvedByUserId: evidence.approvedByUserId, executedByUserId: user.userId } }, tx);
-      changed = true;
-      return actor;
-    });
-    const row = await this.load(user.tenantId, branchId, id);
-    if (changed) await this.notifications.notifyUser(user.tenantId, row.requestedBy, NotificationCategory.inventory, {
+    const { actor, changed } = await this.prisma.$transaction(tx => this.postInTransaction(tx, user, branchId, id, input));
+    if (changed) await this.notifyPosted(user.tenantId, branchId, id);
+    return this.map(await this.load(user.tenantId, branchId, id), actor.has("costs.view"));
+  }
+
+  /** Posting core shared by the browser route and the signed terminal executor, in the caller's
+   * READ COMMITTED transaction. `command` is verified provenance copied into the success audit.
+   */
+  async postInTransaction(tx: Prisma.TransactionClient, user: RequestUser, branchId: string, id: string,
+    input: PostHeldDto, command?: CommandProvenance) {
+    const row = await this.lock(tx, user.tenantId, branchId, id);
+    const actor = await this.access.resolveLive(user, branchId, tx);
+    if (!actor.has("inventory.write_off")) throw new ForbiddenException("Your role cannot post write-offs");
+    if (row.executionApprovalId !== input.approvalId) throw new ConflictException("Approval changed; refresh and review before posting");
+    if (row.status === "accepted" && row.referenceId)
+      return { actor, changed: false, approvalId: row.executionApprovalId, referenceId: row.referenceId };
+    if (row.status !== "approved" || !row.executionApprovalId) throw new ConflictException("Approve this write-off before posting");
+    const authorize = () => this.approvals.requireForExecution(tx, user, branchId, "held_adjustment.post", id, row.executionApprovalId!);
+    const evidence = await authorize();
+    const payload = row.payload as unknown as StockAdjustmentDto;
+    if (payload.productId !== row.productId || payload.batchId !== row.batchId || payload.qty !== row.qty
+      || (payload.kind ?? "correction") !== row.kind || ["found", "opening"].includes(row.kind)
+      || payload.newBatch || payload.movementType !== "adjustment_out") throw new BadRequestException("Invalid saved write-off");
+    const posted = await this.inventory.adjustment(user.tenantId, branchId, actor, payload, { tx, authorize });
+    await tx.heldAdjustment.update({ where: { id, tenantId: user.tenantId, branchId }, data: {
+      status: "accepted", referenceId: posted.referenceId, executedBy: user.userId, executedAt: new Date(),
+    } });
+    await this.audit.log({ tenantId: user.tenantId, branchId, actorUserId: user.userId,
+      eventName: "inventory.write_off_posted", entityName: "held_adjustment", entityId: id,
+      payload: { approvalId: evidence.approvalId, referenceId: posted.referenceId,
+        requestedByUserId: row.requestedBy, approvedByUserId: evidence.approvedByUserId, executedByUserId: user.userId,
+        ...(command ? { command } : {}) } }, tx);
+    return { actor, changed: true, approvalId: evidence.approvalId, referenceId: posted.referenceId };
+  }
+
+  /** After commit only: the requester learns stock actually moved. */
+  async notifyPosted(tenantId: string, branchId: string, id: string) {
+    const row = await this.load(tenantId, branchId, id);
+    await this.notifications.notifyUser(tenantId, row.requestedBy, NotificationCategory.inventory, {
       severity: NotificationSeverity.info, title: "Write-off posted", message: "The approved write-off has been posted to inventory.",
       actionLabel: "Open request", actionHref: `/inventory?heldAdjustment=${id}`, entityType: "held_adjustment", entityId: id,
     }, { branchId });
-    return this.map(row, actor.has("costs.view"));
   }
 
   private async lock(tx: Prisma.TransactionClient, tenantId: string, branchId: string, id: string) {
