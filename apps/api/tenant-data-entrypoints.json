@@ -164,6 +164,11 @@
       "reason": "Parameterized tenant-scoped import/product/batch locks serialize undo with worker writes and foreign-key stock writers; savepoints isolate individual import row failures."
     },
     {
+      "path": "src/product-import/import-stock.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Parameterized import lock includes tenant and selected branch; version-pinned draft replacement and posting use the same transaction and live branch permissions."
+    },
+    {
       "path": "src/inventory/stock/stock.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks batch rows by tenant_id and a bound id array (FOR UPDATE, id order) before every stock change."

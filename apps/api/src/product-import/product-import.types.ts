@@ -127,6 +127,9 @@ export type ImportResult = {
   productsRanged: number;
   batchesCreated: number;
   unitsPosted: number;
+  unitsStaged?: number;
+  stockStaged?: boolean;
+  stockUndo?: boolean;
   rowsFailed: number;
   rowsPartiallyImported: number;
   rowsWithIssues: number;
@@ -168,6 +171,9 @@ export type ImportSummary = {
   productsRanged: number;
   batchesCreated: number;
   unitsPosted: number;
+  unitsStaged?: number;
+  stockStaged?: boolean;
+  stockUndo?: boolean;
   rowsFailed: number;
   expiryReviewCount: number;
   actorName: string | null;

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, apiJson } from "@/lib/auth-client";
 import { parseApiError } from "@/lib/api-error";
 import { createIdempotencyKey } from "@/lib/idempotency";
+import { useBranchRollout } from "@/lib/branch-rollout";
 import type {
   CategoryDecision,
   ImportAnalysis,
@@ -30,7 +31,8 @@ async function postFile<T>(
   // No Content-Type header: the browser must set the multipart boundary itself.
   const res = await apiFetch(path, { method: "POST", body: form, headers });
   const text = await res.text();
-  if (!res.ok) throw new Error(parseApiError(text, `Request failed (${res.status})`));
+  if (!res.ok)
+    throw new Error(parseApiError(text, `Request failed (${res.status})`));
   return (text.trim() ? JSON.parse(text) : {}) as T;
 }
 
@@ -40,18 +42,23 @@ async function postFile<T>(
  * is abandoned half way should leave nothing behind.
  */
 export function useProductImport() {
+  const { rollout } = useBranchRollout();
   const [step, setStep] = useState<ImportStep>("upload");
   const [file, setFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<ImportAnalysis | null>(null);
   const [mapping, setMapping] = useState<ImportMapping>({});
   const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [confirmedRows, setConfirmedRows] = useState<Set<number>>(() => new Set());
+  const [confirmedRows, setConfirmedRows] = useState<Set<number>>(
+    () => new Set(),
+  );
   /**
    * Only the values the user actually changed. Anything untouched keeps the resolution the
    * preview worked out, so confirming without opening the Categories block still applies every
    * automatic match — the choices are overrides, not the whole answer.
    */
-  const [categoryChoices, setCategoryChoices] = useState<ImportCategoryChoices>({});
+  const [categoryChoices, setCategoryChoices] = useState<ImportCategoryChoices>(
+    {},
+  );
   const [progress, setProgress] = useState<ImportJobProgress | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,7 +83,9 @@ export function useProductImport() {
 
   const loadHistory = useCallback(async () => {
     try {
-      setHistory(await apiJson<ImportSummary[]>("/products/import/history?take=10"));
+      setHistory(
+        await apiJson<ImportSummary[]>("/products/import/history?take=10"),
+      );
     } catch {
       /* History is a convenience — a failure here shouldn't block an import. */
     }
@@ -90,7 +99,10 @@ export function useProductImport() {
     setBusy(true);
     setError(null);
     try {
-      const data = await postFile<ImportAnalysis>("/products/import/analyze", next);
+      const data = await postFile<ImportAnalysis>(
+        "/products/import/analyze",
+        next,
+      );
       setFile(next);
       setAnalysis(data);
       setMapping(data.suggestedMapping);
@@ -131,9 +143,13 @@ export function useProductImport() {
     setBusy(true);
     setError(null);
     try {
-      const data = await postFile<ImportPreview>("/products/import/preview", file, {
-        mapping: JSON.stringify(mapping),
-      });
+      const data = await postFile<ImportPreview>(
+        "/products/import/preview",
+        file,
+        {
+          mapping: JSON.stringify(mapping),
+        },
+      );
       setPreview(data);
       setStep("review");
     } catch (err) {
@@ -165,7 +181,9 @@ export function useProductImport() {
           }
           pollRef.current = window.setTimeout(() => void tick(), POLL_MS);
         } catch (err) {
-          setError(err instanceof Error ? err.message : "Lost track of the import job");
+          setError(
+            err instanceof Error ? err.message : "Lost track of the import job",
+          );
           setStep("done");
         }
       };
@@ -185,7 +203,9 @@ export function useProductImport() {
     );
     try {
       const { jobId } = await postFile<{ jobId: string; importId: string }>(
-        "/products/import/confirm",
+        rollout?.state === "not_live"
+          ? "/products/import/confirm"
+          : "/products/import/stage",
         file,
         {
           mapping: JSON.stringify(mapping),
@@ -201,7 +221,7 @@ export function useProductImport() {
     } finally {
       setBusy(false);
     }
-  }, [file, mapping, confirmedRows, categoryChoices, poll]);
+  }, [file, mapping, confirmedRows, categoryChoices, poll, rollout]);
 
   /** Record (or clear) the user's decision for one incoming category value. */
   const setCategoryChoice = useCallback(
@@ -226,18 +246,25 @@ export function useProductImport() {
   }, []);
 
   const confirmAllPending = useCallback(() => {
-    setConfirmedRows(new Set((preview?.pendingCompliance ?? []).map((p) => p.rowNumber)));
+    setConfirmedRows(
+      new Set((preview?.pendingCompliance ?? []).map((p) => p.rowNumber)),
+    );
   }, [preview]);
 
   const undo = useCallback(
-    async (importId: string) => {
+    async (importId: string, stockUndo = false) => {
       setBusy(true);
       setError(null);
       try {
-        await apiJson(`/products/import/${importId}/undo`, { method: "POST" });
+        await apiJson(
+          `/products/import/${importId}/${stockUndo ? "undo-stock" : "undo"}`,
+          { method: "POST" },
+        );
         await loadHistory();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't undo that import");
+        setError(
+          err instanceof Error ? err.message : "Couldn't undo that import",
+        );
       } finally {
         setBusy(false);
       }
@@ -261,6 +288,7 @@ export function useProductImport() {
   }, [stopPolling]);
 
   return {
+    stagesStock: rollout?.state !== "not_live",
     step,
     setStep,
     file,

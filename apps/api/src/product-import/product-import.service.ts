@@ -54,6 +54,7 @@ import {
   type MatchConfidence,
   type PendingComplianceMatch,
 } from "./product-import.types";
+import { parseStagedRows } from "./import-stock.service";
 
 /**
  * Placeholder expiry for stock imported without one. Far enough out that FEFO always picks a
@@ -228,6 +229,7 @@ export class ProductImportService {
     confirmedRows: number[],
     categoryChoices: ImportCategoryChoices,
     idempotencyKeyRaw: string | undefined,
+    forceStage = false,
   ): Promise<{ jobId: string; importId: string }> {
     if (!file?.buffer?.length)
       throw new BadRequestException("Upload a CSV or Excel file.");
@@ -236,6 +238,7 @@ export class ProductImportService {
       .update(
         JSON.stringify({
           branchId: branchId ?? null,
+          ...(forceStage ? { forceStage: true } : {}),
           mapping: Object.entries(mapping).sort(([a], [b]) =>
             a.localeCompare(b),
           ),
@@ -300,6 +303,17 @@ export class ProductImportService {
     let importRecord: { id: string };
     try {
       importRecord = await this.prisma.$transaction(async (tx) => {
+        let stockStaged = forceStage;
+        if (hasStock) {
+          // Serialize with branch go-live. Checkout fallback does not permit remote stock posting.
+          await tx.$queryRaw`SELECT id FROM branch WHERE id = ${branchId!}::uuid AND tenant_id = ${tenantId}::uuid FOR SHARE`;
+          const branch = await tx.branch.findFirst({
+            where: { id: branchId!, tenantId, isActive: true },
+            select: { desktopPosRollout: true },
+          });
+          if (!branch) throw new NotFoundException("Branch not found.");
+          stockStaged ||= branch.desktopPosRollout === "live";
+        }
         const record = await tx.productImport.create({
           data: {
             tenantId,
@@ -308,6 +322,7 @@ export class ProductImportService {
             filename: file.originalname || "upload",
             mapping: mapping as Prisma.InputJsonValue,
             requestFingerprint: fingerprint,
+            stockStaged,
           },
           select: { id: true },
         });
@@ -339,6 +354,7 @@ export class ProductImportService {
           confirmedRows,
           categoryChoices,
           idemKey,
+          forceStage,
         );
       }
       throw error;
@@ -418,28 +434,42 @@ export class ProductImportService {
       let batchesCreated = 0;
       let unitsPosted = 0;
       let expiryReviewCount = 0;
+      let unitsStaged = 0;
       if (branchId) {
         ctx.progress({ phase: "stock" });
-        const stock = await this.postOpeningStock(
-          tenantId,
-          branchId,
-          userId,
-          importId,
-          toRun,
-          written.productIdByRow,
-          issues,
-          (processed) =>
-            ctx.progress({
-              phase: "stock",
-              processed: written.processed + processed,
-              total,
-              batchesCreated,
-              errorCount: issues.length,
-            }),
-        );
+        const record = await this.prisma.productImport.findFirst({
+          where: { id: importId, tenantId },
+          select: { stockStaged: true },
+        });
+        const stock = record?.stockStaged
+          ? await this.stageOpeningStock(
+              tenantId,
+              importId,
+              toRun,
+              written.productIdByRow,
+            )
+          : await this.postOpeningStock(
+              tenantId,
+              branchId,
+              userId,
+              importId,
+              toRun,
+              written.productIdByRow,
+              issues,
+              (processed) =>
+                ctx.progress({
+                  phase: "stock",
+                  processed: written.processed + processed,
+                  total,
+                  batchesCreated,
+                  errorCount: issues.length,
+                }),
+            );
         batchesCreated = stock.batchesCreated;
         unitsPosted = stock.unitsPosted;
         expiryReviewCount = stock.expiryReviewCount;
+        if (record?.stockStaged && "unitsStaged" in stock)
+          unitsStaged = stock.unitsStaged as number;
       }
 
       const heldIssues: ImportRowIssue[] = plan.pendingCompliance.map((p) => ({
@@ -472,6 +502,7 @@ export class ProductImportService {
         productsRanged: written.ranged,
         batchesCreated,
         unitsPosted,
+        unitsStaged,
         rowsFailed: issueRows.size - partialRows,
         rowsPartiallyImported: partialRows,
         rowsWithIssues: issueRows.size,
@@ -591,22 +622,40 @@ export class ProductImportService {
 
   // ── Undo ────────────────────────────────────────────────────────────────
 
-  async listImports(tenantId: string, take = 10): Promise<ImportSummary[]> {
+  async listImports(
+    tenantId: string,
+    take = 10,
+    selectedBranchId?: string,
+  ): Promise<ImportSummary[]> {
     const rows = await this.prisma.productImport.findMany({
       where: { tenantId },
       orderBy: { createdAt: "desc" },
       take: Math.min(take, 50),
-      include: { actor: { select: { fullName: true } } },
+      include: {
+        actor: { select: { fullName: true } },
+        branch: { select: { desktopPosRollout: true } },
+      },
     });
 
     return Promise.all(
       rows.map(async (r) => {
-        const blocked =
+        let blocked =
           r.status !== "completed" && r.status !== "failed"
             ? r.status === "undone"
               ? "This import has already been undone."
               : "Wait for the import to finish or stop before undoing it."
             : await this.undoBlockedReason(tenantId, r.id);
+        if (!blocked && r.stockPostedAt)
+          blocked =
+            "Opening stock was posted. Correct it with an adjustment at the counter.";
+        if (
+          !blocked &&
+          r.batchesCreated &&
+          r.branch?.desktopPosRollout === "live"
+        )
+          blocked = "Undo posted stock at the counter.";
+        if (!blocked && r.batchesCreated && r.branchId !== selectedBranchId)
+          blocked = "Switch to this import's branch before undoing its stock.";
         return {
           id: r.id,
           filename: r.filename,
@@ -620,6 +669,18 @@ export class ProductImportService {
           productsRanged: r.productsRanged,
           batchesCreated: r.batchesCreated,
           unitsPosted: r.unitsPosted,
+          stockStaged: r.stockStaged,
+          unitsStaged: Array.isArray(r.stagedStock)
+            ? (
+                r.stagedStock as unknown as {
+                  qty: number;
+                  postedBatchId?: string;
+                }[]
+              )
+                .filter((row) => !row.postedBatchId)
+                .reduce((n, row) => n + row.qty, 0)
+            : 0,
+          stockUndo: r.batchesCreated > 0,
           rowsFailed: r.rowsFailed,
           expiryReviewCount: r.expiryReviewCount,
           actorName: r.actor?.fullName ?? null,
@@ -689,7 +750,17 @@ export class ProductImportService {
     return rows.map((r) => r.batchId).filter((id): id is string => Boolean(id));
   }
 
-  async undo(tenantId: string, userId: string, importId: string) {
+  async undo(
+    tenantId: string,
+    userId: string,
+    importId: string,
+    stockExecution = false,
+    executionBranchId?: string,
+    authorize?: (
+      tx: Prisma.TransactionClient,
+      importBranchId: string | null,
+    ) => Promise<void>,
+  ) {
     const removed = await this.prisma.$transaction(
       async (tx) => {
         // Lock the import before checking its state. Fenced workers cannot write after undo.
@@ -715,13 +786,29 @@ export class ProductImportService {
             if (blocked) throw new ConflictException(blocked);
             const batchIds = await this.importBatchIds(tenantId, importId);
 
-            await tx.stockLedger.deleteMany({
-              where: {
+            if (stockExecution && record.branchId !== executionBranchId)
+              throw new NotFoundException("Import not found at this branch.");
+            if (!authorize)
+              throw new ConflictException(
+                "Current branch authorization is required.",
+              );
+            await authorize(tx, record.branchId);
+            if (batchIds.length && !stockExecution)
+              throw new ConflictException(
+                "This import has posted stock. Undo it at the counter.",
+              );
+            if (record.stockStaged && record.stockPostedAt)
+              throw new ConflictException(
+                "Staged opening stock has been posted. Correct it with an ordinary stock adjustment at the counter.",
+              );
+
+            if (batchIds.length)
+              await this.stock.removeUnusedImportStock(
+                tx,
                 tenantId,
-                referenceType: "product_import",
-                referenceId: importId,
-              },
-            });
+                importId,
+                batchIds,
+              );
             const batches =
               batchIds.length > 0
                 ? await tx.batch.deleteMany({
@@ -735,6 +822,10 @@ export class ProductImportService {
               where: { tenantId, importId },
             });
 
+            // Cascading child deletes can wait after the initial stock/product locks.
+            // Revalidate live authority after those waits before status and success audit.
+            await authorize(tx, record.branchId);
+
             await tx.productImport.updateMany({
               where: { id: importId, tenantId },
               data: { status: "undone", undoneAt: new Date() },
@@ -744,19 +835,22 @@ export class ProductImportService {
               batches: batches.count,
               products: products.count,
             };
-            await this.audit.log({
-              tenantId,
-              branchId: record.branchId,
-              actorUserId: userId,
-              eventName: "products.import_undone",
-              entityName: "product_import",
-              entityId: importId,
-              payload: {
-                batchesRemoved: removed.batches,
-                productsRemoved: removed.products,
-                productsLeftInPlace: record.productsUpdated,
+            await this.audit.log(
+              {
+                tenantId,
+                branchId: record.branchId,
+                actorUserId: userId,
+                eventName: "products.import_undone",
+                entityName: "product_import",
+                entityId: importId,
+                payload: {
+                  batchesRemoved: removed.batches,
+                  productsRemoved: removed.products,
+                  productsLeftInPlace: record.productsUpdated,
+                },
               },
-            });
+              tx,
+            );
 
             return { ...removed, productsLeftInPlace: record.productsUpdated };
           },
@@ -1452,6 +1546,15 @@ export class ProductImportService {
     for (let i = 0; i < withStock.length; i += PRODUCT_BATCH) {
       const chunk = withStock.slice(i, i + PRODUCT_BATCH);
       await this.inImportTransaction(tenantId, importId, async (tx) => {
+        await tx.$queryRaw`SELECT id FROM branch WHERE id = ${branchId}::uuid AND tenant_id = ${tenantId}::uuid FOR SHARE`;
+        const branch = await tx.branch.findFirst({
+          where: { id: branchId, tenantId },
+          select: { desktopPosRollout: true },
+        });
+        if (!branch || branch.desktopPosRollout === "live")
+          throw new ConflictException(
+            "Branch moved to desktop POS. Start a new staged import for remaining stock.",
+          );
         for (const item of chunk) {
           const productId = productIdByRow.get(item.row.rowNumber);
           if (!productId) continue;
@@ -1540,6 +1643,46 @@ export class ProductImportService {
     }
 
     return { batchesCreated, unitsPosted, expiryReviewCount };
+  }
+
+  private async stageOpeningStock(
+    tenantId: string,
+    importId: string,
+    planned: PlannedRow[],
+    productIdByRow: Map<number, string>,
+  ) {
+    const rows = parseStagedRows(
+      planned
+        .filter(
+          (p) =>
+            p.row.qty != null &&
+            p.row.qty > 0 &&
+            productIdByRow.has(p.row.rowNumber),
+        )
+        .map((p) => ({
+          rowNumber: p.row.rowNumber,
+          productId: productIdByRow.get(p.row.rowNumber)!,
+          name: p.row.name,
+          categoryName: p.row.categoryName,
+          qty: p.row.qty!,
+          costPrice: p.row.costPrice ?? 0,
+          sellingPrice: p.row.sellingPrice ?? 0,
+          batchNo: p.row.batchNo?.trim() || "OPENING",
+          expiryDate: p.row.expiryDate?.toISOString() ?? null,
+        })),
+    );
+    await this.inImportTransaction(tenantId, importId, async (tx) => {
+      await tx.productImport.updateMany({
+        where: { id: importId, tenantId, stockStaged: true },
+        data: { stagedStock: rows },
+      });
+    });
+    return {
+      batchesCreated: 0,
+      unitsPosted: 0,
+      expiryReviewCount: 0,
+      unitsStaged: rows.reduce((n, row) => n + row.qty, 0),
+    };
   }
 }
 

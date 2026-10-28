@@ -75,7 +75,8 @@ describe("import recovery boundaries", () => {
   it("allows guarded undo of a partial failed import and retains matched products", async () => {
     const { service, root, getRow, events } = setup();
     getRow().status = "failed";
-    const result = await service.undo("tenant", "user", "import");
+    service.stock.removeUnusedImportStock = jest.fn(async () => root.stockLedger.deleteMany());
+    const result = await service.undo("tenant", "user", "import", true, "branch", async () => {});
     expect(result).toMatchObject({
       productsLeftInPlace: 2,
       productsRemoved: 3,

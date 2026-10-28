@@ -325,6 +325,14 @@ model ProductImport {
   /// The column mapping the user confirmed on screen, kept so a failed run can be explained.
   mapping Json @default("{}")
 
+  /// D-W2 management draft. Never a reservation or posted available stock.
+  stockStaged Boolean @default(false) @map("stock_staged")
+  stockVersion Int @default(1) @map("stock_version")
+  stockStagedBy String? @map("stock_staged_by") @db.Uuid
+  stagedStock Json @default("[]") @map("staged_stock")
+  stockPostedAt DateTime? @map("stock_posted_at")
+  stockPostedBy String? @map("stock_posted_by") @db.Uuid
+
   productsCreated   Int @default(0) @map("products_created")
   productsUpdated   Int @default(0) @map("products_updated")
   productsRanged    Int @default(0) @map("products_ranged")
