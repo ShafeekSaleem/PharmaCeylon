@@ -6,6 +6,7 @@ import type { ActionProfile } from "./operation-classification";
  * These declarations are not installed guards or permission grants.
  */
 export const MUTATION_ACTIONS = Object.freeze({
+  "PUT /api/v1/tenant/branches/:branchId/counter-policy": "management",
   "POST /api/v1/admin/roles": "identity",
   "DELETE /api/v1/admin/roles/:roleId": "identity",
   "PATCH /api/v1/admin/roles/:roleId": "identity",

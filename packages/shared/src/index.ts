@@ -11,3 +11,4 @@ export * from "./operation-policy";
 export * from "./pos-resilience-contracts";
 export * from "./terminal-online-protocol";
 export * from "./branch-hours";
+export * from "./counter-policy";

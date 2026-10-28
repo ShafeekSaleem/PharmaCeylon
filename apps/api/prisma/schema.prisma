@@ -507,6 +507,9 @@ model Branch {
   desktopPosLiveAt        DateTime? @map("desktop_pos_live_at")
   posFallbackStartedAt    DateTime? @map("pos_fallback_started_at")
   posFallbackEndsAt       DateTime? @map("pos_fallback_ends_at")
+  /// W7 branch policy document. Null retains the safe disabled defaults; P3 signs it later.
+  counterPolicy           Json?     @map("counter_policy")
+  counterPolicyVersion    Int       @default(1) @map("counter_policy_version")
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 

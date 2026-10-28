@@ -115,3 +115,10 @@ Inventory actual routes when P1/P2/P5/P6 introduce them; do not claim the route 
 
 See [POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md) for scenarios, trust
 boundaries, readiness feedback and release evidence. Worker/internal writers inherit these rules.
+
+## W7 branch counter policy
+
+`PUT /tenant/branches/:branchId/counter-policy` is `management`: it stores versioned branch
+preferences only, with no stock/cash/grant/nomination effects. Tenant and exact branch settings
+authority are enforced separately from the selected header branch; update and audit commit
+together. It does not activate the terminal boundary or offline trading.

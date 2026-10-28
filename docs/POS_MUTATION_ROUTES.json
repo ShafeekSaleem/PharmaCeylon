@@ -756,6 +756,11 @@
   },
   {
     "method": "PUT",
+    "path": "/api/v1/tenant/branches/:branchId/counter-policy",
+    "source": "apps/api/src/tenant/counter-policy.controller.ts"
+  },
+  {
+    "method": "PUT",
     "path": "/api/v1/tenant/branches/:branchId/hours",
     "source": "apps/api/src/tenant/branch-hours.controller.ts"
   },

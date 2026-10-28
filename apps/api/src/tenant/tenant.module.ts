@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { CounterPolicyController } from "./counter-policy.controller";
+import { CounterPolicyService } from "./counter-policy.service";
 import { AuthModule } from "../auth/auth.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { UploadsModule } from "../uploads/uploads.module";
@@ -14,7 +16,20 @@ import { TenantSettingsService } from "./tenant-settings.service";
 
 @Module({
   imports: [AuthModule, UploadsModule, NotificationsModule],
-  controllers: [TenantController, TenantSettingsController, BranchHoursController, PosRolloutController],
-  providers: [TenantService, TenantSettingsService, BranchHoursService, HolidaySuggestionsSource, PosRolloutService],
+  controllers: [
+    TenantController,
+    TenantSettingsController,
+    BranchHoursController,
+    PosRolloutController,
+    CounterPolicyController,
+  ],
+  providers: [
+    TenantService,
+    TenantSettingsService,
+    BranchHoursService,
+    HolidaySuggestionsSource,
+    PosRolloutService,
+    CounterPolicyService,
+  ],
 })
 export class TenantModule {}

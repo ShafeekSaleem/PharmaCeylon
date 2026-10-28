@@ -362,3 +362,12 @@ Structured hours replace the free-text `Branch.openingHours`. The document is `B
 ## Versioning
 
 Pilot uses **`/api/v1`**. Breaking changes should move to `/api/v2` or be gated by explicit API version headers if you outgrow this model.
+
+## Branch counter policy (W7)
+
+`GET /tenant/branches/:branchId/counter-policy` and `PUT` on the same path require
+`tenant.management` on the target branch. PUT accepts `{ expectedVersion, policy }`; version
+conflicts return 409. The version-1 document configures branch offline enablement and approved
+external-card provider/merchant identifiers; default is disabled. Fixed offline rules cannot
+be edited. Saving is not offline activation or grant renewal. See [W7_COUNTER_POLICY.md](W7_COUNTER_POLICY.md)
+for validation, atomic audit, live authority, examples and downstream integration boundaries.
