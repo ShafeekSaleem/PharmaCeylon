@@ -55,7 +55,9 @@ describe("NmraImportService.ensureNmraTaxonomy", () => {
   function makeService(prisma: PrismaMock) {
     const audit = { log: jest.fn() } as unknown as AuditService;
     const categoryTaxonomy = new CategoryTaxonomyService(prisma as never);
-    return new NmraImportService(prisma as never, audit, categoryTaxonomy);
+    return new NmraImportService(prisma as never, audit, categoryTaxonomy, {
+      assertCurrent: async () => {},
+    } as never);
   }
 
   const row: NmraProductRow = {

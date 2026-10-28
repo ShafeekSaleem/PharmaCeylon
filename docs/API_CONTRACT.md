@@ -29,7 +29,17 @@ stock undo at live/fallback branches and when the selected branch differs. Impor
 describe the original import; the draft/history endpoints supply current posting state.
 API and web deploy together for the legacy undo route change. Both physical import routes can
 also run as signed terminal commands with original-result receipts (see "Signed terminal
-commands" below). Independent attendance, full desktop screens and enforcement on the browser
+commands" below).
+
+**Job authority (P1 MR 6).** `/confirm` and `/stage` record who started the job: the user, their
+access-token version, the selected branch (none = any branch, catalog only) and
+`products.import`. The background worker rechecks exactly that before every write transaction.
+If the starter's permission was removed, a role or password changed, they signed out
+everywhere, or the branch/account was deactivated, the job stops: `GET /products/import/jobs/:id`
+reports `status: "failed"` with an explanatory `error`, products/stock committed by earlier
+chunks are kept, and a `products.import_stopped` audit event is written. Start a new import for
+the rest. `POST /products/nmra-import/confirm` behaves the same way for `nmra.import`
+(`products.nmra_import_started` / `products.nmra_import_stopped`). Independent attendance, full desktop screens and enforcement on the browser
 routes remain the later coordinated P1/P2/P6 cutover.
 
 Single reference for the web team. The machine-readable contract is the **OpenAPI document** served by the API.

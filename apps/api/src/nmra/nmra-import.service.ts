@@ -28,6 +28,13 @@ import {
   type ExistingForNmraUpsert,
 } from "./nmra-import-merge";
 import type { NmraImportPreview, NmraImportResult } from "./nmra-import.types";
+import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import {
+  WorkerAuthority,
+  WorkerAuthorityRevokedError,
+  workerInitiator,
+  type WorkerInitiator,
+} from "../security/worker-authority";
 import {
   loadNmraProductsFromBuffer,
   type NmraProductRow,
@@ -58,7 +65,22 @@ export class NmraImportService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly categoryTaxonomy: CategoryTaxonomyService,
+    private readonly workerAuthority: WorkerAuthority,
   ) {}
+
+  /** The register import is tenant-wide catalog work: the starter must still hold nmra.import
+   * at some branch, with the token version they started with. Checked before every write batch
+   * and phase, so a revoked user's job stops instead of finishing on stale authority.
+   */
+  private async assertInitiator(
+    initiator: WorkerInitiator,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    if (tx) return this.workerAuthority.assertCurrent(tx, initiator);
+    await this.prisma.$transaction((check) =>
+      this.workerAuthority.assertCurrent(check, initiator),
+    );
+  }
 
   private parseFile(file: Express.Multer.File): NmraProductRow[] {
     if (!file?.buffer?.length) {
@@ -156,11 +178,12 @@ export class NmraImportService {
    * Start async confirm upsert. Returns jobId immediately; poll getJobProgress.
    * Parse/validate happens before the response so bad files fail fast.
    */
-  startUpsertJob(
+  async startUpsertJob(
     tenantId: string,
-    userId: string,
+    user: Pick<RequestUser, "userId" | "tokenVersion">,
     file: Express.Multer.File,
-  ): { jobId: string } {
+  ): Promise<{ jobId: string }> {
+    const initiator = workerInitiator({ tenantId, ...user }, null, "nmra.import");
     const rows = this.parseFile(file);
     if (rows.length === 0) {
       throw new BadRequestException(
@@ -168,8 +191,23 @@ export class NmraImportService {
       );
     }
     const jobId = randomUUID();
+    // The job lives in memory only; this audit row is its durable record of who started it and
+    // with which authority.
+    await this.audit.log({
+      tenantId,
+      actorUserId: initiator.userId,
+      eventName: "products.nmra_import_started",
+      entityName: "nmra_import_job",
+      entityId: jobId,
+      payload: {
+        rows: rows.length,
+        initiatedVia: "request",
+        permission: initiator.permission,
+        tokenVersion: initiator.tokenVersion,
+      },
+    });
     createNmraJob(jobId, tenantId);
-    void this.runUpsertJob(jobId, tenantId, userId, rows);
+    void this.runUpsertJob(jobId, initiator, rows);
     return { jobId };
   }
 
@@ -183,13 +221,12 @@ export class NmraImportService {
 
   private async runUpsertJob(
     jobId: string,
-    tenantId: string,
-    userId: string,
+    initiator: WorkerInitiator,
     rows: NmraProductRow[],
   ): Promise<void> {
     patchNmraJob(jobId, { status: "running", phase: "preparing" });
     try {
-      const result = await this.upsertRows(tenantId, userId, rows, (p) => {
+      const result = await this.upsertRows(initiator, rows, (p) => {
         patchNmraJob(jobId, {
           status: "running",
           phase: p.phase,
@@ -214,10 +251,26 @@ export class NmraImportService {
         result,
       });
     } catch (err) {
+      if (err instanceof WorkerAuthorityRevokedError)
+        await this.audit
+          .log({
+            tenantId: initiator.tenantId,
+            actorUserId: initiator.userId,
+            eventName: "products.nmra_import_stopped",
+            entityName: "nmra_import_job",
+            entityId: jobId,
+            payload: { reason: "initiator_authority_revoked" },
+          })
+          .catch(() => undefined);
       patchNmraJob(jobId, {
         status: "failed",
         phase: "failed",
-        error: err instanceof Error ? err.message : "NMRA import failed",
+        error:
+          err instanceof WorkerAuthorityRevokedError
+            ? "Stopped: the person who started this import no longer has NMRA import permission, or their sign-in changed. Products already saved were kept."
+            : err instanceof Error
+              ? err.message
+              : "NMRA import failed",
       });
     }
   }
@@ -228,24 +281,25 @@ export class NmraImportService {
    */
   async upsert(
     tenantId: string,
-    userId: string,
+    user: Pick<RequestUser, "userId" | "tokenVersion">,
     file: Express.Multer.File,
   ): Promise<NmraImportResult> {
+    const initiator = workerInitiator({ tenantId, ...user }, null, "nmra.import");
     const rows = this.parseFile(file);
     if (rows.length === 0) {
       throw new BadRequestException(
         "No NMRA product rows found. Download the Valid Registration list from NMRA, then upload here.",
       );
     }
-    return this.upsertRows(tenantId, userId, rows);
+    return this.upsertRows(initiator, rows);
   }
 
   private async upsertRows(
-    tenantId: string,
-    userId: string,
+    initiator: WorkerInitiator,
     rows: NmraProductRow[],
     onProgress?: (p: UpsertProgress) => void,
   ): Promise<NmraImportResult> {
+    const { tenantId, userId } = initiator;
     const uniqueRows: NmraProductRow[] = [];
     const seen = new Set<string>();
     let skipped = 0;
@@ -376,15 +430,23 @@ export class NmraImportService {
 
     for (const chunk of chunkArray(toCreate, PRODUCT_BATCH)) {
       try {
-        const res = await this.prisma.product.createMany({ data: chunk });
+        const res = await this.prisma.$transaction(async (tx) => {
+          await this.assertInitiator(initiator, tx);
+          return tx.product.createMany({ data: chunk });
+        });
         created += res.count;
-      } catch {
+      } catch (chunkErr) {
+        if (chunkErr instanceof WorkerAuthorityRevokedError) throw chunkErr;
         // Fall back to per-row so one bad SKU doesn't abort the whole import.
         for (const item of chunk) {
           try {
-            await this.prisma.product.create({ data: item });
+            await this.prisma.$transaction(async (tx) => {
+              await this.assertInitiator(initiator, tx);
+              await tx.product.create({ data: item });
+            });
             created += 1;
           } catch (rowErr) {
+            if (rowErr instanceof WorkerAuthorityRevokedError) throw rowErr;
             errors.push({
               registrationNo: item.registrationNo ?? undefined,
               message: rowErr instanceof Error ? rowErr.message : "Create failed",
@@ -407,6 +469,7 @@ export class NmraImportService {
     // Sequential batches — never Promise.all on the same Prisma/pg client.
     for (const chunk of chunkArray(toUpdate, PRODUCT_BATCH)) {
       await this.prisma.$transaction(async (tx) => {
+        await this.assertInitiator(initiator, tx);
         for (const item of chunk) {
           try {
             await tx.product.update({
@@ -441,6 +504,7 @@ export class NmraImportService {
       updated,
       errorCount: errors.length,
     });
+    await this.assertInitiator(initiator);
     const categoryMapsAdded = await this.ensureNmraTaxonomy(tenantId, uniqueRows, byReg);
     processed += 1;
     emit({
@@ -451,6 +515,7 @@ export class NmraImportService {
       updated,
       errorCount: errors.length,
     });
+    await this.assertInitiator(initiator);
     const tagsTouched = await this.ensureNmraTags(tenantId, uniqueRows, byReg);
     processed += 1;
     emit({
@@ -461,6 +526,7 @@ export class NmraImportService {
       updated,
       errorCount: errors.length,
     });
+    await this.assertInitiator(initiator);
     await this.ensureAliases(tenantId, uniqueRows, byReg);
     processed += 1;
     emit({
