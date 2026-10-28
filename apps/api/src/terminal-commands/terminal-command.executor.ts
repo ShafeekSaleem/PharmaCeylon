@@ -154,6 +154,8 @@ export class TerminalCommandExecutor {
   ): Promise<OnlineCommandReceipt> {
     const command = envelope.payload;
     await this.lockEnrollment(tx, user.tenantId, branchId, command.identity.enrollmentId);
+    // Report a revoked/retired device as such, before session or challenge checks.
+    await this.activeEnrollment(tx, user, branchId, envelope);
     const existing = await this.findReceipt(tx, user.tenantId, command);
     if (existing)
       return this.replay(tx, user, branchId, envelope, requestDigest, existing);
@@ -232,18 +234,7 @@ export class TerminalCommandExecutor {
     existing: TerminalCommandReceipt,
   ): Promise<OnlineCommandReceipt> {
     const { identity } = envelope.payload;
-    const enrollment = await tx.terminalEnrollment.findFirst({
-      where: { tenantId: user.tenantId, branchId, id: identity.enrollmentId },
-      include: { terminal: true },
-    });
-    if (!enrollment || enrollment.revokedAt || enrollment.terminal.retiredAt)
-      denied("TERMINAL_REVOKED");
-    if (
-      enrollment.terminalId !== identity.terminalId ||
-      enrollment.keyId !== identity.keyId ||
-      envelope.keyId !== identity.keyId
-    )
-      denied("IDENTITY_MISMATCH");
+    const enrollment = await this.activeEnrollment(tx, user, branchId, envelope);
     verifySignature(envelope, enrollment.publicKeyHex);
     if (existing.actorUserId !== user.userId || existing.branchId !== branchId)
       denied("IDENTITY_MISMATCH");
@@ -269,6 +260,23 @@ export class TerminalCommandExecutor {
       pharmacistEvidenceId: null,
       operatingHoursExceptionId: null,
     };
+  }
+
+  private async activeEnrollment(tx: Tx, user: RequestUser, branchId: string, envelope: Envelope) {
+    const { identity } = envelope.payload;
+    const enrollment = await tx.terminalEnrollment.findFirst({
+      where: { tenantId: user.tenantId, branchId, id: identity.enrollmentId },
+      include: { terminal: true },
+    });
+    if (!enrollment || enrollment.revokedAt || enrollment.terminal.retiredAt)
+      denied("TERMINAL_REVOKED");
+    if (
+      enrollment.terminalId !== identity.terminalId ||
+      enrollment.keyId !== identity.keyId ||
+      envelope.keyId !== identity.keyId
+    )
+      denied("IDENTITY_MISMATCH");
+    return enrollment;
   }
 
   private async lockEnrollment(tx: Tx, tenantId: string, branchId: string, enrollmentId: string) {
