@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { AuditService } from "../audit/audit.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { PERMISSION_KEYS } from "../security/permission-catalog";
 import { PermissionsService } from "../security/permissions.service";
 import { RolesAdminService } from "./roles-admin.service";
 
@@ -81,6 +82,12 @@ describe("RolesAdminService", () => {
     expect(entries.find((entry) => entry.key === "transfers.manage")?.description).toContain(
       "physical counts",
     );
+    for (const key of ["sales.offline_hours_acknowledge", "sales.offline_handover_assist"]) {
+      expect(
+        groups.find((group) => group.permissions.some((entry) => entry.key === key))?.moduleLabel,
+      ).toContain("Offline capabilities");
+    }
+    expect(entries).toHaveLength(PERMISSION_KEYS.length);
   });
 
   it("saves web scope without removing unchanged desktop grants and audits it", async () => {

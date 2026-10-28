@@ -1,5 +1,6 @@
 import { ConfigService } from "@nestjs/config";
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -273,4 +274,59 @@ it("removed settings authority during a branch-lock wait rolls back the edit", a
   });
   expect(stored.counterPolicyVersion).toBe(1);
   expect(stored.counterPolicy).toEqual(defaultCounterPolicy());
+});
+
+it("numbers only this branch's registers and keeps the series in the versioned document", async () => {
+  const [here, elsewhere] = await Promise.all([
+    prisma.terminalCounter.create({
+      data: { tenantId: fx.tenantId, branchId: fx.mainBranchId, label: "Front" },
+    }),
+    prisma.terminalCounter.create({
+      data: { tenantId: fx.tenantId, branchId: fx.otherBranchId, label: "Other front" },
+    }),
+  ]);
+  const view = await service.get(owner, fx.mainBranchId);
+  expect(view.registers).toContainEqual({ registerId: here.id, label: "Front", isActive: true });
+  expect(view.registers.map((r) => r.registerId)).not.toContain(elsewhere.id);
+
+  await expect(
+    service.update(owner, fx.mainBranchId, {
+      expectedVersion: 1,
+      policy: {
+        ...defaultCounterPolicy(),
+        registerNumbering: [{ registerId: elsewhere.id, receiptPrefix: "X1", invoicePrefix: "X2" }],
+      },
+    }),
+  ).rejects.toBeInstanceOf(BadRequestException);
+
+  const saved = await service.update(owner, fx.mainBranchId, {
+    expectedVersion: 1,
+    policy: {
+      ...defaultCounterPolicy(),
+      onlinePaymentMethods: ["card"],
+      registerNumbering: [{ registerId: here.id, receiptPrefix: "c1r-", invoicePrefix: "C1I-" }],
+    },
+  });
+  expect(saved.version).toBe(2);
+  expect(saved.policy.registerNumbering).toEqual([
+    { registerId: here.id, receiptPrefix: "C1R-", invoicePrefix: "C1I-" },
+  ]);
+  const stored = await prisma.branch.findUniqueOrThrow({ where: { id: fx.mainBranchId } });
+  expect(stored.counterPolicy).toMatchObject({ schemaVersion: 2, onlinePaymentMethods: ["card"] });
+});
+
+it("reads a stored version 1 document from before payments and numbering", async () => {
+  await prisma.branch.update({
+    where: { id: fx.mainBranchId },
+    data: {
+      counterPolicy: {
+        schemaVersion: 1,
+        offlineEnabled: true,
+        offlineExternalCardEnabled: false,
+        externalCardMerchants: [],
+      },
+    },
+  });
+  const view = await service.get(owner, fx.mainBranchId);
+  expect(view.policy).toEqual({ ...defaultCounterPolicy(), offlineEnabled: true });
 });
