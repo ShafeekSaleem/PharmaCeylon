@@ -383,10 +383,10 @@ describe("BranchHoursService", () => {
       expect(holidays.forYear).toHaveBeenCalledWith(2028);
     });
 
-    it("offers nothing for a year whose gazette verification is still pending", () => {
+    it("offers the registered gazette years and nothing for a year without a file", () => {
       const source = new HolidaySuggestionsSource();
-      expect(source.forYear(2026)).toBeNull();
-      expect(source.forYear(2027)).toBeNull();
+      expect(source.forYear(2026)?.source.name).toMatch(/2438\/22/);
+      expect(source.forYear(2027)?.source.name).toMatch(/2493\/05/);
       expect(source.forYear(2028)).toBeNull();
     });
   });

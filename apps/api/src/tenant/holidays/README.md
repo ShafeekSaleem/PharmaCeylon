@@ -12,9 +12,9 @@ year or memory.
 
 ## Where the list comes from
 
-Each year the Ministry of Public Administration publishes the next year's public, bank and
-mercantile holidays, Full Moon Poya Days included, as a Gazette Extraordinary under the Holidays
-Act No. 29 of 1971. It is usually out a few months before the year starts. The Department of
+Each year the Ministry of Public Administration publishes the next year's holidays, Full Moon Poya
+Days included, as a Gazette Extraordinary under the Holidays Act No. 29 of 1971. The 2026 gazette
+declares them public and bank holidays only; record `mercantile` only for a gazette that marks it. It is usually out a few months before the year starts. The Department of
 Government Printing publishes the gazettes at <https://documents.gov.lk>.
 
 ## Adding a year
@@ -38,22 +38,25 @@ Government Printing publishes the gazettes at <https://documents.gov.lk>.
 5. Run `npx jest src/tenant/holidays` in `apps/api`. A typo, a date outside the year, an
    unknown field or a missing check fails the tests.
 
-## Draft years in the repo
+## Years in the repo
 
-Neither draft below is registered or offered by the API. The loader rejects pending verification,
-secondary-source copies, and missing gazette metadata. Keep the drafts out of `HOLIDAY_YEAR_FILES`
-until a person has compared every row with the original gazette and recorded the completed check.
-Owners may enter dated exceptions manually in the meantime.
+Both years are registered in `HOLIDAY_YEAR_FILES` and offered in the hours editor. Each was compared
+row by row with its gazette PDF by Claude Code on 28 October 2026 and accepted for release by
+Shafeek Saleem without a separate row-by-row check by a second person, as `checkedBy` records.
 
-| Year | Gazette | Copied from | Status |
-| --- | --- | --- | --- |
-| 2026 | Extraordinary No. 2438/22 of 27 May 2025 | [CBSL, Bank Holidays for 2026](https://www.cbsl.gov.lk/en/about/about-the-bank/bank-holidays-2026) | Every row checked against the CBSL list (date, name, B/P/M marks, weekday). **Still to be compared with the gazette PDF.** |
-| 2027 | Extraordinary No. 2493/05 (reported 6 July 2026) | [CBSL, Bank Holidays for 2027](https://www.cbsl.gov.lk/en/about/about-the-bank/bank-holidays-2027) | As 2026. The gazette's date and link still need filling in from the PDF. |
+| Year | Gazette | Notes |
+| --- | --- | --- |
+| 2026 | Extraordinary No. 2438/22 of 27 May 2025, amended by No. 2485/14 of 21 April 2026 | Names as printed, every 2438/22 date marked public and bank. 2485/14 (Vesak Week, 27 May–2 June) moves "the public holiday granted for 2nd May 2026" to 31 May. The file reads that as: 2 May keeps only `bank` and 31 May is `public` only. The order names no holiday for 31 May. |
+| 2027 | Extraordinary No. 2493/05 of 16 June 2026 | Names as printed, every date marked public and bank. No amending gazette found as of 28 October 2026. |
 
-Both were copied on 27 October 2026, when documents.gov.lk couldn't be reached from where the files
-were made. The Central Bank publishes the gazetted holidays for banks, marking each date B (bank),
-P (public) and M (mercantile). Whoever compares these files with the gazette PDFs should fill in
-anything missing, set `copiedFrom` to `null` and put their own name in `checkedBy`.
+The 2026 and 2027 gazettes both declare their dates "Public and Bank Holidays" and mark each with only
+those two symbols, so neither file has `mercantile` rows. The Central Bank's list also marks some
+dates M (mercantile); those marks come from elsewhere and are not copied into a gazette file.
+
+On the new documents.gov.lk the old `view/extra-gazettes/...` links return 404. Find the gazette under
+Publications → Extra Gazettes (filter by year and month, search "Holiday") and use the English PDF's
+`api/content-file-proxy` link. That link carries an upload timestamp and may change again; the
+gazette number and date in `source.name` are the lasting reference, and are enough to find it.
 
 ## Checking every year
 

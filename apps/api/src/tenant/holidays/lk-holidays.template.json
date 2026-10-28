@@ -9,7 +9,7 @@
   "checkedBy": "Name of the person who compared every row with the gazette",
   "checkedOn": "YYYY-MM-DD",
   "holidays": [
-    { "date": "YYYY-MM-DD", "name": "Name exactly as the gazette prints it", "kinds": ["public", "bank", "mercantile"] },
+    { "date": "YYYY-MM-DD", "name": "Name exactly as the gazette prints it", "kinds": ["public", "bank"] },
     { "date": "YYYY-MM-DD", "name": "Name of a Full Moon Poya Day", "kinds": ["poya", "public", "bank"] }
   ]
 }

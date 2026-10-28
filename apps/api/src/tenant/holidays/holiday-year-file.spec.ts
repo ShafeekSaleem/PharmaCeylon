@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { HOLIDAY_YEAR_FILES, loadHolidayYears, parseHolidayYearFile } from ".";
-import lk2026Draft from "./lk-holidays-2026.json";
-import lk2027Draft from "./lk-holidays-2027.json";
+import lk2026 from "./lk-holidays-2026.json";
+import lk2027 from "./lk-holidays-2027.json";
 
 // Fixture data in a far-off year. These are not real holiday dates.
 function yearFile(overrides: Record<string, unknown> = {}) {
@@ -75,16 +75,19 @@ it("refuses a file whose name doesn't match its year, or a year loaded twice", (
   expect(loadHolidayYears([["lk-holidays-2099.json", yearFile()]]).get(2099)?.holidays).toHaveLength(2);
 });
 
-it("keeps the unverified 2026/2027 drafts out of runtime suggestions", () => {
-  expect(HOLIDAY_YEAR_FILES).toEqual([]);
-  expect(loadHolidayYears().size).toBe(0);
+it("offers the registered gazette years, one suggestion per date", () => {
+  const years = loadHolidayYears();
+  expect([...years.keys()]).toEqual([2026, 2027]);
+  for (const [year, file] of [[2026, lk2026], [2027, lk2027]] as const) {
+    expect(years.get(year)?.holidays).toHaveLength(new Set(file.holidays.map((row) => row.date)).size);
+  }
+  expect(HOLIDAY_YEAR_FILES).toHaveLength(2);
 });
 
-it.each([
-  ["lk-holidays-2026.json", lk2026Draft],
-  ["lk-holidays-2027.json", lk2027Draft],
-])("rejects draft %s if accidentally registered", (file, draft) => {
-  expect(() => loadHolidayYears([[file, draft]])).toThrow(/draft copies cannot be loaded/);
+it("offers the 2026 amendment: 2 May bank only, 31 May public", () => {
+  const byDate = new Map(loadHolidayYears().get(2026)!.holidays.map((h) => [h.date, h.kinds]));
+  expect(byDate.get("2026-05-02")).toEqual(["bank"]);
+  expect(byDate.get("2026-05-31")).toEqual(["public"]);
 });
 
 it("keeps the template unusable until it is filled in from a gazette", () => {

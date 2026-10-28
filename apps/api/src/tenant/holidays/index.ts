@@ -1,4 +1,6 @@
 import { parseHolidayYearFile, type HolidayYearList } from "./holiday-year-file";
+import lk2026 from "./lk-holidays-2026.json";
+import lk2027 from "./lk-holidays-2027.json";
 
 export { parseHolidayYearFile, type HolidayYearList } from "./holiday-year-file";
 
@@ -8,9 +10,10 @@ export { parseHolidayYearFile, type HolidayYearList } from "./holiday-year-file"
  * gazette and checked by a person (README.md has the steps). A year without a file shows
  * "No holiday list for YYYY yet" in the editor. Never fill a year from anywhere but its gazette.
  */
-// The 2026/2027 files are retained as drafts. Neither has completed the gazette comparison;
-// registering them here would present unverified rows as gazette-backed suggestions.
-export const HOLIDAY_YEAR_FILES: ReadonlyArray<readonly [file: string, data: unknown]> = [];
+export const HOLIDAY_YEAR_FILES: ReadonlyArray<readonly [file: string, data: unknown]> = [
+  ["lk-holidays-2026.json", lk2026],
+  ["lk-holidays-2027.json", lk2027],
+];
 
 export function loadHolidayYears(
   files: ReadonlyArray<readonly [file: string, data: unknown]> = HOLIDAY_YEAR_FILES,
