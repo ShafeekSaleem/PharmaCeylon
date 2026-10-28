@@ -137,7 +137,7 @@ describe("PosRolloutService", () => {
     $transaction: jest.Mock;
   };
   let audit: { log: jest.Mock };
-  let notifications: { notifyByPermission: jest.Mock };
+  let notifications: { notifyByPermission: jest.Mock; notifyCounterAlert: jest.Mock };
   let service: PosRolloutService;
 
   beforeEach(() => {
@@ -148,7 +148,10 @@ describe("PosRolloutService", () => {
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     audit = { log: jest.fn().mockResolvedValue(undefined) };
-    notifications = { notifyByPermission: jest.fn().mockResolvedValue(0) };
+    notifications = {
+      notifyByPermission: jest.fn().mockResolvedValue(0),
+      notifyCounterAlert: jest.fn().mockResolvedValue(0),
+    };
     service = new PosRolloutService(
       prisma as never,
       audit as unknown as AuditService,
@@ -343,7 +346,14 @@ describe("PosRolloutService", () => {
         prisma,
       );
       expect(view.state).toBe("fallback");
-      expect(notifications.notifyByPermission).toHaveBeenCalled();
+      expect(notifications.notifyCounterAlert).toHaveBeenCalledWith(
+        tenantId,
+        branchId,
+        "fallback_changed",
+        expect.objectContaining({ actionHref: "/settings/branches" }),
+        owner.userId,
+      );
+      expect(notifications.notifyByPermission).not.toHaveBeenCalled();
     });
 
     it("moves the end of a running fallback and keeps when it started", async () => {
