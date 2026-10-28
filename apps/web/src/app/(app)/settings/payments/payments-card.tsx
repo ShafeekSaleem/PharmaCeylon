@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
+  effectiveDefaultPaymentMethod,
   MAX_EXTERNAL_CARD_MERCHANTS,
   ONLINE_PAYMENT_METHODS,
   ONLINE_PAYMENT_METHOD_LABELS,
@@ -10,8 +12,28 @@ import { ActionButton, FormField, ToggleSwitch } from "@/components/ui";
 import { IconLock } from "@/components/icons";
 import css from "../settings.module.css";
 import { CounterPolicySection, SyncNote } from "../lib/counter-policy";
+import { fetchTenantSettings } from "../lib/tenant-settings";
+
+const DEFAULT_LABELS: Record<string, string> = { cash: "Cash", card: "Card", split: "Split" };
 
 export function PaymentsCard() {
+  // The default payment method is tenant-wide (Counters & receipts); card is this branch's choice.
+  const [tenantDefault, setTenantDefault] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchTenantSettings().then(
+      (settings) => {
+        if (!cancelled) setTenantDefault(settings.posDefaultPaymentMethod);
+      },
+      () => {
+        // Without it the note is left out; the setting itself still saves.
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <CounterPolicySection
       title="Payments"
@@ -60,6 +82,10 @@ export function PaymentsCard() {
                 </div>
               );
             })}
+
+            {tenantDefault ? (
+              <DefaultMethodNote tenantDefault={tenantDefault} methods={policy.onlinePaymentMethods} />
+            ) : null}
 
             <p className={css.subLabel}>Offline counter</p>
             <div className={css.rowItem}>
@@ -139,5 +165,25 @@ export function PaymentsCard() {
         );
       }}
     </CounterPolicySection>
+  );
+}
+
+function DefaultMethodNote({
+  tenantDefault,
+  methods,
+}: {
+  tenantDefault: string;
+  methods: Parameters<typeof effectiveDefaultPaymentMethod>[1];
+}) {
+  const effective = effectiveDefaultPaymentMethod(tenantDefault, methods);
+  const chosen = DEFAULT_LABELS[tenantDefault] ?? tenantDefault;
+  return (
+    <p className={css.rowHint}>
+      Sales start on the default payment method from{" "}
+      <Link href="/settings/main">Counters &amp; receipts</Link>: {chosen}.
+      {effective !== tenantDefault
+        ? ` This branch doesn't take card, so its counters start on cash instead.`
+        : null}
+    </p>
   );
 }

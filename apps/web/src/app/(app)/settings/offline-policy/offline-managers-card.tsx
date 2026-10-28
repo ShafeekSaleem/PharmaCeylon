@@ -15,12 +15,12 @@ const ACTION_LABELS: Record<OfflineManagerAction, string> = {
 };
 
 /** Who a prepared offline counter will accept as its local manager, from role permissions. */
-export function OfflineManagersCard() {
+export function OfflineManagersCard({ refreshKey = 0 }: { refreshKey?: number }) {
   const { branchId } = useAuth();
-  return branchId ? <Managers key={branchId} branchId={branchId} /> : null;
+  return branchId ? <Managers key={branchId} branchId={branchId} refreshKey={refreshKey} /> : null;
 }
 
-function Managers({ branchId }: { branchId: string }) {
+function Managers({ branchId, refreshKey }: { branchId: string; refreshKey: number }) {
   const [settings, setSettings] = useState<CounterGrantSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +38,7 @@ function Managers({ branchId }: { branchId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [branchId]);
+  }, [branchId, refreshKey]);
 
   return (
     <section className={css.card} aria-label="Offline managers">
@@ -53,6 +53,12 @@ function Managers({ branchId }: { branchId: string }) {
       </p>
       <SyncNote>A manager must also be prepared on the counter itself.</SyncNote>
       {error ? <Alert variant="error">{error}</Alert> : null}
+      {settings && !settings.offlineEnabled ? (
+        <p className={css.rowHint}>
+          Offline selling is off at this branch, so nobody acts as an offline manager until it is
+          turned on.
+        </p>
+      ) : null}
       {settings ? (
         settings.offlineManagers.length === 0 ? (
           <p className={css.rowHint}>Nobody at this branch holds either permission.</p>

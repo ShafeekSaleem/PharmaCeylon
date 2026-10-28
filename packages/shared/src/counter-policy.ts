@@ -232,3 +232,22 @@ function normalizePrefix(raw: unknown): string | null {
   const value = raw.trim().toUpperCase();
   return value.length <= MAX_REGISTER_PREFIX_LENGTH && PREFIX.test(value) ? value : null;
 }
+
+/** Choices for the tenant-wide default payment method (Settings → Counters & receipts). */
+export const COUNTER_DEFAULT_PAYMENT_METHODS = ["cash", "card", "split"] as const;
+export type CounterDefaultPaymentMethod = (typeof COUNTER_DEFAULT_PAYMENT_METHODS)[number];
+
+/**
+ * The default every branch's counters start a sale on. The default is tenant-wide but card is a
+ * branch choice, so a branch that doesn't take card online starts on cash instead. Split tender
+ * is cash plus card and needs card too. Anything unrecognised also falls back to cash, which is
+ * always accepted.
+ */
+export function effectiveDefaultPaymentMethod(
+  tenantDefault: string,
+  onlinePaymentMethods: readonly OnlinePaymentMethod[],
+): CounterDefaultPaymentMethod {
+  if (tenantDefault === "card" || tenantDefault === "split")
+    return onlinePaymentMethods.includes("card") ? tenantDefault : "cash";
+  return "cash";
+}

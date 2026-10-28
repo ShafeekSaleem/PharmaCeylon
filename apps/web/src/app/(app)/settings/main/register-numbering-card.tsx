@@ -17,6 +17,7 @@ export function RegisterNumberingCard() {
     <CounterPolicySection
       title="Register numbering"
       saveLabel="Save numbering"
+      validate={halfFilled}
       description={
         <>
           <p className={css.cardDesc}>
@@ -66,6 +67,22 @@ export function RegisterNumberingCard() {
       }
     </CounterPolicySection>
   );
+}
+
+/** One prefix without the other would be refused as malformed; say which register and field. */
+function halfFilled(view: CounterPolicyView): string | null {
+  for (const row of view.policy.registerNumbering) {
+    const missing = !row.receiptPrefix.trim()
+      ? "receipt prefix"
+      : !row.invoicePrefix.trim()
+        ? "invoice prefix"
+        : null;
+    if (!missing) continue;
+    const register = view.registers.find((r) => r.registerId === row.registerId);
+    const name = register?.label ?? "A register";
+    return `${name}: fill in the ${missing} too, or clear both to leave it unnumbered.`;
+  }
+  return null;
 }
 
 function numberingFor(view: CounterPolicyView, registerId: string): RegisterNumbering {

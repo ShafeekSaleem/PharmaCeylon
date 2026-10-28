@@ -1,10 +1,12 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import {
   COUNTER_OFFLINE_RULES,
   defaultCounterPolicy,
   type OfflineGrant,
 } from "@pharmaceylon/shared";
 import { CounterGrantSettingsController } from "./counter-policy.controller";
+import { PermissionsService } from "../security/permissions.service";
 import { CounterGrantSettingsService } from "./counter-grant-settings.service";
 
 const branchId = "11111111-1111-4111-8111-111111111111";
@@ -55,37 +57,72 @@ describe("counter grant settings source", () => {
             userId: "u-custom",
             branchId,
             role: "custom",
+            roleId: "role-custom",
             user: { fullName: "Asha" },
-            roleRef: { tenantId: "tenant-1", permissions: perms("sales.offline_hours_acknowledge") },
+            roleRef: { tenantId: "tenant-1" },
           },
           // An owner assigned at another branch holds every action here too.
-          { userId: "u-owner", branchId: "other", role: "owner", user: { fullName: "Owner" }, roleRef: null },
+          {
+            userId: "u-owner",
+            branchId: "other",
+            role: "owner",
+            roleId: null,
+            user: { fullName: "Owner" },
+            roleRef: null,
+          },
           // A cashier holds neither, so isn't listed.
           {
             userId: "u-cashier",
             branchId,
             role: "cashier",
+            roleId: "role-cashier",
             user: { fullName: "Cashier" },
-            roleRef: { tenantId: "tenant-1", permissions: perms("sales.pos_use") },
+            roleRef: { tenantId: "tenant-1" },
           },
           // A legacy built-in row without roleId falls back to the catalog defaults.
-          { userId: "u-manager", branchId, role: "manager", user: { fullName: "Mala" }, roleRef: null },
-          // A role row from another tenant grants nothing.
+          {
+            userId: "u-manager",
+            branchId,
+            role: "manager",
+            roleId: null,
+            user: { fullName: "Mala" },
+            roleRef: null,
+          },
+          // A role row from another tenant grants nothing, whatever it holds.
           {
             userId: "u-foreign",
             branchId,
             role: "custom",
+            roleId: "role-foreign",
             user: { fullName: "Zed" },
-            roleRef: { tenantId: "tenant-2", permissions: perms("sales.offline_hours_acknowledge") },
+            roleRef: { tenantId: "tenant-2" },
           },
         ]),
+      },
+      rolePermission: {
+        findMany: jest.fn().mockImplementation(({ where }: { where: { roleId: string } }) =>
+          Promise.resolve(
+            ({
+              "role-custom": perms("sales.offline_hours_acknowledge"),
+              "role-cashier": perms("sales.pos_use"),
+              "role-foreign": perms("sales.offline_hours_acknowledge"),
+            } as Record<string, unknown[]>)[where.roleId] ?? [],
+          ),
+        ),
+      },
+      tenantSettings: {
+        findUnique: jest.fn().mockResolvedValue({ posDefaultPaymentMethod: "split" }),
       },
     };
     access = {
       resolve: jest.fn().mockResolvedValue({ has: (k: string) => k === "tenant.management" }),
     };
     hours = { getHours: jest.fn().mockResolvedValue(hoursView) };
-    service = new CounterGrantSettingsService(prisma, access, hours);
+    const permissions = new PermissionsService(
+      prisma,
+      new ConfigService({ USER_CONTEXT_TTL_SECONDS: 0 }),
+    );
+    service = new CounterGrantSettingsService(prisma, access, permissions, hours);
   });
 
   it("gives P3 every settings-derived grant field, with the versions to re-issue on", async () => {
@@ -100,6 +137,12 @@ describe("counter grant settings source", () => {
       externalCardMerchants: [{ provider: "Bank", merchantId: "M1" }],
       hours: hoursView.hours,
       extensions: [],
+      // Every online method is on by default, so the tenant's split default stands.
+      defaultPaymentMethod: "split",
+    });
+    expect(prisma.rolePermission.findMany).not.toHaveBeenCalledWith({
+      where: { roleId: "role-foreign" },
+      select: { permissionKey: true },
     });
     expect(settings.offlineManagers).toEqual([
       { userId: "u-custom", name: "Asha", offlineManagerActions: ["acknowledge_business_hours"] },
@@ -144,6 +187,18 @@ describe("counter grant settings source", () => {
     const everyField: Record<Exclude<keyof OfflineGrant, Covered>, never> = {};
     expect(everyField).toEqual({});
     expect(fromSettings.maxSnapshotAgeAtOutageMs).toBe(15 * 60_000);
+  });
+
+  it("starts counters on cash where the branch doesn't take what the tenant default needs", async () => {
+    prisma.branch.findFirst.mockResolvedValue({
+      id: branchId,
+      counterPolicyVersion: 2,
+      counterPolicy: { ...defaultCounterPolicy(), onlinePaymentMethods: ["mobile_wallet"] },
+    });
+    expect((await service.forBranch(user, branchId)).defaultPaymentMethod).toBe("cash");
+    prisma.tenantSettings.findUnique.mockResolvedValue(null);
+    prisma.branch.findFirst.mockResolvedValue({ id: branchId, counterPolicyVersion: 1, counterPolicy: null });
+    expect((await service.forBranch(user, branchId)).defaultPaymentMethod).toBe("cash");
   });
 
   it("never allows external card offline when offline selling is off", async () => {

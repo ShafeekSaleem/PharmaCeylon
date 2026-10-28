@@ -27,11 +27,12 @@ const FIXED_RULES: { label: string; hint: string }[] = [
   },
 ];
 
-export function OfflinePolicyCard() {
+export function OfflinePolicyCard({ onSaved }: { onSaved?: () => void }) {
   return (
     <CounterPolicySection
       title="Offline selling"
       saveLabel="Save offline policy"
+      onSaved={onSaved}
       description={
         <>
           <p className={css.cardDesc}>

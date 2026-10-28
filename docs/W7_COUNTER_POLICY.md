@@ -45,7 +45,11 @@ every online method on and no numbering, which is what it meant. The next save w
 
 - **Online payment methods.** Cash is always accepted and is not a setting, so payments can
   never put a branch into "no selling". The list holds the other methods the API accepts online;
-  the default is all of them, so an unconfigured branch keeps today's behaviour.
+  the default is all of them, so an unconfigured branch keeps today's behaviour. The default
+  payment method stays tenant-wide (Counters & receipts: cash, card or split). Where a branch
+  doesn't take card, its counters start on cash instead, split included
+  (`effectiveDefaultPaymentMethod`); the Payments page says so, and the grant settings source
+  returns the resolved `defaultPaymentMethod`.
 - **External card merchants.** Each is `{ "provider": "Bank", "merchantId": "MID-1" }`, at most
   20. Values are trimmed and NFC-normalized; provider labels are case-insensitive for duplicate
   detection, merchant IDs keep their exact case. Empty/control-character values and unknown
@@ -75,7 +79,8 @@ roles work: `sales.offline_hours_acknowledge` (`acknowledge_business_hours`, D8)
 `sales.offline_handover_assist` (`assist_shift_handover`). Owner and manager hold both by
 default (migration `20261028120000_offline_manager_permissions`). They protect no endpoint; the
 Roles & Permissions editor lists them under "Offline capabilities". Owners hold every permission
-at every branch, as elsewhere.
+at every branch, as elsewhere; everyone else's grants at the branch resolve through
+`PermissionsService`, ignoring any role row from another tenant.
 
 ## Grant settings source
 

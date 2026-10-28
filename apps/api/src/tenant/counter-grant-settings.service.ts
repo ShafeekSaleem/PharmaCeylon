@@ -3,12 +3,13 @@ import { RoleName } from "@prisma/client";
 import {
   COUNTER_OFFLINE_RULES,
   OFFLINE_MANAGER_PERMISSIONS,
+  effectiveDefaultPaymentMethod,
   type CounterGrantSettings,
   type OfflineManagerAction,
 } from "@pharmaceylon/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
-import { defaultPermissionsForRole } from "../security/permission-catalog";
+import { PermissionsService } from "../security/permissions.service";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { BranchHoursService } from "./branch-hours.service";
 import { storedPolicy } from "./counter-policy.service";
@@ -25,6 +26,7 @@ export class CounterGrantSettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessService,
+    private readonly permissions: PermissionsService,
     private readonly hours: BranchHoursService,
   ) {}
 
@@ -45,7 +47,14 @@ export class CounterGrantSettingsService {
     branch: { id: string; counterPolicy: unknown; counterPolicyVersion: number },
   ): Promise<CounterGrantSettings> {
     const policy = storedPolicy(branch.counterPolicy as never);
-    const hours = await this.hours.getHours(tenantId, branch.id);
+    const [hours, tenantSettings, offlineManagers] = await Promise.all([
+      this.hours.getHours(tenantId, branch.id),
+      this.prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { posDefaultPaymentMethod: true },
+      }),
+      this.offlineManagers(tenantId, branch.id),
+    ]);
     return {
       branchId: branch.id,
       timezone: hours.timezone,
@@ -55,15 +64,20 @@ export class CounterGrantSettingsService {
       externalCardAllowed: policy.offlineEnabled && policy.offlineExternalCardEnabled,
       externalCardMerchants: policy.externalCardMerchants,
       onlinePaymentMethods: policy.onlinePaymentMethods,
+      // No settings row yet means the schema default, cash.
+      defaultPaymentMethod: effectiveDefaultPaymentMethod(
+        tenantSettings?.posDefaultPaymentMethod ?? "cash",
+        policy.onlinePaymentMethods,
+      ),
       registerNumbering: policy.registerNumbering,
       hours: hours.hours,
       extensions: hours.extensions,
-      offlineManagers: await this.offlineManagers(tenantId, branch.id),
+      offlineManagers,
     };
   }
 
   /** Staff assigned at the branch whose roles hold an offline manager permission there, plus the
-   * tenant's owners, who hold every permission at every branch. */
+   * tenant's owners, who hold every permission at every branch (as in `AccessService`). */
   private async offlineManagers(tenantId: string, branchId: string) {
     const assignments = await this.prisma.userBranchRole.findMany({
       where: {
@@ -75,32 +89,40 @@ export class CounterGrantSettingsService {
         userId: true,
         branchId: true,
         role: true,
+        roleId: true,
         user: { select: { fullName: true } },
-        roleRef: { select: { tenantId: true, permissions: { select: { tenantId: true, permissionKey: true } } } },
+        roleRef: { select: { tenantId: true } },
       },
     });
-    const byUser = new Map<string, { name: string; keys: Set<string>; owner: boolean }>();
+    const byUser = new Map<
+      string,
+      { name: string; owner: boolean; candidates: { role: RoleName; roleId: string | null }[] }
+    >();
     for (const row of assignments) {
-      const entry = byUser.get(row.userId) ?? { name: row.user.fullName, keys: new Set(), owner: false };
+      const entry = byUser.get(row.userId) ?? { name: row.user.fullName, owner: false, candidates: [] };
       byUser.set(row.userId, entry);
       if (row.role === RoleName.owner) entry.owner = true;
+      // Only this branch's roles count, and never a role row belonging to another tenant.
       if (row.branchId !== branchId) continue;
-      const keys = row.roleRef
-        ? row.roleRef.tenantId === tenantId
-          ? row.roleRef.permissions.filter((p) => p.tenantId === tenantId).map((p) => p.permissionKey)
-          : []
-        : defaultPermissionsForRole(row.role);
-      for (const key of keys) entry.keys.add(key);
+      if (row.roleId && row.roleRef?.tenantId !== tenantId) continue;
+      entry.candidates.push({ role: row.role, roleId: row.roleId });
     }
-    return [...byUser.entries()]
-      .map(([userId, entry]) => ({
-        userId,
-        name: entry.name,
-        offlineManagerActions: ACTIONS.filter(([, key]) => entry.owner || entry.keys.has(key)).map(
-          ([action]) => action,
-        ),
-      }))
-      .filter((staff) => staff.offlineManagerActions.length > 0)
+    const staff = await Promise.all(
+      [...byUser.entries()].map(async ([userId, entry]) => {
+        const keys = entry.owner
+          ? null
+          : await this.permissions.resolveGrantedKeys(entry.candidates);
+        return {
+          userId,
+          name: entry.name,
+          offlineManagerActions: ACTIONS.filter(([, key]) => !keys || keys.has(key)).map(
+            ([action]) => action,
+          ),
+        };
+      }),
+    );
+    return staff
+      .filter((s) => s.offlineManagerActions.length > 0)
       .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId));
   }
 }

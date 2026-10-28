@@ -19,6 +19,10 @@ type SectionProps = {
   title: string;
   saveLabel: string;
   description?: ReactNode;
+  /** Checks the page can word better than the shared validator, e.g. naming a register. */
+  validate?: (view: CounterPolicyView) => string | null;
+  /** Lets a sibling card on the same page reload what depends on this document. */
+  onSaved?: (view: CounterPolicyView) => void;
   children: (editor: CounterPolicyEditor) => ReactNode;
 };
 
@@ -43,6 +47,8 @@ function BranchPolicyEditor({
   title,
   saveLabel,
   description,
+  validate,
+  onSaved,
   children,
 }: SectionProps & { branchId: string }) {
   const [view, setView] = useState<CounterPolicyView | null>(null);
@@ -74,6 +80,12 @@ function BranchPolicyEditor({
 
   async function save() {
     if (!view) return;
+    const problem = validate?.(view);
+    if (problem) {
+      setError(problem);
+      setSaved(false);
+      return;
+    }
     const parsed = validateCounterPolicy(view.policy);
     if (!parsed.ok) {
       setError(parsed.message);
@@ -90,6 +102,7 @@ function BranchPolicyEditor({
       });
       setView(result);
       setSaved(true);
+      onSaved?.(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save counter settings.");
     } finally {

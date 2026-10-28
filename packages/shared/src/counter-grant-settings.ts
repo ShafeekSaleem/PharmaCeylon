@@ -1,6 +1,7 @@
 import type { BranchHours, BranchHoursExtensionView } from "./branch-hours";
 import {
   COUNTER_OFFLINE_RULES,
+  type CounterDefaultPaymentMethod,
   type ExternalCardMerchant,
   type OnlinePaymentMethod,
   type RegisterNumbering,
@@ -31,6 +32,9 @@ export type CounterGrantSettings = Readonly<{
   externalCardAllowed: boolean;
   externalCardMerchants: ReadonlyArray<ExternalCardMerchant>;
   onlinePaymentMethods: ReadonlyArray<OnlinePaymentMethod>;
+  /** The tenant's default payment method as this branch's counters apply it: cash when the
+   * branch doesn't take what the default needs (`effectiveDefaultPaymentMethod`). */
+  defaultPaymentMethod: CounterDefaultPaymentMethod;
   registerNumbering: ReadonlyArray<RegisterNumbering>;
   /** Null while the branch has no structured hours: no routine window can be signed, so P3
    * must not issue a grant for it. */

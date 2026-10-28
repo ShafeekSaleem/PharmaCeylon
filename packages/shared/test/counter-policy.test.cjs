@@ -173,3 +173,13 @@ test("normalizes register prefixes and refuses series that could collide", () =>
     assert.equal(numbering(rows).ok, false, JSON.stringify(rows));
   }
 });
+
+test("the tenant's default payment method falls back to cash where a branch doesn't take card", () => {
+  const { effectiveDefaultPaymentMethod } = require("../dist");
+  assert.equal(effectiveDefaultPaymentMethod("card", ["card"]), "card");
+  assert.equal(effectiveDefaultPaymentMethod("split", ["card", "credit"]), "split");
+  assert.equal(effectiveDefaultPaymentMethod("card", ["mobile_wallet"]), "cash");
+  assert.equal(effectiveDefaultPaymentMethod("split", []), "cash");
+  assert.equal(effectiveDefaultPaymentMethod("cash", []), "cash");
+  assert.equal(effectiveDefaultPaymentMethod("cheque", ["card"]), "cash");
+});

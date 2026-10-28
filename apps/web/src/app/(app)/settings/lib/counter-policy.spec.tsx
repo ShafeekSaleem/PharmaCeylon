@@ -5,6 +5,7 @@ import { OfflinePolicyCard } from "../offline-policy/offline-policy-card";
 import { OfflineManagersCard } from "../offline-policy/offline-managers-card";
 import { PaymentsCard } from "../payments/payments-card";
 import { RegisterNumberingCard } from "../main/register-numbering-card";
+import OfflinePolicySettingsPage from "../offline-policy/page";
 
 let branchId: string | null = "branch-a";
 jest.mock("@/lib/use-auth", () => ({ useAuth: () => ({ branchId }) }));
@@ -30,8 +31,16 @@ const offlineSwitch = { name: "Allow offline selling for this branch" };
 const cardSwitch = { name: "Allow approved external card payments offline" };
 
 function lastBody() {
-  const calls = (apiJson as jest.Mock).mock.calls;
+  const calls = (apiJson as jest.Mock).mock.calls.filter((c) => c[1]?.method === "PUT");
   return JSON.parse(calls[calls.length - 1][1].body);
+}
+const puts = () => (apiJson as jest.Mock).mock.calls.filter((c) => c[1]?.method === "PUT").length;
+/** Answers each endpoint the pages read; the counter policy document from `policyView`. */
+function route(policyView: unknown, extra: Record<string, unknown> = {}) {
+  (apiJson as jest.Mock).mockImplementation((path: string, init?: { method?: string }) => {
+    if (path in extra && !init?.method) return Promise.resolve(extra[path]);
+    return Promise.resolve(policyView);
+  });
 }
 
 beforeEach(() => {
@@ -68,7 +77,7 @@ describe("offline policy", () => {
     render(<OfflinePolicyCard />);
     fireEvent.click(await screen.findByRole("switch", offlineSwitch));
     fireEvent.click(screen.getByRole("button", { name: "Save offline policy" }));
-    await waitFor(() => expect(apiJson).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(puts()).toBe(1));
     expect(lastBody()).toMatchObject({
       expectedVersion: 4,
       policy: { offlineEnabled: false, offlineExternalCardEnabled: false },
@@ -124,6 +133,29 @@ describe("offline policy", () => {
     expect(screen.queryByRole("button", { name: "Save offline policy" })).not.toBeInTheDocument();
   });
 
+  it("re-reads the offline managers after the policy on the same page saves", async () => {
+    const managers = (offlineEnabled: boolean) => ({ offlineEnabled, offlineManagers: [] });
+    let enabled = false;
+    (apiJson as jest.Mock).mockImplementation((path: string, init?: { method?: string }) => {
+      if (path.endsWith("/counter-settings")) return Promise.resolve(managers(enabled));
+      if (init?.method === "PUT") {
+        enabled = true;
+        return Promise.resolve({ ...view, version: 5, policy: { ...defaultCounterPolicy(), offlineEnabled: true } });
+      }
+      return Promise.resolve(view);
+    });
+    render(<OfflinePolicySettingsPage />);
+    expect(await screen.findByText(/Offline selling is off at this branch/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", offlineSwitch));
+    fireEvent.click(screen.getByRole("button", { name: "Save offline policy" }));
+    await waitFor(() =>
+      expect(screen.queryByText(/Offline selling is off at this branch/)).not.toBeInTheDocument(),
+    );
+    expect(
+      (apiJson as jest.Mock).mock.calls.filter((c) => String(c[0]).endsWith("/counter-settings")),
+    ).toHaveLength(2);
+  });
+
   it("lists who holds the offline manager permissions at the branch", async () => {
     (apiJson as jest.Mock).mockResolvedValue({
       offlineManagers: [
@@ -157,7 +189,7 @@ describe("payments", () => {
     fireEvent.change(screen.getByLabelText("Merchant ID 1"), { target: { value: " MID-1 " } });
     (apiJson as jest.Mock).mockResolvedValue({ ...view, version: 5 });
     fireEvent.click(screen.getByRole("button", { name: "Save payments" }));
-    await waitFor(() => expect(apiJson).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(puts()).toBe(1));
     expect(lastBody()).toEqual({
       expectedVersion: 4,
       policy: {
@@ -169,6 +201,20 @@ describe("payments", () => {
       },
     });
     expect(await screen.findByRole("status")).toHaveTextContent("Saved");
+  });
+
+  it("says when a branch's counters fall back to cash from the tenant default", async () => {
+    route(
+      { ...view, policy: { ...defaultCounterPolicy(), onlinePaymentMethods: ["mobile_wallet"] } },
+      { "/tenant/settings": { posDefaultPaymentMethod: "card" } },
+    );
+    render(<PaymentsCard />);
+    expect(await screen.findByText(/start on cash instead/)).toHaveTextContent(
+      "Counters & receipts: Card.",
+    );
+    // Turning card on removes the fallback.
+    fireEvent.click(screen.getByRole("switch", { name: "Accept card online" }));
+    await waitFor(() => expect(screen.queryByText(/start on cash instead/)).not.toBeInTheDocument());
   });
 
   it("can't turn on external card while the branch doesn't sell offline", async () => {
@@ -199,7 +245,7 @@ describe("register numbering", () => {
     expect(screen.getByLabelText("Old till (retired) receipt prefix")).toBeDisabled();
     expect(screen.getByLabelText("Old till (retired) receipt prefix")).toHaveValue("OLD-R");
     fireEvent.click(screen.getByRole("button", { name: "Save numbering" }));
-    await waitFor(() => expect(apiJson).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(puts()).toBe(1));
     expect(lastBody().policy.registerNumbering).toEqual([
       { registerId: reg2, receiptPrefix: "OLD-R", invoicePrefix: "OLD-I" },
       { registerId: reg1, receiptPrefix: "C1R-", invoicePrefix: "C1I-" },
@@ -218,7 +264,20 @@ describe("register numbering", () => {
     fireEvent.change(screen.getByLabelText("Front invoice prefix"), { target: { value: "B" } });
     fireEvent.click(screen.getByRole("button", { name: "Save numbering" }));
     expect(await screen.findByText(/overlaps the online invoice series/)).toBeInTheDocument();
-    expect(apiJson).toHaveBeenCalledTimes(1);
+    expect(puts()).toBe(0);
+  });
+
+  it("names the register and the missing field when only one prefix is filled", async () => {
+    route({ ...view, registers: [{ registerId: reg1, label: "Front", isActive: true }] });
+    render(<RegisterNumberingCard />);
+    fireEvent.change(await screen.findByLabelText("Front receipt prefix"), {
+      target: { value: "C1R-" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save numbering" }));
+    expect(
+      await screen.findByText("Front: fill in the invoice prefix too, or clear both to leave it unnumbered."),
+    ).toBeInTheDocument();
+    expect(puts()).toBe(0);
   });
 
   it("says when the branch has no registers yet", async () => {

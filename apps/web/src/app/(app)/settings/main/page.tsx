@@ -212,6 +212,10 @@ function PosDefaultsCard({ settings, onSaved, canEdit }: CardProps) {
             { value: "split", label: "Split" },
           ]}
         />
+        <p className={css.rowHint}>
+          Every branch starts sales on this. A branch that doesn&apos;t take card (Settings →
+          Payments) starts on cash instead, including for split.
+        </p>
         <FormField
           label="Max discount without approval (%)"
           type="number"
