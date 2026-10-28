@@ -9,6 +9,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma, StockMovementType } from "@prisma/client";
 import { tenantTransactionStorage } from "../prisma/tenant-transaction.store";
 import { PrismaService } from "../prisma/prisma.service";
+import type { CommandProvenance } from "../terminals/command-provenance";
 import { StockService } from "../inventory/stock/stock.service";
 import { AuditService } from "../audit/audit.service";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
@@ -762,100 +763,16 @@ export class ProductImportService {
     ) => Promise<void>,
   ) {
     const removed = await this.prisma.$transaction(
-      async (tx) => {
-        // Lock the import before checking its state. Fenced workers cannot write after undo.
-        await tx.$queryRaw`SELECT id FROM product_import WHERE id = ${importId}::uuid AND tenant_id = ${tenantId}::uuid FOR UPDATE`;
-        return tenantTransactionStorage.run(
-          { tenantId, client: tx },
-          async () => {
-            const record = await tx.productImport.findFirst({
-              where: { id: importId, tenantId },
-            });
-            if (!record) throw new NotFoundException("Import not found.");
-            if (record.status !== "completed" && record.status !== "failed") {
-              throw new ConflictException(
-                "Only a completed or stopped import can be undone.",
-              );
-            }
-            // FK writers take KEY SHARE on these parents. Lock first, then recheck history.
-            await tx.$queryRaw`SELECT id FROM product WHERE tenant_id = ${tenantId}::uuid AND import_id = ${importId}::uuid ORDER BY id FOR UPDATE`;
-            await tx.$queryRaw`SELECT id FROM batch WHERE tenant_id = ${tenantId}::uuid AND id IN
-          (SELECT batch_id FROM stock_ledger WHERE tenant_id = ${tenantId}::uuid AND reference_type = 'product_import' AND reference_id = ${importId}::uuid)
-          ORDER BY id FOR UPDATE`;
-            const blocked = await this.undoBlockedReason(tenantId, importId);
-            if (blocked) throw new ConflictException(blocked);
-            const batchIds = await this.importBatchIds(tenantId, importId);
-
-            if (stockExecution && record.branchId !== executionBranchId)
-              throw new NotFoundException("Import not found at this branch.");
-            if (!authorize)
-              throw new ConflictException(
-                "Current branch authorization is required.",
-              );
-            await authorize(tx, record.branchId);
-            if (batchIds.length && !stockExecution)
-              throw new ConflictException(
-                "This import has posted stock. Undo it at the counter.",
-              );
-            if (record.stockStaged && record.stockPostedAt)
-              throw new ConflictException(
-                "Staged opening stock has been posted. Correct it with an ordinary stock adjustment at the counter.",
-              );
-
-            if (batchIds.length)
-              await this.stock.removeUnusedImportStock(
-                tx,
-                tenantId,
-                importId,
-                batchIds,
-              );
-            const batches =
-              batchIds.length > 0
-                ? await tx.batch.deleteMany({
-                    where: { tenantId, id: { in: batchIds } },
-                  })
-                : { count: 0 };
-
-            // Products the import only matched and updated are left alone: the import didn't
-            // create them, and there is no before-image to restore them to.
-            const products = await tx.product.deleteMany({
-              where: { tenantId, importId },
-            });
-
-            // Cascading child deletes can wait after the initial stock/product locks.
-            // Revalidate live authority after those waits before status and success audit.
-            await authorize(tx, record.branchId);
-
-            await tx.productImport.updateMany({
-              where: { id: importId, tenantId },
-              data: { status: "undone", undoneAt: new Date() },
-            });
-
-            const removed = {
-              batches: batches.count,
-              products: products.count,
-            };
-            await this.audit.log(
-              {
-                tenantId,
-                branchId: record.branchId,
-                actorUserId: userId,
-                eventName: "products.import_undone",
-                entityName: "product_import",
-                entityId: importId,
-                payload: {
-                  batchesRemoved: removed.batches,
-                  productsRemoved: removed.products,
-                  productsLeftInPlace: record.productsUpdated,
-                },
-              },
-              tx,
-            );
-
-            return { ...removed, productsLeftInPlace: record.productsUpdated };
-          },
-        );
-      },
+      (tx) =>
+        this.undoInTransaction(
+          tx,
+          tenantId,
+          userId,
+          importId,
+          stockExecution,
+          executionBranchId,
+          authorize,
+        ),
       { timeout: 120_000, maxWait: 60_000 },
     );
 
@@ -865,6 +782,119 @@ export class ProductImportService {
       productsRemoved: removed.products,
       productsLeftInPlace: removed.productsLeftInPlace,
     };
+  }
+
+  /** Undo core shared by both browser routes and the signed terminal executor, in the caller's
+   * READ COMMITTED transaction. `command` is verified provenance copied into the success audit.
+   */
+  async undoInTransaction(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    userId: string,
+    importId: string,
+    stockExecution: boolean,
+    executionBranchId: string | undefined,
+    authorize:
+      | ((
+          tx: Prisma.TransactionClient,
+          importBranchId: string | null,
+        ) => Promise<void>)
+      | undefined,
+    command?: CommandProvenance,
+  ) {
+    // Lock the import before checking its state. Fenced workers cannot write after undo.
+    await tx.$queryRaw`SELECT id FROM product_import WHERE id = ${importId}::uuid AND tenant_id = ${tenantId}::uuid FOR UPDATE`;
+    return tenantTransactionStorage.run(
+      { tenantId, client: tx },
+      async () => {
+        const record = await tx.productImport.findFirst({
+          where: { id: importId, tenantId },
+        });
+        if (!record) throw new NotFoundException("Import not found.");
+        if (record.status !== "completed" && record.status !== "failed") {
+          throw new ConflictException(
+            "Only a completed or stopped import can be undone.",
+          );
+        }
+        // FK writers take KEY SHARE on these parents. Lock first, then recheck history.
+        await tx.$queryRaw`SELECT id FROM product WHERE tenant_id = ${tenantId}::uuid AND import_id = ${importId}::uuid ORDER BY id FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM batch WHERE tenant_id = ${tenantId}::uuid AND id IN
+      (SELECT batch_id FROM stock_ledger WHERE tenant_id = ${tenantId}::uuid AND reference_type = 'product_import' AND reference_id = ${importId}::uuid)
+      ORDER BY id FOR UPDATE`;
+        const blocked = await this.undoBlockedReason(tenantId, importId);
+        if (blocked) throw new ConflictException(blocked);
+        const batchIds = await this.importBatchIds(tenantId, importId);
+
+        if (stockExecution && record.branchId !== executionBranchId)
+          throw new NotFoundException("Import not found at this branch.");
+        if (!authorize)
+          throw new ConflictException(
+            "Current branch authorization is required.",
+          );
+        await authorize(tx, record.branchId);
+        if (batchIds.length && !stockExecution)
+          throw new ConflictException(
+            "This import has posted stock. Undo it at the counter.",
+          );
+        if (record.stockStaged && record.stockPostedAt)
+          throw new ConflictException(
+            "Staged opening stock has been posted. Correct it with an ordinary stock adjustment at the counter.",
+          );
+
+        if (batchIds.length)
+          await this.stock.removeUnusedImportStock(
+            tx,
+            tenantId,
+            importId,
+            batchIds,
+          );
+        const batches =
+          batchIds.length > 0
+            ? await tx.batch.deleteMany({
+                where: { tenantId, id: { in: batchIds } },
+              })
+            : { count: 0 };
+
+        // Products the import only matched and updated are left alone: the import didn't
+        // create them, and there is no before-image to restore them to.
+        const products = await tx.product.deleteMany({
+          where: { tenantId, importId },
+        });
+
+        // Cascading child deletes can wait after the initial stock/product locks.
+        // Revalidate live authority after those waits before status and success audit.
+        await authorize(tx, record.branchId);
+
+        await tx.productImport.updateMany({
+          where: { id: importId, tenantId },
+          data: { status: "undone", undoneAt: new Date() },
+        });
+
+        const removed = {
+          batches: batches.count,
+          products: products.count,
+        };
+        await this.audit.log(
+          {
+            tenantId,
+            branchId: record.branchId,
+            actorUserId: userId,
+            eventName: "products.import_undone",
+            entityName: "product_import",
+            entityId: importId,
+            payload: {
+              batchesRemoved: removed.batches,
+              productsRemoved: removed.products,
+              productsLeftInPlace: record.productsUpdated,
+              ...(command ? { command } : {}),
+            },
+          },
+          tx,
+        );
+
+        return { ...removed, productsLeftInPlace: record.productsUpdated };
+      },
+    );
   }
 
   async errorReport(tenantId: string, importId: string): Promise<string> {

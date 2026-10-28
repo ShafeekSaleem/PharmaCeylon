@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -22,6 +23,7 @@ import { AccessService, type ActorAccess } from "../security/access.service";
 import { ManagementApprovalsService } from "../security/management-approvals.service";
 import { stocktakeApprovalMaterial } from "../security/stocktake-approval-material";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import type { CommandProvenance } from "../terminals/command-provenance";
 import { ApproveStocktakeDto } from "./dto/approve-stocktake.dto";
 import { CreateStocktakeDto } from "./dto/create-stocktake.dto";
 import { UpsertStocktakeLinesDto } from "./dto/upsert-stocktake-lines.dto";
@@ -1332,36 +1334,52 @@ export class StocktakesService {
    * existing stock routes. This split does not enable the production terminal cutover.
    */
   async post(user: RequestUser, branchId: string, id: string) {
+    const { actor } = await this.prisma.$transaction((tx) => this.postInTransaction(tx, user, branchId, id));
+    return this.getOne(user.tenantId, branchId, id, actor);
+  }
+
+  /** Posting core shared by the browser route and the signed terminal executor. Runs in the
+   * caller's READ COMMITTED transaction; `expectedApprovalId` pins the approval a signed command
+   * carried, and `command` is verified provenance copied into the success audit.
+   */
+  async postInTransaction(
+    tx: Prisma.TransactionClient,
+    user: RequestUser,
+    branchId: string,
+    id: string,
+    signed?: { expectedApprovalId: string; command: CommandProvenance },
+  ) {
     const tenantId = user.tenantId;
-    const access = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM stocktake WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${id}::uuid FOR UPDATE`;
-      const row = await this.loadOneRow(tenantId, branchId, id, tx);
-      const actor = await this.access.resolveLive(user, branchId, tx);
-      this.assertReviewer(actor);
-      if (row.status === StocktakeStatus.posted || row.status === StocktakeStatus.completed) return actor;
-      if (row.status !== StocktakeStatus.approved)
-        throw new BadRequestException("Only approved stocktakes can be posted");
-      if (!row.executionApprovalId)
-        throw new BadRequestException("Review and approve this count again before posting; no historical approval evidence is assumed");
-      // Lock stock before final authority/approval checks, including after a lock wait.
-      await this.stock.lockBatches(tx, tenantId, row.lines.map(line => line.batchId));
-      await this.assertReadyForApproval(row, tx);
-      const evidence = await this.approvals.requireForExecution(tx, user, branchId, "stocktake.post", id, row.executionApprovalId);
-      const now = new Date();
-      const result = await this.postAdjustments(tx, row, user.userId, now);
-      await tx.stocktake.update({
-        where: { id, tenantId, branchId },
-        data: { status: StocktakeStatus.completed, postedBy: user.userId, postedAt: now, completedBy: user.userId, completedAt: now },
-      });
-      await this.audit.log({
-        tenantId, branchId, actorUserId: user.userId, eventName: "stocktake.posted", entityName: "stocktake", entityId: id,
-        payload: { ...result, approvalId: evidence.approvalId,
-          requestedByUserId: evidence.document.requestedByUserId, approvedByUserId: evidence.approvedByUserId,
-          executedByUserId: user.userId, documentVersion: evidence.document.documentVersion },
-      }, tx);
-      return actor;
+    await tx.$queryRaw`SELECT id FROM stocktake WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+    const row = await this.loadOneRow(tenantId, branchId, id, tx);
+    const actor = await this.access.resolveLive(user, branchId, tx);
+    this.assertReviewer(actor);
+    if (signed && row.executionApprovalId !== signed.expectedApprovalId)
+      throw new ConflictException("Approval changed; refresh and review before posting");
+    if (row.status === StocktakeStatus.posted || row.status === StocktakeStatus.completed)
+      return { actor, approvalId: row.executionApprovalId, applied: false };
+    if (row.status !== StocktakeStatus.approved)
+      throw new BadRequestException("Only approved stocktakes can be posted");
+    if (!row.executionApprovalId)
+      throw new BadRequestException("Review and approve this count again before posting; no historical approval evidence is assumed");
+    // Lock stock before final authority/approval checks, including after a lock wait.
+    await this.stock.lockBatches(tx, tenantId, row.lines.map(line => line.batchId));
+    await this.assertReadyForApproval(row, tx);
+    const evidence = await this.approvals.requireForExecution(tx, user, branchId, "stocktake.post", id, row.executionApprovalId);
+    const now = new Date();
+    const result = await this.postAdjustments(tx, row, user.userId, now);
+    await tx.stocktake.update({
+      where: { id, tenantId, branchId },
+      data: { status: StocktakeStatus.completed, postedBy: user.userId, postedAt: now, completedBy: user.userId, completedAt: now },
     });
-    return this.getOne(tenantId, branchId, id, access);
+    await this.audit.log({
+      tenantId, branchId, actorUserId: user.userId, eventName: "stocktake.posted", entityName: "stocktake", entityId: id,
+      payload: { ...result, approvalId: evidence.approvalId,
+        requestedByUserId: evidence.document.requestedByUserId, approvedByUserId: evidence.approvedByUserId,
+        executedByUserId: user.userId, documentVersion: evidence.document.documentVersion,
+        ...(signed ? { command: signed.command } : {}) },
+    }, tx);
+    return { actor, approvalId: evidence.approvalId, applied: true };
   }
 
   /**
