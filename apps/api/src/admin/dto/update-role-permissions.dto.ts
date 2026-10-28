@@ -1,6 +1,10 @@
-import { ArrayUnique, IsArray, IsString } from "class-validator";
+import { IsBoolean, IsOptional, ArrayUnique, IsArray, IsString } from "class-validator";
 
 export class UpdateRolePermissionsDto {
+  @IsOptional()
+  @IsBoolean()
+  backOfficeAccess?: boolean;
+
   /** Full replacement set — every permission key the role should hold after this call. */
   @IsArray()
   @ArrayUnique()

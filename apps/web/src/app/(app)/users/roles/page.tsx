@@ -6,12 +6,7 @@ import { fetchAdminBranches } from "../api";
 import { useAdminUsers } from "../hooks/use-admin-users";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import type { TenantBranch } from "@/lib/auth-client";
-import {
-  deleteRole,
-  fetchPermissionCatalog,
-  fetchRoles,
-  updateRolePermissions,
-} from "./api";
+import { deleteRole, fetchPermissionCatalog, fetchRoles, updateRolePermissions } from "./api";
 import { AssignedStaffDrawer } from "./components/assigned-staff-drawer";
 import { CompareRolesView } from "./components/compare-roles-view";
 import { CreateRoleModal } from "./components/create-role-modal";
@@ -35,7 +30,11 @@ import css from "./roles.module.css";
 
 type PendingNav = { kind: "select-role"; roleId: string } | { kind: "compare" };
 
-type DependencyNotice = { kind: "added" | "removed"; sourceLabel: string; affected: string[] };
+type DependencyNotice = {
+  kind: "added" | "removed";
+  sourceLabel: string;
+  affected: string[];
+};
 
 type DisableConfirm = { key: string; permLabel: string; dependents: string[] };
 
@@ -51,6 +50,7 @@ export default function RolesPermissionsPage() {
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [sidebarQuery, setSidebarQuery] = useState("");
 
+  const [draftBackOfficeAccess, setDraftBackOfficeAccess] = useState(false);
   const [draftKeys, setDraftKeys] = useState<string[]>([]);
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [permQuery, setPermQuery] = useState("");
@@ -117,7 +117,10 @@ export default function RolesPermissionsPage() {
     for (const user of users) {
       for (const mapping of user.userBranchRoles) {
         if (!mapping.roleId) continue;
-        const entry = map.get(mapping.roleId) ?? { staffCount: 0, branchCount: 0 };
+        const entry = map.get(mapping.roleId) ?? {
+          staffCount: 0,
+          branchCount: 0,
+        };
         map.set(mapping.roleId, entry);
       }
     }
@@ -132,7 +135,10 @@ export default function RolesPermissionsPage() {
           }
         }
       }
-      map.set(roleId, { staffCount: staffIds.size, branchCount: branchIds.size });
+      map.set(roleId, {
+        staffCount: staffIds.size,
+        branchCount: branchIds.size,
+      });
     }
     return map;
   }, [users]);
@@ -142,6 +148,7 @@ export default function RolesPermissionsPage() {
   useEffect(() => {
     if (selectedRole) {
       setDraftKeys(selectedRole.permissionKeys);
+      setDraftBackOfficeAccess(selectedRole.backOfficeAccess);
       setExpandedModules(new Set());
       setPermQuery("");
       setPermFilter("all");
@@ -159,10 +166,14 @@ export default function RolesPermissionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   });
 
-  const dirty = selectedRole ? !sameKeySet(draftKeys, selectedRole.permissionKeys) : false;
+  const dirty = selectedRole
+    ? !sameKeySet(draftKeys, selectedRole.permissionKeys) ||
+      draftBackOfficeAccess !== selectedRole.backOfficeAccess
+    : false;
   const changedCount = selectedRole
     ? draftKeys.filter((k) => !selectedRole.permissionKeys.includes(k)).length +
-      selectedRole.permissionKeys.filter((k) => !draftKeys.includes(k)).length
+      selectedRole.permissionKeys.filter((k) => !draftKeys.includes(k)).length +
+      Number(draftBackOfficeAccess !== selectedRole.backOfficeAccess)
     : 0;
   const draftSet = useMemo(() => new Set(draftKeys), [draftKeys]);
   const summary = useMemo(() => summarizeGrants(modules, draftSet), [modules, draftSet]);
@@ -259,9 +270,17 @@ export default function RolesPermissionsPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      await updateRolePermissions(selectedRole.id, draftKeys);
+      await updateRolePermissions(selectedRole.id, draftKeys, draftBackOfficeAccess);
       setRoles((prev) =>
-        prev.map((r) => (r.id === selectedRole.id ? { ...r, permissionKeys: draftKeys } : r)),
+        prev.map((r) =>
+          r.id === selectedRole.id
+            ? {
+                ...r,
+                permissionKeys: draftKeys,
+                backOfficeAccess: draftBackOfficeAccess,
+              }
+            : r,
+        ),
       );
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to save permission changes");
@@ -273,6 +292,7 @@ export default function RolesPermissionsPage() {
   function cancelChanges() {
     if (!selectedRole) return;
     setDraftKeys(selectedRole.permissionKeys);
+    setDraftBackOfficeAccess(selectedRole.backOfficeAccess);
     setSaveError(null);
   }
 
@@ -284,7 +304,9 @@ export default function RolesPermissionsPage() {
       await deleteRole(deleteTarget.id);
       setRoles((prev) => prev.filter((r) => r.id !== deleteTarget.id));
       if (selectedRoleId === deleteTarget.id) {
-        setSelectedRoleId(sortRolesForSidebar(roles.filter((r) => r.id !== deleteTarget.id))[0]?.id ?? null);
+        setSelectedRoleId(
+          sortRolesForSidebar(roles.filter((r) => r.id !== deleteTarget.id))[0]?.id ?? null,
+        );
       }
       setDeleteTarget(null);
     } catch (err) {
@@ -364,7 +386,8 @@ export default function RolesPermissionsPage() {
                     <strong>{depNotice.sourceLabel}</strong>{" "}
                     {depNotice.kind === "added" ? "enabled." : "disabled."}
                     <br />
-                    {depNotice.affected.length} required permission{depNotice.affected.length === 1 ? "" : "s"}{" "}
+                    {depNotice.affected.length} required permission
+                    {depNotice.affected.length === 1 ? "" : "s"}{" "}
                     {depNotice.kind === "added" ? "were also enabled" : "were also disabled"}:
                     <ul className={css.depNoticeList}>
                       {depNotice.affected.map((label) => (
@@ -374,6 +397,32 @@ export default function RolesPermissionsPage() {
                   </Alert>
                 ) : null}
 
+                <section aria-label="Back-office web access">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={draftBackOfficeAccess}
+                      disabled={selectedRole.isLocked || saving}
+                      onChange={(event) => setDraftBackOfficeAccess(event.target.checked)}
+                    />{" "}
+                    Back-office web access
+                  </label>
+                  <p>
+                    When desktop POS is live, staff without this setting use PharmaCeylon POS and
+                    personal account settings. Their counter tasks stay available. Existing web
+                    checkout remains available before go-live and during an owner fallback.
+                  </p>
+                  <p>
+                    Owners cannot skip counter, pharmacist or device checks. Mixed workflow
+                    permissions still require the counter for physical execution, even when their
+                    planning and approval appear under Manage from anywhere.
+                  </p>
+                  <h3>Offline capabilities</h3>
+                  <p>
+                    Offline staff preparation happens at the counter. Web access does not enable
+                    offline work or authorize device assignment.
+                  </p>
+                </section>
                 {!selectedRole.isLocked ? (
                   <>
                     <PermissionToolbar
@@ -493,11 +542,15 @@ export default function RolesPermissionsPage() {
       >
         <p>
           <strong>{disableConfirm?.permLabel}</strong> is required by{" "}
-          {disableConfirm?.dependents.length === 1 ? "another granted permission" : "other granted permissions"}.
-          Disabling it will also disable:
+          {disableConfirm?.dependents.length === 1
+            ? "another granted permission"
+            : "other granted permissions"}
+          . Disabling it will also disable:
         </p>
         <ul className={css.depNoticeList}>
-          {disableConfirm?.dependents.map((label) => <li key={label}>{label}</li>)}
+          {disableConfirm?.dependents.map((label) => (
+            <li key={label}>{label}</li>
+          ))}
         </ul>
       </ConfirmDialog>
 
@@ -509,8 +562,8 @@ export default function RolesPermissionsPage() {
         onConfirm={resolvePendingNav}
       >
         <p>
-          You have unsaved changes to <strong>{selectedRole?.name}</strong>&apos;s permissions. Switching
-          now will discard them.
+          You have unsaved changes to <strong>{selectedRole?.name}</strong>
+          &apos;s permissions. Switching now will discard them.
         </p>
       </ConfirmDialog>
     </div>

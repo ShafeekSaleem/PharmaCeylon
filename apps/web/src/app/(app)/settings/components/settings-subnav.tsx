@@ -15,6 +15,8 @@ import {
   IconBell,
   IconCheckCircle,
 } from "@/components/icons";
+import { useBranchRollout } from "@/lib/branch-rollout";
+import { isPersonalAccountPath } from "@/lib/back-office-access";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
 
@@ -32,20 +34,34 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "General",
     items: [
-      { href: "/settings/my-profile", label: "My Profile", icon: <IconUser size={16} /> },
+      {
+        href: "/settings/my-profile",
+        label: "My Profile",
+        icon: <IconUser size={16} />,
+      },
       {
         href: "/settings/tenant-profile",
         label: "Tenant Profile",
         icon: <IconHome size={16} />,
         adminOnly: true,
       },
-      { href: "/settings/branches", label: "Branches", icon: <IconMapPin size={16} />, adminOnly: true },
+      {
+        href: "/settings/branches",
+        label: "Branches",
+        icon: <IconMapPin size={16} />,
+        adminOnly: true,
+      },
     ],
   },
   {
     label: "Modules",
     items: [
-      { href: "/settings/main", label: "Main", icon: <IconGrid size={16} />, adminOnly: true },
+      {
+        href: "/settings/main",
+        label: "Main",
+        icon: <IconGrid size={16} />,
+        adminOnly: true,
+      },
       {
         href: "/settings/catalog",
         label: "Catalog",
@@ -63,7 +79,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Security & Access",
     items: [
-      { href: "/settings/password-login", label: "Password & Login", icon: <IconLock size={16} /> },
+      {
+        href: "/settings/password-login",
+        label: "Password & Login",
+        icon: <IconLock size={16} />,
+      },
       // Removed with the rest of "Alerts & Approvals" while its settings did nothing. The
       // thresholds are enforced by the API now, and who may approve their own requests is set
       // here, so the page is back — on its own, not with the still-unenforced alert settings.
@@ -78,21 +98,35 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Preferences",
     items: [
-      { href: "/settings/notifications", label: "Notifications", icon: <IconBell size={16} /> },
-      { href: "/settings/appearance", label: "Appearance", icon: <IconSparkles size={16} /> },
+      {
+        href: "/settings/notifications",
+        label: "Notifications",
+        icon: <IconBell size={16} />,
+      },
+      {
+        href: "/settings/appearance",
+        label: "Appearance",
+        icon: <IconSparkles size={16} />,
+      },
     ],
   },
 ];
 
 export function SettingsSubnav() {
   const pathname = usePathname();
-  const { permissionKeys } = usePermissions();
+  const { permissionKeys, backOfficeAccess, accessResolved } = usePermissions();
+  const { rollout } = useBranchRollout();
+  const restricted =
+    !accessResolved || !rollout || (rollout.state !== "not_live" && !backOfficeAccess);
   const isAdmin = permissionKeys.includes("tenant.management");
 
   return (
     <nav className={css.subnav} aria-label="Settings sections">
       {NAV_GROUPS.map((group) => {
-        const items = group.items.filter((item) => !item.adminOnly || isAdmin);
+        const items = group.items.filter(
+          (item) =>
+            (!item.adminOnly || isAdmin) && (!restricted || isPersonalAccountPath(item.href)),
+        );
         if (items.length === 0) return null;
         return (
           <div key={group.label} className={css.subnavGroup}>

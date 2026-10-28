@@ -5,9 +5,14 @@ import { useRouter } from "next/navigation";
 import { Alert } from "@/components/alert";
 import { PageHeader, ActionButton, DataTable, FormField, type Column } from "@/components/ui";
 import { IconLock } from "@/components/icons";
+import { useBranchRollout } from "@/lib/branch-rollout";
 import { usePermissions } from "@/lib/permissions";
 import css from "../settings.module.css";
-import { fetchTenantSettings, saveSecuritySettings, type TenantSettings } from "../lib/tenant-settings";
+import {
+  fetchTenantSettings,
+  saveSecuritySettings,
+  type TenantSettings,
+} from "../lib/tenant-settings";
 import { ChangePasswordModal } from "./components/change-password-modal";
 import { apiJson } from "@/lib/auth-client";
 import { useAuth } from "@/lib/use-auth";
@@ -23,16 +28,37 @@ type UserSession = {
 
 function deviceLabel(userAgent: string | null): string {
   if (!userAgent) return "Unknown device";
-  const browser = userAgent.includes("Edg/") ? "Edge" : userAgent.includes("Chrome/") ? "Chrome" : userAgent.includes("Firefox/") ? "Firefox" : userAgent.includes("Safari/") ? "Safari" : "Browser";
-  const os = userAgent.includes("Windows") ? "Windows" : userAgent.includes("Android") ? "Android" : userAgent.includes("iPhone") || userAgent.includes("iPad") ? "iOS" : userAgent.includes("Mac OS") ? "macOS" : "Unknown OS";
+  const browser = userAgent.includes("Edg/")
+    ? "Edge"
+    : userAgent.includes("Chrome/")
+      ? "Chrome"
+      : userAgent.includes("Firefox/")
+        ? "Firefox"
+        : userAgent.includes("Safari/")
+          ? "Safari"
+          : "Browser";
+  const os = userAgent.includes("Windows")
+    ? "Windows"
+    : userAgent.includes("Android")
+      ? "Android"
+      : userAgent.includes("iPhone") || userAgent.includes("iPad")
+        ? "iOS"
+        : userAgent.includes("Mac OS")
+          ? "macOS"
+          : "Unknown OS";
   return `${browser} on ${os}`;
 }
 
 export default function PasswordLoginPage() {
   const router = useRouter();
   const { logoutAll } = useAuth();
-  const { permissionKeys } = usePermissions();
-  const canEdit = permissionKeys.includes("tenant.management");
+  const { permissionKeys, backOfficeAccess, accessResolved } = usePermissions();
+  const { rollout } = useBranchRollout();
+  const canEdit =
+    accessResolved &&
+    !!rollout &&
+    (rollout.state === "not_live" || backOfficeAccess) &&
+    permissionKeys.includes("tenant.management");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<TenantSettings | null>(null);
@@ -55,13 +81,17 @@ export default function PasswordLoginPage() {
     }
   }, []);
 
-  useEffect(() => { void loadSessions(); }, [loadSessions]);
+  useEffect(() => {
+    void loadSessions();
+  }, [loadSessions]);
 
   async function revokeSession(sessionId: string) {
     setRevokingId(sessionId);
     setError(null);
     try {
-      await apiJson<void>(`/auth/me/sessions/${sessionId}`, { method: "DELETE" });
+      await apiJson<void>(`/auth/me/sessions/${sessionId}`, {
+        method: "DELETE",
+      });
       setSessions((current) => current.filter((session) => session.id !== sessionId));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to sign out that session");
@@ -71,16 +101,36 @@ export default function PasswordLoginPage() {
   }
 
   const sessionColumns: Column<UserSession>[] = [
-    { key: "device", header: "Device", render: (session) => deviceLabel(session.userAgent) },
-    { key: "ipAddress", header: "IP address", render: (session) => session.ipAddress ?? "—" },
-    { key: "activity", header: "Last activity", render: (session) => new Date(session.lastUsedAt ?? session.createdAt).toLocaleString() },
-    { key: "expiresAt", header: "Expires", render: (session) => new Date(session.expiresAt).toLocaleDateString() },
+    {
+      key: "device",
+      header: "Device",
+      render: (session) => deviceLabel(session.userAgent),
+    },
+    {
+      key: "ipAddress",
+      header: "IP address",
+      render: (session) => session.ipAddress ?? "—",
+    },
+    {
+      key: "activity",
+      header: "Last activity",
+      render: (session) => new Date(session.lastUsedAt ?? session.createdAt).toLocaleString(),
+    },
+    {
+      key: "expiresAt",
+      header: "Expires",
+      render: (session) => new Date(session.expiresAt).toLocaleDateString(),
+    },
     {
       key: "actions",
       header: <span className={css.srOnly}>Actions</span>,
       align: "right",
       render: (session) => (
-        <ActionButton variant="secondary" onClick={() => void revokeSession(session.id)} disabled={revokingId === session.id}>
+        <ActionButton
+          variant="secondary"
+          onClick={() => void revokeSession(session.id)}
+          disabled={revokingId === session.id}
+        >
           {revokingId === session.id ? "Signing out…" : "Sign out"}
         </ActionButton>
       ),
@@ -143,7 +193,9 @@ export default function PasswordLoginPage() {
         <div className={css.rowItem}>
           <div>
             <div className={css.rowLabel}>Password</div>
-            <div className={css.rowHint}>Change your sign-in password. You&apos;ll be signed out everywhere.</div>
+            <div className={css.rowHint}>
+              Change your sign-in password. You&apos;ll be signed out everywhere.
+            </div>
           </div>
           <ActionButton variant="secondary" onClick={() => setModalOpen(true)}>
             Change Password
@@ -159,7 +211,10 @@ export default function PasswordLoginPage() {
           </div>
           <ActionButton
             variant="secondary"
-            onClick={async () => { await logoutAll(); router.push("/login"); }}
+            onClick={async () => {
+              await logoutAll();
+              router.push("/login");
+            }}
           >
             Sign out everywhere
           </ActionButton>
@@ -196,7 +251,9 @@ export default function PasswordLoginPage() {
                   min={8}
                   max={64}
                   value={draft.passwordMinLength}
-                  onChange={(e) => setDraft((d) => (d ? { ...d, passwordMinLength: Number(e.target.value) } : d))}
+                  onChange={(e) =>
+                    setDraft((d) => (d ? { ...d, passwordMinLength: Number(e.target.value) } : d))
+                  }
                   hint="12 or more characters is recommended; passphrases are supported."
                 />
               </div>

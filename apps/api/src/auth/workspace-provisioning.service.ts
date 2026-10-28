@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { OwnerRegistrationStatus, Prisma, RoleName } from "@prisma/client";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -12,10 +8,7 @@ import {
   PERMISSION_CATALOG,
   defaultPermissionsForRole,
 } from "../security/permission-catalog";
-import {
-  OnboardingDraft,
-  OnboardingDraftService,
-} from "./onboarding-draft.service";
+import { OnboardingDraft, OnboardingDraftService } from "./onboarding-draft.service";
 import { VerifiedOwnerSession } from "./owner-registration.service";
 
 type ProvisionedWorkspace = {
@@ -73,10 +66,7 @@ export class WorkspaceProvisioningService {
     // Turn on the departments the pharmacy said it sells. Only Medicines is enabled by
     // default, so without this a shop stocking shampoo and nappies has to go and find
     // Settings → Catalog → Categories before it can file a single product.
-    await this.taxonomy.applyOnboardingSelection(
-      result.tenantId,
-      draft.sellsDepartments ?? [],
-    );
+    await this.taxonomy.applyOnboardingSelection(result.tenantId, draft.sellsDepartments ?? []);
     return result;
   }
 
@@ -88,8 +78,7 @@ export class WorkspaceProvisioningService {
     const registration = await tx.ownerRegistration.findUnique({
       where: { id: owner.registrationId },
     });
-    if (!registration)
-      throw new BadRequestException("Owner registration not found");
+    if (!registration) throw new BadRequestException("Owner registration not found");
     if (
       registration.status === OwnerRegistrationStatus.completed &&
       registration.completedTenantId &&
@@ -103,9 +92,7 @@ export class WorkspaceProvisioningService {
       return { ...completed, alreadyCompleted: true };
     }
     if (registration.status !== OwnerRegistrationStatus.verified) {
-      throw new ConflictException(
-        "Owner registration is not ready for workspace creation",
-      );
+      throw new ConflictException("Owner registration is not ready for workspace creation");
     }
 
     const duplicateUser = await tx.appUser.findUnique({
@@ -113,9 +100,7 @@ export class WorkspaceProvisioningService {
       select: { id: true },
     });
     if (duplicateUser) {
-      throw new ConflictException(
-        "An account already exists for this email address",
-      );
+      throw new ConflictException("An account already exists for this email address");
     }
 
     const tenant = await tx.tenant.create({
@@ -157,8 +142,7 @@ export class WorkspaceProvisioningService {
       data: {
         tenantId: tenant.id,
         posDefaultPaymentMethod: draft.paymentMethods?.[0] ?? "cash",
-        receiptHeaderText:
-          draft.receiptDisplayName?.trim() || tenant.displayName,
+        receiptHeaderText: draft.receiptDisplayName?.trim() || tenant.displayName,
       },
     });
 
@@ -186,6 +170,7 @@ export class WorkspaceProvisioningService {
           tenantId: tenant.id,
           key: role,
           name: BUILT_IN_ROLE_LABELS[role],
+          backOfficeAccess: role !== RoleName.cashier,
           isSystem: true,
           isLocked: role === RoleName.owner,
         },
@@ -265,9 +250,7 @@ export class WorkspaceProvisioningService {
     owner: VerifiedOwnerSession,
   ): Promise<Omit<ProvisionedWorkspace, "alreadyCompleted">> {
     if (!owner.completedTenantId || !owner.completedUserId) {
-      throw new ConflictException(
-        "Completed registration is missing workspace references",
-      );
+      throw new ConflictException("Completed registration is missing workspace references");
     }
     return this.findCompletedInTransaction(
       this.prisma,
@@ -358,8 +341,5 @@ function joinPhone(code?: string, number?: string): string | null {
 }
 
 function isSerializationFailure(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === "P2034"
-  );
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
 }

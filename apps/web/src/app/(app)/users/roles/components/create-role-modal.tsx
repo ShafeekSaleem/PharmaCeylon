@@ -65,6 +65,7 @@ export function CreateRoleModal({
         name: name.trim(),
         description: description.trim() || undefined,
         permissionKeys: source?.permissionKeys ?? [],
+        backOfficeAccess: source?.backOfficeAccess ?? false,
       });
       onCreated(role);
       reset();
@@ -124,7 +125,13 @@ export function CreateRoleModal({
         options={copyOptions}
         onChange={setCopyFromId}
       />
-      <p style={{ fontSize: "0.75rem", color: "var(--pc-muted-fg)", marginTop: "0.3rem" }}>
+      <p
+        style={{
+          fontSize: "0.75rem",
+          color: "var(--pc-muted-fg)",
+          marginTop: "0.3rem",
+        }}
+      >
         You can change any of these individually once the role is created.
       </p>
     </Modal>

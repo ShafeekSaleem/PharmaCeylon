@@ -164,3 +164,26 @@ Access is enforced at three levels:
 - **Admin** pages are limited to owner and manager to prevent privilege escalation.
 - **Owners can't skip the counter.** After desktop POS, physical stock, branch cash, refund execution and dispensing need an enrolled, locally used desktop for every role, owners included (revised D10). The owner shortcut in `RolesGuard` covers permissions, not that local-execution check.
 - Owner/manager can grant any of the above to a custom role via Users & Roles → Roles & Permissions — this matrix describes the built-in defaults, not a hard ceiling.
+
+
+### W3 web access setting (2026-10-28)
+
+Roles now carry `backOfficeAccess`, separately from operation permission keys. The role editor
+saves it with the permission selection. Built-in cashier defaults to false; other built-ins
+and existing custom roles retain web access. New custom roles start with it off unless explicitly
+copied/enabled. Owner access is locked on, with a database constraint as well as the service check.
+Seed reruns preserve an administrator's existing setting.
+
+`GET /tenant/my-permissions` returns the setting resolved across the caller's roles at the
+selected branch (owner access is retained across branches). No desktop/API permission is
+removed by disabling web access. This is web scope, not a replacement for API authorization.
+The shell does not mount denied route content and hides navigation, search and notifications.
+Personal profile, password/security and display pages remain available; tenant password-policy
+controls still require web access. Unknown/failed scope reads do not expose branch pages.
+
+Before a branch is desktop-live its existing web workflows remain available. At a live branch,
+a counter-only role sees the Use PharmaCeylon POS landing content. During an owner fallback it
+can also open `/pos`; the rest of the back office remains scoped. Permission groups describe
+remote management versus counter execution, with mixed workflow descriptions retaining their
+local physical steps. Offline capabilities, PIN preparation and device-assignment delegation
+are not granted by this web setting and remain follow-up W3/P2/P3 work.

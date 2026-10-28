@@ -1160,6 +1160,7 @@ model Permission {
 }
 
 model Role {
+  backOfficeAccess Boolean @default(true) @map("back_office_access")
   id          String   @id @default(uuid()) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
   /**
