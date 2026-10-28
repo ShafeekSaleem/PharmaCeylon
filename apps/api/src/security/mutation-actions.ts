@@ -126,6 +126,11 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/returns/:id/reject": "management",
   "POST /api/v1/returns/:id/submit": "management",
   "POST /api/v1/sales/:id/refund": "refund",
+  // P6: a refund prepared/approved remotely moves nothing; execute is the counter's refund.
+  "POST /api/v1/sales/:id/refund-requests": "management",
+  "POST /api/v1/sales/refund-requests/:id/approve": "management",
+  "POST /api/v1/sales/refund-requests/:id/cancel": "management",
+  "POST /api/v1/sales/refund-requests/:id/execute": "refund",
   "POST /api/v1/sales/:id/void": "refund",
   "POST /api/v1/sales/checkout": "checkout",
   "POST /api/v1/sales/holds": "local_record",

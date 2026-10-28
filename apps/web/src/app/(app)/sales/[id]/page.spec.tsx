@@ -8,6 +8,8 @@ const setLastSegmentLabel = jest.fn();
 jest.mock("next/navigation", () => ({ useParams: () => ({ id: "sale-1" }), useRouter: () => ({ push }) }));
 jest.mock("@/lib/page-chrome-context", () => ({ usePageChrome: () => ({ setLastSegmentLabel }) }));
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
+// The refund panel has its own spec.
+jest.mock("../components/sale-refund-panel", () => ({ SaleRefundPanel: () => null }));
 
 function sale(overrides: Partial<SaleDetail> = {}): SaleDetail {
   return {

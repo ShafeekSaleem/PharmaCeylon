@@ -6,6 +6,7 @@ import { OperationalAuthorizationModule } from "../security/operational-authoriz
 import { StocktakesModule } from "../stocktakes/stocktakes.module";
 import { TerminalsModule } from "../terminals/terminals.module";
 import { TransfersModule } from "../transfers/transfers.module";
+import { SalesModule } from "../sales/sales.module";
 import { SignedOperations } from "./signed-operations";
 import { TerminalCommandsController } from "./terminal-commands.controller";
 import { TerminalCommandExecutor } from "./terminal-command.executor";
@@ -19,6 +20,7 @@ import { TerminalCommandExecutor } from "./terminal-command.executor";
     PurchasingModule,
     ProductImportModule,
     TransfersModule,
+    SalesModule,
   ],
   controllers: [TerminalCommandsController],
   providers: [TerminalCommandExecutor, SignedOperations],

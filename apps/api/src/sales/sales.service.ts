@@ -44,6 +44,7 @@ import {
   totalRemainingQty,
 } from "./sale-returnable";
 import { SALE_INCLUDE } from "./sale-read.service";
+import type { CommandProvenance } from "../terminals/command-provenance";
 
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
@@ -84,6 +85,45 @@ async function nextInvoiceNo(
 }
 
 type BranchRoleEntry = { branchId: string; role: RoleName };
+
+export const REFUND_SALE_INCLUDE = {
+  items: {
+    include: {
+      product: {
+        select: { id: true, isControlled: true, requiresPrescription: true, name: true },
+      },
+    },
+  },
+  customer: { select: { fullName: true } },
+  payments: { select: { method: true, amount: true } },
+} as const;
+export type RefundSale = Prisma.SaleGetPayload<{ include: typeof REFUND_SALE_INCLUDE }>;
+export type PlannedRefundLine = {
+  productId: string;
+  batchId: string;
+  qty: number;
+  unitPrice: Prisma.Decimal;
+  disposition: RefundDisposition;
+};
+export type RefundPlan = {
+  requested: PlannedRefundLine[];
+  refundTotal: Prisma.Decimal;
+  remainingBefore: number;
+};
+
+/** The stored reason: the listed reason, with the cashier's note when there is one. */
+export function refundReason(dto: { reasonCode?: keyof typeof REFUND_REASON_LABELS; reason?: string }): string {
+  const note = dto.reason?.trim() || null;
+  if (!dto.reasonCode && !note) throw new BadRequestException("Choose a reason for the refund");
+  if (dto.reasonCode === "other" && !note) {
+    throw new BadRequestException("Say what the reason is when it's Other");
+  }
+  return dto.reasonCode
+    ? note && dto.reasonCode !== "other"
+      ? `${REFUND_REASON_LABELS[dto.reasonCode]} — ${note}`
+      : (note ?? REFUND_REASON_LABELS[dto.reasonCode])
+    : note!;
+}
 
 @Injectable()
 export class SalesService {
@@ -716,6 +756,8 @@ export class SalesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // Same row lock as refunds, so a void and a refund can't both use the same units.
+      await tx.$queryRaw`SELECT id FROM sale WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${saleId}::uuid FOR UPDATE`;
       const sale = await tx.sale.findFirst({
         where: { id: saleId, tenantId, branchId },
         include: { items: true },
@@ -777,7 +819,8 @@ export class SalesService {
    * A customer return is a refund at the till. Each line goes back on the shelf or into
    * quarantine for a pharmacist to inspect; a refund over the tenant's threshold needs someone
    * who approves returns — the cashier themselves only if their role may approve its own
-   * requests, otherwise an approver's till PIN.
+   * requests, otherwise an approver's till PIN. Prepared remote refunds execute through the
+   * same lock/plan/apply steps (`RefundRequestsService`).
    */
   async refundSale(
     tenantId: string,
@@ -790,138 +833,22 @@ export class SalesService {
     if (!access.has("sales.refund")) {
       throw new ForbiddenException("Your role can't refund sales");
     }
-
-    const note = dto.reason?.trim() || null;
-    if (!dto.reasonCode && !note) throw new BadRequestException("Choose a reason for the refund");
-    if (dto.reasonCode === "other" && !note) {
-      throw new BadRequestException("Say what the reason is when it's Other");
-    }
-    const reason = dto.reasonCode
-      ? note && dto.reasonCode !== "other"
-        ? `${REFUND_REASON_LABELS[dto.reasonCode]} — ${note}`
-        : (note ?? REFUND_REASON_LABELS[dto.reasonCode])
-      : note!;
-    let refundSplit: Array<{ method: PaymentMethod; amount: Prisma.Decimal }> = [];
-    let goodsReturnId: string | null = null;
-    let refundTotal = new Prisma.Decimal(0);
-    let nextStatus: SaleStatus = SaleStatus.refunded;
-    let approvedByForAudit: string = userId;
+    const reason = refundReason(dto);
 
     await this.prisma.$transaction(async (tx) => {
-      const sale = await tx.sale.findFirst({
-        where: { id: saleId, tenantId, branchId },
-        include: {
-          items: {
-            include: {
-              product: {
-                select: { id: true, isControlled: true, requiresPrescription: true, name: true },
-              },
-            },
-          },
-          customer: { select: { fullName: true } },
-          payments: { select: { method: true, amount: true } },
-        },
-      });
-      if (!sale) throw new NotFoundException("Sale not found");
-      if (
-        sale.status !== SaleStatus.posted &&
-        sale.status !== SaleStatus.partially_refunded
-      ) {
-        throw new BadRequestException(
-          "Only posted or partially refunded sales can be refunded",
-        );
-      }
-
-      const needsControlledGate =
-        Boolean(sale.prescriptionId) ||
-        sale.items.some((i) => i.product.isControlled);
-      if (needsControlledGate && !access.has("sales.approve_controlled")) {
+      const sale = await this.lockSaleForRefund(tx, tenantId, branchId, saleId);
+      if (this.needsControlledRefundGate(sale) && !access.has("sales.approve_controlled")) {
         throw new ForbiddenException(
           "A sale with controlled or prescription items is refunded by someone who can approve controlled sales",
         );
       }
-
-      // Medicines that came back from a patient default to being held for a pharmacist to look
-      // at; everything else goes back on the shelf unless the cashier says otherwise.
-      const productById = new Map(sale.items.map((item) => [item.productId, item.product]));
-      const defaultDisposition = (productId: string): RefundDisposition => {
-        const product = productById.get(productId);
-        return product && (product.isControlled || product.requiresPrescription)
-          ? "quarantine"
-          : "restock";
-      };
-
-      const { lines } = await getSaleReturnableByLine(
-        tx,
-        tenantId,
-        branchId,
-        saleId,
-      );
-
-      const requested: {
-        productId: string;
-        batchId: string;
-        qty: number;
-        unitPrice: Prisma.Decimal;
-        disposition: RefundDisposition;
-      }[] = [];
-
-      if (dto.items?.length) {
-        for (const item of dto.items) {
-          const key = saleLineKey(item.productId, item.batchId);
-          const rem = lines.get(key);
-          if (!rem) {
-            throw new BadRequestException(
-              "Refund line product/batch must match a line on the referenced sale",
-            );
-          }
-          if (item.qty > rem.remainingQty) {
-            throw new BadRequestException(
-              rem.remainingQty <= 0
-                ? "This sale line has already been fully returned"
-                : `Only ${rem.remainingQty} unit(s) remain returnable on this sale line`,
-            );
-          }
-          requested.push({
-            productId: item.productId,
-            batchId: item.batchId,
-            qty: item.qty,
-            unitPrice: refundUnitPrice(rem),
-            disposition: item.disposition ?? defaultDisposition(item.productId),
-          });
-        }
-      } else {
-        for (const rem of lines.values()) {
-          if (rem.remainingQty <= 0) continue;
-          requested.push({
-            productId: rem.productId,
-            batchId: rem.batchId,
-            qty: rem.remainingQty,
-            unitPrice: refundUnitPrice(rem),
-            disposition: defaultDisposition(rem.productId),
-          });
-        }
-      }
-
-      if (requested.length === 0) {
-        throw new BadRequestException(
-          "Nothing remains returnable on this sale",
-        );
-      }
-
-      const remainingBefore = totalRemainingQty(lines);
-      const refundedQty = requested.reduce((n, line) => n + line.qty, 0);
-
-      refundTotal = requested.reduce(
-        (sum, line) => sum.add(line.unitPrice.mul(line.qty)),
-        new Prisma.Decimal(0),
-      );
+      const plan = await this.planRefund(tx, tenantId, branchId, sale, dto.items);
 
       if (dto.refundAmount != null && dto.refundAmount.trim() !== "") {
         const expected = d(dto.refundAmount);
-        if (!expected.eq(refundTotal)) {
+        if (!expected.eq(plan.refundTotal)) {
           throw new BadRequestException(
-            `Refund amount must equal ${refundTotal.toFixed(2)} for the selected lines`,
+            `Refund amount must equal ${plan.refundTotal.toFixed(2)} for the selected lines`,
           );
         }
       }
@@ -929,20 +856,17 @@ export class SalesService {
       // Over the tenant's ceiling, someone who approves returns signs it off. The cashier counts
       // only if their role may approve its own requests — the threshold exists to interrupt
       // exactly the person who would otherwise wave it through.
-      const settings = await tx.tenantSettings.findUnique({
-        where: { tenantId },
-        select: { approvalRequiredReturnThreshold: true },
-      });
+      const threshold = await this.refundApprovalThreshold(tx, tenantId);
       let approvedBy = userId;
-      if (meetsApprovalThreshold(refundTotal, settings?.approvalRequiredReturnThreshold)) {
+      if (meetsApprovalThreshold(plan.refundTotal, threshold)) {
         const selfApproves = access.has("returns.approve") && access.canSelfApprove;
         if (!selfApproves) {
           if (!dto.approval?.approverUserId || !dto.approval.pin) {
             throw new ForbiddenException({
               code: "REFUND_APPROVAL_REQUIRED",
-              message: `Refunds of LKR ${Number(settings?.approvalRequiredReturnThreshold ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })} or more need an approver. Ask someone who approves returns to enter their till PIN.`,
-              amount: refundTotal.toFixed(2),
-              threshold: settings?.approvalRequiredReturnThreshold?.toFixed(2) ?? null,
+              message: `Refunds of LKR ${Number(threshold ?? 0).toLocaleString("en-LK", { minimumFractionDigits: 2 })} or more need an approver. Ask someone who approves returns to enter their till PIN.`,
+              amount: plan.refundTotal.toFixed(2),
+              threshold: threshold?.toFixed(2) ?? null,
             });
           }
           if (dto.approval.approverUserId === userId) {
@@ -961,117 +885,270 @@ export class SalesService {
           approvedBy = verified.approverUserId;
         }
       }
-      approvedByForAudit = approvedBy;
 
-      const returnNumber = await this.nextPosReturnNumber(
-        tx,
+      await this.applyRefund(tx, {
         tenantId,
         branchId,
-      );
-      const created = await tx.goodsReturn.create({
-        data: {
-          tenantId,
-          branchId,
-          returnNumber,
-          type: GoodsReturnType.customer,
-          status: GoodsReturnStatus.completed,
-          customerName: sale.customer?.fullName ?? "Walk-in",
-          saleId: sale.id,
-          reason,
-          reasonCode: dto.reasonCode ?? null,
-          notes: `POS refund · ${sale.invoiceNo}`,
-          amount: refundTotal,
-          requestedBy: userId,
-          approvedBy,
-          processedBy: userId,
-          items: {
-            create: requested.map((line) => ({
-              tenantId,
-              productId: line.productId,
-              batchId: line.batchId,
-              qty: line.qty,
-              unitPrice: line.unitPrice,
-              disposition: line.disposition,
-            })),
-          },
-        },
-      });
-      goodsReturnId = created.id;
-
-      await this.stock.receive(
-        tx,
-        { tenantId, branchId, userId, referenceType: "goods_return", referenceId: created.id },
-        requested.map((line) => ({
-          productId: line.productId,
-          batchId: line.batchId,
-          qty: line.qty,
-          movementType: StockMovementType.customer_return_in,
-        })),
-      );
-      // Held lines come back onto the books and straight into quarantine, so they are counted
-      // but can't be sold until a pharmacist releases them.
-      const held = requested.filter((line) => line.disposition === "quarantine");
-      if (held.length > 0) {
-        await this.stock.quarantine(
-          tx,
-          { tenantId, branchId, userId, referenceType: "goods_return", referenceId: created.id },
-          held.map((line) => ({
-            productId: line.productId,
-            batchId: line.batchId,
-            qty: line.qty,
-            reasonCode: "inspection" as const,
-            reason: `Customer return ${created.returnNumber} — held for inspection`,
-          })),
-        );
-      }
-
-      // Back the way it came unless the cashier chose one method: card and wallet first, cash
-      // last. Every refund used to be booked as cash, which put card refunds in the drawer count.
-      refundSplit = dto.refundMethod
-        ? [{ method: dto.refundMethod, amount: refundTotal }]
-        : allocateRefund(sale.payments, sale.changeDue, refundTotal);
-      for (const part of refundSplit) {
-        await tx.salePayment.create({
-          data: {
-            tenantId,
-            saleId: sale.id,
-            method: part.method,
-            amount: part.amount.neg(),
-            reference: `POS refund ${created.returnNumber}`,
-          },
-        });
-      }
-
-      nextStatus =
-        remainingBefore - refundedQty <= 0
-          ? SaleStatus.refunded
-          : SaleStatus.partially_refunded;
-
-      await tx.sale.update({
-        where: { id: saleId, tenantId, branchId },
-        data: { status: nextStatus },
-      });
-    });
-
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: userId,
-      eventName: "sale.refunded",
-      entityName: "sale",
-      entityId: saleId,
-      payload: {
+        executorUserId: userId,
+        requestedBy: userId,
+        approvedBy,
+        sale,
+        plan,
         reason,
-        goodsReturnId,
-        refundedTo: refundSplit.map((part) => ({ method: part.method, amount: part.amount.toFixed(2) })),
         reasonCode: dto.reasonCode ?? null,
-        refundTotal: refundTotal.toFixed(2),
-        status: nextStatus,
-        approvedBy: approvedByForAudit,
-      },
+        refundMethod: dto.refundMethod ?? null,
+      });
     });
 
     return this.getSale(tenantId, branchId, saleId);
+  }
+
+  /** The tenant's refund approval ceiling (Settings → Approval Rules), or null for none. */
+  async refundApprovalThreshold(tx: Prisma.TransactionClient | PrismaService, tenantId: string) {
+    const settings = await tx.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { approvalRequiredReturnThreshold: true },
+    });
+    return settings?.approvalRequiredReturnThreshold ?? null;
+  }
+
+  /**
+   * Lock one sale for refund or void. Every refund of a sale serializes on this row, so two
+   * counters (or a retry) cannot both refund the same remaining units.
+   */
+  async lockSaleForRefund(tx: Prisma.TransactionClient, tenantId: string, branchId: string, saleId: string) {
+    await tx.$queryRaw`SELECT id FROM sale WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${saleId}::uuid FOR UPDATE`;
+    const sale = await tx.sale.findFirst({
+      where: { id: saleId, tenantId, branchId },
+      include: REFUND_SALE_INCLUDE,
+    });
+    if (!sale) throw new NotFoundException("Sale not found");
+    return sale;
+  }
+
+  needsControlledRefundGate(sale: RefundSale): boolean {
+    return Boolean(sale.prescriptionId) || sale.items.some((i) => i.product.isControlled);
+  }
+
+  /**
+   * Price the requested lines against what the sale still has returnable (the original-sale
+   * limit), at what the customer paid. Omitted `items` refunds everything remaining.
+   */
+  async planRefund(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+    sale: RefundSale,
+    items: ReadonlyArray<{ productId: string; batchId: string; qty: number; disposition?: RefundDisposition }> | undefined,
+  ): Promise<RefundPlan> {
+    if (sale.status !== SaleStatus.posted && sale.status !== SaleStatus.partially_refunded) {
+      throw new BadRequestException("Only posted or partially refunded sales can be refunded");
+    }
+
+    // Medicines that came back from a patient default to being held for a pharmacist to look
+    // at; everything else goes back on the shelf unless the cashier says otherwise.
+    const productById = new Map(sale.items.map((item) => [item.productId, item.product]));
+    const defaultDisposition = (productId: string): RefundDisposition => {
+      const product = productById.get(productId);
+      return product && (product.isControlled || product.requiresPrescription)
+        ? "quarantine"
+        : "restock";
+    };
+
+    const { lines } = await getSaleReturnableByLine(tx, tenantId, branchId, sale.id);
+    const requested: PlannedRefundLine[] = [];
+    if (items?.length) {
+      const asked = new Map<string, number>();
+      for (const item of items) {
+        const key = saleLineKey(item.productId, item.batchId);
+        const rem = lines.get(key);
+        if (!rem) {
+          throw new BadRequestException(
+            "Refund line product/batch must match a line on the referenced sale",
+          );
+        }
+        const total = (asked.get(key) ?? 0) + item.qty;
+        asked.set(key, total);
+        if (total > rem.remainingQty) {
+          throw new BadRequestException(
+            rem.remainingQty <= 0
+              ? "This sale line has already been fully returned"
+              : `Only ${rem.remainingQty} unit(s) remain returnable on this sale line`,
+          );
+        }
+        requested.push({
+          productId: item.productId,
+          batchId: item.batchId,
+          qty: item.qty,
+          unitPrice: refundUnitPrice(rem),
+          disposition: item.disposition ?? defaultDisposition(item.productId),
+        });
+      }
+    } else {
+      for (const rem of lines.values()) {
+        if (rem.remainingQty <= 0) continue;
+        requested.push({
+          productId: rem.productId,
+          batchId: rem.batchId,
+          qty: rem.remainingQty,
+          unitPrice: refundUnitPrice(rem),
+          disposition: defaultDisposition(rem.productId),
+        });
+      }
+    }
+    if (requested.length === 0) {
+      throw new BadRequestException("Nothing remains returnable on this sale");
+    }
+    return {
+      requested,
+      remainingBefore: totalRemainingQty(lines),
+      refundTotal: requested.reduce(
+        (sum, line) => sum.add(line.unitPrice.mul(line.qty)),
+        new Prisma.Decimal(0),
+      ),
+    };
+  }
+
+  /** How the money goes back: one chosen method, or the way the sale was paid. */
+  refundSplit(sale: Pick<RefundSale, "payments" | "changeDue">, total: Prisma.Decimal, method: PaymentMethod | null) {
+    // Card and wallet first, cash last. Every refund used to be booked as cash, which put card
+    // refunds in the drawer count.
+    return method ? [{ method, amount: total }] : allocateRefund(sale.payments, sale.changeDue, total);
+  }
+
+  /**
+   * The refund's effects, in the caller's transaction after `lockSaleForRefund` and
+   * `planRefund`: a completed customer goods return, stock back (held lines into quarantine),
+   * money out as negative payments, the sale's status and the `sale.refunded` audit.
+   */
+  async applyRefund(
+    tx: Prisma.TransactionClient,
+    input: {
+      tenantId: string;
+      branchId: string;
+      executorUserId: string;
+      requestedBy: string;
+      approvedBy: string;
+      sale: RefundSale;
+      plan: RefundPlan;
+      reason: string;
+      reasonCode: string | null;
+      refundMethod: PaymentMethod | null;
+      refundRequest?: { id: string; approvalId: string | null; command?: CommandProvenance };
+    },
+  ) {
+    const { tenantId, branchId, sale, plan } = input;
+    const userId = input.executorUserId;
+    const returnNumber = await this.nextPosReturnNumber(tx, tenantId, branchId);
+    const created = await tx.goodsReturn.create({
+      data: {
+        tenantId,
+        branchId,
+        returnNumber,
+        type: GoodsReturnType.customer,
+        status: GoodsReturnStatus.completed,
+        customerName: sale.customer?.fullName ?? "Walk-in",
+        saleId: sale.id,
+        reason: input.reason,
+        reasonCode: input.reasonCode,
+        notes: `POS refund · ${sale.invoiceNo}`,
+        amount: plan.refundTotal,
+        requestedBy: input.requestedBy,
+        approvedBy: input.approvedBy,
+        processedBy: userId,
+        items: {
+          create: plan.requested.map((line) => ({
+            tenantId,
+            productId: line.productId,
+            batchId: line.batchId,
+            qty: line.qty,
+            unitPrice: line.unitPrice,
+            disposition: line.disposition,
+          })),
+        },
+      },
+    });
+
+    await this.stock.receive(
+      tx,
+      { tenantId, branchId, userId, referenceType: "goods_return", referenceId: created.id },
+      plan.requested.map((line) => ({
+        productId: line.productId,
+        batchId: line.batchId,
+        qty: line.qty,
+        movementType: StockMovementType.customer_return_in,
+      })),
+    );
+    // Held lines come back onto the books and straight into quarantine, so they are counted
+    // but can't be sold until a pharmacist releases them.
+    const held = plan.requested.filter((line) => line.disposition === "quarantine");
+    if (held.length > 0) {
+      await this.stock.quarantine(
+        tx,
+        { tenantId, branchId, userId, referenceType: "goods_return", referenceId: created.id },
+        held.map((line) => ({
+          productId: line.productId,
+          batchId: line.batchId,
+          qty: line.qty,
+          reasonCode: "inspection" as const,
+          reason: `Customer return ${created.returnNumber} — held for inspection`,
+        })),
+      );
+    }
+
+    const refundSplit = this.refundSplit(sale, plan.refundTotal, input.refundMethod);
+    for (const part of refundSplit) {
+      await tx.salePayment.create({
+        data: {
+          tenantId,
+          saleId: sale.id,
+          method: part.method,
+          amount: part.amount.neg(),
+          reference: `POS refund ${created.returnNumber}`,
+        },
+      });
+    }
+
+    const refundedQty = plan.requested.reduce((n, line) => n + line.qty, 0);
+    const nextStatus =
+      plan.remainingBefore - refundedQty <= 0 ? SaleStatus.refunded : SaleStatus.partially_refunded;
+    await tx.sale.update({
+      where: { id: sale.id, tenantId, branchId },
+      data: { status: nextStatus },
+    });
+
+    await this.audit.log(
+      {
+        tenantId,
+        branchId,
+        actorUserId: userId,
+        eventName: "sale.refunded",
+        entityName: "sale",
+        entityId: sale.id,
+        payload: {
+          reason: input.reason,
+          goodsReturnId: created.id,
+          refundedTo: refundSplit.map((part) => ({ method: part.method, amount: part.amount.toFixed(2) })),
+          reasonCode: input.reasonCode,
+          refundTotal: plan.refundTotal.toFixed(2),
+          status: nextStatus,
+          approvedBy: input.approvedBy,
+          requestedByUserId: input.requestedBy,
+          approvedByUserId: input.approvedBy,
+          executedByUserId: userId,
+          ...(input.refundRequest
+            ? {
+                refundRequestId: input.refundRequest.id,
+                approvalId: input.refundRequest.approvalId,
+                ...(input.refundRequest.command ? { command: input.refundRequest.command } : {}),
+              }
+            : {}),
+        },
+      },
+      tx,
+    );
+
+    return { goodsReturnId: created.id, returnNumber: created.returnNumber, refundSplit, nextStatus };
   }
 
   private async nextPosReturnNumber(

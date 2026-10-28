@@ -84,3 +84,36 @@ export type SalesFilters = {
   paymentMethod: PaymentMethod | "all";
   invoiceNo: string;
 };
+
+type Person = { id: string; fullName: string } | null;
+
+/** A refund prepared remotely (`/sales/refund-requests`). It waits at the counter to be executed. */
+export type SaleRefundRequest = {
+  id: string;
+  requestNumber: string;
+  saleId: string;
+  invoiceNo: string | null;
+  status: "prepared" | "approved" | "executed" | "cancelled";
+  lines: { productId: string; batchId: string; qty: number; unitPrice: string; disposition: "restock" | "quarantine" }[];
+  amount: string;
+  refundMethod: PaymentMethod | null;
+  reasonCode: string | null;
+  reason: string;
+  /** Over the tenant's refund threshold: needs someone who approves returns. */
+  approvalRequired: boolean;
+  executionApprovalId: string | null;
+  approvalRevoked: boolean;
+  /** Nothing more is needed before the counter refunds it. */
+  readyAtCounter: boolean;
+  approvalReview: { expectedVersion: number; expectedDigest: string } | null;
+  approvalVersion: number;
+  requester: Person;
+  requestedAt: string;
+  approver: Person;
+  approvedAt: string | null;
+  executor: Person;
+  executedAt: string | null;
+  goodsReturnId: string | null;
+  cancelledBy: Person;
+  cancelledAt: string | null;
+};

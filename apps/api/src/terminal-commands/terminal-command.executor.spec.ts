@@ -95,6 +95,7 @@ function setup(existing: Record<string, unknown> | null = null) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   const authorization = {
     authorize: jest.fn(async (_tx: unknown, _u: unknown, _b: unknown, _d: unknown,
@@ -332,7 +333,7 @@ describe("TerminalCommandExecutor", () => {
 });
 
 describe("SignedOperations body parsers", () => {
-  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
   const parse = (body: unknown) =>
     ops.get("POST /api/v1/products/import/:importId/stock/post").descriptor.parseBody(body);
   const importId = randomUUID();
@@ -362,6 +363,7 @@ describe("SignedOperations body parsers", () => {
       "POST /api/v1/products/import/:importId/stock/post",
       "POST /api/v1/products/import/:importId/undo-stock",
       "POST /api/v1/purchasing/held-deliveries/:id/post",
+      "POST /api/v1/sales/refund-requests/:id/execute",
       "POST /api/v1/stocktakes/:id/post",
       "POST /api/v1/transfers/:id/receive",
       "POST /api/v1/transfers/:id/ship",
@@ -400,6 +402,16 @@ describe("SignedOperations body parsers", () => {
       expect(ship.approval?.action).toBe("transfer.ship");
       expect(typeof ship.approval?.waived).toBe("function");
       expect(ops.get("POST /api/v1/transfers/:id/receive").descriptor.approval).toBeUndefined();
+    });
+
+    it("a counter refund carries its approval (waivable under the threshold) and resolves cash movement", () => {
+      const refund = ops.get("POST /api/v1/sales/refund-requests/:id/execute").descriptor;
+      expect(refund).toMatchObject({ permission: "sales.refund", approval: { action: "sale_refund.execute" } });
+      expect(typeof refund.approval?.waived).toBe("function");
+      expect(typeof refund.resolveFacts).toBe("function");
+      const id = randomUUID();
+      expect(refund.parseBody({ refundRequestId: id })).toEqual({ refundRequestId: id });
+      expect(() => refund.parseBody({ refundRequestId: id, amount: 1 })).toThrow();
     });
   });
 });

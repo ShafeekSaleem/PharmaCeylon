@@ -88,6 +88,7 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 | Goods receipt    | `receive_goods`    | `POST /api/v1/purchasing/purchase-orders/receive` |
 | Transfer ship    | `transfer_ship`    | `POST /api/v1/transfers/:id/ship`                 |
 | Transfer receive | `transfer_receive` | `POST /api/v1/transfers/:id/receive`              |
+| Prepared refund  | `sale_refund_execute` | `POST /api/v1/sales/refund-requests/:id/execute` |
 | Product import   | `product_import`   | `POST /api/v1/products/import/confirm`            |
 | Supplier payment | `supplier_payment` | `POST /api/v1/purchasing/payments`                |
 
@@ -140,6 +141,7 @@ transaction.
 | `POST /api/v1/products/import/:importId/undo-stock` | `{ importId }` | `null` | `products.import` |
 | `POST /api/v1/transfers/:id/ship` | `{ transferId }` | the transfer's `executionApprovalId`; `null` only while approval is waived (below) | `transfers.manage` |
 | `POST /api/v1/transfers/:id/receive` | `{ transferId, dispatchApprovalId, lines: [{ transferItemId, qty, receivedQtyBefore }] }` | `null` | `transfers.manage` |
+| `POST /api/v1/sales/refund-requests/:id/execute` | `{ refundRequestId }` | the request's `executionApprovalId`; `null` when it needs no approval (below) | `sales.refund` |
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
@@ -155,7 +157,17 @@ dispatch with `dispatchApprovalId` (the transfer's `executionApprovalId`, `null`
 counts each line once: `receivedQtyBefore` is the line's `receivedQty` the counter saw, and a
 mismatch is **409** (never a second receipt). Results: `{ type: "transfer.dispatched",
 transferId, approvalId, dispatchedQty, effect }` and `{ type: "transfer.received", transferId,
-dispatchApprovalId, status, receivedQty }`. `pharmacistEvidenceId`
+dispatchApprovalId, status, receivedQty }`.
+
+Prepared refunds: the counter executes a request prepared remotely (stock back, money out). It
+needs approval evidence when the request was prepared at or over
+`approvalRequiredReturnThreshold`, or the threshold has since been lowered to its amount;
+otherwise `approvalEvidenceId` must be `null`. Cash movement is resolved from the request (its
+`refundMethod`, or the sale's payments), so a cash refund is classified as branch cash. Result:
+`{ type: "sale_refund.executed", refundRequestId, approvalId, goodsReturnId, amountMinor,
+refundedTo: [{ method, amountMinor }], effect }` (LKR minor units). A request executes once: a
+later distinct command gets `effect: "already_applied"` with an empty `refundedTo`.
+`pharmacistEvidenceId`
 and `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
 key, type or coercion is `INVALID_COMMAND`.
 
@@ -281,6 +293,23 @@ is reserved for P5 offline sync.
   - Over `TenantSettings.approvalRequiredReturnThreshold`, the refund needs `returns.approve`: the caller alone if their role may approve its own requests, otherwise **403** with `code: "REFUND_APPROVAL_REQUIRED"` (`amount`, `threshold`) until the body carries `approval: { approverUserId, pin }` — another person's till PIN (or password if they have none), checked against `returns.approve` at the branch. The approver is recorded as the return's `approvedBy`.
   - **Why**: `reasonCode` is one of `wrong_item`, `changed_mind`, `damaged`, `expired`, `adverse_reaction`, `other` (stored on the return as `reason_code`); `other` needs a `reason` note. Callers that send no code must send `reason`.
   - **How the money goes back**: omit `refundMethod` and the refund goes back the way the sale was paid — card first, then mobile wallet, then credit, then cash (cash net of change given), with anything left over in cash. One `SalePayment` row per method, referenced `POS refund <returnNumber>`. Send `refundMethod` to put the whole refund on one method.
+  - **Prepared remotely, executed at the counter (P6, D10).** `POST /sales/:id/refund-requests`
+    (`sales.refund`, same body as a refund without `approval`) prices the lines against the sale's
+    remaining returnable quantity and stores an immutable request (`RFR-…`) — no stock or money
+    moves. One open request per sale (**409** otherwise). At or over the threshold it needs
+    `POST /sales/refund-requests/:id/approve` (`returns.approve`, body `{ approvalId,
+    expectedVersion, expectedDigest }` from the request's `approvalReview`; self-approval rules
+    apply, and a preparer who may approve their own requests approves on preparation).
+    `POST /sales/refund-requests/:id/cancel` (requester or approver) withdraws it. The counter runs
+    `POST /sales/refund-requests/:id/execute` (`sales.refund`, body `{ approvalId }` = the
+    displayed `executionApprovalId` or `null`, `Idempotency-Key` scope `sale_refund_execute`), or
+    the signed operation above: it locks the sale, re-checks the original-sale limit and price
+    (**400**/**409** if the sale changed), the live approval and controlled-item authority, then
+    applies the same refund as the till, exactly once. `GET /sales/refund-requests?saleId=&status=`
+    and `GET /sales/refund-requests/:id` (`sales.refund`) return `status`, `readyAtCounter`,
+    `approvalRequired`, `approvalReview` and requester/approver/executor.
+  - Refunds and voids of one sale now take a row lock on the sale, so two counters (or a till
+    refund and a prepared one) can never refund the same units twice.
   - `GET /api/v1/sales/refunds` (`sales.refund`) lists the branch's customer returns, newest first, with `reasonCode` and `refundedTo: [{ method, amount }]`; `GET /api/v1/sales/pos/refund-approvers` lists who can approve one at the till.
 - **The sale as the till gets it**: checkout, void, refund, `GET /sales/pos/by-invoice`, `GET /sales` and `GET /sales/:id` answer with the same shape. Each item has its own columns plus `product: { id, name, sku, unit }` and `batch: { id, batchNo, expiryDate }`, and never the batch's cost or selling price, whatever the caller holds. Historical cost is unavailable until sales store a sale-time cost snapshot.
 

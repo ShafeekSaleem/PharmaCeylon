@@ -272,6 +272,8 @@ export class ManagementApprovalsService {
       await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else if (row.documentType === "transfer")
       await tx.$queryRaw`SELECT id FROM transfer WHERE tenant_id = ${row.tenantId}::uuid AND from_branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
+    else if (row.documentType === "sale_refund")
+      await tx.$queryRaw`SELECT id FROM sale_refund_request WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else if (row.documentType === "goods_return")
       await tx.$queryRaw`SELECT id FROM goods_return WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else denied("APPROVAL_INVALID");

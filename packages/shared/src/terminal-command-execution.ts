@@ -13,6 +13,7 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/products/import/:importId/undo-stock",
   "POST /api/v1/transfers/:id/ship",
   "POST /api/v1/transfers/:id/receive",
+  "POST /api/v1/sales/refund-requests/:id/execute",
 ] as const;
 export type SignedPhysicalOperation = typeof SIGNED_PHYSICAL_OPERATIONS[number];
 
@@ -39,6 +40,9 @@ export type SignedOperationBody = {
     dispatchApprovalId: string | null;
     lines: ReadonlyArray<Readonly<{ transferItemId: string; qty: number; receivedQtyBefore: number }>>;
   }>;
+  /** The counter refunds a prepared request (stock back, money out). approvalEvidenceId = the
+   * request's executionApprovalId, or null when it needs no approval (under the threshold). */
+  "POST /api/v1/sales/refund-requests/:id/execute": Readonly<{ refundRequestId: string }>;
 };
 
 /** "already_applied": a distinct command found the document already posted; no second effect. */
@@ -70,6 +74,13 @@ export type SignedOperationResult = {
   "POST /api/v1/transfers/:id/receive": Readonly<{
     type: "transfer.received"; transferId: string; dispatchApprovalId: string | null;
     status: "partially_received" | "received"; receivedQty: number;
+  }>;
+  /** Money in LKR minor units. "already_applied": the request was executed by another command;
+   * refundedTo is then empty (read the sale for its payments). */
+  "POST /api/v1/sales/refund-requests/:id/execute": Readonly<{
+    type: "sale_refund.executed"; refundRequestId: string; approvalId: string | null; goodsReturnId: string;
+    amountMinor: number; refundedTo: ReadonlyArray<Readonly<{ method: string; amountMinor: number }>>;
+    effect: SignedOperationEffect;
   }>;
 };
 

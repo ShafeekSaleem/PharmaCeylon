@@ -9,6 +9,7 @@ import { ActionButton, DataTable, PageHeader, StatusBadge, type Column } from "@
 import { formatMoney } from "@/lib/money";
 import { usePageChrome } from "@/lib/page-chrome-context";
 import { SaleReceiptCopy } from "../components/sale-receipt-copy";
+import { SaleRefundPanel } from "../components/sale-refund-panel";
 import { PAYMENT_METHOD_LABELS } from "../constants";
 import { useSaleDetail } from "../hooks/use-sale-detail";
 import type { SaleDetail } from "../types";
@@ -264,6 +265,8 @@ export default function SaleDetailPage() {
               ))}
             </ul>
           </section>
+
+          <SaleRefundPanel sale={sale} />
 
           {sale.refunds.length > 0 ? (
             <section className={css.card} aria-label="Refunds">
