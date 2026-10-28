@@ -34,7 +34,7 @@ CREATE TABLE "business_hours_acknowledgement" (
 CREATE UNIQUE INDEX "business_hours_acknowledgement_tenant_id_enrollment_id_reco_key" ON "business_hours_acknowledgement"("tenant_id", "enrollment_id", "record_id");
 CREATE INDEX "business_hours_acknowledgement_tenant_id_branch_id_starts_a_idx" ON "business_hours_acknowledgement"("tenant_id", "branch_id", "starts_at");
 
-ALTER TABLE "business_hours_acknowledgement" ADD CONSTRAINT "business_hours_acknowledgement_tenant_id_branch_id_termin_fkey" FOREIGN KEY ("tenant_id", "branch_id", "terminal_id", "enrollment_id", "key_id") REFERENCES "terminal_enrollment"("tenant_id", "branch_id", "terminal_id", "id", "key_id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE "business_hours_acknowledgement" ADD CONSTRAINT "business_hours_acknowledgement_tenant_id_branch_id_termina_fkey" FOREIGN KEY ("tenant_id", "branch_id", "terminal_id", "enrollment_id", "key_id") REFERENCES "terminal_enrollment"("tenant_id", "branch_id", "terminal_id", "id", "key_id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 ALTER TABLE business_hours_acknowledgement ADD CONSTRAINT business_hours_acknowledgement_shape CHECK (
   record_hash ~ '^[0-9a-f]{64}$'
