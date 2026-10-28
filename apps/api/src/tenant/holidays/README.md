@@ -47,13 +47,21 @@ Owners may enter dated exceptions manually in the meantime.
 
 | Year | Gazette | Copied from | Status |
 | --- | --- | --- | --- |
-| 2026 | Extraordinary No. 2438/22 of 27 May 2025 | [CBSL, Bank Holidays for 2026](https://www.cbsl.gov.lk/en/about/about-the-bank/bank-holidays-2026) | Every row checked against the CBSL list (date, name, B/P/M marks, weekday). **Still to be compared with the gazette PDF.** |
-| 2027 | Extraordinary No. 2493/05 (reported 6 July 2026) | [CBSL, Bank Holidays for 2027](https://www.cbsl.gov.lk/en/about/about-the-bank/bank-holidays-2027) | As 2026. The gazette's date and link still need filling in from the PDF. |
+| 2026 | Extraordinary No. 2438/22 of 27 May 2025 | — (the gazette) | Copied from the gazette PDF on 28 October 2026: names as printed, every date marked public and bank. **Needs a second person's check**, then their name in `checkedBy` and registration. |
+| 2027 | Extraordinary No. 2493/05 (reported 6 July 2026) | [CBSL, Bank Holidays for 2027](https://www.cbsl.gov.lk/en/about/about-the-bank/bank-holidays-2027) | Every row checked against the CBSL list. The gazette's date and link still need filling in from the PDF. |
 
-Both were copied on 27 October 2026, when documents.gov.lk couldn't be reached from where the files
-were made. The Central Bank publishes the gazetted holidays for banks, marking each date B (bank),
-P (public) and M (mercantile). Whoever compares these files with the gazette PDFs should fill in
-anything missing, set `copiedFrom` to `null` and put their own name in `checkedBy`.
+The 2027 file was copied on 27 October 2026, when documents.gov.lk couldn't be reached. The Central
+Bank's list marks each date B (bank), P (public) and M (mercantile). Whoever compares it with the
+gazette PDF should copy names as printed, keep only the kinds the gazette gives, fill in anything
+missing, set `copiedFrom` to `null` and put their own name in `checkedBy`.
+
+The 2026 gazette declares its dates "Public and Bank Holidays" and marks each with only those two
+symbols, so its file has no `mercantile` rows. The Central Bank's M marks come from elsewhere and are
+not copied into a gazette file.
+
+On the new documents.gov.lk the old `view/extra-gazettes/...` links return 404. Find the gazette under
+Publications → Extra Gazettes (filter by year and month, search "Holiday") and use the English PDF's
+`api/content-file-proxy` link.
 
 ## Checking every year
 

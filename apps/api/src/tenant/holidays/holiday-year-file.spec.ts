@@ -81,10 +81,17 @@ it("keeps the unverified 2026/2027 drafts out of runtime suggestions", () => {
 });
 
 it.each([
-  ["lk-holidays-2026.json", lk2026Draft],
-  ["lk-holidays-2027.json", lk2027Draft],
-])("rejects draft %s if accidentally registered", (file, draft) => {
-  expect(() => loadHolidayYears([[file, draft]])).toThrow(/draft copies cannot be loaded/);
+  // Copied from the gazette, awaiting the second person's check.
+  ["lk-holidays-2026.json", lk2026Draft, /completed gazette verification/],
+  // Still the Central Bank's reproduction.
+  ["lk-holidays-2027.json", lk2027Draft, /draft copies cannot be loaded/],
+])("rejects draft %s if accidentally registered", (file, draft, reason) => {
+  expect(() => loadHolidayYears([[file, draft]])).toThrow(reason);
+});
+
+it("passes every other check once the 2026 file's second check is recorded", () => {
+  const checked = { ...lk2026Draft, checkedBy: "Second Reviewer" };
+  expect(loadHolidayYears([["lk-holidays-2026.json", checked]]).get(2026)?.holidays).toHaveLength(25);
 });
 
 it("keeps the template unusable until it is filled in from a gazette", () => {
