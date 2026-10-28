@@ -117,8 +117,8 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
         title="Pharmacist Quick Actions"
         actions={[
           {
-            href: "/pos?panel=holds",
-            label: "Pharmacist holds",
+            href: "/prescriptions",
+            label: "Prescriptions register",
             icon: <IconStethoscope size={18} />,
             roles: POS_ROLES,
             tone: "primary",
@@ -188,8 +188,8 @@ export function PharmacistDashboard({ data, catalog, layout }: Props) {
             label: "Prescriptions to Verify",
             value: data.salesMetrics?.holds.pharmacist ?? "—",
             meta: "Flagged POS holds · all open",
-            href: "/pos?panel=holds",
-            linkLabel: "Open POS holds",
+            href: "/prescriptions",
+            linkLabel: "Open prescriptions",
           },
           {
             key: "controlled",

@@ -84,8 +84,8 @@ export function PharmacistPrescriptionQueueWidget({
   return (
     <DashboardPanel
       title="Prescription Verification Queue"
-      footerHref="/pos"
-      footerLabel="Open POS holds →"
+      footerHref="/prescriptions"
+      footerLabel="Open prescriptions →"
       footerMeta={`${pharmacistHolds.length} waiting`}
     >
       {pharmacistHolds.length === 0 ? (
