@@ -615,6 +615,7 @@ model TerminalEnrollment {
   terminal         OperationalTerminal @relation(fields: [tenantId, branchId, terminalId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
   receipts         TerminalCommandReceipt[]
   sessions         TerminalStaffSession[]
+  hoursAcknowledgements BusinessHoursAcknowledgement[]
 
   @@unique([tenantId, keyId])
   @@unique([tenantId, branchId, terminalId, id, keyId])
@@ -727,6 +728,42 @@ model TerminalCommandReceipt {
   @@unique([tenantId, enrollmentId, offlineSequence])
   @@index([tenantId, branchId, recordedAt])
   @@map("terminal_command_receipt")
+}
+
+/// Revised D8: a prepared manager's device-signed after-hours acknowledgement, recorded at an
+/// offline counter and uploaded later. Idempotent by (tenant, enrollment, recordId) with the
+/// SHA-256 of the signed payload; the exact signed envelope is kept. Held until the grant and
+/// manager sign-in it cites are verified (P3/P5). Never authorizes an online command.
+model BusinessHoursAcknowledgement {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  terminalId        String    @map("terminal_id") @db.Uuid
+  enrollmentId      String    @map("enrollment_id") @db.Uuid
+  keyId             String    @map("key_id") @db.VarChar(128)
+  recordId          String    @map("record_id") @db.Uuid
+  recordHash        String    @map("record_hash") @db.Char(64)
+  envelope          Json
+  grantId           String    @map("grant_id") @db.Uuid
+  grantVersion      Int       @map("grant_version")
+  nominationVersion Int       @map("nomination_version")
+  offlineSessionId  String    @map("offline_session_id") @db.Uuid
+  managerSignInId   String    @map("manager_sign_in_id") @db.Uuid
+  recordedAt        DateTime  @map("recorded_at")
+  startsAt          DateTime  @map("starts_at")
+  endsAt            DateTime  @map("ends_at")
+  reason            String    @db.VarChar(500)
+  /// "held" until verified against the grant/sign-in; "accepted" or "rejected" afterwards.
+  status            String    @default("held") @db.VarChar(16)
+  heldReason        String?   @map("held_reason") @db.VarChar(64)
+  verifiedAt        DateTime? @map("verified_at")
+  receivedAt        DateTime  @default(now()) @map("received_at")
+  receivedByUserId  String    @map("received_by_user_id") @db.Uuid
+  enrollment        TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, enrollmentId, recordId])
+  @@index([tenantId, branchId, startsAt])
+  @@map("business_hours_acknowledgement")
 }
 
 /// Owner-set monthly sales target for a branch; optional manager accountable for achievement.

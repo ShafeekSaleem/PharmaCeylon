@@ -1,7 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { denied } from "../terminals/terminal-wire";
+import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
 
 /** Integration ports for server-resolved evidence. No owner/manager shortcut and no
  * caller-supplied verified booleans. Real domain providers must bind the exact command,
@@ -9,6 +10,10 @@ import { denied } from "../terminals/terminal-wire";
  */
 @Injectable()
 export class MandatoryOperationEvidence {
+  /** The application module installs the real branch-hours provider (P1 MR 7). Without one —
+   * a bare instance in a test or script — the hours port keeps failing closed. */
+  constructor(@Optional() private readonly hoursProvider?: OperatingHoursEvidence) {}
+
   async clinical(
     _tx: Prisma.TransactionClient,
     _command: OnlineTerminalCommand<unknown>,
@@ -16,10 +21,11 @@ export class MandatoryOperationEvidence {
     denied("PHARMACIST_REQUIRED");
   }
   async hours(
-    _tx: Prisma.TransactionClient,
-    _command: OnlineTerminalCommand<unknown>,
+    tx: Prisma.TransactionClient,
+    command: OnlineTerminalCommand<unknown>,
   ): Promise<void> {
-    denied("TEMPORARILY_UNAVAILABLE");
+    if (!this.hoursProvider) denied("TEMPORARILY_UNAVAILABLE");
+    await this.hoursProvider.assertForCommand(tx, command);
   }
   async bankPayment(
     _tx: Prisma.TransactionClient,

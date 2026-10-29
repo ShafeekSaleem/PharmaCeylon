@@ -145,5 +145,6 @@ signed-operation registry:
 Each of these remains classified as `stock` on its own route. Execution reuses those routes'
 domain cores and StockService, and commits effects, audit and the original-result receipt
 together. Adding an operation to the registry needs the same classification review as a new
-route. Production attendance and hours providers still deny every command, so these routes do
-not activate the terminal boundary. Contract: [API_CONTRACT.md](API_CONTRACT.md).
+route. The production attendance provider still denies every command, so these routes do
+not activate the terminal boundary. (The hours provider is real since MR 7; these five stock
+operations are reviewed as not selling-time restricted.) Contract: [API_CONTRACT.md](API_CONTRACT.md).
