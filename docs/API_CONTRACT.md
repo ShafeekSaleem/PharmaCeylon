@@ -29,7 +29,17 @@ stock undo at live/fallback branches and when the selected branch differs. Impor
 describe the original import; the draft/history endpoints supply current posting state.
 API and web deploy together for the legacy undo route change. Both physical import routes can
 also run as signed terminal commands with original-result receipts (see "Signed terminal
-commands" below). Independent attendance, full desktop screens and enforcement on the browser
+commands" below).
+
+**Job authority (P1 MR 6).** `/confirm` and `/stage` record who started the job: the user, their
+access-token version, the selected branch (none = any branch, catalog only) and
+`products.import`. The background worker rechecks exactly that before every write transaction.
+If the starter's permission was removed, a role or password changed, they signed out
+everywhere, or the branch/account was deactivated, the job stops: `GET /products/import/jobs/:id`
+reports `status: "failed"` with an explanatory `error`, products/stock committed by earlier
+chunks are kept, and a `products.import_stopped` audit event is written. Start a new import for
+the rest. `POST /products/nmra-import/confirm` behaves the same way for `nmra.import`
+(`products.nmra_import_started` / `products.nmra_import_stopped`). Independent attendance, full desktop screens and enforcement on the browser
 routes remain the later coordinated P1/P2/P6 cutover.
 
 Single reference for the web team. The machine-readable contract is the **OpenAPI document** served by the API.
@@ -109,9 +119,19 @@ result. The P2 desktop client is built against this section and the shared types
 HTTP endpoints, PIN sign-in and the attendance provider belong to P2.
 
 **Not active in production.** The attendance port still denies every proof
-(`LOCAL_ATTENDANCE_UNAVAILABLE`) and the hours port denies every command
-(`TEMPORARILY_UNAVAILABLE`) until P2/W7 install real providers. The browser routes for these
+(`LOCAL_ATTENDANCE_UNAVAILABLE`) until P2 installs the real provider. The browser routes for these
 operations are unchanged and are not yet restricted to terminals.
+
+**Operating hours (P1 MR 7, revised D8).** After attendance, the server checks the branch's
+selling hours for operations that sell or open a shift: the structured weekly hours (W7), dated
+exceptions including confirmed gazette holidays, the owner's mandatory limits and unrevoked
+business extensions, in the branch's timezone at authorization time. Back-room stock operations
+(the five v1 operations: stocktake post, held write-off post, held delivery post, import stock
+post and import stock undo) are reviewed as not selling-time restricted; every other operation,
+including any added later and not reviewed, is hours-checked. Online commands never carry an
+hours exception: `operatingHoursExceptionId` must be `null` (`INVALID_COMMAND` otherwise). The
+online remedy for after-hours selling is a business extension approved on the web; the
+device-signed D8 acknowledgement is offline-outage evidence only.
 
 ### Endpoints
 
@@ -276,7 +296,9 @@ Bodies are `{ statusCode, code, message }`. The shared `TerminalApiError` shape 
 | 403 | `CHALLENGE_EXPIRED`, `CHALLENGE_INVALID`, `CHALLENGE_USED_OR_EXPIRED` | Not executed. Prepare again. |
 | 403 | `LOCAL_ATTENDANCE_UNAVAILABLE` | Attendance not proven. Not executed. |
 | 403 | `PERMISSION_DENIED`, `APPROVAL_REQUIRED`, `APPROVAL_INVALID` | Not executed. |
-| 403 | `TEMPORARILY_UNAVAILABLE` | Hours evidence provider unavailable. Not executed. |
+| 403 | `TEMPORARILY_UNAVAILABLE` | Selling-hours operation at a branch whose hours are unset, unreadable or in an unusable timezone (or no hours provider installed). Not executed; set the branch hours. |
+| 403 | `OUTSIDE_OPERATING_HOURS` | Outside the owner's mandatory limit. Nobody can override it. Not executed. |
+| 403 | `BUSINESS_HOURS_ACK_REQUIRED` | Outside routine hours with no business extension. A manager can approve an extension on the web. Not executed. |
 | 409 | `REPLAY_CONFLICT` | This `commandId` already committed with different content. Definitive. |
 | 400/404/409 | Domain message, e.g. "Approval changed; refresh and review before posting" | Not executed. |
 | 5xx / network | — | **Uncertain.** Resend the identical envelope. |

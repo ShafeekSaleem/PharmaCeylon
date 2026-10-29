@@ -133,7 +133,7 @@ export class ProductImportController {
   ) {
     return this.imports.startImport(
       user.tenantId,
-      user.userId,
+      user,
       req.branchId,
       file,
       parseMapping(mappingRaw),
@@ -167,7 +167,7 @@ export class ProductImportController {
   ) {
     return this.imports.startImport(
       user.tenantId,
-      user.userId,
+      user,
       req.branchId,
       file,
       parseMapping(mappingRaw),

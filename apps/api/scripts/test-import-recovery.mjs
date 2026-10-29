@@ -12,6 +12,7 @@ import { StockService } from "../dist/src/inventory/stock/stock.service.js";
 import { ImportStockService } from "../dist/src/product-import/import-stock.service.js";
 import { AccessService } from "../dist/src/security/access.service.js";
 import { PermissionsService } from "../dist/src/security/permissions.service.js";
+import { WorkerAuthority } from "../dist/src/security/worker-authority.js";
 
 if (
   process.env.PHASE67_DB_TEST_ACK !== "ephemeral-database" ||
@@ -47,6 +48,9 @@ const service = new ProductImportService(
   runner,
   tasks,
   stock,
+  new WorkerAuthority(
+    new AccessService(prisma, new PermissionsService(prisma, new ConfigService({}))),
+  ),
 );
 // The same live-authority check the undo-stock route passes: membership, token version, branch
 // assignment and the products.import grant, all read on undo's own transaction.
@@ -144,7 +148,7 @@ try {
   };
   const partial = await service.startImport(
     tenantId,
-    userId,
+    { userId, tokenVersion: 0 },
     branchId,
     file("partial", 101),
     mapping,
@@ -183,7 +187,7 @@ try {
     [1, 2].map(() =>
       service.startImport(
         tenantId,
-        userId,
+        { userId, tokenVersion: 0 },
         branchId,
         upload,
         mapping,
@@ -216,7 +220,7 @@ try {
   await assert.rejects(
     service.startImport(
       tenantId,
-      userId,
+      { userId, tokenVersion: 0 },
       branchId,
       file("different", 1),
       mapping,
