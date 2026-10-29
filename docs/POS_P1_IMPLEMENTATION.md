@@ -435,8 +435,10 @@ authority that started them.
   and a trigger makes creator/provenance immutable.
 - **NMRA register job.** Still in memory, so its durable provenance is the
   `products.nmra_import_started` audit event (user, token version, permission, row count). It
-  revalidates tenant-wide `nmra.import` inside each create/update transaction and before the
-  taxonomy, tag and alias phases; revocation fails the job with `products.nmra_import_stopped`.
+  revalidates tenant-wide `nmra.import` at the start of every write transaction: each product
+  create/update chunk and each taxonomy, tag and alias write batch (CategoryTaxonomyService's writes
+  run on that same transaction). Revocation stops the job at its next batch, keeps committed batches
+  and fails it with `products.nmra_import_stopped`.
 - **Maintenance-only writers.** `stock-projection.ts` (`rebuildBatchStock`,
   `convertLegacyStockState`) writes stock totals with no user authority, for seeds and repair.
   `scripts/check-maintenance-entrypoints.mjs`, run by `npm run lint -w api`, fails if anything

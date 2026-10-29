@@ -306,6 +306,52 @@ describe("NMRA register import job", () => {
     expect(await prisma.product.count({ where: { tenantId: fx.tenantId, registrationNo: reg } })).toBe(0);
   });
 
+  it("stops a relation phase at its next write batch when the permission is removed mid-phase", async () => {
+    const label = `MID-${randomUUID().slice(0, 8)}`;
+    // Two aliases per row (registration + dossier number): 500 aliases = batches of 400 and 100.
+    const rows = Array.from({ length: 250 }, (_, i) => ({ ...row(`${label}-${i}`), dossierNo: `D-${label}-${i}` }));
+    const initiator = workerInitiator(
+      { tenantId: fx.tenantId, userId: fx.managerId, tokenVersion: await tokenVersion(fx.managerId) },
+      null,
+      "nmra.import",
+    );
+    const service = nmra();
+    let phase = "";
+    let aliasChecks = 0;
+    const role = await prisma.userBranchRole.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, userId: fx.managerId, branchId: fx.mainBranchId },
+    });
+    const real = workers.assertCurrent.bind(workers);
+    jest.spyOn(workers, "assertCurrent").mockImplementation(async (tx, who) => {
+      // Between the first and second alias batch, on another connection.
+      if (phase === "aliases" && ++aliasChecks === 2)
+        await prisma.userBranchRole.delete({ where: { id: role.id } });
+      return real(tx, who);
+    });
+    try {
+      await expect(
+        (service as unknown as {
+          upsertRows(i: unknown, r: NmraProductRow[], p: (x: { phase: string }) => void): Promise<unknown>;
+        }).upsertRows(initiator, rows, (p) => {
+          phase = p.phase;
+        }),
+      ).rejects.toBeInstanceOf(WorkerAuthorityRevokedError);
+    } finally {
+      await prisma.userBranchRole.create({
+        data: { id: role.id, tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId, role: "manager" },
+      });
+    }
+    const products = await prisma.product.findMany({
+      where: { tenantId: fx.tenantId, registrationNo: { startsWith: label } },
+      select: { id: true },
+    });
+    expect(products).toHaveLength(250);
+    // The first alias batch committed; nothing after the revocation did.
+    expect(
+      await prisma.productAlias.count({ where: { tenantId: fx.tenantId, productId: { in: products.map((p) => p.id) } } }),
+    ).toBe(400);
+  });
+
   it("records who started the job and stops it on revocation", async () => {
     const service = nmra();
     const version = await tokenVersion(fx.ownerId);

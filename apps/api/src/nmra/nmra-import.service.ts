@@ -6,6 +6,7 @@ import {
 import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { tenantTransactionStorage } from "../prisma/tenant-transaction.store";
 import { AuditService } from "../audit/audit.service";
 import {
   CategoryTaxonomyService,
@@ -79,6 +80,20 @@ export class NmraImportService {
     if (tx) return this.workerAuthority.assertCurrent(tx, initiator);
     await this.prisma.$transaction((check) =>
       this.workerAuthority.assertCurrent(check, initiator),
+    );
+  }
+
+  /** One write batch on its own transaction, after revalidating the initiator on it. Every
+   * PrismaService call inside `work` — including CategoryTaxonomyService's — runs on that
+   * transaction, so no relation write lands after the starter's authority was revoked.
+   */
+  private writeBatch<T>(initiator: WorkerInitiator, work: () => Promise<T>): Promise<T> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.workerAuthority.assertCurrent(tx, initiator);
+        return tenantTransactionStorage.run({ tenantId: initiator.tenantId, client: tx }, work);
+      },
+      { timeout: 120_000, maxWait: 60_000 },
     );
   }
 
@@ -504,8 +519,7 @@ export class NmraImportService {
       updated,
       errorCount: errors.length,
     });
-    await this.assertInitiator(initiator);
-    const categoryMapsAdded = await this.ensureNmraTaxonomy(tenantId, uniqueRows, byReg);
+    const categoryMapsAdded = await this.ensureNmraTaxonomy(initiator, uniqueRows, byReg);
     processed += 1;
     emit({
       phase: "tags",
@@ -515,8 +529,7 @@ export class NmraImportService {
       updated,
       errorCount: errors.length,
     });
-    await this.assertInitiator(initiator);
-    const tagsTouched = await this.ensureNmraTags(tenantId, uniqueRows, byReg);
+    const tagsTouched = await this.ensureNmraTags(initiator, uniqueRows, byReg);
     processed += 1;
     emit({
       phase: "aliases",
@@ -526,8 +539,7 @@ export class NmraImportService {
       updated,
       errorCount: errors.length,
     });
-    await this.assertInitiator(initiator);
-    await this.ensureAliases(tenantId, uniqueRows, byReg);
+    await this.ensureAliases(initiator, uniqueRows, byReg);
     processed += 1;
     emit({
       phase: "done",
@@ -559,10 +571,11 @@ export class NmraImportService {
   }
 
   private async ensureNmraTaxonomy(
-    tenantId: string,
+    initiator: WorkerInitiator,
     rows: NmraProductRow[],
     byReg: Map<string, ExistingForNmraUpsert>,
   ): Promise<number> {
+    const { tenantId } = initiator;
     const dimensionByParentName: Record<
       "Dosage form" | "NMRA Schedule" | "Registration type",
       RegulatoryDimension
@@ -577,7 +590,11 @@ export class NmraImportService {
     for (const [parentName, dimension] of Object.entries(dimensionByParentName) as Array<
       [keyof typeof dimensionByParentName, RegulatoryDimension]
     >) {
-      const id = rootIds[dimension] ?? (await this.categoryTaxonomy.ensureDimensionRoot(tenantId, dimension));
+      const id =
+        rootIds[dimension] ??
+        (await this.writeBatch(initiator, () =>
+          this.categoryTaxonomy.ensureDimensionRoot(tenantId, dimension),
+        ));
       parentIdByName.set(parentName, id);
     }
 
@@ -623,7 +640,9 @@ export class NmraImportService {
       });
     }
     for (const chunk of chunkArray(missingChildren, RELATION_BATCH)) {
-      await this.prisma.productCategory.createMany({ data: chunk, skipDuplicates: true });
+      await this.writeBatch(initiator, () =>
+        this.prisma.productCategory.createMany({ data: chunk, skipDuplicates: true }),
+      );
     }
 
     const maps: Prisma.ProductCategoryMapCreateManyInput[] = [];
@@ -650,10 +669,12 @@ export class NmraImportService {
 
     let mapsAdded = 0;
     for (const chunk of chunkArray(maps, RELATION_BATCH)) {
-      const res = await this.prisma.productCategoryMap.createMany({
-        data: chunk,
-        skipDuplicates: true,
-      });
+      const res = await this.writeBatch(initiator, () =>
+        this.prisma.productCategoryMap.createMany({
+          data: chunk,
+          skipDuplicates: true,
+        }),
+      );
       mapsAdded += res.count;
     }
 
@@ -661,49 +682,56 @@ export class NmraImportService {
     // Imports never overwrite an existing commercial mapping; products still missing one
     // land in the safe "Medicines → Unclassified Medicines" default — deterministic/AI
     // commercial classification can refine this later without touching NMRA-sourced data.
-    await this.categoryTaxonomy.ensureCommercialTemplate(tenantId);
-    await this.categoryTaxonomy.assignMissingPrimaryCommercial(
-      tenantId,
-      [...productIdsThisBatch],
-      UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
-      "SYSTEM_DEFAULT",
+    await this.writeBatch(initiator, () => this.categoryTaxonomy.ensureCommercialTemplate(tenantId));
+    await this.writeBatch(initiator, () =>
+      this.categoryTaxonomy.assignMissingPrimaryCommercial(
+        tenantId,
+        [...productIdsThisBatch],
+        UNCLASSIFIED_MEDICINES_CANONICAL_KEY,
+        "SYSTEM_DEFAULT",
+      ),
     );
     // Tier 1 of the classification design: deterministic generic-name/dosage-form rules move
     // confident matches out of Unclassified Medicines; anything ambiguous stays there for review.
-    await this.categoryTaxonomy.applyDeterministicMedicineClassification(tenantId);
+    await this.writeBatch(initiator, () =>
+      this.categoryTaxonomy.applyDeterministicMedicineClassification(tenantId),
+    );
 
     return mapsAdded;
   }
 
   private async ensureNmraTags(
-    tenantId: string,
+    initiator: WorkerInitiator,
     rows: NmraProductRow[],
     byReg: Map<string, ExistingForNmraUpsert>,
   ): Promise<number> {
+    const { tenantId } = initiator;
     const tagIdByName = new Map<string, string>();
-    for (const t of NMRA_TAG_DEFS) {
-      // Match on canonicalKey first: a tag created before the key existed is found by name and
-      // adopted, so an existing tenant's tags are locked rather than duplicated.
-      const existing =
-        (await this.prisma.productTag.findFirst({
-          where: { tenantId, canonicalKey: t.canonicalKey },
-        })) ??
-        (await this.prisma.productTag.findFirst({ where: { tenantId, name: t.name } }));
-      if (existing) {
-        if (!existing.isSystem || existing.canonicalKey !== t.canonicalKey) {
-          await this.prisma.productTag.updateMany({
-            where: { id: existing.id, tenantId },
-            data: { isSystem: true, canonicalKey: t.canonicalKey },
+    await this.writeBatch(initiator, async () => {
+      for (const t of NMRA_TAG_DEFS) {
+        // Match on canonicalKey first: a tag created before the key existed is found by name and
+        // adopted, so an existing tenant's tags are locked rather than duplicated.
+        const existing =
+          (await this.prisma.productTag.findFirst({
+            where: { tenantId, canonicalKey: t.canonicalKey },
+          })) ??
+          (await this.prisma.productTag.findFirst({ where: { tenantId, name: t.name } }));
+        if (existing) {
+          if (!existing.isSystem || existing.canonicalKey !== t.canonicalKey) {
+            await this.prisma.productTag.updateMany({
+              where: { id: existing.id, tenantId },
+              data: { isSystem: true, canonicalKey: t.canonicalKey },
+            });
+          }
+          tagIdByName.set(t.name, existing.id);
+        } else {
+          const created = await this.prisma.productTag.create({
+            data: { tenantId, name: t.name, canonicalKey: t.canonicalKey, isSystem: true },
           });
+          tagIdByName.set(t.name, created.id);
         }
-        tagIdByName.set(t.name, existing.id);
-      } else {
-        const created = await this.prisma.productTag.create({
-          data: { tenantId, name: t.name, canonicalKey: t.canonicalKey, isSystem: true },
-        });
-        tagIdByName.set(t.name, created.id);
       }
-    }
+    });
 
     const maps: Prisma.ProductTagMapCreateManyInput[] = [];
     for (const row of rows) {
@@ -722,20 +750,23 @@ export class NmraImportService {
 
     let touched = 0;
     for (const chunk of chunkArray(maps, RELATION_BATCH)) {
-      const res = await this.prisma.productTagMap.createMany({
-        data: chunk,
-        skipDuplicates: true,
-      });
+      const res = await this.writeBatch(initiator, () =>
+        this.prisma.productTagMap.createMany({
+          data: chunk,
+          skipDuplicates: true,
+        }),
+      );
       touched += res.count;
     }
     return touched;
   }
 
   private async ensureAliases(
-    tenantId: string,
+    initiator: WorkerInitiator,
     rows: NmraProductRow[],
     byReg: Map<string, ExistingForNmraUpsert>,
   ) {
+    const { tenantId } = initiator;
     const aliases: Prisma.ProductAliasCreateManyInput[] = [];
     const seen = new Set<string>();
     for (const row of rows) {
@@ -753,7 +784,9 @@ export class NmraImportService {
       }
     }
     for (const chunk of chunkArray(aliases, RELATION_BATCH)) {
-      await this.prisma.productAlias.createMany({ data: chunk, skipDuplicates: true });
+      await this.writeBatch(initiator, () =>
+        this.prisma.productAlias.createMany({ data: chunk, skipDuplicates: true }),
+      );
     }
   }
 

@@ -15,6 +15,7 @@ describe("NmraImportService.ensureNmraTaxonomy", () => {
   const tenantId = "tenant-1";
 
   type PrismaMock = {
+    $transaction: jest.Mock;
     productCategory: {
       findFirst: jest.Mock;
       findMany: jest.Mock;
@@ -29,7 +30,9 @@ describe("NmraImportService.ensureNmraTaxonomy", () => {
 
   function makePrisma(): PrismaMock {
     let createCounter = 0;
-    return {
+    const mock: PrismaMock = {
+      // Write batches run on a transaction; here it is the same mock.
+      $transaction: jest.fn(async (work: (tx: unknown) => unknown) => work(mock)),
       productCategory: {
         // Only the commercial "Unclassified Medicines" fallback pre-exists; everything else
         // (regulatory dimension roots, commercial template) is created fresh by this run.
@@ -50,6 +53,7 @@ describe("NmraImportService.ensureNmraTaxonomy", () => {
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
+    return mock;
   }
 
   function makeService(prisma: PrismaMock) {
@@ -60,6 +64,7 @@ describe("NmraImportService.ensureNmraTaxonomy", () => {
     } as never);
   }
 
+  const initiator = { tenantId, userId: "user-1", tokenVersion: 0, branchId: null, permission: "nmra.import" };
   const row: NmraProductRow = {
     id: "row-1",
     sku: "SKU-1",
@@ -94,7 +99,7 @@ describe("NmraImportService.ensureNmraTaxonomy", () => {
     const service = makeService(prisma);
     const byReg = new Map([["REG-1", { id: "prod-1", registrationNo: "REG-1", sku: "SKU-1", barcode: null }]]);
 
-    await (service as unknown as { ensureNmraTaxonomy: Function }).ensureNmraTaxonomy(tenantId, [row], byReg);
+    await (service as unknown as { ensureNmraTaxonomy: Function }).ensureNmraTaxonomy(initiator, [row], byReg);
 
     const allMapRows = prisma.productCategoryMap.createMany.mock.calls.flatMap((c) => c[0].data);
     const regulatoryMaps = allMapRows.filter((m) => m.productId === "prod-1" && m.dimension !== "COMMERCIAL");
@@ -121,7 +126,7 @@ describe("NmraImportService.ensureNmraTaxonomy", () => {
     const service = makeService(prisma);
     const byReg = new Map([["REG-1", { id: "prod-1", registrationNo: "REG-1", sku: "SKU-1", barcode: null }]]);
 
-    await (service as unknown as { ensureNmraTaxonomy: Function }).ensureNmraTaxonomy(tenantId, [row], byReg);
+    await (service as unknown as { ensureNmraTaxonomy: Function }).ensureNmraTaxonomy(initiator, [row], byReg);
 
     const allMapRows = prisma.productCategoryMap.createMany.mock.calls.flatMap((c) => c[0].data);
     const commercialMap = allMapRows.find((m) => m.productId === "prod-1" && m.dimension === "COMMERCIAL");
