@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -18,7 +19,12 @@ import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/ide
 import { PrismaService } from "../prisma/prisma.service";
 import { StockService } from "../inventory/stock/stock.service";
 import { raiseDebitNoteForReturn } from "../purchasing/ledger/supplier-ledger.service";
-import { assertMayApprove, type ActorAccess } from "../security/access.service";
+import { AccessService, type ActorAccess } from "../security/access.service";
+import type { ApproveHeldDto, PostHeldDto } from "../security/dto/approve-held.dto";
+import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { ManagementApprovalsService } from "../security/management-approvals.service";
+import { documentReview, goodsReturnMaterial } from "../security/receiving-approval-material";
+import type { CommandProvenance } from "../terminals/command-provenance";
 import { assertSaleReturnableLines } from "../sales/sale-returnable";
 import { CreateReturnDto, ReturnLineDto } from "./dto/create-return.dto";
 import { UpdateReturnDto } from "./dto/update-return.dto";
@@ -44,13 +50,79 @@ const LIST_INCLUDE = {
   },
 } as const;
 
+type Tx = Prisma.TransactionClient;
+type ReturnRow = Prisma.GoodsReturnGetPayload<{ include: typeof LIST_INCLUDE }>;
+const COMPLETE = "goods_return.complete" as const;
+/** Statuses a supplier return can still be (re)approved in; dispatch needs the latter two. */
+const APPROVABLE: GoodsReturnStatus[] = [
+  GoodsReturnStatus.pending_approval,
+  GoodsReturnStatus.awaiting_logistics,
+  GoodsReturnStatus.in_review,
+];
+
+/**
+ * Supplier returns under D10: preparing, reviewing and approving happen anywhere; sending the
+ * goods back is physical. Approval records exact evidence of the return as it stood (lines,
+ * batches, quantities, prices) and moves nothing. Completion is the counter's step: it is
+ * pinned to the approval the operator saw, rechecks it after the stock locks, issues the stock
+ * through StockService and raises the supplier debit note in the same transaction.
+ */
 @Injectable()
 export class ReturnsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly stock: StockService,
+    private readonly access: AccessService,
+    private readonly approvals: ManagementApprovalsService,
   ) {}
+
+  /** The latest exact approval per return. A newer one replaces it; revocation keeps the row. */
+  private async latestApprovals(db: Tx | PrismaService, tenantId: string, branchId: string, ids: string[]) {
+    const rows = ids.length
+      ? await db.managementApproval.findMany({
+          where: { tenantId, branchId, documentType: "goods_return", authorizedAction: COMPLETE, documentId: { in: ids } },
+          orderBy: [{ approvedAt: "desc" }, { id: "desc" }],
+          select: { id: true, documentId: true, revokedAt: true, documentVersion: true, documentDigest: true,
+            approvedByUserId: true, approvedAt: true },
+        })
+      : [];
+    const latest = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) if (!latest.has(row.documentId)) latest.set(row.documentId, row);
+    return latest;
+  }
+
+  /** What the screens need to tell approval apart from dispatch. */
+  private async withApproval(tenantId: string, branchId: string, rows: ReturnRow[]) {
+    const latest = await this.latestApprovals(this.prisma, tenantId, branchId, rows.map((row) => row.id));
+    return rows.map((row) => {
+      const reviewable = row.type === GoodsReturnType.supplier && APPROVABLE.includes(row.status);
+      const review = reviewable ? documentReview("goods_return", row.approvalVersion, goodsReturnMaterial(row)) : null;
+      const approval = latest.get(row.id);
+      const usable = !!approval && !approval.revokedAt && !!review
+        && approval.documentVersion === review.expectedVersion && approval.documentDigest === review.expectedDigest;
+      return {
+        ...row,
+        approvalReview: review,
+        // Dispatch posts against exactly this approval; null means approve (again) first.
+        executionApprovalId: usable || row.status === GoodsReturnStatus.completed ? (approval?.id ?? null) : null,
+        approvalApprovedBy: approval?.approvedByUserId ?? null,
+        approvalApprovedAt: approval?.approvedAt.toISOString() ?? null,
+      };
+    });
+  }
+
+  /** An approver who may approve their own returns submits and approves in one step. */
+  private async approveOwn(tx: Tx, user: RequestUser, branchId: string, id: string) {
+    const doc = await this.approvals.preview(tx, user, branchId, COMPLETE, id);
+    return this.approvals.issue(tx, user, branchId, COMPLETE, id, {
+      approvalId: randomUUID(),
+      expectedVersion: doc.identity.documentVersion,
+      expectedDigest: doc.identity.documentDigest,
+      reason: "Submitted and approved by an approver who may approve their own returns",
+      expiresAt: null,
+    });
+  }
 
   /**
    * May this person's submission count as its own approval? Only if they hold
@@ -409,11 +481,12 @@ export class ReturnsService {
   }
 
   async list(tenantId: string, branchId: string) {
-    return this.prisma.goodsReturn.findMany({
+    const rows = await this.prisma.goodsReturn.findMany({
       where: { tenantId, branchId },
       orderBy: { createdAt: "desc" },
       include: LIST_INCLUDE,
     });
+    return this.withApproval(tenantId, branchId, rows);
   }
 
   async getOne(tenantId: string, branchId: string, id: string) {
@@ -422,15 +495,16 @@ export class ReturnsService {
       include: LIST_INCLUDE,
     });
     if (!row) throw new NotFoundException("Return not found");
-    return row;
+    return (await this.withApproval(tenantId, branchId, [row]))[0]!;
   }
 
   async create(
-    tenantId: string,
+    user: RequestUser,
     branchId: string,
     access: ActorAccess,
     dto: CreateReturnDto,
   ) {
+    const tenantId = user.tenantId;
     const userId = access.userId;
     // One door for a customer return: the till, where the money is refunded with it. Raised here
     // it put stock back and recorded no refund at all.
@@ -483,35 +557,15 @@ export class ReturnsService {
     const { status, approvedBy } = resolved;
     const returnNumber = await this.nextReturnNumber(tenantId, branchId);
 
-    let created;
-    try {
-      created = await this.prisma.goodsReturn.create({
-        data: this.createData(
-          tenantId,
-          branchId,
-          userId,
-          returnNumber,
-          dto,
-          status,
-          approvedBy,
-          amount,
-          poGrn.purchaseOrderId,
-          poGrn.goodsReceiptId,
-        ),
-        include: LIST_INCLUDE,
-      });
-    } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === "P2002"
-      ) {
-        const fallback = `RET-${randomUUID().replace(/-/g, "").slice(0, 5).toUpperCase()}`;
-        created = await this.prisma.goodsReturn.create({
+    // Created, approved (by an approver who may approve their own) and audited together.
+    const attempt = (number: string) =>
+      this.prisma.$transaction(async (tx) => {
+        const created = await tx.goodsReturn.create({
           data: this.createData(
             tenantId,
             branchId,
             userId,
-            fallback,
+            number,
             dto,
             status,
             approvedBy,
@@ -519,24 +573,44 @@ export class ReturnsService {
             poGrn.purchaseOrderId,
             poGrn.goodsReceiptId,
           ),
-          include: LIST_INCLUDE,
         });
+        const evidence = resolved.autoApproved ? await this.approveOwn(tx, user, branchId, created.id) : null;
+        await this.audit.log(
+          {
+            tenantId,
+            branchId,
+            actorUserId: userId,
+            eventName: resolved.autoApproved ? "return.created_and_approved" : "return.created",
+            entityName: "goods_return",
+            entityId: created.id,
+            payload: {
+              status,
+              returnNumber: created.returnNumber,
+              autoApproved: resolved.autoApproved,
+              approvalId: evidence?.approvalId ?? null,
+              stockPosted: false,
+            },
+          },
+          tx,
+        );
+        return created;
+      });
+
+    let created;
+    try {
+      created = await attempt(returnNumber);
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        created = await attempt(`RET-${randomUUID().replace(/-/g, "").slice(0, 5).toUpperCase()}`);
       } else {
         throw e;
       }
     }
 
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: userId,
-      eventName: resolved.autoApproved ? "return.created_and_approved" : "return.created",
-      entityName: "goods_return",
-      entityId: created.id,
-      payload: { status, returnNumber: created.returnNumber, autoApproved: resolved.autoApproved },
-    });
-
-    return created;
+    return this.getOne(tenantId, branchId, created.id);
   }
 
   async update(
@@ -649,11 +723,12 @@ export class ReturnsService {
   }
 
   async submit(
-    tenantId: string,
+    user: RequestUser,
     branchId: string,
     access: ActorAccess,
     id: string,
   ) {
+    const tenantId = user.tenantId;
     const userId = access.userId;
     const existing = await this.getOne(tenantId, branchId, id);
     if (existing.status !== GoodsReturnStatus.draft) {
@@ -672,68 +747,91 @@ export class ReturnsService {
       ? GoodsReturnStatus.awaiting_logistics
       : GoodsReturnStatus.pending_approval;
 
-    const claimed = await this.prisma.goodsReturn.updateMany({
-      where: {
-        id,
-        tenantId,
-        branchId,
-        status: GoodsReturnStatus.draft,
-      },
-      data: {
-        status: nextStatus,
-        approvedBy: isMgr ? userId : null,
-      },
-    });
-    if (claimed.count !== 1) {
-      throw new BadRequestException("Return can no longer be submitted");
-    }
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.goodsReturn.updateMany({
+        where: {
+          id,
+          tenantId,
+          branchId,
+          status: GoodsReturnStatus.draft,
+        },
+        data: {
+          status: nextStatus,
+          approvedBy: isMgr ? userId : null,
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new BadRequestException("Return can no longer be submitted");
+      }
+      const evidence =
+        isMgr && existing.type === GoodsReturnType.supplier
+          ? await this.approveOwn(tx, user, branchId, id)
+          : null;
 
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: userId,
-      eventName: isMgr ? "return.submitted_and_approved" : "return.submitted",
-      entityName: "goods_return",
-      entityId: id,
-      payload: { status: nextStatus },
+      await this.audit.log(
+        {
+          tenantId,
+          branchId,
+          actorUserId: userId,
+          eventName: isMgr ? "return.submitted_and_approved" : "return.submitted",
+          entityName: "goods_return",
+          entityId: id,
+          payload: { status: nextStatus, approvalId: evidence?.approvalId ?? null, stockPosted: false },
+        },
+        tx,
+      );
     });
 
     return this.getOne(tenantId, branchId, id);
   }
 
-  async approve(
-    tenantId: string,
-    branchId: string,
-    access: ActorAccess,
-    id: string,
-  ) {
-    const userId = access.userId;
-    const existing = await this.getOne(tenantId, branchId, id);
-    assertMayApprove(access, [existing.requestedBy], "return");
-
-    const claimed = await this.prisma.goodsReturn.updateMany({
-      where: {
-        id,
-        tenantId,
-        branchId,
-        status: GoodsReturnStatus.pending_approval,
-      },
-      data: {
-        status: GoodsReturnStatus.awaiting_logistics,
-        approvedBy: userId,
-      },
-    });
-    if (claimed.count !== 1) {
-      throw new BadRequestException("Return is not awaiting approval at this branch");
-    }
-
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: userId,
-      eventName: "return.approved",
-      entityName: "goods_return",
-      entityId: id,
+  /**
+   * Records exact approval of the return on screen (`approvalReview`) and hands it to the branch
+   * for dispatch. Nothing leaves stock here. A return already approved whose evidence is missing
+   * (approved before exact approvals existed) or no longer usable can be approved again.
+   */
+  async approve(user: RequestUser, branchId: string, id: string, input: ApproveHeldDto) {
+    const tenantId = user.tenantId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM goods_return WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+      const existing = await tx.goodsReturn.findFirst({ where: { id, tenantId, branchId } });
+      if (!existing) throw new NotFoundException("Return not found");
+      if (!APPROVABLE.includes(existing.status)) {
+        throw new BadRequestException("Return is not awaiting approval at this branch");
+      }
+      // Permission, self-approval, supplier type and the exact revision/digest are checked here.
+      const evidence = await this.approvals.issue(tx, user, branchId, COMPLETE, id, {
+        ...input,
+        reason: "Approve exact supplier return",
+        expiresAt: null,
+      });
+      // Status and approver are bookkeeping, not approved material: the evidence stays usable.
+      await tx.goodsReturn.update({
+        where: { id, tenantId, branchId },
+        data: {
+          approvedBy: user.userId,
+          ...(existing.status === GoodsReturnStatus.pending_approval
+            ? { status: GoodsReturnStatus.awaiting_logistics }
+            : {}),
+        },
+      });
+      await this.audit.log(
+        {
+          tenantId,
+          branchId,
+          actorUserId: user.userId,
+          eventName: "return.approved",
+          entityName: "goods_return",
+          entityId: id,
+          payload: {
+            approvalId: evidence.approvalId,
+            requestedByUserId: existing.requestedBy,
+            reapproved: existing.status !== GoodsReturnStatus.pending_approval,
+            stockPosted: false,
+          },
+        },
+        tx,
+      );
     });
 
     return this.getOne(tenantId, branchId, id);
@@ -810,21 +908,15 @@ export class ReturnsService {
     return this.getOne(tenantId, branchId, id);
   }
 
+  /** Browser dispatch: the shared core plus the optional user-scoped Idempotency-Key. */
   async complete(
-    tenantId: string,
+    user: RequestUser,
     branchId: string,
-    userId: string,
     id: string,
+    input: PostHeldDto,
     idempotencyKeyRaw?: string,
   ) {
-    const existing = await this.prisma.goodsReturn.findFirst({
-      where: { id, tenantId, branchId },
-    });
-    if (!existing) throw new NotFoundException("Return not found");
-    if (existing.status === GoodsReturnStatus.completed) {
-      return this.getOne(tenantId, branchId, id);
-    }
-
+    const { tenantId, userId } = user;
     const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
     if (idemKey) {
       const row = await this.prisma.idempotencyRecord.findUnique({
@@ -849,99 +941,15 @@ export class ReturnsService {
 
     try {
       await this.prisma.$transaction(async (tx) => {
-        const claimed = await tx.goodsReturn.updateMany({
-          where: {
-            id,
-            tenantId,
-            branchId,
-            status: {
-              in: [GoodsReturnStatus.in_review, GoodsReturnStatus.awaiting_logistics],
-            },
-          },
-          data: {
-            status: GoodsReturnStatus.completed,
-            processedBy: userId,
-          },
-        });
-        if (claimed.count !== 1) {
-          throw new BadRequestException(
-            "Return must be in review or awaiting logistics to complete",
-          );
-        }
-
-        const row = await tx.goodsReturn.findFirst({
-          where: { id, tenantId, branchId },
-          include: { items: true },
-        });
-        if (!row) throw new NotFoundException("Return not found");
-        // A customer return raised on the old Returns page restocked without refunding anyone.
-        // Those still open are cancelled and refunded at the till instead.
-        if (row.type === GoodsReturnType.customer) {
-          throw new BadRequestException(
-            "Cancel this return and refund the sale at the till instead — completing it here would put stock back without refunding the customer.",
-          );
-        }
-
-        for (const line of row.items) {
-          if (!line.batchId) {
-            throw new BadRequestException("batchId is required on all items to complete a return");
-          }
-        }
-        const stockCtx = {
-          tenantId,
-          branchId,
-          userId,
-          referenceType: "goods_return",
-          referenceId: row.id,
-        };
-        if (row.type === GoodsReturnType.supplier) {
-          // Stock going back to a supplier is usually the stock already held back — expired,
-          // damaged, recalled — so quarantined units are sent before sellable ones.
-          await this.stock.issue(
-            tx,
-            stockCtx,
-            row.items.map((line) => ({
-              productId: line.productId,
-              batchId: line.batchId!,
-              qty: line.qty,
-              movementType: StockMovementType.supplier_return_out,
-              from: "quarantine_first" as const,
-            })),
-          );
-
-          // The goods have gone back, so the money for them is owed back too. Raised here, in
-          // the same transaction, so a completed supplier return can never exist without its
-          // claim — it used to reduce the shelf and leave the supplier's bill untouched.
-          if (row.supplierId) {
-            const batches = await tx.batch.findMany({
-              where: { tenantId, id: { in: row.items.map((line) => line.batchId!) } },
-              select: { id: true, costPrice: true },
-            });
-            const costByBatch = new Map(batches.map((batch) => [batch.id, batch.costPrice]));
-            await raiseDebitNoteForReturn(tx, {
-              tenantId,
-              branchId,
-              userId,
-              goodsReturnId: row.id,
-              supplierId: row.supplierId,
-              reason: row.reason,
-              lines: row.items.map((line) => ({
-                qty: line.qty,
-                unitPrice: line.unitPrice,
-                batchCost: costByBatch.get(line.batchId!) ?? null,
-              })),
-            });
-          }
-        }
-
-        if (idemKey) {
+        const done = await this.completeInTransaction(tx, user, branchId, id, input);
+        if (idemKey && done.changed) {
           await tx.idempotencyRecord.create({
             data: {
               tenantId,
               userId,
               scope: IDEMPOTENCY_SCOPE.returnComplete,
               idempotencyKey: idemKey,
-              resourceId: row.id,
+              resourceId: id,
             },
           });
         }
@@ -953,16 +961,137 @@ export class ReturnsService {
       throw e;
     }
 
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: userId,
-      eventName: "return.completed",
-      entityName: "goods_return",
-      entityId: id,
+    return this.getOne(tenantId, branchId, id);
+  }
+
+  /**
+   * Dispatch core shared by the browser route and the signed terminal executor, in the caller's
+   * READ COMMITTED transaction. The goods leave stock (quarantined units first) and the supplier
+   * debit note is raised together; `command` is verified provenance for the success audit.
+   */
+  async completeInTransaction(
+    tx: Tx,
+    user: RequestUser,
+    branchId: string,
+    id: string,
+    input: PostHeldDto,
+    command?: CommandProvenance,
+  ) {
+    const { tenantId, userId } = user;
+    await tx.$queryRaw`SELECT id FROM goods_return WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+    const row = await tx.goodsReturn.findFirst({
+      where: { id, tenantId, branchId },
+      include: {
+        items: { where: { tenantId }, orderBy: { id: "asc" } },
+        debitNote: { select: { id: true } },
+      },
+    });
+    if (!row) throw new NotFoundException("Return not found");
+    const actor = await this.access.resolveLive(user, branchId, tx);
+    if (!actor.has("returns.process")) {
+      throw new ForbiddenException("Return processing permission required");
+    }
+    // A customer return raised on the old Returns page restocked without refunding anyone.
+    // Those still open are cancelled and refunded at the till instead.
+    if (row.type === GoodsReturnType.customer) {
+      throw new BadRequestException(
+        "Cancel this return and refund the sale at the till instead — completing it here would put stock back without refunding the customer.",
+      );
+    }
+    // The approval the operator saw, not whatever is current: a replaced approval is re-reviewed.
+    const current = (await this.latestApprovals(tx, tenantId, branchId, [id])).get(id);
+    if (!current || current.id !== input.approvalId) {
+      throw new ConflictException("Approval changed; refresh and review before dispatching");
+    }
+    if (row.status === GoodsReturnStatus.completed) {
+      return { actor, changed: false, approvalId: current.id, debitNoteId: row.debitNote?.id ?? null };
+    }
+    if (
+      row.status !== GoodsReturnStatus.in_review &&
+      row.status !== GoodsReturnStatus.awaiting_logistics
+    ) {
+      throw new BadRequestException(
+        "Return must be in review or awaiting logistics to complete",
+      );
+    }
+    for (const line of row.items) {
+      if (!line.batchId) {
+        throw new BadRequestException("batchId is required on all items to complete a return");
+      }
+    }
+
+    const authorize = () =>
+      this.approvals.requireForExecution(tx, user, branchId, COMPLETE, id, input.approvalId);
+    await authorize();
+    // Live approver/executor authority again after waiting for the batch locks.
+    await this.stock.lockBatches(tx, tenantId, row.items.map((line) => line.batchId!));
+    const evidence = await authorize();
+
+    // Stock going back to a supplier is usually the stock already held back — expired,
+    // damaged, recalled — so quarantined units are sent before sellable ones.
+    await this.stock.issue(
+      tx,
+      { tenantId, branchId, userId, referenceType: "goods_return", referenceId: row.id },
+      row.items.map((line) => ({
+        productId: line.productId,
+        batchId: line.batchId!,
+        qty: line.qty,
+        movementType: StockMovementType.supplier_return_out,
+        from: "quarantine_first" as const,
+      })),
+    );
+
+    // The goods have gone back, so the money for them is owed back too. Raised here, in
+    // the same transaction, so a completed supplier return can never exist without its
+    // claim — it used to reduce the shelf and leave the supplier's bill untouched.
+    let debitNoteId: string | null = null;
+    if (row.supplierId) {
+      const batches = await tx.batch.findMany({
+        where: { tenantId, id: { in: row.items.map((line) => line.batchId!) } },
+        select: { id: true, costPrice: true },
+      });
+      const costByBatch = new Map(batches.map((batch) => [batch.id, batch.costPrice]));
+      const note = await raiseDebitNoteForReturn(tx, {
+        tenantId,
+        branchId,
+        userId,
+        goodsReturnId: row.id,
+        supplierId: row.supplierId,
+        reason: row.reason,
+        lines: row.items.map((line) => ({
+          qty: line.qty,
+          unitPrice: line.unitPrice,
+          batchCost: costByBatch.get(line.batchId!) ?? null,
+        })),
+      });
+      debitNoteId = note?.id ?? null;
+    }
+
+    await tx.goodsReturn.update({
+      where: { id, tenantId, branchId },
+      data: { status: GoodsReturnStatus.completed, processedBy: userId },
     });
 
-    return this.getOne(tenantId, branchId, id);
+    await this.audit.log(
+      {
+        tenantId,
+        branchId,
+        actorUserId: userId,
+        eventName: "return.completed",
+        entityName: "goods_return",
+        entityId: id,
+        payload: {
+          approvalId: evidence.approvalId,
+          debitNoteId,
+          requestedByUserId: row.requestedBy,
+          approvedByUserId: evidence.approvedByUserId,
+          executedByUserId: userId,
+          ...(command ? { command } : {}),
+        },
+      },
+      tx,
+    );
+    return { actor, changed: true, approvalId: evidence.approvalId, debitNoteId };
   }
 
   async cancel(

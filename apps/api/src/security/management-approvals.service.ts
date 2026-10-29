@@ -214,6 +214,46 @@ export class ManagementApprovalsService {
     return approval;
   }
 
+  /** Live authority again after a later lock wait, for a document this transaction verified with
+   * `requireForExecution` and has held locked since. The caller's own effects may already have
+   * moved execution counters, so the document is the verified identity, not a fresh digest.
+   */
+  async recheckAuthority(
+    tx: Tx,
+    user: RequestUser,
+    branchId: string,
+    approval: ManagementApprovalEvidence,
+  ) {
+    const policy = approvalAction(approval.authorizedAction);
+    const actor = await this.access.resolveLive(user, branchId, tx);
+    if (!actor.has(policy.executionPermission)) denied("PERMISSION_DENIED");
+    const row = await tx.managementApproval.findFirst({
+      where: { tenantId: user.tenantId, branchId, id: approval.approvalId },
+    });
+    if (!row) denied("APPROVAL_REQUIRED");
+    let approver;
+    try {
+      approver = await this.access.resolveApprovalAuthority(
+        { tenantId: user.tenantId, userId: row.approvedByUserId },
+        branchId,
+        tx,
+      );
+    } catch {
+      denied("APPROVAL_INVALID");
+    }
+    const current = evidence(row);
+    const error = approvalUseError(current, {
+      currentDocument: approval.document,
+      authorizedAction: approval.authorizedAction,
+      trustedNow: Date.now(),
+      approverStillAuthorized: approver.has(policy.approvalPermission),
+      mayApproveOwnRequests: approver.canSelfApprove,
+    });
+    if (error) denied(error);
+    assertMayApprove(approver, [approval.document.requestedByUserId], approval.document.documentType);
+    return current;
+  }
+
   async revoke(
     tx: Tx,
     user: RequestUser,
@@ -274,7 +314,12 @@ export class ManagementApprovalsService {
       await tx.$queryRaw`SELECT id FROM transfer WHERE tenant_id = ${row.tenantId}::uuid AND from_branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else if (row.documentType === "sale_refund")
       await tx.$queryRaw`SELECT id FROM sale_refund_request WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
-    else if (row.documentType === "goods_return")
+    else if (row.documentType === "prepared_receipt") {
+      const doc = await tx.preparedReceipt.findFirst({ where: { tenantId: row.tenantId, branchId: row.branchId, id: row.documentId }, select: { purchaseOrderId: true } });
+      if (!doc) denied("APPROVAL_INVALID");
+      await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${doc.purchaseOrderId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM prepared_receipt WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
+    } else if (row.documentType === "goods_return")
       await tx.$queryRaw`SELECT id FROM goods_return WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else denied("APPROVAL_INVALID");
   }

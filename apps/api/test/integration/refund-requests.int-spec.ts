@@ -77,7 +77,7 @@ const authorization = new OperationAuthorizationService(access, trust, new OpenH
 const sales = new SalesService(proxy as never, audit, {} as never, {} as never, {} as never, stock);
 const refunds = new RefundRequestsService(proxy as never, audit, access, approvals, sales, stock);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
-  new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, refunds),
+  new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, refunds),
   audit, access);
 const EXECUTE = "POST /api/v1/sales/refund-requests/:id/execute" satisfies SignedPhysicalOperation;
 

@@ -82,7 +82,7 @@ const trust = new TerminalTrustService(access, audit, attendance);
 const authorization = new OperationAuthorizationService(access, trust, new OpenHours(), approvals);
 const transfers = new TransfersService(proxy as never, audit, stock, access, approvals);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
-  new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, transfers, {} as never),
+  new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, transfers, {} as never, {} as never, {} as never),
   audit, access);
 
 const SHIP = "POST /api/v1/transfers/:id/ship" satisfies SignedPhysicalOperation;

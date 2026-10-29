@@ -96,6 +96,8 @@ function setup(existing: Record<string, unknown> | null = null) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
+    {} as never,
   );
   const authorization = {
     authorize: jest.fn(async (_tx: unknown, _u: unknown, _b: unknown, _d: unknown,
@@ -333,7 +335,7 @@ describe("TerminalCommandExecutor", () => {
 });
 
 describe("SignedOperations body parsers", () => {
-  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
   const parse = (body: unknown) =>
     ops.get("POST /api/v1/products/import/:importId/stock/post").descriptor.parseBody(body);
   const importId = randomUUID();
@@ -363,6 +365,8 @@ describe("SignedOperations body parsers", () => {
       "POST /api/v1/products/import/:importId/stock/post",
       "POST /api/v1/products/import/:importId/undo-stock",
       "POST /api/v1/purchasing/held-deliveries/:id/post",
+      "POST /api/v1/purchasing/prepared-receipts/:id/post",
+      "POST /api/v1/returns/:id/complete",
       "POST /api/v1/sales/refund-requests/:id/execute",
       "POST /api/v1/stocktakes/:id/post",
       "POST /api/v1/transfers/:id/receive",
@@ -412,6 +416,27 @@ describe("SignedOperations body parsers", () => {
       const id = randomUUID();
       expect(refund.parseBody({ refundRequestId: id })).toEqual({ refundRequestId: id });
       expect(() => refund.parseBody({ refundRequestId: id, amount: 1 })).toThrow();
+    });
+  });
+
+  it.each([
+    ["POST /api/v1/purchasing/prepared-receipts/:id/post", "preparedReceiptId"],
+    ["POST /api/v1/returns/:id/complete", "goodsReturnId"],
+  ])("%s takes exactly { %s }", (operation, key) => {
+    const parseBody = ops.get(operation).descriptor.parseBody;
+    const id = randomUUID();
+    expect(parseBody({ [key]: id })).toEqual({ [key]: id });
+    expect(() => parseBody({ [key]: id, extra: 1 })).toThrow();
+    expect(() => parseBody({ [key]: "not-a-uuid" })).toThrow();
+    expect(() => parseBody({})).toThrow();
+  });
+
+  it("pins the new physical operations to their exact approval actions", () => {
+    expect(ops.get("POST /api/v1/purchasing/prepared-receipts/:id/post").descriptor).toMatchObject({
+      permission: "purchasing.receive", approval: { action: "prepared_receipt.post" },
+    });
+    expect(ops.get("POST /api/v1/returns/:id/complete").descriptor).toMatchObject({
+      permission: "returns.process", approval: { action: "goods_return.complete" },
     });
   });
 });

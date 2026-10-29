@@ -510,6 +510,40 @@ gazette exception, approved/revoked extension, mandatory ceiling and no-selling,
 exempt stock posting; acknowledgement persistence, identical/concurrent replay, changed-content
 replay, wrong device/branch/clock/window, revoked device and immutability.
 
+## MR 8: D13 remote assignment authorization
+
+`OfflineAssignmentService` (`terminals/offline-assignment.service.ts`) and
+`OfflineAssignmentController` implement the online half of revised D13.
+
+- **Delegation** (`offline_terminal_delegation`): owner-only, per manager and branch. The delegate
+  must be assigned at the branch and hold `tenant.management` there (checked live). No role or
+  permission edit creates or implies one, managers cannot delegate onward, one live delegation per
+  manager/branch (partial unique index). Revoking it revokes the delegate's outstanding authorization.
+- **Authorization** (`offline_terminal_assignment_authorization`): an owner, or a manager with a live
+  delegation, authorizes one exact active, counter-bound enrollment at the branch and the nomination
+  version they saw. Persists authorizer, authority (`owner` | `delegated_manager` + delegation),
+  target terminal/enrollment/key, expected version and reason, with audit. Client-generated ID for
+  idempotent retries; one outstanding per branch (partial unique index); a newer one supersedes.
+  Remote callers need a live token (`resolveLive`).
+- **Nomination anchor** (`offline_terminal_nomination`): one row per branch, written only by future
+  activation; no row = version 0. Authorization binds to it.
+- **Activation-time revalidation**: `requireCurrent(tx, …)` rechecks status, exact target, active
+  enrollment, unchanged version and the original authorizer's *current* rights (owner, or live
+  delegation plus branch management — a role edit can remove authority, never grant it). It does not
+  consume; activation (P2/P3) does that atomically with D11 clearance. The activation contract is
+  documented in API_CONTRACT.md; it needs P2's attendance and staff session, so it is not exposed.
+
+Per-branch serialization uses a branch row lock. Triggers keep content immutable, record
+revocation/consumption once and forbid deletion; staged (disabled) tenant RLS policies. Four new
+`management` routes (188 in the inventory) plus a GET; shared `OfflineAssignmentView` /
+`OfflineAssignmentAuthorizeRequest`. Tests: `test/integration/offline-assignment.int-spec.ts`
+(PostgreSQL, 15): owner authorization and idempotent retry/ID conflict (including an ID used at
+another branch), no replay after losing authority, manager without delegation,
+delegated manager and supersession, nomination version binding and already-nominated target,
+revoked/foreign target, stale token, owner-only/per-branch/no-onward delegation, idempotent
+delegation, delegation revocation cascading, `requireCurrent` (target/version, role edit removing
+authority, revoked target/authorization) and evidence immutability.
+
 ## P6 #52 slice: transfer approval, dispatch and receipt
 
 Transfers already reserved on approval and moved stock on ship/receive; what was missing was the
@@ -589,6 +623,54 @@ the threshold, `sale_refund.execute` (waiting at the counter). Cashiers and phar
 them with their `sales.refund` and the `terminal.execute` counter default.
 
 Not done: a dedicated refund approvals queue screen and approval notifications.
+## P6 slice: prepared receipts and supplier returns (approval vs counter execution)
+
+Epic P6 [#52](https://github.com/ShafeekSaleem/PharmaCeylon/issues/52) with its P1 signed adapters.
+
+- **Prepared receipts** (new `PreparedReceipt`, `draft → approved → posted | cancelled`). A buyer
+  prepares a delivery remotely from the supplier's note; an approver records exact
+  `prepared_receipt.post` evidence. The material binds the delivery (lines, batches, exception
+  choices), the PO revision and every PO line's received counters, so a delivery booked in
+  between or an order edit makes the approval stale instead of counting goods twice. A
+  database trigger advances the revision on any material change (including change-then-restore
+  and internal writers) and clears the approval; notes are metadata. Posting is the counter's
+  step: `postInTransaction` locks PO then receipt, requires the displayed approval ID, verifies
+  the evidence, and books the goods in through `PurchasingService.receiveGoods` (StockService,
+  tolerances, price variance, cost/expiry conflicts, damaged quarantine, placeholder invoice
+  unchanged), received on the branch's business date. After the batch-lock wait it re-verifies
+  live approver/executor authority against the already-verified, still-locked document
+  (`ManagementApprovalsService.recheckAuthority`), because receiving has by then moved the PO's
+  received counters itself. Direct `purchase-orders/receive` stays approval-optional and local.
+  While any prepared receipt is open, draft or approved, direct receiving, held posting and
+  holding refuse (`RECEIPT_PREPARED`), and preparing refuses while a held delivery waits: a
+  draft approved later would otherwise pin counters that already include the same goods.
+- **Supplier returns.** `approve` records exact `goods_return.complete` evidence and changes no
+  stock; a self-approving create/submit records it in the same transaction. The return's
+  "current approval" is the latest `management_approval` row (no new column, so
+  `pc_document_approval_revision` is untouched). `completeInTransaction` requires that approval
+  ID, rechecks under the return lock and again after the batch locks, then issues stock and
+  raises the debit note together. Legacy approved returns have no evidence and must be approved
+  again; nothing is backfilled.
+- **Signed adapters.** `POST /api/v1/purchasing/prepared-receipts/:id/post`
+  (`{ preparedReceiptId }`, `purchasing.receive`) and `POST /api/v1/returns/:id/complete`
+  (`{ goodsReturnId }`, `returns.process`) join the closed registry, sharing the browser cores.
+  The success audits carry command provenance; receipts replay the original result. Every
+  counter role already holds `terminal.execute` (#84), so no further grant is needed. Both are
+  back-room stock work, so they join `OPERATIONS_WITHOUT_SELLING_HOURS` (MR 7, D8).
+- **Web.** The order screen prepares, approves and cancels prepared deliveries and shows the
+  requester/approver/executor evidence; returns approve against `approvalReview`. Posting a
+  prepared or held delivery, direct receiving and return dispatch appear only at a known
+  not-live branch; live, fallback or unknown branches show the counter handoff.
+
+Validation (2026-10-29, disposable PostgreSQL 18): all 16 PostgreSQL suites (266 tests),
+including the new `receiving-returns.int-spec.ts`: approval without stock/receipt/invoice,
+post pinned to the approval, material edit and intervening receipt make it stale, notes keep it,
+concurrent posts/dispatches apply once, self-approval rules, revoked evidence, approver rights
+removed during an actual batch-lock wait, injected audit failure rollback and signed execution
+end to end with replay and failure rollback. API unit suite 88/1068 + new material spec,
+`lint -w api` scanners and the 189-route inventory. After merging develop with MR 6–8 and the
+transfer slice (2026-10-29): 20 PostgreSQL suites / 320 tests, API unit 95/1132, web 44/326,
+`lint -w api` and the 193-route inventory.
 
 ## Remaining P1 MRs, in order
 
@@ -653,8 +735,8 @@ tenant/stock scanners and the 166-route inventory.
    remote commercial management and normal reservations; coordinate P6 screens.
 2. **Transactional command execution:** done for the five split physical operations (MR 5).
    Still open:
-   - further adapters as more handlers are split (transfers, returns, receipts, sales/refunds,
-     cash);
+   - further adapters as more handlers are split (sales/refunds, cash); transfers, prepared
+     receipts and supplier returns are done (P6 slices above);
    - ~~persisted provenance for import/background workers and maintenance writers~~ (MR 6);
    - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
    - restricting browser routes to terminals once W1 rollout and P2 are ready.

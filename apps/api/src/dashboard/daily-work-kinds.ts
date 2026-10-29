@@ -23,6 +23,8 @@ export const DAILY_WORK_KIND_DEFS: Readonly<Record<DailyWorkKind, KindDef>> = {
   "purchase_order.receive": { approvalAction: "purchase_order.receive" },
   "held_delivery.approve": { executes: null },
   "held_delivery.post": { approvalAction: "held_delivery.post" },
+  "prepared_receipt.approve": { executes: null },
+  "prepared_receipt.post": { approvalAction: "prepared_receipt.post" },
   "held_adjustment.approve": { executes: null },
   "held_adjustment.post": { approvalAction: "held_adjustment.post" },
   "transfer.approve": { executes: null },

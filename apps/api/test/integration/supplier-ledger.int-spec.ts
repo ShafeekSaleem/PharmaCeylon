@@ -7,6 +7,8 @@ import { StockService } from "../../src/inventory/stock/stock.service";
 import { SupplierLedgerService } from "../../src/purchasing/ledger/supplier-ledger.service";
 import { PurchasingService } from "../../src/purchasing/purchasing.service";
 import { ReturnsService } from "../../src/returns/returns.service";
+import { AccessService } from "../../src/security/access.service";
+import { ManagementApprovalsService } from "../../src/security/management-approvals.service";
 import { SuppliersService } from "../../src/suppliers/suppliers.service";
 import { syncSupplierLedger } from "../../prisma/seed-helpers";
 import { actor, createPrisma, createTenant, daysFromToday, type TenantFixture } from "./fixtures";
@@ -24,6 +26,12 @@ describe("Supplier ledger against PostgreSQL", () => {
   const purchasing = () =>
     new PurchasingService(prisma as never, audit, stock, new StockReadService(prisma as never));
   const ledger = () => new SupplierLedgerService(prisma as never, audit);
+  const returnsService = () => {
+    const access = new AccessService(prisma as never, {} as never);
+    return new ReturnsService(prisma as never, audit, stock, access, new ManagementApprovalsService(access, audit));
+  };
+  const requestUser = (userId: string) => ({ tenantId: fx.tenantId, userId, tokenVersion: 0, branchRoles: [],
+    email: "ledger@it.test", fullName: "Ledger actor", authMethod: "bearer" as const });
   const receiver = () => actor(fx.clerkId, ["purchasing.receive"]);
   const today = () => daysFromToday(0).toISOString().slice(0, 10);
 
@@ -328,12 +336,16 @@ describe("Supplier ledger against PostgreSQL", () => {
           },
         },
       });
-      await new ReturnsService(prisma as never, audit, stock).complete(
-        fx.tenantId,
-        fx.mainBranchId,
-        fx.managerId,
-        goodsReturn.id,
-      );
+      // Approved exactly (no stock moves), then dispatched against that approval.
+      await prisma.userBranchRole.createMany({ data: [
+        { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.ownerId, role: "owner" },
+      ], skipDuplicates: true });
+      const review = (await returnsService().getOne(fx.tenantId, fx.mainBranchId, goodsReturn.id)).approvalReview!;
+      const approved = await returnsService().approve(requestUser(fx.ownerId), fx.mainBranchId, goodsReturn.id,
+        { approvalId: randomUUID(), ...review });
+      expect(await prisma.supplierDebitNote.count({ where: { goodsReturnId: goodsReturn.id } })).toBe(0);
+      await returnsService().complete(requestUser(fx.ownerId), fx.mainBranchId, goodsReturn.id,
+        { approvalId: approved.executionApprovalId! });
 
       const note = await prisma.supplierDebitNote.findFirstOrThrow({
         where: { goodsReturnId: goodsReturn.id },
@@ -355,7 +367,7 @@ describe("Supplier ledger against PostgreSQL", () => {
   });
 
   describe("returns traced to a delivery", () => {
-    const returns = () => new ReturnsService(prisma as never, audit, stock);
+    const returns = returnsService;
     const manager = () => actor(fx.managerId, "all", { canSelfApprove: true });
 
     it("lists what a delivery can still send back, and caps a return against it", async () => {
@@ -376,7 +388,7 @@ describe("Supplier ledger against PostgreSQL", () => {
         goodsReceiptId: receipt.id,
         reason: "Short dated",
       };
-      await returns().create(fx.tenantId, fx.mainBranchId, manager(), {
+      await returns().create(requestUser(fx.managerId), fx.mainBranchId, manager(), {
         ...base,
         items: [{ productId: fx.productId, batchId, qty: 5, unitPrice: 10 }],
       } as never);
@@ -389,7 +401,7 @@ describe("Supplier ledger against PostgreSQL", () => {
       );
 
       await expect(
-        returns().create(fx.tenantId, fx.mainBranchId, manager(), {
+        returns().create(requestUser(fx.managerId), fx.mainBranchId, manager(), {
           ...base,
           items: [{ productId: fx.productId, batchId, qty: 8, unitPrice: 10 }],
         } as never),
@@ -400,7 +412,7 @@ describe("Supplier ledger against PostgreSQL", () => {
       const first = await delivery(4, 4);
       const second = await delivery(4, 4);
       await expect(
-        returns().create(fx.tenantId, fx.mainBranchId, manager(), {
+        returns().create(requestUser(fx.managerId), fx.mainBranchId, manager(), {
           type: "supplier",
           supplierId: fx.supplierId,
           purchaseOrderId: first.purchaseOrderId,

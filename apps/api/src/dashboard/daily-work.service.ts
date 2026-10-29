@@ -86,6 +86,18 @@ export class DailyWorkService {
           (h.status = 'awaiting_approval'), (h.status = 'awaiting_approval' AND ${blocked(Prisma.sql`h.requested_by`)}), 1
         FROM held_delivery h JOIN purchase_order p ON p.id = h.purchase_order_id AND p.tenant_id = h.tenant_id AND p.branch_id = h.branch_id
         WHERE h.tenant_id = ${tenant}::uuid AND h.branch_id = ${branchId}::uuid AND ((h.status = 'awaiting_approval' AND ${approve}) OR (h.status = 'approved' AND ${receive}))`);
+      // Deliveries prepared remotely (P6): approve on the web, receive when the goods arrive.
+      if (approve || receive)
+        sources.push(Prisma.sql`
+        SELECT 'prepared:' || r.id, CASE WHEN r.status = 'approved' THEN 'prepared_receipt.post' ELSE 'prepared_receipt.approve' END, 'purchasing', CASE WHEN r.status = 'approved' THEN 'Receive prepared delivery' ELSE 'Review prepared delivery' END,
+          concat(p.po_number, ' · ', s.name), p.po_number, r.status::text,
+          '/purchasing?po=' || p.id, CASE WHEN r.status = 'approved' THEN 'Post receipt' ELSE 'Review delivery' END, r.prepared_at, ${deadline(Prisma.sql`p.expected_on`)},
+          CASE WHEN r.status = 'approved' THEN 'Receiving team' ELSE 'Branch approvers' END, false,
+          (r.status = 'draft'), (r.status = 'draft' AND ${blocked(Prisma.sql`r.prepared_by`)}), 1
+        FROM prepared_receipt r JOIN purchase_order p ON p.id = r.purchase_order_id AND p.tenant_id = r.tenant_id AND p.branch_id = r.branch_id
+          JOIN supplier s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
+        WHERE r.tenant_id = ${tenant}::uuid AND r.branch_id = ${branchId}::uuid AND p.status IN ('issued', 'partially_received')
+          AND ((r.status = 'draft' AND ${approve}) OR (r.status = 'approved' AND ${receive}))`);
     }
     if (allowed("inventory.view", "inventory.write_off"))
       sources.push(Prisma.sql`

@@ -13,6 +13,7 @@ import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { ApproveHeldDto, PostHeldDto } from "../security/dto/approve-held.dto";
 import { CreateReturnDto } from "./dto/create-return.dto";
 import { UpdateReturnDto } from "./dto/update-return.dto";
 import { ReturnsService } from "./returns.service";
@@ -61,7 +62,7 @@ export class ReturnsController {
     @Body() dto: CreateReturnDto,
   ) {
     const access = await this.access.resolve(user, branchId);
-    return this.returns.create(user.tenantId, branchId, access, dto);
+    return this.returns.create(user, branchId, access, dto);
   }
 
   @RequirePermission("returns.process")
@@ -83,18 +84,19 @@ export class ReturnsController {
     @Param("id", ParseUUIDPipe) id: string,
   ) {
     const access = await this.access.resolve(user, branchId);
-    return this.returns.submit(user.tenantId, branchId, access, id);
+    return this.returns.submit(user, branchId, access, id);
   }
 
+  /** Exact approval of the return on screen; nothing leaves stock until dispatch. */
   @RequirePermission("returns.approve")
   @Post(":id/approve")
-  async approve(
+  approve(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ApproveHeldDto,
   ) {
-    const access = await this.access.resolve(user, branchId);
-    return this.returns.approve(user.tenantId, branchId, access, id);
+    return this.returns.approve(user, branchId, id, dto);
   }
 
   @RequirePermission("returns.approve")
@@ -118,6 +120,7 @@ export class ReturnsController {
     return this.returns.markLogistics(user.tenantId, branchId, access, id);
   }
 
+  /** The physical dispatch, pinned to the approval the operator saw. */
   @RequirePermission("returns.process")
   @Post(":id/complete")
   complete(
@@ -125,14 +128,9 @@ export class ReturnsController {
     @RequireBranchId() branchId: string,
     @Param("id", ParseUUIDPipe) id: string,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Body() dto: PostHeldDto,
   ) {
-    return this.returns.complete(
-      user.tenantId,
-      branchId,
-      user.userId,
-      id,
-      idempotencyKey,
-    );
+    return this.returns.complete(user, branchId, id, dto, idempotencyKey);
   }
 
   @RequirePermission("returns.process")

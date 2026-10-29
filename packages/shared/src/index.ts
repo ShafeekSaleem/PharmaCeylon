@@ -15,3 +15,4 @@ export * from "./counter-policy";
 export * from "./terminal-command-execution";
 export * from "./counter-alerts";
 export * from "./counter-grant-settings";
+export * from "./offline-assignment";

@@ -138,6 +138,20 @@ describe("OperatingHoursEvidence", () => {
     await expect(run("2026-10-26T10:00", null)).resolves.toBe("TEMPORARILY_UNAVAILABLE");
   });
 
+  it("treats prepared-delivery receiving and supplier-return dispatch as back-room stock work", async () => {
+    for (const operation of ["POST /api/v1/purchasing/prepared-receipts/:id/post", "POST /api/v1/returns/:id/complete"]) {
+      expect(OPERATIONS_WITHOUT_SELLING_HOURS.has(operation)).toBe(true);
+      await expect(code(provider.assertForCommand(tx({ operatingHours: hours(), timezone: COLOMBO }),
+        command({ operation }), at("2026-10-26T23:00")))).resolves.toBe("allowed");
+    }
+  });
+
+  it("still hours-checks a signed operation nobody reviewed as back-room work", async () => {
+    expect(OPERATIONS_WITHOUT_SELLING_HOURS.has("POST /api/v1/sales/checkout")).toBe(false);
+    await expect(code(provider.assertForCommand(tx({ operatingHours: hours(), timezone: COLOMBO }),
+      command({ operation: "POST /api/v1/sales/checkout" }), at("2026-10-26T23:00")))).resolves.toBe("BUSINESS_HOURS_ACK_REQUIRED");
+  });
+
   it("does not hours-restrict the reviewed back-room stock operations, even with unset hours", async () => {
     for (const operation of OPERATIONS_WITHOUT_SELLING_HOURS) {
       const t = tx(null);

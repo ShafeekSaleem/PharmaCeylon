@@ -10,8 +10,9 @@ not-live `/products/import/confirm` path retains a mixed/local classification; l
 imports always stage. The web uses the management `/stage` path outside known not-live branches.
 
 Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
-184, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
-counter alerts and the two signed terminal-command routes. Exact methods, paths and source files are
+193, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
+counter alerts, the two signed terminal-command routes, the four D13 assignment routes and the
+five P6 prepared-receipt routes. Exact methods, paths and source files are
 recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
 The inventory includes non-operational mutations to make exclusions explicit. P0 classifies
 future enforcement; existing routes are not protected by the new terminal boundary yet.
@@ -55,8 +56,8 @@ offline approvals, refunds/voids and stock operations remain blocked.
 | `inventory/*` | Online remote adjustment requests/review/approve/reject. Local actual counts/condition confirmation and stock posting, expiry confirmation, quarantine/release. Held accept authorizes exact material; the separate held post executes stock. |
 | `transfers/*` | Online remote draft/review/approve/reject/cancel and ordinary reservation/release. Local source dispatch and destination receiving, each with its branch authority. No new offline reservations. P6 split: `approve` issues exact `transfer.ship` evidence and reserves (`reservation`); `ship` is the source post pinned to that approval and `receive` the destination post pinned to the dispatch (both `stock`, both signed operations). |
 | `stocktakes/*` | Online remote planning/scheduling/review/recount request/approval. Local physical count capture/confirmation and post/complete, including legacy completion. Stocktake approval now persists exact management evidence only; `post` applies stock/quarantine and completes. Preserve event timing to avoid double counting offline sales. D-W3: `start`, `submit` and `complete` stay `local_record` and `post` stays `stock`. While a count started at the counter is open, phones and the web may enter attributed count lines; `PATCH :id/lines` moves from `local_record` to an attributed draft-entry classification when W5 implements that, and stays `local_record` until then. |
-| `returns/*` | Online remote supplier-return preparation/review/approval/rejection and commercial credit records. Local actual goods departure and stock posting. Customer return inspection/disposition and refund execution remain local sales workflows. |
-| `purchasing/*` | Online remote PO drafts/edit/issue/review/approve/reject, invoices/debit notes and bank-payment records with evidence. Local receipt/batch/quantity/condition confirmation, held-delivery receipt posting and branch cash payout. Held prepare/accept are management-only; held post is physical. |
+| `returns/*` | Online remote supplier-return preparation/review/approval/rejection and commercial credit records. Local actual goods departure and stock posting. Customer return inspection/disposition and refund execution remain local sales workflows. P6: `approve` (and a self-approving create/submit) records exact `goods_return.complete` evidence only; `complete` is pinned to the latest approval and is the physical step (stock out + debit note), also a signed command. |
+| `purchasing/*` | Online remote PO drafts/edit/issue/review/approve/reject, invoices/debit notes and bank-payment records with evidence. Local receipt/batch/quantity/condition confirmation, held-delivery receipt posting and branch cash payout. Held prepare/accept are management-only; held post is physical. P6 prepared receipts: `purchase-orders/:id/prepared-receipts`, `prepared-receipts/:id` (PATCH), `/approve` and `/cancel` are `management`; `prepared-receipts/:id/post` is `stock` (also a signed command). Direct `purchase-orders/receive` stays the approval-optional local `stock` path; it, held posting and `hold-delivery` refuse while any prepared receipt is open (draft or approved). |
 | `suppliers/*` | Online remote supplier/master/price management. Legacy invoice payments use the same evidence/authority rules: bank-payment record remote, actual branch cash local. |
 | `products/*` | Online remote catalog/prices/eligibility/categories/tags/aliases/NMRA/barcode and catalog-only import/analyze/preview/selection. Import confirm/undo creating/removing batches or stock requires local execution; split mixed jobs. Preserve historical snapshot identities. D-W2 (live branches): an import's stock rows may be staged remotely as a no-effect draft; posting them is the local step. |
 | `catalog-tasks/*` | Online remote catalog refresh/apply/dismiss/reopen, including bulk safe apply, with permissions and provenance. A stock-bearing side effect requires local execution. |
@@ -129,6 +130,15 @@ preferences only, with no stock/cash/grant/nomination effects. Tenant and exact 
 authority are enforced separately from the selected header branch; update and audit commit
 together. It does not activate the terminal boundary or offline trading.
 
+## P1 offline-counter assignment (revised D13)
+
+Four routes, all `management`: `POST /terminals/offline-assignment/delegations`,
+`…/delegations/:delegationId/revoke`, `…/authorizations` and
+`…/authorizations/:authorizationId/revoke`. They record owner delegation and online assignment
+authorization only — no nomination, grant, stock or cash effect, no terminal proof. Activation on
+the exact target is a separate local signed step (P2/P3) and will be classified with its own
+operation. Contract: [API_CONTRACT.md](API_CONTRACT.md).
+
 ## P1 signed terminal commands
 
 `POST /terminal-commands/prepare` is classified `identity`: it issues a single-use command
@@ -140,7 +150,9 @@ signed-operation registry:
 - held adjustment post;
 - held delivery post;
 - import stock post;
-- import undo-stock.
+- import undo-stock;
+- prepared receipt post (P6);
+- supplier return complete (P6).
 
 Each of these remains classified as `stock` on its own route. Execution reuses those routes'
 domain cores and StockService, and commits effects, audit and the original-result receipt

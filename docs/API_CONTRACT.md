@@ -162,6 +162,8 @@ transaction.
 | `POST /api/v1/transfers/:id/ship` | `{ transferId }` | the transfer's `executionApprovalId`; `null` only while approval is waived (below) | `transfers.manage` |
 | `POST /api/v1/transfers/:id/receive` | `{ transferId, dispatchApprovalId, lines: [{ transferItemId, qty, receivedQtyBefore }] }` | `null` | `transfers.manage` |
 | `POST /api/v1/sales/refund-requests/:id/execute` | `{ refundRequestId }` | the request's `executionApprovalId`; `null` when it needs no approval (below) | `sales.refund` |
+| `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
+| `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
@@ -306,6 +308,40 @@ Bodies are `{ statusCode, code, message }`. The shared `TerminalApiError` shape 
 Receipts are not server-signed in v1; the client trusts them over TLS. A signed `sync_response`
 is reserved for P5 offline sync.
 
+## Offline-counter assignment (P1 / revised D13)
+
+Which enrolled counter may become the branch's offline-capable terminal is decided in two
+separate steps. These endpoints are the first, online and remote-capable; they nominate nothing,
+issue no grant and need no terminal proof. All need `x-branch-id`, a live sign-in and the route
+permission `tenant.management`, which is never sufficient by itself. Every response is the
+`OfflineAssignmentView` (`@pharmaceylon/shared`) for the branch.
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `GET /terminals/offline-assignment` | branch staff with `tenant.management` | Current nomination (`nominationVersion`, 0 = none), delegations, recent authorizations. |
+| `POST /terminals/offline-assignment/delegations` `{ managerUserId }` | **owner only** | Delegates assignment to one manager for this branch. The delegate must be assigned here and hold `tenant.management` here. Idempotent. Managers cannot delegate onward; no role edit creates a delegation. |
+| `POST /terminals/offline-assignment/delegations/:delegationId/revoke` `{ reason }` | owner only | Revokes it, and revokes the delegate's outstanding authorization. |
+| `POST /terminals/offline-assignment/authorizations` `OfflineAssignmentAuthorizeRequest` | owner, or a manager with a live delegation for this branch | Authorizes one exact active enrolled target at this branch and the `expectedNominationVersion` shown. Supersedes the branch's previous outstanding authorization. `authorizationId` is client-generated: resending is a no-op, reuse for anything else is 409 `AUTHORIZATION_ID_CONFLICT`. |
+| `POST /terminals/offline-assignment/authorizations/:authorizationId/revoke` `{ reason }` | owner or delegated manager | Revokes an outstanding authorization. |
+
+Refusals carry `code`: `OFFLINE_ASSIGNMENT_OWNER_ONLY`, `OFFLINE_ASSIGNMENT_NOT_DELEGATED`,
+`OFFLINE_DELEGATE_INELIGIBLE` (403); `OFFLINE_TARGET_INVALID` (not an active, counter-bound
+enrollment at this branch), `NOMINATION_VERSION_CHANGED`, `OFFLINE_TARGET_ALREADY_NOMINATED`,
+`AUTHORIZATION_ID_CONFLICT` (409). Delegations and authorizations are retained: content is
+immutable, revocation/consumption is recorded once, nothing is deleted.
+
+**Activation (second step, P2/P3; not exposed yet).** On the exact target, an authorized local
+staff member confirms activation online with a signed command (`OfflineTerminalActivation`:
+`authorizationId`, identity, session, `expectedNominationVersion`) and verified local attendance.
+The confirmer needs a branch activation permission, not the owner's assignment authority. In one
+transaction the server must: verify the signed command and attendance; call
+`OfflineAssignmentService.requireCurrent` (authorization still outstanding for this exact
+enrollment, enrollment active, nomination version unchanged, original authorizer still an owner or
+still a delegated manager with branch management); apply D11 clearance (old grant can no longer
+sell, old journal resolved or loss reviewed, or initial nomination); then mark the authorization
+`consumed` (with the activator), upsert `offline_terminal_nomination` with `version + 1`, and audit
+authorizer and activator separately. Stale, revoked or consumed authorizations require renewal.
+
 ## Sales lifecycle (pilot)
 
 - **Checkout**: `POST /api/v1/sales/checkout` — optional `Idempotency-Key`. Line **tax**: send `taxAmount` per line, or omit to apply **VAT** from server config (see below).
@@ -431,6 +467,8 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 
 `GET /returns/goods-receipts/:id/returnable` (`returns.create`) lists, per batch on a delivery, what it brought in (`delivered` = paid + free + damaged), `damaged`, `alreadyReturned` (supplier returns against it that aren't cancelled or rejected), `onHand`, and `returnable` = the lesser of what's left and what's on hand; `unitCost` follows `costs.view`. A supplier return with a `goodsReceiptId` is refused (**400**) for a batch that didn't arrive on that delivery, or for more than it brought in less what has already gone back.
 
+**Supplier return approval and dispatch (P6).** `POST /returns/:id/approve` (`returns.approve`) now takes `{ approvalId, expectedVersion, expectedDigest }` from the return's `approvalReview` and records exact `goods_return.complete` evidence of its lines, batches, quantities and prices; it moves a pending return to `awaiting_logistics` and changes no stock and no supplier balance. An approved return whose evidence is missing (approved before exact approvals) or no longer matches has `executionApprovalId: null` and can be approved again from `awaiting_logistics`/`in_review`. An approver who may approve their own returns still submits and approves in one step (`create` with `submit: true`, or `submit`); the evidence is recorded in the same transaction. `POST /returns/:id/complete` (`returns.process`, physical) takes `{ approvalId }`, which must be the return's latest approval (**409** otherwise); it rechecks the approval under the return lock and the approver/executor rights after the batch locks, then issues the stock (quarantined units first), raises the debit note and completes, with one audit carrying requester, approver and executor. Repeats return the completed return; the optional `Idempotency-Key` is unchanged. It is also a signed terminal command. Return responses add `approvalReview`, `executionApprovalId`, `approvalApprovedBy` and `approvalApprovedAt`.
+
 **Goods receipt** (`POST /purchasing/purchase-orders/receive`) now refuses a received date in the future and any line whose expiry is on or before the received date. Auto-created supplier invoice numbers include the branch code (`SINV-<BRANCH>-<seq>`) so each branch's first delivery no longer collides.
 
 ## Purchasing: packs, deliveries and prices
@@ -446,6 +484,12 @@ Quantities on the wire are always **units**; packs are a way of entering them. A
 | `PATCH /purchasing/held-deliveries/:id` | `purchasing.approve` | Save `{ expectedVersion, expectedDigest, delivery, updateSupplierPrice? }` before approving corrections. The old preview includes the PO revision, so concurrent agreement changes reject. Original receiver input is retained; corrections become `preparedPayload`. Returns a fresh `approvalReview`; material changes invalidate prior evidence. Omitted optional header/line fields retain saved values, including supplier delivery note, exact costs and exception choices; the submitted line list determines included products. An omitted supplier-price choice retains its saved value; an explicit boolean changes it. Cost edits require `costs.view`. |
 | `POST /purchasing/held-deliveries/:id/accept` | `purchasing.approve` | Requires `{ approvalId, expectedVersion, expectedDigest }`. Can approve the current saved document directly without PATCH or submitting redacted costs. Saves immutable approval for the exact delivery, PO revision and exception choices; no stock, receipt, supplier invoice or balance changes. Reuse the approval UUID for retry; use a new one for explicit reapproval. |
 | `POST /purchasing/held-deliveries/:id/post` | `purchasing.receive` | Body `{ approvalId }` pins the displayed approval. Posts the approved saved delivery, accepting its scoped quantity/price exceptions through persisted approval rather than granting the executor approval permission. Current approver/executor rights are checked after locks. Stock, quarantine, GRN, supplier invoice/price updates, held status and audit commit together. Concurrent/repeated posts return the original receipt link. |
+| `POST /purchasing/purchase-orders/:id/prepared-receipts` | `purchasing.manage` | **Remote preparation** of a delivery from the supplier's note. Body `{ delivery: { supplierDeliveryNote?, acceptOverDelivery?, acceptPriceVariance?, updateSupplierPrice?, lines }, notes? }` — the receive body without `purchaseOrderId` or `receivedOn`. Saves a `draft` prepared receipt; no stock, receipt, invoice or price change. Lines must be on the order, once each; costs need `costs.view`. One open (draft or approved) prepared receipt per order: **409** `RECEIPT_ALREADY_PREPARED`. Approvers at the branch are notified. |
+| `GET /purchasing/prepared-receipts` | `purchasing.view` | Open (draft and approved) prepared receipts by default; `status` filters `draft` \| `approved` \| `posted` \| `cancelled`. Responses carry `approvalReview` (null once it can no longer be approved), `executionApprovalId`, `preparedBy`/`approvedBy`/`executedBy` with times, `orderOpen` and `selfApprovalBlocked`. Typed costs are withheld without `costs.view`. `GET /purchasing/purchase-orders/:id` also returns the order's open ones as `preparedReceipts`. |
+| `PATCH /purchasing/prepared-receipts/:id` | `purchasing.manage` | Body `{ expectedVersion, delivery?, notes? }`. **409** unless `expectedVersion` is the current revision. A material change (any delivery field) advances the revision, clears the approval and returns the receipt to `draft`, even when a value is later restored; `notes` change metadata only and keep the approval. Without `costs.view`, saved costs are kept and typed costs refuse. |
+| `POST /purchasing/prepared-receipts/:id/approve` | `purchasing.approve` | Body `{ approvalId, expectedVersion, expectedDigest }` from `approvalReview`. Records exact `prepared_receipt.post` evidence for the delivery, its exception choices, the order revision and what each order line had already received; status `approved`, nothing else changes. Self-approval follows the tenant setting. Reuse the approval UUID to retry; a new one replaces the approval. |
+| `POST /purchasing/prepared-receipts/:id/post` | `purchasing.receive` | **Physical (counter).** Body `{ approvalId }` must be the displayed `executionApprovalId` (**409** otherwise). Books the delivery in through the normal receiving path, received on the branch's business date: tolerances, price variance, cost/expiry conflicts, damaged-unit quarantine, supplier price updates and the placeholder supplier invoice behave as for any delivery, with the approver's exceptions carried by the evidence. The approval is revalidated under the order lock (a delivery booked in between or an order edit is `APPROVAL_STALE`) and approver/executor rights again after batch-lock waits. Stock, GRN, invoice, status and audit (requester, approver, executor) commit together; repeats return the same receipt. While a prepared receipt is open (draft or approved), `purchase-orders/receive`, held-delivery posting and `hold-delivery` refuse with **400** `RECEIPT_PREPARED`, and preparing refuses with **409** `DELIVERY_AWAITING_APPROVAL` while a held delivery is waiting, so the same goods can never be booked in twice. Also a signed terminal command. |
+| `POST /purchasing/prepared-receipts/:id/cancel` | `purchasing.manage` or `purchasing.approve` | Body `{ reason }`. Closes a draft or approved prepared receipt; nothing is booked in. |
 | `POST /purchasing/held-deliveries/:id/reject` | `purchasing.approve` | Body `{ reason }`. Nothing is booked in; the receiver is notified with the reason. **409** once decided. |
 | `GET /purchasing/deliveries` | `purchasing.view` | Goods receipts for the branch, newest first. Query `supplierId`, `from`, `to`, `q`. Per-delivery `paidUnits`, `freeUnits`, `rejectedUnits`, and `value` (null without `costs.view`). |
 | `GET /purchasing/reorder-suggestions` | `purchasing.manage` | Products at or below their reorder level after subtracting **available** stock and everything already on order, grouped by the cheapest active supplier who lists them. `unassigned` holds those no supplier prices. |

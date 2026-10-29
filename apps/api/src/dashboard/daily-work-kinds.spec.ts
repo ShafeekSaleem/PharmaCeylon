@@ -46,11 +46,13 @@ describe("daily-work kinds", () => {
         "stocktake.post",
         "held_adjustment.post",
         "held_delivery.post",
+        "prepared_receipt.post",
         "import_stock.post",
         "sale_refund.execute",
       ]),
     );
     expect(approvedWaitingKinds()).not.toContain("held_adjustment.approve");
+    expect(approvedWaitingKinds()).not.toContain("prepared_receipt.approve");
     expect(approvedWaitingKinds()).not.toContain("batch.expiry_review");
   });
 

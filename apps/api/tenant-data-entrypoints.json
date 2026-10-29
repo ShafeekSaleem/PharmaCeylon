@@ -144,6 +144,11 @@
       "reason": "Transaction-scoped advisory lock on the caller's tenant + signed enrollment id + record id only, so identical acknowledgement uploads serialize and replay the stored receipt; no data is read or written by raw SQL."
     },
     {
+      "path": "src/terminals/offline-assignment.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one branch row by the caller's tenant and branch id to serialize offline-counter delegation, assignment authorization, revocation and activation-time revalidation; no data is written by raw SQL."
+    },
+    {
       "path": "scripts/test-rls-canary-activation.mjs",
       "mode": "ephemeral-test",
       "reason": "CI-only scoped transaction setup in a self-cleaning database proof."
@@ -252,6 +257,16 @@
       "path": "src/sales/refund-requests.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one tenant/branch refund request (after its sale) for approval, cancellation and execution; approval evidence, StockService effects and success audit share the caller transaction."
+    },
+    {
+      "path": "src/purchasing/prepared-receipt.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks the tenant/branch-scoped PO, then the prepared receipt, for preparation, approval, cancellation and posting; evidence, receiving effects and audit share the caller transaction."
+    },
+    {
+      "path": "src/returns/returns.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks the tenant/branch-scoped supplier return before exact approval and dispatch; evidence, StockService effects, debit note and audit share the caller transaction."
     }
   ]
 }

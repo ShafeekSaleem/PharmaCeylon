@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert } from "@/components/alert";
-import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
+import { CounterHandoff, Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
 import type { AuthUser } from "@/lib/auth-types";
 import { apiJson } from "@/lib/auth-client";
+import { useBranchRollout } from "@/lib/branch-rollout";
 import { usePermissions } from "@/lib/permissions";
 import layoutCss from "../../purchasing/purchasing.module.css";
 import type { ReturnListItem } from "../types";
@@ -47,6 +48,7 @@ export function ReturnDetailModal({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const { permissionKeys, canSelfApprove } = usePermissions();
+  const { rollout } = useBranchRollout();
 
   useEffect(() => {
     setBusy(false);
@@ -59,14 +61,28 @@ export function ReturnDetailModal({
   const canApproveRole = canApproveReturn(permissionKeys);
   const atBranch = !!branchId && returnItem.branchId === branchId;
 
+  const isSupplier = returnItem.type === "supplier";
+  // Approved but its evidence is missing or no longer matches: approve it again before dispatch.
+  const needsReapproval =
+    isSupplier && canComplete(returnItem.status) && !returnItem.executionApprovalId;
   const showSubmit = canWrite && atBranch && canSubmit(returnItem.status);
   const showApprove =
-    canWrite && atBranch && canApproveRole && canApprove(returnItem.status);
+    canWrite &&
+    atBranch &&
+    canApproveRole &&
+    !!returnItem.approvalReview &&
+    (canApprove(returnItem.status) || needsReapproval);
   const showReject =
     canWrite && atBranch && canApproveRole && canReject(returnItem.status);
   const showMarkLogistics =
     canWrite && atBranch && canMarkLogistics(returnItem.status);
-  const showComplete = canWrite && atBranch && canComplete(returnItem.status);
+  // Sending the goods back is physical: the web does it only where the branch still works
+  // without PharmaCeylon POS. Anywhere else (live, fallback, or not yet known) it is the counter's.
+  const counterOnly = rollout?.state !== "not_live";
+  const dispatchReady =
+    canComplete(returnItem.status) && !!returnItem.executionApprovalId;
+  const showComplete = canWrite && atBranch && dispatchReady && !counterOnly;
+  const showHandoff = atBranch && isSupplier && dispatchReady && counterOnly;
   const showCancel =
     canWrite &&
     canCancel(returnItem.status) &&
@@ -80,9 +96,17 @@ export function ReturnDetailModal({
   async function runAction(path: string) {
     setBusy(true);
     setActionError(null);
+    // Approval confirms the exact return on screen; dispatch is pinned to that approval.
+    const body =
+      path === "approve"
+        ? { approvalId: crypto.randomUUID(), ...returnItem!.approvalReview }
+        : path === "complete"
+          ? { approvalId: returnItem!.executionApprovalId }
+          : undefined;
     try {
       await apiJson(`/returns/${returnItem!.id}/${path}`, {
         method: "POST",
+        ...(body ? { body: JSON.stringify(body) } : {}),
       });
       onChanged();
       onClose();
@@ -155,7 +179,7 @@ export function ReturnDetailModal({
                 onClick={() => void runAction("approve")}
                 disabled={busy || ownRequestBlocked}
               >
-                Approve
+                {needsReapproval ? "Approve again" : "Approve"}
               </ModalButton>
             </span>
           )}
@@ -165,7 +189,7 @@ export function ReturnDetailModal({
               onClick={() => void runAction("complete")}
               disabled={busy}
             >
-              Complete
+              Dispatch & complete
             </ModalButton>
           )}
         </ModalFooter>
@@ -177,6 +201,27 @@ export function ReturnDetailModal({
         <Alert variant="warning" className={layoutCss.modalAlert}>
           Switch to the return&apos;s branch to perform workflow actions.
         </Alert>
+      ) : null}
+
+      {needsReapproval ? (
+        <Alert variant="warning" className={layoutCss.modalAlert}>
+          This return has no usable approval on record. An approver needs to approve it again
+          before the goods can be sent back.
+        </Alert>
+      ) : null}
+      {isSupplier && dispatchReady && !showHandoff ? (
+        <Alert variant="info" className={layoutCss.modalAlert}>
+          Approved — nothing has left stock yet. Completing sends the goods back and raises the
+          supplier&apos;s debit note.
+        </Alert>
+      ) : null}
+      {showHandoff ? (
+        <CounterHandoff
+          className={layoutCss.modalAlert}
+          branchName={returnItem.branch?.name ?? "the branch"}
+          action="Send the goods back and complete the return"
+          whoCan={["Pharmacist", "Inventory clerk", "Manager"]}
+        />
       ) : null}
 
       <div className={rcss.detailGrid}>

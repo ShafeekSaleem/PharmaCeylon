@@ -14,6 +14,8 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/transfers/:id/ship",
   "POST /api/v1/transfers/:id/receive",
   "POST /api/v1/sales/refund-requests/:id/execute",
+  "POST /api/v1/purchasing/prepared-receipts/:id/post",
+  "POST /api/v1/returns/:id/complete",
 ] as const;
 export type SignedPhysicalOperation = typeof SIGNED_PHYSICAL_OPERATIONS[number];
 
@@ -43,6 +45,8 @@ export type SignedOperationBody = {
   /** The counter refunds a prepared request (stock back, money out). approvalEvidenceId = the
    * request's executionApprovalId, or null when it needs no approval (under the threshold). */
   "POST /api/v1/sales/refund-requests/:id/execute": Readonly<{ refundRequestId: string }>;
+  "POST /api/v1/purchasing/prepared-receipts/:id/post": Readonly<{ preparedReceiptId: string }>;
+  "POST /api/v1/returns/:id/complete": Readonly<{ goodsReturnId: string }>;
 };
 
 /** "already_applied": a distinct command found the document already posted; no second effect. */
@@ -80,6 +84,15 @@ export type SignedOperationResult = {
   "POST /api/v1/sales/refund-requests/:id/execute": Readonly<{
     type: "sale_refund.executed"; refundRequestId: string; approvalId: string | null; goodsReturnId: string;
     amountMinor: number; refundedTo: ReadonlyArray<Readonly<{ method: string; amountMinor: number }>>;
+    effect: SignedOperationEffect;
+  }>;
+  "POST /api/v1/purchasing/prepared-receipts/:id/post": Readonly<{
+    type: "prepared_receipt.posted"; preparedReceiptId: string; approvalId: string; goodsReceiptId: string;
+    effect: SignedOperationEffect;
+  }>;
+  "POST /api/v1/returns/:id/complete": Readonly<{
+    type: "goods_return.completed"; goodsReturnId: string; approvalId: string;
+    debitNoteId: string | null; // null when the returned lines are worth nothing to claim
     effect: SignedOperationEffect;
   }>;
 };
