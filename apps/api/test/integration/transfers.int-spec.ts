@@ -301,6 +301,25 @@ describe("destination receipt keeps in-transit accounting and destination author
   });
 });
 
+describe("browser partial receipts pinned to the count on screen", () => {
+  it("two partial receives of the same count post once; the stale one is refused", async () => {
+    const t = await dispatchedTransfer(5, 12);
+    const count = { dispatchApprovalId: t.approvalId,
+      lines: [{ transferItemId: t.itemId, qty: 2, receivedQtyBefore: 0 }] };
+    const settled = await Promise.allSettled([
+      transfers.receive(user(fx.managerId), destination(), t.id, count),
+      transfers.receive(user(fx.managerId), destination(), t.id, count, "receive-key-b"),
+    ]);
+    expect(settled.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(settled.find(r => r.status === "rejected")).toMatchObject({ reason: { status: 409 } });
+    expect(await destinationOnHand(t.batchId)).toBe(2);
+    // A count taken after the first receipt still works.
+    await transfers.receive(user(fx.managerId), destination(), t.id,
+      { lines: [{ transferItemId: t.itemId, qty: 3, receivedQtyBefore: 2 }] });
+    expect(await destinationOnHand(t.batchId)).toBe(5);
+  });
+});
+
 describe("signed counter execution", () => {
   let sourceCounter: Counter;
   let destinationCounter: Counter;

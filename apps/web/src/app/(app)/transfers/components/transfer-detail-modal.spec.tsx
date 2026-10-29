@@ -151,6 +151,23 @@ describe("TransferDetailModal", () => {
     expect(screen.getByText("5 units")).toBeTruthy();
   });
 
+  it("sends a partial receive pinned to the received quantity on screen", async () => {
+    renderModal(
+      { ...approved(), status: "partially_received", items: [{ ...approved().items[0]!, receivedQty: 1 }] },
+      DESTINATION,
+      "not_live",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Partial receive" }));
+    fireEvent.change(screen.getByLabelText("Receive qty for PCM"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm partial receive" }));
+    await waitFor(() => expect(apiJson).toHaveBeenCalled());
+    const [, init] = jest.mocked(apiJson).mock.calls[0]!;
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      dispatchApprovalId: "approval-1",
+      lines: [{ transferItemId: "item-1", qty: 2, receivedQtyBefore: 1 }],
+    });
+  });
+
   it("receives on the web at a not-live destination, pinned to the dispatch", async () => {
     renderModal({ ...approved(), status: "in_transit" }, DESTINATION, "not_live");
     fireEvent.click(screen.getByRole("button", { name: "Receive all remaining" }));

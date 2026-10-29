@@ -18,6 +18,16 @@ export class ReceiveTransferLineDto {
   @IsInt()
   @Min(1)
   qty!: number;
+
+  /**
+   * The line's `receivedQty` the screen showed. When sent, a receipt counted against an older
+   * figure is refused (409), so two partial receives of the same arrival can't both post.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  receivedQtyBefore?: number;
 }
 
 /** Omit `lines` (or pass empty) to receive all remaining qty on every line. */

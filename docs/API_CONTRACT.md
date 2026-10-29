@@ -331,7 +331,9 @@ pre-P6 approval) issues new evidence without reserving again. `POST /transfers/:
 `{ approvalId }` (the displayed `executionApprovalId`, `null` when waived) and **409**s on any
 other; it consumes the reservation, issues `transfer_out` and sets `in_transit` with
 `dispatchedBy/At`. `POST /transfers/:id/receive` accepts an optional `dispatchApprovalId` pin
-beside `lines`, and requires live `transfers.manage` at the destination. Both keep their
+beside `lines`, and requires live `transfers.manage` at the destination. Each line may carry
+`receivedQtyBefore` (the `receivedQty` the screen showed); a receipt counted against an older
+figure is **409**, so two partial receives of the same arrival can't both post. The web sends it. Both keep their
 `Idempotency-Key` scopes; distinct concurrent dispatches move stock once. Approval created on
 submit (self-approval) records the same exact evidence.
 
