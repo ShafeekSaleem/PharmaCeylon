@@ -19,6 +19,7 @@ import { ProductImportService } from "../../src/product-import/product-import.se
 import { HeldDeliveryService } from "../../src/purchasing/held-delivery.service";
 import { PurchasingService } from "../../src/purchasing/purchasing.service";
 import { AccessService } from "../../src/security/access.service";
+import { WorkerAuthority } from "../../src/security/worker-authority";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { ManagementApprovalsService } from "../../src/security/management-approvals.service";
 import { MandatoryOperationEvidence } from "../../src/security/mandatory-operation-evidence";
@@ -102,7 +103,7 @@ let runImport: (() => Promise<void>) | undefined;
 const imports = new ProductImportService(proxy as never, audit, new CategoryTaxonomyService(proxy as never),
   { start: (_j: string, _t: string, id: string, work: (ctx: unknown) => Promise<void>) => {
     runImport = () => work({ jobId: id, importId: id, progress: () => {} });
-  } } as never, { refresh: async () => {} } as never, stock);
+  } } as never, { refresh: async () => {} } as never, stock, new WorkerAuthority(access));
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
   new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never), audit, access);
 
@@ -208,7 +209,7 @@ async function stagedImport(qty = 12) {
 async function legacyImportWithStock() {
   const file = { buffer: Buffer.from(`Name,Qty,Cost,Sell,Batch\nImported ${randomUUID()},5,8,12,${randomUUID()}\n`),
     originalname: "opening.csv" } as Express.Multer.File;
-  const started = await imports.startImport(fx.tenantId, fx.managerId, branch(), file,
+  const started = await imports.startImport(fx.tenantId, { userId: fx.managerId, tokenVersion: 0 }, branch(), file,
     { name: "Name", qty: "Qty", costPrice: "Cost", sellingPrice: "Sell", batchNo: "Batch" }, [], {}, randomUUID());
   await runImport!();
   return started.importId;

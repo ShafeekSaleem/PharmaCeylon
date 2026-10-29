@@ -8,6 +8,11 @@ function setup() {
     branchId: "branch",
     status: "running",
     productsUpdated: 2,
+    createdBy: "user",
+    initiatedVia: "request",
+    initiatorTokenVersion: 0,
+    initiatorBranchId: "branch",
+    initiatorPermission: "products.import",
   };
   const events: string[] = [];
   const root: any = {
@@ -58,6 +63,7 @@ function setup() {
     {} as never,
     {} as never,
     {} as never,
+    { assertCurrent: async () => {} } as never,
   );
   return { service, root, audit, events, getRow: () => row };
 }
