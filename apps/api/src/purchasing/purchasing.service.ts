@@ -1244,10 +1244,12 @@ export class PurchasingService {
   }
 
   /**
-   * A delivery prepared and approved remotely is waiting for the counter to post it. Booking
-   * the same goods in another way first would count them twice, so that is refused.
+   * A delivery prepared remotely is open on this order, approved or still awaiting approval.
+   * Booking the same goods in another way (direct receipt, held delivery) would count them twice
+   * once it is posted, so every other way in is refused until it is posted or cancelled. Callers
+   * hold the purchase order lock; preparing takes the same lock, so the check cannot race.
    */
-  private async assertNoPreparedReceipt(
+  async assertNoPreparedReceipt(
     db: Prisma.TransactionClient | PrismaService,
     tenantId: string,
     branchId: string,
@@ -1256,16 +1258,18 @@ export class PurchasingService {
   ) {
     const prepared = await db.preparedReceipt.findFirst({
       where: {
-        tenantId, branchId, purchaseOrderId, status: "approved",
+        tenantId, branchId, purchaseOrderId, status: { in: ["draft", "approved"] },
         ...(exceptId ? { id: { not: exceptId } } : {}),
       },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (prepared) {
       throw new BadRequestException({
         code: "RECEIPT_PREPARED",
         preparedReceiptId: prepared.id,
-        message: "An approved delivery is waiting to be posted on this order. Post it, or ask a buyer to cancel it, before booking goods in another way.",
+        message: prepared.status === "approved"
+          ? "An approved delivery is waiting to be posted on this order. Post it, or ask a buyer to cancel it, before booking goods in another way."
+          : "A delivery prepared for this order is waiting for approval. Approve and post it, or cancel it, before booking goods in another way.",
       });
     }
   }

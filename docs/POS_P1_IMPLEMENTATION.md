@@ -431,8 +431,10 @@ Epic P6 [#52](https://github.com/ShafeekSaleem/PharmaCeylon/issues/52) with its 
   unchanged), received on the branch's business date. After the batch-lock wait it re-verifies
   live approver/executor authority against the already-verified, still-locked document
   (`ManagementApprovalsService.recheckAuthority`), because receiving has by then moved the PO's
-  received counters itself. Direct `purchase-orders/receive` stays approval-optional and local,
-  and refuses while an approved prepared receipt is open.
+  received counters itself. Direct `purchase-orders/receive` stays approval-optional and local.
+  While any prepared receipt is open, draft or approved, direct receiving, held posting and
+  holding refuse (`RECEIPT_PREPARED`), and preparing refuses while a held delivery waits: a
+  draft approved later would otherwise pin counters that already include the same goods.
 - **Supplier returns.** `approve` records exact `goods_return.complete` evidence and changes no
   stock; a self-approving create/submit records it in the same transaction. The return's
   "current approval" is the latest `management_approval` row (no new column, so

@@ -11,6 +11,7 @@ import { businessDateKey } from "../../src/common/business-date.util";
 import { StockReadService } from "../../src/inventory/stock/stock-read.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { createTenantAwarePrismaProxy } from "../../src/prisma/tenant-aware-prisma.proxy";
+import { HeldDeliveryService } from "../../src/purchasing/held-delivery.service";
 import { PreparedReceiptService } from "../../src/purchasing/prepared-receipt.service";
 import { PurchasingService } from "../../src/purchasing/purchasing.service";
 import { ReturnsService } from "../../src/returns/returns.service";
@@ -78,6 +79,7 @@ const notifications = { notifyByPermission: jest.fn().mockResolvedValue(1), noti
 const purchasing = new PurchasingService(proxy as never, audit, stock, new StockReadService(proxy as never));
 const prepared = new PreparedReceiptService(proxy as never, purchasing, notifications as never, audit, access, approvals);
 const returns = new ReturnsService(proxy as never, audit, stock, access, approvals);
+const deliveries = new HeldDeliveryService(proxy as never, purchasing, notifications as never, audit, access, approvals);
 const attendance = new FixtureAttendance();
 const trust = new TerminalTrustService(access, audit, attendance);
 const authorization = new OperationAuthorizationService(access, trust, new OpenHours(), approvals);
@@ -224,6 +226,41 @@ describe("prepared receipts: remote approval, counter posting", () => {
     await expect(prepared.post(user(fx.clerkId), branch(), d.id, { approvalId: approved.executionApprovalId! }))
       .rejects.toMatchObject({ response: { code: "APPROVAL_STALE" } });
     expect(await receiptsOn(d.poId)).toBe(0);
+  });
+
+  it("a prepared delivery awaiting approval blocks every other way in, so approving it later cannot double-book", async () => {
+    const d = await preparedDelivery();
+    const receiver = actor(fx.clerkId, ["purchasing.receive"]);
+    const typed = { purchaseOrderId: d.poId, receivedOn: today(), lines: [deliveryLine(10)] };
+    // Still a draft: the counter can neither book the same goods in directly nor hold them.
+    await expect(purchasing.receiveGoods(fx.tenantId, branch(), fx.clerkId, receiver, typed))
+      .rejects.toMatchObject({ response: { code: "RECEIPT_PREPARED", preparedReceiptId: d.id } });
+    await expect(deliveries.hold(fx.tenantId, branch(), fx.clerkId, d.poId,
+      { reasons: ["over_delivery"], detail: "More than ordered", delivery: typed }))
+      .rejects.toMatchObject({ response: { code: "RECEIPT_PREPARED" } });
+    expect(await receiptsOn(d.poId)).toBe(0);
+    expect(await prisma.heldDelivery.count({ where: { tenantId: fx.tenantId, purchaseOrderId: d.poId } })).toBe(0);
+    // Approving and posting the prepared delivery books the goods in exactly once.
+    const approved = await approvePrepared(d.id);
+    await prepared.post(user(fx.clerkId), branch(), d.id, { approvalId: approved.executionApprovalId! });
+    expect(await receiptsOn(d.poId)).toBe(1);
+    expect((await prisma.purchaseOrderItem.findFirstOrThrow({ where: { purchaseOrderId: d.poId } })).receivedQty).toBe(10);
+
+    // Once cancelled, the order is open to the counter again.
+    const other = await preparedDelivery();
+    await prepared.cancel(user(fx.managerId), branch(), other.id, { reason: "Supplier sent a different note" });
+    await purchasing.receiveGoods(fx.tenantId, branch(), fx.clerkId, receiver,
+      { purchaseOrderId: other.poId, receivedOn: today(), lines: [deliveryLine(10)] });
+    expect(await receiptsOn(other.poId)).toBe(1);
+  });
+
+  it("a delivery held at the counter blocks preparing another on the same order", async () => {
+    const po = await issuedOrder(1);
+    await deliveries.hold(fx.tenantId, branch(), fx.clerkId, po.id, { reasons: ["over_delivery"], detail: "Two delivered",
+      delivery: { purchaseOrderId: po.id, receivedOn: today(), lines: [deliveryLine(2)] } });
+    await expect(prepared.create(user(fx.clerkId), branch(), po.id, { delivery: { lines: [deliveryLine(1)] } }))
+      .rejects.toMatchObject({ response: { code: "DELIVERY_AWAITING_APPROVAL" } });
+    expect(await prisma.preparedReceipt.count({ where: { tenantId: fx.tenantId, purchaseOrderId: po.id } })).toBe(0);
   });
 
   it("carries the approver's over-delivery decision to a receiver who cannot approve", async () => {

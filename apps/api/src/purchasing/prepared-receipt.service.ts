@@ -120,6 +120,18 @@ export class PreparedReceiptService {
         select: { id: true },
       });
       if (open) throw this.alreadyPrepared(open.id);
+      // A delivery the counter held for approval is the same goods: decide it first.
+      const held = await tx.heldDelivery.findFirst({
+        where: { tenantId: user.tenantId, branchId, purchaseOrderId, status: { in: ["awaiting_approval", "approved"] } },
+        select: { id: true },
+      });
+      if (held) {
+        throw new ConflictException({
+          code: "DELIVERY_AWAITING_APPROVAL",
+          heldDeliveryId: held.id,
+          message: "A delivery held at the counter is waiting on this order. Approve and post it, or reject it, before preparing another.",
+        });
+      }
       const row = await tx.preparedReceipt.create({
         data: {
           tenantId: user.tenantId,

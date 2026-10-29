@@ -977,8 +977,8 @@ export function PoDetailModal({
                           data-tooltip={
                             (detail.heldDeliveries?.length ?? 0) > 0
                               ? "A delivery on this order is waiting for approval. It has to be accepted or rejected first."
-                              : detail.preparedReceipts?.some((row) => row.status === "approved")
-                                ? "An approved delivery is waiting to be posted on this order. Post or cancel it first."
+                              : (detail.preparedReceipts?.length ?? 0) > 0
+                                ? "A delivery prepared for this order is open. Post it once approved, or cancel it, first."
                                 : undefined
                           }
                         >
@@ -987,7 +987,7 @@ export function PoDetailModal({
                             onClick={() => { setPrepareMode(false); void openReceive(); }}
                             loading={preparingReceive}
                             disabled={busy || (detail.heldDeliveries?.length ?? 0) > 0
-                              || !!detail.preparedReceipts?.some((row) => row.status === "approved")}
+                              || (detail.preparedReceipts?.length ?? 0) > 0}
                           >
                             Receive goods
                           </ModalButton>
