@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { IconChevronDown, IconChevronRight, IconChevronUp } from "@/components/icons";
 import type { ChartPoint } from "./simple-charts";
+import { dashboardHref, usePosHidden } from "../lib/pos-links";
 import css from "../dashboard.module.css";
 
 export type HeroTrend = {
@@ -109,6 +110,7 @@ export function HeroBand({
   secondary,
   loading,
 }: Props) {
+  const posHidden = usePosHidden();
   const columns = `1.5fr ${secondary.map(() => "1fr").join(" ")}`.trim();
 
   return (
@@ -132,7 +134,8 @@ export function HeroBand({
         ) : null}
       </div>
       {secondary.map((m) => {
-        const hasLink = !loading && m.href;
+        const href = dashboardHref(m.href, posHidden);
+        const hasLink = !loading && href;
         const cellCls = [css.heroCell, hasLink ? css.heroCellWithLink : ""]
           .filter(Boolean)
           .join(" ");
@@ -155,7 +158,7 @@ export function HeroBand({
               </p>
             ) : null}
             {hasLink ? (
-              <Link href={m.href!} className={css.heroCellLink} aria-label={m.linkLabel ?? `View ${m.label}`}>
+              <Link href={href!} className={css.heroCellLink} aria-label={m.linkLabel ?? `View ${m.label}`}>
                 <span className={css.heroCellLinkText}>{m.linkLabel ?? "View"}</span>
                 <IconChevronRight size={13} strokeWidth={2.25} />
               </Link>

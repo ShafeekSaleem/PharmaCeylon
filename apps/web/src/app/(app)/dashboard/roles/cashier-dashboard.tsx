@@ -11,6 +11,7 @@ import {
   IconUsers,
 } from "@/components/icons";
 import { formatMoney } from "@/app/(app)/inventory/utils";
+import { CounterHandoff } from "@/components/ui";
 import { CATALOG_ROLES, POS_ROLES } from "@/lib/role-access";
 import {
   AttentionTicker,
@@ -22,6 +23,7 @@ import { QuickActionsBar } from "../components/quick-actions-bar";
 import type { DashboardData } from "../hooks/use-dashboard-data";
 import type { UseDashboardLayoutResult } from "../hooks/use-dashboard-layout";
 import { useCustomerBreakdown } from "../hooks/use-customer-breakdown";
+import { usePosHidden } from "../lib/pos-links";
 import css from "../dashboard.module.css";
 import type { WidgetDef } from "../widgets/types";
 
@@ -50,6 +52,9 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
     branchId,
   } = data;
 
+  // D-W4: at a live branch selling, held bills and returns are at the counter, so the cashier
+  // dashboard shrinks to their own figures; every POS shortcut drops out (see lib/pos-links).
+  const posHidden = usePosHidden();
   const rxWaiting = data.salesMetrics?.holds.pharmacist ?? 0;
   const { data: breakdown } = useCustomerBreakdown(branchId);
 
@@ -102,6 +107,13 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
 
   return (
     <>
+      {posHidden ? (
+        <CounterHandoff
+          variant="counter_only"
+          branchName={data.branchName || "your branch"}
+          action="Sell, recall held bills and process returns"
+        />
+      ) : null}
       <QuickActionsBar
         title="Cashier Quick Actions"
         actions={[
@@ -190,14 +202,18 @@ export function CashierDashboard({ data, catalog, layout }: Props) {
             href: "/pos",
             linkLabel: "Open POS",
           },
-          {
-            key: "held",
-            label: "Branch Held Bills",
-            value: holdCount,
-            meta: `Value: ${formatMoney(holdValue)}`,
-            href: "/pos?panel=holds",
-            linkLabel: "View holds",
-          },
+          ...(posHidden
+            ? []
+            : [
+                {
+                  key: "held",
+                  label: "Branch Held Bills",
+                  value: holdCount,
+                  meta: `Value: ${formatMoney(holdValue)}`,
+                  href: "/pos?panel=holds",
+                  linkLabel: "View holds",
+                },
+              ]),
           {
             key: "customers",
             label: "Branch Customers Today",

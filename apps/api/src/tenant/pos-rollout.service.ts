@@ -121,7 +121,7 @@ export class PosRolloutService {
       );
     }
     const note = reason?.trim() || null;
-    const branch = await this.prisma.$transaction(async (tx) => {
+    const changed = await this.prisma.$transaction(async (tx) => {
       const branch = await this.branch(tx, user.tenantId, branchId);
       if (branch.desktopPosRollout !== DesktopPosRollout.live) {
         throw new ConflictException(
@@ -144,12 +144,14 @@ export class PosRolloutService {
           reason: note,
         },
       );
-      return branch;
+      return { branch, running };
     });
-    await this.notify(
+    await this.notifyFallback(
       user,
-      branch,
-      `Web POS fallback is on at "${branch.name}"`,
+      changed.branch,
+      changed.running
+        ? `Web POS fallback at "${changed.branch.name}" now ends at ${endsAt.toISOString()}`
+        : `Web POS fallback is on at "${changed.branch.name}" until ${endsAt.toISOString()}`,
       NotificationSeverity.warning,
     );
     return this.get(user, branchId);
@@ -173,7 +175,7 @@ export class PosRolloutService {
       });
       return branch;
     });
-    await this.notify(user, branch, `Web POS fallback ended at "${branch.name}"`);
+    await this.notifyFallback(user, branch, `Web POS fallback ended at "${branch.name}"`);
     return this.get(user, branchId);
   }
 
@@ -282,6 +284,23 @@ export class PosRolloutService {
         entityType: "branch",
         entityId: branch.id,
       },
+      user.userId,
+    );
+  }
+
+  /** Fallback started, moved or ended: W7's `fallback_changed` counter alert, so it reaches the
+   * roles the tenant chose for that branch (owners and managers by default). */
+  private async notifyFallback(
+    user: RequestUser,
+    branch: BranchRow,
+    title: string,
+    severity: NotificationSeverity = NotificationSeverity.info,
+  ) {
+    await this.notifications.notifyCounterAlert(
+      user.tenantId,
+      branch.id,
+      "fallback_changed",
+      { severity, title, actionHref: "/settings/branches", entityId: branch.id },
       user.userId,
     );
   }
