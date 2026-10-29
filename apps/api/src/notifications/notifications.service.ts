@@ -10,7 +10,19 @@ import {
   StocktakeStatus,
   TransferStatus,
 } from "@prisma/client";
+import type {
+  CounterAlertType,
+  DailyWorkItem,
+  WorkCategory,
+} from "@pharmaceylon/shared";
+import { approvedWaitingKinds } from "../dashboard/daily-work-kinds";
+import { DailyWorkService } from "../dashboard/daily-work.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
+import {
+  counterAlertRecipients,
+  counterAlertRule,
+} from "./counter-alert-recipients";
 import { PERMISSION_KEYS } from "../security/permission-catalog";
 import { PermissionsService } from "../security/permissions.service";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -32,6 +44,22 @@ export type AdminNotificationInput = {
 };
 
 type Preferences = NotificationPreference;
+
+/** "Fallback ending" (W7 counter alert `fallback_changed`) is raised this long before the end. */
+const FALLBACK_ENDING_NOTICE_MS = 2 * 3_600_000;
+
+/** Daily-work categories that notify, and the preference that switches each off. */
+const WORK_NOTIFICATION: Record<
+  WorkCategory,
+  { category: NotificationCategory; enabled: keyof Preferences }
+> = {
+  purchasing: { category: NotificationCategory.purchasing, enabled: "purchasingEnabled" },
+  returns: { category: NotificationCategory.purchasing, enabled: "purchasingEnabled" },
+  transfers: { category: NotificationCategory.transfers, enabled: "transfersEnabled" },
+  stocktakes: { category: NotificationCategory.stocktakes, enabled: "stocktakesEnabled" },
+  inventory: { category: NotificationCategory.inventory, enabled: "inventoryEnabled" },
+  counter: { category: NotificationCategory.sales, enabled: "salesEnabled" },
+};
 
 type DesiredNotification = {
   dedupeKey: string;
@@ -55,6 +83,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
+    private readonly work: DailyWorkService,
   ) {}
 
   async list(
@@ -161,6 +190,57 @@ export class NotificationsService {
       excludeUserId,
       opts.branchId,
     );
+    return this.deliver(tenantId, recipientIds, category, input, opts.branchId);
+  }
+
+  /**
+   * A W7 counter alert (#81) to the roles its tenant setting names, for one branch. Switched-off
+   * types reach nobody. Only `EMITTED_COUNTER_ALERT_TYPES` have a source today; the telemetry
+   * types are delivered the same way once P2/P5 call this.
+   */
+  async notifyCounterAlert(
+    tenantId: string,
+    branchId: string,
+    type: CounterAlertType,
+    input: AdminNotificationInput,
+    excludeUserId?: string,
+  ): Promise<number> {
+    const [settings, assignments] = await Promise.all([
+      this.prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { counterAlertPolicy: true },
+      }),
+      this.prisma.userBranchRole.findMany({
+        where: { tenantId, ...(excludeUserId ? { userId: { not: excludeUserId } } : {}) },
+        select: { userId: true, branchId: true, role: true, roleRef: { select: { key: true } } },
+      }),
+    ]);
+    const recipients = counterAlertRecipients(
+      counterAlertRule(settings?.counterAlertPolicy, type),
+      assignments.map((entry) => ({
+        userId: entry.userId,
+        branchId: entry.branchId,
+        role: entry.role,
+        roleKey: entry.roleRef?.key ?? null,
+      })),
+      branchId,
+    );
+    return this.deliver(
+      tenantId,
+      recipients,
+      NotificationCategory.system,
+      { ...input, entityType: input.entityType ?? `counter_alert.${type}` },
+      branchId,
+    );
+  }
+
+  private async deliver(
+    tenantId: string,
+    recipientIds: string[],
+    category: NotificationCategory,
+    input: AdminNotificationInput,
+    branchId?: string,
+  ): Promise<number> {
     if (!recipientIds.length) return 0;
 
     const preferenceRows = await this.prisma.notificationPreference.findMany({
@@ -181,7 +261,7 @@ export class NotificationsService {
       data: recipients.map((recipientUserId) => ({
         tenantId,
         recipientUserId,
-        branchId: opts.branchId ?? null,
+        branchId: branchId ?? null,
         category,
         severity: input.severity ?? NotificationSeverity.info,
         title: input.title,
@@ -362,7 +442,7 @@ export class NotificationsService {
       this.getPreferences(user.tenantId, user.userId),
     ]);
     const desired = await this.collectOperationalNotifications(
-      user.tenantId,
+      user,
       branchId,
       granted,
       preferences,
@@ -445,12 +525,30 @@ export class NotificationsService {
   }
 
   private async collectOperationalNotifications(
-    tenantId: string,
+    user: RequestUser,
     branchId: string,
     granted: Set<string>,
     preferences: Preferences,
   ): Promise<DesiredNotification[]> {
-    const jobs: Array<Promise<DesiredNotification[]>> = [];
+    const tenantId = user.tenantId;
+    const branch = await this.prisma.branch.findFirst({
+      where: { tenantId, id: branchId },
+      select: { name: true, ...POS_ROLLOUT_SELECT },
+    });
+    if (!branch) return [];
+    const rollout = resolvePosRollout(branch);
+    const jobs: Array<Promise<DesiredNotification[]>> = [
+      this.workNotifications(user, branchId, branch.name, preferences),
+    ];
+    if (rollout.fallback && preferences.systemEnabled)
+      jobs.push(
+        this.fallbackEndingNotifications(
+          user,
+          branchId,
+          branch.name,
+          rollout.fallback.endsAt,
+        ),
+      );
     if (granted.has("inventory.view")) {
       if (preferences.inventoryEnabled)
         jobs.push(this.lowStockNotifications(tenantId, branchId));
@@ -481,6 +579,7 @@ export class NotificationsService {
           tenantId,
           branchId,
           granted.has("stocktakes.review"),
+          rollout.state !== "not_live",
         ),
       );
     }
@@ -695,13 +794,19 @@ export class NotificationsService {
     tenantId: string,
     branchId: string,
     canReview: boolean,
+    counterLive: boolean,
   ) {
     if (!canReview) return [];
     const rows = await this.prisma.stocktake.findMany({
       where: {
         tenantId,
         branchId,
-        status: { in: [StocktakeStatus.submitted, StocktakeStatus.approved] },
+        // At a live branch an approved stocktake is posted at the counter: `workNotifications`.
+        status: {
+          in: counterLive
+            ? [StocktakeStatus.submitted]
+            : [StocktakeStatus.submitted, StocktakeStatus.approved],
+        },
       },
       orderBy: { updatedAt: "desc" },
       take: MAX_ACTION_ITEMS,
@@ -726,4 +831,112 @@ export class NotificationsService {
       requiresAction: true,
     }));
   }
+
+  /**
+   * Read from the daily-work model, so permissions, branch scope and every registered "approved,
+   * waiting at the counter" kind match the dashboard: approved documents waiting at a live
+   * branch's counter, and supplier returns waiting for approval (the one approval wait without
+   * a notification of its own). Requests the viewer may not approve themselves are left out.
+   */
+  private async workNotifications(
+    user: RequestUser,
+    branchId: string,
+    branchName: string,
+    preferences: Preferences,
+  ): Promise<DesiredNotification[]> {
+    const work = await this.work.get(
+      user,
+      branchId,
+      { filter: "all", page: 1 },
+      {
+        pageSize: MAX_ACTION_ITEMS,
+        kinds: [...approvedWaitingKinds(), "goods_return.approve"],
+      },
+    );
+    return work.items
+      .filter((item) =>
+        item.kind === "goods_return.approve"
+          ? item.approval && !item.blocked
+          : item.where === "counter",
+      )
+      .filter((item) => preferences[WORK_NOTIFICATION[item.category].enabled])
+      .map((item) => workNotification(item, branchId, branchName));
+  }
+
+  /** W7 `fallback_changed`: "ending" is a time rather than an event, so the scan raises it. */
+  private async fallbackEndingNotifications(
+    user: RequestUser,
+    branchId: string,
+    branchName: string,
+    endsAt: string,
+  ): Promise<DesiredNotification[]> {
+    if (new Date(endsAt).getTime() - Date.now() > FALLBACK_ENDING_NOTICE_MS)
+      return [];
+    const roleIds = user.branchRoles.flatMap((entry) =>
+      entry.roleId ? [entry.roleId] : [],
+    );
+    const [settings, roles] = await Promise.all([
+      this.prisma.tenantSettings.findUnique({
+        where: { tenantId: user.tenantId },
+        select: { counterAlertPolicy: true },
+      }),
+      this.prisma.role.findMany({
+        where: { tenantId: user.tenantId, id: { in: roleIds } },
+        select: { id: true, key: true },
+      }),
+    ]);
+    const recipients = counterAlertRecipients(
+      counterAlertRule(settings?.counterAlertPolicy, "fallback_changed"),
+      user.branchRoles.map((entry) => ({
+        userId: user.userId,
+        branchId: entry.branchId,
+        role: entry.role,
+        roleKey: roles.find((role) => role.id === entry.roleId)?.key ?? null,
+      })),
+      branchId,
+    );
+    if (!recipients.includes(user.userId)) return [];
+    return [
+      {
+        dedupeKey: `operational:${branchId}:counter-alert:fallback-ending:${endsAt}`,
+        branchId,
+        category: NotificationCategory.system,
+        severity: NotificationSeverity.warning,
+        title: `Web POS fallback at "${branchName}" ends soon`,
+        message: `It ends at ${endsAt}. Checkout then returns to PharmaCeylon POS only.`,
+        actionLabel: "Open branch settings",
+        actionHref: "/settings/branches",
+        entityType: "counter_alert.fallback_changed",
+        entityId: branchId,
+        requiresAction: false,
+      },
+    ];
+  }
+}
+
+/** Deep link to the document; its page shows the counter handoff. */
+function workNotification(
+  item: DailyWorkItem,
+  branchId: string,
+  branchName: string,
+): DesiredNotification {
+  const counter = item.where === "counter";
+  return {
+    dedupeKey: `operational:${branchId}:work:${item.id}:${item.kind}`,
+    branchId,
+    category: WORK_NOTIFICATION[item.category].category,
+    severity: counter ? NotificationSeverity.info : NotificationSeverity.warning,
+    title: counter
+      ? `Approved — waiting at the counter · ${item.reference}`
+      : `${item.title} ${item.reference}`,
+    message: counter
+      ? `${item.title} in PharmaCeylon POS at ${branchName}. ${item.detail}`
+      : item.detail,
+    actionLabel: counter ? "View details" : item.action,
+    actionHref: item.href,
+    entityType: item.kind.slice(0, item.kind.indexOf(".")),
+    entityId: item.id.slice(item.id.indexOf(":") + 1),
+    requiresAction: true,
+    metadata: { kind: item.kind, where: item.where },
+  };
 }
