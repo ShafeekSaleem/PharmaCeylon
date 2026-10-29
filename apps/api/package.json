@@ -9,7 +9,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "check:tenant-scope": "node scripts/check-tenant-scoped-mutations.mjs && node scripts/check-tenant-data-entrypoints.mjs",
-    "check:stock-writes": "node scripts/check-stock-writes.mjs",
+    "check:stock-writes": "node scripts/check-stock-writes.mjs && node scripts/check-maintenance-entrypoints.mjs",
     "lint": "npm run check:tenant-scope && npm run check:stock-writes && tsc -p tsconfig.json --noEmit",
     "test": "jest",
     "test:rls-poc": "node scripts/test-rls-poc.mjs",

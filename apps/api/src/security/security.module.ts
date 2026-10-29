@@ -1,6 +1,7 @@
 import { Global, Module } from "@nestjs/common";
 import { AccessService } from "./access.service";
 import { PermissionsService } from "./permissions.service";
+import { WorkerAuthority } from "./worker-authority";
 
 /**
  * Global so any feature module (e.g. the roles/permissions admin endpoints)
@@ -9,7 +10,7 @@ import { PermissionsService } from "./permissions.service";
  */
 @Global()
 @Module({
-  providers: [PermissionsService, AccessService],
-  exports: [PermissionsService, AccessService],
+  providers: [PermissionsService, AccessService, WorkerAuthority],
+  exports: [PermissionsService, AccessService, WorkerAuthority],
 })
 export class SecurityModule {}

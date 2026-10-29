@@ -414,6 +414,47 @@ Validation (2026-10-28, local PostgreSQL 18):
   - `npm run lint -w api` (types, tenant and stock-write checks) and the 183-route mutation
     inventory passed. CI runs everything again.
 
+## MR 6: initiating authority for background writers
+
+The two background writers that outlive their HTTP request now carry, persist and revalidate the
+authority that started them.
+
+- **Product import worker.** `product_import` gains `initiated_via` (`request` | `legacy`),
+  `initiator_token_version`, `initiator_branch_id` and `initiator_permission`. `/confirm` and
+  `/stage` write them from the authenticated request (the branch whose permission the route
+  checked; none = any branch, catalog only). Every worker write transaction
+  (`inImportTransaction`: product chunks, categories, stock posting/staging, completion) claims
+  the running row and then calls `WorkerAuthority.assertCurrent` before writing. That is
+  `AccessService.resolveLive` with the stored token version: active account and membership,
+  current branch assignment and the permission there. Any token-version change (permission or
+  role edit, password change, sign-out everywhere) stops the job at its next write; earlier
+  committed chunks are kept, a `products.import_stopped` audit event is written and the runner
+  marks the import failed. Owners are revalidated the same way. Rows created before this
+  migration are `legacy`: a worker never writes for them (their in-memory work cannot survive a
+  restart anyway). A database check binds the shape (stock imports must name their stock branch)
+  and a trigger makes creator/provenance immutable.
+- **NMRA register job.** Still in memory, so its durable provenance is the
+  `products.nmra_import_started` audit event (user, token version, permission, row count). It
+  revalidates tenant-wide `nmra.import` at the start of every write transaction: each product
+  create/update chunk and each taxonomy, tag and alias write batch (CategoryTaxonomyService's writes
+  run on that same transaction). Revocation stops the job at its next batch, keeps committed batches
+  and fails it with `products.nmra_import_stopped`.
+- **Maintenance-only writers.** `stock-projection.ts` (`rebuildBatchStock`,
+  `convertLegacyStockState`) writes stock totals with no user authority, for seeds and repair.
+  `scripts/check-maintenance-entrypoints.mjs`, run by `npm run lint -w api`, fails if anything
+  under `src/` imports it; seeds, scripts and tests may. The internal-writer inventory
+  (`internal-operation-actions.ts`) records these rules.
+- **What is not a worker write.** `sweepStale`/heartbeats only move dead `running` rows to
+  `failed`; GET-triggered catalog-task refresh is idempotent bookkeeping. Signed command
+  execution (MR 5) already carries command provenance and revalidates in its own transaction.
+
+No route, permission or classification changes; the 183-route inventory is unchanged. API, web
+and existing clients need no change. Tests: `worker-authority.spec.ts` (unit) and
+`test/integration/worker-provenance.int-spec.ts` (PostgreSQL): persisted provenance, permission
+removed before the worker runs, token change between two real write chunks (first chunk kept,
+nothing after), owner jobs, legacy rows, immutable/well-formed provenance, and the NMRA job's
+start/stop audit and per-batch revalidation.
+
 ## Remaining P1 MRs, in order
 
 ### MR 4c: product-import stock staging and separate posting
@@ -479,7 +520,7 @@ tenant/stock scanners and the 166-route inventory.
    Still open:
    - further adapters as more handlers are split (transfers, returns, receipts, sales/refunds,
      cash);
-   - persisted provenance for import/background workers and maintenance writers;
+   - ~~persisted provenance for import/background workers and maintenance writers~~ (MR 6);
    - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
    - restricting browser routes to terminals once W1 rollout and P2 are ready.
 3. **Readiness evidence and integration:** hours acknowledgements, assisted handover, incident
