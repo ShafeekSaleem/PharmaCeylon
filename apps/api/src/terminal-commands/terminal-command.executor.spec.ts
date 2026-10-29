@@ -96,6 +96,7 @@ function setup(existing: Record<string, unknown> | null = null) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   const authorization = {
     authorize: jest.fn(async (_tx: unknown, _u: unknown, _b: unknown, _d: unknown,
@@ -333,7 +334,7 @@ describe("TerminalCommandExecutor", () => {
 });
 
 describe("SignedOperations body parsers", () => {
-  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
   const parse = (body: unknown) =>
     ops.get("POST /api/v1/products/import/:importId/stock/post").descriptor.parseBody(body);
   const importId = randomUUID();
@@ -366,7 +367,44 @@ describe("SignedOperations body parsers", () => {
       "POST /api/v1/purchasing/prepared-receipts/:id/post",
       "POST /api/v1/returns/:id/complete",
       "POST /api/v1/stocktakes/:id/post",
+      "POST /api/v1/transfers/:id/receive",
+      "POST /api/v1/transfers/:id/ship",
     ]);
+  });
+
+  describe("transfer receipt body", () => {
+    const parseReceive = (body: unknown) =>
+      ops.get("POST /api/v1/transfers/:id/receive").descriptor.parseBody(body);
+    const transferId = randomUUID();
+    const line = { transferItemId: randomUUID(), qty: 3, receivedQtyBefore: 0 };
+
+    it("accepts counted lines pinned to a dispatch, or to a waived (null) one", () => {
+      for (const body of [
+        { transferId, dispatchApprovalId: randomUUID(), lines: [line] },
+        { transferId, dispatchApprovalId: null, lines: [line, { ...line, transferItemId: randomUUID() }] },
+      ])
+        expect(parseReceive(body)).toBe(body);
+    });
+
+    it.each([
+      { transferId, dispatchApprovalId: null, lines: [] },
+      { transferId, lines: [line] },
+      { transferId, dispatchApprovalId: null, lines: [line, line] },
+      { transferId, dispatchApprovalId: null, lines: [{ ...line, qty: 0 }] },
+      { transferId, dispatchApprovalId: null, lines: [{ ...line, qty: "3" }] },
+      { transferId, dispatchApprovalId: null, lines: [{ ...line, receivedQtyBefore: -1 }] },
+      { transferId, dispatchApprovalId: null, lines: [{ transferItemId: line.transferItemId, qty: 3 }] },
+      { transferId, dispatchApprovalId: "nope", lines: [line] },
+    ])("rejects %j", (body) => {
+      expect(() => parseReceive(body)).toThrow();
+    });
+
+    it("dispatch carries the transfer approval and may be waived; receipt carries none", () => {
+      const ship = ops.get("POST /api/v1/transfers/:id/ship").descriptor;
+      expect(ship.approval?.action).toBe("transfer.ship");
+      expect(typeof ship.approval?.waived).toBe("function");
+      expect(ops.get("POST /api/v1/transfers/:id/receive").descriptor.approval).toBeUndefined();
+    });
   });
 
   it.each([

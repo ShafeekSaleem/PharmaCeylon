@@ -193,6 +193,12 @@ export const MUTATION_ACTIONS = Object.freeze({
   // whose v1 operations are all physical stock; each is reclassified by its own route profile.
   "POST /api/v1/terminal-commands/prepare": "identity",
   "POST /api/v1/terminal-commands/execute": "stock",
+  // Revised D13 remote management: delegation and online assignment authorization only. They
+  // nominate nothing; local signed activation on the exact target is a separate step.
+  "POST /api/v1/terminals/offline-assignment/authorizations": "management",
+  "POST /api/v1/terminals/offline-assignment/authorizations/:authorizationId/revoke": "management",
+  "POST /api/v1/terminals/offline-assignment/delegations": "management",
+  "POST /api/v1/terminals/offline-assignment/delegations/:delegationId/revoke": "management",
   "POST /api/v1/transfers": "reservation",
   "POST /api/v1/transfers/:id/approve": "reservation",
   "POST /api/v1/transfers/:id/cancel": "reservation",

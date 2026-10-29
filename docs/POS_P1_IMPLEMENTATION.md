@@ -371,7 +371,8 @@ receipts have `offline_sequence` NULL. Notifications move to explicit post-commi
 Nothing is activated:
 
 - The production `LocalAttendanceVerifier` still denies every proof, and the hours evidence
-  port still denies every local command. In production, `execute` therefore fails closed with
+  port still denied every local command at the time (MR 7 replaces it with the real branch-hours
+  provider). In production, `execute` therefore fails closed with
   `LOCAL_ATTENDANCE_UNAVAILABLE` (a test proves both denials).
 - Browser routes keep their current behaviour, and W1 rollout state is not consulted yet.
 - P2 still owns enrollment/session HTTP endpoints, the attendance provider, PIN sign-in and the
@@ -414,6 +415,174 @@ Validation (2026-10-28, local PostgreSQL 18):
   - `npm run lint -w api` (types, tenant and stock-write checks) and the 183-route mutation
     inventory passed. CI runs everything again.
 
+## MR 6: initiating authority for background writers
+
+The two background writers that outlive their HTTP request now carry, persist and revalidate the
+authority that started them.
+
+- **Product import worker.** `product_import` gains `initiated_via` (`request` | `legacy`),
+  `initiator_token_version`, `initiator_branch_id` and `initiator_permission`. `/confirm` and
+  `/stage` write them from the authenticated request (the branch whose permission the route
+  checked; none = any branch, catalog only). Every worker write transaction
+  (`inImportTransaction`: product chunks, categories, stock posting/staging, completion) claims
+  the running row and then calls `WorkerAuthority.assertCurrent` before writing. That is
+  `AccessService.resolveLive` with the stored token version: active account and membership,
+  current branch assignment and the permission there. Any token-version change (permission or
+  role edit, password change, sign-out everywhere) stops the job at its next write; earlier
+  committed chunks are kept, a `products.import_stopped` audit event is written and the runner
+  marks the import failed. Owners are revalidated the same way. Rows created before this
+  migration are `legacy`: a worker never writes for them (their in-memory work cannot survive a
+  restart anyway). A database check binds the shape (stock imports must name their stock branch)
+  and a trigger makes creator/provenance immutable.
+- **NMRA register job.** Still in memory, so its durable provenance is the
+  `products.nmra_import_started` audit event (user, token version, permission, row count). It
+  revalidates tenant-wide `nmra.import` at the start of every write transaction: each product
+  create/update chunk and each taxonomy, tag and alias write batch (CategoryTaxonomyService's writes
+  run on that same transaction). Revocation stops the job at its next batch, keeps committed batches
+  and fails it with `products.nmra_import_stopped`.
+- **Maintenance-only writers.** `stock-projection.ts` (`rebuildBatchStock`,
+  `convertLegacyStockState`) writes stock totals with no user authority, for seeds and repair.
+  `scripts/check-maintenance-entrypoints.mjs`, run by `npm run lint -w api`, fails if anything
+  under `src/` imports it; seeds, scripts and tests may. The internal-writer inventory
+  (`internal-operation-actions.ts`) records these rules.
+- **What is not a worker write.** `sweepStale`/heartbeats only move dead `running` rows to
+  `failed`; GET-triggered catalog-task refresh is idempotent bookkeeping. Signed command
+  execution (MR 5) already carries command provenance and revalidates in its own transaction.
+
+No route, permission or classification changes; the 183-route inventory is unchanged. API, web
+and existing clients need no change. Tests: `worker-authority.spec.ts` (unit) and
+`test/integration/worker-provenance.int-spec.ts` (PostgreSQL): persisted provenance, permission
+removed before the worker runs, token change between two real write chunks (first chunk kept,
+nothing after), owner jobs, legacy rows, immutable/well-formed provenance, and the NMRA job's
+start/stop audit and per-batch revalidation.
+
+## MR 7: operating-hours evidence and D8 acknowledgement records
+
+### Real hours provider
+
+`OperatingHoursEvidence` (`terminals/operating-hours.evidence.ts`) replaces the always-deny hours
+port. `MandatoryOperationEvidence.hours` delegates to it when the application module installs it
+(Nest `@Optional`); a bare instance without a provider still fails closed with
+`TEMPORARILY_UNAVAILABLE`, so tests and scripts cannot silently open hours. The pure evaluator
+(`terminals/operating-hours.ts`) reads, on the caller's transaction and at authorization time:
+
+- the branch's structured hours (`Branch.operatingHours`, validated with `validateBranchHours`)
+  in the branch's own timezone; ranges belong to the day they open on, so overnight ranges run
+  into the next morning;
+- dated exceptions, including gazette holidays a person confirmed, which replace that date's
+  weekly hours;
+- the owner's mandatory weekly limits — a hard ceiling that exceptions and extensions never
+  widen (`[]` = no selling);
+- unrevoked online business extensions, which add routine time only.
+
+Unset or unreadable hours, an unusable timezone or an inactive/foreign branch is **unknown** and
+fails closed (`TEMPORARILY_UNAVAILABLE`); outside a mandatory limit is `OUTSIDE_OPERATING_HOURS`;
+outside routine time without an extension is `BUSINESS_HOURS_ACK_REQUIRED`. Online commands never
+carry a per-command hours exception (`operatingHoursExceptionId` must be null).
+
+Revised D8 limits new sales and shift opening; it puts no hours limit on back-room stock work. The
+five v1 signed operations (stocktake post, held write-off/delivery post, import stock post/undo)
+are therefore listed in `OPERATIONS_WITHOUT_SELLING_HOURS`. Any operation not on that reviewed list
+— every future checkout/shift adapter — is hours-checked by default. **Decided (Shafeek,
+2026-10-29):** back-room stock posting is not limited by selling hours. New signed adapters for
+back-room stock work (receiving, supplier-return completion, transfer ship/receive) join this list
+after the same review; checkout, refunds and shift opening stay hours-checked.
+
+### D8 after-hours acknowledgement records
+
+`BusinessHoursAcknowledgements.record` (`terminals/business-hours-acknowledgements.service.ts`)
+is the runtime intake for the shared `OfflineBusinessHoursAcknowledgement` DTO, for P5 sync to
+call (no HTTP route yet). It parses the signed envelope with exact keys, matches identity to the
+caller's tenant and branch, verifies Ed25519 against the enrollment's pinned key, refuses device
+clocks more than five minutes ahead (`CLOCK_UNTRUSTED`) and bounds the window to 24 hours.
+`business_hours_acknowledgement` keeps the exact envelope and the SHA-256 of its signing text,
+unique per tenant + enrollment + record ID: identical uploads (including concurrent ones, under a
+transaction-scoped advisory lock) replay the stored receipt; changed content under the same ID is
+`REPLAY_CONFLICT`. Records are stored `held` (`grant_unverified`, or `enrollment_revoked` for a
+revoked/retired device, retained for reconciliation) until P3/P5 verify the grant, nomination and
+prepared-manager sign-in they cite; a trigger keeps signed content immutable, forbids deletion and
+lets the verification outcome change once. They never post a sale, shift, stock or cash effect
+and never authorize an online command.
+
+Tests: `operating-hours.spec.ts` (evaluator, provider codes, exempt operations, fail-closed port)
+and `test/integration/hours-evidence.int-spec.ts` (PostgreSQL): unset hours, routine in/out,
+gazette exception, approved/revoked extension, mandatory ceiling and no-selling, foreign tenant,
+exempt stock posting; acknowledgement persistence, identical/concurrent replay, changed-content
+replay, wrong device/branch/clock/window, revoked device and immutability.
+
+## MR 8: D13 remote assignment authorization
+
+`OfflineAssignmentService` (`terminals/offline-assignment.service.ts`) and
+`OfflineAssignmentController` implement the online half of revised D13.
+
+- **Delegation** (`offline_terminal_delegation`): owner-only, per manager and branch. The delegate
+  must be assigned at the branch and hold `tenant.management` there (checked live). No role or
+  permission edit creates or implies one, managers cannot delegate onward, one live delegation per
+  manager/branch (partial unique index). Revoking it revokes the delegate's outstanding authorization.
+- **Authorization** (`offline_terminal_assignment_authorization`): an owner, or a manager with a live
+  delegation, authorizes one exact active, counter-bound enrollment at the branch and the nomination
+  version they saw. Persists authorizer, authority (`owner` | `delegated_manager` + delegation),
+  target terminal/enrollment/key, expected version and reason, with audit. Client-generated ID for
+  idempotent retries; one outstanding per branch (partial unique index); a newer one supersedes.
+  Remote callers need a live token (`resolveLive`).
+- **Nomination anchor** (`offline_terminal_nomination`): one row per branch, written only by future
+  activation; no row = version 0. Authorization binds to it.
+- **Activation-time revalidation**: `requireCurrent(tx, …)` rechecks status, exact target, active
+  enrollment, unchanged version and the original authorizer's *current* rights (owner, or live
+  delegation plus branch management — a role edit can remove authority, never grant it). It does not
+  consume; activation (P2/P3) does that atomically with D11 clearance. The activation contract is
+  documented in API_CONTRACT.md; it needs P2's attendance and staff session, so it is not exposed.
+
+Per-branch serialization uses a branch row lock. Triggers keep content immutable, record
+revocation/consumption once and forbid deletion; staged (disabled) tenant RLS policies. Four new
+`management` routes (188 in the inventory) plus a GET; shared `OfflineAssignmentView` /
+`OfflineAssignmentAuthorizeRequest`. Tests: `test/integration/offline-assignment.int-spec.ts`
+(PostgreSQL, 15): owner authorization and idempotent retry/ID conflict (including an ID used at
+another branch), no replay after losing authority, manager without delegation,
+delegated manager and supersession, nomination version binding and already-nominated target,
+revoked/foreign target, stale token, owner-only/per-branch/no-onward delegation, idempotent
+delegation, delegation revocation cascading, `requireCurrent` (target/version, role edit removing
+authority, revoked target/authorization) and evidence immutability.
+
+## P6 #52 slice: transfer approval, dispatch and receipt
+
+Transfers already reserved on approval and moved stock on ship/receive; what was missing was the
+exact approval and the shared cores. Now:
+
+- **Approve (remote, `reservation`)** issues `ManagementApproval` evidence for action
+  `transfer.ship` at the source branch (exact lines, route and expected date; version/digest from
+  `GET /transfers/:id` `approvalReview`) and reserves stock. No ledger row is written. A
+  self-approving requester gets the same evidence on create. Re-approval after revocation, or of
+  a transfer approved before this change, repoints `executionApprovalId` without reserving twice.
+- **Dispatch (source counter, `stock`)** — `TransfersService.dispatchInTransaction` — locks the
+  transfer through its source branch, requires live `transfers.manage` there, pins the caller's
+  approval ID to `executionApprovalId`, locks the batches, then revalidates the approval
+  (`requireForExecution`, which catches revocation, approver rights and material edits through
+  the transfer revision trigger), consumes the reservation and issues `transfer_out`. A second
+  dispatch is a no-op (`effect: "already_applied"`).
+- **Receive (destination counter, `stock`)** — `receiveInTransaction` — locks through the
+  destination branch and requires live `transfers.manage` there. In-transit is dispatched −
+  received (`inTransitQty`). Signed receipts count each line with `receivedQtyBefore`, so a
+  distinct second command for the same arrival is a 409, never a second receipt.
+- **Waived approval**: with `approvalRequiredForBranchTransfers = false` a transfer is created
+  approved with no evidence and dispatches with `approvalId: null`.
+  `OperationDescriptor.approval.waived` lets the signed adapter accept a null
+  `approvalEvidenceId` only while that holds, re-read after evidence providers. Turning approval
+  back on makes such transfers need approval before dispatch.
+- Migration `20261029100000_transfer_dispatch_receive_split` adds `execution_approval_id`,
+  `approved_at`, `dispatched_by/at`, `received_at`, and a transfer-only revision trigger that
+  treats those as bookkeeping rather than material. No historical approval is backfilled.
+- Signed operations `POST /api/v1/transfers/:id/ship` and `/receive` call the same cores; the
+  success audits (`transfer.shipped`, `transfer.received`) carry requester/approver/executor and
+  `command` provenance. Routes and their classifications are unchanged.
+- Both signed transfer operations are in `OPERATIONS_WITHOUT_SELLING_HOURS`: dispatch and receipt
+  are back-room stock work, so they are not limited to selling hours (D8).
+
+Tests: `test/integration/transfers.int-spec.ts` (approval without stock effect, stale/self
+approval, pinned/revoked/edited dispatch, concurrent dispatch, destination authority, partial
+receipt, signed dispatch/receipt end to end with replay, concurrent retries, a source counter
+refused at the destination, waiver on/off, rollback on an injected audit failure).
+
 ## P6 slice: prepared receipts and supplier returns (approval vs counter execution)
 
 Epic P6 [#52](https://github.com/ShafeekSaleem/PharmaCeylon/issues/52) with its P1 signed adapters.
@@ -445,8 +614,9 @@ Epic P6 [#52](https://github.com/ShafeekSaleem/PharmaCeylon/issues/52) with its 
 - **Signed adapters.** `POST /api/v1/purchasing/prepared-receipts/:id/post`
   (`{ preparedReceiptId }`, `purchasing.receive`) and `POST /api/v1/returns/:id/complete`
   (`{ goodsReturnId }`, `returns.process`) join the closed registry, sharing the browser cores.
-  The success audits carry command provenance; receipts replay the original result.
-  `terminal.execute` is backfilled to roles holding `returns.process` (pharmacists by default).
+  The success audits carry command provenance; receipts replay the original result. Every
+  counter role already holds `terminal.execute` (#84), so no further grant is needed. Both are
+  back-room stock work, so they join `OPERATIONS_WITHOUT_SELLING_HOURS` (MR 7, D8).
 - **Web.** The order screen prepares, approves and cancels prepared deliveries and shows the
   requester/approver/executor evidence; returns approve against `approvalReview`. Posting a
   prepared or held delivery, direct receiving and return dispatch appear only at a known
@@ -458,7 +628,9 @@ post pinned to the approval, material edit and intervening receipt make it stale
 concurrent posts/dispatches apply once, self-approval rules, revoked evidence, approver rights
 removed during an actual batch-lock wait, injected audit failure rollback and signed execution
 end to end with replay and failure rollback. API unit suite 88/1068 + new material spec,
-`lint -w api` scanners and the 189-route inventory.
+`lint -w api` scanners and the 189-route inventory. After merging develop with MR 6–8 and the
+transfer slice (2026-10-29): 20 PostgreSQL suites / 320 tests, API unit 95/1132, web 44/326,
+`lint -w api` and the 193-route inventory.
 
 ## Remaining P1 MRs, in order
 
@@ -523,12 +695,13 @@ tenant/stock scanners and the 166-route inventory.
    remote commercial management and normal reservations; coordinate P6 screens.
 2. **Transactional command execution:** done for the five split physical operations (MR 5).
    Still open:
-   - further adapters as more handlers are split (transfers, sales/refunds, cash); prepared
-     receipts and supplier returns are done (P6 slice above);
-   - persisted provenance for import/background workers and maintenance writers;
+   - further adapters as more handlers are split (sales/refunds, cash); transfers, prepared
+     receipts and supplier returns are done (P6 slices above);
+   - ~~persisted provenance for import/background workers and maintenance writers~~ (MR 6);
    - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
    - restricting browser routes to terminals once W1 rollout and P2 are ready.
-3. **Readiness evidence and integration:** hours acknowledgements, assisted handover, incident
+3. **Readiness evidence and integration:** hours acknowledgements (intake and persistence done in
+   MR 7; grant/sign-in verification needs P3/P2), assisted handover, incident
    and card-attempt records, dependency ordering, failure/alternate-path tests and coordinated
    P2/P6 rollout, including attendance/mandatory-evidence providers, D13 authorizations/delegation
    and local activation with D11 clearance, and actual financial-shift binding.

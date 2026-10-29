@@ -11,6 +11,8 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/purchasing/held-deliveries/:id/post",
   "POST /api/v1/products/import/:importId/stock/post",
   "POST /api/v1/products/import/:importId/undo-stock",
+  "POST /api/v1/transfers/:id/ship",
+  "POST /api/v1/transfers/:id/receive",
   "POST /api/v1/purchasing/prepared-receipts/:id/post",
   "POST /api/v1/returns/:id/complete",
 ] as const;
@@ -28,6 +30,17 @@ export type SignedOperationBody = {
     categoryName: string | null; // "all": must be null; "category": the name, or null = uncategorised rows
   }>;
   "POST /api/v1/products/import/:importId/undo-stock": Readonly<{ importId: string }>;
+  /** Source counter. approvalEvidenceId = the transfer's executionApprovalId, or null when the
+   * tenant does not require transfer approval and the transfer carries none. */
+  "POST /api/v1/transfers/:id/ship": Readonly<{ transferId: string }>;
+  /** Destination counter (x-branch-id = destination). approvalEvidenceId must be null; the
+   * dispatch is pinned by dispatchApprovalId (the transfer's executionApprovalId, null if waived).
+   * One entry per counted line; receivedQtyBefore is the line's receivedQty the counter saw. */
+  "POST /api/v1/transfers/:id/receive": Readonly<{
+    transferId: string;
+    dispatchApprovalId: string | null;
+    lines: ReadonlyArray<Readonly<{ transferItemId: string; qty: number; receivedQtyBefore: number }>>;
+  }>;
   "POST /api/v1/purchasing/prepared-receipts/:id/post": Readonly<{ preparedReceiptId: string }>;
   "POST /api/v1/returns/:id/complete": Readonly<{ goodsReturnId: string }>;
 };
@@ -54,6 +67,14 @@ export type SignedOperationResult = {
     type: "import.undone"; importId: string; batchesRemoved: number; productsRemoved: number;
     productsLeftInPlace: number;
   }>;
+  "POST /api/v1/transfers/:id/ship": Readonly<{
+    type: "transfer.dispatched"; transferId: string; approvalId: string | null; dispatchedQty: number;
+    effect: SignedOperationEffect;
+  }>;
+  "POST /api/v1/transfers/:id/receive": Readonly<{
+    type: "transfer.received"; transferId: string; dispatchApprovalId: string | null;
+    status: "partially_received" | "received"; receivedQty: number;
+  }>;
   "POST /api/v1/purchasing/prepared-receipts/:id/post": Readonly<{
     type: "prepared_receipt.posted"; preparedReceiptId: string; approvalId: string; goodsReceiptId: string;
     effect: SignedOperationEffect;
@@ -66,7 +87,8 @@ export type SignedOperationResult = {
 };
 
 /** POST /api/v1/terminal-commands/prepare (Bearer + x-branch-id). Returns OnlineTerminalCommand<body>.
- * approvalEvidenceId is required for stocktake/held posting and must be null for import operations;
+ * approvalEvidenceId is required for stocktake/held posting, must be null for import operations and
+ * transfer receipt, and is the transfer's approval (or null where waived) for transfer dispatch;
  * pharmacist/hours evidence IDs must be null for every v1 operation.
  */
 export type TerminalCommandPrepareRequest<O extends SignedPhysicalOperation = SignedPhysicalOperation> = Readonly<{

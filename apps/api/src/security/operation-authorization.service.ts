@@ -33,7 +33,20 @@ export type OperationDescriptor<T> = Readonly<{
     branchId: string,
     body: T,
   ) => Promise<ResolvedActionFacts>;
-  approval?: { action: ApprovalAction; documentId: (body: T) => string };
+  /** `waived`: the domain's persisted policy says this document needs no approval (e.g. the
+   * tenant turned transfer approval off). The command must then carry no approval evidence;
+   * the waiver is re-read after every evidence provider, like resolved facts.
+   */
+  approval?: {
+    action: ApprovalAction;
+    documentId: (body: T) => string;
+    waived?: (
+      tx: Prisma.TransactionClient,
+      user: RequestUser,
+      branchId: string,
+      body: T,
+    ) => Promise<boolean>;
+  };
 }>;
 
 /** Extends existing AccessService authorization at the transactional service boundary,
@@ -120,7 +133,21 @@ export class OperationAuthorizationService {
     let revalidateApproval:
       | (() => Promise<ManagementApprovalEvidence>)
       | undefined;
-    if (descriptor.approval) {
+    let recheckWaiver: (() => Promise<boolean>) | undefined;
+    if (descriptor.approval?.waived) {
+      const waived = descriptor.approval.waived;
+      recheckWaiver = () => waived(tx, user, branchId, body);
+      if (!(await recheckWaiver())) recheckWaiver = undefined;
+    }
+    if (recheckWaiver) {
+      const policy = approvalAction(descriptor.approval!.action);
+      if (
+        policy.operation !== operation ||
+        policy.executionPermission !== descriptor.permission
+      )
+        denied("INVALID_COMMAND");
+      if (terminal.command.approvalEvidenceId !== null) denied("APPROVAL_INVALID");
+    } else if (descriptor.approval) {
       const policy = approvalAction(descriptor.approval.action);
       if (
         policy.operation !== operation ||
@@ -168,6 +195,7 @@ export class OperationAuthorizationService {
     if (!current.has(descriptor.permission)) denied("PERMISSION_DENIED");
     // Locks cannot freeze time or approver grants. Recheck after every evidence
     // provider and the executor lookup, with no further awaits before returning.
+    if (recheckWaiver && !(await recheckWaiver())) denied("APPROVAL_REQUIRED");
     if (revalidateApproval) approval = await revalidateApproval();
     return { body, classification, terminal, approval };
   }

@@ -101,17 +101,3 @@ ALTER TABLE management_approval ADD CONSTRAINT management_approval_shape CHECK (
     OR (revoked_at IS NOT NULL AND revocation_reason IS NOT NULL
       AND revoked_at >= approved_at AND length(trim(revocation_reason)) > 0))
 );
-
--- Completing a supplier return is now also a signed counter command (needs `returns.process`).
--- Grant the route gate to every role that can complete a return today, so nobody loses it.
-UPDATE "permission" SET "description" =
-  'Send signed posting commands (stocktake, write-off, deliveries, import stock, supplier return dispatch) from an enrolled desktop counter. Each command also needs that operation''s own permission.'
-WHERE "key" = 'terminal.execute';
-INSERT INTO "role_permission" ("id", "tenant_id", "role_id", "permission_key")
-SELECT gen_random_uuid(), r."tenant_id", r."id", 'terminal.execute'
-FROM "role" r
-WHERE EXISTS (
-  SELECT 1 FROM "role_permission" rp
-  WHERE rp."role_id" = r."id" AND rp."permission_key" = 'returns.process'
-)
-ON CONFLICT ("role_id", "permission_key") DO NOTHING;

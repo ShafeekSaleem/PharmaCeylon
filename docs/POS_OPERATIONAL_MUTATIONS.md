@@ -10,8 +10,9 @@ not-live `/products/import/confirm` path retains a mixed/local classification; l
 imports always stage. The web uses the management `/stage` path outside known not-live branches.
 
 Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
-189, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
-counter alerts, the two signed terminal-command routes and the five P6 prepared-receipt routes. Exact methods, paths and source files are
+193, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
+counter alerts, the two signed terminal-command routes, the four D13 assignment routes and the
+five P6 prepared-receipt routes. Exact methods, paths and source files are
 recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
 The inventory includes non-operational mutations to make exclusions explicit. P0 classifies
 future enforcement; existing routes are not protected by the new terminal boundary yet.
@@ -53,7 +54,7 @@ offline approvals, refunds/voids and stock operations remain blocked.
 | `sales/pos/me/pos-pin`, `sales/pos/me/pos-pin/clear` | Staff credential administration; online authenticated self-service, not sale approval. No offline credential changes. |
 | Future signed offline `shift_open` / `shift_close` commands | Approved D7b lifecycle exception on the nominated terminal's same till: local cash-count handover and new shift, prepared staff only. Not existing HTTP routes; sync them in the same durable command sequence as sales. No stock/outage/expiry reset; D9 adds no sale-count/value caps. |
 | `inventory/*` | Online remote adjustment requests/review/approve/reject. Local actual counts/condition confirmation and stock posting, expiry confirmation, quarantine/release. Held accept authorizes exact material; the separate held post executes stock. |
-| `transfers/*` | Online remote draft/review/approve/reject/cancel and ordinary reservation/release. Local source dispatch and destination receiving, each with its branch authority. No new offline reservations. |
+| `transfers/*` | Online remote draft/review/approve/reject/cancel and ordinary reservation/release. Local source dispatch and destination receiving, each with its branch authority. No new offline reservations. P6 split: `approve` issues exact `transfer.ship` evidence and reserves (`reservation`); `ship` is the source post pinned to that approval and `receive` the destination post pinned to the dispatch (both `stock`, both signed operations). |
 | `stocktakes/*` | Online remote planning/scheduling/review/recount request/approval. Local physical count capture/confirmation and post/complete, including legacy completion. Stocktake approval now persists exact management evidence only; `post` applies stock/quarantine and completes. Preserve event timing to avoid double counting offline sales. D-W3: `start`, `submit` and `complete` stay `local_record` and `post` stays `stock`. While a count started at the counter is open, phones and the web may enter attributed count lines; `PATCH :id/lines` moves from `local_record` to an attributed draft-entry classification when W5 implements that, and stays `local_record` until then. |
 | `returns/*` | Online remote supplier-return preparation/review/approval/rejection and commercial credit records. Local actual goods departure and stock posting. Customer return inspection/disposition and refund execution remain local sales workflows. P6: `approve` (and a self-approving create/submit) records exact `goods_return.complete` evidence only; `complete` is pinned to the latest approval and is the physical step (stock out + debit note), also a signed command. |
 | `purchasing/*` | Online remote PO drafts/edit/issue/review/approve/reject, invoices/debit notes and bank-payment records with evidence. Local receipt/batch/quantity/condition confirmation, held-delivery receipt posting and branch cash payout. Held prepare/accept are management-only; held post is physical. P6 prepared receipts: `purchase-orders/:id/prepared-receipts`, `prepared-receipts/:id` (PATCH), `/approve` and `/cancel` are `management`; `prepared-receipts/:id/post` is `stock` (also a signed command). Direct `purchase-orders/receive` stays the approval-optional local `stock` path; it, held posting and `hold-delivery` refuse while any prepared receipt is open (draft or approved). |
@@ -83,14 +84,14 @@ limits and idempotency. See [the normative D10 matrix](POS_V1_CONTRACT.md#revise
 | --- | --- |
 | `sales/sales.service.ts`, `sales/held-sales.service.ts`, `sales/pharmacist-approval.service.ts` | Bind actor, enrollment/session, command and approval evidence throughout checkout, cart recall, void and refund. Same authority in service calls, not just controllers. |
 | `inventory/stock/stock.service.ts` | Single ordinary stock writer; retain sorted batch locks and current availability checks. Snapshot generation/refresh must not reserve stock. Proposed sync posts through this service or persists an explicit stock discrepancy, never bypasses checks to hide a shortage. Existing `scripts/check-stock-writes.mjs` remains required. |
-| `transfers/transfers.service.ts` | `reserve`, `releaseReservations`, `consumeReservations`, ship and receive keep their existing business reservations. Preserve source/audit history for snapshot reconciliation. |
+| `transfers/transfers.service.ts` | `reserve`, `releaseReservations`, `consumeReservations`, ship and receive keep their existing business reservations. Preserve source/audit history for snapshot reconciliation. `dispatchInTransaction` / `receiveInTransaction` are the only dispatch/receipt cores, shared by the browser routes and the signed adapters. |
 | `inventory/inventory.service.ts`, `returns/returns.service.ts`, `purchasing/purchasing.service.ts` | Adjustments, quarantine, goods receipts/free goods, returns and holds respect normal availability. Snapshot-era differences become reconciliation evidence. Audit requester, approver and executor separately; remote authorization cannot implicitly execute physical effects. |
 | `stocktakes/stocktakes.service.ts`, `inventory/stock/stock-balance.ts` | `allowReservedShortfall` still concerns existing business reservations. A count taken during disconnection must be compared with offline sales and their times to avoid counting the same physical change twice. |
 | `product-import/product-import.service.ts` | Import creates products, batches and stock via StockService; catalog-only stages permit remote management; stock-bearing confirm and undo require local execution authority. Undo directly deletes stock-ledger rows and eligible batches/products. Outstanding journal/snapshot references require retained identities/tombstones or explicit review so later offline sales remain interpretable. |
-| `product-import/import-job-runner.ts`, `product-import/product-import-jobs.ts` | Async work outlives HTTP request. Persist initiating staff/branch/command and approval provenance, plus device/session for stock-bearing execution. Revalidate complete effect authority before commits; remote catalog jobs cannot acquire stock-posting authority. Record job/command linkage. Startup/interval stale-job sweeps and heartbeats update job status only; must never repost stock or discard offline journals. No Bull/Redis queue is currently used here. D-W2 staging of stock rows must write nothing through StockService; only the later local post does. |
-| `nmra/*`, `products/*`, `catalog-tasks/*` services | Registry/barcode merges, bulk catalog changes and automated task actions cannot rewrite signed historical snapshot eligibility/pricing or mutate stock without authorized context. Current online catalog may change normally; sync must preserve historical evidence. |
+| `product-import/import-job-runner.ts`, `product-import/product-import-jobs.ts` | Async work outlives HTTP request. Persist initiating staff/branch/command and approval provenance, plus device/session for stock-bearing execution. Revalidate complete effect authority before commits; remote catalog jobs cannot acquire stock-posting authority. Record job/command linkage. Startup/interval stale-job sweeps and heartbeats update job status only; must never repost stock or discard offline journals. No Bull/Redis queue is currently used here. D-W2 staging of stock rows must write nothing through StockService; only the later local post does. **Done (MR 6):** `product_import` persists `initiated_via`/token version/branch/permission and every worker write transaction revalidates it through `WorkerAuthority`; legacy rows are never written by a worker. |
+| `nmra/*`, `products/*`, `catalog-tasks/*` services | Registry/barcode merges, bulk catalog changes and automated task actions cannot rewrite signed historical snapshot eligibility/pricing or mutate stock without authorized context. Current online catalog may change normally; sync must preserve historical evidence. **MR 6:** the in-memory NMRA job audits its initiator at start and revalidates `nmra.import` inside every write transaction (product chunks and each taxonomy/tag/alias batch). |
 | `purchasing/ledger/*`, `suppliers/*` services | Trace both payment paths and debit-note/invoice mutations. Evidence-backed bank-payment recording may be remote; actual drawer cash requires local execution. Internal calls inherit these rules. |
-| `inventory/stock/stock-projection.ts`, Prisma seeds and migrations | Projection repair, reservation backfill and seed synchronization are maintenance-only. Require explicit maintenance context; preserve offline journals, receipts, snapshot references and open discrepancy cases during repair. |
+| `inventory/stock/stock-projection.ts`, Prisma seeds and migrations | Projection repair, reservation backfill and seed synchronization are maintenance-only. Require explicit maintenance context; preserve offline journals, receipts, snapshot references and open discrepancy cases during repair. **MR 6:** `scripts/check-maintenance-entrypoints.mjs` (part of `npm run lint -w api`) fails if anything under `src/` imports these modules; only seeds, scripts and tests may. |
 | `apps/api/scripts/*`, repository maintenance scripts | Reconciliation tooling is read-only unless explicitly a migration/seed. New direct writes must be inventoried and reviewed as maintenance operations. |
 | `apps/mobile/App.tsx` | Current mobile app is a display shell, with no operational calls. Bearer-auth API access is still a possible alternate path: P1 must allow authorized online management and deny physical execution without verified local context, regardless of claimed client headers. |
 | `apps/web` API proxy/callers | Existing browser operational UI uses the same API routes. P1/P6 retain remote management/catalog editing and approvals, add version/status/actor feedback, and hand physical execution to the local desktop. API checks remain authoritative; split mixed handlers before exposing remote approvals. |
@@ -129,6 +130,15 @@ preferences only, with no stock/cash/grant/nomination effects. Tenant and exact 
 authority are enforced separately from the selected header branch; update and audit commit
 together. It does not activate the terminal boundary or offline trading.
 
+## P1 offline-counter assignment (revised D13)
+
+Four routes, all `management`: `POST /terminals/offline-assignment/delegations`,
+`…/delegations/:delegationId/revoke`, `…/authorizations` and
+`…/authorizations/:authorizationId/revoke`. They record owner delegation and online assignment
+authorization only — no nomination, grant, stock or cash effect, no terminal proof. Activation on
+the exact target is a separate local signed step (P2/P3) and will be classified with its own
+operation. Contract: [API_CONTRACT.md](API_CONTRACT.md).
+
 ## P1 signed terminal commands
 
 `POST /terminal-commands/prepare` is classified `identity`: it issues a single-use command
@@ -147,5 +157,6 @@ signed-operation registry:
 Each of these remains classified as `stock` on its own route. Execution reuses those routes'
 domain cores and StockService, and commits effects, audit and the original-result receipt
 together. Adding an operation to the registry needs the same classification review as a new
-route. Production attendance and hours providers still deny every command, so these routes do
-not activate the terminal boundary. Contract: [API_CONTRACT.md](API_CONTRACT.md).
+route. The production attendance provider still denies every command, so these routes do
+not activate the terminal boundary. (The hours provider is real since MR 7; these five stock
+operations are reviewed as not selling-time restricted.) Contract: [API_CONTRACT.md](API_CONTRACT.md).

@@ -318,6 +318,16 @@ model ProductImport {
   branchId  String? @map("branch_id") @db.Uuid
   /// Who ran it — an import can create thousands of rows, so this is never anonymous.
   createdBy String  @map("created_by") @db.Uuid
+  /// P1 worker provenance. "request": started by an authenticated request whose authority the
+  /// background worker revalidates before every write. "legacy": created before provenance was
+  /// recorded; a worker refuses to write for it. Immutable once written.
+  initiatedVia          String  @default("legacy") @map("initiated_via") @db.VarChar(16)
+  /// Token version of the starting request. Any change stops the worker at its next write.
+  initiatorTokenVersion Int?    @map("initiator_token_version")
+  /// Branch whose permission the starting request checked; null = any branch (catalog only).
+  initiatorBranchId     String? @map("initiator_branch_id") @db.Uuid
+  /// The permission the worker must still hold, normally products.import.
+  initiatorPermission   String? @map("initiator_permission") @db.VarChar(80)
 
   filename String
   status   ProductImportStatus @default(running)
@@ -543,6 +553,7 @@ model Branch {
   terminalChallenges TerminalChallenge[]
   managementApprovals ManagementApproval[]
   hoursExtensions    BranchHoursExtension[]
+  offlineDelegations OfflineTerminalDelegation[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -606,6 +617,9 @@ model TerminalEnrollment {
   terminal         OperationalTerminal @relation(fields: [tenantId, branchId, terminalId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
   receipts         TerminalCommandReceipt[]
   sessions         TerminalStaffSession[]
+  hoursAcknowledgements BusinessHoursAcknowledgement[]
+  offlineAssignmentAuthorizations OfflineTerminalAssignmentAuthorization[]
+  offlineNominations              OfflineTerminalNomination[]
 
   @@unique([tenantId, keyId])
   @@unique([tenantId, branchId, terminalId, id, keyId])
@@ -718,6 +732,114 @@ model TerminalCommandReceipt {
   @@unique([tenantId, enrollmentId, offlineSequence])
   @@index([tenantId, branchId, recordedAt])
   @@map("terminal_command_receipt")
+}
+
+/// Revised D8: a prepared manager's device-signed after-hours acknowledgement, recorded at an
+/// offline counter and uploaded later. Idempotent by (tenant, enrollment, recordId) with the
+/// SHA-256 of the signed payload; the exact signed envelope is kept. Held until the grant and
+/// manager sign-in it cites are verified (P3/P5). Never authorizes an online command.
+model BusinessHoursAcknowledgement {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  terminalId        String    @map("terminal_id") @db.Uuid
+  enrollmentId      String    @map("enrollment_id") @db.Uuid
+  keyId             String    @map("key_id") @db.VarChar(128)
+  recordId          String    @map("record_id") @db.Uuid
+  recordHash        String    @map("record_hash") @db.Char(64)
+  envelope          Json
+  grantId           String    @map("grant_id") @db.Uuid
+  grantVersion      Int       @map("grant_version")
+  nominationVersion Int       @map("nomination_version")
+  offlineSessionId  String    @map("offline_session_id") @db.Uuid
+  managerSignInId   String    @map("manager_sign_in_id") @db.Uuid
+  recordedAt        DateTime  @map("recorded_at")
+  startsAt          DateTime  @map("starts_at")
+  endsAt            DateTime  @map("ends_at")
+  reason            String    @db.VarChar(500)
+  /// "held" until verified against the grant/sign-in; "accepted" or "rejected" afterwards.
+  status            String    @default("held") @db.VarChar(16)
+  heldReason        String?   @map("held_reason") @db.VarChar(64)
+  verifiedAt        DateTime? @map("verified_at")
+  receivedAt        DateTime  @default(now()) @map("received_at")
+  receivedByUserId  String    @map("received_by_user_id") @db.Uuid
+  enrollment        TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, enrollmentId, recordId])
+  @@index([tenantId, branchId, startsAt])
+  @@map("business_hours_acknowledgement")
+}
+
+/// Revised D13: an owner's explicit, per-branch delegation of offline-terminal assignment to one
+/// manager. Never implied by a role or permission edit; managers cannot delegate onward. Content
+/// is immutable; revocation is recorded once.
+model OfflineTerminalDelegation {
+  id                String                                   @id @default(uuid()) @db.Uuid
+  tenantId          String                                   @map("tenant_id") @db.Uuid
+  branchId          String                                   @map("branch_id") @db.Uuid
+  managerUserId     String                                   @map("manager_user_id") @db.Uuid
+  delegatedByUserId String                                   @map("delegated_by_user_id") @db.Uuid
+  createdAt         DateTime                                 @default(now()) @map("created_at")
+  revokedAt         DateTime?                                @map("revoked_at")
+  revokedByUserId   String?                                  @map("revoked_by_user_id") @db.Uuid
+  revocationReason  String?                                  @map("revocation_reason") @db.VarChar(500)
+  branch            Branch                                   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  authorizations    OfflineTerminalAssignmentAuthorization[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, branchId, managerUserId])
+  @@map("offline_terminal_delegation")
+}
+
+/// Revised D13: the online (remote-capable) authorization of which exact enrolled target may be
+/// activated as the branch's offline-capable terminal, bound to the nomination version it expects.
+/// It nominates nothing and issues no grant; local signed activation (P2/P3) consumes it. At most
+/// one outstanding ("authorized") per branch; a newer one supersedes it.
+model OfflineTerminalAssignmentAuthorization {
+  id                        String                     @id @db.Uuid
+  tenantId                  String                     @map("tenant_id") @db.Uuid
+  branchId                  String                     @map("branch_id") @db.Uuid
+  targetTerminalId          String                     @map("target_terminal_id") @db.Uuid
+  targetEnrollmentId        String                     @map("target_enrollment_id") @db.Uuid
+  targetKeyId               String                     @map("target_key_id") @db.VarChar(128)
+  expectedNominationVersion Int                        @map("expected_nomination_version")
+  reason                    String                     @db.VarChar(500)
+  authorizedByUserId        String                     @map("authorized_by_user_id") @db.Uuid
+  /// "owner" or "delegated_manager" (then `delegationId` is set).
+  authority                 String                     @db.VarChar(20)
+  delegationId              String?                    @map("delegation_id") @db.Uuid
+  authorizedAt              DateTime                   @default(now()) @map("authorized_at")
+  status                    String                     @default("authorized") @db.VarChar(16)
+  revokedAt                 DateTime?                  @map("revoked_at")
+  revokedByUserId           String?                    @map("revoked_by_user_id") @db.Uuid
+  revocationReason          String?                    @map("revocation_reason") @db.VarChar(500)
+  consumedAt                DateTime?                  @map("consumed_at")
+  consumedByUserId          String?                    @map("consumed_by_user_id") @db.Uuid
+  target                    TerminalEnrollment         @relation(fields: [tenantId, branchId, targetTerminalId, targetEnrollmentId, targetKeyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+  delegation                OfflineTerminalDelegation? @relation(fields: [tenantId, delegationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, branchId, authorizedAt])
+  @@map("offline_terminal_assignment_authorization")
+}
+
+/// Revised D13 / D11: the branch's current offline-capable terminal. One row per branch, written
+/// only by local signed activation (P2/P3), which bumps `version`. No row = version 0, nothing
+/// nominated. Assignment authorizations bind the version they expect.
+model OfflineTerminalNomination {
+  id                String             @id @default(uuid()) @db.Uuid
+  tenantId          String             @map("tenant_id") @db.Uuid
+  branchId          String             @map("branch_id") @db.Uuid
+  terminalId        String             @map("terminal_id") @db.Uuid
+  enrollmentId      String             @map("enrollment_id") @db.Uuid
+  keyId             String             @map("key_id") @db.VarChar(128)
+  version           Int
+  authorizationId   String             @map("authorization_id") @db.Uuid
+  activatedAt       DateTime           @map("activated_at")
+  activatedByUserId String             @map("activated_by_user_id") @db.Uuid
+  enrollment        TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, branchId])
+  @@map("offline_terminal_nomination")
 }
 
 /// Owner-set monthly sales target for a branch; optional manager accountable for achievement.
@@ -2430,6 +2552,12 @@ model Transfer {
   updatedAt      DateTime       @updatedAt @map("updated_at")
   approvalVersion Int          @default(1) @map("approval_version")
   metadataVersion Int          @default(1) @map("metadata_version")
+  /// The exact approval dispatch is pinned to. Null: unapproved, or approval waived by tenant policy.
+  executionApprovalId String?  @map("execution_approval_id") @db.Uuid
+  approvedAt      DateTime?    @map("approved_at")
+  dispatchedBy    String?      @map("dispatched_by") @db.Uuid
+  dispatchedAt    DateTime?    @map("dispatched_at")
+  receivedAt      DateTime?    @map("received_at")
 
   fromBranch Branch   @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
   toBranch   Branch   @relation("TransferToBranch", fields: [toBranchId], references: [id])

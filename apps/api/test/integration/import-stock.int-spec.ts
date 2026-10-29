@@ -10,6 +10,7 @@ import {
 import { ProductImportService } from "../../src/product-import/product-import.service";
 import { createTenantAwarePrismaProxy } from "../../src/prisma/tenant-aware-prisma.proxy";
 import { AccessService } from "../../src/security/access.service";
+import { WorkerAuthority } from "../../src/security/worker-authority";
 import { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { createPrisma, createTenant, TenantFixture } from "./fixtures";
 
@@ -19,6 +20,7 @@ const stock = new StockService();
 const audit = new AuditService(proxy as never);
 const access = new AccessService(proxy as never, {} as never);
 const drafts = new ImportStockService(proxy as never, stock, audit, access);
+const workers = new WorkerAuthority(access);
 let fx: TenantFixture;
 const user = (userId = fx.ownerId): RequestUser => ({
   tenantId: fx.tenantId,
@@ -379,6 +381,7 @@ async function importer(rollout: "live" | "not_live", fallback = false) {
     runner as never,
     { refresh: async () => {} } as never,
     stock,
+    workers,
   );
   const file = {
     buffer: Buffer.from(
@@ -388,7 +391,7 @@ async function importer(rollout: "live" | "not_live", fallback = false) {
   } as Express.Multer.File;
   const started = await service.startImport(
     fx.tenantId,
-    fx.managerId,
+    { userId: fx.managerId, tokenVersion: 0 },
     fx.mainBranchId,
     file,
     {
@@ -493,6 +496,7 @@ it("retains posted draft history and refuses undo after stock moves", async () =
     {} as never,
     {} as never,
     stock,
+    workers,
   );
   await expect(
     service.undo(
@@ -606,6 +610,7 @@ it.each([false, true])(
       {} as never,
       {} as never,
       stock,
+      workers,
     );
     const outcome = Promise.allSettled([
       service.undo(

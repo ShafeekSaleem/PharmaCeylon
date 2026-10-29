@@ -536,13 +536,14 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   // ── Desktop counter (signed commands) ──
   {
     // Coarse route gate for /terminal-commands/*. Each command still needs its operation's own
-    // permission; defaults are every role holding any of those (see the backfill migration).
+    // permission, so every counter role holds it by default (decided 2026-10-29): the operation
+    // keys decide what each role may actually post or refund.
     key: "terminal.execute",
     module: "terminal",
-    label: "Post stock from the desktop counter",
+    label: "Use the desktop counter for physical steps",
     description:
-      "Send signed posting commands (stocktake, write-off, deliveries, import stock, supplier return dispatch) from an enrolled desktop counter. Each command also needs that operation's own permission.",
-    defaultRoles: [owner, manager, pharmacist, inventory_clerk],
+      "Send signed commands from an enrolled desktop counter: stock posting, transfer dispatch and receipt, and refunds. Each command also needs that operation's own permission.",
+    defaultRoles: [owner, manager, pharmacist, cashier, inventory_clerk],
     riskLevel: "elevated",
   },
 

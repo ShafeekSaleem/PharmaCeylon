@@ -29,7 +29,17 @@ stock undo at live/fallback branches and when the selected branch differs. Impor
 describe the original import; the draft/history endpoints supply current posting state.
 API and web deploy together for the legacy undo route change. Both physical import routes can
 also run as signed terminal commands with original-result receipts (see "Signed terminal
-commands" below). Independent attendance, full desktop screens and enforcement on the browser
+commands" below).
+
+**Job authority (P1 MR 6).** `/confirm` and `/stage` record who started the job: the user, their
+access-token version, the selected branch (none = any branch, catalog only) and
+`products.import`. The background worker rechecks exactly that before every write transaction.
+If the starter's permission was removed, a role or password changed, they signed out
+everywhere, or the branch/account was deactivated, the job stops: `GET /products/import/jobs/:id`
+reports `status: "failed"` with an explanatory `error`, products/stock committed by earlier
+chunks are kept, and a `products.import_stopped` audit event is written. Start a new import for
+the rest. `POST /products/nmra-import/confirm` behaves the same way for `nmra.import`
+(`products.nmra_import_started` / `products.nmra_import_stopped`). Independent attendance, full desktop screens and enforcement on the browser
 routes remain the later coordinated P1/P2/P6 cutover.
 
 Single reference for the web team. The machine-readable contract is the **OpenAPI document** served by the API.
@@ -108,9 +118,19 @@ result. The P2 desktop client is built against this section and the shared types
 HTTP endpoints, PIN sign-in and the attendance provider belong to P2.
 
 **Not active in production.** The attendance port still denies every proof
-(`LOCAL_ATTENDANCE_UNAVAILABLE`) and the hours port denies every command
-(`TEMPORARILY_UNAVAILABLE`) until P2/W7 install real providers. The browser routes for these
+(`LOCAL_ATTENDANCE_UNAVAILABLE`) until P2 installs the real provider. The browser routes for these
 operations are unchanged and are not yet restricted to terminals.
+
+**Operating hours (P1 MR 7, revised D8).** After attendance, the server checks the branch's
+selling hours for operations that sell or open a shift: the structured weekly hours (W7), dated
+exceptions including confirmed gazette holidays, the owner's mandatory limits and unrevoked
+business extensions, in the branch's timezone at authorization time. Back-room stock operations
+(the five v1 operations: stocktake post, held write-off post, held delivery post, import stock
+post and import stock undo) are reviewed as not selling-time restricted; every other operation,
+including any added later and not reviewed, is hours-checked. Online commands never carry an
+hours exception: `operatingHoursExceptionId` must be `null` (`INVALID_COMMAND` otherwise). The
+online remedy for after-hours selling is a business extension approved on the web; the
+device-signed D8 acknowledgement is offline-outage evidence only.
 
 ### Endpoints
 
@@ -138,12 +158,26 @@ transaction.
 | `POST /api/v1/purchasing/held-deliveries/:id/post` | `{ heldDeliveryId }` | the delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/products/import/:importId/stock/post` | `{ importId, version, selection, categoryName }` | `null` | `products.import` |
 | `POST /api/v1/products/import/:importId/undo-stock` | `{ importId }` | `null` | `products.import` |
+| `POST /api/v1/transfers/:id/ship` | `{ transferId }` | the transfer's `executionApprovalId`; `null` only while approval is waived (below) | `transfers.manage` |
+| `POST /api/v1/transfers/:id/receive` | `{ transferId, dispatchApprovalId, lines: [{ transferItemId, qty, receivedQtyBefore }] }` | `null` | `transfers.manage` |
 | `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
-uncategorised rows). `version` is the displayed staged-stock version. `pharmacistEvidenceId`
+uncategorised rows). `version` is the displayed staged-stock version.
+
+Transfers: dispatch is signed at the **source** counter (`x-branch-id` and the command identity =
+source branch) and receipt at the **destination** counter (both = destination branch); the
+enrollment is branch-bound, so a source device cannot book stock in at the destination. Dispatch
+carries `approvalEvidenceId: null` only when the transfer is approved with no evidence and the
+tenant has `approvalRequiredForBranchTransfers = false` — re-read in the transaction; anything
+else needs the exact approval (`APPROVAL_REQUIRED` / `APPROVAL_INVALID`). Receipt pins the
+dispatch with `dispatchApprovalId` (the transfer's `executionApprovalId`, `null` if waived) and
+counts each line once: `receivedQtyBefore` is the line's `receivedQty` the counter saw, and a
+mismatch is **409** (never a second receipt). Results: `{ type: "transfer.dispatched",
+transferId, approvalId, dispatchedQty, effect }` and `{ type: "transfer.received", transferId,
+dispatchApprovalId, status, receivedQty }`. `pharmacistEvidenceId`
 and `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
 key, type or coercion is `INVALID_COMMAND`.
 
@@ -252,13 +286,49 @@ Bodies are `{ statusCode, code, message }`. The shared `TerminalApiError` shape 
 | 403 | `CHALLENGE_EXPIRED`, `CHALLENGE_INVALID`, `CHALLENGE_USED_OR_EXPIRED` | Not executed. Prepare again. |
 | 403 | `LOCAL_ATTENDANCE_UNAVAILABLE` | Attendance not proven. Not executed. |
 | 403 | `PERMISSION_DENIED`, `APPROVAL_REQUIRED`, `APPROVAL_INVALID` | Not executed. |
-| 403 | `TEMPORARILY_UNAVAILABLE` | Hours evidence provider unavailable. Not executed. |
+| 403 | `TEMPORARILY_UNAVAILABLE` | Selling-hours operation at a branch whose hours are unset, unreadable or in an unusable timezone (or no hours provider installed). Not executed; set the branch hours. |
+| 403 | `OUTSIDE_OPERATING_HOURS` | Outside the owner's mandatory limit. Nobody can override it. Not executed. |
+| 403 | `BUSINESS_HOURS_ACK_REQUIRED` | Outside routine hours with no business extension. A manager can approve an extension on the web. Not executed. |
 | 409 | `REPLAY_CONFLICT` | This `commandId` already committed with different content. Definitive. |
 | 400/404/409 | Domain message, e.g. "Approval changed; refresh and review before posting" | Not executed. |
 | 5xx / network | — | **Uncertain.** Resend the identical envelope. |
 
 Receipts are not server-signed in v1; the client trusts them over TLS. A signed `sync_response`
 is reserved for P5 offline sync.
+
+## Offline-counter assignment (P1 / revised D13)
+
+Which enrolled counter may become the branch's offline-capable terminal is decided in two
+separate steps. These endpoints are the first, online and remote-capable; they nominate nothing,
+issue no grant and need no terminal proof. All need `x-branch-id`, a live sign-in and the route
+permission `tenant.management`, which is never sufficient by itself. Every response is the
+`OfflineAssignmentView` (`@pharmaceylon/shared`) for the branch.
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `GET /terminals/offline-assignment` | branch staff with `tenant.management` | Current nomination (`nominationVersion`, 0 = none), delegations, recent authorizations. |
+| `POST /terminals/offline-assignment/delegations` `{ managerUserId }` | **owner only** | Delegates assignment to one manager for this branch. The delegate must be assigned here and hold `tenant.management` here. Idempotent. Managers cannot delegate onward; no role edit creates a delegation. |
+| `POST /terminals/offline-assignment/delegations/:delegationId/revoke` `{ reason }` | owner only | Revokes it, and revokes the delegate's outstanding authorization. |
+| `POST /terminals/offline-assignment/authorizations` `OfflineAssignmentAuthorizeRequest` | owner, or a manager with a live delegation for this branch | Authorizes one exact active enrolled target at this branch and the `expectedNominationVersion` shown. Supersedes the branch's previous outstanding authorization. `authorizationId` is client-generated: resending is a no-op, reuse for anything else is 409 `AUTHORIZATION_ID_CONFLICT`. |
+| `POST /terminals/offline-assignment/authorizations/:authorizationId/revoke` `{ reason }` | owner or delegated manager | Revokes an outstanding authorization. |
+
+Refusals carry `code`: `OFFLINE_ASSIGNMENT_OWNER_ONLY`, `OFFLINE_ASSIGNMENT_NOT_DELEGATED`,
+`OFFLINE_DELEGATE_INELIGIBLE` (403); `OFFLINE_TARGET_INVALID` (not an active, counter-bound
+enrollment at this branch), `NOMINATION_VERSION_CHANGED`, `OFFLINE_TARGET_ALREADY_NOMINATED`,
+`AUTHORIZATION_ID_CONFLICT` (409). Delegations and authorizations are retained: content is
+immutable, revocation/consumption is recorded once, nothing is deleted.
+
+**Activation (second step, P2/P3; not exposed yet).** On the exact target, an authorized local
+staff member confirms activation online with a signed command (`OfflineTerminalActivation`:
+`authorizationId`, identity, session, `expectedNominationVersion`) and verified local attendance.
+The confirmer needs a branch activation permission, not the owner's assignment authority. In one
+transaction the server must: verify the signed command and attendance; call
+`OfflineAssignmentService.requireCurrent` (authorization still outstanding for this exact
+enrollment, enrollment active, nomination version unchanged, original authorizer still an owner or
+still a delegated manager with branch management); apply D11 clearance (old grant can no longer
+sell, old journal resolved or loss reviewed, or initial nomination); then mark the authorization
+`consumed` (with the activator), upsert `offline_terminal_nomination` with `version + 1`, and audit
+authorizer and activator separately. Stale, revoked or consumed authorizations require renewal.
 
 ## Sales lifecycle (pilot)
 
@@ -308,6 +378,22 @@ Configured in Settings → Approval Rules and stored on `TenantSettings`. **The 
 | Transfer | `requestedBy` | `POST /transfers/:id/approve`; also decides whether a new transfer is approved on creation |
 | Return | `requestedBy` | `POST /returns/:id/approve`; also decides the submit/create auto-approve |
 | Stocktake | creator and everyone who entered a count | `POST /stocktakes/:id/review/start`, `PATCH /stocktakes/:id/review-lines`, `POST /stocktakes/:id/request-recount` and `POST /stocktakes/:id/approve` — the reviewer is the approver, so a counter can't review their own count either |
+
+**Transfer approval, dispatch and receipt are separate (P6).** `GET /transfers/:id` returns
+`approvalReview: { expectedVersion, expectedDigest }` to the source branch while the transfer is
+requested/approved, `executionApprovalId`, `approvalWaived`, `dispatcher`, `dispatchedQty`,
+`receivedQty` and `inTransitQty` (dispatched − received). `POST /transfers/:id/approve` takes
+`{ approvalId, expectedVersion, expectedDigest }`, issues exact `transfer.ship` evidence and
+reserves stock — no on-hand movement. Re-approving an approved transfer (revoked evidence,
+pre-P6 approval) issues new evidence without reserving again. `POST /transfers/:id/ship` takes
+`{ approvalId }` (the displayed `executionApprovalId`, `null` when waived) and **409**s on any
+other; it consumes the reservation, issues `transfer_out` and sets `in_transit` with
+`dispatchedBy/At`. `POST /transfers/:id/receive` accepts an optional `dispatchApprovalId` pin
+beside `lines`, and requires live `transfers.manage` at the destination. Each line may carry
+`receivedQtyBefore` (the `receivedQty` the screen showed); a receipt counted against an older
+figure is **409**, so two partial receives of the same arrival can't both post. The web sends it. Both keep their
+`Idempotency-Key` scopes; distinct concurrent dispatches move stock once. Approval created on
+submit (self-approval) records the same exact evidence.
 
 **Stocktake approval and posting are separate.** Approval binds the displayed material revision/digest to immutable evidence and leaves stock unchanged in `approved`. `POST /stocktakes/:id/post` applies stock/quarantine and completes the count with live approval checks and atomic audit. Legacy `/complete` closes already-posted records only; see the [P1 stocktake integration guide](POS_P1_IMPLEMENTATION.md) for inputs and recovery.
 

@@ -84,7 +84,7 @@ const attendance = new FixtureAttendance();
 const trust = new TerminalTrustService(access, audit, attendance);
 const authorization = new OperationAuthorizationService(access, trust, new OpenHours(), approvals);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
-  new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, prepared, returns), audit, access);
+  new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, prepared, returns), audit, access);
 
 let fx: TenantFixture;
 const branch = () => fx.mainBranchId;
