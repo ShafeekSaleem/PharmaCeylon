@@ -505,6 +505,26 @@
     "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
   },
   {
+    "method": "PATCH",
+    "path": "/api/v1/purchasing/prepared-receipts/:id",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/prepared-receipts/:id/approve",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/prepared-receipts/:id/cancel",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/prepared-receipts/:id/post",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
     "method": "POST",
     "path": "/api/v1/purchasing/purchase-orders",
     "source": "apps/api/src/purchasing/purchasing.controller.ts"
@@ -532,6 +552,11 @@
   {
     "method": "POST",
     "path": "/api/v1/purchasing/purchase-orders/:id/issue",
+    "source": "apps/api/src/purchasing/purchasing.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/purchase-orders/:id/prepared-receipts",
     "source": "apps/api/src/purchasing/purchasing.controller.ts"
   },
   {

@@ -532,11 +532,17 @@ export class PurchasingService {
     dto: ReceiveGoodsDto,
     idempotencyKeyRaw?: string,
     /** Server-owned composition only: exact held approval on the caller transaction. Never deserialized from a request. */
-    opts: { heldDeliveryId?: string; tx?: Prisma.TransactionClient; authorizeHeldDelivery?: () => Promise<ManagementApprovalEvidence> } = {},
+    opts: {
+      heldDeliveryId?: string; tx?: Prisma.TransactionClient; authorizeHeldDelivery?: () => Promise<ManagementApprovalEvidence>;
+      preparedReceiptId?: string; authorizePreparedReceipt?: () => Promise<ManagementApprovalEvidence>;
+    } = {},
   ) {
     const db = opts.tx ?? this.prisma;
     if (opts.heldDeliveryId && (!opts.tx || !opts.authorizeHeldDelivery))
       throw new BadRequestException("Held deliveries require transactional exact approval");
+    if (opts.preparedReceiptId && (!opts.tx || !opts.authorizePreparedReceipt || opts.heldDeliveryId))
+      throw new BadRequestException("Prepared receipts require transactional exact approval");
+    const authorizeApproved = opts.authorizeHeldDelivery ?? opts.authorizePreparedReceipt;
     assertNoDuplicateProductIds(
       dto.lines.map((l) => l.productId),
       "goods receipt",
@@ -612,6 +618,7 @@ export class PurchasingService {
         message: `A delivery on this order from ${waiting.requester.fullName || "a colleague"} is waiting for approval. It has to be accepted or rejected before anything else is booked in.`,
       });
     }
+    await this.assertNoPreparedReceipt(db, tenantId, branchId, po.id, opts.preparedReceiptId);
 
     const poItemsByProduct = new Map(po.items.map((i) => [i.productId, i]));
     for (const line of dto.lines) {
@@ -761,10 +768,13 @@ export class PurchasingService {
         }, select: { id: true } });
         if (pendingHeld) throw new BadRequestException({ code: "DELIVERY_AWAITING_APPROVAL",
           heldDeliveryId: pendingHeld.id, message: "Approve and post or reject the saved delivery before receiving another." });
-        const approval = await opts.authorizeHeldDelivery?.();
-        const heldAuthorized = approval?.authorizedAction === "held_delivery.post"
-          && approval.document.documentId === opts.heldDeliveryId && approval.document.tenantId === tenantId
-          && approval.document.branchId === branchId;
+        await this.assertNoPreparedReceipt(tx, tenantId, branchId, locked.id, opts.preparedReceiptId);
+        const approval = await authorizeApproved?.();
+        // The approver's exact evidence covers the exceptions in the delivery they approved.
+        const heldAuthorized = approval != null && approval.document.tenantId === tenantId
+          && approval.document.branchId === branchId
+          && ((approval.authorizedAction === "held_delivery.post" && approval.document.documentId === opts.heldDeliveryId)
+            || (approval.authorizedAction === "prepared_receipt.post" && approval.document.documentId === opts.preparedReceiptId));
         const lockedItemByProduct = new Map(locked.items.map((item) => [item.productId, item]));
 
         // How much more than the outstanding quantity this delivery may contain. Suppliers do
@@ -1069,9 +1079,10 @@ export class PurchasingService {
 
         // One posting for the whole delivery: the stock service locks every batch at once, adds
         // the units, and ranges any product still sitting in the reference catalog.
-        if (opts.authorizeHeldDelivery) {
+        if (authorizeApproved) {
+          // Live approver/executor authority again after the batch-lock wait.
           await this.stock.lockBatches(tx, tenantId, arrivals.map(line => line.batchId));
-          await opts.authorizeHeldDelivery();
+          await authorizeApproved();
         }
         await this.stock.receive(
           tx,
@@ -1229,6 +1240,37 @@ export class PurchasingService {
         );
       }
       throw e;
+    }
+  }
+
+  /**
+   * A delivery prepared remotely is open on this order, approved or still awaiting approval.
+   * Booking the same goods in another way (direct receipt, held delivery) would count them twice
+   * once it is posted, so every other way in is refused until it is posted or cancelled. Callers
+   * hold the purchase order lock; preparing takes the same lock, so the check cannot race.
+   */
+  async assertNoPreparedReceipt(
+    db: Prisma.TransactionClient | PrismaService,
+    tenantId: string,
+    branchId: string,
+    purchaseOrderId: string,
+    exceptId?: string,
+  ) {
+    const prepared = await db.preparedReceipt.findFirst({
+      where: {
+        tenantId, branchId, purchaseOrderId, status: { in: ["draft", "approved"] },
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { id: true, status: true },
+    });
+    if (prepared) {
+      throw new BadRequestException({
+        code: "RECEIPT_PREPARED",
+        preparedReceiptId: prepared.id,
+        message: prepared.status === "approved"
+          ? "An approved delivery is waiting to be posted on this order. Post it, or ask a buyer to cancel it, before booking goods in another way."
+          : "A delivery prepared for this order is waiting for approval. Approve and post it, or cancel it, before booking goods in another way.",
+      });
     }
   }
 

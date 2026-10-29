@@ -13,6 +13,8 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/products/import/:importId/undo-stock",
   "POST /api/v1/transfers/:id/ship",
   "POST /api/v1/transfers/:id/receive",
+  "POST /api/v1/purchasing/prepared-receipts/:id/post",
+  "POST /api/v1/returns/:id/complete",
 ] as const;
 export type SignedPhysicalOperation = typeof SIGNED_PHYSICAL_OPERATIONS[number];
 
@@ -39,6 +41,8 @@ export type SignedOperationBody = {
     dispatchApprovalId: string | null;
     lines: ReadonlyArray<Readonly<{ transferItemId: string; qty: number; receivedQtyBefore: number }>>;
   }>;
+  "POST /api/v1/purchasing/prepared-receipts/:id/post": Readonly<{ preparedReceiptId: string }>;
+  "POST /api/v1/returns/:id/complete": Readonly<{ goodsReturnId: string }>;
 };
 
 /** "already_applied": a distinct command found the document already posted; no second effect. */
@@ -70,6 +74,15 @@ export type SignedOperationResult = {
   "POST /api/v1/transfers/:id/receive": Readonly<{
     type: "transfer.received"; transferId: string; dispatchApprovalId: string | null;
     status: "partially_received" | "received"; receivedQty: number;
+  }>;
+  "POST /api/v1/purchasing/prepared-receipts/:id/post": Readonly<{
+    type: "prepared_receipt.posted"; preparedReceiptId: string; approvalId: string; goodsReceiptId: string;
+    effect: SignedOperationEffect;
+  }>;
+  "POST /api/v1/returns/:id/complete": Readonly<{
+    type: "goods_return.completed"; goodsReturnId: string; approvalId: string;
+    debitNoteId: string | null; // null when the returned lines are worth nothing to claim
+    effect: SignedOperationEffect;
   }>;
 };
 

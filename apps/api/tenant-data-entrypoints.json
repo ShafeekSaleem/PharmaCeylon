@@ -247,6 +247,16 @@
       "path": "src/transfers/transfers.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one tenant transfer through its source branch (approval, dispatch) or destination branch (receipt); approval evidence, StockService effects and success audit share the caller transaction."
+    },
+    {
+      "path": "src/purchasing/prepared-receipt.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks the tenant/branch-scoped PO, then the prepared receipt, for preparation, approval, cancellation and posting; evidence, receiving effects and audit share the caller transaction."
+    },
+    {
+      "path": "src/returns/returns.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks the tenant/branch-scoped supplier return before exact approval and dispatch; evidence, StockService effects, debit note and audit share the caller transaction."
     }
   ]
 }

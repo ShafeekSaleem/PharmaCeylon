@@ -20,6 +20,10 @@ export const OPERATIONS_WITHOUT_SELLING_HOURS: ReadonlySet<string> = new Set<Sig
   // P6: dispatching and receiving a transfer is back-room stock work (reviewed 2026-10-29).
   "POST /api/v1/transfers/:id/ship",
   "POST /api/v1/transfers/:id/receive",
+  // P6: receiving a prepared delivery and sending a supplier return back are back-room stock
+  // work too (reviewed 2026-10-29).
+  "POST /api/v1/purchasing/prepared-receipts/:id/post",
+  "POST /api/v1/returns/:id/complete",
 ]);
 
 /**

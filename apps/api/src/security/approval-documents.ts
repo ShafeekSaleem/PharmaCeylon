@@ -1,6 +1,7 @@
 import { stocktakeApprovalMaterial } from "./stocktake-approval-material";
 import { approvalMaterialDigest } from "./approval-material-digest";
 import { heldAdjustmentMaterial, heldDeliveryMaterial } from "./held-approval-material";
+import { goodsReturnMaterial, preparedReceiptMaterial } from "./receiving-approval-material";
 import { transferApprovalMaterial } from "./transfer-approval-material";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
@@ -42,6 +43,12 @@ export const APPROVAL_ACTIONS = {
     approvalPermission: "returns.approve",
     executionPermission: "returns.process",
     operation: "POST /api/v1/returns/:id/complete",
+  },
+  "prepared_receipt.post": {
+    documentType: "prepared_receipt",
+    approvalPermission: "purchasing.approve",
+    executionPermission: "purchasing.receive",
+    operation: "POST /api/v1/purchasing/prepared-receipts/:id/post",
   },
 } as const;
 export type ApprovalAction = keyof typeof APPROVAL_ACTIONS;
@@ -159,6 +166,21 @@ export async function approvalDocument(
     version = doc.approvalVersion;
     requester = doc.requestedBy;
     material = transferApprovalMaterial(doc, doc.items);
+  } else if (policy.documentType === "prepared_receipt") {
+    // Same order as every receiving path: the purchase order first, then the prepared receipt.
+    const binding = await tx.preparedReceipt.findFirst({ where: { tenantId, branchId, id: documentId }, select: { purchaseOrderId: true } });
+    if (!binding) denied("APPROVAL_INVALID");
+    await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${binding.purchaseOrderId}::uuid FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM prepared_receipt WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
+    const doc = await tx.preparedReceipt.findFirst({ where: { tenantId, branchId, id: documentId } });
+    const po = await tx.purchaseOrder.findFirst({
+      where: { tenantId, branchId, id: binding.purchaseOrderId },
+      include: { items: { where: { tenantId }, orderBy: { id: "asc" } } },
+    });
+    if (!doc || !po || !["issued", "partially_received"].includes(po.status)
+      || !(use === "execution" ? ["approved"] : ["draft", "approved"]).includes(doc.status)) denied("APPROVAL_INVALID");
+    version = doc.approvalVersion; requester = doc.preparedBy;
+    material = preparedReceiptMaterial(doc, po);
   } else {
     await tx.$queryRaw`SELECT id FROM goods_return WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
     const doc = await tx.goodsReturn.findFirst({
@@ -178,27 +200,9 @@ export async function approvalDocument(
     if (doc.type !== "supplier") denied("APPROVAL_INVALID");
     version = doc.approvalVersion;
     requester = doc.requestedBy;
-    material = {
-      type: doc.type,
-      customerName: doc.customerName,
-      saleId: doc.saleId,
-      supplierId: doc.supplierId,
-      purchaseOrderId: doc.purchaseOrderId,
-      goodsReceiptId: doc.goodsReceiptId,
-      amount: doc.amount.toFixed(2),
-      reason: doc.reason,
-      reasonCode: doc.reasonCode,
-      items: doc.items.map((l) => ({
-        id: l.id,
-        productId: l.productId,
-        batchId: l.batchId,
-        qty: l.qty,
-        unitPrice: l.unitPrice.toFixed(2),
-        disposition: l.disposition,
-      })),
-    };
+    material = goodsReturnMaterial(doc);
   }
-  if (policy.documentType !== "held_adjustment" && policy.documentType !== "held_delivery" && (!Array.isArray(material.items) || !material.items.length))
+  if (!["held_adjustment", "held_delivery", "prepared_receipt"].includes(policy.documentType) && (!Array.isArray(material.items) || !material.items.length))
     denied("APPROVAL_INVALID");
   return {
     identity: {

@@ -119,6 +119,9 @@ export class HeldDeliveryService {
         throw new BadRequestException("This order isn't open for receiving any more — refresh to see it");
       }
 
+      // A delivery prepared remotely for this order is the one to book in; holding another beside
+      // it would count the same goods twice.
+      await this.purchasing.assertNoPreparedReceipt(tx, tenantId, branchId, po.id);
       const reasons = [...new Set(dto.reasons)].sort();
       const payload = storedPayload(dto.delivery, po.id) as unknown as Prisma.InputJsonValue;
       const detail = dto.detail.trim();
