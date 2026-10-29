@@ -442,8 +442,10 @@ carry a per-command hours exception (`operatingHoursExceptionId` must be null).
 Revised D8 limits new sales and shift opening; it puts no hours limit on back-room stock work. The
 five v1 signed operations (stocktake post, held write-off/delivery post, import stock post/undo)
 are therefore listed in `OPERATIONS_WITHOUT_SELLING_HOURS`. Any operation not on that reviewed list
-— every future checkout/shift adapter — is hours-checked by default. **Decision for review:** if
-stock posting should also stop at selling hours, remove those five entries.
+— every future checkout/shift adapter — is hours-checked by default. **Decided (Shafeek,
+2026-10-29):** back-room stock posting is not limited by selling hours. New signed adapters for
+back-room stock work (receiving, supplier-return completion, transfer ship/receive) join this list
+after the same review; checkout, refunds and shift opening stay hours-checked.
 
 ### D8 after-hours acknowledgement records
 

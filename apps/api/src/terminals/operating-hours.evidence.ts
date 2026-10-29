@@ -7,7 +7,7 @@ import { denied, invalid } from "./terminal-wire";
 /**
  * Revised D8 limits *new sales and shift opening* to selling hours; counting cash and closing an
  * existing shift stay available, and the contract puts no hours limit on back-room stock work.
- * Operations listed here are reviewed as not selling-time restricted. Every other operation —
+ * Operations listed here are reviewed as not selling-time restricted (decided 2026-10-29). Every other operation —
  * including any adapter added later and not reviewed here — is checked against selling hours
  * and fails closed when they are unknown.
  */
