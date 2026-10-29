@@ -185,7 +185,8 @@ export function TransferDetailModal({
     const lines = transfer!.items
       .map((line) => {
         const qty = Number(receiveQtys[line.id] ?? 0);
-        return { transferItemId: line.id, qty };
+        // What this screen showed as already received; a stale count is refused (409).
+        return { transferItemId: line.id, qty, receivedQtyBefore: line.receivedQty ?? 0 };
       })
       .filter((line) => Number.isInteger(line.qty) && line.qty > 0);
 
