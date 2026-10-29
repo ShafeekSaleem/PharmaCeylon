@@ -347,3 +347,29 @@
     color: #000;
   }
 }
+
+/* Remote refund preparation (sale-refund-panel). */
+.refundForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.refundLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.refundLine input,
+.refundLine select {
+  width: 9rem;
+}
+
+.refundActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}

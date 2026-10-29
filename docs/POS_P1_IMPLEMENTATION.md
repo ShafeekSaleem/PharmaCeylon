@@ -583,6 +583,46 @@ approval, pinned/revoked/edited dispatch, concurrent dispatch, destination autho
 receipt, signed dispatch/receipt end to end with replay, concurrent retries, a source counter
 refused at the destination, waiver on/off, rollback on an injected audit failure).
 
+## P6 #52 slice: sale refunds prepared remotely, executed at the counter
+
+The remote half of W4 #66 Phase D. A refund used to be one till action; now it can be prepared
+and authorized off-site and executed at the counter:
+
+- **Prepare** (`POST /sales/:id/refund-requests`, `management`) locks the sale, prices the lines
+  against its remaining returnable quantity at what the customer paid, and stores an immutable
+  `SaleRefundRequest` (lines, amount, method, reason, whether the tenant threshold applied). One
+  open request per sale. Nothing moves.
+- **Approve** (`management`) issues exact `sale_refund.execute` evidence over the stored content
+  (`returns.approve`, existing self-approval rules). The content cannot change afterwards
+  (database trigger): cancel and prepare again.
+- **Execute** (`refund`) — `RefundRequestsService.executeInTransaction`, shared by the browser
+  route and the signed operation `POST /api/v1/sales/refund-requests/:id/execute` — locks the
+  sale then the request, pins the approval ID, re-checks the original-sale limit and price under
+  the lock, controlled-item authority, the live approval (after locking the batches) and a
+  threshold lowered since preparation, then runs the till refund's `applyRefund`: goods return,
+  stock back (held lines quarantined), negative payments, sale status and `sale.refunded` audit
+  with requester/approver/executor and command provenance. The request is marked executed in the
+  same transaction, so retries replay and distinct attempts report `already_applied`.
+- `SalesService.refundSale` (the till) now uses the same lock/plan/apply steps and locks the sale
+  row, as does `voidSale`; previously two concurrent refunds could both pass the returnable check.
+- Migration `20261029110000_sale_refund_requests` adds the table (staged tenant policy, RLS off)
+  and widens `management_approval_shape` with the `sale_refund` pair.
+- Web: the sale detail page prepares and approves a refund and shows it "waiting at the counter";
+  it has no execute button.
+
+Tests: `test/integration/refund-requests.int-spec.ts` (limits, no effect on prepare/approve,
+stale/self approval, signed execution with replay and `already_applied`, concurrent signed and
+browser executions refunding once, pinned/revoked approval, a lowered threshold, the limit after a
+till refund, immutability, rollback on an injected audit failure, till-vs-prepared serialization).
+
+Refund execution is not in `OPERATIONS_WITHOUT_SELLING_HOURS`: like a sale, it is checked against
+selling hours (and fails closed when they are unknown).
+
+Daily work lists prepared refunds as `sale_refund.approve` (approvers) and, once approved or under
+the threshold, `sale_refund.execute` (waiting at the counter). Cashiers and pharmacists execute
+them with their `sales.refund` and the `terminal.execute` counter default.
+
+Not done: a dedicated refund approvals queue screen and approval notifications.
 ## P6 slice: prepared receipts and supplier returns (approval vs counter execution)
 
 Epic P6 [#52](https://github.com/ShafeekSaleem/PharmaCeylon/issues/52) with its P1 signed adapters.

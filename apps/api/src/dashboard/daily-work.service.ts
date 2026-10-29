@@ -170,6 +170,24 @@ export class DailyWorkService {
           (s.status IN ('draft', 'scheduled', 'counting') AND (${actor.has("stocktakes.review")} OR s.counted_by = ${uid}::uuid OR EXISTS(
             SELECT 1 FROM stocktake_assignment a WHERE a.tenant_id = ${tenant}::uuid AND a.stocktake_id = s.id AND a.user_id = ${uid}::uuid))))`);
     }
+    // Refunds prepared remotely (P6): over the threshold they need an approver; once approved, or
+    // under the threshold, they wait at the counter. A threshold lowered since preparation counts.
+    if (allowed("sales.refund")) {
+      const needsApproval = Prisma.sql`(r.status = 'prepared' AND (r.approval_required OR (ts.approval_required_return_threshold IS NOT NULL AND r.amount >= ts.approval_required_return_threshold)))`;
+      sources.push(Prisma.sql`
+        SELECT 'refund:' || r.id, CASE WHEN ${needsApproval} THEN 'sale_refund.approve' ELSE 'sale_refund.execute' END, 'counter',
+          CASE WHEN ${needsApproval} THEN 'Approve prepared refund' ELSE 'Refund the customer' END,
+          concat(s.invoice_no, ' · LKR ', r.amount::text), r.request_number, r.status::text,
+          '/sales/' || r.sale_id, CASE WHEN ${needsApproval} THEN 'Review refund' ELSE 'Open sale' END,
+          r.requested_at, NULL::timestamp,
+          CASE WHEN ${needsApproval} THEN 'Branch approvers' ELSE 'Counter team' END,
+          (r.requested_by = ${uid}::uuid AND NOT ${needsApproval}), ${needsApproval},
+          (${needsApproval} AND ${blocked(Prisma.sql`r.requested_by`)}), 1
+        FROM sale_refund_request r JOIN sale s ON s.id = r.sale_id AND s.tenant_id = r.tenant_id AND s.branch_id = r.branch_id
+          LEFT JOIN tenant_settings ts ON ts.tenant_id = r.tenant_id
+        WHERE r.tenant_id = ${tenant}::uuid AND r.branch_id = ${branchId}::uuid AND r.status IN ('prepared', 'approved')
+          AND ((${actor.has("returns.approve")} AND ${needsApproval}) OR NOT ${needsApproval})`);
+    }
     // Held bills live in the web POS. At a live branch it is hidden, so they leave the web (W9);
     // during a fallback the web POS is back and so are its holds.
     if (allowed("sales.pos_use") && rollout !== "live") {

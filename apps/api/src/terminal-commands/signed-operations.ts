@@ -16,6 +16,7 @@ import type { OperationDescriptor } from "../security/operation-authorization.se
 import { StocktakesService } from "../stocktakes/stocktakes.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { TransfersService } from "../transfers/transfers.service";
+import { RefundRequestsService } from "../sales/refund-requests.service";
 import { invalid, object, text, uuid } from "../terminals/terminal-wire";
 
 type Tx = Prisma.TransactionClient;
@@ -82,6 +83,8 @@ function transferReceiveBody(raw: unknown): TransferReceiveBody {
   }
   return body as TransferReceiveBody;
 }
+/** "12.50" → 1250. Money in a receipt is integer minor units (canonical JSON has no floats). */
+const minor = (amount: string) => Math.round(Number(amount) * 100);
 const approvalId = (context: SignedExecutionContext) => {
   if (!context.approvalEvidenceId) invalid();
   return context.approvalEvidenceId;
@@ -104,6 +107,7 @@ export class SignedOperations {
     transfers: TransfersService,
     preparedReceipts: PreparedReceiptService,
     returns: ReturnsService,
+    refunds: RefundRequestsService,
   ) {
     this.registry = Object.freeze<Registry>({
       "POST /api/v1/stocktakes/:id/post": {
@@ -275,6 +279,40 @@ export class SignedOperations {
               dispatchApprovalId: body.dispatchApprovalId,
               status: received.status as "partially_received" | "received",
               receivedQty: received.receivedQty,
+            },
+          };
+        },
+      },
+      // The branch counter refunds a request prepared (and, over the threshold, approved)
+      // remotely. A request executes once; a distinct later command reports already_applied.
+      "POST /api/v1/sales/refund-requests/:id/execute": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/sales/refund-requests/:id/execute",
+          permission: "sales.refund",
+          parseBody: idBody("refundRequestId"),
+          resolveFacts: async (tx, user, branchId, b) => ({
+            cashMovement: await refunds.cashMovement(tx, user.tenantId, branchId, b.refundRequestId),
+          }),
+          approval: {
+            action: "sale_refund.execute",
+            documentId: (b) => b.refundRequestId,
+            waived: (tx, user, branchId, b) =>
+              refunds.executionApprovalWaived(tx, user.tenantId, branchId, b.refundRequestId),
+          },
+        },
+        async execute(tx, user, branchId, body, context) {
+          const done = await refunds.executeInTransaction(tx, user, branchId, body.refundRequestId,
+            { approvalId: context.approvalEvidenceId }, context.command);
+          return {
+            result: {
+              type: "sale_refund.executed",
+              refundRequestId: body.refundRequestId,
+              approvalId: context.approvalEvidenceId,
+              goodsReturnId: done.goodsReturnId,
+              amountMinor: minor(done.row.amount.toFixed(2)),
+              refundedTo: done.refundedTo.map((part) => ({ method: part.method, amountMinor: minor(part.amount) })),
+              effect: done.changed ? "applied" : "already_applied",
             },
           };
         },

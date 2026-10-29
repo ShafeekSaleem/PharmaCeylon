@@ -312,6 +312,8 @@ export class ManagementApprovalsService {
       await tx.$queryRaw`SELECT id FROM purchase_order WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else if (row.documentType === "transfer")
       await tx.$queryRaw`SELECT id FROM transfer WHERE tenant_id = ${row.tenantId}::uuid AND from_branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
+    else if (row.documentType === "sale_refund")
+      await tx.$queryRaw`SELECT id FROM sale_refund_request WHERE tenant_id = ${row.tenantId}::uuid AND branch_id = ${row.branchId}::uuid AND id = ${row.documentId}::uuid FOR UPDATE`;
     else if (row.documentType === "prepared_receipt") {
       const doc = await tx.preparedReceipt.findFirst({ where: { tenantId: row.tenantId, branchId: row.branchId, id: row.documentId }, select: { purchaseOrderId: true } });
       if (!doc) denied("APPROVAL_INVALID");

@@ -616,6 +616,11 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/sales/:id/refund-requests",
+    "source": "apps/api/src/sales/refund-requests.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/sales/:id/refund",
     "source": "apps/api/src/sales/sales.controller.ts"
   },
@@ -653,6 +658,21 @@
     "method": "POST",
     "path": "/api/v1/sales/pos/me/pos-pin/clear",
     "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/refund-requests/:id/approve",
+    "source": "apps/api/src/sales/refund-requests.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/refund-requests/:id/cancel",
+    "source": "apps/api/src/sales/refund-requests.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sales/refund-requests/:id/execute",
+    "source": "apps/api/src/sales/refund-requests.controller.ts"
   },
   {
     "method": "POST",

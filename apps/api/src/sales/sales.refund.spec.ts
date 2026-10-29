@@ -82,6 +82,8 @@ describe("SalesService.refundSale", () => {
       },
       $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
+          // The sale row lock every refund takes first.
+          $queryRaw: jest.fn().mockResolvedValue([]),
           sale: {
             findFirst: jest.fn().mockResolvedValue(saleRow),
             update: txState.saleUpdate,
@@ -192,6 +194,7 @@ describe("SalesService.refundSale", () => {
     (prisma.$transaction as jest.Mock).mockImplementation(
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
+          $queryRaw: jest.fn().mockResolvedValue([]),
           sale: {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
@@ -256,6 +259,7 @@ describe("SalesService.refundSale", () => {
     (prisma.$transaction as jest.Mock).mockImplementation(
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
+          $queryRaw: jest.fn().mockResolvedValue([]),
           sale: {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
@@ -305,6 +309,7 @@ describe("SalesService.refundSale", () => {
     (prisma.$transaction as jest.Mock).mockImplementation(
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
+          $queryRaw: jest.fn().mockResolvedValue([]),
           sale: {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,
@@ -445,6 +450,7 @@ describe("SalesService.refundSale", () => {
     (prisma.$transaction as jest.Mock).mockImplementation(
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
+          $queryRaw: jest.fn().mockResolvedValue([]),
           sale: {
             findFirst: jest.fn().mockResolvedValue({
               id: saleId,

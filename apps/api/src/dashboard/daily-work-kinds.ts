@@ -47,6 +47,9 @@ export const DAILY_WORK_KIND_DEFS: Readonly<Record<DailyWorkKind, KindDef>> = {
   "batch.expiry_review": {
     executes: "POST /api/v1/inventory/batches/:id/quarantine",
   },
+  // A refund prepared remotely (P6): approval over the threshold, then the counter refunds it.
+  "sale_refund.approve": { executes: null },
+  "sale_refund.execute": { approvalAction: "sale_refund.execute" },
 };
 
 export function kindOperation(kind: DailyWorkKind): MutationKey | null {

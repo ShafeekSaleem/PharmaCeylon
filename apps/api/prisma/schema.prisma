@@ -74,6 +74,13 @@ enum PaymentMethod {
   credit
 }
 
+enum SaleRefundRequestStatus {
+  prepared
+  approved
+  executed
+  cancelled
+}
+
 enum TransferStatus {
   requested
   approved
@@ -2534,6 +2541,43 @@ model StockReservation {
   @@index([tenantId, branchId, batchId, status])
   @@index([tenantId, sourceType, sourceId])
   @@map("stock_reservation")
+}
+
+/// A customer refund prepared (and, over the threshold, approved) remotely and executed at the
+/// counter. Material content is immutable (database trigger): cancel and prepare a new one.
+model SaleRefundRequest {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  tenantId            String                  @map("tenant_id") @db.Uuid
+  branchId            String                  @map("branch_id") @db.Uuid
+  saleId              String                  @map("sale_id") @db.Uuid
+  requestNumber       String                  @map("request_number")
+  status              SaleRefundRequestStatus @default(prepared)
+  /// [{ productId, batchId, qty, unitPrice, disposition }], priced at what the customer paid.
+  lines               Json
+  amount              Decimal                 @db.Decimal(12, 2)
+  /// Null: back the way the sale was paid.
+  refundMethod        PaymentMethod?          @map("refund_method")
+  reasonCode          String?                 @map("reason_code")
+  reason              String                  @db.VarChar(600)
+  /// The amount met the tenant's refund approval threshold when prepared.
+  approvalRequired    Boolean                 @map("approval_required")
+  approvalVersion     Int                     @default(1) @map("approval_version")
+  requestedBy         String                  @map("requested_by") @db.Uuid
+  requestedAt         DateTime                @default(now()) @map("requested_at")
+  executionApprovalId String?                 @map("execution_approval_id") @db.Uuid
+  approvedBy          String?                 @map("approved_by") @db.Uuid
+  approvedAt          DateTime?               @map("approved_at")
+  executedBy          String?                 @map("executed_by") @db.Uuid
+  executedAt          DateTime?               @map("executed_at")
+  goodsReturnId       String?                 @unique @map("goods_return_id") @db.Uuid
+  cancelledBy         String?                 @map("cancelled_by") @db.Uuid
+  cancelledAt         DateTime?               @map("cancelled_at")
+  updatedAt           DateTime                @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([tenantId, requestNumber])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, saleId])
+  @@map("sale_refund_request")
 }
 
 model Transfer {

@@ -249,6 +249,16 @@
       "reason": "Locks one tenant transfer through its source branch (approval, dispatch) or destination branch (receipt); approval evidence, StockService effects and success audit share the caller transaction."
     },
     {
+      "path": "src/sales/sales.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one tenant/branch sale before a refund or void, so concurrent refunds of the same units serialize; stock, payments, status and audit share the caller transaction."
+    },
+    {
+      "path": "src/sales/refund-requests.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one tenant/branch refund request (after its sale) for approval, cancellation and execution; approval evidence, StockService effects and success audit share the caller transaction."
+    },
+    {
       "path": "src/purchasing/prepared-receipt.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks the tenant/branch-scoped PO, then the prepared receipt, for preparation, approval, cancellation and posting; evidence, receiving effects and audit share the caller transaction."

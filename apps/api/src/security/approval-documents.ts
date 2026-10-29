@@ -3,6 +3,7 @@ import { approvalMaterialDigest } from "./approval-material-digest";
 import { heldAdjustmentMaterial, heldDeliveryMaterial } from "./held-approval-material";
 import { goodsReturnMaterial, preparedReceiptMaterial } from "./receiving-approval-material";
 import { transferApprovalMaterial } from "./transfer-approval-material";
+import { saleRefundMaterial } from "./sale-refund-approval-material";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ApprovalDocumentIdentity } from "@pharmaceylon/shared";
@@ -43,6 +44,12 @@ export const APPROVAL_ACTIONS = {
     approvalPermission: "returns.approve",
     executionPermission: "returns.process",
     operation: "POST /api/v1/returns/:id/complete",
+  },
+  "sale_refund.execute": {
+    documentType: "sale_refund",
+    approvalPermission: "returns.approve",
+    executionPermission: "sales.refund",
+    operation: "POST /api/v1/sales/refund-requests/:id/execute",
   },
   "prepared_receipt.post": {
     documentType: "prepared_receipt",
@@ -166,6 +173,13 @@ export async function approvalDocument(
     version = doc.approvalVersion;
     requester = doc.requestedBy;
     material = transferApprovalMaterial(doc, doc.items);
+  } else if (policy.documentType === "sale_refund") {
+    await tx.$queryRaw`SELECT id FROM sale_refund_request WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
+    const doc = await tx.saleRefundRequest.findFirst({ where: { tenantId, branchId, id: documentId } });
+    if (!doc || !["prepared", "approved"].includes(doc.status)) denied("APPROVAL_INVALID");
+    version = doc.approvalVersion;
+    requester = doc.requestedBy;
+    material = saleRefundMaterial(doc);
   } else if (policy.documentType === "prepared_receipt") {
     // Same order as every receiving path: the purchase order first, then the prepared receipt.
     const binding = await tx.preparedReceipt.findFirst({ where: { tenantId, branchId, id: documentId }, select: { purchaseOrderId: true } });

@@ -48,6 +48,7 @@ describe("daily-work kinds", () => {
         "held_delivery.post",
         "prepared_receipt.post",
         "import_stock.post",
+        "sale_refund.execute",
       ]),
     );
     expect(approvedWaitingKinds()).not.toContain("held_adjustment.approve");
@@ -72,5 +73,7 @@ describe("daily-work kinds", () => {
     expect(workPlace("held_delivery.approve", true)).toBe("web");
     expect(workPlace("purchase_order.draft", true)).toBe("web");
     expect(workPlace("stocktake.prepare", true)).toBe("web");
+    expect(workPlace("sale_refund.execute", true)).toBe("counter");
+    expect(workPlace("sale_refund.approve", true)).toBe("web");
   });
 });
