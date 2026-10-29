@@ -886,6 +886,26 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/offline-assignment/authorizations",
+    "source": "apps/api/src/terminals/offline-assignment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/offline-assignment/authorizations/:authorizationId/revoke",
+    "source": "apps/api/src/terminals/offline-assignment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/offline-assignment/delegations",
+    "source": "apps/api/src/terminals/offline-assignment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/offline-assignment/delegations/:delegationId/revoke",
+    "source": "apps/api/src/terminals/offline-assignment.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/transfers",
     "source": "apps/api/src/transfers/transfers.controller.ts"
   },

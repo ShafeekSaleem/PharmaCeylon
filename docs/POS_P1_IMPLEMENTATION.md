@@ -510,6 +510,40 @@ gazette exception, approved/revoked extension, mandatory ceiling and no-selling,
 exempt stock posting; acknowledgement persistence, identical/concurrent replay, changed-content
 replay, wrong device/branch/clock/window, revoked device and immutability.
 
+## MR 8: D13 remote assignment authorization
+
+`OfflineAssignmentService` (`terminals/offline-assignment.service.ts`) and
+`OfflineAssignmentController` implement the online half of revised D13.
+
+- **Delegation** (`offline_terminal_delegation`): owner-only, per manager and branch. The delegate
+  must be assigned at the branch and hold `tenant.management` there (checked live). No role or
+  permission edit creates or implies one, managers cannot delegate onward, one live delegation per
+  manager/branch (partial unique index). Revoking it revokes the delegate's outstanding authorization.
+- **Authorization** (`offline_terminal_assignment_authorization`): an owner, or a manager with a live
+  delegation, authorizes one exact active, counter-bound enrollment at the branch and the nomination
+  version they saw. Persists authorizer, authority (`owner` | `delegated_manager` + delegation),
+  target terminal/enrollment/key, expected version and reason, with audit. Client-generated ID for
+  idempotent retries; one outstanding per branch (partial unique index); a newer one supersedes.
+  Remote callers need a live token (`resolveLive`).
+- **Nomination anchor** (`offline_terminal_nomination`): one row per branch, written only by future
+  activation; no row = version 0. Authorization binds to it.
+- **Activation-time revalidation**: `requireCurrent(tx, …)` rechecks status, exact target, active
+  enrollment, unchanged version and the original authorizer's *current* rights (owner, or live
+  delegation plus branch management — a role edit can remove authority, never grant it). It does not
+  consume; activation (P2/P3) does that atomically with D11 clearance. The activation contract is
+  documented in API_CONTRACT.md; it needs P2's attendance and staff session, so it is not exposed.
+
+Per-branch serialization uses a branch row lock. Triggers keep content immutable, record
+revocation/consumption once and forbid deletion; staged (disabled) tenant RLS policies. Four new
+`management` routes (188 in the inventory) plus a GET; shared `OfflineAssignmentView` /
+`OfflineAssignmentAuthorizeRequest`. Tests: `test/integration/offline-assignment.int-spec.ts`
+(PostgreSQL, 15): owner authorization and idempotent retry/ID conflict (including an ID used at
+another branch), no replay after losing authority, manager without delegation,
+delegated manager and supersession, nomination version binding and already-nominated target,
+revoked/foreign target, stale token, owner-only/per-branch/no-onward delegation, idempotent
+delegation, delegation revocation cascading, `requireCurrent` (target/version, role edit removing
+authority, revoked target/authorization) and evidence immutability.
+
 ## P6 #52 slice: transfer approval, dispatch and receipt
 
 Transfers already reserved on approval and moved stock on ship/receive; what was missing was the

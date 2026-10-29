@@ -294,6 +294,40 @@ Bodies are `{ statusCode, code, message }`. The shared `TerminalApiError` shape 
 Receipts are not server-signed in v1; the client trusts them over TLS. A signed `sync_response`
 is reserved for P5 offline sync.
 
+## Offline-counter assignment (P1 / revised D13)
+
+Which enrolled counter may become the branch's offline-capable terminal is decided in two
+separate steps. These endpoints are the first, online and remote-capable; they nominate nothing,
+issue no grant and need no terminal proof. All need `x-branch-id`, a live sign-in and the route
+permission `tenant.management`, which is never sufficient by itself. Every response is the
+`OfflineAssignmentView` (`@pharmaceylon/shared`) for the branch.
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `GET /terminals/offline-assignment` | branch staff with `tenant.management` | Current nomination (`nominationVersion`, 0 = none), delegations, recent authorizations. |
+| `POST /terminals/offline-assignment/delegations` `{ managerUserId }` | **owner only** | Delegates assignment to one manager for this branch. The delegate must be assigned here and hold `tenant.management` here. Idempotent. Managers cannot delegate onward; no role edit creates a delegation. |
+| `POST /terminals/offline-assignment/delegations/:delegationId/revoke` `{ reason }` | owner only | Revokes it, and revokes the delegate's outstanding authorization. |
+| `POST /terminals/offline-assignment/authorizations` `OfflineAssignmentAuthorizeRequest` | owner, or a manager with a live delegation for this branch | Authorizes one exact active enrolled target at this branch and the `expectedNominationVersion` shown. Supersedes the branch's previous outstanding authorization. `authorizationId` is client-generated: resending is a no-op, reuse for anything else is 409 `AUTHORIZATION_ID_CONFLICT`. |
+| `POST /terminals/offline-assignment/authorizations/:authorizationId/revoke` `{ reason }` | owner or delegated manager | Revokes an outstanding authorization. |
+
+Refusals carry `code`: `OFFLINE_ASSIGNMENT_OWNER_ONLY`, `OFFLINE_ASSIGNMENT_NOT_DELEGATED`,
+`OFFLINE_DELEGATE_INELIGIBLE` (403); `OFFLINE_TARGET_INVALID` (not an active, counter-bound
+enrollment at this branch), `NOMINATION_VERSION_CHANGED`, `OFFLINE_TARGET_ALREADY_NOMINATED`,
+`AUTHORIZATION_ID_CONFLICT` (409). Delegations and authorizations are retained: content is
+immutable, revocation/consumption is recorded once, nothing is deleted.
+
+**Activation (second step, P2/P3; not exposed yet).** On the exact target, an authorized local
+staff member confirms activation online with a signed command (`OfflineTerminalActivation`:
+`authorizationId`, identity, session, `expectedNominationVersion`) and verified local attendance.
+The confirmer needs a branch activation permission, not the owner's assignment authority. In one
+transaction the server must: verify the signed command and attendance; call
+`OfflineAssignmentService.requireCurrent` (authorization still outstanding for this exact
+enrollment, enrollment active, nomination version unchanged, original authorizer still an owner or
+still a delegated manager with branch management); apply D11 clearance (old grant can no longer
+sell, old journal resolved or loss reviewed, or initial nomination); then mark the authorization
+`consumed` (with the activator), upsert `offline_terminal_nomination` with `version + 1`, and audit
+authorizer and activator separately. Stale, revoked or consumed authorizations require renewal.
+
 ## Sales lifecycle (pilot)
 
 - **Checkout**: `POST /api/v1/sales/checkout` — optional `Idempotency-Key`. Line **tax**: send `taxAmount` per line, or omit to apply **VAT** from server config (see below).
