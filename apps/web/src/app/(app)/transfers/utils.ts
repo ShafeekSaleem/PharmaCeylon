@@ -158,6 +158,20 @@ export function canApprove(status: TransferStatus): boolean {
   return status === "requested";
 }
 
+/**
+ * Whether the transfer still needs an approver: a new request, or an approved one whose
+ * approval evidence is missing (approved before exact approvals) or revoked. A transfer the
+ * tenant waived approval for needs none.
+ */
+export function needsApproval(
+  row: Pick<TransferListItem, "status" | "executionApprovalId" | "approvalWaived" | "approvalRevoked">,
+): boolean {
+  if (row.status === "requested") return true;
+  if (row.status !== "approved") return false;
+  if (row.approvalRevoked) return true;
+  return !row.executionApprovalId && !row.approvalWaived;
+}
+
 export function canReject(status: TransferStatus): boolean {
   return status === "requested";
 }

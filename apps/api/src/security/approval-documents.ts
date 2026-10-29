@@ -1,6 +1,7 @@
 import { stocktakeApprovalMaterial } from "./stocktake-approval-material";
 import { approvalMaterialDigest } from "./approval-material-digest";
 import { heldAdjustmentMaterial, heldDeliveryMaterial } from "./held-approval-material";
+import { transferApprovalMaterial } from "./transfer-approval-material";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { ApprovalDocumentIdentity } from "@pharmaceylon/shared";
@@ -157,17 +158,7 @@ export async function approvalDocument(
       denied("APPROVAL_INVALID");
     version = doc.approvalVersion;
     requester = doc.requestedBy;
-    material = {
-      fromBranchId: doc.fromBranchId,
-      toBranchId: doc.toBranchId,
-      expectedOn: doc.expectedOn?.toISOString() ?? null,
-      items: doc.items.map((l) => ({
-        id: l.id,
-        productId: l.productId,
-        batchId: l.batchId,
-        qty: l.qty,
-      })),
-    };
+    material = transferApprovalMaterial(doc, doc.items);
   } else {
     await tx.$queryRaw`SELECT id FROM goods_return WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ${documentId}::uuid FOR UPDATE`;
     const doc = await tx.goodsReturn.findFirst({

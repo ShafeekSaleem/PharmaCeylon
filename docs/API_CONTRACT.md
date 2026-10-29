@@ -158,10 +158,24 @@ transaction.
 | `POST /api/v1/purchasing/held-deliveries/:id/post` | `{ heldDeliveryId }` | the delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/products/import/:importId/stock/post` | `{ importId, version, selection, categoryName }` | `null` | `products.import` |
 | `POST /api/v1/products/import/:importId/undo-stock` | `{ importId }` | `null` | `products.import` |
+| `POST /api/v1/transfers/:id/ship` | `{ transferId }` | the transfer's `executionApprovalId`; `null` only while approval is waived (below) | `transfers.manage` |
+| `POST /api/v1/transfers/:id/receive` | `{ transferId, dispatchApprovalId, lines: [{ transferItemId, qty, receivedQtyBefore }] }` | `null` | `transfers.manage` |
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
-uncategorised rows). `version` is the displayed staged-stock version. `pharmacistEvidenceId`
+uncategorised rows). `version` is the displayed staged-stock version.
+
+Transfers: dispatch is signed at the **source** counter (`x-branch-id` and the command identity =
+source branch) and receipt at the **destination** counter (both = destination branch); the
+enrollment is branch-bound, so a source device cannot book stock in at the destination. Dispatch
+carries `approvalEvidenceId: null` only when the transfer is approved with no evidence and the
+tenant has `approvalRequiredForBranchTransfers = false` — re-read in the transaction; anything
+else needs the exact approval (`APPROVAL_REQUIRED` / `APPROVAL_INVALID`). Receipt pins the
+dispatch with `dispatchApprovalId` (the transfer's `executionApprovalId`, `null` if waived) and
+counts each line once: `receivedQtyBefore` is the line's `receivedQty` the counter saw, and a
+mismatch is **409** (never a second receipt). Results: `{ type: "transfer.dispatched",
+transferId, approvalId, dispatchedQty, effect }` and `{ type: "transfer.received", transferId,
+dispatchApprovalId, status, receivedQty }`. `pharmacistEvidenceId`
 and `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
 key, type or coercion is `INVALID_COMMAND`.
 
@@ -362,6 +376,22 @@ Configured in Settings → Approval Rules and stored on `TenantSettings`. **The 
 | Transfer | `requestedBy` | `POST /transfers/:id/approve`; also decides whether a new transfer is approved on creation |
 | Return | `requestedBy` | `POST /returns/:id/approve`; also decides the submit/create auto-approve |
 | Stocktake | creator and everyone who entered a count | `POST /stocktakes/:id/review/start`, `PATCH /stocktakes/:id/review-lines`, `POST /stocktakes/:id/request-recount` and `POST /stocktakes/:id/approve` — the reviewer is the approver, so a counter can't review their own count either |
+
+**Transfer approval, dispatch and receipt are separate (P6).** `GET /transfers/:id` returns
+`approvalReview: { expectedVersion, expectedDigest }` to the source branch while the transfer is
+requested/approved, `executionApprovalId`, `approvalWaived`, `dispatcher`, `dispatchedQty`,
+`receivedQty` and `inTransitQty` (dispatched − received). `POST /transfers/:id/approve` takes
+`{ approvalId, expectedVersion, expectedDigest }`, issues exact `transfer.ship` evidence and
+reserves stock — no on-hand movement. Re-approving an approved transfer (revoked evidence,
+pre-P6 approval) issues new evidence without reserving again. `POST /transfers/:id/ship` takes
+`{ approvalId }` (the displayed `executionApprovalId`, `null` when waived) and **409**s on any
+other; it consumes the reservation, issues `transfer_out` and sets `in_transit` with
+`dispatchedBy/At`. `POST /transfers/:id/receive` accepts an optional `dispatchApprovalId` pin
+beside `lines`, and requires live `transfers.manage` at the destination. Each line may carry
+`receivedQtyBefore` (the `receivedQty` the screen showed); a receipt counted against an older
+figure is **409**, so two partial receives of the same arrival can't both post. The web sends it. Both keep their
+`Idempotency-Key` scopes; distinct concurrent dispatches move stock once. Approval created on
+submit (self-approval) records the same exact evidence.
 
 **Stocktake approval and posting are separate.** Approval binds the displayed material revision/digest to immutable evidence and leaves stock unchanged in `approved`. `POST /stocktakes/:id/post` applies stock/quarantine and completes the count with live approval checks and atomic audit. Legacy `/complete` closes already-posted records only; see the [P1 stocktake integration guide](POS_P1_IMPLEMENTATION.md) for inputs and recovery.
 

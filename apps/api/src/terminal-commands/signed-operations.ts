@@ -13,6 +13,7 @@ import type { RequestUser } from "../security/interfaces/authenticated-request.i
 import type { OperationDescriptor } from "../security/operation-authorization.service";
 import { StocktakesService } from "../stocktakes/stocktakes.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
+import { TransfersService } from "../transfers/transfers.service";
 import { invalid, object, text, uuid } from "../terminals/terminal-wire";
 
 type Tx = Prisma.TransactionClient;
@@ -59,6 +60,26 @@ function importPostBody(
   } else invalid();
   return body as SignedOperationBody["POST /api/v1/products/import/:importId/stock/post"];
 }
+type TransferReceiveBody = SignedOperationBody["POST /api/v1/transfers/:id/receive"];
+const count = (value: unknown, min: number) => {
+  if (!Number.isSafeInteger(value) || (value as number) < min) invalid();
+  return value as number;
+};
+function transferReceiveBody(raw: unknown): TransferReceiveBody {
+  const body = object(raw, ["transferId", "dispatchApprovalId", "lines"]);
+  uuid(body.transferId);
+  if (body.dispatchApprovalId !== null) uuid(body.dispatchApprovalId);
+  if (!Array.isArray(body.lines) || !body.lines.length || body.lines.length > 500) invalid();
+  const seen = new Set<string>();
+  for (const raw of body.lines) {
+    const line = object(raw, ["transferItemId", "qty", "receivedQtyBefore"]);
+    if (seen.has(uuid(line.transferItemId))) invalid();
+    seen.add(line.transferItemId as string);
+    count(line.qty, 1);
+    count(line.receivedQtyBefore, 0);
+  }
+  return body as TransferReceiveBody;
+}
 const approvalId = (context: SignedExecutionContext) => {
   if (!context.approvalEvidenceId) invalid();
   return context.approvalEvidenceId;
@@ -78,6 +99,7 @@ export class SignedOperations {
     deliveries: HeldDeliveryService,
     importStock: ImportStockService,
     imports: ProductImportService,
+    transfers: TransfersService,
   ) {
     this.registry = Object.freeze<Registry>({
       "POST /api/v1/stocktakes/:id/post": {
@@ -197,6 +219,58 @@ export class SignedOperations {
               batchesRemoved: removed.batches,
               productsRemoved: removed.products,
               productsLeftInPlace: removed.productsLeftInPlace,
+            },
+          };
+        },
+      },
+      // Source counter (x-branch-id = source branch).
+      "POST /api/v1/transfers/:id/ship": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/transfers/:id/ship",
+          permission: "transfers.manage",
+          parseBody: idBody("transferId"),
+          approval: {
+            action: "transfer.ship",
+            documentId: (b) => b.transferId,
+            waived: (tx, user, branchId, b) =>
+              transfers.dispatchApprovalWaived(tx, user.tenantId, branchId, b.transferId),
+          },
+        },
+        async execute(tx, user, branchId, body, context) {
+          const dispatched = await transfers.dispatchInTransaction(tx, user, branchId, body.transferId,
+            { approvalId: context.approvalEvidenceId }, context.command);
+          return {
+            result: {
+              type: "transfer.dispatched",
+              transferId: body.transferId,
+              approvalId: context.approvalEvidenceId,
+              dispatchedQty: dispatched.dispatchedQty,
+              effect: dispatched.changed ? "applied" : "already_applied",
+            },
+          };
+        },
+      },
+      // Destination counter (x-branch-id = destination branch); the enrollment is branch-bound,
+      // so a source terminal cannot book stock in at the destination.
+      "POST /api/v1/transfers/:id/receive": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/transfers/:id/receive",
+          permission: "transfers.manage",
+          parseBody: transferReceiveBody,
+        },
+        async execute(tx, user, branchId, body, context) {
+          const received = await transfers.receiveInTransaction(tx, user, branchId, body.transferId,
+            { dispatchApprovalId: body.dispatchApprovalId, lines: body.lines.map((line) => ({ ...line })) },
+            context.command);
+          return {
+            result: {
+              type: "transfer.received",
+              transferId: body.transferId,
+              dispatchApprovalId: body.dispatchApprovalId,
+              status: received.status as "partially_received" | "received",
+              receivedQty: received.receivedQty,
             },
           };
         },

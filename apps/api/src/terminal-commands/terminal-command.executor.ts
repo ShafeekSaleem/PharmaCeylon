@@ -268,7 +268,11 @@ export class TerminalCommandExecutor {
       return { approvalEvidenceId: null, pharmacistEvidenceId: null, operatingHoursExceptionId: null };
     }
     return {
-      approvalEvidenceId: uuid(raw.approvalEvidenceId),
+      // Null only where the domain may waive approval; authorization decides whether it does.
+      approvalEvidenceId:
+        raw.approvalEvidenceId === null && operation.descriptor.approval.waived
+          ? null
+          : uuid(raw.approvalEvidenceId),
       pharmacistEvidenceId: null,
       operatingHoursExceptionId: null,
     };

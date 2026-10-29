@@ -2,15 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
-import { Modal, ModalButton, ModalFooter, StatusBadge } from "@/components/ui";
+import {
+  ApprovalEvidencePanel,
+  CounterHandoff,
+  Modal,
+  ModalButton,
+  ModalFooter,
+  StatusBadge,
+} from "@/components/ui";
 import type { AuthUser } from "@/lib/auth-types";
 import { apiJson } from "@/lib/auth-client";
+import { useBranchRollout } from "@/lib/branch-rollout";
 import { createIdempotencyKey } from "@/lib/idempotency";
 import { usePermissions } from "@/lib/permissions";
 import layoutCss from "../../purchasing/purchasing.module.css";
 import type { TransferListItem } from "../types";
 import {
-  canApprove,
   canApproveTransfer,
   canCancel,
   canCancelTransfer,
@@ -21,6 +28,7 @@ import {
   formatDate,
   formatTransferNo,
   needsDestinationBranchToReceive,
+  needsApproval,
   needsSourceBranchForSourceActions,
   receivedPercent,
   transferLineCount,
@@ -52,6 +60,11 @@ export function TransferDetailModal({
   const atSource = !!branchId && transfer?.fromBranchId === branchId;
   const canApproveRole = canApproveTransfer(user, branchId);
   const { canSelfApprove } = usePermissions();
+  const { rollout } = useBranchRollout();
+  // Dispatch and receipt are physical: only a branch still selling from the web may do them
+  // here. Live, fallback or not-yet-known branches hand them to the counter (D10, D-W2).
+  const physicalOnWeb = rollout?.state === "not_live";
+  const approvalIds = useRef<Record<string, string>>({});
 
   useEffect(() => {
     setBusy(false);
@@ -89,7 +102,7 @@ export function TransferDetailModal({
   const pct = receivedPercent(transfer);
   const displayStatus = displayTransferStatus(transfer);
   const showApprove =
-    canWrite && atSource && canApproveRole && canApprove(transfer.status);
+    canWrite && atSource && canApproveRole && needsApproval(transfer) && !!transfer.approvalReview;
   // Their role holds the approve permission, but not for their own requests. Say so on the
   // button rather than letting them click it and read a refusal afterwards.
   const ownRequestBlocked = !canSelfApprove && transfer.requestedBy === user?.id;
@@ -99,10 +112,14 @@ export function TransferDetailModal({
     canWrite &&
     canCancel(transfer.status) &&
     canCancelTransfer(user, transfer, branchId);
-  const showShip =
-    canWrite && branchId && canShip(transfer.status, transfer.fromBranchId, branchId);
-  const showReceive =
-    canWrite && branchId && canReceive(transfer.status, transfer.toBranchId, branchId);
+  const readyToShip =
+    !!branchId &&
+    canShip(transfer.status, transfer.fromBranchId, branchId) &&
+    !needsApproval(transfer);
+  const awaitingHere =
+    !!branchId && canReceive(transfer.status, transfer.toBranchId, branchId);
+  const showShip = canWrite && readyToShip && physicalOnWeb;
+  const showReceive = canWrite && awaitingHere && physicalOnWeb;
   const needsSourceBranch =
     canWrite &&
     needsSourceBranchForSourceActions(transfer.status, transfer.fromBranchId, branchId);
@@ -144,10 +161,22 @@ export function TransferDetailModal({
     }
   }
 
+  // Pins the dispatch the screen shows; a different one is refused (409).
+  const dispatchPin = { dispatchApprovalId: transfer.executionApprovalId ?? null };
+
+  async function submitApprove() {
+    const review = transfer!.approvalReview;
+    if (!review) return;
+    // One approval ID per displayed version, so a retried click can't approve twice.
+    const slot = `${transfer!.id}:${review.expectedDigest}`;
+    approvalIds.current[slot] ??= crypto.randomUUID();
+    await runAction("approve", { approvalId: approvalIds.current[slot], ...review });
+  }
+
   async function submitReceive(allRemaining: boolean) {
     const idem = mutationKey("receive");
     if (allRemaining) {
-      if (await runAction("receive", {}, idem.key)) {
+      if (await runAction("receive", dispatchPin, idem.key)) {
         delete idempotencyKeys.current[idem.slot];
       }
       return;
@@ -156,7 +185,8 @@ export function TransferDetailModal({
     const lines = transfer!.items
       .map((line) => {
         const qty = Number(receiveQtys[line.id] ?? 0);
-        return { transferItemId: line.id, qty };
+        // What this screen showed as already received; a stale count is refused (409).
+        return { transferItemId: line.id, qty, receivedQtyBefore: line.receivedQty ?? 0 };
       })
       .filter((line) => Number.isInteger(line.qty) && line.qty > 0);
 
@@ -177,14 +207,15 @@ export function TransferDetailModal({
       }
     }
 
-    if (await runAction("receive", { lines }, idem.key)) {
+    if (await runAction("receive", { ...dispatchPin, lines }, idem.key)) {
       delete idempotencyKeys.current[idem.slot];
     }
   }
 
   async function submitShip() {
     const idem = mutationKey("ship");
-    if (await runAction("ship", undefined, idem.key)) {
+    // Pins the approval the dispatcher saw (null only when approval is waived).
+    if (await runAction("ship", { approvalId: transfer!.executionApprovalId ?? null }, idem.key)) {
       delete idempotencyKeys.current[idem.slot];
     }
   }
@@ -253,7 +284,7 @@ export function TransferDetailModal({
                 >
                   <ModalButton
                     variant="primary"
-                    onClick={() => void runAction("approve")}
+                    onClick={() => void submitApprove()}
                     disabled={busy || ownRequestBlocked}
                   >
                     Approve
@@ -311,6 +342,22 @@ export function TransferDetailModal({
         </Alert>
       ) : null}
 
+      {canWrite && readyToShip && !physicalOnWeb ? (
+        <CounterHandoff
+          branchName={transfer.fromBranch.name}
+          action="Dispatch the goods"
+          whoCan={["Inventory clerk", "Manager"]}
+        />
+      ) : null}
+
+      {canWrite && awaitingHere && !physicalOnWeb ? (
+        <CounterHandoff
+          branchName={transfer.toBranch.name}
+          action="Count and receive the goods"
+          whoCan={["Inventory clerk", "Manager"]}
+        />
+      ) : null}
+
       {receiveMode ? (
         <Alert variant="info" className={layoutCss.modalAlert}>
           Enter how many units arrived now for each line. Stock posts to{" "}
@@ -333,6 +380,10 @@ export function TransferDetailModal({
           </span>
         </div>
         <div className={tcss.detailField}>
+          <span className={tcss.detailLabel}>In transit</span>
+          <span className={tcss.detailValue}>{transfer.inTransitQty ?? 0} units</span>
+        </div>
+        <div className={tcss.detailField}>
           <span className={tcss.detailLabel}>Requested</span>
           <span className={tcss.detailValue}>{formatDate(transfer.createdAt)}</span>
         </div>
@@ -349,6 +400,26 @@ export function TransferDetailModal({
           <span className={tcss.detailValue}>{transfer.approver?.fullName ?? "—"}</span>
         </div>
       </div>
+
+      <ApprovalEvidencePanel
+        title="Approval and dispatch"
+        approvedVersion={transfer.approvedVersion ?? null}
+        currentVersion={transfer.approvalVersion ?? null}
+        status={displayStatus}
+        requester={{ name: transfer.requester.fullName, at: transfer.createdAt }}
+        approver={
+          transfer.approvalWaived
+            ? { name: "Not required (Approval Rules)" }
+            : transfer.approver && transfer.status !== "requested" && transfer.status !== "rejected"
+              ? { name: transfer.approver.fullName, at: transfer.approvedAt ?? null }
+              : null
+        }
+        executor={
+          transfer.dispatcher
+            ? { name: transfer.dispatcher.fullName, at: transfer.dispatchedAt ?? null }
+            : null
+        }
+      />
 
       {transfer.notes ? (
         <p className={tcss.notesBlock}>

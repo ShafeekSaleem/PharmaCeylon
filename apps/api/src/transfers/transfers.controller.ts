@@ -4,6 +4,7 @@ import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { ApproveTransferDto, DispatchTransferDto } from "./dto/approve-transfer.dto";
 import { CreateTransferDto } from "./dto/create-transfer.dto";
 import { ReceiveTransferDto } from "./dto/receive-transfer.dto";
 import { TransfersService } from "./transfers.service";
@@ -39,18 +40,19 @@ export class TransfersController {
     @Body() dto: CreateTransferDto,
   ) {
     const access = await this.access.resolve(user, fromBranchId);
-    return this.transfers.create(user.tenantId, fromBranchId, access, dto);
+    return this.transfers.create(user, fromBranchId, access, dto);
   }
 
+  /** Exact approval at the source branch; reserves stock, never moves it (D10). */
   @RequirePermission("transfers.approve")
   @Post(":id/approve")
-  async approve(
+  approve(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() fromBranchId: string,
     @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ApproveTransferDto,
   ) {
-    const access = await this.access.resolve(user, fromBranchId);
-    return this.transfers.approve(user.tenantId, fromBranchId, access, id);
+    return this.transfers.approve(user, fromBranchId, id, dto);
   }
 
   @RequirePermission("transfers.approve")
@@ -74,15 +76,17 @@ export class TransfersController {
     return this.transfers.cancel(user.tenantId, fromBranchId, access, id);
   }
 
+  /** Physical dispatch at the source, pinned to the displayed approval. */
   @RequirePermission("transfers.manage")
   @Post(":id/ship")
   ship(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() fromBranchId: string,
     @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: DispatchTransferDto,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
   ) {
-    return this.transfers.ship(user.tenantId, fromBranchId, user.userId, id, idempotencyKey);
+    return this.transfers.ship(user, fromBranchId, id, dto ?? {}, idempotencyKey);
   }
 
   @RequirePermission("transfers.manage")
@@ -94,13 +98,6 @@ export class TransfersController {
     @Body() dto: ReceiveTransferDto,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
   ) {
-    return this.transfers.receive(
-      user.tenantId,
-      toBranchId,
-      user.userId,
-      id,
-      dto ?? {},
-      idempotencyKey,
-    );
+    return this.transfers.receive(user, toBranchId, id, dto ?? {}, idempotencyKey);
   }
 }

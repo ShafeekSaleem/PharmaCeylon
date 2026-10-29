@@ -120,6 +120,14 @@ describe("OperatingHoursEvidence", () => {
       command({ operatingHoursExceptionId: "0f1d5c8e-6a43-4c55-9a3c-2b4d8f7e9a10" }), at("2026-10-26T10:00")))).resolves.toBe("INVALID_COMMAND");
   });
 
+  it("treats transfer dispatch and receipt as back-room stock work, outside selling hours", async () => {
+    for (const operation of ["POST /api/v1/transfers/:id/ship", "POST /api/v1/transfers/:id/receive"]) {
+      expect(OPERATIONS_WITHOUT_SELLING_HOURS.has(operation)).toBe(true);
+      await expect(code(provider.assertForCommand(tx({ operatingHours: hours(), timezone: COLOMBO }),
+        command({ operation }), at("2026-10-26T23:00")))).resolves.toBe("allowed");
+    }
+  });
+
   it("does not hours-restrict the reviewed back-room stock operations, even with unset hours", async () => {
     for (const operation of OPERATIONS_WITHOUT_SELLING_HOURS) {
       const t = tx(null);

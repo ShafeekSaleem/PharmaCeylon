@@ -12,7 +12,6 @@ import { findStockProjectionMismatches } from "../../src/inventory/stock/stock-p
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { PurchasingService } from "../../src/purchasing/purchasing.service";
 import { StocktakesService } from "../../src/stocktakes/stocktakes.service";
-import { TransfersService } from "../../src/transfers/transfers.service";
 import {
   actor,
   batchTotals,
@@ -394,65 +393,7 @@ describe("Operations workflows against PostgreSQL", () => {
     });
   });
 
-  describe("transfers", () => {
-    const transfers = () => new TransfersService(prisma as never, audit, stock);
-
-    it("reserves on approval, releases on cancel, and moves stock on ship and receive", async () => {
-      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 12, batchNo: `TR-${randomUUID().slice(0, 5)}` });
-      const manager = actor(fx.managerId, "all", { canSelfApprove: true });
-      const dto = {
-        toBranchId: fx.otherBranchId,
-        items: [{ productId: fx.productId, batchId, qty: 5 }],
-      };
-
-      const cancelled = await transfers().create(fx.tenantId, fx.mainBranchId, manager, dto);
-      expect(cancelled!.status).toBe("approved");
-      expect(await batchTotals(prisma, batchId)).toEqual(
-        expect.objectContaining({ onHand: 12, reserved: 5, available: 7 }),
-      );
-      await transfers().cancel(fx.tenantId, fx.mainBranchId, manager, cancelled!.id);
-      expect(await batchTotals(prisma, batchId)).toEqual(
-        expect.objectContaining({ onHand: 12, reserved: 0, available: 12 }),
-      );
-
-      const shipped = await transfers().create(fx.tenantId, fx.mainBranchId, manager, dto);
-      await transfers().ship(fx.tenantId, fx.mainBranchId, fx.managerId, shipped!.id);
-      expect(await batchTotals(prisma, batchId)).toEqual(
-        expect.objectContaining({ onHand: 7, reserved: 0 }),
-      );
-
-      await transfers().receive(fx.tenantId, fx.otherBranchId, fx.managerId, shipped!.id);
-      const arrived = await prisma.batch.findFirstOrThrow({
-        where: { tenantId: fx.tenantId, branchId: fx.otherBranchId, productId: fx.productId },
-        orderBy: { createdAt: "desc" },
-      });
-      expect(await batchTotals(prisma, arrived.id)).toEqual(
-        expect.objectContaining({ onHand: 5, available: 5 }),
-      );
-    });
-
-    it("sends a clerk's transfer for approval and refuses to let the clerk approve it", async () => {
-      const batchId = await createStockedBatch(prisma, stock, fx, { qty: 8 });
-      const clerk = actor(fx.clerkId, ["transfers.manage", "transfers.approve"], {
-        canSelfApprove: false,
-      });
-      const requested = await transfers().create(fx.tenantId, fx.mainBranchId, clerk, {
-        toBranchId: fx.otherBranchId,
-        items: [{ productId: fx.productId, batchId, qty: 2 }],
-      });
-      expect(requested!.status).toBe("requested");
-      expect((await batchTotals(prisma, batchId)).reserved).toBe(0);
-
-      await expect(
-        transfers().approve(fx.tenantId, fx.mainBranchId, clerk, requested!.id),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-
-      const manager = actor(fx.managerId, "all", { canSelfApprove: true });
-      const approved = await transfers().approve(fx.tenantId, fx.mainBranchId, manager, requested!.id);
-      expect(approved!.status).toBe("approved");
-      expect((await batchTotals(prisma, batchId)).reserved).toBe(2);
-    });
-  });
+  // Transfers: test/integration/transfers.int-spec.ts (approve, dispatch, receive, signed).
 
   describe("goods receiving", () => {
     it("receives the first delivery at a second branch (auto invoice numbers no longer collide)", async () => {
