@@ -318,6 +318,16 @@ model ProductImport {
   branchId  String? @map("branch_id") @db.Uuid
   /// Who ran it — an import can create thousands of rows, so this is never anonymous.
   createdBy String  @map("created_by") @db.Uuid
+  /// P1 worker provenance. "request": started by an authenticated request whose authority the
+  /// background worker revalidates before every write. "legacy": created before provenance was
+  /// recorded; a worker refuses to write for it. Immutable once written.
+  initiatedVia          String  @default("legacy") @map("initiated_via") @db.VarChar(16)
+  /// Token version of the starting request. Any change stops the worker at its next write.
+  initiatorTokenVersion Int?    @map("initiator_token_version")
+  /// Branch whose permission the starting request checked; null = any branch (catalog only).
+  initiatorBranchId     String? @map("initiator_branch_id") @db.Uuid
+  /// The permission the worker must still hold, normally products.import.
+  initiatorPermission   String? @map("initiator_permission") @db.VarChar(80)
 
   filename String
   status   ProductImportStatus @default(running)
