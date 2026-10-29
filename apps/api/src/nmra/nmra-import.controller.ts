@@ -44,7 +44,7 @@ export class NmraImportController {
     @CurrentUser() user: RequestUser,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    return this.nmraImport.startUpsertJob(user.tenantId, user.userId, file);
+    return this.nmraImport.startUpsertJob(user.tenantId, user, file);
   }
 
   @RequirePermission("nmra.import")

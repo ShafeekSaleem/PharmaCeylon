@@ -56,6 +56,12 @@ import {
   type PendingComplianceMatch,
 } from "./product-import.types";
 import { parseStagedRows } from "./import-stock.service";
+import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import {
+  WorkerAuthority,
+  WorkerAuthorityRevokedError,
+  workerInitiator,
+} from "../security/worker-authority";
 
 /**
  * Placeholder expiry for stock imported without one. Far enough out that FEFO always picks a
@@ -121,6 +127,7 @@ export class ProductImportService {
     private readonly runner: ImportJobRunner,
     private readonly catalogTasks: CatalogTaskService,
     private readonly stock: StockService,
+    private readonly workerAuthority: WorkerAuthority,
   ) {}
 
   // ── Step 1: read the file, propose a mapping ────────────────────────────
@@ -223,7 +230,7 @@ export class ProductImportService {
    */
   async startImport(
     tenantId: string,
-    userId: string,
+    initiatorUser: Pick<RequestUser, "userId" | "tokenVersion">,
     branchId: string | undefined,
     file: Express.Multer.File,
     mapping: ImportMapping,
@@ -234,6 +241,15 @@ export class ProductImportService {
   ): Promise<{ jobId: string; importId: string }> {
     if (!file?.buffer?.length)
       throw new BadRequestException("Upload a CSV or Excel file.");
+    const userId = initiatorUser.userId;
+    // The worker writes after this request ends. It carries the authority this request had —
+    // the route checked products.import at the selected branch, or at any branch when none is
+    // selected — and must still hold it before every write.
+    const initiator = workerInitiator(
+      { tenantId, ...initiatorUser },
+      branchId,
+      "products.import",
+    );
     const fingerprint = createHash("sha256")
       .update(file.buffer)
       .update(
@@ -320,6 +336,10 @@ export class ProductImportService {
             tenantId,
             branchId: hasStock ? branchId! : null,
             createdBy: userId,
+            initiatedVia: "request",
+            initiatorTokenVersion: initiator.tokenVersion,
+            initiatorBranchId: initiator.branchId,
+            initiatorPermission: initiator.permission,
             filename: file.originalname || "upload",
             mapping: mapping as Prisma.InputJsonValue,
             requestFingerprint: fingerprint,
@@ -348,7 +368,7 @@ export class ProductImportService {
       ) {
         return this.startImport(
           tenantId,
-          userId,
+          initiatorUser,
           branchId,
           file,
           mapping,
@@ -374,7 +394,21 @@ export class ProductImportService {
         resolved,
         new Set(confirmedRows),
         categoryChoices,
-      ),
+      ).catch(async (error: unknown) => {
+        if (error instanceof WorkerAuthorityRevokedError)
+          await this.audit
+            .log({
+              tenantId,
+              branchId: hasStock ? branchId! : null,
+              actorUserId: userId,
+              eventName: "products.import_stopped",
+              entityName: "product_import",
+              entityId: importRecord.id,
+              payload: { reason: "initiator_authority_revoked" },
+            })
+            .catch(() => undefined);
+        throw error;
+      }),
     );
     return { jobId, importId: importRecord.id };
   }
@@ -1385,7 +1419,12 @@ export class ProductImportService {
           where: { id: importId, tenantId },
         });
         if (committed?.status === "completed" && committed.result) return;
-        if (committed?.status !== "running" || attempt >= 2) throw error;
+        if (
+          error instanceof WorkerAuthorityRevokedError ||
+          committed?.status !== "running" ||
+          attempt >= 2
+        )
+          throw error;
       }
     }
   }
@@ -1405,6 +1444,7 @@ export class ProductImportService {
           throw new ConflictException(
             "Import stopped. Review its committed results before retrying.",
           );
+        await this.assertInitiatorAuthority(tx, tenantId, importId);
         const result = await tenantTransactionStorage.run(
           { tenantId, client: tx },
           () => work(tx),
@@ -1417,6 +1457,52 @@ export class ProductImportService {
       },
       { timeout: 120_000, maxWait: 60_000 },
     );
+  }
+
+  /** Every worker write transaction revalidates the authority persisted on the import row,
+   * after claiming it and before any write. A legacy row has no recorded authority, so no
+   * worker writes for it. Products and stock already committed by earlier chunks are kept.
+   */
+  private async assertInitiatorAuthority(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    importId: string,
+  ): Promise<void> {
+    const record = await tx.productImport.findFirst({
+      where: { id: importId, tenantId },
+      select: {
+        createdBy: true,
+        initiatedVia: true,
+        initiatorTokenVersion: true,
+        initiatorBranchId: true,
+        initiatorPermission: true,
+      },
+    });
+    if (
+      !record ||
+      record.initiatedVia !== "request" ||
+      record.initiatorTokenVersion === null ||
+      !record.initiatorPermission
+    )
+      throw new WorkerAuthorityRevokedError(
+        "This import has no recorded starting authority. Start a new import.",
+      );
+    try {
+      await this.workerAuthority.assertCurrent(tx, {
+        tenantId,
+        userId: record.createdBy,
+        tokenVersion: record.initiatorTokenVersion,
+        branchId: record.initiatorBranchId,
+        permission: record.initiatorPermission,
+      });
+    } catch (error) {
+      if (!(error instanceof WorkerAuthorityRevokedError)) throw error;
+      throw new WorkerAuthorityRevokedError(
+        "Import stopped: the person who started it no longer has product import permission, " +
+          "or their sign-in changed. Products and stock already saved were kept; " +
+          "review Recent imports and start a new import for the rest.",
+      );
+    }
   }
 
   private async writeProducts(

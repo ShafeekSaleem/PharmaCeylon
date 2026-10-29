@@ -318,6 +318,16 @@ model ProductImport {
   branchId  String? @map("branch_id") @db.Uuid
   /// Who ran it — an import can create thousands of rows, so this is never anonymous.
   createdBy String  @map("created_by") @db.Uuid
+  /// P1 worker provenance. "request": started by an authenticated request whose authority the
+  /// background worker revalidates before every write. "legacy": created before provenance was
+  /// recorded; a worker refuses to write for it. Immutable once written.
+  initiatedVia          String  @default("legacy") @map("initiated_via") @db.VarChar(16)
+  /// Token version of the starting request. Any change stops the worker at its next write.
+  initiatorTokenVersion Int?    @map("initiator_token_version")
+  /// Branch whose permission the starting request checked; null = any branch (catalog only).
+  initiatorBranchId     String? @map("initiator_branch_id") @db.Uuid
+  /// The permission the worker must still hold, normally products.import.
+  initiatorPermission   String? @map("initiator_permission") @db.VarChar(80)
 
   filename String
   status   ProductImportStatus @default(running)
@@ -606,6 +616,7 @@ model TerminalEnrollment {
   terminal         OperationalTerminal @relation(fields: [tenantId, branchId, terminalId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
   receipts         TerminalCommandReceipt[]
   sessions         TerminalStaffSession[]
+  hoursAcknowledgements BusinessHoursAcknowledgement[]
   offlineAssignmentAuthorizations OfflineTerminalAssignmentAuthorization[]
   offlineNominations              OfflineTerminalNomination[]
 
@@ -720,6 +731,42 @@ model TerminalCommandReceipt {
   @@unique([tenantId, enrollmentId, offlineSequence])
   @@index([tenantId, branchId, recordedAt])
   @@map("terminal_command_receipt")
+}
+
+/// Revised D8: a prepared manager's device-signed after-hours acknowledgement, recorded at an
+/// offline counter and uploaded later. Idempotent by (tenant, enrollment, recordId) with the
+/// SHA-256 of the signed payload; the exact signed envelope is kept. Held until the grant and
+/// manager sign-in it cites are verified (P3/P5). Never authorizes an online command.
+model BusinessHoursAcknowledgement {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  terminalId        String    @map("terminal_id") @db.Uuid
+  enrollmentId      String    @map("enrollment_id") @db.Uuid
+  keyId             String    @map("key_id") @db.VarChar(128)
+  recordId          String    @map("record_id") @db.Uuid
+  recordHash        String    @map("record_hash") @db.Char(64)
+  envelope          Json
+  grantId           String    @map("grant_id") @db.Uuid
+  grantVersion      Int       @map("grant_version")
+  nominationVersion Int       @map("nomination_version")
+  offlineSessionId  String    @map("offline_session_id") @db.Uuid
+  managerSignInId   String    @map("manager_sign_in_id") @db.Uuid
+  recordedAt        DateTime  @map("recorded_at")
+  startsAt          DateTime  @map("starts_at")
+  endsAt            DateTime  @map("ends_at")
+  reason            String    @db.VarChar(500)
+  /// "held" until verified against the grant/sign-in; "accepted" or "rejected" afterwards.
+  status            String    @default("held") @db.VarChar(16)
+  heldReason        String?   @map("held_reason") @db.VarChar(64)
+  verifiedAt        DateTime? @map("verified_at")
+  receivedAt        DateTime  @default(now()) @map("received_at")
+  receivedByUserId  String    @map("received_by_user_id") @db.Uuid
+  enrollment        TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, enrollmentId, recordId])
+  @@index([tenantId, branchId, startsAt])
+  @@map("business_hours_acknowledgement")
 }
 
 /// Revised D13: an owner's explicit, per-branch delegation of offline-terminal assignment to one
