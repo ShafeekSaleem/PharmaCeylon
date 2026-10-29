@@ -81,7 +81,9 @@ CREATE POLICY "pc_tenant_isolation" ON "prepared_receipt"
   USING ("tenant_id" = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK ("tenant_id" = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
--- Exact approval evidence for the new document type. Every earlier pair is kept.
+-- Exact approval evidence for the new document type. Every earlier pair is kept, and the sale
+-- refund pair from the parallel refunds migration is allowed too, so this migration also applies
+-- to a database where that one ran first.
 ALTER TABLE management_approval DROP CONSTRAINT management_approval_shape;
 ALTER TABLE management_approval ADD CONSTRAINT management_approval_shape CHECK (
   document_version > 0 AND document_digest ~ '^[0-9a-f]{64}$' AND policy_version = 1
@@ -92,6 +94,7 @@ ALTER TABLE management_approval ADD CONSTRAINT management_approval_shape CHECK (
     OR (document_type = 'stocktake' AND authorized_action = 'stocktake.post')
     OR (document_type = 'held_adjustment' AND authorized_action = 'held_adjustment.post')
     OR (document_type = 'held_delivery' AND authorized_action = 'held_delivery.post')
+    OR (document_type = 'sale_refund' AND authorized_action = 'sale_refund.execute')
     OR (document_type = 'prepared_receipt' AND authorized_action = 'prepared_receipt.post'))
   AND (expires_at IS NULL OR expires_at > approved_at)
   AND ((revoked_at IS NULL AND revocation_reason IS NULL)
