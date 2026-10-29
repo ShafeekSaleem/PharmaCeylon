@@ -227,7 +227,11 @@ describe("execution at the counter", () => {
     expect(await refundAudits(saleId)).toBe(1);
     const refunded = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId, eventName: "sale.refunded", entityId: saleId } });
     expect(refunded.payload).toMatchObject({ refundRequestId: request.id, requestedByUserId: fx.managerId,
-      executedByUserId: fx.clerkId, command: { commandId: command.payload.commandId } });
+      executedByUserId: fx.clerkId, approvedByUserId: null, approvalWaived: true,
+      command: { commandId: command.payload.commandId } });
+    // Under the threshold nobody approved it, so the goods return names no approver.
+    const goodsReturn = await prisma.goodsReturn.findFirstOrThrow({ where: { id: (first.result as { goodsReturnId: string }).goodsReturnId } });
+    expect(goodsReturn).toMatchObject({ requestedBy: fx.managerId, approvedBy: null, processedBy: fx.clerkId });
     // A distinct second command finds it executed: no second refund.
     const again = await signed(counter, { refundRequestId: request.id }, null);
     expect((await run(counter, again.request)).result).toMatchObject({ effect: "already_applied", refundedTo: [] });
@@ -260,7 +264,10 @@ describe("execution at the counter", () => {
     await expect(refunds.execute(user(fx.clerkId), branch(), request.id, { approvalId: randomUUID() }))
       .rejects.toMatchObject({ status: 409 });
     const pinned = await signed(counter, { refundRequestId: request.id }, request.executionApprovalId);
-    expect((await run(counter, pinned.request)).result).toMatchObject({ approvalId: request.executionApprovalId, effect: "applied" });
+    const done = await run(counter, pinned.request);
+    expect(done.result).toMatchObject({ approvalId: request.executionApprovalId, effect: "applied" });
+    expect(await prisma.goodsReturn.findFirstOrThrow({ where: { id: (done.result as { goodsReturnId: string }).goodsReturnId } }))
+      .toMatchObject({ approvedBy: fx.managerId, processedBy: fx.clerkId });
     expect(await cashOut(saleId)).toBe("-200.00");
   });
 

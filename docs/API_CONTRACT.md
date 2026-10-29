@@ -305,7 +305,8 @@ is reserved for P5 offline sync.
     displayed `executionApprovalId` or `null`, `Idempotency-Key` scope `sale_refund_execute`), or
     the signed operation above: it locks the sale, re-checks the original-sale limit and price
     (**400**/**409** if the sale changed), the live approval and controlled-item authority, then
-    applies the same refund as the till, exactly once. `GET /sales/refund-requests?saleId=&status=`
+    applies the same refund as the till, exactly once. Under the threshold nobody approved it, so the
+    goods return's `approvedBy` is `null` and the `sale.refunded` audit carries `approvalWaived: true`. `GET /sales/refund-requests?saleId=&status=`
     and `GET /sales/refund-requests/:id` (`sales.refund`) return `status`, `readyAtCounter`,
     `approvalRequired`, `approvalReview` and requester/approver/executor.
   - Refunds and voids of one sale now take a row lock on the sale, so two counters (or a till

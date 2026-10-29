@@ -1028,7 +1028,8 @@ export class SalesService {
       branchId: string;
       executorUserId: string;
       requestedBy: string;
-      approvedBy: string;
+      /** Null when no approval applied (a prepared refund under the threshold): nobody approved it. */
+      approvedBy: string | null;
       sale: RefundSale;
       plan: RefundPlan;
       reason: string;
@@ -1135,6 +1136,7 @@ export class SalesService {
           approvedBy: input.approvedBy,
           requestedByUserId: input.requestedBy,
           approvedByUserId: input.approvedBy,
+          ...(input.approvedBy === null ? { approvalWaived: true } : {}),
           executedByUserId: userId,
           ...(input.refundRequest
             ? {

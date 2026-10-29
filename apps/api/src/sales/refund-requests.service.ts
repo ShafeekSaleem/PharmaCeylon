@@ -308,7 +308,8 @@ export class RefundRequestsService {
       branchId,
       executorUserId: user.userId,
       requestedBy: row.requestedBy,
-      approvedBy: evidence?.approvedByUserId ?? user.userId,
+      // Under the threshold nobody approved it: record no approver, and the audit says waived.
+      approvedBy: evidence?.approvedByUserId ?? null,
       sale,
       plan,
       reason: row.reason,
