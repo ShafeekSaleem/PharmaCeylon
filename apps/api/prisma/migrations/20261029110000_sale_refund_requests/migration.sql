@@ -69,7 +69,9 @@ CREATE POLICY pc_tenant_isolation ON sale_refund_request
   WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 -- RLS remains disabled, consistent with the staged inventory.
 
--- Allow exact approvals of prepared refunds. Every existing pair is kept.
+-- Allow exact approvals of prepared refunds. Every existing pair is kept, plus P6 receiving's
+-- prepared_receipt pair (#90), so this and #90's later migration define the same constraint
+-- whichever lands first.
 ALTER TABLE management_approval DROP CONSTRAINT management_approval_shape;
 ALTER TABLE management_approval ADD CONSTRAINT management_approval_shape CHECK (
   document_version > 0 AND document_digest ~ '^[0-9a-f]{64}$' AND policy_version = 1
@@ -80,7 +82,8 @@ ALTER TABLE management_approval ADD CONSTRAINT management_approval_shape CHECK (
     OR (document_type = 'stocktake' AND authorized_action = 'stocktake.post')
     OR (document_type = 'held_adjustment' AND authorized_action = 'held_adjustment.post')
     OR (document_type = 'held_delivery' AND authorized_action = 'held_delivery.post')
-    OR (document_type = 'sale_refund' AND authorized_action = 'sale_refund.execute'))
+    OR (document_type = 'sale_refund' AND authorized_action = 'sale_refund.execute')
+    OR (document_type = 'prepared_receipt' AND authorized_action = 'prepared_receipt.post'))
   AND (expires_at IS NULL OR expires_at > approved_at)
   AND ((revoked_at IS NULL AND revocation_reason IS NULL)
     OR (revoked_at IS NOT NULL AND revocation_reason IS NOT NULL

@@ -483,8 +483,11 @@ stale/self approval, signed execution with replay and `already_applied`, concurr
 browser executions refunding once, pinned/revoked approval, a lowered threshold, the limit after a
 till refund, immutability, rollback on an injected audit failure, till-vs-prepared serialization).
 
-Not done: refund approvals queue screen and notifications; `terminal.execute` is not a cashier or
-pharmacist default grant yet, so counter refunds by those roles need a role/permission decision.
+Daily work lists prepared refunds as `sale_refund.approve` (approvers) and, once approved or under
+the threshold, `sale_refund.execute` (waiting at the counter). Cashiers and pharmacists execute
+them with their `sales.refund` and the `terminal.execute` counter default.
+
+Not done: a dedicated refund approvals queue screen and approval notifications.
 
 ## Remaining P1 MRs, in order
 

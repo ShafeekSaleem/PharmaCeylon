@@ -36,6 +36,8 @@ export const DAILY_WORK_KINDS = [
   "held_sale.resume",
   "held_sale.pharmacist_review",
   "batch.expiry_review",
+  "sale_refund.approve",
+  "sale_refund.execute",
 ] as const;
 export type DailyWorkKind = (typeof DAILY_WORK_KINDS)[number];
 

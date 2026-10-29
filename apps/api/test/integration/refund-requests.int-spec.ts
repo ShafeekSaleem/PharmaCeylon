@@ -7,6 +7,7 @@ import type {
   TerminalSessionCommand,
 } from "@pharmaceylon/shared";
 import { AuditService, type AuditInput } from "../../src/audit/audit.service";
+import { DailyWorkService } from "../../src/dashboard/daily-work.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { createTenantAwarePrismaProxy } from "../../src/prisma/tenant-aware-prisma.proxy";
 import { RefundRequestsService } from "../../src/sales/refund-requests.service";
@@ -149,8 +150,8 @@ beforeAll(async () => {
   await prisma.userBranchRole.createMany({ data: [
     { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.ownerId, role: "owner" },
     { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId, role: "manager" },
-    // Stands in for the counter cashier; inventory clerks hold terminal.execute by default.
-    { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.clerkId, role: "manager" },
+    // The counter cashier: terminal.execute and sales.refund are cashier defaults.
+    { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.clerkId, role: "cashier" },
   ] });
 });
 afterAll(() => prisma.$disconnect());
@@ -184,6 +185,11 @@ describe("remote preparation and approval move no stock or money", () => {
       const request = await refunds.prepare(user(fx.managerId), branch(), saleId, { reasonCode: "wrong_item", items: lines(batchId, 2) });
       expect(request).toMatchObject({ status: "prepared", approvalRequired: true, readyAtCounter: false, executionApprovalId: null });
       const review = request.approvalReview!;
+      // An approver's queue (request claims are not under test here).
+      const work = new DailyWorkService(proxy as never, { resolve: async () => ({ canSelfApprove: false, has: () => true }) } as never);
+      const kindOf = async () => (await work.get(user(fx.ownerId), branch(), { filter: "all", category: "counter", page: 1 }, { pageSize: 200 }))
+        .items.find((item) => item.reference === request.requestNumber)?.kind;
+      expect(await kindOf()).toBe("sale_refund.approve");
       await expect(refunds.approve(user(fx.managerId), branch(), request.id, { approvalId: randomUUID(), ...review }))
         .rejects.toMatchObject({ status: 403 });
       await expect(refunds.approve(user(fx.ownerId), branch(), request.id,
@@ -192,6 +198,7 @@ describe("remote preparation and approval move no stock or money", () => {
       const approved = await refunds.approve(user(fx.ownerId), branch(), request.id, { approvalId: randomUUID(), ...review });
       expect(approved).toMatchObject({ status: "approved", readyAtCounter: true, approver: { id: fx.ownerId },
         requester: { id: fx.managerId }, executor: null });
+      expect(await kindOf()).toBe("sale_refund.execute");
       expect((await batchTotals(prisma, batchId)).onHand).toBe(16);
       expect(await cashOut(saleId)).toBe("0.00");
     } finally {
