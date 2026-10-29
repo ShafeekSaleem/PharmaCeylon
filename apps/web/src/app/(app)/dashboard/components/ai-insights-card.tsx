@@ -6,6 +6,7 @@ import { IconActivity, IconAlertTriangle, IconInfo } from "@/components/icons";
 import { ActionsPanel, type ActionPanelItem } from "@/app/(app)/reports/components/actions-panel";
 import reportsCss from "@/app/(app)/reports/reports.module.css";
 import type { AiInsight } from "../lib/placeholder-data";
+import { dashboardHref, usePosHidden } from "../lib/pos-links";
 
 type Props = {
   title?: string;
@@ -69,8 +70,14 @@ export function AiInsightsCard({
   pageSize,
 }: Props) {
   const router = useRouter();
+  const posHidden = usePosHidden();
 
-  const items: ActionPanelItem[] = insights.map((insight) => insightToActionPanelItem(insight, router.push));
+  const items: ActionPanelItem[] = insights.map((insight) =>
+    insightToActionPanelItem(
+      { ...insight, href: dashboardHref(insight.href, posHidden) },
+      router.push,
+    ),
+  );
 
   return (
     <ActionsPanel
@@ -78,7 +85,11 @@ export function AiInsightsCard({
       items={items}
       variant="cards"
       pageSize={pageSize}
-      onViewAll={footerHref ? () => router.push(footerHref) : undefined}
+      onViewAll={
+        dashboardHref(footerHref, posHidden)
+          ? () => router.push(footerHref!)
+          : undefined
+      }
       viewAllLabel={footerLabel ?? "View all insights"}
     />
   );

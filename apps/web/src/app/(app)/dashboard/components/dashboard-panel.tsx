@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { dashboardHref, usePosHidden } from "../lib/pos-links";
 import css from "../dashboard.module.css";
 
 type Props = {
@@ -24,13 +25,14 @@ export function DashboardPanel({
   icon,
   badge,
   headerRight,
-  footerHref,
+  footerHref: requestedFooterHref,
   footerLabel,
   footerMeta,
   className,
   children,
   compact,
 }: Props) {
+  const footerHref = dashboardHref(requestedFooterHref, usePosHidden());
   const showFooter = Boolean((footerHref && footerLabel) || footerMeta);
 
   return (

@@ -467,3 +467,20 @@
   padding: 0.1rem 0.3rem;
   text-transform: capitalize;
 }
+
+/* W9: work done in PharmaCeylon POS at a live branch. */
+.counterBadge {
+  font-size: 0.62rem;
+  line-height: 1.4;
+  color: var(--pc-primary);
+  background: var(--pc-primary-soft);
+  border-radius: 0.3rem;
+  padding: 0.1rem 0.3rem;
+  font-weight: 600;
+}
+
+.task p.counterNote {
+  color: var(--pc-primary);
+  font-size: 0.67rem;
+  margin: 0.35rem 0 0;
+}
