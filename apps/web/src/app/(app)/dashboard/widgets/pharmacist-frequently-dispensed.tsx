@@ -25,8 +25,8 @@ export function PharmacistFrequentlyDispensedWidget({
   return (
     <DashboardPanel
       title="Top Products Sold Today"
-      footerHref="/pos"
-      footerLabel="Open POS →"
+      footerHref="/prescriptions"
+      footerLabel="Open prescriptions →"
     >
       {topProductsToday.length === 0 ? (
         <p className={css.emptyState}>No units sold today yet.</p>

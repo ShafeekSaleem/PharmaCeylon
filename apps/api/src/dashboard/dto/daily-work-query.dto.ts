@@ -4,7 +4,7 @@ import type { WorkCategory, WorkFilter } from "@pharmaceylon/shared";
 
 export class DailyWorkQueryDto {
   @IsOptional()
-  @IsIn(["all", "mine", "approvals", "overdue"])
+  @IsIn(["all", "mine", "approvals", "overdue", "counter"])
   filter: WorkFilter = "all";
 
   @IsOptional()

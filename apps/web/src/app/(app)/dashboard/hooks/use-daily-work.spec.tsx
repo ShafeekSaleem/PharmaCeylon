@@ -12,11 +12,12 @@ const result = (
   total: 0,
   page: 1,
   pageSize: 6,
-  counts: { all: 0, mine: 0, approvals: 0, overdue: 0 },
+  counts: { all: 0, mine: 0, approvals: 0, overdue: 0, counter: 0 },
   categories: {},
   asOf: "2026-10-15T20:00:00Z",
   timezone: "Asia/Colombo",
   branchName: "Main",
+  counterLive: false,
   ...overrides,
 });
 

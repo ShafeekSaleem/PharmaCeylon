@@ -11,5 +11,6 @@ import { DashboardMetricsService } from "./dashboard-metrics.service";
     DailyWorkService,
     DashboardMetricsService,
   ],
+  exports: [DailyWorkService],
 })
 export class DashboardModule {}

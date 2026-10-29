@@ -39,8 +39,8 @@ export function PharmacistDispensingThroughputWidget({
     <DashboardPanel
       title="Units Sold (Today)"
       compact
-      footerHref="/pos"
-      footerLabel="Open POS →"
+      footerHref="/prescriptions"
+      footerLabel="Open prescriptions →"
       footerMeta={
         peakHour.value > 0 ? `Peak hour: ${peakHour.label}` : undefined
       }

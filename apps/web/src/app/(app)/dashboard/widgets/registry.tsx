@@ -37,6 +37,7 @@ import { InventoryClerkPendingPosWidget } from "./inventory-clerk-pending-pos";
 import { InventoryClerkStockWatchWidget } from "./inventory-clerk-stock-watch";
 import { InventoryClerkStocktakesWidget } from "./inventory-clerk-stocktakes";
 import { InventoryClerkAiInsightsWidget } from "./inventory-clerk-ai-insights";
+import { CounterWaitingWidget } from "./counter-waiting";
 import type { WidgetDef } from "./types";
 import type { DashboardRole } from "../lib/dashboard-role";
 
@@ -47,6 +48,17 @@ import type { DashboardRole } from "../lib/dashboard-role";
  * that were already role-agnostic (self-fetching panels, AI-insights body)
  * are reused via a one-line adapter instead of being re-extracted. */
 export const WIDGET_REGISTRY: WidgetDef[] = [
+  // ── Shared ──
+  {
+    key: "counter.waiting",
+    title: "Waiting at the Counter",
+    roles: ["owner", "manager", "pharmacist", "inventory_clerk"],
+    category: "Operations",
+    width: "narrow",
+    rows: 16,
+    component: CounterWaitingWidget,
+  },
+
   // ── Owner ──
   {
     key: "owner.business-overview",
@@ -353,6 +365,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     category: "Sales",
     width: "narrow",
     rows: 21,
+    // Held bills belong to the web POS; at a live branch they're at the counter.
+    webPosOnly: true,
     component: CashierHeldBillsWidget,
   },
   {
@@ -460,7 +474,10 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
 ];
 
-export function catalogForRole(role: DashboardRole): WidgetDef[] {
+export function catalogForRole(
+  role: DashboardRole,
+  posHidden = false,
+): WidgetDef[] {
   const unsupported = new Set([
     "pharmacist.prescription-queue",
     "pharmacist.drug-interaction",
@@ -468,6 +485,9 @@ export function catalogForRole(role: DashboardRole): WidgetDef[] {
     "inventory_clerk.ai-insights",
   ]);
   return WIDGET_REGISTRY.filter(
-    (w) => w.roles.includes(role) && !unsupported.has(w.key),
+    (w) =>
+      w.roles.includes(role) &&
+      !unsupported.has(w.key) &&
+      !(posHidden && w.webPosOnly),
   );
 }
