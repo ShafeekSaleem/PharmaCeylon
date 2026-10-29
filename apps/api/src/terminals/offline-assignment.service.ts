@@ -165,13 +165,15 @@ export class OfflineAssignmentService {
     if (!reason) throw new BadRequestException("Give a reason for this assignment.");
     return this.prisma.$transaction(async (tx) => {
       await this.lockBranch(tx, user.tenantId, branchId);
-      const replay = await tx.offlineTerminalAssignmentAuthorization.findUnique({
-        where: { id: input.authorizationId },
+      // Current authority first: a replay never answers someone who no longer holds it.
+      const authority = await this.authorityOf(tx, user, branchId);
+      // Retries are looked up in the caller's own tenant and branch only. An ID used anywhere
+      // else is not revealed; the insert below reports it as a conflict.
+      const replay = await tx.offlineTerminalAssignmentAuthorization.findFirst({
+        where: { id: input.authorizationId, tenantId: user.tenantId, branchId },
       });
       if (replay) {
         const same =
-          replay.tenantId === user.tenantId &&
-          replay.branchId === branchId &&
           replay.targetTerminalId === input.targetTerminalId &&
           replay.targetEnrollmentId === input.targetEnrollmentId &&
           replay.expectedNominationVersion === input.expectedNominationVersion &&
@@ -185,7 +187,6 @@ export class OfflineAssignmentService {
         return this.read(tx, user.tenantId, branchId);
       }
 
-      const authority = await this.authorityOf(tx, user, branchId);
       const target = await this.activeTarget(tx, user.tenantId, branchId, input.targetTerminalId, input.targetEnrollmentId);
       if (!target)
         throw new ConflictException({
@@ -214,22 +215,32 @@ export class OfflineAssignmentService {
           revocationReason: `Superseded by ${input.authorizationId}`,
         },
       });
-      const created = await tx.offlineTerminalAssignmentAuthorization.create({
-        data: {
-          id: input.authorizationId,
-          tenantId: user.tenantId,
-          branchId,
-          targetTerminalId: target.terminalId,
-          targetEnrollmentId: target.id,
-          targetKeyId: target.keyId,
-          expectedNominationVersion: input.expectedNominationVersion,
-          reason,
-          authorizedByUserId: user.userId,
-          authority: authority.kind,
-          delegationId: authority.kind === "delegated_manager" ? authority.delegationId : null,
-          authorizedAt: now,
-        },
-      });
+      const created = await tx.offlineTerminalAssignmentAuthorization
+        .create({
+          data: {
+            id: input.authorizationId,
+            tenantId: user.tenantId,
+            branchId,
+            targetTerminalId: target.terminalId,
+            targetEnrollmentId: target.id,
+            targetKeyId: target.keyId,
+            expectedNominationVersion: input.expectedNominationVersion,
+            reason,
+            authorizedByUserId: user.userId,
+            authority: authority.kind,
+            delegationId: authority.kind === "delegated_manager" ? authority.delegationId : null,
+            authorizedAt: now,
+          },
+        })
+        .catch((error: unknown) => {
+          // The ID exists in another tenant or branch. The whole transaction rolls back.
+          if ((error as { code?: unknown } | null)?.code === "P2002")
+            throw new ConflictException({
+              code: OFFLINE_ASSIGNMENT_ERRORS.retryConflict,
+              message: "This authorization ID was already used for a different assignment.",
+            });
+          throw error;
+        });
       await this.audit.log(
         {
           tenantId: user.tenantId,

@@ -147,6 +147,34 @@ describe("assignment authorization", () => {
     );
   });
 
+  it("does not replay for a caller who has since lost the authority", async () => {
+    const view = await assignments.delegate(user(fx.ownerId), fx.mainBranchId, fx.managerId);
+    const delegationId = view.delegations.find((d) => d.revokedAt === null)!.delegationId;
+    const body = request(await enrolledTarget());
+    await assignments.authorize(user(fx.managerId), fx.mainBranchId, body);
+    await assignments.revokeDelegation(user(fx.ownerId), fx.mainBranchId, delegationId, "No longer responsible");
+    await expect(code(assignments.authorize(user(fx.managerId), fx.mainBranchId, body))).resolves.toBe(
+      "OFFLINE_ASSIGNMENT_NOT_DELEGATED",
+    );
+  });
+
+  it("scopes retries to the caller's tenant and branch: an ID used elsewhere is a conflict, with no effect", async () => {
+    const body = request(await enrolledTarget());
+    await assignments.authorize(user(fx.ownerId), fx.mainBranchId, body);
+    const elsewhere = await enrolledTarget(fx.otherBranchId);
+    const earlier = request(elsewhere);
+    await assignments.authorize(user(fx.ownerId), fx.otherBranchId, earlier);
+    await expect(
+      code(assignments.authorize(user(fx.ownerId), fx.otherBranchId, request(elsewhere, { authorizationId: body.authorizationId }))),
+    ).resolves.toBe("AUTHORIZATION_ID_CONFLICT");
+    // The rolled-back attempt neither superseded the other branch's outstanding authorization nor
+    // touched the original.
+    const other = await prisma.offlineTerminalAssignmentAuthorization.findUniqueOrThrow({ where: { id: earlier.authorizationId } });
+    expect(other.status).toBe("authorized");
+    const original = await prisma.offlineTerminalAssignmentAuthorization.findUniqueOrThrow({ where: { id: body.authorizationId } });
+    expect(original).toMatchObject({ branchId: fx.mainBranchId, status: "authorized" });
+  });
+
   it("refuses a manager whose role allows branch management but who has no delegation", async () => {
     const target = await enrolledTarget();
     await expect(code(assignments.authorize(user(fx.managerId), fx.mainBranchId, request(target)))).resolves.toBe(
