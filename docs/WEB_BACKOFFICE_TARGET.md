@@ -68,6 +68,26 @@ deliver it; W1's foundation is built (see "Built in W1"), the rest is not yet.
 - No web screen changes the switch or starts a fallback yet; W2 owns the owner fallback and the
   labelling of fallback sales.
 
+### Built in W9 (without counter telemetry)
+
+- `GET /dashboard/work` items carry `kind` and `where: "web" | "counter"`, the response carries
+  `counterLive`, and `filter=counter` (with `counts.counter`) lists counter work. A kind is done
+  at the counter when the branch is live (fallback included: other pages keep their handoffs)
+  and the route that finishes it is physical in the mutation inventory. Not-live branches keep
+  today's behaviour; held web-POS bills leave the queue only while the branch is live without a
+  fallback.
+- New approved-document types slot in through `apps/api/src/dashboard/daily-work-kinds.ts`: add
+  a kind with its `approvalAction` and a daily-work source. A test fails while a physical
+  `APPROVAL_ACTIONS` entry has no kind.
+- Notifications: "Approved — waiting at the counter" (deep link to the document) and supplier
+  returns awaiting approval are read from the same daily-work model, so permissions and branch
+  scope match the dashboard. Fallback started, moved, ended and ending soon go to the W7
+  `fallback_changed` recipients. The telemetry alert types are wired
+  (`NotificationsService.notifyCounterAlert`) but have no source until P2/P5.
+- Dashboards: a "Waiting at the counter" widget; pharmacist links open `/prescriptions`; at a
+  live branch no dashboard link opens `/pos`, the held-bills widget is hidden and the cashier
+  dashboard shrinks to its own figures with a counter handoff.
+
 ## Page by page
 
 | Page | Route | Stays on the web | Moves to the counter | Web shows instead | Epic |

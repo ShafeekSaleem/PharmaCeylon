@@ -11,8 +11,9 @@ import { apiJson } from "@/lib/auth-client";
 export function useDailyWork(
   branchId: string | null,
   refreshKey: string | null,
+  initialFilter: WorkFilter = "all",
 ) {
-  const [filter, setFilter] = useState<WorkFilter>("all");
+  const [filter, setFilter] = useState<WorkFilter>(initialFilter);
   const [category, setCategory] = useState<WorkCategory | "">("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<DailyWorkResponse | null>(null);

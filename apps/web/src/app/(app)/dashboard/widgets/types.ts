@@ -31,5 +31,7 @@ export type WidgetDef = {
    * sized to fit the widget's actual rendered content so it never scrolls
    * internally — not user-resizable. */
   rows: number;
+  /** Only meaningful while the branch sells from the web POS: hidden at a live branch (W9). */
+  webPosOnly?: boolean;
   component: ComponentType<{ data: DashboardData }>;
 };

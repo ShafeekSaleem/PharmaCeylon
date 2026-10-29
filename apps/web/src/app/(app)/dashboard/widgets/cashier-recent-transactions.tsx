@@ -55,7 +55,7 @@ export function CashierRecentTransactionsWidget({ data }: { data: DashboardData 
             </thead>
             <tbody>
               {paginate(todaySales, page, RECENT_SALES_PAGE_SIZE).map((sale) => (
-                <tr key={sale.id} {...rowLinkProps(router, `/pos?invoice=${encodeURIComponent(sale.invoiceNo)}`)}>
+                <tr key={sale.id} {...rowLinkProps(router, `/sales/${encodeURIComponent(sale.id)}`)}>
                   <td className={css.muted}>{formatRelativeTime(sale.soldAt)}</td>
                   <td>
                     <span className={css.invoiceLink}>{sale.invoiceNo}</span>

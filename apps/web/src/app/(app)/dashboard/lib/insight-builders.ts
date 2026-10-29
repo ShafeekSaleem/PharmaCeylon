@@ -202,8 +202,8 @@ export function buildCashierInsights(data: DashboardData): AiInsight[] {
       detail: "Held carts waiting on pharmacist verification before checkout.",
       tone: "danger",
       category: "operations",
-      href: "/pos?panel=holds",
-      actionLabel: "Open POS",
+      href: "/prescriptions",
+      actionLabel: "Open prescriptions",
       count: rxWaiting,
       countLabel: rxWaiting === 1 ? "cart" : "carts",
     });

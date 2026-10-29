@@ -53,7 +53,7 @@ beforeAll(async () => {
   service = new PosRolloutService(
     prisma as never,
     new AuditService(prisma as never),
-    { notifyByPermission: async () => 0 } as never,
+    { notifyByPermission: async () => 0, notifyCounterAlert: async () => 0 } as never,
   );
 });
 afterAll(async () => {
