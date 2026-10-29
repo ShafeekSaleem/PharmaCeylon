@@ -552,6 +552,7 @@ model Branch {
   terminalChallenges TerminalChallenge[]
   managementApprovals ManagementApproval[]
   hoursExtensions    BranchHoursExtension[]
+  offlineDelegations OfflineTerminalDelegation[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -616,6 +617,8 @@ model TerminalEnrollment {
   receipts         TerminalCommandReceipt[]
   sessions         TerminalStaffSession[]
   hoursAcknowledgements BusinessHoursAcknowledgement[]
+  offlineAssignmentAuthorizations OfflineTerminalAssignmentAuthorization[]
+  offlineNominations              OfflineTerminalNomination[]
 
   @@unique([tenantId, keyId])
   @@unique([tenantId, branchId, terminalId, id, keyId])
@@ -764,6 +767,78 @@ model BusinessHoursAcknowledgement {
   @@unique([tenantId, enrollmentId, recordId])
   @@index([tenantId, branchId, startsAt])
   @@map("business_hours_acknowledgement")
+}
+
+/// Revised D13: an owner's explicit, per-branch delegation of offline-terminal assignment to one
+/// manager. Never implied by a role or permission edit; managers cannot delegate onward. Content
+/// is immutable; revocation is recorded once.
+model OfflineTerminalDelegation {
+  id                String                                   @id @default(uuid()) @db.Uuid
+  tenantId          String                                   @map("tenant_id") @db.Uuid
+  branchId          String                                   @map("branch_id") @db.Uuid
+  managerUserId     String                                   @map("manager_user_id") @db.Uuid
+  delegatedByUserId String                                   @map("delegated_by_user_id") @db.Uuid
+  createdAt         DateTime                                 @default(now()) @map("created_at")
+  revokedAt         DateTime?                                @map("revoked_at")
+  revokedByUserId   String?                                  @map("revoked_by_user_id") @db.Uuid
+  revocationReason  String?                                  @map("revocation_reason") @db.VarChar(500)
+  branch            Branch                                   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  authorizations    OfflineTerminalAssignmentAuthorization[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, branchId, managerUserId])
+  @@map("offline_terminal_delegation")
+}
+
+/// Revised D13: the online (remote-capable) authorization of which exact enrolled target may be
+/// activated as the branch's offline-capable terminal, bound to the nomination version it expects.
+/// It nominates nothing and issues no grant; local signed activation (P2/P3) consumes it. At most
+/// one outstanding ("authorized") per branch; a newer one supersedes it.
+model OfflineTerminalAssignmentAuthorization {
+  id                        String                     @id @db.Uuid
+  tenantId                  String                     @map("tenant_id") @db.Uuid
+  branchId                  String                     @map("branch_id") @db.Uuid
+  targetTerminalId          String                     @map("target_terminal_id") @db.Uuid
+  targetEnrollmentId        String                     @map("target_enrollment_id") @db.Uuid
+  targetKeyId               String                     @map("target_key_id") @db.VarChar(128)
+  expectedNominationVersion Int                        @map("expected_nomination_version")
+  reason                    String                     @db.VarChar(500)
+  authorizedByUserId        String                     @map("authorized_by_user_id") @db.Uuid
+  /// "owner" or "delegated_manager" (then `delegationId` is set).
+  authority                 String                     @db.VarChar(20)
+  delegationId              String?                    @map("delegation_id") @db.Uuid
+  authorizedAt              DateTime                   @default(now()) @map("authorized_at")
+  status                    String                     @default("authorized") @db.VarChar(16)
+  revokedAt                 DateTime?                  @map("revoked_at")
+  revokedByUserId           String?                    @map("revoked_by_user_id") @db.Uuid
+  revocationReason          String?                    @map("revocation_reason") @db.VarChar(500)
+  consumedAt                DateTime?                  @map("consumed_at")
+  consumedByUserId          String?                    @map("consumed_by_user_id") @db.Uuid
+  target                    TerminalEnrollment         @relation(fields: [tenantId, branchId, targetTerminalId, targetEnrollmentId, targetKeyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+  delegation                OfflineTerminalDelegation? @relation(fields: [tenantId, delegationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, branchId, authorizedAt])
+  @@map("offline_terminal_assignment_authorization")
+}
+
+/// Revised D13 / D11: the branch's current offline-capable terminal. One row per branch, written
+/// only by local signed activation (P2/P3), which bumps `version`. No row = version 0, nothing
+/// nominated. Assignment authorizations bind the version they expect.
+model OfflineTerminalNomination {
+  id                String             @id @default(uuid()) @db.Uuid
+  tenantId          String             @map("tenant_id") @db.Uuid
+  branchId          String             @map("branch_id") @db.Uuid
+  terminalId        String             @map("terminal_id") @db.Uuid
+  enrollmentId      String             @map("enrollment_id") @db.Uuid
+  keyId             String             @map("key_id") @db.VarChar(128)
+  version           Int
+  authorizationId   String             @map("authorization_id") @db.Uuid
+  activatedAt       DateTime           @map("activated_at")
+  activatedByUserId String             @map("activated_by_user_id") @db.Uuid
+  enrollment        TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, branchId])
+  @@map("offline_terminal_nomination")
 }
 
 /// Owner-set monthly sales target for a branch; optional manager accountable for achievement.
