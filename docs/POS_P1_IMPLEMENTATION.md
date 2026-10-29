@@ -581,6 +581,9 @@ stale/self approval, signed execution with replay and `already_applied`, concurr
 browser executions refunding once, pinned/revoked approval, a lowered threshold, the limit after a
 till refund, immutability, rollback on an injected audit failure, till-vs-prepared serialization).
 
+Refund execution is not in `OPERATIONS_WITHOUT_SELLING_HOURS`: like a sale, it is checked against
+selling hours (and fails closed when they are unknown).
+
 Daily work lists prepared refunds as `sale_refund.approve` (approvers) and, once approved or under
 the threshold, `sale_refund.execute` (waiting at the counter). Cashiers and pharmacists execute
 them with their `sales.refund` and the `terminal.execute` counter default.

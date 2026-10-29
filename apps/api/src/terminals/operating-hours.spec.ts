@@ -128,6 +128,16 @@ describe("OperatingHoursEvidence", () => {
     }
   });
 
+  it("keeps refund execution within selling hours: money leaves the drawer", async () => {
+    const operation = "POST /api/v1/sales/refund-requests/:id/execute";
+    expect(OPERATIONS_WITHOUT_SELLING_HOURS.has(operation)).toBe(false);
+    const run = (when: string, h: unknown = hours()) =>
+      code(provider.assertForCommand(tx({ operatingHours: h, timezone: COLOMBO }), command({ operation }), at(when)));
+    await expect(run("2026-10-26T10:00")).resolves.toBe("allowed");
+    await expect(run("2026-10-26T20:00")).resolves.toBe("BUSINESS_HOURS_ACK_REQUIRED");
+    await expect(run("2026-10-26T10:00", null)).resolves.toBe("TEMPORARILY_UNAVAILABLE");
+  });
+
   it("does not hours-restrict the reviewed back-room stock operations, even with unset hours", async () => {
     for (const operation of OPERATIONS_WITHOUT_SELLING_HOURS) {
       const t = tx(null);
