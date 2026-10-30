@@ -73,3 +73,27 @@ it.each(["not_live", "live", "fallback", null])(
     unmount();
   },
 );
+it("honors an explicit opening-stock staging journey even at a not-live branch", async () => {
+  const fetch = jest.mocked(apiFetch);
+  fetch.mockResolvedValueOnce({
+    ok: true,
+    text: async () =>
+      JSON.stringify({ suggestedMapping: { name: "Name", qty: "Qty" } }),
+  } as Response);
+  const { result, unmount } = renderHook(() => useProductImport(true));
+  await act(async () =>
+    result.current.chooseFile(new File(["Name,Qty\nPanadol,10"], "stock.csv")),
+  );
+  fetch.mockResolvedValueOnce({
+    ok: true,
+    text: async () => JSON.stringify({ jobId: "job", importId: "import" }),
+  } as Response);
+  api.mockResolvedValueOnce({ status: "completed", result: {} });
+  await act(async () => result.current.runImport());
+  expect(result.current.stagesStock).toBe(true);
+  expect(fetch).toHaveBeenLastCalledWith(
+    "/products/import/stage",
+    expect.any(Object),
+  );
+  unmount();
+});

@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from "@nestjs/common";
 import { OwnerRegistrationStatus, Prisma, RoleName } from "@prisma/client";
 import { CategoryTaxonomyService } from "../catalog/category-taxonomy.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -8,8 +12,12 @@ import {
   PERMISSION_CATALOG,
   defaultPermissionsForRole,
 } from "../security/permission-catalog";
-import { OnboardingDraft, OnboardingDraftService } from "./onboarding-draft.service";
+import {
+  OnboardingDraft,
+  OnboardingDraftService,
+} from "./onboarding-draft.service";
 import { VerifiedOwnerSession } from "./owner-registration.service";
+import { onboardingHours } from "./onboarding-hours";
 
 type ProvisionedWorkspace = {
   tenantId: string;
@@ -66,7 +74,10 @@ export class WorkspaceProvisioningService {
     // Turn on the departments the pharmacy said it sells. Only Medicines is enabled by
     // default, so without this a shop stocking shampoo and nappies has to go and find
     // Settings → Catalog → Categories before it can file a single product.
-    await this.taxonomy.applyOnboardingSelection(result.tenantId, draft.sellsDepartments ?? []);
+    await this.taxonomy.applyOnboardingSelection(
+      result.tenantId,
+      draft.sellsDepartments ?? [],
+    );
     return result;
   }
 
@@ -78,7 +89,8 @@ export class WorkspaceProvisioningService {
     const registration = await tx.ownerRegistration.findUnique({
       where: { id: owner.registrationId },
     });
-    if (!registration) throw new BadRequestException("Owner registration not found");
+    if (!registration)
+      throw new BadRequestException("Owner registration not found");
     if (
       registration.status === OwnerRegistrationStatus.completed &&
       registration.completedTenantId &&
@@ -92,7 +104,9 @@ export class WorkspaceProvisioningService {
       return { ...completed, alreadyCompleted: true };
     }
     if (registration.status !== OwnerRegistrationStatus.verified) {
-      throw new ConflictException("Owner registration is not ready for workspace creation");
+      throw new ConflictException(
+        "Owner registration is not ready for workspace creation",
+      );
     }
 
     const duplicateUser = await tx.appUser.findUnique({
@@ -100,7 +114,9 @@ export class WorkspaceProvisioningService {
       select: { id: true },
     });
     if (duplicateUser) {
-      throw new ConflictException("An account already exists for this email address");
+      throw new ConflictException(
+        "An account already exists for this email address",
+      );
     }
 
     const tenant = await tx.tenant.create({
@@ -135,6 +151,16 @@ export class WorkspaceProvisioningService {
         email: draft.businessEmail?.trim().toLowerCase() || registration.email,
         setupRequired: true,
         setupMode: draft.migrationMode ?? "fresh",
+        plannedCounterCount: draft.plannedCounterCount ?? 1,
+        ...(draft.branchHours
+          ? {
+              operatingHours: onboardingHours(
+                draft.branchHours,
+              ) as unknown as Prisma.InputJsonValue,
+              operatingHoursOrigin: "editor",
+              operatingHoursUpdatedAt: new Date(),
+            }
+          : {}),
       },
     });
 
@@ -142,7 +168,8 @@ export class WorkspaceProvisioningService {
       data: {
         tenantId: tenant.id,
         posDefaultPaymentMethod: draft.paymentMethods?.[0] ?? "cash",
-        receiptHeaderText: draft.receiptDisplayName?.trim() || tenant.displayName,
+        receiptHeaderText:
+          draft.receiptDisplayName?.trim() || tenant.displayName,
       },
     });
 
@@ -209,6 +236,12 @@ export class WorkspaceProvisioningService {
         roleId: ownerRoleId,
       },
     });
+    if (draft.branchHours) {
+      await tx.branch.updateMany({
+        where: { id: branch.id, tenantId: tenant.id },
+        data: { operatingHoursUpdatedBy: user.id },
+      });
+    }
     await tx.notificationPreference.create({
       data: { tenantId: tenant.id, userId: user.id },
     });
@@ -250,7 +283,9 @@ export class WorkspaceProvisioningService {
     owner: VerifiedOwnerSession,
   ): Promise<Omit<ProvisionedWorkspace, "alreadyCompleted">> {
     if (!owner.completedTenantId || !owner.completedUserId) {
-      throw new ConflictException("Completed registration is missing workspace references");
+      throw new ConflictException(
+        "Completed registration is missing workspace references",
+      );
     }
     return this.findCompletedInTransaction(
       this.prisma,
@@ -291,6 +326,15 @@ export class WorkspaceProvisioningService {
 }
 
 function validateDraft(draft: OnboardingDraft): void {
+  onboardingHours(draft.branchHours);
+  if (
+    draft.plannedCounterCount !== undefined &&
+    (!Number.isInteger(draft.plannedCounterCount) ||
+      draft.plannedCounterCount < 1 ||
+      draft.plannedCounterCount > 100)
+  ) {
+    throw new BadRequestException("Choose between 1 and 100 planned counters.");
+  }
   const missing = [
     [draft.businessName, "business name"],
     [draft.country, "country"],
@@ -341,5 +385,8 @@ function joinPhone(code?: string, number?: string): string | null {
 }
 
 function isSerializationFailure(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
+  );
 }

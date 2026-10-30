@@ -512,6 +512,8 @@ model Branch {
   /// owner onboarding flow. Existing branches keep normal POS behaviour.
   setupRequired           Boolean   @default(false) @map("setup_required")
   setupMode               String    @default("fresh") @map("setup_mode")
+  /// Onboarding planning preference only; never treated as an enrolled/ready terminal.
+  plannedCounterCount     Int       @default(1) @map("planned_counter_count")
   salesSettingsReviewedAt DateTime? @map("sales_settings_reviewed_at")
   /// When someone confirmed the opening stock figures match the shelves. Posting stock is a
   /// fact; agreeing it is correct is a decision, and only the second one means the branch is

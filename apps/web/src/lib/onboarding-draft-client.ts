@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from "./api-base";
+import type { BranchHours } from "@pharmaceylon/shared";
 import { parseApiError } from "./api-error";
 import type { AuthUser } from "./auth-types";
 import { persistUser, setBranchId } from "./auth-session";
@@ -23,6 +24,8 @@ export type OnboardingDraft = {
   district?: string;
   branchCountry?: string;
   branchTimezone?: string;
+  branchHours?: BranchHours | null;
+  plannedCounterCount?: number;
   branchPhoneCountryCode?: string;
   branchPhone?: string;
   useBusinessPhone?: boolean;

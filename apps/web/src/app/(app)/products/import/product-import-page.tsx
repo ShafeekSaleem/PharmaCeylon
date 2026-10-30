@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/lib/use-auth";
+import { usePermissions } from "@/lib/permissions";
+import { StockDraftEditor } from "./components/stock-draft-editor";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Alert } from "@/components/alert";
 import {
@@ -166,7 +170,15 @@ function IssueTable({ issues }: { issues: ImportRowIssue[] }) {
 }
 
 export function ProductImportPage() {
-  const io = useProductImport();
+  const { branchId } = useAuth();
+  return <ProductImportContent key={branchId ?? "none"} branchId={branchId} />;
+}
+
+function ProductImportContent({ branchId }: { branchId: string | null }) {
+  const forceStage = useSearchParams().get("mode") === "stage";
+  const { permissionKeys } = usePermissions();
+  const [draftImportId, setDraftImportId] = useState<string | null>(null);
+  const io = useProductImport(forceStage);
   // The commercial tree drives the Review step's category dropdowns.
   const { categories } = useProductMeta();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -679,6 +691,17 @@ export function ProductImportPage() {
       )}
 
       {/* ── Step 5: done ───────────────────────────────────────────────── */}
+      {draftImportId &&
+      branchId &&
+      permissionKeys.includes("products.import") ? (
+        <StockDraftEditor
+          key={`${branchId}:${draftImportId}`}
+          branchId={branchId}
+          importId={draftImportId}
+          canEditCosts={permissionKeys.includes("costs.view")}
+          onChanged={() => void io.loadHistory()}
+        />
+      ) : null}
       {io.step === "done" && io.result && (
         <section className={css.card}>
           <header className={css.cardHead}>
@@ -922,6 +945,17 @@ export function ProductImportPage() {
                         updated
                         {(h.unitsStaged ?? 0) > 0 &&
                           ` · ${h.unitsStaged} units waiting at the counter`}
+                        {h.stockStaged &&
+                          h.status === "completed" &&
+                          h.branchId === branchId && (
+                            <button
+                              type="button"
+                              className={css.inlineLink}
+                              onClick={() => setDraftImportId(h.id)}
+                            >
+                              Review stock draft
+                            </button>
+                          )}
                         {h.batchesCreated > 0 &&
                           ` · ${h.batchesCreated} batches`}
                       </>

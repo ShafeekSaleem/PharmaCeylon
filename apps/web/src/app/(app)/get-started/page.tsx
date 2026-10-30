@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useAuth } from "@/lib/use-auth";
+import { OpeningStockDrafts } from "../products/import/components/opening-stock-drafts";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -39,6 +41,11 @@ const TASK_ICONS: Record<ReadinessTaskKey, ReactNode> = {
 };
 
 export default function GetStartedPage() {
+  const { branchId } = useAuth();
+  return <GetStartedContent key={branchId ?? "none"} />;
+}
+
+function GetStartedContent() {
   const router = useRouter();
   const { userRoles } = useRoleAccess();
   const [data, setData] = useState<SetupReadiness | null>(null);
@@ -101,7 +108,9 @@ export default function GetStartedPage() {
       notifySetupJourneyChanged();
       router.replace(result.nextPath);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to finish setup");
+      setError(
+        cause instanceof Error ? cause.message : "Unable to finish setup",
+      );
       setFinishing(false);
     }
   }
@@ -153,6 +162,27 @@ export default function GetStartedPage() {
 
       {error ? <Alert variant="error">{error}</Alert> : null}
 
+      <OpeningStockDrafts />
+      {data.desktopSetup ? (
+        <section
+          className={css.optionalCard}
+          aria-label="Counter setup dependencies"
+        >
+          <h2>Prepare staff for the counter</h2>
+          <p>
+            Each person must sign in on the enrolled counter before it can
+            prepare their credentials. Desktop sessions and verified
+            test-receipt evidence are still pending.
+          </p>
+          <h3>Choose an offline counter — optional</h3>
+          <p>
+            Offline assignment is a separate step once counter enrollment and
+            the offline runtime are available. Planned counters (
+            {data.branch.plannedCounterCount ?? 1}) do not count as enrolled
+            devices.
+          </p>
+        </section>
+      ) : null}
       <div className={css.layout}>
         <section className={css.checklistCard}>
           <div className={css.progressHeader}>
@@ -176,10 +206,17 @@ export default function GetStartedPage() {
               // Steps completed by an explicit decision rather than by something happening.
               // Opening stock joined them: an import posts the units, a person confirms the
               // figures match the shelves.
+              // A live branch completes checkout by enrolling a counter. Posted opening stock
+              // is still confirmed here: there is no counter confirmation yet, and hiding it
+              // would leave the journey (and assertCanSell) with no way to finish.
+              const counterOnly = Boolean(
+                data.branch.desktopPosLive && task.key === "checkout",
+              );
               const explicit =
-                task.key === "sales_settings" ||
-                task.key === "checkout" ||
-                (task.key === "opening_inventory" && Boolean(task.facts));
+                !counterOnly &&
+                (task.key === "sales_settings" ||
+                  task.key === "checkout" ||
+                  (task.key === "opening_inventory" && Boolean(task.facts)));
               return (
                 <li
                   key={task.key}
@@ -213,6 +250,10 @@ export default function GetStartedPage() {
                   <div className={css.taskActions}>
                     {task.complete ? (
                       <span className={css.completeBadge}>Complete</span>
+                    ) : counterOnly && task.key === "checkout" ? (
+                      <span className={css.pendingBadge}>
+                        Counter setup pending
+                      </span>
                     ) : !task.available ? (
                       <span className={css.pendingBadge}>
                         After previous step
@@ -323,7 +364,9 @@ export default function GetStartedPage() {
                   disabled={finishing}
                   onClick={() => void finishSetup()}
                 >
-                  {finishing ? "Finishing setup…" : "Finish setup and go to dashboard"}
+                  {finishing
+                    ? "Finishing setup…"
+                    : "Finish setup and go to dashboard"}
                   {!finishing ? <IconChevronRight size={16} /> : null}
                 </button>
               ) : null}

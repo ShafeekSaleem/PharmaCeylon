@@ -1,6 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import {
+  validateBranchHours,
+  WEEKDAYS,
+  WEEKDAY_LABELS,
+} from "@pharmaceylon/shared";
+import { OnboardingHoursFields } from "@/components/branch-hours/onboarding-hours-fields";
+import { describeDay } from "@/app/(app)/settings/branches/lib/hours-draft";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@/components/alert";
@@ -199,6 +206,13 @@ export function OnboardingWizard({ step }: { step: Step }) {
     if (step === "preferences" && !draft.paymentMethods?.length) {
       setError("Select at least one payment method.");
       return;
+    }
+    if (step === "branch" && draft.branchHours) {
+      const hours = validateBranchHours(draft.branchHours);
+      if (!hours.ok) {
+        setError(hours.errors.join(" "));
+        return;
+      }
     }
     try {
       if (step === "review") {
@@ -645,6 +659,10 @@ function BranchForm({
           <span>Inherited by default</span>
         </div>
         <Info>More locations can be added anytime from Settings.</Info>
+        <OnboardingHoursFields
+          value={draft.branchHours}
+          onChange={(hours) => update("branchHours", hours)}
+        />
       </div>
     </>
   );
@@ -740,6 +758,24 @@ function PreferencesForm({
           </small>
         </fieldset>
         <div className={styles.sectionTitle}>Receipt details</div>
+        <label>
+          Planned counters
+          <input
+            aria-label="Planned counters"
+            type="number"
+            min={1}
+            max={100}
+            step={1}
+            value={draft.plannedCounterCount ?? 1}
+            onChange={(event) =>
+              update("plannedCounterCount", Number(event.target.value))
+            }
+          />
+          <small>
+            A planning preference. Each counter still needs real enrollment and
+            staff preparation.
+          </small>
+        </label>
         <div className={styles.grid2}>
           <Field
             label="Receipt display name"
@@ -882,6 +918,16 @@ function Review({
               (draft.paymentMethods ?? []).map(labelPayment).join(", "),
             ],
             ["Receipt", draft.receiptDisplayName ?? draft.businessName],
+            ["Planned counters", String(draft.plannedCounterCount ?? 1)],
+            [
+              "Opening hours",
+              draft.branchHours
+                ? WEEKDAYS.map(
+                    (day) =>
+                      `${WEEKDAY_LABELS[day]}: ${describeDay(draft.branchHours!.weekly[day])}`,
+                  ).join("; ")
+                : "Configure later",
+            ],
           ]}
         />
       </div>
