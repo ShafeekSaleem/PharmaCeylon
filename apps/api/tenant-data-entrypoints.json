@@ -264,6 +264,11 @@
       "reason": "Locks the tenant/branch-scoped PO, then the prepared receipt, for preparation, approval, cancellation and posting; evidence, receiving effects and audit share the caller transaction."
     },
     {
+      "path": "src/purchasing/ledger/supplier-payment-evidence.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks exact tenant/branch invoice allocations before the owned evidence row. Private upload material, revocation and single-use payment binding are checked in the recording transaction, with current uploader/actor permissions after waits."
+    },
+    {
       "path": "src/returns/returns.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks the tenant/branch-scoped supplier return before exact approval and dispatch; evidence, StockService effects, debit note and audit share the caller transaction."

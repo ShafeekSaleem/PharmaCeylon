@@ -19,6 +19,7 @@ import {
   VoidDto,
 } from "./supplier-ledger.dto";
 import { SupplierLedgerService } from "./supplier-ledger.service";
+import { EvidencedPaymentRecordingService } from "./evidenced-payment-recording.service";
 
 /**
  * What the pharmacy owes its suppliers, and what it has paid.
@@ -30,7 +31,21 @@ import { SupplierLedgerService } from "./supplier-ledger.service";
  */
 @Controller("purchasing")
 export class SupplierLedgerController {
-  constructor(private readonly ledger: SupplierLedgerService) {}
+  constructor(
+    private readonly ledger: SupplierLedgerService,
+    private readonly evidencedPayments: EvidencedPaymentRecordingService,
+  ) {}
+
+  @RequirePermission("suppliers.pay")
+  @Post("payments/evidenced")
+  recordEvidencedPayment(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Headers("idempotency-key") key: string | undefined,
+    @Body() body: unknown,
+  ) {
+    return this.evidencedPayments.record(user, branchId, body, key);
+  }
 
   @RequirePermission("purchasing.invoice", "suppliers.pay")
   @Get("payables")
