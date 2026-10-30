@@ -27,7 +27,20 @@ export type SetupReadiness = {
   totalCount: number;
   percent: number;
   tenant: { id: string; name: string; hasLogo: boolean };
-  branch: { id: string; name: string; code: string; setupMode: string };
+  branch: {
+    id: string;
+    name: string;
+    code: string;
+    setupMode: string;
+    desktopPosLive?: boolean;
+    plannedCounterCount?: number;
+  };
+  /** Honest placeholders until P2 persists prepared staff and a verified test receipt. */
+  desktopSetup?: {
+    enrolledCounters: number;
+    staffPrepared: false;
+    testReceipt: false;
+  };
   tasks: Array<{
     key: ReadinessTaskKey;
     title: string;
@@ -52,7 +65,12 @@ export type SetupReadiness = {
      * would be wrong. It sits here so the coverage figure is at least visible.
      */
     catalogOrganized: boolean;
-    catalogCoverage: { ranged: number; categorized: number; unplaced: number; percent: number };
+    catalogCoverage: {
+      ranged: number;
+      categorized: number;
+      unplaced: number;
+      percent: number;
+    };
   };
   nextTask: ReadinessTaskKey | null;
 };
@@ -89,6 +107,8 @@ export class SetupReadinessService {
         timezone: true,
         setupRequired: true,
         setupMode: true,
+        desktopPosRollout: true,
+        plannedCounterCount: true,
         setupCompletedAt: true,
         salesSettingsReviewedAt: true,
         openingStockConfirmedAt: true,
@@ -108,8 +128,14 @@ export class SetupReadinessService {
     });
     if (!branch) throw new NotFoundException("Branch not found");
 
-    const [productCount, referenceCount, stockGroups, team, settings, batchStats] =
-      await Promise.all([
+    const [
+      productCount,
+      referenceCount,
+      stockGroups,
+      team,
+      settings,
+      batchStats,
+    ] = await Promise.all([
       // Only the pharmacy's own range counts. Importing the NMRA registry used to tick this
       // step off before the shop had decided what it actually sells.
       this.prisma.product.count({
@@ -166,7 +192,20 @@ export class SetupReadinessService {
       (row) => (row._sum.qtyDelta ?? 0) > 0,
     );
     const salesSettingsComplete = branch.salesSettingsReviewedAt !== null;
-    const checkoutComplete = branch.checkoutPreparedAt !== null;
+    const desktopPosLive = branch.desktopPosRollout === "live";
+    const enrolledCounters = desktopPosLive
+      ? await this.prisma.terminalEnrollment.count({
+          where: {
+            tenantId,
+            branchId,
+            revokedAt: null,
+            terminal: { retiredAt: null },
+          },
+        })
+      : 0;
+    // Old web-checkout confirmations and a planning preference never prove desktop readiness.
+    const checkoutComplete =
+      !desktopPosLive && branch.checkoutPreparedAt !== null;
 
     // Two different things: stock exists, and someone has agreed it is right. Only the
     // second completes the step — an import posts thousands of units in one go, and that is
@@ -179,7 +218,9 @@ export class SetupReadinessService {
       (sum, row) => sum + Math.max(0, row._sum.qtyDelta ?? 0),
       0,
     );
-    const batchesNeedingExpiry = batchStats.filter((b) => b.needsExpiryReview).length;
+    const batchesNeedingExpiry = batchStats.filter(
+      (b) => b.needsExpiryReview,
+    ).length;
 
     // The wizard asked how the pharmacy is getting started and then nothing acted on the
     // answer. These two steps are where it actually pays off: a shop moving from another
@@ -250,7 +291,11 @@ export class SetupReadinessService {
                 value: batchStats.length.toLocaleString(),
                 ok: true,
               },
-              { label: "Units counted", value: unitsPosted.toLocaleString(), ok: true },
+              {
+                label: "Units counted",
+                value: unitsPosted.toLocaleString(),
+                ok: true,
+              },
               {
                 label: "Missing an expiry date",
                 value: batchesNeedingExpiry.toLocaleString(),
@@ -262,7 +307,8 @@ export class SetupReadinessService {
       {
         key: "sales_settings",
         title: "Review sales settings",
-        description: "These apply to every sale. Change anything that isn't right.",
+        description:
+          "These apply to every sale. Change anything that isn't right.",
         complete: salesSettingsComplete,
         available: true,
         href: "/settings/main?from=get-started",
@@ -270,13 +316,18 @@ export class SetupReadinessService {
           { label: "Currency", value: branch.tenant.currency, ok: true },
           {
             label: "Default payment",
-            value: PAYMENT_LABELS[settings?.posDefaultPaymentMethod ?? "cash"] ?? "Cash",
+            value:
+              PAYMENT_LABELS[settings?.posDefaultPaymentMethod ?? "cash"] ??
+              "Cash",
             ok: true,
           },
           {
             label: "Receipt header",
-            value: settings?.receiptHeaderText?.trim() || branch.tenant.displayName,
-            ok: Boolean(settings?.receiptHeaderText?.trim() || branch.tenant.displayName),
+            value:
+              settings?.receiptHeaderText?.trim() || branch.tenant.displayName,
+            ok: Boolean(
+              settings?.receiptHeaderText?.trim() || branch.tenant.displayName,
+            ),
           },
           {
             label: "Receipt paper",
@@ -300,7 +351,10 @@ export class SetupReadinessService {
           },
           {
             label: "Stock on the shelf",
-            value: unitsPosted > 0 ? `${unitsPosted.toLocaleString()} units` : "None yet",
+            value:
+              unitsPosted > 0
+                ? `${unitsPosted.toLocaleString()} units`
+                : "None yet",
             ok: unitsPosted > 0,
           },
           {
@@ -316,6 +370,40 @@ export class SetupReadinessService {
         ],
       },
     ];
+
+    if (desktopPosLive) {
+      const stockTask = tasks.find((task) => task.key === "opening_inventory")!;
+      stockTask.title = stockPosted
+        ? "Confirm opening stock at the counter"
+        : "Stage and post opening stock";
+      stockTask.description = stockPosted
+        ? "Shelf checks and opening-stock confirmation happen at the counter."
+        : "Import or edit a draft on the web without changing stock, then post it at the counter in one action or by category.";
+      stockTask.href = "/products/import?mode=stage";
+      const checkoutTask = tasks.find((task) => task.key === "checkout")!;
+      checkoutTask.title =
+        "Install PharmaCeylon POS and enroll your first counter";
+      checkoutTask.description =
+        "Desktop setup is pending: enroll a counter, prepare staff on it and print a test receipt. Existing web checkout confirmation cannot complete these checks.";
+      checkoutTask.href = "/settings/branches";
+      checkoutTask.facts = [
+        {
+          label: "Enrolled counters",
+          value: String(enrolledCounters),
+          ok: enrolledCounters > 0,
+        },
+        {
+          label: "Staff prepared at a counter",
+          value: "Pending desktop support",
+          ok: false,
+        },
+        {
+          label: "Printed test receipt",
+          value: "Pending desktop support",
+          ok: false,
+        },
+      ];
+    }
 
     // Optional, so it is computed after the gating tasks and never affects readyForSales.
     const catalogCoverage = await this.organize.coverage(tenantId);
@@ -339,7 +427,18 @@ export class SetupReadinessService {
         name: branch.name,
         code: branch.code,
         setupMode: branch.setupMode,
+        desktopPosLive,
+        plannedCounterCount: branch.plannedCounterCount ?? 1,
       },
+      ...(desktopPosLive
+        ? {
+            desktopSetup: {
+              enrolledCounters,
+              staffPrepared: false as const,
+              testReceipt: false as const,
+            },
+          }
+        : {}),
       tasks,
       optional: {
         teamInvited: team.length > 1,
@@ -371,7 +470,9 @@ export class SetupReadinessService {
           nextPath: "/dashboard?setup=complete",
         };
       }
-      throw new ConflictException("Setup journey is not enabled for this branch");
+      throw new ConflictException(
+        "Setup journey is not enabled for this branch",
+      );
     }
 
     if (!readiness.readyForSales) {
@@ -381,7 +482,8 @@ export class SetupReadinessService {
       throw new ConflictException({
         statusCode: 409,
         code: "BRANCH_SETUP_INCOMPLETE",
-        message: "Complete every required setup step before finishing the journey.",
+        message:
+          "Complete every required setup step before finishing the journey.",
         remaining,
       });
     }
@@ -432,6 +534,11 @@ export class SetupReadinessService {
         "Setup journey is not enabled for this branch",
       );
     }
+    if (task === "checkout" && current.branch.desktopPosLive) {
+      throw new ConflictException(
+        "Prepare staff and print a verified test receipt on an enrolled counter. Desktop readiness is still pending.",
+      );
+    }
     if (
       task === "checkout" &&
       !current.tasks.find((item) => item.key === "sales_settings")?.complete
@@ -443,7 +550,9 @@ export class SetupReadinessService {
 
     if (task === "opening_inventory") {
       const current = await this.get(tenantId, branchId);
-      const posted = current.tasks.find((t) => t.key === "opening_inventory")?.facts;
+      const posted = current.tasks.find(
+        (t) => t.key === "opening_inventory",
+      )?.facts;
       if (!posted) {
         throw new ConflictException(
           "Add opening stock before confirming it — there is nothing to check yet.",

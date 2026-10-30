@@ -41,7 +41,7 @@ async function postFile<T>(
  * as a job. The file is re-sent at each step rather than parked on the server — an upload that
  * is abandoned half way should leave nothing behind.
  */
-export function useProductImport() {
+export function useProductImport(forceStage = false) {
   const { rollout } = useBranchRollout();
   const [step, setStep] = useState<ImportStep>("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -65,6 +65,7 @@ export function useProductImport() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<ImportSummary[]>([]);
   const pollRef = useRef<number | null>(null);
+  const mounted = useRef(true);
   /**
    * Held across retries of the same import, so clicking "Import" again after a network blip
    * replays the original run instead of posting every opening-stock batch a second time.
@@ -79,7 +80,13 @@ export function useProductImport() {
     }
   }, []);
 
-  useEffect(() => stopPolling, [stopPolling]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      stopPolling();
+    };
+  }, [stopPolling]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -166,6 +173,7 @@ export function useProductImport() {
           const data = await apiJson<ImportJobProgress>(
             `/products/import/jobs/${jobId}`,
           );
+          if (!mounted.current) return;
           setProgress(data);
           if (data.status === "completed") {
             setResult(data.result ?? null);
@@ -203,7 +211,7 @@ export function useProductImport() {
     );
     try {
       const { jobId } = await postFile<{ jobId: string; importId: string }>(
-        rollout?.state === "not_live"
+        !forceStage && rollout?.state === "not_live"
           ? "/products/import/confirm"
           : "/products/import/stage",
         file,
@@ -221,7 +229,15 @@ export function useProductImport() {
     } finally {
       setBusy(false);
     }
-  }, [file, mapping, confirmedRows, categoryChoices, poll, rollout]);
+  }, [
+    file,
+    mapping,
+    confirmedRows,
+    categoryChoices,
+    poll,
+    rollout,
+    forceStage,
+  ]);
 
   /** Record (or clear) the user's decision for one incoming category value. */
   const setCategoryChoice = useCallback(
@@ -288,7 +304,7 @@ export function useProductImport() {
   }, [stopPolling]);
 
   return {
-    stagesStock: rollout?.state !== "not_live",
+    stagesStock: forceStage || rollout?.state !== "not_live",
     step,
     setStep,
     file,

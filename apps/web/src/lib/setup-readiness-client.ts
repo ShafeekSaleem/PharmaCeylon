@@ -14,7 +14,19 @@ export type SetupReadiness = {
   totalCount: number;
   percent: number;
   tenant: { id: string; name: string; hasLogo: boolean };
-  branch: { id: string; name: string; code: string; setupMode: string };
+  branch: {
+    id: string;
+    name: string;
+    code: string;
+    setupMode: string;
+    desktopPosLive?: boolean;
+    plannedCounterCount?: number;
+  };
+  desktopSetup?: {
+    enrolledCounters: number;
+    staffPrepared: false;
+    testReceipt: false;
+  };
   tasks: Array<{
     key: ReadinessTaskKey;
     title: string;
@@ -51,7 +63,9 @@ export function notifySetupJourneyChanged(): void {
 export const fetchSetupReadiness = () =>
   apiJson<SetupReadiness>("/setup/readiness");
 
-export const confirmSetupTask = (task: "sales_settings" | "opening_inventory" | "checkout") =>
+export const confirmSetupTask = (
+  task: "sales_settings" | "opening_inventory" | "checkout",
+) =>
   apiJson<SetupReadiness>("/setup/readiness/confirm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

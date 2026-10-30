@@ -1,4 +1,5 @@
 import { OwnerRegistrationStatus, RoleName } from "@prisma/client";
+import { WEEKDAYS } from "@pharmaceylon/shared";
 import { WorkspaceProvisioningService } from "./workspace-provisioning.service";
 
 describe("WorkspaceProvisioningService", () => {
@@ -39,6 +40,15 @@ describe("WorkspaceProvisioningService", () => {
     sellsDepartments: ["Personal Care", "Baby & Mother Care"],
     receiptDisplayName: "Royal Pharmacy",
     paymentMethods: ["cash", "card"],
+    branchHours: {
+      schemaVersion: 1,
+      weekly: Object.fromEntries(
+        WEEKDAYS.map((day) => [day, { mode: "open_24h" }]),
+      ),
+      exceptions: [],
+      mandatory: null,
+    },
+    plannedCounterCount: 3,
   };
 
   it("creates the workspace, owner access and defaults in one transaction", async () => {
@@ -66,14 +76,19 @@ describe("WorkspaceProvisioningService", () => {
         }),
       },
       branch: {
-        create: jest.fn().mockResolvedValue({ id: branchId, name: draft.branchName }),
+        create: jest
+          .fn()
+          .mockResolvedValue({ id: branchId, name: draft.branchName }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       tenantSettings: { create: jest.fn().mockResolvedValue({}) },
       permission: { upsert: jest.fn().mockResolvedValue({}) },
       role: {
-        create: jest.fn().mockImplementation(({ data }) =>
-          Promise.resolve({ id: `role-${data.key}`, key: data.key }),
-        ),
+        create: jest
+          .fn()
+          .mockImplementation(({ data }) =>
+            Promise.resolve({ id: `role-${data.key}`, key: data.key }),
+          ),
       },
       rolePermission: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
       userBranchRole: { create: jest.fn().mockResolvedValue({}) },
@@ -98,21 +113,41 @@ describe("WorkspaceProvisioningService", () => {
     const result = await service.complete(owner);
 
     expect(result).toEqual(
-      expect.objectContaining({ tenantId, branchId, userId, alreadyCompleted: false }),
+      expect.objectContaining({
+        tenantId,
+        branchId,
+        userId,
+        alreadyCompleted: false,
+      }),
     );
     expect(tx.branch.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ setupRequired: true, setupMode: "migrating" }),
+        data: expect.objectContaining({
+          setupRequired: true,
+          setupMode: "migrating",
+          plannedCounterCount: 3,
+          operatingHours: draft.branchHours,
+          operatingHoursOrigin: "editor",
+        }),
       }),
     );
+    expect(tx.branch.updateMany).toHaveBeenCalledWith({
+      where: { id: branchId, tenantId },
+      data: { operatingHoursUpdatedBy: userId },
+    });
     expect(tx.userBranchRole.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ role: RoleName.owner, roleId: "role-owner" }),
+        data: expect.objectContaining({
+          role: RoleName.owner,
+          roleId: "role-owner",
+        }),
       }),
     );
     expect(tx.ownerRegistration.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: OwnerRegistrationStatus.completed }),
+        data: expect.objectContaining({
+          status: OwnerRegistrationStatus.completed,
+        }),
       }),
     );
     expect(taxonomy.ensureCommercialTemplate).toHaveBeenCalledWith(tenantId);
@@ -127,10 +162,14 @@ describe("WorkspaceProvisioningService", () => {
   it("resumes an already-completed registration without creating duplicates", async () => {
     const prisma = {
       tenant: {
-        findUnique: jest.fn().mockResolvedValue({ displayName: "Royal Pharmacy" }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ displayName: "Royal Pharmacy" }),
       },
       branch: {
-        findFirst: jest.fn().mockResolvedValue({ id: branchId, name: "Matale Main" }),
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: branchId, name: "Matale Main" }),
       },
       $transaction: jest.fn(),
     };

@@ -1,0 +1,45 @@
+.panel {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  background: var(--pc-card-bg);
+  padding: 1rem;
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+}
+.panel h2,
+.panel p {
+  margin: 0;
+}
+.panel p {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.scroll {
+  overflow-x: auto;
+}
+.scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.scroll th,
+.scroll td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+.scroll input {
+  width: 7.5rem;
+  padding: 0.4rem;
+  background: var(--pc-input-bg);
+  color: var(--pc-foreground);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+}
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}

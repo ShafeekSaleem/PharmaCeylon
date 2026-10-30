@@ -6,6 +6,7 @@ import {
   IsIn,
   IsInt,
   IsOptional,
+  IsObject,
   IsString,
   Matches,
   Max,
@@ -16,7 +17,9 @@ import { ONBOARDING_DEPARTMENT_GROUPS } from "../../catalog/commercial-category-
 import { SUPPORTED_CURRENCIES } from "../../common/currency.constants";
 
 /** Valid values for `sellsDepartments` — the labels the wizard shows. */
-const ONBOARDING_DEPARTMENT_LABELS = ONBOARDING_DEPARTMENT_GROUPS.map((g) => g.label);
+const ONBOARDING_DEPARTMENT_LABELS = ONBOARDING_DEPARTMENT_GROUPS.map(
+  (g) => g.label,
+);
 
 export class SaveOnboardingDraftDto {
   @IsInt() @Min(1) @Max(4) currentStep!: number;
@@ -45,6 +48,9 @@ export class SaveOnboardingDraftDto {
   @IsOptional() @IsString() @MaxLength(80) district?: string;
   @IsOptional() @IsString() @MaxLength(2) branchCountry?: string;
   @IsOptional() @IsString() @MaxLength(64) branchTimezone?: string;
+  /** W7 BranchHours document; null leaves routine hours to be configured later. */
+  @IsOptional() @IsObject() branchHours?: Record<string, unknown> | null;
+  @IsOptional() @IsInt() @Min(1) @Max(100) plannedCounterCount?: number;
   @IsOptional() @IsString() @MaxLength(6) branchPhoneCountryCode?: string;
   @IsOptional() @IsString() @MaxLength(32) branchPhone?: string;
   @IsOptional() @IsBoolean() useBusinessPhone?: boolean;

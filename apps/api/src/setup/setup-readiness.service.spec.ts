@@ -31,15 +31,21 @@ describe("SetupReadinessService", () => {
     const prisma = {
       branch: {
         findFirst: jest.fn().mockResolvedValue(branch),
-        findFirstOrThrow: jest.fn().mockResolvedValue({ setupCompletedAt: new Date() }),
+        findFirstOrThrow: jest
+          .fn()
+          .mockResolvedValue({ setupCompletedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       product: { count: jest.fn().mockResolvedValue(1) },
       stockLedger: {
-        groupBy: jest.fn().mockResolvedValue([{ batchId: "batch-1", _sum: { qtyDelta: 12 } }]),
+        groupBy: jest
+          .fn()
+          .mockResolvedValue([{ batchId: "batch-1", _sum: { qtyDelta: 12 } }]),
       },
       userBranchRole: {
-        findMany: jest.fn().mockResolvedValue([{ userId: "owner-1" }, { userId: "staff-1" }]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ userId: "owner-1" }, { userId: "staff-1" }]),
       },
       tenantSettings: {
         findUnique: jest.fn().mockResolvedValue({
@@ -54,6 +60,7 @@ describe("SetupReadinessService", () => {
           .fn()
           .mockResolvedValue([{ id: "batch-1", needsExpiryReview: false }]),
       },
+      terminalEnrollment: { count: jest.fn().mockResolvedValue(0) },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     // Catalog coverage sits in the optional block and never gates readiness — stubbed so
@@ -61,10 +68,19 @@ describe("SetupReadinessService", () => {
     const organize = {
       coverage: jest
         .fn()
-        .mockResolvedValue({ ranged: 0, categorized: 0, unplaced: 0, percent: 100 }),
+        .mockResolvedValue({
+          ranged: 0,
+          categorized: 0,
+          unplaced: 0,
+          percent: 100,
+        }),
     };
     return {
-      service: new SetupReadinessService(prisma as never, audit as never, organize as never),
+      service: new SetupReadinessService(
+        prisma as never,
+        audit as never,
+        organize as never,
+      ),
       prisma,
       audit,
     };
@@ -82,25 +98,83 @@ describe("SetupReadinessService", () => {
     expect(result.readyForSales).toBe(true);
     expect(result.completedCount).toBe(5);
     expect(result.optional.teamInvited).toBe(true);
-    expect(result.tasks.find((task) => task.key === "opening_inventory")?.complete).toBe(true);
+    expect(
+      result.tasks.find((task) => task.key === "opening_inventory")?.complete,
+    ).toBe(true);
   });
 
   it("does not treat products as opening inventory when net stock is zero", async () => {
     const { service, prisma } = setup();
-    prisma.stockLedger.groupBy.mockResolvedValue([{ batchId: "batch-1", _sum: { qtyDelta: 0 } }]);
+    prisma.stockLedger.groupBy.mockResolvedValue([
+      { batchId: "batch-1", _sum: { qtyDelta: 0 } },
+    ]);
 
     const result = await service.get(tenantId, branchId);
 
-    expect(result.tasks.find((task) => task.key === "products")?.complete).toBe(true);
-    expect(result.tasks.find((task) => task.key === "opening_inventory")?.complete).toBe(false);
+    expect(result.tasks.find((task) => task.key === "products")?.complete).toBe(
+      true,
+    );
+    expect(
+      result.tasks.find((task) => task.key === "opening_inventory")?.complete,
+    ).toBe(false);
   });
 
   it("blocks checkout until every required task is complete", async () => {
     const { service } = setup();
 
-    await expect(service.assertCanSell(tenantId, branchId)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.assertCanSell(tenantId, branchId),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+  it.each([false, true])(
+    "keeps desktop staff/test-receipt evidence pending even with old checkout confirmation and fallback=%s",
+    async (fallback) => {
+      const { service, prisma } = setup({
+        desktopPosRollout: "live",
+        posFallbackEndsAt: fallback ? new Date(Date.now() + 600000) : null,
+        plannedCounterCount: 8,
+        salesSettingsReviewedAt: new Date(),
+        openingStockConfirmedAt: new Date(),
+        checkoutPreparedAt: new Date(),
+      });
+      prisma.terminalEnrollment.count.mockResolvedValue(1);
+      const data = await service.get(tenantId, branchId);
+      expect(data.readyForSales).toBe(false);
+      expect(data.desktopSetup).toEqual({
+        enrolledCounters: 1,
+        staffPrepared: false,
+        testReceipt: false,
+      });
+      expect(data.branch.plannedCounterCount).toBe(8);
+      expect(data.tasks.find((task) => task.key === "checkout")).toMatchObject({
+        complete: false,
+        title: "Install PharmaCeylon POS and enroll your first counter",
+      });
+      expect(prisma.terminalEnrollment.count).toHaveBeenCalledWith({
+        where: {
+          tenantId,
+          branchId,
+          revokedAt: null,
+          terminal: { retiredAt: null },
+        },
+      });
+      await expect(
+        service.confirm(tenantId, branchId, "owner-1", "checkout"),
+      ).rejects.toThrow(/Desktop readiness is still pending/);
+      expect(prisma.branch.updateMany).not.toHaveBeenCalled();
+    },
+  );
+  it("does not count a counter plan as enrollment and directs live opening-stock work to staging", async () => {
+    const { service, prisma } = setup({
+      desktopPosRollout: "live",
+      plannedCounterCount: 50,
+    });
+    prisma.stockLedger.groupBy.mockResolvedValue([]);
+    const data = await service.get(tenantId, branchId);
+    expect(data.desktopSetup?.enrolledCounters).toBe(0);
+    expect(
+      data.tasks.find((task) => task.key === "opening_inventory"),
+    ).toMatchObject({ complete: false, href: "/products/import?mode=stage" });
   });
 
   it("persists explicit settings confirmation and writes an audit event", async () => {
@@ -109,10 +183,14 @@ describe("SetupReadinessService", () => {
     await service.confirm(tenantId, branchId, "owner-1", "sales_settings");
 
     expect(prisma.branch.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { salesSettingsReviewedAt: expect.any(Date) } }),
+      expect.objectContaining({
+        data: { salesSettingsReviewedAt: expect.any(Date) },
+      }),
     );
     expect(audit.log).toHaveBeenCalledWith(
-      expect.objectContaining({ eventName: "onboarding.sales_settings_confirmed" }),
+      expect.objectContaining({
+        eventName: "onboarding.sales_settings_confirmed",
+      }),
     );
   });
 
@@ -131,24 +209,40 @@ describe("SetupReadinessService", () => {
         teamInvited: false,
         logoAdded: false,
         catalogOrganized: true,
-        catalogCoverage: { ranged: 0, categorized: 0, unplaced: 0, percent: 100 },
+        catalogCoverage: {
+          ranged: 0,
+          categorized: 0,
+          unplaced: 0,
+          percent: 100,
+        },
       },
       nextTask: null,
     });
 
     const result = await service.complete(tenantId, branchId, "owner-1");
 
-    expect(result).toEqual(expect.objectContaining({
-      completed: true,
-      nextPath: "/dashboard?setup=complete",
-    }));
-    expect(prisma.branch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: branchId, tenantId, setupRequired: true, setupCompletedAt: null },
-      data: { setupRequired: false, setupCompletedAt: expect.any(Date) },
-    }));
-    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
-      eventName: "onboarding.branch_setup_completed",
-    }));
+    expect(result).toEqual(
+      expect.objectContaining({
+        completed: true,
+        nextPath: "/dashboard?setup=complete",
+      }),
+    );
+    expect(prisma.branch.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: branchId,
+          tenantId,
+          setupRequired: true,
+          setupCompletedAt: null,
+        },
+        data: { setupRequired: false, setupCompletedAt: expect.any(Date) },
+      }),
+    );
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "onboarding.branch_setup_completed",
+      }),
+    );
   });
 
   it("does not finish while required checks remain incomplete", async () => {
@@ -161,19 +255,33 @@ describe("SetupReadinessService", () => {
       percent: 80,
       tenant: { id: tenantId, name: "Royal Pharmacy", hasLogo: false },
       branch: { id: branchId, name: "Main", code: "MAIN", setupMode: "fresh" },
-      tasks: [{ key: "checkout", title: "Prepare checkout", description: "", complete: false, available: true, href: "/pos" }],
+      tasks: [
+        {
+          key: "checkout",
+          title: "Prepare checkout",
+          description: "",
+          complete: false,
+          available: true,
+          href: "/pos",
+        },
+      ],
       optional: {
         teamInvited: false,
         logoAdded: false,
         catalogOrganized: true,
-        catalogCoverage: { ranged: 0, categorized: 0, unplaced: 0, percent: 100 },
+        catalogCoverage: {
+          ranged: 0,
+          categorized: 0,
+          unplaced: 0,
+          percent: 100,
+        },
       },
       nextTask: "checkout",
     });
 
-    await expect(service.complete(tenantId, branchId, "owner-1")).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.complete(tenantId, branchId, "owner-1"),
+    ).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.branch.updateMany).not.toHaveBeenCalled();
   });
 });
@@ -216,7 +324,9 @@ describe("SetupReadinessService — setupMode routes the journey", () => {
       // Two counts now: ranged products, then whether a reference catalog exists.
       product: { count: jest.fn().mockResolvedValue(referenceCount) },
       stockLedger: { groupBy: jest.fn().mockResolvedValue([]) },
-      userBranchRole: { findMany: jest.fn().mockResolvedValue([{ userId: "owner-1" }]) },
+      userBranchRole: {
+        findMany: jest.fn().mockResolvedValue([{ userId: "owner-1" }]),
+      },
       tenantSettings: {
         findUnique: jest.fn().mockResolvedValue({
           posDefaultPaymentMethod: "cash",
@@ -233,10 +343,19 @@ describe("SetupReadinessService — setupMode routes the journey", () => {
     const organize = {
       coverage: jest
         .fn()
-        .mockResolvedValue({ ranged: 0, categorized: 0, unplaced: 0, percent: 100 }),
+        .mockResolvedValue({
+          ranged: 0,
+          categorized: 0,
+          unplaced: 0,
+          percent: 100,
+        }),
     };
     return {
-      service: new SetupReadinessService(prisma as never, audit as never, organize as never),
+      service: new SetupReadinessService(
+        prisma as never,
+        audit as never,
+        organize as never,
+      ),
       prisma,
     };
   }
@@ -274,10 +393,15 @@ describe("SetupReadinessService — setupMode routes the journey", () => {
   });
 
   it("keeps the same task keys either way, so completion tracking is unaffected", async () => {
-    const migrating = await serviceFor("migrating").service.get(tenantId, branchId);
+    const migrating = await serviceFor("migrating").service.get(
+      tenantId,
+      branchId,
+    );
     const fresh = await serviceFor("fresh").service.get(tenantId, branchId);
 
-    expect(migrating.tasks.map((t) => t.key)).toEqual(fresh.tasks.map((t) => t.key));
+    expect(migrating.tasks.map((t) => t.key)).toEqual(
+      fresh.tasks.map((t) => t.key),
+    );
     expect(migrating.totalCount).toBe(fresh.totalCount);
   });
 
@@ -331,9 +455,13 @@ describe("SetupReadinessService — opening stock is confirmed, not inferred", (
       stockLedger: {
         groupBy: jest
           .fn()
-          .mockResolvedValue([{ batchId: "batch-1", _sum: { qtyDelta: 1412 } }]),
+          .mockResolvedValue([
+            { batchId: "batch-1", _sum: { qtyDelta: 1412 } },
+          ]),
       },
-      userBranchRole: { findMany: jest.fn().mockResolvedValue([{ userId: "owner-1" }]) },
+      userBranchRole: {
+        findMany: jest.fn().mockResolvedValue([{ userId: "owner-1" }]),
+      },
       tenantSettings: {
         findUnique: jest.fn().mockResolvedValue({
           posDefaultPaymentMethod: "cash",
@@ -355,9 +483,18 @@ describe("SetupReadinessService — opening stock is confirmed, not inferred", (
     const organize = {
       coverage: jest
         .fn()
-        .mockResolvedValue({ ranged: 0, categorized: 0, unplaced: 0, percent: 100 }),
+        .mockResolvedValue({
+          ranged: 0,
+          categorized: 0,
+          unplaced: 0,
+          percent: 100,
+        }),
     };
-    return new SetupReadinessService(prisma as never, audit as never, organize as never);
+    return new SetupReadinessService(
+      prisma as never,
+      audit as never,
+      organize as never,
+    );
   }
 
   it("stays incomplete while stock is posted but unconfirmed", async () => {
@@ -381,6 +518,8 @@ describe("SetupReadinessService — opening stock is confirmed, not inferred", (
 
   it("completes once someone has confirmed it", async () => {
     const result = await serviceFor(new Date()).get(tenantId, branchId);
-    expect(result.tasks.find((t) => t.key === "opening_inventory")!.complete).toBe(true);
+    expect(
+      result.tasks.find((t) => t.key === "opening_inventory")!.complete,
+    ).toBe(true);
   });
 });

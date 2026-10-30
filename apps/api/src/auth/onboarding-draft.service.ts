@@ -6,6 +6,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SaveOnboardingDraftDto } from "./dto/save-onboarding-draft.dto";
+import { onboardingHours } from "./onboarding-hours";
 import type { VerifiedOwnerSession } from "./owner-registration.service";
 
 export type OnboardingDraft = Omit<SaveOnboardingDraftDto, "currentStep"> & {
@@ -57,6 +58,7 @@ export class OnboardingDraftService {
   }
 
   async save(registrationId: string, input: SaveOnboardingDraftDto) {
+    if (input.branchHours !== undefined) onboardingHours(input.branchHours);
     const current = await this.get(registrationId);
     const draft = compact({
       ...current.draft,
