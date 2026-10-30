@@ -699,6 +699,7 @@ function ProductImportContent({ branchId }: { branchId: string | null }) {
           branchId={branchId}
           importId={draftImportId}
           canEditCosts={permissionKeys.includes("costs.view")}
+          onChanged={() => void io.loadHistory()}
         />
       ) : null}
       {io.step === "done" && io.result && (

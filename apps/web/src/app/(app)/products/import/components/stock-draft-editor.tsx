@@ -98,6 +98,9 @@ export function StockDraftEditor({
   const groups = [...new Set(rows.map((row) => row.categoryName))];
   const pages = Math.max(1, Math.ceil(filtered.length / 25));
 
+  /** An emptied box is NaN, which validation refuses, not Number("") === 0 saved as a price. */
+  const typed = (value: string) => (value.trim() === "" ? NaN : Number(value));
+
   function edit(rowNumber: number, patch: Partial<StockDraftRow>) {
     setRows((current) =>
       current.map((row) =>
@@ -123,7 +126,7 @@ export function StockDraftEditor({
       )
     ) {
       setError(
-        "Each row needs a positive whole quantity, a batch number and non-negative prices.",
+        "Each row needs a positive whole quantity, a batch number and a cost and selling price (0 or more). Empty boxes are not saved as 0.",
       );
       return;
     }
@@ -269,10 +272,10 @@ export function StockDraftEditor({
                         min={1}
                         step={1}
                         disabled={!editable || busy || stale}
-                        value={row.qty}
+                        value={Number.isNaN(row.qty) ? "" : String(row.qty)}
                         onChange={(event) =>
                           edit(row.rowNumber, {
-                            qty: Number(event.target.value),
+                            qty: typed(event.target.value),
                           })
                         }
                       />
@@ -287,10 +290,10 @@ export function StockDraftEditor({
                           min={0}
                           step="0.01"
                           disabled={!editable || busy || stale}
-                          value={row.costPrice}
+                          value={Number.isNaN(row.costPrice) ? "" : String(row.costPrice)}
                           onChange={(event) =>
                             edit(row.rowNumber, {
-                              costPrice: Number(event.target.value),
+                              costPrice: typed(event.target.value),
                             })
                           }
                         />
@@ -303,10 +306,10 @@ export function StockDraftEditor({
                         min={0}
                         step="0.01"
                         disabled={!editable || busy || stale}
-                        value={row.sellingPrice}
+                        value={Number.isNaN(row.sellingPrice) ? "" : String(row.sellingPrice)}
                         onChange={(event) =>
                           edit(row.rowNumber, {
-                            sellingPrice: Number(event.target.value),
+                            sellingPrice: typed(event.target.value),
                           })
                         }
                       />

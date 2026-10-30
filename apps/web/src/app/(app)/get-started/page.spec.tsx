@@ -83,7 +83,7 @@ const base = {
     },
   ],
 };
-it("shows counter dependencies without a browser physical-confirm or ready-to-sell action", async () => {
+it("shows counter dependencies without a ready-to-sell action, but still confirms posted stock", async () => {
   (fetchSetupReadiness as jest.Mock).mockResolvedValue(base);
   render(<GetStartedPage />);
   expect(await screen.findByText("Counter setup pending")).toBeInTheDocument();
@@ -91,9 +91,10 @@ it("shows counter dependencies without a browser physical-confirm or ready-to-se
   expect(
     screen.getByText("Choose an offline counter — optional"),
   ).toBeInTheDocument();
+  // There is no counter-side confirmation yet; hiding this would strand the journey.
   expect(
-    screen.queryByRole("button", { name: "These are correct" }),
-  ).not.toBeInTheDocument();
+    screen.getByRole("button", { name: "These are correct" }),
+  ).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "Ready to sell" }),
   ).not.toBeInTheDocument();

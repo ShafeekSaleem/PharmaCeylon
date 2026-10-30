@@ -127,7 +127,7 @@ describe("SetupReadinessService", () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
   it.each([false, true])(
-    "keeps desktop staff/test-receipt evidence pending even with old checkout confirmation and fallback=%s",
+    "completes the live checkout step by enrolling a counter, never by an old web confirmation (fallback=%s)",
     async (fallback) => {
       const { service, prisma } = setup({
         desktopPosRollout: "live",
@@ -137,9 +137,18 @@ describe("SetupReadinessService", () => {
         openingStockConfirmedAt: new Date(),
         checkoutPreparedAt: new Date(),
       });
-      prisma.terminalEnrollment.count.mockResolvedValue(1);
-      const data = await service.get(tenantId, branchId);
+      let data = await service.get(tenantId, branchId);
       expect(data.readyForSales).toBe(false);
+      expect(data.tasks.find((task) => task.key === "checkout")).toMatchObject({
+        complete: false,
+        title: "Install PharmaCeylon POS and enroll your first counter",
+      });
+      await expect(service.assertCanSell(tenantId, branchId)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+
+      prisma.terminalEnrollment.count.mockResolvedValue(1);
+      data = await service.get(tenantId, branchId);
       expect(data.desktopSetup).toEqual({
         enrolledCounters: 1,
         staffPrepared: false,
@@ -147,9 +156,11 @@ describe("SetupReadinessService", () => {
       });
       expect(data.branch.plannedCounterCount).toBe(8);
       expect(data.tasks.find((task) => task.key === "checkout")).toMatchObject({
-        complete: false,
-        title: "Install PharmaCeylon POS and enroll your first counter",
+        complete: true,
       });
+      expect(data.readyForSales).toBe(true);
+      // A branch that went live mid-setup can still sell, web fallback included.
+      await expect(service.assertCanSell(tenantId, branchId)).resolves.toBeUndefined();
       expect(prisma.terminalEnrollment.count).toHaveBeenCalledWith({
         where: {
           tenantId,
@@ -160,7 +171,7 @@ describe("SetupReadinessService", () => {
       });
       await expect(
         service.confirm(tenantId, branchId, "owner-1", "checkout"),
-      ).rejects.toThrow(/Desktop readiness is still pending/);
+      ).rejects.toThrow(/completes when a counter is enrolled/);
       expect(prisma.branch.updateMany).not.toHaveBeenCalled();
     },
   );

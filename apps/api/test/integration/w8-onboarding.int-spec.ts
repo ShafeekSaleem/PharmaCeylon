@@ -110,7 +110,7 @@ it("provisions structured hours and a planning preference atomically without sto
   expect(replay.branchId).toBe(result.branchId);
 });
 
-it("does not let a counter plan, enrollment or an old web confirmation claim desktop readiness", async () => {
+it("completes live checkout readiness only from an active enrollment, never a plan or an old web confirmation", async () => {
   const owner = await registration();
   const result = await provisioning.complete(owner);
   await prisma.branch.update({
@@ -139,8 +139,11 @@ it("does not let a counter plan, enrollment or an old web confirmation claim des
       enrolledByUserId: result.userId,
     },
   });
+  const checkoutTask = (data: Awaited<ReturnType<typeof readiness.get>>) =>
+    data.tasks.find((task) => task.key === "checkout");
   let data = await readiness.get(result.tenantId, result.branchId);
   expect(data.readyForSales).toBe(false);
+  expect(checkoutTask(data)?.complete).toBe(true);
   expect(data.desktopSetup).toEqual({
     enrolledCounters: 1,
     staffPrepared: false,
@@ -160,6 +163,7 @@ it("does not let a counter plan, enrollment or an old web confirmation claim des
   });
   data = await readiness.get(result.tenantId, result.branchId);
   expect(data.desktopSetup?.enrolledCounters).toBe(0);
+  expect(checkoutTask(data)?.complete).toBe(false);
   expect(data.branch.plannedCounterCount).toBe(3);
 });
 

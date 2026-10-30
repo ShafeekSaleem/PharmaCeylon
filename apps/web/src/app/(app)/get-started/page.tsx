@@ -206,9 +206,11 @@ function GetStartedContent() {
               // Steps completed by an explicit decision rather than by something happening.
               // Opening stock joined them: an import posts the units, a person confirms the
               // figures match the shelves.
+              // A live branch completes checkout by enrolling a counter. Posted opening stock
+              // is still confirmed here: there is no counter confirmation yet, and hiding it
+              // would leave the journey (and assertCanSell) with no way to finish.
               const counterOnly = Boolean(
-                data.branch.desktopPosLive &&
-                (task.key === "checkout" || task.key === "opening_inventory"),
+                data.branch.desktopPosLive && task.key === "checkout",
               );
               const explicit =
                 !counterOnly &&

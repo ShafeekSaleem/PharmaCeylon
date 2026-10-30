@@ -33,12 +33,16 @@ header; keyed branch/editor state and cancelled old reads prevent cross-branch d
 saves. Current permissions remain enforced by P1 on the server.
 
 For live branches (including checkout fallback), get-started counts active, unrevoked
-enrollments on non-retired terminals. It shows staff preparation and verified test receipts as
-pending; P2 has not supplied those records. Old web-checkout confirmations cannot satisfy the
-desktop task or be reconfirmed to do so, and `readyForSales` stays false. The page offers no web
-stock-confirmation, stock-posting or ready-to-sell action for those counter steps. `not_live`
-branches retain their current web checkout readiness. No branch rollout state is changed and
-no installer link is fabricated.
+enrollments on non-retired terminals, and the checkout task is complete once at least one
+counter is enrolled. Staff preparation and verified test receipts are shown as pending facts
+but do not gate it: P2 has not supplied those records, and `assertCanSell` refuses every sale
+(web fallback included) while a setup task is incomplete, so a branch that went live mid-setup
+would otherwise be unable to sell at all. When P2 records them, they join the condition here.
+Old web-checkout confirmations cannot satisfy the desktop task or be reconfirmed to do so; the
+web confirm endpoint refuses it. Posted opening stock is still confirmed on get-started, because
+there is no counter-side confirmation yet. The page offers no web stock-posting or
+ready-to-sell action at a live branch. `not_live` branches retain their current web checkout
+readiness. No branch rollout state is changed and no installer link is fabricated.
 
 W8 remains open: real counter install/enrollment/staff/test-receipt UI, posting screens and a
 verified first desktop sale depend on W6/P2. Blank manual draft creation/product addition and

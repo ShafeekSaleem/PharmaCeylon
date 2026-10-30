@@ -204,8 +204,12 @@ export class SetupReadinessService {
         })
       : 0;
     // Old web-checkout confirmations and a planning preference never prove desktop readiness.
-    const checkoutComplete =
-      !desktopPosLive && branch.checkoutPreparedAt !== null;
+    // A live branch completes the step by enrolling a counter: staff preparation and a test
+    // receipt have no server record until P2, and gating on them would make assertCanSell
+    // refuse every sale, web fallback included, on a branch that went live mid-setup.
+    const checkoutComplete = desktopPosLive
+      ? enrolledCounters > 0
+      : branch.checkoutPreparedAt !== null;
 
     // Two different things: stock exists, and someone has agreed it is right. Only the
     // second completes the step — an import posts thousands of units in one go, and that is
@@ -372,19 +376,21 @@ export class SetupReadinessService {
     ];
 
     if (desktopPosLive) {
-      const stockTask = tasks.find((task) => task.key === "opening_inventory")!;
-      stockTask.title = stockPosted
-        ? "Confirm opening stock at the counter"
-        : "Stage and post opening stock";
-      stockTask.description = stockPosted
-        ? "Shelf checks and opening-stock confirmation happen at the counter."
-        : "Import or edit a draft on the web without changing stock, then post it at the counter in one action or by category.";
-      stockTask.href = "/products/import?mode=stage";
+      // Once stock is posted, confirming the figures stays the ordinary web confirmation.
+      if (!stockPosted) {
+        const stockTask = tasks.find(
+          (task) => task.key === "opening_inventory",
+        )!;
+        stockTask.title = "Stage and post opening stock";
+        stockTask.description =
+          "Import or edit a draft on the web without changing stock, then post it at the counter in one action or by category.";
+        stockTask.href = "/products/import?mode=stage";
+      }
       const checkoutTask = tasks.find((task) => task.key === "checkout")!;
       checkoutTask.title =
         "Install PharmaCeylon POS and enroll your first counter";
       checkoutTask.description =
-        "Desktop setup is pending: enroll a counter, prepare staff on it and print a test receipt. Existing web checkout confirmation cannot complete these checks.";
+        "Enrolling a counter completes this step. Preparing staff and printing a test receipt at the counter will be checked here once desktop support lands; web checkout confirmation does not count.";
       checkoutTask.href = "/settings/branches";
       checkoutTask.facts = [
         {
@@ -536,7 +542,7 @@ export class SetupReadinessService {
     }
     if (task === "checkout" && current.branch.desktopPosLive) {
       throw new ConflictException(
-        "Prepare staff and print a verified test receipt on an enrolled counter. Desktop readiness is still pending.",
+        "This step completes when a counter is enrolled at this branch; it cannot be confirmed on the web.",
       );
     }
     if (

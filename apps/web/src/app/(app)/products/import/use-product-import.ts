@@ -318,6 +318,7 @@ export function useProductImport(forceStage = false) {
     busy,
     error,
     history,
+    loadHistory,
     chooseFile,
     setField,
     runPreview,

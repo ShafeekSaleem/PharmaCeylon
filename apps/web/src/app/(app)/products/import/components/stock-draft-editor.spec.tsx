@@ -190,3 +190,12 @@ it("renders document-sized drafts in pages of 25 rows", async () => {
   expect(screen.getByText("Product 26")).toBeInTheDocument();
   expect(screen.queryByText("Product 1")).not.toBeInTheDocument();
 });
+it("refuses an emptied price box instead of saving it as zero", async () => {
+  open();
+  const price = await screen.findByLabelText("Selling price row 2");
+  fireEvent.change(price, { target: { value: "" } });
+  expect(price).toHaveValue(null);
+  fireEvent.click(screen.getByRole("button", { name: "Save draft changes" }));
+  expect(await screen.findByText(/Empty boxes are not saved as 0/)).toBeInTheDocument();
+  expect(api).toHaveBeenCalledTimes(1);
+});
