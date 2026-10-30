@@ -113,6 +113,9 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/purchasing/prepared-receipts/:id/cancel": "management",
   "POST /api/v1/purchasing/prepared-receipts/:id/post": "stock",
   "POST /api/v1/purchasing/payments": "supplier_payment",
+  "POST /api/v1/purchasing/payments/evidenced": "supplier_payment",
+  "POST /api/v1/purchasing/payment-evidence": "attachment",
+  "POST /api/v1/purchasing/payment-evidence/:id/revoke": "management",
   "POST /api/v1/purchasing/payments/:id/void": "supplier_payment",
   "POST /api/v1/purchasing/purchase-orders": "management",
   "PATCH /api/v1/purchasing/purchase-orders/:id": "management",
@@ -173,7 +176,8 @@ export const MUTATION_ACTIONS = Object.freeze({
   // W7 hours feed future grants only ("applies to counters after their next sync").
   "PUT /api/v1/tenant/branches/:branchId/hours": "management",
   "POST /api/v1/tenant/branches/:branchId/hours/extensions": "management",
-  "POST /api/v1/tenant/branches/:branchId/hours/extensions/:extensionId/revoke": "management",
+  "POST /api/v1/tenant/branches/:branchId/hours/extensions/:extensionId/revoke":
+    "management",
   "DELETE /api/v1/tenant/branches/:branchId/pos-rollout/fallback": "management",
   "POST /api/v1/tenant/branches/:branchId/pos-rollout/fallback": "management",
   "DELETE /api/v1/tenant/branches/:branchId/pos-rollout/live": "management",
@@ -201,9 +205,11 @@ export const MUTATION_ACTIONS = Object.freeze({
   // Revised D13 remote management: delegation and online assignment authorization only. They
   // nominate nothing; local signed activation on the exact target is a separate step.
   "POST /api/v1/terminals/offline-assignment/authorizations": "management",
-  "POST /api/v1/terminals/offline-assignment/authorizations/:authorizationId/revoke": "management",
+  "POST /api/v1/terminals/offline-assignment/authorizations/:authorizationId/revoke":
+    "management",
   "POST /api/v1/terminals/offline-assignment/delegations": "management",
-  "POST /api/v1/terminals/offline-assignment/delegations/:delegationId/revoke": "management",
+  "POST /api/v1/terminals/offline-assignment/delegations/:delegationId/revoke":
+    "management",
   "POST /api/v1/transfers": "reservation",
   "POST /api/v1/transfers/:id/approve": "reservation",
   "POST /api/v1/transfers/:id/cancel": "reservation",

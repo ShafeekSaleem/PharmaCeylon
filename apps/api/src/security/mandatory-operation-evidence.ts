@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { denied } from "../terminals/terminal-wire";
 import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
+import { SupplierPaymentEvidenceService } from "../purchasing/ledger/supplier-payment-evidence.service";
 
 /** Integration ports for server-resolved evidence. No owner/manager shortcut and no
  * caller-supplied verified booleans. Real domain providers must bind the exact command,
@@ -12,7 +13,11 @@ import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
 export class MandatoryOperationEvidence {
   /** The application module installs the real branch-hours provider (P1 MR 7). Without one —
    * a bare instance in a test or script — the hours port keeps failing closed. */
-  constructor(@Optional() private readonly hoursProvider?: OperatingHoursEvidence) {}
+  constructor(
+    @Optional() private readonly hoursProvider?: OperatingHoursEvidence,
+    @Optional()
+    private readonly paymentProvider?: SupplierPaymentEvidenceService,
+  ) {}
 
   async clinical(
     _tx: Prisma.TransactionClient,
@@ -28,8 +33,8 @@ export class MandatoryOperationEvidence {
     await this.hoursProvider.assertForCommand(tx, command);
   }
   async bankPayment(
-    _tx: Prisma.TransactionClient,
-    _context: {
+    tx: Prisma.TransactionClient,
+    context: {
       tenantId: string;
       branchId: string;
       actorUserId: string;
@@ -37,6 +42,7 @@ export class MandatoryOperationEvidence {
       body: unknown;
     },
   ): Promise<void> {
-    denied("PAYMENT_EVIDENCE_REQUIRED");
+    if (!this.paymentProvider) denied("PAYMENT_EVIDENCE_REQUIRED");
+    await this.paymentProvider.assertForContext(tx, context);
   }
 }

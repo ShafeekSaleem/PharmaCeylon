@@ -428,6 +428,7 @@ model IdempotencyRecord {
 }
 
 model Tenant {
+  supplierPaymentEvidence SupplierPaymentEvidence[]
   id                       String   @id @default(uuid()) @db.Uuid
   code                     String   @unique
   legalName                String   @map("legal_name")
@@ -476,6 +477,7 @@ model Tenant {
 }
 
 model Branch {
+  supplierPaymentEvidence SupplierPaymentEvidence[]
   id                      String    @id @default(uuid()) @db.Uuid
   tenantId                String    @map("tenant_id") @db.Uuid
   code                    String
@@ -994,6 +996,7 @@ model TenantSettings {
 }
 
 model AppUser {
+  supplierPaymentEvidence SupplierPaymentEvidence[]
   id                   String    @id @default(uuid()) @db.Uuid
   tenantId             String    @map("tenant_id") @db.Uuid
   /// Most recently selected membership. `tenantId` remains the legacy/home tenant.
@@ -1351,6 +1354,8 @@ model RolePermission {
 }
 
 model Supplier {
+  paymentEvidence SupplierPaymentEvidence[]
+  @@unique([tenantId, id])
   id                String         @id @default(uuid()) @db.Uuid
   tenantId          String         @map("tenant_id") @db.Uuid
   code              String
@@ -1509,6 +1514,8 @@ model SupplierInvoiceReceipt {
 /// month or to correct a mistake. A payment is its own record now, allocated across the
 /// invoices it settles.
 model SupplierPayment {
+  evidence SupplierPaymentEvidence?
+  @@unique([tenantId, id])
   id         String                @id @default(uuid()) @db.Uuid
   tenantId   String                @map("tenant_id") @db.Uuid
   supplierId String                @map("supplier_id") @db.Uuid
@@ -1535,6 +1542,38 @@ model SupplierPayment {
   @@index([tenantId, supplierId])
   @@index([tenantId, paidOn(sort: Desc)])
   @@map("supplier_payment")
+}
+
+/// Private supporting document bound to one exact supplier-payment record; never public media.
+model SupplierPaymentEvidence {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  supplierId        String    @map("supplier_id") @db.Uuid
+  uploadedBy        String    @map("uploaded_by") @db.Uuid
+  paymentMaterial   Json      @map("payment_material")
+  materialDigest    String    @map("material_digest") @db.VarChar(64)
+  invoiceDigest     String    @map("invoice_digest") @db.VarChar(64)
+  contentDigest     String    @map("content_digest") @db.VarChar(64)
+  mediaType         String    @map("media_type") @db.VarChar(64)
+  content           Bytes
+  createdAt         DateTime  @default(now()) @map("created_at")
+  consumedPaymentId String?   @unique @map("consumed_payment_id") @db.Uuid
+  consumedAt        DateTime? @map("consumed_at")
+  revokedAt         DateTime? @map("revoked_at")
+  revokedBy         String?   @map("revoked_by") @db.Uuid
+  revocationReason  String?   @map("revocation_reason") @db.VarChar(500)
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  branch   Branch           @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict)
+  supplier Supplier         @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  uploader AppUser          @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+  payment  SupplierPayment? @relation(fields: [tenantId, consumedPaymentId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, consumedPaymentId])
+  @@index([tenantId, branchId, createdAt])
+  @@map("supplier_payment_evidence")
 }
 
 /// How much of one payment settles one invoice.

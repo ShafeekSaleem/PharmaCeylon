@@ -10,9 +10,14 @@ not-live `/products/import/confirm` path retains a mixed/local classification; l
 imports always stage. The web uses the management `/stage` path outside known not-live branches.
 
 Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
-193, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
+200, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
 counter alerts, the two signed terminal-command routes, the four D13 assignment routes and the
-five P6 prepared-receipt routes. Exact methods, paths and source files are
+five P6 prepared-receipt routes, four refund-request routes and three supplier-payment
+evidence routes. Evidence upload is `attachment`, unused-proof revocation is `management`,
+and explicit evidence-backed recording is conditional `supplier_payment`. The provider accepts
+only bank-transfer/cheque/card material on the new recording route; cash/other and legacy
+payment/void routes retain their existing behavior until coordinated caller migration.
+Exact methods, paths and source files are
 recorded in [POS_MUTATION_ROUTES.json](POS_MUTATION_ROUTES.json).
 The inventory includes non-operational mutations to make exclusions explicit. P0 classifies
 future enforcement; existing routes are not protected by the new terminal boundary yet.

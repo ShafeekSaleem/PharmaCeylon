@@ -672,6 +672,35 @@ end to end with replay and failure rollback. API unit suite 88/1068 + new materi
 transfer slice (2026-10-29): 20 PostgreSQL suites / 320 tests, API unit 95/1132, web 44/326,
 `lint -w api` and the 193-route inventory.
 
+## Supplier-payment evidence provider (2026-10-30)
+
+The real `MandatoryOperationEvidence.bankPayment` provider now resolves private immutable
+supporting documents for the explicit online `/purchasing/payments/evidenced` adapter. Upload
+requires current `suppliers.pay`, a branch and exact bank-transfer/cheque/card payment material
+with explicit invoice allocations. Private bytes, digests, uploader and invoice material are
+retained; public image URLs and caller-provided verification flags confer no authority. This
+records evidence supplied by staff, without claiming independent bank/provider confirmation.
+
+Recording requires the same uploader's current branch permission and exact persisted material.
+Invoice locks precede evidence locks, outstanding balances are checked before writing, and
+payment/allocation/settlement, evidence consumption, idempotency and audit share a transaction.
+Final checks occur after sequence/audit/idempotency waits. One evidence record returns its
+original payment on concurrent/lost-response retries, even under a different retry key; another
+binding cannot reuse that key or document. Immutable DB history retains consumed/revoked proof.
+Unused incorrect bindings may be revoked and reuploaded; consumed proof stays with the payment.
+Cash/other are excluded, and the provider fails closed without this exact operation adapter.
+
+The existing ledger and supplier-page payment/void endpoints remain compatible. The new route
+is an explicit integration path; W5's complete attachment UI and legacy caller migration,
+local-cash adapters and coordinated physical enforcement remain outstanding. No new approval,
+two-person or mandatory evidence-expiry policy is introduced. Independent attendance, clinical
+evidence, P2 and production cutover remain deferred. Full endpoint details are in the
+[API contract](API_CONTRACT.md#private-supplier-payment-evidence-p1).
+
+Validation includes real PostgreSQL replay/concurrency, all three methods, changed bindings,
+tenant/branch/uploader isolation, immutable/revoked evidence, permission changes during invoice
+and later sequence waits, audit-failure rollback and legacy supplier-ledger regression coverage.
+
 ## Remaining P1 MRs, in order
 
 ### MR 4c: product-import stock staging and separate posting

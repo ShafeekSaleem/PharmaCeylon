@@ -108,6 +108,61 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 - Retries with the **same** key return the **same** resource (replay).
 - Reusing a key for a **different** logical operation (e.g. different PO on receive, different transfer id on ship/receive) returns **400** with a clear message—do not silently post twice.
 
+## Private supplier-payment evidence (P1)
+
+These online endpoints require `suppliers.pay`, a selected branch (`x-branch-id`) and current
+branch authority. They add an explicit evidence-backed recording path; the existing ledger
+and supplier-page payment/void endpoints keep their existing behavior until a coordinated
+client cutover. Actual branch cash remains a local physical action. This slice does not
+activate terminal or attendance enforcement.
+
+- `POST /api/v1/purchasing/payment-evidence`: multipart `file`, `evidenceId` (client UUID for
+  retry), and `payment` (JSON). The file must be a PDF, JPEG, PNG or WebP, at most 5 MB.
+  Bytes are stored privately with an immutable SHA-256 digest, uploader, tenant and branch.
+  Public upload URLs and client claims such as `verified: true` are not accepted.
+- `GET /api/v1/purchasing/payment-evidence/:id`: authorized attachment download with
+  `Cache-Control: private, no-store`; no public file URL is issued.
+- `POST /api/v1/purchasing/payment-evidence/:id/revoke`: exact body `{ "reason": "..." }`,
+  at most 500 characters. The uploader or a currently authorized tenant manager can revoke
+  unused evidence. Consumed evidence stays retained; correct the original ledger payment
+  through its normal workflow. Identical file bytes can be rebound after revoking an unused
+  incorrect upload; one active/consumed document cannot support multiple payment records.
+- `POST /api/v1/purchasing/payments/evidenced`: exact body `{ "evidenceId": "...", "payment": ... }`.
+  Accepts `Idempotency-Key` in scope `supplier_evidenced_payment`. Returns the normal payment
+  row plus `evidenceId` and `evidenceDigest`. Identical retries, including a later different key,
+  return the already linked payment without another settlement or success audit.
+
+The exact `payment` object requires all seven fields below and rejects unknown fields:
+
+```json
+{
+  "supplierId": "supplier-uuid",
+  "paidOn": "2026-10-30",
+  "amount": "25.00",
+  "method": "bank_transfer",
+  "reference": "BANK-123",
+  "notes": null,
+  "allocations": [{ "invoiceId": "invoice-uuid", "amount": "25.00" }]
+}
+```
+
+Methods are `bank_transfer`, `cheque` and `card`; `cash` and `other` are excluded. Money is
+positive decimal text with at most two decimal places. Require a nonempty reference (at most
+100 characters), `notes` as text (at most 1000 characters) or null, and 1–250 distinct explicit
+invoice allocations summing to the payment amount. No implicit oldest-due allocation is used.
+The upload response returns canonical payment material (normalized UUIDs/money/text and sorted
+allocations); use that material unchanged when recording.
+
+Upload and recording bind the supplier, method, date, amount, reference, notes and allocations
+to the exact branch invoices and their material identity/total. Recording locks invoices and
+evidence, checks current outstanding amounts, uploader ownership and live permission, then
+commits payment, allocation, settlement, document consumption, idempotency and success audit
+together. Authority and binding are rechecked after later database waits. Changed/revoked,
+wrong-tenant/branch/uploader or consumed-for-another-write evidence is refused. Reusing an
+idempotency key for another binding returns 409. Upload intake itself never settles an invoice.
+The document is an attributed supporting record; it does not assert independent bank settlement
+verification. W5 still owns the complete attachment/review UI and legacy caller migration.
+
 ## Signed terminal commands (P1, desktop contract v1)
 
 How an enrolled desktop counter executes a physical operation and recovers its original

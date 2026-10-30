@@ -7,7 +7,9 @@ export const IDEMPOTENCY_SCOPE = {
   returnComplete: "return_complete",
   saleRefundExecute: "sale_refund_execute",
   supplierPayment: "supplier_payment",
+  supplierEvidencedPayment: "supplier_evidenced_payment",
   productImport: "product_import",
 } as const;
 
-export type IdempotencyScope = (typeof IDEMPOTENCY_SCOPE)[keyof typeof IDEMPOTENCY_SCOPE];
+export type IdempotencyScope =
+  (typeof IDEMPOTENCY_SCOPE)[keyof typeof IDEMPOTENCY_SCOPE];

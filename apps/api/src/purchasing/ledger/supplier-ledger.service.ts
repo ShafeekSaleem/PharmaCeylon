@@ -954,62 +954,12 @@ export class SupplierLedgerService {
 
     try {
       const paymentId = await this.prisma.$transaction(async (tx) => {
-        const allocations = await this.placeAllocations(
+        const paymentId = await this.recordPaymentInTransaction(
           tx,
           tenantId,
-          supplier.id,
-          amount,
-          dto.allocations,
-        );
-        const paymentNo = await nextTenantDocumentNumber(
-          tx,
-          tenantId,
-          "supplier_payment",
-          "PAY-",
-        );
-        const payment = await tx.supplierPayment.create({
-          data: {
-            tenantId,
-            supplierId: supplier.id,
-            branchId,
-            paymentNo,
-            paidOn,
-            amount,
-            method: dto.method,
-            reference: dto.reference?.trim() || null,
-            notes: dto.notes?.trim() || null,
-            createdBy: userId,
-            allocations: {
-              create: allocations.map((part) => ({
-                tenantId,
-                invoiceId: part.invoiceId,
-                amount: part.amount,
-              })),
-            },
-          },
-        });
-        await refreshInvoiceSettlement(
-          tx,
-          tenantId,
-          allocations.map((part) => part.invoiceId),
-        );
-        await this.audit.log(
-          {
-            tenantId,
-            branchId,
-            actorUserId: userId,
-            eventName: "supplier_payment.recorded",
-            entityName: "supplier_payment",
-            entityId: payment.id,
-            payload: {
-              paymentNo,
-              supplierId: supplier.id,
-              amount: amount.toFixed(2),
-              method: dto.method,
-              invoices: allocations.length,
-            },
-          },
-          tx,
+          branchId,
+          userId,
+          dto,
         );
         if (idemKey) {
           await tx.idempotencyRecord.create({
@@ -1018,11 +968,11 @@ export class SupplierLedgerService {
               userId,
               scope: IDEMPOTENCY_SCOPE.supplierPayment,
               idempotencyKey: idemKey,
-              resourceId: payment.id,
+              resourceId: paymentId,
             },
           });
         }
-        return payment.id;
+        return paymentId;
       });
       return this.paymentById(tenantId, paymentId);
     } catch (e) {
@@ -1043,7 +993,91 @@ export class SupplierLedgerService {
     }
   }
 
-  private async paymentById(tenantId: string, id: string) {
+  /** Shared atomic ledger writer. Callers own authorization/evidence and the transaction. */
+  async recordPaymentInTransaction(
+    tx: Tx,
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    dto: RecordSupplierPaymentLedgerDto,
+    hooks?: {
+      before: (tx: Tx) => Promise<void>;
+      after: (tx: Tx, paymentId: string) => Promise<void>;
+      provenance: {
+        evidenceId: string;
+        evidenceDigest: string;
+        uploadedBy: string;
+      };
+    },
+  ) {
+    const amount = dec(dto.amount).toDecimalPlaces(2);
+    if (!amount.isFinite() || amount.lte(0))
+      throw new BadRequestException("Enter the amount paid");
+    const paidOn = parseDate(dto.paidOn, "Payment date");
+    const allocations = await this.placeAllocations(
+      tx,
+      tenantId,
+      dto.supplierId,
+      amount,
+      dto.allocations,
+    );
+    await hooks?.before(tx);
+    const paymentNo = await nextTenantDocumentNumber(
+      tx,
+      tenantId,
+      "supplier_payment",
+      "PAY-",
+    );
+    const payment = await tx.supplierPayment.create({
+      data: {
+        tenantId,
+        supplierId: dto.supplierId,
+        branchId,
+        paymentNo,
+        paidOn,
+        amount,
+        method: dto.method,
+        reference: dto.reference?.trim() || null,
+        notes: dto.notes?.trim() || null,
+        createdBy: userId,
+        allocations: {
+          create: allocations.map((part) => ({
+            tenantId,
+            invoiceId: part.invoiceId,
+            amount: part.amount,
+          })),
+        },
+      },
+    });
+    await refreshInvoiceSettlement(
+      tx,
+      tenantId,
+      allocations.map((part) => part.invoiceId),
+    );
+    await hooks?.after(tx, payment.id);
+    await this.audit.log(
+      {
+        tenantId,
+        branchId,
+        actorUserId: userId,
+        eventName: "supplier_payment.recorded",
+        entityName: "supplier_payment",
+        entityId: payment.id,
+        payload: {
+          paymentNo,
+          supplierId: dto.supplierId,
+          amount: amount.toFixed(2),
+          method: dto.method,
+          invoices: allocations.length,
+          ...(hooks?.provenance ?? {}),
+        },
+      },
+      tx,
+    );
+    return payment.id;
+  }
+
+  async paymentById(tenantId: string, id: string) {
     const [row] = (await this.listPaymentsByIds(tenantId, [id])) ?? [];
     if (!row) throw new NotFoundException("Payment not found");
     return row;

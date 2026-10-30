@@ -496,12 +496,27 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/purchasing/payment-evidence",
+    "source": "apps/api/src/purchasing/ledger/supplier-payment-evidence.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/payment-evidence/:id/revoke",
+    "source": "apps/api/src/purchasing/ledger/supplier-payment-evidence.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/purchasing/payments",
     "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
   },
   {
     "method": "POST",
     "path": "/api/v1/purchasing/payments/:id/void",
+    "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/purchasing/payments/evidenced",
     "source": "apps/api/src/purchasing/ledger/supplier-ledger.controller.ts"
   },
   {
