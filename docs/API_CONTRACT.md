@@ -127,6 +127,9 @@ activate terminal or attendance enforcement.
   unused evidence. Consumed evidence stays retained; correct the original ledger payment
   through its normal workflow. Identical file bytes can be rebound after revoking an unused
   incorrect upload; one active/consumed document cannot support multiple payment records.
+  This is deliberate: one proof backing two payments is how a payment gets recorded twice.
+  Where a bank statement lists several supplier payments, upload a per-payment page, extract or
+  screenshot for each one.
 - `POST /api/v1/purchasing/payments/evidenced`: exact body `{ "evidenceId": "...", "payment": ... }`.
   Accepts `Idempotency-Key` in scope `supplier_evidenced_payment`. Returns the normal payment
   row plus `evidenceId` and `evidenceDigest`. Identical retries, including a later different key,
@@ -158,7 +161,9 @@ to the exact branch invoices and their material identity/total. Recording locks 
 evidence, checks current outstanding amounts, uploader ownership and live permission, then
 commits payment, allocation, settlement, document consumption, idempotency and success audit
 together. Authority and binding are rechecked after later database waits. Changed/revoked,
-wrong-tenant/branch/uploader or consumed-for-another-write evidence is refused. Reusing an
+wrong-tenant/branch/uploader or consumed-for-another-write evidence is refused with 403
+`PAYMENT_EVIDENCE_REQUIRED` and a message naming the cause. An invoice whose number, date or
+total changed after upload makes the evidence unusable: revoke it and upload again. Reusing an
 idempotency key for another binding returns 409. Upload intake itself never settles an invoice.
 The document is an attributed supporting record; it does not assert independent bank settlement
 verification. W5 still owns the complete attachment/review UI and legacy caller migration.

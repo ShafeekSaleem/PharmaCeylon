@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma, SupplierPaymentEvidence } from "@prisma/client";
@@ -168,7 +170,9 @@ export class SupplierPaymentEvidenceService {
       });
       if (!row) throw new NotFoundException("Payment evidence not found.");
       if (digestBytes(row.content) !== row.contentDigest)
-        denied("PAYMENT_EVIDENCE_REQUIRED");
+        throw new InternalServerErrorException(
+          "This stored document failed its integrity check and cannot be downloaded.",
+        );
       await this.authorize(tx, user, branchId);
       return row;
     });
@@ -242,7 +246,10 @@ export class SupplierPaymentEvidenceService {
     context: PaymentEvidenceContext,
   ) {
     const row = await this.forRecording(tx, context);
-    if (row.consumedPaymentId) denied("PAYMENT_EVIDENCE_REQUIRED");
+    if (row.consumedPaymentId)
+      evidenceRefused(
+        "This document already backs a recorded payment. Each document supports one payment; upload the proof for this payment separately.",
+      );
   }
 
   /** Invoice locks precede evidence locks everywhere. Same evidence retries can return its
@@ -275,11 +282,16 @@ export class SupplierPaymentEvidenceService {
       row.uploadedBy !== context.actorUserId ||
       row.revokedAt ||
       row.materialDigest !== evidenceMaterialDigest(body.payment) ||
-      row.invoiceDigest !== invoiceDigest ||
       digestBytes(row.content) !== row.contentDigest ||
       evidenceMaterialDigest(row.paymentMaterial) !== row.materialDigest
     )
-      denied("PAYMENT_EVIDENCE_REQUIRED");
+      evidenceRefused(
+        "This payment document is missing, revoked, uploaded by someone else, or does not match the payment being recorded.",
+      );
+    if (row.invoiceDigest !== invoiceDigest)
+      evidenceRefused(
+        "An invoice this document covers changed after it was uploaded. Revoke the upload, then upload the document again against the current invoice.",
+      );
     const current = await this.access.resolveApprovalAuthority(
       { tenantId: context.tenantId, userId: row.uploadedBy },
       context.branchId,
@@ -303,7 +315,10 @@ export class SupplierPaymentEvidenceService {
     paymentId: string,
   ) {
     const row = await this.forRecording(tx, context, false);
-    if (row.consumedPaymentId) denied("PAYMENT_EVIDENCE_REQUIRED");
+    if (row.consumedPaymentId)
+      evidenceRefused(
+        "This document already backs a recorded payment. Each document supports one payment; upload the proof for this payment separately.",
+      );
     const payment = await tx.supplierPayment.findFirst({
       where: {
         tenantId: context.tenantId,
@@ -385,7 +400,9 @@ export class SupplierPaymentEvidenceService {
       rows.length !== ids.length ||
       rows.some((row) => row.status === "voided")
     )
-      denied("PAYMENT_EVIDENCE_REQUIRED");
+      evidenceRefused(
+        "An invoice in this payment is missing, voided, or belongs to another supplier or branch.",
+      );
     const branch = await tx.branch.findFirst({
       where: { tenantId, id: branchId },
       select: { timezone: true },
@@ -467,6 +484,11 @@ export class SupplierPaymentEvidenceService {
       );
     return { content, mediaType, contentDigest: digestBytes(content) };
   }
+}
+
+/** Same code as the evidence port's other refusals, with a message a person can act on. */
+function evidenceRefused(message: string): never {
+  throw new ForbiddenException({ code: "PAYMENT_EVIDENCE_REQUIRED", message });
 }
 
 const digestBytes = (content: Uint8Array) =>
