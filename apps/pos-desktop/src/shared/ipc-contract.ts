@@ -119,6 +119,52 @@ export const offlineCounterSchema = z.object({
 });
 export type OfflineCounterView = z.infer<typeof offlineCounterSchema>;
 
+export const catalogProductSchema = z.object({
+  productId: uuid,
+  name: z.string(),
+  sku: z.string().nullable(),
+  barcode: z.string().nullable(),
+  strength: z.string().nullable(),
+  unit: z.string().nullable(),
+  unitPrice: z.string(),
+  available: z.number().int(),
+  needsPharmacist: z.boolean(),
+});
+export type CatalogProduct = z.infer<typeof catalogProductSchema>;
+
+const money = z.string().regex(/^\d{1,9}(\.\d{1,2})?$/);
+export const tenderSchema = z.object({
+  cashAmount: money.optional(),
+  cardAmount: money.optional(),
+  cardReference: z.string().trim().max(128).optional(),
+});
+export type Tender = z.infer<typeof tenderSchema>;
+
+export const completedSaleSchema = z.object({
+  saleId: uuid,
+  invoiceNo: z.string(),
+  soldAt: z.string(),
+  subtotal: z.string(),
+  taxTotal: z.string(),
+  discountTotal: z.string(),
+  grandTotal: z.string(),
+  amountPaid: z.string(),
+  changeDue: z.string(),
+  sellerName: z.string(),
+  lines: z.array(z.object({ name: z.string(), qty: z.number().int(), unitPrice: z.string(), lineTotal: z.string() })),
+  payments: z.array(z.object({ method: z.string(), amount: z.string(), reference: z.string().nullable() })),
+});
+export type CompletedSale = z.infer<typeof completedSaleSchema>;
+
+export const checkoutDraftSchema = z.object({
+  draftId: uuid,
+  staffUserId: uuid,
+  estimatedTotal: z.string(),
+  createdAt: z.string(),
+  lineCount: z.number().int(),
+});
+export type CheckoutDraftView = z.infer<typeof checkoutDraftSchema>;
+
 export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
 export type ActionError = z.infer<typeof actionErrorSchema>;
 
@@ -170,6 +216,26 @@ export const ipcContract = {
     channel: "pos:enrollment:enroll-with-code",
     input: z.object({ branchId: uuid, code: z.string().trim().min(4).max(32), label }),
     output: result(deviceStateSchema),
+  },
+  catalog: { channel: "pos:checkout:catalog", input: noInput, output: result(z.array(catalogProductSchema)) },
+  submitCheckout: {
+    channel: "pos:checkout:submit",
+    input: z.object({
+      lines: z.array(z.object({ productId: uuid, qty: z.number().int().min(1).max(9999) })).min(1).max(200),
+      tender: tenderSchema,
+    }),
+    output: result(completedSaleSchema),
+  },
+  pendingCheckouts: { channel: "pos:checkout:pending", input: noInput, output: z.array(checkoutDraftSchema) },
+  retryCheckout: {
+    channel: "pos:checkout:retry",
+    input: z.object({ draftId: uuid }),
+    output: result(completedSaleSchema),
+  },
+  printSaleReceipt: {
+    channel: "pos:checkout:print",
+    input: z.object({ saleId: uuid, printerName: z.string().min(1).max(260) }),
+    output: printResultSchema,
   },
   confirmTestReceipt: {
     channel: "pos:printers:confirm-test-receipt",

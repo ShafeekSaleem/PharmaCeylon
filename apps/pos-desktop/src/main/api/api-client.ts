@@ -91,19 +91,23 @@ export class ApiSession {
     this.tokens = null;
   }
 
-  request<T>(method: string, path: string, opts: { body?: unknown; branchId?: string } = {}): Promise<T> {
+  request<T>(
+    method: string,
+    path: string,
+    opts: { body?: unknown; branchId?: string; headers?: Record<string, string> } = {},
+  ): Promise<T> {
     return this.send<T>(method, path, opts);
   }
 
   private async send<T>(
     method: string,
     path: string,
-    opts: { body?: unknown; branchId?: string; auth?: boolean },
+    opts: { body?: unknown; branchId?: string; auth?: boolean; headers?: Record<string, string> },
     retried = false,
   ): Promise<T> {
     const base = this.baseUrl();
     if (!base) throw new ApiError(0, "SERVER_NOT_SET", "The server address has not been set.");
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = { ...opts.headers, Accept: "application/json" };
     if (opts.body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.branchId) headers["x-branch-id"] = opts.branchId;
     if (opts.auth !== false) {

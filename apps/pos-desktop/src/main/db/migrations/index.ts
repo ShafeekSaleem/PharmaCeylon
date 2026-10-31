@@ -2,6 +2,7 @@ import type { Migration } from "../migrator";
 import { foundation } from "./0001-foundation";
 import { deviceIdentity } from "./0002-device-identity";
 import { staffCredentials } from "./0003-staff-credentials";
+import { checkoutDrafts } from "./0004-checkout-drafts";
 
 /** Append only. A released migration is never edited or reordered. */
-export const migrations: readonly Migration[] = [foundation, deviceIdentity, staffCredentials];
+export const migrations: readonly Migration[] = [foundation, deviceIdentity, staffCredentials, checkoutDrafts];

@@ -8,6 +8,7 @@ import type {
   ReadinessReport,
 } from "../../shared/ipc-contract";
 import styles from "./App.module.css";
+import { Checkout } from "./Checkout";
 import { CounterAccess } from "./CounterAccess";
 
 const API_POLL_MS = 15_000;
@@ -167,6 +168,7 @@ export function App() {
 
       <main className={styles.content}>
         {device && <CounterAccess state={device} onState={setDevice} />}
+        {device?.staffSession && !device.locked && <Checkout key={device.staffSession.workSessionId} />}
         <section className={styles.panel} aria-labelledby="readiness-heading">
           <h2 id="readiness-heading" className={styles.panelTitle}>
             Offline readiness
