@@ -630,6 +630,7 @@ model TerminalEnrollment {
   receipts         TerminalCommandReceipt[]
   sessions         TerminalStaffSession[]
   staffPreparations TerminalStaffPreparation[]
+  testReceipts     TerminalTestReceipt[]
   hoursAcknowledgements BusinessHoursAcknowledgement[]
   offlineAssignmentAuthorizations OfflineTerminalAssignmentAuthorization[]
   offlineNominations              OfflineTerminalNomination[]
@@ -722,6 +723,25 @@ model TerminalEnrollmentCode {
 
   @@index([tenantId, branchId, expiresAt])
   @@map("terminal_enrollment_code")
+}
+
+/// P2 go-live evidence (D-W1): a person at an enrolled counter printed a test receipt and confirmed
+/// it came out. Recorded through their own open staff session there.
+model TerminalTestReceipt {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  branchId      String   @map("branch_id") @db.Uuid
+  terminalId    String   @map("terminal_id") @db.Uuid
+  enrollmentId  String   @map("enrollment_id") @db.Uuid
+  keyId         String   @map("key_id") @db.VarChar(128)
+  workSessionId String   @map("work_session_id") @db.Uuid
+  confirmedBy   String   @map("confirmed_by") @db.Uuid
+  printerName   String   @map("printer_name") @db.VarChar(260)
+  confirmedAt   DateTime @default(now()) @map("confirmed_at")
+  enrollment    TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, branchId, confirmedAt])
+  @@map("terminal_test_receipt")
 }
 
 /// Short-lived server nonce and exact canonical payload; consumed in the caller's transaction.

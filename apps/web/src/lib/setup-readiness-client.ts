@@ -24,8 +24,8 @@ export type SetupReadiness = {
   };
   desktopSetup?: {
     enrolledCounters: number;
-    staffPrepared: false;
-    testReceipt: false;
+    staffPrepared: boolean;
+    testReceipt: boolean;
   };
   tasks: Array<{
     key: ReadinessTaskKey;

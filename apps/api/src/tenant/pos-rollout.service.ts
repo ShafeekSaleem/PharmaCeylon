@@ -25,6 +25,7 @@ import {
   type PosRolloutColumns,
   resolvePosRollout,
 } from "./pos-rollout";
+import { counterEvidence } from "../terminals/counter-evidence";
 
 type Tx = Prisma.TransactionClient;
 
@@ -232,7 +233,8 @@ export class PosRolloutService {
     const activeEnrollments = await client.terminalEnrollment.count({
       where: { tenantId, branchId, revokedAt: null, terminal: { retiredAt: null } },
     });
-    return buildGoLiveChecklist({ activeEnrollments });
+    const { preparedStaff, testReceipts } = await counterEvidence(client, tenantId, branchId);
+    return buildGoLiveChecklist({ activeEnrollments, preparedStaff, testReceipts });
   }
 
   private async view(client: Tx, tenantId: string, branch: BranchRow) {

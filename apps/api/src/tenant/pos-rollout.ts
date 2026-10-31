@@ -66,8 +66,9 @@ export function resolvePosRollout(row: PosRolloutColumns, now: Date = new Date()
 export const MAX_FALLBACK_HOURS = 7 * 24;
 
 /**
- * The go-live checklist (D-W1). `pending` means the check can't be made until P2's desktop POS
- * records it — nothing in the API knows yet who has prepared a counter or printed a receipt.
+ * The go-live checklist (D-W1). Every check is now backed by P2 records: an active enrollment,
+ * a person prepared on an active counter at their current PIN version, and a confirmed test
+ * receipt from an active counter. `pending` remains for callers that cannot supply a fact.
  */
 export type GoLiveCheckKey = "counter_enrolled" | "staff_prepared" | "test_receipt";
 export type GoLiveCheckStatus = "passed" | "missing" | "pending";
@@ -87,14 +88,20 @@ export function goLiveBlocked(checklist: readonly GoLiveCheck[]): boolean {
   );
 }
 
-export function buildGoLiveChecklist(facts: { activeEnrollments: number }): GoLiveCheck[] {
+export function buildGoLiveChecklist(facts: {
+  activeEnrollments: number;
+  preparedStaff?: number;
+  testReceipts?: number;
+}): GoLiveCheck[] {
+  const evidence = (count: number | undefined): GoLiveCheckStatus =>
+    count === undefined ? "pending" : count > 0 ? "passed" : "missing";
   return [
     {
       key: "counter_enrolled",
       label: "At least one counter is enrolled",
       status: facts.activeEnrollments > 0 ? "passed" : "missing",
     },
-    { key: "staff_prepared", label: "Staff are prepared on a counter", status: "pending" },
-    { key: "test_receipt", label: "A test receipt has been printed", status: "pending" },
+    { key: "staff_prepared", label: "Staff are prepared on a counter", status: evidence(facts.preparedStaff) },
+    { key: "test_receipt", label: "A test receipt has been printed", status: evidence(facts.testReceipts) },
   ];
 }

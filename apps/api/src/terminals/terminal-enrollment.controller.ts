@@ -6,6 +6,7 @@ import { RequirePermission } from "../security/decorators/require-permission.dec
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import {
   BeginTerminalEnrollmentDto,
+  ConfirmTestReceiptDto,
   CreateTerminalCounterDto,
   PrepareCounterPinDto,
   SetCounterPinDto,
@@ -146,6 +147,17 @@ export class TerminalEnrollmentController {
     @Param("workSessionId", ParseUUIDPipe) workSessionId: string,
   ) {
     return this.enrollment.endSession(user, branchId, workSessionId);
+  }
+
+  @RequirePermission(COUNTER)
+  @Post("sessions/:workSessionId/test-receipt")
+  testReceipt(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("workSessionId", ParseUUIDPipe) workSessionId: string,
+    @Body() dto: ConfirmTestReceiptDto,
+  ) {
+    return this.enrollment.recordTestReceipt(user, branchId, workSessionId, dto.printerName);
   }
 
   @RequirePermission(COUNTER)
