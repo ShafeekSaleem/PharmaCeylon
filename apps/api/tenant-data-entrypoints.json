@@ -144,6 +144,11 @@
       "reason": "Transaction-scoped advisory lock on the caller's tenant + signed enrollment id + record id only, so identical acknowledgement uploads serialize and replay the stored receipt; no data is read or written by raw SQL."
     },
     {
+      "path": "src/terminals/enrollment-codes.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one enrollment code row by the caller's tenant, branch and code id before revoking it; no data is written by raw SQL."
+    },
+    {
       "path": "src/terminals/local-attendance.verifier.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one attendance proof row by the expected tenant, branch and proof id so two operations cannot consume the same proof; no data is written by raw SQL."

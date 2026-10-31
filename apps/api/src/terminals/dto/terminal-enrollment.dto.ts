@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsString, IsUUID, Matches, MaxLength } from "class-validator";
+import { Type } from "class-transformer";
+import { IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from "class-validator";
 
 /** POST /terminals/counters */
 export class CreateTerminalCounterDto {
@@ -51,4 +52,38 @@ export class SetCounterPinDto {
 export class PrepareCounterPinDto {
   @Matches(/^\d{4,8}$/, { message: "A PIN is 4 to 8 digits." })
   pin!: string;
+}
+
+/** POST /terminals/enrollment-codes */
+export class IssueEnrollmentCodeDto {
+  @IsUUID()
+  registerId!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(5)
+  @Max(1440)
+  expiresInMinutes?: number;
+}
+
+/** POST /terminals/enrollments/code-challenge — `TerminalEnrollmentCodeChallengeRequest`. */
+export class RedeemEnrollmentCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(32)
+  code!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  keyId!: string;
+
+  @Matches(/^[0-9a-f]{64}$/)
+  publicKeyHex!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  label!: string;
 }

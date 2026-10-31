@@ -961,6 +961,16 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/enrollment-codes",
+    "source": "apps/api/src/terminals/enrollment-codes.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/enrollment-codes/:codeId/revoke",
+    "source": "apps/api/src/terminals/enrollment-codes.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminals/enrollments",
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
   },
@@ -973,6 +983,11 @@
     "method": "POST",
     "path": "/api/v1/terminals/enrollments/challenge",
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/enrollments/code-challenge",
+    "source": "apps/api/src/terminals/enrollment-codes.controller.ts"
   },
   {
     "method": "POST",

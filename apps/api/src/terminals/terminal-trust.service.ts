@@ -32,6 +32,17 @@ import {
 } from "./terminal-wire";
 
 type Tx = Prisma.TransactionClient;
+
+/** Crockford base32 without I, L, O, U: easy to read aloud and type at a counter. */
+const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export function normalizeEnrollmentCode(raw: string): string {
+  return raw.toUpperCase().replace(/[^0-9A-Z]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+}
+export function newEnrollmentCode(): { code: string; display: string } {
+  const bytes = randomBytes(10);
+  const code = Array.from(bytes, (b) => CODE_ALPHABET[b & 31]).join("");
+  return { code, display: `${code.slice(0, 5)}-${code.slice(5)}` };
+}
 type Purpose = "enrollment" | "session" | "command";
 type EvidenceIds = Pick<
   OnlineTerminalCommand<unknown>,
@@ -117,6 +128,7 @@ export class TerminalTrustService {
     branchId: string,
     purpose: Purpose,
     payload: T,
+    enrollmentCodeId: string | null = null,
   ): Promise<T> {
     const encoded = boundedCanonical(payload);
     await tx.terminalChallenge.create({
@@ -129,6 +141,7 @@ export class TerminalTrustService {
         payloadDigest: sha256(encoded),
         payload: payload as Prisma.InputJsonValue,
         expiresAt: new Date(payload.expiresAt),
+        enrollmentCodeId,
       },
     });
     return payload;
@@ -181,6 +194,82 @@ export class TerminalTrustService {
       publicKeyHex: input.publicKeyHex,
       ...this.timing(),
     });
+  }
+
+  /** P2: any branch staff member at the new computer redeems a manager's one-time code. The code
+   * fixes the counter; it is checked again and consumed when the enrollment finishes. */
+  async beginEnrollmentWithCode(
+    tx: Tx,
+    user: RequestUser,
+    branchId: string,
+    input: { code: string; keyId: string; publicKeyHex: string; label: string },
+  ): Promise<{ command: TerminalEnrollmentCommand; counterLabel: string }> {
+    await this.actor(tx, user, branchId);
+    text(input.keyId);
+    hex(input.publicKeyHex);
+    text(input.label, 120);
+    const code = await tx.terminalEnrollmentCode.findFirst({
+      where: {
+        tenantId: user.tenantId,
+        branchId,
+        codeHash: sha256(normalizeEnrollmentCode(text(input.code, 32))),
+        usedAt: null,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (!code) denied("ENROLLMENT_CODE_INVALID");
+    const counter = await this.counter(tx, user.tenantId, branchId, code.registerId, code.tillId);
+    const command = await this.challenge(
+      tx,
+      user,
+      branchId,
+      "enrollment",
+      {
+        contractVersion: 1 as const,
+        kind: "terminal_enrollment" as const,
+        identity: {
+          tenantId: user.tenantId,
+          branchId,
+          terminalId: randomUUID(),
+          enrollmentId: randomUUID(),
+          keyId: input.keyId,
+        },
+        requestedByUserId: user.userId,
+        registerId: counter.id,
+        tillId: counter.tillId,
+        label: input.label,
+        publicKeyHex: input.publicKeyHex,
+        ...this.timing(),
+      },
+      code.id,
+    );
+    return { command, counterLabel: counter.label };
+  }
+
+  /** Locks and rechecks the code a challenge was issued against; the counter must still match. */
+  private async claimableCode(
+    tx: Tx,
+    user: RequestUser,
+    branchId: string,
+    codeId: string,
+    payload: { registerId: string; tillId: string },
+  ) {
+    await tx.$queryRaw`SELECT id FROM terminal_enrollment_code WHERE tenant_id = ${user.tenantId}::uuid
+      AND branch_id = ${branchId}::uuid AND id = ${codeId}::uuid FOR UPDATE`;
+    const code = await tx.terminalEnrollmentCode.findFirst({
+      where: { tenantId: user.tenantId, branchId, id: codeId },
+    });
+    if (
+      !code ||
+      code.usedAt ||
+      code.revokedAt ||
+      code.expiresAt.getTime() <= Date.now() ||
+      code.registerId !== payload.registerId ||
+      code.tillId !== payload.tillId
+    )
+      denied("ENROLLMENT_CODE_INVALID");
+    return code;
   }
 
   private async checkChallenge(
@@ -258,7 +347,7 @@ export class TerminalTrustService {
     uuid(p.tillId);
     text(p.label, 120);
     hex(p.publicKeyHex);
-    await this.actor(tx, user, branchId, "tenant.management");
+    await this.actor(tx, user, branchId);
     if (
       identity.tenantId !== user.tenantId ||
       identity.branchId !== branchId ||
@@ -276,6 +365,11 @@ export class TerminalTrustService {
       payload,
       digest,
     );
+    // A manager enrolls directly; anyone else needs the manager's one-time code for this counter.
+    const code = challenge.enrollmentCodeId
+      ? await this.claimableCode(tx, user, branchId, challenge.enrollmentCodeId, payload)
+      : null;
+    if (!code) await this.actor(tx, user, branchId, "tenant.management");
     verifySignature(envelope, payload.publicKeyHex);
     await this.counter(
       tx,
@@ -315,6 +409,13 @@ export class TerminalTrustService {
         enrolledByUserId: user.userId,
       },
     });
+    if (code) {
+      const used = await tx.terminalEnrollmentCode.updateMany({
+        where: { tenantId: user.tenantId, branchId, id: code.id, usedAt: null, revokedAt: null },
+        data: { usedAt: new Date(), usedByUserId: user.userId, enrollmentId: enrollment.id },
+      });
+      if (used.count !== 1) denied("ENROLLMENT_CODE_INVALID");
+    }
     await this.audit.log(
       {
         tenantId: user.tenantId,
@@ -329,6 +430,8 @@ export class TerminalTrustService {
           tillId: payload.tillId,
           keyId: identity.keyId,
           attendanceId,
+          enrollmentCodeId: code?.id ?? null,
+          codeIssuedByUserId: code?.createdByUserId ?? null,
         },
       },
       tx,

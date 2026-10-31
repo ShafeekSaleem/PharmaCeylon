@@ -115,6 +115,8 @@ function SignInForm({ onState, title, hint }: Props & { title: string; hint: str
 }
 
 function EnrollPanel({ state, onState }: Props) {
+  const [mode, setMode] = useState<"code" | "counter">("code");
+  const [code, setCode] = useState("");
   const [branchId, setBranchId] = useState(state.branches[0]?.id ?? "");
   const [counters, setCounters] = useState<Counter[] | null>(null);
   const [registerId, setRegisterId] = useState("");
@@ -123,7 +125,7 @@ function EnrollPanel({ state, onState }: Props) {
   const { busy, error, run } = useAction();
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId || mode !== "counter") return;
     setCounters(null);
     setRegisterId("");
     void run(
@@ -134,7 +136,7 @@ function EnrollPanel({ state, onState }: Props) {
       },
     );
     // One load per branch choice.
-  }, [branchId]);
+  }, [branchId, mode]);
 
   function addCounter() {
     void run(
@@ -149,7 +151,8 @@ function EnrollPanel({ state, onState }: Props) {
 
   function enroll(event: FormEvent) {
     event.preventDefault();
-    void run(() => window.pos.enroll({ branchId, registerId, label }), onState);
+    if (mode === "code") void run(() => window.pos.enrollWithCode({ branchId, code, label }), onState);
+    else void run(() => window.pos.enroll({ branchId, registerId, label }), onState);
   }
 
   function signOut() {
@@ -175,9 +178,29 @@ function EnrollPanel({ state, onState }: Props) {
         Enroll this computer
       </h2>
       <p className="pc-muted">
-        Signed in as {state.operator?.fullName}. Enrolling binds this computer to one counter at one branch. Only a
-        branch manager can do this, at the computer itself.
+        Signed in as {state.operator?.fullName}. Enrolling binds this computer to one counter at one branch, and only
+        works at the computer itself.
       </p>
+      <div className={styles.actions} role="group" aria-label="How to enroll">
+        <button
+          type="button"
+          className={mode === "code" ? "pc-btn-primary-sm" : "pc-btn-outline"}
+          aria-pressed={mode === "code"}
+          onClick={() => setMode("code")}
+          disabled={busy}
+        >
+          I have an enrollment code
+        </button>
+        <button
+          type="button"
+          className={mode === "counter" ? "pc-btn-primary-sm" : "pc-btn-outline"}
+          aria-pressed={mode === "counter"}
+          onClick={() => setMode("counter")}
+          disabled={busy}
+        >
+          I am a manager
+        </button>
+      </div>
       <label className={styles.field}>
         <span>Branch</span>
         <select value={branchId} onChange={(e) => setBranchId(e.target.value)} disabled={busy}>
@@ -189,6 +212,19 @@ function EnrollPanel({ state, onState }: Props) {
           ))}
         </select>
       </label>
+      {mode === "code" ? (
+        <label className={styles.field}>
+          <span>Enrollment code from your manager</span>
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="XXXXX-XXXXX"
+            spellCheck={false}
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+      ) : (
       <fieldset className={styles.form} disabled={busy}>
         <legend className={styles.field}>Counter</legend>
         {counters === null ? (
@@ -229,12 +265,17 @@ function EnrollPanel({ state, onState }: Props) {
           </button>
         </div>
       </fieldset>
+      )}
       <label className={styles.field}>
         <span>Name for this computer</span>
         <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Front desk PC" disabled={busy} />
       </label>
       <div className={styles.actions}>
-        <button type="submit" className="pc-btn-primary-sm" disabled={busy || !registerId || !label.trim()}>
+        <button
+          type="submit"
+          className="pc-btn-primary-sm"
+          disabled={busy || !label.trim() || (mode === "code" ? code.trim().length < 4 : !registerId)}
+        >
           {busy ? "Working…" : "Enroll this computer"}
         </button>
         <button type="button" className="pc-btn-outline" onClick={signOut} disabled={busy}>

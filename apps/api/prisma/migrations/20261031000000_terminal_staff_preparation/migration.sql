@@ -21,7 +21,6 @@ CREATE UNIQUE INDEX "terminal_staff_preparation_tenant_id_enrollment_id_staff_us
 CREATE INDEX "terminal_staff_preparation_tenant_id_staff_user_id_idx" ON "terminal_staff_preparation"("tenant_id", "staff_user_id");
 
 ALTER TABLE "terminal_staff_preparation" ADD CONSTRAINT "terminal_staff_preparation_tenant_id_branch_id_terminal_id_fkey" FOREIGN KEY ("tenant_id", "branch_id", "terminal_id", "enrollment_id", "key_id") REFERENCES "terminal_enrollment"("tenant_id", "branch_id", "terminal_id", "id", "key_id") ON DELETE RESTRICT ON UPDATE RESTRICT;
-ALTER TABLE "terminal_staff_preparation" ADD CONSTRAINT "terminal_staff_preparation_staff_user_id_fkey" FOREIGN KEY ("staff_user_id") REFERENCES "app_user"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE terminal_staff_preparation ADD CONSTRAINT terminal_staff_preparation_version_check CHECK (pin_version > 0);
 
 CREATE POLICY pc_tenant_isolation ON terminal_staff_preparation

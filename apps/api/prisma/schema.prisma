@@ -651,6 +651,7 @@ model TerminalCounter {
   branch    Branch   @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   terminals OperationalTerminal[]
   sessions  TerminalStaffSession[]
+  enrollmentCodes TerminalEnrollmentCode[]
 
   @@unique([tenantId, branchId, id, tillId])
   @@unique([tenantId, tillId])
@@ -698,6 +699,31 @@ model TerminalStaffPreparation {
   @@map("terminal_staff_preparation")
 }
 
+/// P2: a one-time code a branch manager issues for one counter, so whoever is at the new computer
+/// can enroll it with their own account. Only the SHA-256 of the code is kept. Single use, short
+/// lived, revocable; consumed with the enrollment it creates.
+model TerminalEnrollmentCode {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  branchId        String    @map("branch_id") @db.Uuid
+  registerId      String    @map("register_id") @db.Uuid
+  tillId          String    @map("till_id") @db.Uuid
+  codeHash        String    @unique @map("code_hash") @db.Char(64)
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  expiresAt       DateTime  @map("expires_at")
+  usedAt          DateTime? @map("used_at")
+  usedByUserId    String?   @map("used_by_user_id") @db.Uuid
+  enrollmentId    String?   @map("enrollment_id") @db.Uuid
+  revokedAt       DateTime? @map("revoked_at")
+  revokedByUserId String?   @map("revoked_by_user_id") @db.Uuid
+  counter         TerminalCounter @relation(fields: [tenantId, branchId, registerId, tillId], references: [tenantId, branchId, id, tillId], onDelete: Restrict, onUpdate: Restrict)
+  challenges      TerminalChallenge[]
+
+  @@index([tenantId, branchId, expiresAt])
+  @@map("terminal_enrollment_code")
+}
+
 /// Short-lived server nonce and exact canonical payload; consumed in the caller's transaction.
 model TerminalChallenge {
   id            String    @id @default(uuid()) @db.Uuid
@@ -711,6 +737,10 @@ model TerminalChallenge {
   createdAt     DateTime  @default(now()) @map("created_at")
   expiresAt     DateTime  @map("expires_at")
   consumedAt    DateTime? @map("consumed_at")
+  /// Set when the challenge was issued against a one-time enrollment code (P2), which the finish
+  /// step consumes in the same transaction as the enrollment.
+  enrollmentCodeId String? @map("enrollment_code_id") @db.Uuid
+  enrollmentCode   TerminalEnrollmentCode? @relation(fields: [enrollmentCodeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   attendanceProofs TerminalAttendanceProof[]
   branch        Branch @relation(fields: [tenantId, branchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 

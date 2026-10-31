@@ -13,6 +13,7 @@ import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
 import { StaffCredentialsService } from "../../src/terminals/staff-credentials.service";
+import { EnrollmentCodesService } from "../../src/terminals/enrollment-codes.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
@@ -27,6 +28,7 @@ const access = new AccessService(prisma as never, {} as never);
 const trust = new TerminalTrustService(access, audit, new LocalAttendanceVerifier());
 const proofs = new AttendanceProofsService(prisma as never, access);
 const credentials = new StaffCredentialsService(prisma as never, trust, audit);
+const codes = new EnrollmentCodesService(prisma as never, access, trust, audit);
 const PASSWORD = "correct horse battery";
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) =>
   prisma.$transaction(run, { timeout: 15_000 });
@@ -359,5 +361,75 @@ describe("D-W5 personal PINs prepared per counter", () => {
     await expect(credentials.prepare(clerk, fx.mainBranchId, session.workSessionId, "5555")).rejects.toMatchObject({
       response: { code: "SESSION_INVALID" },
     });
+  });
+});
+
+describe("one-time enrollment codes", () => {
+  async function redeem(code: string, actor = clerk) {
+    const device = terminalDevice();
+    const keyId = randomUUID();
+    const { command, counterLabel } = await codes.redeemChallenge(actor, fx.mainBranchId, {
+      code,
+      keyId,
+      publicKeyHex: device.publicKeyHex,
+      label: "Code PC",
+    });
+    return { device, command, counterLabel };
+  }
+
+  it("lets a cashier enroll the counter a manager issued a code for, once", async () => {
+    const { id: registerId } = await counter("Code counter");
+    const issued = await codes.issue(owner, fx.mainBranchId, { registerId });
+    expect(issued.code).toMatch(/^[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/);
+    expect(issued.view.status).toBe("outstanding");
+    const stored = await prisma.terminalEnrollmentCode.findFirstOrThrow({ where: { tenantId: fx.tenantId, id: issued.view.codeId } });
+    expect(stored.codeHash).not.toContain(issued.code.replace("-", ""));
+
+    // Typed loosely at the counter: lower case and a space instead of the dash.
+    const { device, command, counterLabel } = await redeem(issued.code.toLowerCase().replace("-", " "));
+    expect(counterLabel).toBe("Code counter");
+    expect(command.registerId).toBe(registerId);
+    const proof = await record(device, attestation(command, "enrollment", clerk), clerk);
+    const identity = await tx((c) =>
+      trust.finishEnrollment(c, clerk, fx.mainBranchId, device.sign(command, command.identity.keyId), proof.proofId),
+    );
+    const enrollment = await prisma.terminalEnrollment.findFirstOrThrow({ where: { tenantId: fx.tenantId, id: identity.enrollmentId } });
+    expect(enrollment.enrolledByUserId).toBe(clerk.userId);
+    const [listed] = (await codes.list(owner, fx.mainBranchId)).filter((c) => c.codeId === issued.view.codeId);
+    expect(listed).toMatchObject({ status: "used", usedByUserId: clerk.userId, enrollmentId: identity.enrollmentId });
+
+    await expect(redeem(issued.code)).rejects.toMatchObject({ response: { code: "ENROLLMENT_CODE_INVALID" } });
+  });
+
+  it("refuses a code revoked between redeeming and finishing, and enrolls nothing", async () => {
+    const { id: registerId } = await counter("Revoked code counter");
+    const issued = await codes.issue(owner, fx.mainBranchId, { registerId, expiresInMinutes: 5 });
+    const { device, command } = await redeem(issued.code);
+    const proof = await record(device, attestation(command, "enrollment", clerk), clerk);
+    await codes.revoke(owner, fx.mainBranchId, issued.view.codeId);
+    await expect(
+      tx((c) => trust.finishEnrollment(c, clerk, fx.mainBranchId, device.sign(command, command.identity.keyId), proof.proofId)),
+    ).rejects.toMatchObject({ response: { code: "ENROLLMENT_CODE_INVALID" } });
+    expect(await prisma.operationalTerminal.count({ where: { tenantId: fx.tenantId, id: command.identity.terminalId } })).toBe(0);
+  });
+
+  it("only managers issue codes, and never for an occupied counter or at another branch", async () => {
+    const { registerId } = await enroll();
+    await expect(codes.issue(owner, fx.mainBranchId, { registerId })).rejects.toMatchObject({
+      response: { code: "COUNTER_OCCUPIED" },
+    });
+    const { id: free } = await counter("Free counter");
+    await expect(codes.issue(clerk, fx.mainBranchId, { registerId: free })).rejects.toMatchObject({
+      response: { code: "PERMISSION_DENIED" },
+    });
+    const issued = await codes.issue(owner, fx.mainBranchId, { registerId: free });
+    await expect(
+      codes.redeemChallenge(owner, fx.otherBranchId, {
+        code: issued.code,
+        keyId: randomUUID(),
+        publicKeyHex: terminalDevice().publicKeyHex,
+        label: "Elsewhere",
+      }),
+    ).rejects.toMatchObject({ response: { code: "ENROLLMENT_CODE_INVALID" } });
   });
 });

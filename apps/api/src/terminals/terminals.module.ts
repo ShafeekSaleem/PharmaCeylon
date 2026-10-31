@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { AttendanceProofsService } from "./attendance-proofs.service";
 import { BusinessHoursAcknowledgements } from "./business-hours-acknowledgements.service";
+import { EnrollmentCodesController } from "./enrollment-codes.controller";
+import { EnrollmentCodesService } from "./enrollment-codes.service";
 import { LocalAttendanceVerifier } from "./local-attendance.verifier";
 import { OfflineAssignmentController } from "./offline-assignment.controller";
 import { OfflineAssignmentService } from "./offline-assignment.service";
@@ -11,7 +13,7 @@ import { TerminalEnrollmentService } from "./terminal-enrollment.service";
 import { TerminalTrustService } from "./terminal-trust.service";
 
 @Module({
-  controllers: [OfflineAssignmentController, TerminalEnrollmentController],
+  controllers: [OfflineAssignmentController, TerminalEnrollmentController, EnrollmentCodesController],
   providers: [
     LocalAttendanceVerifier,
     TerminalTrustService,
@@ -21,6 +23,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     AttendanceProofsService,
     TerminalEnrollmentService,
     StaffCredentialsService,
+    EnrollmentCodesService,
   ],
   exports: [
     TerminalTrustService,
