@@ -249,6 +249,22 @@ describe("P2 enrollment and sessions with recorded local attendance", () => {
     ).rejects.toMatchObject({ response: { code: "LOCAL_ATTENDANCE_UNAVAILABLE" } });
   });
 
+  it("a colleague signing in at the till supersedes the previous open binding", async () => {
+    const { device, identity } = await enroll();
+    const first = await openSession(device, identity, clerk);
+    const second = await openSession(device, identity, owner);
+    const sessions = await prisma.terminalStaffSession.findMany({
+      where: { tenantId: fx.tenantId, enrollmentId: identity.enrollmentId },
+    });
+    expect(sessions.find((s) => s.id === first.workSessionId)?.closedAt).not.toBeNull();
+    expect(sessions.find((s) => s.id === second.workSessionId)?.closedAt).toBeNull();
+    expect(
+      await prisma.auditEvent.count({
+        where: { tenantId: fx.tenantId, eventName: "terminal.session_superseded", entityId: first.workSessionId },
+      }),
+    ).toBe(1);
+  });
+
   it("refuses session attestations from a revoked device", async () => {
     const { device, identity } = await enroll();
     const challenge = await tx((c) => trust.beginSession(c, clerk, fx.mainBranchId, identity));

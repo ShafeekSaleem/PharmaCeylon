@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ApiReachability, AppInfo, CheckStatus, Printer, ReadinessReport } from "../../shared/ipc-contract";
+import type {
+  ApiReachability,
+  AppInfo,
+  CheckStatus,
+  DeviceState,
+  Printer,
+  ReadinessReport,
+} from "../../shared/ipc-contract";
 import styles from "./App.module.css";
+import { CounterAccess } from "./CounterAccess";
 
 const API_POLL_MS = 15_000;
 
@@ -79,10 +87,24 @@ function PrinterTest() {
   );
 }
 
+function DevicePill({ device }: { device: DeviceState | null }) {
+  const status = device?.enrollment?.status;
+  if (status === "active")
+    return (
+      <span className={`${styles.pill} ${styles.pillOk}`}>
+        {device!.enrollment!.counterLabel} · {device!.enrollment!.branchName}
+      </span>
+    );
+  if (status === "revoked" || status === "retired")
+    return <span className={`${styles.pill} ${styles.pillDanger}`}>Counter switched off</span>;
+  return <span className={`${styles.pill} ${styles.pillWarning}`}>Device not enrolled</span>;
+}
+
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [api, setApi] = useState<ApiReachability | null>(null);
+  const [device, setDevice] = useState<DeviceState | null>(null);
 
   const refreshApi = useCallback(() => {
     window.pos
@@ -100,6 +122,10 @@ export function App() {
       .getReadiness()
       .then(setReadiness)
       .catch(() => undefined);
+    window.pos
+      .getDeviceState()
+      .then(setDevice)
+      .catch(() => undefined);
     refreshApi();
     const timer = window.setInterval(refreshApi, API_POLL_MS);
     return () => window.clearInterval(timer);
@@ -109,7 +135,7 @@ export function App() {
     <div className={styles.shell}>
       <header className={styles.topBar}>
         <span className={styles.brand}>Curalio POS</span>
-        <span className={`${styles.pill} ${styles.pillWarning}`}>Device not activated</span>
+        <DevicePill device={device} />
         <span className={styles.spacer} />
         <span
           className={`${styles.pill} ${api === null ? "" : api.reachable ? styles.pillOk : styles.pillDanger}`}
@@ -121,6 +147,7 @@ export function App() {
       </header>
 
       <main className={styles.content}>
+        {device && <CounterAccess state={device} onState={setDevice} />}
         <section className={styles.panel} aria-labelledby="readiness-heading">
           <h2 id="readiness-heading" className={styles.panelTitle}>
             Offline readiness

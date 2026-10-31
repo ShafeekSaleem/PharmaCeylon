@@ -154,7 +154,8 @@
   font-weight: 600;
 }
 
-.field select {
+.field select,
+.field input {
   height: 36px;
   padding: 0 8px;
   background: var(--pc-input-bg);
@@ -165,7 +166,8 @@
   font-weight: 400;
 }
 
-.field select:focus-visible {
+.field select:focus-visible,
+.field input:focus-visible {
   outline: 2px solid var(--pc-ring);
   outline-offset: 1px;
 }
@@ -178,4 +180,62 @@
 .resultFailed {
   color: var(--pc-danger);
   font-weight: 600;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.counterList {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.counterOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-sm);
+  font-size: 0.875rem;
+}
+
+.counterOption[aria-disabled="true"] {
+  color: var(--pc-muted-fg);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.facts dt {
+  color: var(--pc-muted-fg);
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.wide {
+  grid-column: 1 / -1;
 }

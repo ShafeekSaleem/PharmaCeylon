@@ -56,6 +56,66 @@ export const printResultSchema = z.object({
 });
 export type PrintResult = z.infer<typeof printResultSchema>;
 
+const uuid = z.string().uuid();
+
+export const branchSchema = z.object({ id: uuid, code: z.string(), name: z.string() });
+export type Branch = z.infer<typeof branchSchema>;
+
+export const counterSchema = z.object({
+  registerId: uuid,
+  tillId: uuid,
+  label: z.string(),
+  isActive: z.boolean(),
+  terminal: z
+    .object({
+      terminalId: uuid,
+      label: z.string(),
+      enrollmentId: uuid.nullable(),
+      enrolledAt: z.number().nullable(),
+    })
+    .nullable(),
+});
+export type Counter = z.infer<typeof counterSchema>;
+
+/** What the renderer may know about this counter. Never keys, tokens, proofs or signatures. */
+export const deviceStateSchema = z.object({
+  serverUrl: z.string().nullable(),
+  serverUrlEditable: z.boolean(),
+  enrollment: z
+    .object({
+      status: z.enum(["pending", "active", "revoked", "retired"]),
+      branchName: z.string(),
+      counterLabel: z.string(),
+      label: z.string(),
+      terminalId: uuid,
+      enrollmentId: uuid,
+      enrolledAt: z.string().nullable(),
+    })
+    .nullable(),
+  operator: z.object({ userId: uuid, fullName: z.string(), email: z.string() }).nullable(),
+  staffSession: z
+    .object({ workSessionId: uuid, staffUserId: uuid, staffName: z.string(), openedAt: z.string() })
+    .nullable(),
+  branches: z.array(branchSchema),
+  windowsSession: z.object({ protocol: z.enum(["console", "rdp", "unknown"]), remoteSession: z.boolean() }),
+});
+export type DeviceState = z.infer<typeof deviceStateSchema>;
+
+export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
+export type ActionError = z.infer<typeof actionErrorSchema>;
+
+/** Actions report refusals as data so the person at the counter sees why, not a generic error. */
+function result<T extends z.ZodTypeAny>(value: T) {
+  return z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), value }),
+    z.object({ ok: z.literal(false), error: actionErrorSchema }),
+  ]);
+}
+export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: ActionError };
+
+const credentials = z.object({ email: z.string().trim().min(3).max(254), password: z.string().min(1).max(256) });
+const label = z.string().trim().min(1).max(120);
+
 const noInput = z.undefined();
 
 export const ipcContract = {
@@ -67,6 +127,30 @@ export const ipcContract = {
     channel: "pos:printers:test-receipt",
     input: z.object({ printerName: z.string().min(1).max(260) }),
     output: printResultSchema,
+  },
+  getDeviceState: { channel: "pos:device:state", input: noInput, output: deviceStateSchema },
+  setServerUrl: {
+    channel: "pos:device:server-url",
+    input: z.object({ url: z.string().trim().min(1).max(2048) }),
+    output: result(deviceStateSchema),
+  },
+  signIn: { channel: "pos:auth:sign-in", input: credentials, output: result(deviceStateSchema) },
+  signOut: { channel: "pos:auth:sign-out", input: noInput, output: result(deviceStateSchema) },
+  refreshEnrollment: { channel: "pos:device:refresh", input: noInput, output: result(deviceStateSchema) },
+  listCounters: {
+    channel: "pos:enrollment:counters",
+    input: z.object({ branchId: uuid }),
+    output: result(z.array(counterSchema)),
+  },
+  createCounter: {
+    channel: "pos:enrollment:create-counter",
+    input: z.object({ branchId: uuid, label }),
+    output: result(counterSchema),
+  },
+  enroll: {
+    channel: "pos:enrollment:enroll",
+    input: z.object({ branchId: uuid, registerId: uuid, label }),
+    output: result(deviceStateSchema),
   },
 } as const;
 
