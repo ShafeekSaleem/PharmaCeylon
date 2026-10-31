@@ -6,6 +6,7 @@ import {
 import { AuditService } from "../audit/audit.service";
 import { ProductOrganizeService } from "../products/product-organize.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { counterEvidence } from "../terminals/counter-evidence";
 
 export type ReadinessTaskKey =
   | "business_branch"
@@ -35,11 +36,11 @@ export type SetupReadiness = {
     desktopPosLive?: boolean;
     plannedCounterCount?: number;
   };
-  /** Honest placeholders until P2 persists prepared staff and a verified test receipt. */
+  /** P2 records: prepared staff at their current PIN and a confirmed test receipt, on active counters. */
   desktopSetup?: {
     enrolledCounters: number;
-    staffPrepared: false;
-    testReceipt: false;
+    staffPrepared: boolean;
+    testReceipt: boolean;
   };
   tasks: Array<{
     key: ReadinessTaskKey;
@@ -203,6 +204,9 @@ export class SetupReadinessService {
           },
         })
       : 0;
+    const desktopEvidence = desktopPosLive
+      ? await counterEvidence(this.prisma, tenantId, branchId)
+      : { preparedStaff: 0, testReceipts: 0 };
     // Old web-checkout confirmations and a planning preference never prove desktop readiness.
     // A live branch completes the step by enrolling a counter: staff preparation and a test
     // receipt have no server record until P2, and gating on them would make assertCanSell
@@ -440,8 +444,8 @@ export class SetupReadinessService {
         ? {
             desktopSetup: {
               enrolledCounters,
-              staffPrepared: false as const,
-              testReceipt: false as const,
+              staffPrepared: desktopEvidence.preparedStaff > 0,
+              testReceipt: desktopEvidence.testReceipts > 0,
             },
           }
         : {}),

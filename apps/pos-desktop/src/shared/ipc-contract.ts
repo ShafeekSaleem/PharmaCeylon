@@ -171,6 +171,11 @@ export const ipcContract = {
     input: z.object({ branchId: uuid, code: z.string().trim().min(4).max(32), label }),
     output: result(deviceStateSchema),
   },
+  confirmTestReceipt: {
+    channel: "pos:printers:confirm-test-receipt",
+    input: z.object({ printerName: z.string().min(1).max(260) }),
+    output: result(z.object({ confirmedAt: z.string() })),
+  },
   offlineCounter: { channel: "pos:offline:status", input: noInput, output: result(offlineCounterSchema) },
   activateOffline: {
     channel: "pos:offline:activate",

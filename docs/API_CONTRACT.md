@@ -440,6 +440,7 @@ transaction. Nothing here nominates an offline terminal, issues a grant or opens
 | `POST /terminals/sessions/challenge` | `terminal.execute` | `{ identity }` → `TerminalSessionCommand` |
 | `POST /terminals/sessions` | `terminal.execute` | `{ envelope, attendanceProofId }` → `WorkSessionIdentity` |
 | `POST /terminals/sessions/:workSessionId/end` | `terminal.execute` | 204; deauthorizes the binding, not a cash close |
+| `POST /terminals/sessions/:workSessionId/test-receipt` | `terminal.execute` | `{ printerName }` → `{ testReceiptId, confirmedAt }`; go-live evidence that a test receipt printed here |
 | `GET /terminals/sessions/:workSessionId/credential` | `terminal.execute` | `TerminalStaffCredentialView` for the caller's own open session |
 | `POST /terminals/sessions/:workSessionId/pin` | `terminal.execute` | `{ pin, password }` → `TerminalStaffCredentialView`; sets/changes the caller's PIN |
 | `POST /terminals/sessions/:workSessionId/prepare` | `terminal.execute` | `{ pin }` → `TerminalStaffCredentialView`; prepares this counter |

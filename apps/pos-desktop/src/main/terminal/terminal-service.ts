@@ -385,6 +385,17 @@ export class TerminalService {
     return this.recordAttendance(this.requireKey(), command, "command", user, device.identity.branchId);
   }
 
+  /** Go-live evidence: the signed-in person confirms the test receipt came out of this printer. */
+  async confirmTestReceipt(printerName: string): Promise<{ confirmedAt: string }> {
+    const { staff, device } = this.requireStaff();
+    const result = await this.deps.api.request<{ testReceiptId: string; confirmedAt: number }>(
+      "POST",
+      `/terminals/sessions/${staff.workSessionId}/test-receipt`,
+      { branchId: device.identity.branchId, body: { printerName } },
+    );
+    return { confirmedAt: new Date(result.confirmedAt).toISOString() };
+  }
+
   /** Whether this counter is the branch's offline counter, or has an authorization waiting. */
   async offlineCounter(): Promise<OfflineCounterView> {
     const { device } = this.requireStaff();

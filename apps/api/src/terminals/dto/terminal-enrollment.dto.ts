@@ -54,6 +54,14 @@ export class PrepareCounterPinDto {
   pin!: string;
 }
 
+/** POST /terminals/sessions/:id/test-receipt */
+export class ConfirmTestReceiptDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(260)
+  printerName!: string;
+}
+
 /** POST /terminals/enrollment-codes */
 export class IssueEnrollmentCodeDto {
   @IsUUID()

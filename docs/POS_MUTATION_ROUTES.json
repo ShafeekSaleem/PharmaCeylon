@@ -1041,6 +1041,11 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/sessions/:workSessionId/test-receipt",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminals/sessions/challenge",
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
   },

@@ -112,6 +112,15 @@ describe("go-live checklist", () => {
     });
   });
 
+  it("passes or misses staff preparation and test receipt from P2 evidence", () => {
+    const missing = buildGoLiveChecklist({ activeEnrollments: 1, preparedStaff: 0, testReceipts: 0 });
+    expect(missing.map((c) => c.status)).toEqual(["passed", "missing", "missing"]);
+    expect(goLiveBlocked(missing)).toBe(true);
+    const passed = buildGoLiveChecklist({ activeEnrollments: 1, preparedStaff: 2, testReceipts: 1 });
+    expect(passed.map((c) => c.status)).toEqual(["passed", "passed", "passed"]);
+    expect(goLiveBlocked(passed)).toBe(false);
+  });
+
   it("reports the checks P2 records as pending, and pending blocks going live", () => {
     const checklist = buildGoLiveChecklist({ activeEnrollments: 1 });
     expect(checklist.filter((check) => check.status === "pending").map((c) => c.key)).toEqual([
@@ -134,6 +143,9 @@ describe("PosRolloutService", () => {
   let prisma: {
     branch: { findFirst: jest.Mock; updateMany: jest.Mock };
     terminalEnrollment: { count: jest.Mock };
+    terminalStaffPreparation: { findMany: jest.Mock };
+    terminalTestReceipt: { count: jest.Mock };
+    appUser: { findMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let audit: { log: jest.Mock };
@@ -145,6 +157,9 @@ describe("PosRolloutService", () => {
     prisma = {
       branch: { findFirst: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       terminalEnrollment: { count: jest.fn().mockResolvedValue(1) },
+      terminalStaffPreparation: { findMany: jest.fn().mockResolvedValue([]) },
+      terminalTestReceipt: { count: jest.fn().mockResolvedValue(0) },
+      appUser: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     audit = { log: jest.fn().mockResolvedValue(undefined) };

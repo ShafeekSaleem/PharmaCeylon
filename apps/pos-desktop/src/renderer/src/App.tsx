@@ -19,11 +19,22 @@ const STATUS_LABEL: Record<CheckStatus, string> = {
   not_ready: "Not set up",
 };
 
-function PrinterTest() {
+function PrinterTest({ signedIn }: { signedIn: boolean }) {
   const [printers, setPrinters] = useState<Printer[] | null>(null);
   const [selected, setSelected] = useState("");
   const [printing, setPrinting] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [printed, setPrinted] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<string | null>(null);
+
+  async function confirm() {
+    if (!printed) return;
+    const result = await window.pos.confirmTestReceipt({ printerName: printed }).catch(() => null);
+    if (result?.ok) {
+      setConfirmed(result.value.confirmedAt);
+      setPrinted(null);
+    } else setMessage({ ok: false, text: result && !result.ok ? result.error.message : "Could not record it." });
+  }
 
   useEffect(() => {
     window.pos
@@ -45,6 +56,7 @@ function PrinterTest() {
           ? { ok: true, text: "Sent to the printer. Check that the receipt came out." }
           : { ok: false, text: result.error ?? "The test receipt did not print." },
       );
+      setPrinted(result.ok ? selected : null);
     } catch {
       setMessage({ ok: false, text: "The test receipt did not print." });
     } finally {
@@ -83,6 +95,13 @@ function PrinterTest() {
           {message.text}
         </p>
       )}
+      {printed && signedIn && (
+        <button type="button" className="pc-btn-outline" onClick={() => void confirm()}>
+          Yes, the receipt came out
+        </button>
+      )}
+      {printed && !signedIn && <p className="pc-muted">Sign in to record that the test receipt printed.</p>}
+      {confirmed && <p className={styles.resultOk}>Recorded for the branch go-live checklist.</p>}
     </section>
   );
 }
@@ -172,7 +191,7 @@ export function App() {
           </ul>
         </section>
 
-        <PrinterTest />
+        <PrinterTest signedIn={Boolean(device?.staffSession) && !device?.locked} />
       </main>
     </div>
   );

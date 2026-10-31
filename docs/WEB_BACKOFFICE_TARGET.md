@@ -60,11 +60,11 @@ deliver it; W1's foundation is built (see "Built in W1"), the rest is not yet.
   (`branch.pos_rollout_live`, `branch.pos_rollout_not_live`, `branch.pos_fallback_started`,
   `branch.pos_fallback_extended`, `branch.pos_fallback_ended`). A fallback lasts at most 7 days
   per start.
-- Go-live checklist: at least one active enrollment on a terminal that isn't retired is checked
-  now. Staff prepared on a counter and a printed test receipt are reported as `pending` until P2
-  records them, and Shafeek decided on 2026-10-27 that pending items block going live, so no
-  branch can go live before P2. Refusals carry `code: "GO_LIVE_CHECKLIST_INCOMPLETE"` and the
-  checklist.
+- Go-live checklist: at least one active enrollment on a terminal that isn't retired; at least
+  one person prepared on an active counter at their current PIN version
+  (`terminal_staff_preparation`, P2); and a test receipt confirmed from an active counter
+  (`terminal_test_receipt`, P2). Missing items block going live (Shafeek, 2026-10-27). Refusals
+  carry `code: "GO_LIVE_CHECKLIST_INCOMPLETE"` and the checklist.
 - No web screen changes the switch or starts a fallback yet; W2 owns the owner fallback and the
   labelling of fallback sales.
 

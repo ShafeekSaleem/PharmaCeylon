@@ -217,6 +217,7 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/terminals/sessions/:workSessionId/end": "identity",
   "POST /api/v1/terminals/sessions/:workSessionId/pin": "identity",
   "POST /api/v1/terminals/sessions/:workSessionId/prepare": "identity",
+  "POST /api/v1/terminals/sessions/:workSessionId/test-receipt": "local_record",
   "POST /api/v1/terminals/sessions/challenge": "identity",
   // Revised D13 remote management: delegation and online assignment authorization only. They
   // nominate nothing; local signed activation on the exact target is a separate step.

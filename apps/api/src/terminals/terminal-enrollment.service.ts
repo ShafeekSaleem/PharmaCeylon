@@ -8,6 +8,7 @@ import type {
   TerminalSessionCommand,
   WorkSessionIdentity,
 } from "@pharmaceylon/shared";
+import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -34,6 +35,7 @@ export class TerminalEnrollmentService {
     private readonly access: AccessService,
     private readonly trust: TerminalTrustService,
     private readonly attendance: AttendanceProofsService,
+    private readonly audit: AuditService,
   ) {}
 
   async listCounters(user: RequestUser, branchId: string): Promise<TerminalCounterView[]> {
@@ -136,6 +138,38 @@ export class TerminalEnrollmentService {
 
   async retireTerminal(user: RequestUser, branchId: string, terminalId: string, reason: string) {
     await this.prisma.$transaction((tx) => this.trust.retireTerminal(tx, user, branchId, terminalId, reason));
+  }
+
+  /** Go-live evidence (D-W1): the signed-in person confirmed the test receipt printed here. */
+  async recordTestReceipt(user: RequestUser, branchId: string, workSessionId: string, printerName: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const { identity, session } = await this.trust.requireOpenSession(tx, user, branchId, workSessionId);
+      const row = await tx.terminalTestReceipt.create({
+        data: {
+          tenantId: user.tenantId,
+          branchId,
+          terminalId: identity.terminalId,
+          enrollmentId: identity.enrollmentId,
+          keyId: identity.keyId,
+          workSessionId: session.id,
+          confirmedBy: user.userId,
+          printerName: text(printerName, 260),
+        },
+      });
+      await this.audit.log(
+        {
+          tenantId: user.tenantId,
+          branchId,
+          actorUserId: user.userId,
+          eventName: "terminal.test_receipt_confirmed",
+          entityName: "terminal_test_receipt",
+          entityId: row.id,
+          payload: { enrollmentId: identity.enrollmentId, printerName: row.printerName },
+        },
+        tx,
+      );
+      return { testReceiptId: row.id, confirmedAt: row.confirmedAt.getTime() };
+    });
   }
 
   recordAttendance(user: RequestUser, branchId: string, raw: unknown): Promise<LocalAttendanceProofReceipt> {

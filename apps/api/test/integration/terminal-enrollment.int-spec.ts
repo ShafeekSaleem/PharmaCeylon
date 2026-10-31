@@ -14,6 +14,8 @@ import type { RequestUser } from "../../src/security/interfaces/authenticated-re
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
 import { StaffCredentialsService } from "../../src/terminals/staff-credentials.service";
 import { EnrollmentCodesService } from "../../src/terminals/enrollment-codes.service";
+import { counterEvidence } from "../../src/terminals/counter-evidence";
+import { TerminalEnrollmentService } from "../../src/terminals/terminal-enrollment.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
@@ -29,6 +31,7 @@ const trust = new TerminalTrustService(access, audit, new LocalAttendanceVerifie
 const proofs = new AttendanceProofsService(prisma as never, access);
 const credentials = new StaffCredentialsService(prisma as never, trust, audit);
 const codes = new EnrollmentCodesService(prisma as never, access, trust, audit);
+const enrollmentService = new TerminalEnrollmentService(prisma as never, access, trust, proofs, audit);
 const PASSWORD = "correct horse battery";
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) =>
   prisma.$transaction(run, { timeout: 15_000 });
@@ -431,5 +434,40 @@ describe("one-time enrollment codes", () => {
         label: "Elsewhere",
       }),
     ).rejects.toMatchObject({ response: { code: "ENROLLMENT_CODE_INVALID" } });
+  });
+});
+
+describe("go-live evidence from counters", () => {
+  it("counts people prepared at their current PIN and confirmed test receipts, on active counters only", async () => {
+    const fresh = await createTenant(prisma, "counter-evidence");
+    const saved = { fx, owner, clerk };
+    fx = fresh;
+    owner = user(fx.ownerId);
+    clerk = user(fx.clerkId);
+    try {
+      await prisma.userBranchRole.createMany({
+        data: [
+          { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.ownerId, role: RoleName.owner },
+          { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.clerkId, role: RoleName.cashier },
+        ],
+      });
+      // tenant-scope: test fixture — the cashier's login password, for PIN changes.
+      await prisma.appUser.update({ where: { id: fx.clerkId }, data: { passwordHash: await bcrypt.hash(PASSWORD, 4) } });
+      expect(await counterEvidence(prisma, fx.tenantId, fx.mainBranchId)).toEqual({ preparedStaff: 0, testReceipts: 0 });
+
+      const { device, identity } = await enroll();
+      const session = await openSession(device, identity, clerk);
+      await credentials.setPin(clerk, fx.mainBranchId, session.workSessionId, { pin: "2580", password: PASSWORD });
+      await enrollmentService.recordTestReceipt(clerk, fx.mainBranchId, session.workSessionId, "Receipt printer");
+      expect(await counterEvidence(prisma, fx.tenantId, fx.mainBranchId)).toEqual({ preparedStaff: 1, testReceipts: 1 });
+
+      // An admin PIN reset makes the preparation stale; a revoked counter's receipt stops counting.
+      // tenant-scope: test fixture — simulating the admin reset's version bump.
+      await prisma.appUser.update({ where: { id: fx.clerkId }, data: { posPinVersion: { increment: 1 } } });
+      await tx((c) => trust.revokeEnrollment(c, owner, fx.mainBranchId, identity.enrollmentId, "Replaced"));
+      expect(await counterEvidence(prisma, fx.tenantId, fx.mainBranchId)).toEqual({ preparedStaff: 0, testReceipts: 0 });
+    } finally {
+      ({ fx, owner, clerk } = saved);
+    }
   });
 });
