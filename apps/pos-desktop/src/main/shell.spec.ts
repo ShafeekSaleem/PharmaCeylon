@@ -68,6 +68,13 @@ describe("buildReadinessReport", () => {
     expect(buildReadinessReport({ ...healthy, enrollmentStatus: "active" }, new Date()).ready).toBe(false);
   });
 
+  it("reports prepared staff and unconfirmed work", () => {
+    const report = buildReadinessReport({ ...healthy, preparedStaff: 2, unconfirmed: 1 }, new Date());
+    expect(statusOf(report, "staff")).toBe("ok");
+    expect(statusOf(report, "unconfirmed")).toBe("warning");
+    expect(statusOf(buildReadinessReport(healthy, new Date()), "staff")).toBe("not_ready");
+  });
+
   it("fails the database and schema checks when the store is not usable", () => {
     const report = buildReadinessReport({ ...healthy, databaseOpen: false }, new Date());
     expect(statusOf(report, "database")).toBe("failed");

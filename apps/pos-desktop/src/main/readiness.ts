@@ -7,6 +7,10 @@ export type ReadinessFacts = {
   credentialStoreAvailable: boolean;
   /** This counter's enrollment as last confirmed with the server; null when not enrolled. */
   enrollmentStatus?: "pending" | "active" | "revoked" | "retired" | null;
+  /** People with a server-confirmed PIN verifier on this counter. */
+  preparedStaff?: number;
+  /** Sales and signed actions sent without a confirmed outcome. */
+  unconfirmed?: number;
 };
 
 const DEVICE_CHECK: Record<"none" | "pending" | "active" | "revoked" | "retired", Pick<ReadinessCheck, "status" | "detail">> = {
@@ -49,6 +53,24 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
         : "Windows credential protection is not available.",
     },
     { id: "device", label: "Device enrollment", ...DEVICE_CHECK[facts.enrollmentStatus ?? "none"] },
+    {
+      id: "staff",
+      label: "Prepared staff",
+      status: (facts.preparedStaff ?? 0) > 0 ? "ok" : "not_ready",
+      detail:
+        (facts.preparedStaff ?? 0) > 0
+          ? `${facts.preparedStaff} ${facts.preparedStaff === 1 ? "person has" : "people have"} a PIN prepared here.`
+          : "Nobody has prepared their PIN on this counter yet.",
+    },
+    {
+      id: "unconfirmed",
+      label: "Unconfirmed sales and actions",
+      status: (facts.unconfirmed ?? 0) === 0 ? "ok" : "warning",
+      detail:
+        (facts.unconfirmed ?? 0) === 0
+          ? "Every sale and action sent from here has a confirmed outcome."
+          : `${facts.unconfirmed} waiting for confirmation with the server.`,
+    },
     { id: "grant", label: "Offline permission", status: "not_ready", detail: NEEDS_ACTIVATION },
     { id: "catalogue", label: "Product catalogue", status: "not_ready", detail: NEEDS_ACTIVATION },
     { id: "receipt-numbers", label: "Receipt numbering", status: "not_ready", detail: NEEDS_ACTIVATION },

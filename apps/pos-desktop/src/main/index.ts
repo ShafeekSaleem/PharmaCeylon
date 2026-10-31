@@ -98,6 +98,14 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
             latestSchemaVersion: migrations.length,
             credentialStoreAvailable: protector.isAvailable(),
             enrollmentStatus: store ? (new DeviceStore(store.db).read()?.status ?? null) : null,
+            preparedStaff: store
+              ? (
+                  store.db
+                    .prepare("SELECT count(*) AS n FROM staff_credential WHERE enrollment_id = ?")
+                    .get(new DeviceStore(store.db).read()?.identity.enrollmentId ?? "") as { n: number }
+                ).n
+              : 0,
+            unconfirmed: (checkout?.pending().length ?? 0) + (commands?.pending().length ?? 0),
           },
           new Date(),
         ),

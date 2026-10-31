@@ -152,6 +152,15 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [refreshApi]);
 
+  // Enrolling, signing in or preparing a PIN changes what the readiness checks can see.
+  useEffect(() => {
+    if (!device) return;
+    window.pos
+      .getReadiness()
+      .then(setReadiness)
+      .catch(() => undefined);
+  }, [device]);
+
   return (
     <div className={styles.shell}>
       <header className={styles.topBar}>
