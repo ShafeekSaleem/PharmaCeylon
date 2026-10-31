@@ -184,7 +184,7 @@ describe("Terminal wire boundary", () => {
       expect(() => times(changed, now)).toThrow();
   });
 
-  it("production attendance verification denies even an owner-provided local claim", async () => {
+  it("production attendance verification denies a claim that was never recorded as a proof", async () => {
     await expect(
       new LocalAttendanceVerifier().verify(
         {} as never,

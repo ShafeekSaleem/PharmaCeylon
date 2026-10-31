@@ -175,12 +175,13 @@ result. The P2 desktop client is built against this section and the shared types
 `packages/shared/src/terminal-command-execution.ts` (`TerminalCommandPrepareRequest`,
 `TerminalCommandExecuteRequest`, `OnlineCommandReceipt`, `SignedOperationBody`,
 `SignedOperationResult`). Enrollment and staff-session binding use the existing
-`TerminalTrustService` protocol (`terminal_enrollment` / `terminal_session` challenges); their
-HTTP endpoints, PIN sign-in and the attendance provider belong to P2.
+`TerminalTrustService` protocol (`terminal_enrollment` / `terminal_session` challenges), exposed
+over HTTP by P2; see "Desktop enrollment and staff sessions" below. PIN sign-in belongs to P2.
 
-**Not active in production.** The attendance port still denies every proof
-(`LOCAL_ATTENDANCE_UNAVAILABLE`) until P2 installs the real provider. The browser routes for these
-operations are unchanged and are not yet restricted to terminals.
+**Attendance.** `attendanceProofId` must name a proof recorded through
+`POST /terminals/attendance-proofs` for this command's challenge (purpose `command`). Without one
+the server answers `LOCAL_ATTENDANCE_UNAVAILABLE`. The browser routes for these operations are
+unchanged and are not yet restricted to terminals.
 
 **Operating hours (P1 MR 7, revised D8).** After attendance, the server checks the branch's
 selling hours for operations that sell or open a shift: the structured weekly hours (W7), dated
@@ -401,6 +402,58 @@ still a delegated manager with branch management); apply D11 clearance (old gran
 sell, old journal resolved or loss reviewed, or initial nomination); then mark the authorization
 `consumed` (with the activator), upsert `offline_terminal_nomination` with `version + 1`, and audit
 authorizer and activator separately. Stale, revoked or consumed authorizations require renewal.
+
+## Desktop enrollment and staff sessions (P2)
+
+Routes under `/api/v1/terminals`, all with `x-branch-id`. Bearer auth from the desktop's main
+process (no cookie, so no CSRF). Shared types: `packages/shared/src/terminal-enrollment.ts` and
+`terminal-attendance.ts`. The route permission is a gate only: `TerminalTrustService` rechecks
+live authority, the server challenge, the device signature and the attendance proof inside one
+transaction. Nothing here nominates an offline terminal, issues a grant or opens a financial shift.
+
+| Route | Permission | Body / result |
+| --- | --- | --- |
+| `GET /terminals/counters` | `tenant.management` | `TerminalCounterView[]` — registers, tills and the terminal on each |
+| `POST /terminals/counters` | `tenant.management` | `{ label }` → `TerminalCounterView` |
+| `POST /terminals/enrollments/challenge` | `tenant.management` | `TerminalEnrollmentChallengeRequest` → `TerminalEnrollmentCommand` (two-minute challenge) |
+| `POST /terminals/enrollments` | `tenant.management` | `{ envelope, attendanceProofId }` → `TerminalIdentity` |
+| `GET /terminals/enrollments/:enrollmentId` | `terminal.execute` | `TerminalEnrollmentStatusView` (`active` / `revoked` / `retired`) |
+| `POST /terminals/enrollments/:enrollmentId/revoke` | `tenant.management` | `{ reason }` → 204; closes its staff sessions |
+| `POST /terminals/devices/:terminalId/retire` | `tenant.management` | `{ reason }` → 204; frees the counter for a replacement |
+| `POST /terminals/attendance-proofs` | `terminal.execute` | signed `LocalAttendanceAttestation` → `LocalAttendanceProofReceipt` |
+| `POST /terminals/sessions/challenge` | `terminal.execute` | `{ identity }` → `TerminalSessionCommand` |
+| `POST /terminals/sessions` | `terminal.execute` | `{ envelope, attendanceProofId }` → `WorkSessionIdentity` |
+| `POST /terminals/sessions/:workSessionId/end` | `terminal.execute` | 204; deauthorizes the binding, not a cash close |
+
+**Enrollment (v1: a manager signs in on the desktop).** The desktop generates an Ed25519 key in
+its main process, asks for a challenge for one register, signs the returned payload verbatim with
+`terminalSigningText("command", payload)`, records an attendance proof for it, then finishes. The
+signed-in user needs `tenant.management` at the branch and is recorded as the enroller. One-time
+enrollment codes issued from the web (W6) are a later, additive step.
+
+**Staff sessions.** Any staff member with branch access signs in on an enrolled desktop; the
+desktop asks for a session challenge, signs it with the enrolled key, records an attendance proof
+and finishes. One open session per till; a token-version bump (logout-all, role change) ends it.
+
+**Attendance proofs.** Desktop main builds a `LocalAttendanceAttestation` naming the purpose,
+identity, actor, register/till and the challenge's `payloadDigest` (sha256 of the challenge's
+canonical text), plus what it read from Windows about its own session, and signs it with
+`terminalSigningText("attendance", attestation)`: the candidate key for enrollment, the enrolled
+key otherwise. The server requires a live, unconsumed challenge with that digest for the same
+actor and branch, an exact identity/counter match, a valid signature and
+`windowsSession = { protocol: "console", remoteSession: false }`. Otherwise:
+`CHALLENGE_INVALID`, `IDENTITY_MISMATCH`, `INVALID_SIGNATURE`, `TERMINAL_REVOKED` or
+`REMOTE_SESSION_DENIED` (403). The proof is stored unconsumed and expires with its challenge.
+`proofId` is client-generated: an identical retry returns the same receipt; the same ID with
+different content is 409 `REPLAY_CONFLICT`. Enrollment, session and command verification consume
+it once, in their own transaction, so a failed operation leaves it usable. Freshness comes from the
+server challenge; the device's `observedAt` is recorded, not trusted.
+
+**Limits.** This is evidence that the trusted process ran in the physical console session, not
+proof that a person inspected goods. Remote Desktop is refused. Third-party remote-control tools
+(AnyDesk, TeamViewer, Chrome Remote Desktop and similar) drive the console session and are not
+detected; named staff confirmation, training and audit remain the control. A hostile local
+administrator is out of scope.
 
 ## Sales lifecycle (pilot)
 

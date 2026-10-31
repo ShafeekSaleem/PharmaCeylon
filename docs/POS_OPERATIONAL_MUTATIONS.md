@@ -144,6 +144,13 @@ authorization only — no nomination, grant, stock or cash effect, no terminal p
 the exact target is a separate local signed step (P2/P3) and will be classified with its own
 operation. Contract: [API_CONTRACT.md](API_CONTRACT.md).
 
+## P2 desktop enrollment and staff sessions
+
+`POST /terminals/counters` is `management`. The other eight routes are `identity`: enrollment
+challenge/finish, revoke, retire, attendance proofs and staff-session challenge/finish/end. They
+bind or remove a device or staff identity and move no stock, cash or grant. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#desktop-enrollment-and-staff-sessions-p2).
+
 ## P1 signed terminal commands
 
 `POST /terminal-commands/prepare` is classified `identity`: it issues a single-use command
