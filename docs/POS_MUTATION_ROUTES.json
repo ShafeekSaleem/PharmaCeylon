@@ -1006,6 +1006,16 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/sessions/:workSessionId/pin",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/sessions/:workSessionId/prepare",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminals/sessions/challenge",
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
   },

@@ -96,6 +96,9 @@ export const deviceStateSchema = z.object({
   staffSession: z
     .object({ workSessionId: uuid, staffUserId: uuid, staffName: z.string(), openedAt: z.string() })
     .nullable(),
+  /** The signed-in person's PIN on this counter; null when nobody is signed in. */
+  pin: z.object({ set: z.boolean(), prepared: z.boolean(), lockedUntil: z.string().nullable() }).nullable(),
+  locked: z.boolean(),
   branches: z.array(branchSchema),
   windowsSession: z.object({ protocol: z.enum(["console", "rdp", "unknown"]), remoteSession: z.boolean() }),
 });
@@ -115,6 +118,7 @@ export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: Actio
 
 const credentials = z.object({ email: z.string().trim().min(3).max(254), password: z.string().min(1).max(256) });
 const label = z.string().trim().min(1).max(120);
+const pin = z.string().regex(/^\d{4,8}$/);
 
 const noInput = z.undefined();
 
@@ -147,6 +151,14 @@ export const ipcContract = {
     input: z.object({ branchId: uuid, label }),
     output: result(counterSchema),
   },
+  setPin: {
+    channel: "pos:staff:set-pin",
+    input: z.object({ pin, password: z.string().min(1).max(256) }),
+    output: result(deviceStateSchema),
+  },
+  preparePin: { channel: "pos:staff:prepare-pin", input: z.object({ pin }), output: result(deviceStateSchema) },
+  lock: { channel: "pos:staff:lock", input: noInput, output: result(deviceStateSchema) },
+  unlock: { channel: "pos:staff:unlock", input: z.object({ pin }), output: result(deviceStateSchema) },
   enroll: {
     channel: "pos:enrollment:enroll",
     input: z.object({ branchId: uuid, registerId: uuid, label }),

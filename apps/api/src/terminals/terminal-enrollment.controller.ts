@@ -7,8 +7,11 @@ import { RequestUser } from "../security/interfaces/authenticated-request.interf
 import {
   BeginTerminalEnrollmentDto,
   CreateTerminalCounterDto,
+  PrepareCounterPinDto,
+  SetCounterPinDto,
   TerminalReasonDto,
 } from "./dto/terminal-enrollment.dto";
+import { StaffCredentialsService } from "./staff-credentials.service";
 import { TerminalEnrollmentService } from "./terminal-enrollment.service";
 
 const MANAGE = "tenant.management";
@@ -22,7 +25,10 @@ const COUNTER = "terminal.execute";
 @ApiTags("terminals")
 @Controller("terminals")
 export class TerminalEnrollmentController {
-  constructor(private readonly enrollment: TerminalEnrollmentService) {}
+  constructor(
+    private readonly enrollment: TerminalEnrollmentService,
+    private readonly credentials: StaffCredentialsService,
+  ) {}
 
   @RequirePermission(MANAGE)
   @Get("counters")
@@ -140,5 +146,39 @@ export class TerminalEnrollmentController {
     @Param("workSessionId", ParseUUIDPipe) workSessionId: string,
   ) {
     return this.enrollment.endSession(user, branchId, workSessionId);
+  }
+
+  @RequirePermission(COUNTER)
+  @Get("sessions/:workSessionId/credential")
+  credential(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("workSessionId", ParseUUIDPipe) workSessionId: string,
+  ) {
+    return this.credentials.credential(user, branchId, workSessionId);
+  }
+
+  @RequirePermission(COUNTER)
+  @Post("sessions/:workSessionId/pin")
+  @HttpCode(200)
+  setPin(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("workSessionId", ParseUUIDPipe) workSessionId: string,
+    @Body() dto: SetCounterPinDto,
+  ) {
+    return this.credentials.setPin(user, branchId, workSessionId, { pin: dto.pin, password: dto.password });
+  }
+
+  @RequirePermission(COUNTER)
+  @Post("sessions/:workSessionId/prepare")
+  @HttpCode(200)
+  prepare(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("workSessionId", ParseUUIDPipe) workSessionId: string,
+    @Body() dto: PrepareCounterPinDto,
+  ) {
+    return this.credentials.prepare(user, branchId, workSessionId, dto.pin);
   }
 }

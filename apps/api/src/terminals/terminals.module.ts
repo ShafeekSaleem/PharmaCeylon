@@ -5,6 +5,7 @@ import { LocalAttendanceVerifier } from "./local-attendance.verifier";
 import { OfflineAssignmentController } from "./offline-assignment.controller";
 import { OfflineAssignmentService } from "./offline-assignment.service";
 import { OperatingHoursEvidence } from "./operating-hours.evidence";
+import { StaffCredentialsService } from "./staff-credentials.service";
 import { TerminalEnrollmentController } from "./terminal-enrollment.controller";
 import { TerminalEnrollmentService } from "./terminal-enrollment.service";
 import { TerminalTrustService } from "./terminal-trust.service";
@@ -19,6 +20,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     OfflineAssignmentService,
     AttendanceProofsService,
     TerminalEnrollmentService,
+    StaffCredentialsService,
   ],
   exports: [
     TerminalTrustService,

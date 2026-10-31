@@ -44,3 +44,13 @@ export type TerminalEnrollmentStatusView = Readonly<{
   label: string;
   status: "active" | "revoked" | "retired";
 }>;
+
+/** D-W5: GET `/terminals/sessions/:workSessionId/credential` (and the PIN set/prepare results).
+ * The counter is prepared when `preparedVersion === pinVersion`; a PIN change makes it stale. */
+export type TerminalStaffCredentialView = Readonly<{
+  pinSet: boolean;
+  pinVersion: number;
+  /** Epoch ms while wrong PIN attempts have locked the PIN; otherwise null. */
+  lockedUntil: number | null;
+  preparedVersion: number | null;
+}>;

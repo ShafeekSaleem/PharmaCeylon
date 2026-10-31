@@ -246,9 +246,149 @@ function EnrollPanel({ state, onState }: Props) {
   );
 }
 
+function PinField({ label, value, onChange, disabled }: { label: string; value: string; onChange: (v: string) => void; disabled: boolean }) {
+  return (
+    <label className={styles.field}>
+      <span>{label}</span>
+      <input
+        type="password"
+        inputMode="numeric"
+        autoComplete="off"
+        maxLength={8}
+        value={value}
+        onChange={(event) => onChange(event.target.value.replace(/\D/g, ""))}
+        disabled={disabled}
+      />
+    </label>
+  );
+}
+
+const PIN_OK = /^\d{4,8}$/;
+
+function PinSetup({ state, onState, change }: Props & { change: boolean }) {
+  const [pin, setPin] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [password, setPassword] = useState("");
+  const { busy, error, run } = useAction();
+  const mismatch = confirm.length > 0 && confirm !== pin;
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void run(
+      () => window.pos.setPin({ pin, password }),
+      (next) => {
+        setPin("");
+        setConfirm("");
+        setPassword("");
+        onState(next);
+      },
+    );
+  }
+  return (
+    <form className={styles.form} onSubmit={submit}>
+      <h3 className={styles.panelTitle}>{change ? "Change your PIN" : "Set your PIN"}</h3>
+      <p className="pc-muted">
+        One personal PIN, 4 to 8 digits, for locking this counter and for working here during an internet outage.
+        Never share it.
+      </p>
+      <PinField label="New PIN" value={pin} onChange={setPin} disabled={busy} />
+      <PinField label="Repeat the PIN" value={confirm} onChange={setConfirm} disabled={busy} />
+      <label className={styles.field}>
+        <span>Your login password</span>
+        <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={busy} />
+      </label>
+      {mismatch && <p className={styles.resultFailed}>The two PINs are different.</p>}
+      <div className={styles.actions}>
+        <button type="submit" className="pc-btn-primary-sm" disabled={busy || !PIN_OK.test(pin) || pin !== confirm || !password}>
+          Save PIN
+        </button>
+      </div>
+      <ErrorLine error={error} />
+    </form>
+  );
+}
+
+function PinPrepare({ onState }: Props) {
+  const [pin, setPin] = useState("");
+  const { busy, error, run } = useAction();
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void run(
+      () => window.pos.preparePin({ pin }),
+      (next) => {
+        setPin("");
+        onState(next);
+      },
+    );
+  }
+  return (
+    <form className={styles.form} onSubmit={submit}>
+      <h3 className={styles.panelTitle}>Prepare this counter for your PIN</h3>
+      <p className="pc-muted">Enter your PIN once here while online. This counter can then check it on its own.</p>
+      <PinField label="Your PIN" value={pin} onChange={setPin} disabled={busy} />
+      <div className={styles.actions}>
+        <button type="submit" className="pc-btn-primary-sm" disabled={busy || !PIN_OK.test(pin)}>
+          Prepare
+        </button>
+      </div>
+      <ErrorLine error={error} />
+    </form>
+  );
+}
+
+function LockScreen({ state, onState }: Props) {
+  const [pin, setPin] = useState("");
+  const [switching, setSwitching] = useState(false);
+  const { busy, error, run } = useAction();
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void run(
+      () => window.pos.unlock({ pin }),
+      (next) => {
+        setPin("");
+        onState(next);
+      },
+    );
+  }
+  if (switching)
+    return (
+      <div className={styles.form}>
+        <SignInForm
+          state={state}
+          onState={onState}
+          title="Sign in as someone else"
+          hint={`This signs ${state.staffSession?.staffName ?? "the current person"} out of this counter.`}
+        />
+        <div className={styles.actions}>
+          <button type="button" className="pc-btn-outline" onClick={() => setSwitching(false)}>
+            Back
+          </button>
+        </div>
+      </div>
+    );
+  return (
+    <form className={styles.form} onSubmit={submit}>
+      <h2 className={styles.panelTitle}>Locked</h2>
+      <p>{state.staffSession?.staffName} is signed in at this counter.</p>
+      <PinField label="PIN" value={pin} onChange={setPin} disabled={busy} />
+      <div className={styles.actions}>
+        <button type="submit" className="pc-btn-primary-sm" disabled={busy || !PIN_OK.test(pin)}>
+          Unlock
+        </button>
+        <button type="button" className="pc-btn-outline" onClick={() => setSwitching(true)} disabled={busy}>
+          Switch user
+        </button>
+      </div>
+      <ErrorLine error={error} />
+    </form>
+  );
+}
+
 function SignedIn({ state, onState }: Props) {
   const { busy, error, run } = useAction();
+  const [changing, setChanging] = useState(false);
   const session = state.staffSession!;
+  const pin = state.pin;
+  if (state.locked) return <LockScreen state={state} onState={onState} />;
   return (
     <div className={styles.form}>
       <h2 className={styles.panelTitle}>Signed in</h2>
@@ -257,8 +397,34 @@ function SignedIn({ state, onState }: Props) {
         <dd>{session.staffName}</dd>
         <dt>Since</dt>
         <dd>{new Date(session.openedAt).toLocaleTimeString()}</dd>
+        <dt>PIN</dt>
+        <dd>{!pin?.set ? "Not set" : pin.prepared ? "Ready on this counter" : "Not prepared on this counter"}</dd>
       </dl>
+      {pin?.lockedUntil && (
+        <p className={styles.resultFailed}>Your PIN is locked after wrong attempts until {new Date(pin.lockedUntil).toLocaleTimeString()}.</p>
+      )}
+      {(!pin?.set || changing) && (
+        <PinSetup
+          state={state}
+          onState={(next) => {
+            setChanging(false);
+            onState(next);
+          }}
+          change={Boolean(pin?.set)}
+        />
+      )}
+      {pin?.set && !pin.prepared && !changing && <PinPrepare state={state} onState={onState} />}
       <div className={styles.actions}>
+        {pin?.prepared && (
+          <button type="button" className="pc-btn-primary-sm" onClick={() => void run(() => window.pos.lock(), onState)} disabled={busy}>
+            Lock
+          </button>
+        )}
+        {pin?.set && !changing && (
+          <button type="button" className="pc-btn-outline" onClick={() => setChanging(true)} disabled={busy}>
+            Change PIN
+          </button>
+        )}
         <button type="button" className="pc-btn-outline" onClick={() => void run(() => window.pos.signOut(), onState)} disabled={busy}>
           Sign out
         </button>

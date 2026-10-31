@@ -16,6 +16,7 @@ import { hardenSession, hardenWebContents, mainFetch, registerAppScheme, serveRe
 import { normalizeServerUrl, readServerUrl, writeServerUrl } from "./server-url";
 import { runSmokeTest } from "./smoke";
 import { DeviceStore } from "./device/device-store";
+import { PinStore } from "./staff/pin-store";
 import { ActionFailure, explain, TerminalService } from "./terminal/terminal-service";
 import { createMainWindow } from "./window";
 
@@ -107,6 +108,8 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           enrollment: null,
           operator: null,
           staffSession: null,
+          pin: null,
+          locked: false,
           branches: [],
           windowsSession: { protocol: windows.protocol, remoteSession: windows.remoteSession },
         };
@@ -126,6 +129,10 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       createCounter: ({ branchId, label }) =>
         act(logger, "createCounter", (service) => service.createCounter(branchId, label)),
       enroll: (input) => act(logger, "enroll", (service) => service.enroll(input)),
+      setPin: ({ pin, password }) => act(logger, "setPin", (service) => service.setPin(pin, password)),
+      preparePin: ({ pin }) => act(logger, "preparePin", (service) => service.preparePin(pin)),
+      lock: () => act(logger, "lock", (service) => service.lock()),
+      unlock: ({ pin }) => act(logger, "unlock", (service) => service.unlock(pin)),
     },
     { isTrustedSender: (url) => isAppUrl(url, devServerOrigin), logger },
   );
@@ -166,6 +173,7 @@ async function start(): Promise<void> {
   const deviceStore = new DeviceStore(store.db);
   terminal = new TerminalService({
     store: deviceStore,
+    pins: new PinStore(store.db),
     // No cookie jar: the server must see a Bearer client, never a browser session.
     api: new ApiSession(currentApiBaseUrl, (url, init) => net.fetch(url, { ...init, credentials: "omit" })),
     serverUrl: currentApiBaseUrl,
