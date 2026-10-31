@@ -3,6 +3,7 @@ import type {
   LocalAttendancePurpose,
   OnlineTerminalCommand,
   TerminalCounterView,
+  TerminalEnrollmentCodeChallenge,
   TerminalEnrollmentCommand,
   TerminalEnrollmentStatusView,
   TerminalIdentity,
@@ -47,6 +48,7 @@ const MESSAGES: Record<string, string> = {
   CHALLENGE_EXPIRED: "That took too long. Try again.",
   CHALLENGE_INVALID: "That took too long. Try again.",
   CHALLENGE_USED_OR_EXPIRED: "That took too long. Try again.",
+  ENROLLMENT_CODE_INVALID: "That code is not valid here. Check it, or ask a manager for a new one.",
   NOT_SIGNED_IN: "Sign in first.",
   HTTP_401: "Your sign-in has expired. Sign in again.",
   PIN_INCORRECT: "That PIN is not right.",
@@ -285,6 +287,40 @@ export class TerminalService {
       branchId: branch.id,
       body: { registerId: counter.registerId, keyId: key.keyId, publicKeyHex: key.publicKeyHex, label: input.label },
     });
+    return this.completeEnrollment({ key, challenge, user, branch, apiBaseUrl, counterLabel: counter.label, label: input.label });
+  }
+
+  /** Enrolls with a manager's one-time code: any staff member at the computer can do this. */
+  async enrollWithCode(input: { branchId: string; code: string; label: string }): Promise<DeviceState> {
+    const user = this.requireOperator();
+    const branch = this.requireBranch(input.branchId);
+    const existing = this.deps.store.read();
+    if (existing && existing.status !== "revoked" && existing.status !== "retired")
+      throw new ActionFailure("ALREADY_ENROLLED", "This computer is already enrolled.");
+    const apiBaseUrl = this.baseUrl();
+    if (!apiBaseUrl) throw new ApiError(0, "SERVER_NOT_SET", MESSAGES.SERVER_NOT_SET!);
+    const key = DeviceKey.generate();
+    const { command, counterLabel } = await this.deps.api.request<TerminalEnrollmentCodeChallenge>(
+      "POST",
+      "/terminals/enrollments/code-challenge",
+      {
+        branchId: branch.id,
+        body: { code: input.code, keyId: key.keyId, publicKeyHex: key.publicKeyHex, label: input.label },
+      },
+    );
+    return this.completeEnrollment({ key, challenge: command, user, branch, apiBaseUrl, counterLabel, label: input.label });
+  }
+
+  private async completeEnrollment(input: {
+    key: DeviceKey;
+    challenge: TerminalEnrollmentCommand;
+    user: AuthUser;
+    branch: Branch;
+    apiBaseUrl: string;
+    counterLabel: string;
+    label: string;
+  }): Promise<DeviceState> {
+    const { key, challenge, user, branch, apiBaseUrl } = input;
     if (challenge.publicKeyHex !== key.publicKeyHex || challenge.identity.keyId !== key.keyId)
       throw new ActionFailure("CHALLENGE_INVALID", "The server returned a challenge for a different key.");
     const proof = await this.recordAttendance(key, challenge, "enrollment", user, branch.id);
@@ -296,7 +332,7 @@ export class TerminalService {
       branchName: branch.name,
       registerId: challenge.registerId,
       tillId: challenge.tillId,
-      counterLabel: counter.label,
+      counterLabel: input.counterLabel,
       label: input.label,
       key,
       enrolledByUserId: user.id,

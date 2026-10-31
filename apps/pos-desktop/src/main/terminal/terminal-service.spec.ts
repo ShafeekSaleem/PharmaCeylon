@@ -98,6 +98,11 @@ class FakeServer {
           terminal: this.occupied ? { terminalId: randomUUID(), label: "Other", enrollmentId: null, enrolledAt: null } : null,
         },
       ];
+    if (path === "/terminals/enrollments/code-challenge") {
+      if (body.code !== "ABCDE-12345") throw new ApiError(403, "ENROLLMENT_CODE_INVALID", "x");
+      const command = this.handle(method, "/terminals/enrollments/challenge", { ...body, registerId }) as TerminalEnrollmentCommand;
+      return { command, counterLabel: "Code counter" };
+    }
     if (path === "/terminals/enrollments/challenge") {
       this.challenge = {
         contractVersion: 1,
@@ -415,5 +420,18 @@ describe("TerminalService PINs and locking", () => {
     state = await terminal.signIn(cashier.email, "password");
     expect(state.pin).toMatchObject({ set: true, prepared: false });
     expect(local.db.prepare("SELECT count(*) AS n FROM staff_credential").get()).toEqual({ n: 0 });
+  });
+});
+
+describe("TerminalService enrollment codes", () => {
+  it("lets a cashier enroll with a manager's code", async () => {
+    const terminal = service();
+    await terminal.signIn(cashier.email, "password");
+    await expect(terminal.enrollWithCode({ branchId, code: "WRONG-CODE0", label: "PC" })).rejects.toMatchObject({
+      code: "ENROLLMENT_CODE_INVALID",
+    });
+    const state = await terminal.enrollWithCode({ branchId, code: "ABCDE-12345", label: "PC" });
+    expect(state.enrollment).toMatchObject({ status: "active", counterLabel: "Code counter" });
+    expect(new DeviceStore(local.db).read()?.enrolledByUserId).toBe(cashier.id);
   });
 });

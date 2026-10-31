@@ -420,6 +420,10 @@ transaction. Nothing here nominates an offline terminal, issues a grant or opens
 | `GET /terminals/enrollments/:enrollmentId` | `terminal.execute` | `TerminalEnrollmentStatusView` (`active` / `revoked` / `retired`) |
 | `POST /terminals/enrollments/:enrollmentId/revoke` | `tenant.management` | `{ reason }` → 204; closes its staff sessions |
 | `POST /terminals/devices/:terminalId/retire` | `tenant.management` | `{ reason }` → 204; frees the counter for a replacement |
+| `GET /terminals/enrollment-codes` | `tenant.management` | `TerminalEnrollmentCodeView[]` (newest 50; never the codes) |
+| `POST /terminals/enrollment-codes` | `tenant.management` | `{ registerId, expiresInMinutes? }` → `TerminalEnrollmentCodeIssued` (code shown once) |
+| `POST /terminals/enrollment-codes/:codeId/revoke` | `tenant.management` | → `TerminalEnrollmentCodeView` |
+| `POST /terminals/enrollments/code-challenge` | `terminal.execute` (throttled 10/min) | `TerminalEnrollmentCodeChallengeRequest` → `{ command, counterLabel }` |
 | `POST /terminals/attendance-proofs` | `terminal.execute` | signed `LocalAttendanceAttestation` → `LocalAttendanceProofReceipt` |
 | `POST /terminals/sessions/challenge` | `terminal.execute` | `{ identity }` → `TerminalSessionCommand` |
 | `POST /terminals/sessions` | `terminal.execute` | `{ envelope, attendanceProofId }` → `WorkSessionIdentity` |
@@ -428,11 +432,22 @@ transaction. Nothing here nominates an offline terminal, issues a grant or opens
 | `POST /terminals/sessions/:workSessionId/pin` | `terminal.execute` | `{ pin, password }` → `TerminalStaffCredentialView`; sets/changes the caller's PIN |
 | `POST /terminals/sessions/:workSessionId/prepare` | `terminal.execute` | `{ pin }` → `TerminalStaffCredentialView`; prepares this counter |
 
-**Enrollment (v1: a manager signs in on the desktop).** The desktop generates an Ed25519 key in
-its main process, asks for a challenge for one register, signs the returned payload verbatim with
-`terminalSigningText("command", payload)`, records an attendance proof for it, then finishes. The
-signed-in user needs `tenant.management` at the branch and is recorded as the enroller. One-time
-enrollment codes issued from the web (W6) are a later, additive step.
+**Enrollment.** The desktop generates an Ed25519 key in its main process, gets a challenge for one
+register, signs the returned payload verbatim with `terminalSigningText("command", payload)`,
+records an attendance proof for it, then finishes with `POST /terminals/enrollments`. Two ways to
+get the challenge:
+
+- *Manager at the computer:* `POST /terminals/enrollments/challenge`, needing `tenant.management`.
+- *Enrollment code:* a manager issues a one-time code for one free counter (web Counters screen,
+  W6, or the desktop) and any branch staff member at the computer redeems it with
+  `POST /terminals/enrollments/code-challenge`. Codes are 10 Crockford base32 characters shown as
+  `XXXXX-XXXXX` (case, spaces and dashes are ignored; O/I/L read as 0/1), stored only as SHA-256,
+  single use, revocable, expire after 5–1440 minutes (default 60) and are scoped to one branch and
+  counter. The challenge row remembers the code; finishing locks and rechecks it (unused,
+  unrevoked, unexpired, same counter) and marks it used with the new enrollment in the same
+  transaction. A bad, used, revoked or expired code is 403 `ENROLLMENT_CODE_INVALID`; a code for an
+  occupied counter cannot be issued (409 `COUNTER_OCCUPIED`). The person who finishes is recorded
+  as the enroller and the audit names the code and its issuer.
 
 **Staff sessions.** Any staff member with branch access signs in on an enrolled desktop; the
 desktop asks for a session challenge, signs it with the enrolled key, records an attendance proof

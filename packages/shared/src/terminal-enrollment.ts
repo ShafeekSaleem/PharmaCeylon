@@ -1,4 +1,5 @@
 import type { Signed, TerminalIdentity } from "./terminal-contracts";
+import type { TerminalEnrollmentCommand } from "./terminal-online-protocol";
 
 /** P2: GET/POST `/terminals/counters`. A counter is a branch register with its own till. */
 export type TerminalCounterView = Readonly<{
@@ -53,4 +54,40 @@ export type TerminalStaffCredentialView = Readonly<{
   /** Epoch ms while wrong PIN attempts have locked the PIN; otherwise null. */
   lockedUntil: number | null;
   preparedVersion: number | null;
+}>;
+
+/** P2 one-time enrollment codes (`/terminals/enrollment-codes`). The code itself is returned once,
+ * at issue; afterwards only this view exists. */
+export type TerminalEnrollmentCodeView = Readonly<{
+  codeId: string;
+  registerId: string;
+  tillId: string;
+  counterLabel: string;
+  createdByUserId: string;
+  createdAt: number;
+  expiresAt: number;
+  usedAt: number | null;
+  usedByUserId: string | null;
+  enrollmentId: string | null;
+  revokedAt: number | null;
+  status: "outstanding" | "used" | "revoked" | "expired";
+}>;
+
+/** POST `/terminals/enrollment-codes`. `expiresInMinutes` 5–1440, default 60. */
+export type TerminalEnrollmentCodeIssueRequest = Readonly<{ registerId: string; expiresInMinutes?: number }>;
+
+/** The issue response: show `code` to the manager once (formatted `XXXXX-XXXXX`). */
+export type TerminalEnrollmentCodeIssued = Readonly<{ code: string; view: TerminalEnrollmentCodeView }>;
+
+/** POST `/terminals/enrollments/code-challenge`: any branch staff member redeems a code. */
+export type TerminalEnrollmentCodeChallengeRequest = Readonly<{
+  code: string;
+  keyId: string;
+  publicKeyHex: string;
+  label: string;
+}>;
+
+export type TerminalEnrollmentCodeChallenge = Readonly<{
+  command: TerminalEnrollmentCommand;
+  counterLabel: string;
 }>;

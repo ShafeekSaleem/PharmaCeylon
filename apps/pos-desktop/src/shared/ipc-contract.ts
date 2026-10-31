@@ -151,6 +151,11 @@ export const ipcContract = {
     input: z.object({ branchId: uuid, label }),
     output: result(counterSchema),
   },
+  enrollWithCode: {
+    channel: "pos:enrollment:enroll-with-code",
+    input: z.object({ branchId: uuid, code: z.string().trim().min(4).max(32), label }),
+    output: result(deviceStateSchema),
+  },
   setPin: {
     channel: "pos:staff:set-pin",
     input: z.object({ pin, password: z.string().min(1).max(256) }),
