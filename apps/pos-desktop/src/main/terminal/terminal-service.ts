@@ -7,6 +7,7 @@ import type {
   TerminalEnrollmentStatusView,
   TerminalIdentity,
   TerminalSessionCommand,
+  TerminalStaffCredentialView,
   WindowsSessionEvidence,
   WorkSessionIdentity,
 } from "@pharmaceylon/shared";
@@ -16,9 +17,11 @@ import { buildAttestation } from "../attendance/attestation";
 import { DeviceKey } from "../device/device-key";
 import type { DeviceStore } from "../device/device-store";
 import type { Logger } from "../logging/logger";
+import type { PinStore } from "../staff/pin-store";
 
 export type TerminalServiceDeps = {
   store: DeviceStore;
+  pins: PinStore;
   api: ApiSession;
   /** The server address to use before (and for) enrollment. */
   serverUrl: () => string | null;
@@ -46,6 +49,11 @@ const MESSAGES: Record<string, string> = {
   CHALLENGE_USED_OR_EXPIRED: "That took too long. Try again.",
   NOT_SIGNED_IN: "Sign in first.",
   HTTP_401: "Your sign-in has expired. Sign in again.",
+  PIN_INCORRECT: "That PIN is not right.",
+  PIN_LOCKED: "Too many wrong PINs. Wait 15 minutes or sign in with your password.",
+  PIN_NOT_SET: "Set your PIN first.",
+  PASSWORD_INCORRECT: "Your login password is not right.",
+  LOCKED: "The counter is locked. Unlock it first.",
 };
 
 export function explain(error: unknown): ActionError {
@@ -73,6 +81,8 @@ export class ActionFailure extends Error {
  */
 export class TerminalService {
   private staff: StaffSession | null = null;
+  private credential: TerminalStaffCredentialView | null = null;
+  private locked = false;
   private branches: Branch[] = [];
   private readonly now: () => Date;
 
@@ -100,6 +110,8 @@ export class TerminalService {
         : null,
       operator: operator ? { userId: operator.id, fullName: operator.fullName, email: operator.email } : null,
       staffSession: this.staff,
+      pin: this.staff && device ? this.pinState(device.identity.enrollmentId) : null,
+      locked: this.locked,
       branches: operator && (!device || device.status !== "active") ? this.branches : [],
       windowsSession: { protocol: windows.protocol, remoteSession: windows.remoteSession },
     };
@@ -153,9 +165,90 @@ export class TerminalService {
       this.deps.store.recordSessionClosed(staff.workSessionId, reason, this.now());
     }
     this.staff = null;
+    this.credential = null;
+    this.locked = false;
     this.branches = [];
     await this.deps.api.logout();
     return this.state();
+  }
+
+  /** Sets or changes the signed-in person's own PIN, here, with their login password. */
+  async setPin(pin: string, password: string): Promise<DeviceState> {
+    const { staff, device } = this.requireStaff();
+    const credential = await this.deps.api.request<TerminalStaffCredentialView>(
+      "POST",
+      `/terminals/sessions/${staff.workSessionId}/pin`,
+      { branchId: device.identity.branchId, body: { pin, password } },
+    );
+    this.keepVerifier(staff, device.identity.enrollmentId, credential, pin);
+    return this.state();
+  }
+
+  /** Enters the PIN once here while online, so this counter can check it later without the server. */
+  async preparePin(pin: string): Promise<DeviceState> {
+    const { staff, device } = this.requireStaff();
+    const credential = await this.deps.api.request<TerminalStaffCredentialView>(
+      "POST",
+      `/terminals/sessions/${staff.workSessionId}/prepare`,
+      { branchId: device.identity.branchId, body: { pin } },
+    );
+    this.keepVerifier(staff, device.identity.enrollmentId, credential, pin);
+    return this.state();
+  }
+
+  /** Hides the counter behind the signed-in person's PIN without ending their session. */
+  lock(): DeviceState {
+    const { staff, device } = this.requireStaff(true);
+    if (this.pinState(device.identity.enrollmentId)?.prepared !== true)
+      throw new ActionFailure("PIN_NOT_PREPARED", "Prepare your PIN on this counter before locking it.");
+    this.locked = true;
+    this.deps.logger.info("terminal.locked", { workSessionId: staff.workSessionId });
+    return this.state();
+  }
+
+  /** Only the signed-in person's own PIN unlocks; anyone else signs in, which switches user. */
+  unlock(pin: string): DeviceState {
+    const { staff, device } = this.requireStaff(true);
+    const result = this.deps.pins.check(staff.staffUserId, device.identity.enrollmentId, pin, this.now());
+    if (result === "locked") throw new ActionFailure("PIN_LOCKED", MESSAGES.PIN_LOCKED!);
+    if (result === "not_prepared") throw new ActionFailure("PIN_NOT_PREPARED", "Sign out and sign in with your password.");
+    if (result === "wrong") throw new ActionFailure("PIN_INCORRECT", MESSAGES.PIN_INCORRECT!);
+    this.locked = false;
+    return this.state();
+  }
+
+  private keepVerifier(staff: StaffSession, enrollmentId: string, credential: TerminalStaffCredentialView, pin: string) {
+    this.credential = credential;
+    // Only a server-confirmed PIN at its current version becomes a local verifier.
+    if (credential.pinSet && credential.preparedVersion === credential.pinVersion)
+      this.deps.pins.save({
+        staffUserId: staff.staffUserId,
+        staffName: staff.staffName,
+        enrollmentId,
+        pinVersion: credential.pinVersion,
+        pin,
+        now: this.now(),
+      });
+  }
+
+  private pinState(enrollmentId: string): DeviceState["pin"] {
+    if (!this.staff || !this.credential) return null;
+    const local = this.deps.pins.preparedVersion(this.staff.staffUserId, enrollmentId);
+    return {
+      set: this.credential.pinSet,
+      prepared:
+        this.credential.pinSet &&
+        this.credential.preparedVersion === this.credential.pinVersion &&
+        local === this.credential.pinVersion,
+      lockedUntil: this.credential.lockedUntil === null ? null : new Date(this.credential.lockedUntil).toISOString(),
+    };
+  }
+
+  private requireStaff(allowLocked = false) {
+    const device = this.requireActive();
+    if (!this.staff) throw new ActionFailure("NOT_SIGNED_IN", MESSAGES.NOT_SIGNED_IN!);
+    if (this.locked && !allowLocked) throw new ActionFailure("LOCKED", MESSAGES.LOCKED!);
+    return { staff: this.staff, device };
   }
 
   async listCounters(branchId: string): Promise<TerminalCounterView[]> {
@@ -255,7 +348,7 @@ export class TerminalService {
   /** The signed-in staff member, their open session and this device's identity and key. */
   current(): { staff: StaffSession; identity: TerminalIdentity; key: DeviceKey } | null {
     const device = this.deps.store.read();
-    if (!this.staff || !device || device.status !== "active") return null;
+    if (!this.staff || !device || device.status !== "active" || this.locked) return null;
     return { staff: this.staff, identity: device.identity, key: this.requireKey() };
   }
 
@@ -290,6 +383,15 @@ export class TerminalService {
       staffName: user.fullName,
       openedAt: openedAt.toISOString(),
     };
+    this.locked = false;
+    this.credential = await this.deps.api.request<TerminalStaffCredentialView>(
+      "GET",
+      `/terminals/sessions/${session.workSessionId}/credential`,
+      { branchId: device.identity.branchId },
+    );
+    // A PIN changed or reset elsewhere makes this counter's verifier useless; drop it now.
+    const local = this.deps.pins.preparedVersion(user.id, device.identity.enrollmentId);
+    if (local !== null && (!this.credential.pinSet || local !== this.credential.pinVersion)) this.deps.pins.forget(user.id);
   }
 
   /** A pending enrollment is promoted if the server accepted it, and discarded if it did not. */

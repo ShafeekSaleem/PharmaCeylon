@@ -497,7 +497,7 @@ describe("AdminUsersService", () => {
       expect(result).toEqual({ reset: true });
       expect(prisma.appUser.update).toHaveBeenCalledWith({
         where: { id: targetId },
-        data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null },
+        data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null, posPinVersion: { increment: 1 } },
       });
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({ eventName: "user.pos_pin.admin_reset" }),

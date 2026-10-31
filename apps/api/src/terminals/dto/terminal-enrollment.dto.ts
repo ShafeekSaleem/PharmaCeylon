@@ -35,3 +35,20 @@ export class TerminalReasonDto {
   @MaxLength(500)
   reason!: string;
 }
+
+/** POST /terminals/sessions/:id/pin — set or change the caller's own PIN at this counter. */
+export class SetCounterPinDto {
+  @Matches(/^\d{4,8}$/, { message: "A PIN is 4 to 8 digits." })
+  pin!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(256)
+  password!: string;
+}
+
+/** POST /terminals/sessions/:id/prepare — enter the PIN once here to prepare this counter. */
+export class PrepareCounterPinDto {
+  @Matches(/^\d{4,8}$/, { message: "A PIN is 4 to 8 digits." })
+  pin!: string;
+}

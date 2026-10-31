@@ -489,7 +489,7 @@ export class AdminUsersService {
     // tenant-scope: verified-parent — target was resolved through this tenant membership.
     await this.prisma.appUser.update({
       where: { id: targetUserId },
-      data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null },
+      data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null, posPinVersion: { increment: 1 } },
     });
 
     await this.audit.log({

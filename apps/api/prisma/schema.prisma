@@ -629,6 +629,7 @@ model TerminalEnrollment {
   terminal         OperationalTerminal @relation(fields: [tenantId, branchId, terminalId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
   receipts         TerminalCommandReceipt[]
   sessions         TerminalStaffSession[]
+  staffPreparations TerminalStaffPreparation[]
   hoursAcknowledgements BusinessHoursAcknowledgement[]
   offlineAssignmentAuthorizations OfflineTerminalAssignmentAuthorization[]
   offlineNominations              OfflineTerminalNomination[]
@@ -675,6 +676,26 @@ model TerminalStaffSession {
 
   @@index([tenantId, branchId, enrollmentId])
   @@map("terminal_staff_session")
+}
+
+/// D-W5: a staff member prepared this enrolled counter for their personal PIN at `pinVersion` by
+/// entering it there while online. The counter keeps its own local verifier; nothing secret is
+/// stored here. A PIN change makes older preparations stale until the person signs in again.
+model TerminalStaffPreparation {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  branchId     String   @map("branch_id") @db.Uuid
+  terminalId   String   @map("terminal_id") @db.Uuid
+  enrollmentId String   @map("enrollment_id") @db.Uuid
+  keyId        String   @map("key_id") @db.VarChar(128)
+  staffUserId  String   @map("staff_user_id") @db.Uuid
+  pinVersion   Int      @map("pin_version")
+  preparedAt   DateTime @default(now()) @map("prepared_at")
+  enrollment   TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, enrollmentId, staffUserId])
+  @@index([tenantId, staffUserId])
+  @@map("terminal_staff_preparation")
 }
 
 /// Short-lived server nonce and exact canonical payload; consumed in the caller's transaction.
@@ -1050,6 +1071,9 @@ model AppUser {
   posPinHash           String?   @map("pos_pin_hash")
   failedPosPinAttempts Int       @default(0) @map("failed_pos_pin_attempts")
   posPinLockedUntil    DateTime? @map("pos_pin_locked_until")
+  /// Bumped whenever the PIN is set, changed, cleared or reset. Counters prepare against a version,
+  /// so an old local verifier stops working after a change (D-W5).
+  posPinVersion        Int       @default(0) @map("pos_pin_version")
   /// Bumped on logout-all, password change, role change, or detected refresh-reuse.
   /// Embedded in every access JWT; mismatch ⇒ 401.
   tokenVersion         Int       @default(0) @map("token_version")

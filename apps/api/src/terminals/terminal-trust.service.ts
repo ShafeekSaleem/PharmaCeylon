@@ -559,6 +559,15 @@ export class TerminalTrustService {
     return { session, identity, enrollment };
   }
 
+  /** The caller's own open staff binding on an active enrollment, with the enrollment locked for
+   * the rest of the transaction. For counter-only actions that need no signed command. */
+  async requireOpenSession(tx: Tx, user: RequestUser, branchId: string, workSessionId: string) {
+    await this.actor(tx, user, branchId);
+    const found = await this.session(tx, user, branchId, workSessionId);
+    await this.actor(tx, user, branchId);
+    return found;
+  }
+
   /** Service-only command descriptor: parseBody must be a strict domain DTO parser,
    * permission comes from the server adapter, not a client's body/header/action label.
    */

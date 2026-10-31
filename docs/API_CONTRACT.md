@@ -424,6 +424,9 @@ transaction. Nothing here nominates an offline terminal, issues a grant or opens
 | `POST /terminals/sessions/challenge` | `terminal.execute` | `{ identity }` → `TerminalSessionCommand` |
 | `POST /terminals/sessions` | `terminal.execute` | `{ envelope, attendanceProofId }` → `WorkSessionIdentity` |
 | `POST /terminals/sessions/:workSessionId/end` | `terminal.execute` | 204; deauthorizes the binding, not a cash close |
+| `GET /terminals/sessions/:workSessionId/credential` | `terminal.execute` | `TerminalStaffCredentialView` for the caller's own open session |
+| `POST /terminals/sessions/:workSessionId/pin` | `terminal.execute` | `{ pin, password }` → `TerminalStaffCredentialView`; sets/changes the caller's PIN |
+| `POST /terminals/sessions/:workSessionId/prepare` | `terminal.execute` | `{ pin }` → `TerminalStaffCredentialView`; prepares this counter |
 
 **Enrollment (v1: a manager signs in on the desktop).** The desktop generates an Ed25519 key in
 its main process, asks for a challenge for one register, signs the returned payload verbatim with
@@ -434,6 +437,18 @@ enrollment codes issued from the web (W6) are a later, additive step.
 **Staff sessions.** Any staff member with branch access signs in on an enrolled desktop; the
 desktop asks for a session challenge, signs it with the enrolled key, records an attendance proof
 and finishes. One open session per till; a token-version bump (logout-all, role change) ends it.
+
+**Personal PINs (D-W5).** One PIN per person, 4–8 digits, set or changed only at an enrolled
+counter through the caller's own open staff session, with their login password. Any branch staff
+member may set one (the older `/sales/pos/me/pos-pin` route stays limited to approvers). The server
+keeps the bcrypt verifier for online co-sign; every set, change, clear or admin reset bumps
+`posPinVersion`. A counter is *prepared* for a person when they enter the PIN there while online
+(`prepare`, or implicitly when they set it there): the server records
+`terminal_staff_preparation(enrollment, staff, pinVersion)` and the desktop stores its own scrypt
+verifier for that version. A PIN change elsewhere leaves other counters stale until the person signs
+in there again. Wrong PINs share the co-sign lockout (5 attempts, 15 minutes): `PIN_INCORRECT`,
+`PIN_LOCKED`, `PIN_NOT_SET`, `PASSWORD_INCORRECT`. Superseding: a new staff session at a till closes
+any older open binding there (`terminal.session_superseded`); shift and cash state are separate.
 
 **Attendance proofs.** Desktop main builds a `LocalAttendanceAttestation` naming the purpose,
 identity, actor, register/till and the challenge's `payloadDigest` (sha256 of the challenge's

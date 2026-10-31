@@ -148,6 +148,7 @@ export class PharmacistApprovalService {
         posPinHash,
         failedPosPinAttempts: 0,
         posPinLockedUntil: null,
+        posPinVersion: { increment: 1 },
       },
     });
     await this.audit.log({
@@ -190,6 +191,7 @@ export class PharmacistApprovalService {
         posPinHash: null,
         failedPosPinAttempts: 0,
         posPinLockedUntil: null,
+        posPinVersion: { increment: 1 },
       },
     });
     await this.audit.log({

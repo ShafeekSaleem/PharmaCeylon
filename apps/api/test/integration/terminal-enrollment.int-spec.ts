@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as bcrypt from "bcrypt";
 import { Prisma, RoleName } from "@prisma/client";
 import type {
   LocalAttendanceAttestation,
@@ -11,6 +12,7 @@ import { AuditService } from "../../src/audit/audit.service";
 import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
+import { StaffCredentialsService } from "../../src/terminals/staff-credentials.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
@@ -24,6 +26,8 @@ const audit = new AuditService(prisma as never);
 const access = new AccessService(prisma as never, {} as never);
 const trust = new TerminalTrustService(access, audit, new LocalAttendanceVerifier());
 const proofs = new AttendanceProofsService(prisma as never, access);
+const credentials = new StaffCredentialsService(prisma as never, trust, audit);
+const PASSWORD = "correct horse battery";
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) =>
   prisma.$transaction(run, { timeout: 15_000 });
 const CONSOLE: WindowsSessionEvidence = { sessionId: 1, protocol: "console", remoteSession: false };
@@ -112,6 +116,8 @@ async function openSession(device: Device, identity: TerminalIdentity, actor: Re
 
 beforeAll(async () => {
   fx = await createTenant(prisma, "terminal-enrollment");
+  // tenant-scope: test fixture — the cashier's login password, for PIN changes.
+  await prisma.appUser.update({ where: { id: fx.clerkId }, data: { passwordHash: await bcrypt.hash(PASSWORD, 4) } });
   owner = user(fx.ownerId);
   clerk = user(fx.clerkId);
   await prisma.userBranchRole.createMany({
@@ -288,5 +294,70 @@ describe("P2 enrollment and sessions with recorded local attendance", () => {
     await expect(
       prisma.terminalAttendanceProof.deleteMany({ where: { tenantId: fx.tenantId, id: proof.id } }),
     ).rejects.toThrow();
+  });
+});
+
+describe("D-W5 personal PINs prepared per counter", () => {
+  const preparation = (enrollmentId: string) =>
+    prisma.terminalStaffPreparation.findFirst({ where: { tenantId: fx.tenantId, enrollmentId, staffUserId: clerk.userId } });
+
+  it("sets the PIN at the counter, prepares that counter and makes older counters stale", async () => {
+    const a = await enroll();
+    const b = await enroll();
+    const sessionA = await openSession(a.device, a.identity, clerk);
+    const sessionB = await openSession(b.device, b.identity, clerk);
+
+    await expect(
+      credentials.setPin(clerk, fx.mainBranchId, sessionA.workSessionId, { pin: "4821", password: "wrong password" }),
+    ).rejects.toMatchObject({ response: { code: "PASSWORD_INCORRECT" } });
+
+    const set = await credentials.setPin(clerk, fx.mainBranchId, sessionA.workSessionId, { pin: "4821", password: PASSWORD });
+    expect(set).toMatchObject({ pinSet: true, preparedVersion: set.pinVersion });
+    expect((await preparation(a.identity.enrollmentId))?.pinVersion).toBe(set.pinVersion);
+
+    const before = await credentials.credential(clerk, fx.mainBranchId, sessionB.workSessionId);
+    expect(before.preparedVersion).toBeNull();
+    const prepared = await credentials.prepare(clerk, fx.mainBranchId, sessionB.workSessionId, "4821");
+    expect(prepared.preparedVersion).toBe(set.pinVersion);
+
+    // A change on counter A leaves counter B prepared at the old version until the person signs in there again.
+    const changed = await credentials.setPin(clerk, fx.mainBranchId, sessionA.workSessionId, { pin: "7310", password: PASSWORD });
+    expect(changed.pinVersion).toBe(set.pinVersion + 1);
+    const stale = await credentials.credential(clerk, fx.mainBranchId, sessionB.workSessionId);
+    expect(stale.preparedVersion).toBe(set.pinVersion);
+    expect(stale.pinVersion).toBe(changed.pinVersion);
+    await expect(credentials.prepare(clerk, fx.mainBranchId, sessionB.workSessionId, "4821")).rejects.toMatchObject({
+      response: { code: "PIN_INCORRECT" },
+    });
+  });
+
+  it("locks the PIN after repeated wrong entries and never stores it in plain text", async () => {
+    const { device, identity } = await enroll();
+    const session = await openSession(device, identity, clerk);
+    await credentials.setPin(clerk, fx.mainBranchId, session.workSessionId, { pin: "5555", password: PASSWORD });
+    for (let i = 0; i < 5; i++)
+      await expect(credentials.prepare(clerk, fx.mainBranchId, session.workSessionId, "1234")).rejects.toMatchObject({
+        response: { code: "PIN_INCORRECT" },
+      });
+    await expect(credentials.prepare(clerk, fx.mainBranchId, session.workSessionId, "5555")).rejects.toMatchObject({
+      response: { code: "PIN_LOCKED" },
+    });
+    // tenant-scope: test fixture — reading the hash to prove no plain-text PIN is kept.
+    const account = await prisma.appUser.findUniqueOrThrow({ where: { id: clerk.userId } });
+    expect(account.posPinHash).not.toContain("5555");
+    // tenant-scope: test fixture — unlock for the following tests.
+    await prisma.appUser.update({ where: { id: clerk.userId }, data: { posPinLockedUntil: null, failedPosPinAttempts: 0 } });
+  });
+
+  it("only works through the caller's own open session on an active counter", async () => {
+    const { device, identity } = await enroll();
+    const session = await openSession(device, identity, clerk);
+    await expect(credentials.credential(owner, fx.mainBranchId, session.workSessionId)).rejects.toMatchObject({
+      response: { code: "SESSION_INVALID" },
+    });
+    await tx((c) => trust.revokeEnrollment(c, owner, fx.mainBranchId, identity.enrollmentId, "Lost"));
+    await expect(credentials.prepare(clerk, fx.mainBranchId, session.workSessionId, "5555")).rejects.toMatchObject({
+      response: { code: "SESSION_INVALID" },
+    });
   });
 });

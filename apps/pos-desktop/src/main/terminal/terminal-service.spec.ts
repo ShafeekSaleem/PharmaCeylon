@@ -19,6 +19,7 @@ import { DeviceKey } from "../device/device-key";
 import { DeviceStore } from "../device/device-store";
 import { openLocalStore, type LocalStore } from "../local-store";
 import type { Logger } from "../logging/logger";
+import { PinStore } from "../staff/pin-store";
 import { TerminalService } from "./terminal-service";
 
 const fakeProtector: SecretProtector = {
@@ -57,6 +58,9 @@ class FakeServer {
   user: AuthUser | null = null;
   enrollmentStatus: "active" | "revoked" = "active";
   failFinishEnrollment: ApiError | null = null;
+  pin: string | null = null;
+  pinVersion = 0;
+  preparedVersion: number | null = null;
   enrolledKey: string | null = null;
   readonly proofs = new Map<string, LocalAttendanceAttestation>();
   readonly calls: string[] = [];
@@ -155,6 +159,25 @@ class FakeServer {
       return challenge.session;
     }
     if (path.endsWith("/end")) return undefined;
+    const credential = () => ({
+      pinSet: this.pin !== null,
+      pinVersion: this.pinVersion,
+      lockedUntil: null,
+      preparedVersion: this.preparedVersion,
+    });
+    if (path.endsWith("/credential")) return credential();
+    if (path.endsWith("/pin")) {
+      if (body.password !== "password") throw new ApiError(401, "PASSWORD_INCORRECT", "x");
+      this.pin = body.pin;
+      this.pinVersion += 1;
+      this.preparedVersion = this.pinVersion;
+      return credential();
+    }
+    if (path.endsWith("/prepare")) {
+      if (body.pin !== this.pin) throw new ApiError(401, "PIN_INCORRECT", "x");
+      this.preparedVersion = this.pinVersion;
+      return credential();
+    }
     throw new Error(`Unexpected ${method} ${path}`);
   }
 }
@@ -167,6 +190,7 @@ let windowsSession: WindowsSessionEvidence;
 function service() {
   return new TerminalService({
     store: new DeviceStore(local.db),
+    pins: new PinStore(local.db),
     api: server.api as unknown as ApiSession,
     serverUrl: () => "https://pos.example.test/api/v1",
     serverUrlEditable: true,
@@ -238,6 +262,7 @@ describe("TerminalService enrollment", () => {
     try {
       const terminal = new TerminalService({
         store: new DeviceStore(second.db),
+        pins: new PinStore(second.db),
         api: server.api as unknown as ApiSession,
         serverUrl: () => "https://pos.example.test/api/v1",
         serverUrlEditable: true,
@@ -334,5 +359,61 @@ describe("attendance building blocks", () => {
     const result = classifyWindowsSession(facts);
     expect(result.protocol).toBe(protocol);
     expect(result.remoteSession).toBe(remote);
+  });
+});
+
+describe("TerminalService PINs and locking", () => {
+  it("sets a PIN here, keeps a local verifier and unlocks only with that PIN", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    let state = await terminal.signIn(cashier.email, "password");
+    expect(state.pin).toEqual({ set: false, prepared: false, lockedUntil: null });
+    expect(() => terminal.lock()).toThrow(/Prepare your PIN/);
+
+    state = await terminal.setPin("4821", "password");
+    expect(state.pin).toMatchObject({ set: true, prepared: true });
+    state = terminal.lock();
+    expect(state.locked).toBe(true);
+    expect(terminal.current()).toBeNull();
+    await expect(terminal.setPin("1111", "password")).rejects.toMatchObject({ code: "LOCKED" });
+
+    expect(() => terminal.unlock("0000")).toThrow(expect.objectContaining({ code: "PIN_INCORRECT" }));
+    expect(terminal.unlock("4821").locked).toBe(false);
+    // The verifier is a scrypt hash, never the PIN.
+    const row = local.db.prepare("SELECT verifier FROM staff_credential").get() as { verifier: Buffer };
+    expect(row.verifier.includes(Buffer.from("4821"))).toBe(false);
+  });
+
+  it("locks the local PIN after five wrong attempts, across restarts", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    await terminal.signIn(cashier.email, "password");
+    await terminal.setPin("4821", "password");
+    terminal.lock();
+    for (let i = 0; i < 4; i++) expect(() => terminal.unlock("0000")).toThrow(expect.objectContaining({ code: "PIN_INCORRECT" }));
+    expect(() => terminal.unlock("0000")).toThrow(expect.objectContaining({ code: "PIN_LOCKED" }));
+    // A fresh service (app restart) reads the same persisted lockout.
+    expect(new PinStore(local.db).check(cashier.id, terminal.state().enrollment!.enrollmentId, "4821", new Date())).toBe("locked");
+  });
+
+  it("prepares a counter for a PIN set elsewhere and drops a verifier made stale by a change", async () => {
+    server.pin = "2468";
+    server.pinVersion = 3;
+    server.preparedVersion = null;
+    const terminal = service();
+    await enrolled(terminal);
+    let state = await terminal.signIn(cashier.email, "password");
+    expect(state.pin).toMatchObject({ set: true, prepared: false });
+    await expect(terminal.preparePin("1357")).rejects.toMatchObject({ code: "PIN_INCORRECT" });
+    state = await terminal.preparePin("2468");
+    expect(state.pin?.prepared).toBe(true);
+
+    // Changed on another counter: version 4. Signing in here again forgets the old verifier.
+    server.pin = "9753";
+    server.pinVersion = 4;
+    await terminal.signOut();
+    state = await terminal.signIn(cashier.email, "password");
+    expect(state.pin).toMatchObject({ set: true, prepared: false });
+    expect(local.db.prepare("SELECT count(*) AS n FROM staff_credential").get()).toEqual({ n: 0 });
   });
 });
