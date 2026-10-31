@@ -24,6 +24,8 @@ export const checkoutDrafts: Migration = {
         updated_at      TEXT NOT NULL
       ) STRICT, WITHOUT ROWID
     `);
-    db.exec("CREATE INDEX checkout_draft_status ON checkout_draft (status, created_at)");
+    db.exec(
+      "CREATE INDEX checkout_draft_status ON checkout_draft (status, created_at)",
+    );
   },
 };

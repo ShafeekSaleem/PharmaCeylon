@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import type { CatalogProduct, CheckoutDraftView, CompletedSale, HeldCart, Printer } from "../../shared/ipc-contract";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
+import type {
+  CatalogProduct,
+  CheckoutDraftView,
+  CompletedSale,
+  HeldCart,
+  Printer,
+} from "../../shared/ipc-contract";
 import styles from "./App.module.css";
 
 type Line = { product: CatalogProduct; qty: number };
@@ -17,7 +29,13 @@ function matches(product: CatalogProduct, query: string) {
   );
 }
 
-function Receipt({ sale, onDone }: { sale: CompletedSale; onDone: () => void }) {
+function Receipt({
+  sale,
+  onDone,
+}: {
+  sale: CompletedSale;
+  onDone: () => void;
+}) {
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [printer, setPrinter] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -28,8 +46,15 @@ function Receipt({ sale, onDone }: { sale: CompletedSale; onDone: () => void }) 
     });
   }, []);
   async function print() {
-    const result = await window.pos.printSaleReceipt({ saleId: sale.saleId, printerName: printer });
-    setMessage(result.ok ? "Receipt sent to the printer." : (result.error ?? "The receipt did not print."));
+    const result = await window.pos.printSaleReceipt({
+      saleId: sale.saleId,
+      printerName: printer,
+    });
+    setMessage(
+      result.ok
+        ? "Receipt sent to the printer."
+        : (result.error ?? "The receipt did not print."),
+    );
   }
   return (
     <div className={styles.form}>
@@ -45,14 +70,23 @@ function Receipt({ sale, onDone }: { sale: CompletedSale; onDone: () => void }) 
       <div className={styles.actions}>
         {printers.length > 0 && (
           <>
-            <select value={printer} onChange={(e) => setPrinter(e.target.value)} aria-label="Receipt printer">
+            <select
+              value={printer}
+              onChange={(e) => setPrinter(e.target.value)}
+              aria-label="Receipt printer"
+            >
               {printers.map((p) => (
                 <option key={p.name} value={p.name}>
                   {p.displayName}
                 </option>
               ))}
             </select>
-            <button type="button" className="pc-btn-outline" onClick={() => void print()} disabled={!printer}>
+            <button
+              type="button"
+              className="pc-btn-outline"
+              onClick={() => void print()}
+              disabled={!printer}
+            >
               Print receipt
             </button>
           </>
@@ -66,7 +100,11 @@ function Receipt({ sale, onDone }: { sale: CompletedSale; onDone: () => void }) 
   );
 }
 
-function PendingCheckouts({ onResolved }: { onResolved: (sale: CompletedSale) => void }) {
+function PendingCheckouts({
+  onResolved,
+}: {
+  onResolved: (sale: CompletedSale) => void;
+}) {
   const [drafts, setDrafts] = useState<CheckoutDraftView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {
@@ -84,17 +122,22 @@ function PendingCheckouts({ onResolved }: { onResolved: (sale: CompletedSale) =>
   return (
     <div className={styles.form} role="alert">
       <p className={styles.resultFailed}>
-        {drafts.length === 1 ? "A sale was" : `${drafts.length} sales were`} sent but not confirmed. Confirm before
-        taking payment again — confirming never charges twice.
+        {drafts.length === 1 ? "A sale was" : `${drafts.length} sales were`}{" "}
+        sent but not confirmed. Confirm before taking payment again — confirming
+        never charges twice.
       </p>
       <ul className={styles.counterList}>
         {drafts.map((d) => (
           <li key={d.draftId} className={styles.counterOption}>
             <span>
-              {d.lineCount} item{d.lineCount === 1 ? "" : "s"}, about {d.estimatedTotal},{" "}
-              {new Date(d.createdAt).toLocaleTimeString()}
+              {d.lineCount} item{d.lineCount === 1 ? "" : "s"}, about{" "}
+              {d.estimatedTotal}, {new Date(d.createdAt).toLocaleTimeString()}
             </span>
-            <button type="button" className="pc-btn-outline" onClick={() => void confirm(d.draftId)}>
+            <button
+              type="button"
+              className="pc-btn-outline"
+              onClick={() => void confirm(d.draftId)}
+            >
               Confirm with server
             </button>
           </li>
@@ -120,13 +163,17 @@ export function Checkout() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadHolds = useCallback(() => {
-    void window.pos.listHolds().then((result) => setHolds(result.ok ? result.value : []));
+    void window.pos
+      .listHolds()
+      .then((result) => setHolds(result.ok ? result.value : []));
   }, []);
   useEffect(loadHolds, [loadHolds]);
 
   async function hold() {
     setError(null);
-    const result = await window.pos.holdCart({ lines: lines.map((l) => ({ productId: l.product.productId, qty: l.qty })) });
+    const result = await window.pos.holdCart({
+      lines: lines.map((l) => ({ productId: l.product.productId, qty: l.qty })),
+    });
     if (result.ok) {
       setLines([]);
       setNotice(`Held as ${result.value.holdRef}.`);
@@ -142,10 +189,13 @@ export function Checkout() {
     const byId = new Map((catalog ?? []).map((p) => [p.productId, p]));
     const restored = result.value.flatMap((l) => {
       const product = byId.get(l.productId);
-      return product ? [{ product, qty: Math.min(l.qty, product.available) }] : [];
+      return product
+        ? [{ product, qty: Math.min(l.qty, product.available) }]
+        : [];
     });
     setLines(restored);
-    if (restored.length < result.value.length) setNotice("Some held items are no longer available and were left out.");
+    if (restored.length < result.value.length)
+      setNotice("Some held items are no longer available and were left out.");
   }
 
   const refresh = useCallback(() => {
@@ -157,14 +207,26 @@ export function Checkout() {
   }, []);
   useEffect(refresh, [refresh]);
 
-  const results = useMemo(() => (catalog ?? []).filter((p) => matches(p, query)).slice(0, 20), [catalog, query]);
-  const estimate = lines.reduce((sum, l) => sum + minor(l.product.unitPrice) * l.qty, 0);
+  const results = useMemo(
+    () => (catalog ?? []).filter((p) => matches(p, query)).slice(0, 20),
+    [catalog, query],
+  );
+  const estimate = lines.reduce(
+    (sum, l) => sum + minor(l.product.unitPrice) * l.qty,
+    0,
+  );
 
   function add(product: CatalogProduct) {
     setLines((current) => {
-      const existing = current.find((l) => l.product.productId === product.productId);
+      const existing = current.find(
+        (l) => l.product.productId === product.productId,
+      );
       if (existing)
-        return current.map((l) => (l === existing ? { ...l, qty: Math.min(l.qty + 1, product.available) } : l));
+        return current.map((l) =>
+          l === existing
+            ? { ...l, qty: Math.min(l.qty + 1, product.available) }
+            : l,
+        );
       return [...current, { product, qty: 1 }];
     });
     setQuery("");
@@ -172,14 +234,20 @@ export function Checkout() {
 
   function setQty(productId: string, qty: number) {
     setLines((current) =>
-      qty <= 0 ? current.filter((l) => l.product.productId !== productId) : current.map((l) => (l.product.productId === productId ? { ...l, qty } : l)),
+      qty <= 0
+        ? current.filter((l) => l.product.productId !== productId)
+        : current.map((l) =>
+            l.product.productId === productId ? { ...l, qty } : l,
+          ),
     );
   }
 
   function onSearch(event: FormEvent) {
     event.preventDefault();
     // A scanner types the barcode and Enter: add the exact match straight away.
-    const exact = (catalog ?? []).find((p) => p.barcode && p.barcode === query.trim());
+    const exact = (catalog ?? []).find(
+      (p) => p.barcode && p.barcode === query.trim(),
+    );
     if (exact) add(exact);
     else if (results.length === 1) add(results[0]!);
   }
@@ -189,7 +257,10 @@ export function Checkout() {
     setError(null);
     try {
       const result = await window.pos.submitCheckout({
-        lines: lines.map((l) => ({ productId: l.product.productId, qty: l.qty })),
+        lines: lines.map((l) => ({
+          productId: l.product.productId,
+          qty: l.qty,
+        })),
         tender: {
           ...(cash ? { cashAmount: cash } : {}),
           ...(card ? { cardAmount: card, cardReference } : {}),
@@ -209,7 +280,10 @@ export function Checkout() {
 
   if (sale)
     return (
-      <section className={`${styles.panel} ${styles.wide}`} aria-label="Checkout">
+      <section
+        className={`${styles.panel} ${styles.wide}`}
+        aria-label="Checkout"
+      >
         <Receipt
           sale={sale}
           onDone={() => {
@@ -227,21 +301,34 @@ export function Checkout() {
       <form className={styles.form} onSubmit={onSearch}>
         <label className={styles.field}>
           <span>Scan or search</span>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Barcode, SKU or name" autoFocus />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Barcode, SKU or name"
+            autoFocus
+          />
         </label>
       </form>
-      {catalog === null && !error && <p className="pc-muted">Loading products…</p>}
+      {catalog === null && !error && (
+        <p className="pc-muted">Loading products…</p>
+      )}
       {results.length > 0 && (
         <ul className={styles.counterList}>
           {results.map((p) => (
             <li key={p.productId}>
-              <button type="button" className={styles.counterOption} onClick={() => add(p)} disabled={p.available <= 0}>
+              <button
+                type="button"
+                className={styles.counterOption}
+                onClick={() => add(p)}
+                disabled={p.available <= 0}
+              >
                 <span>
                   {p.name}
                   {p.strength ? ` ${p.strength}` : ""}
                 </span>
                 <span className="pc-muted">
-                  {p.unitPrice} · {p.available} available{p.needsPharmacist ? " · pharmacist" : ""}
+                  {p.unitPrice} · {p.available} available
+                  {p.needsPharmacist ? " · pharmacist" : ""}
                 </span>
               </button>
             </li>
@@ -260,7 +347,9 @@ export function Checkout() {
                     min={0}
                     max={l.product.available}
                     value={l.qty}
-                    onChange={(e) => setQty(l.product.productId, Number(e.target.value))}
+                    onChange={(e) =>
+                      setQty(l.product.productId, Number(e.target.value))
+                    }
                     aria-label={`Quantity of ${l.product.name}`}
                   />
                 </td>
@@ -271,35 +360,67 @@ export function Checkout() {
         </table>
       )}
       <p>
-        Before tax: <strong>{display(estimate)}</strong> <span className="pc-muted">(tax is added at checkout)</span>
+        Before tax: <strong>{display(estimate)}</strong>{" "}
+        <span className="pc-muted">(tax is added at checkout)</span>
       </p>
       <div className={styles.actions}>
         <label className={styles.field}>
           <span>Cash received</span>
-          <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, ""))} />
+          <input
+            inputMode="decimal"
+            value={cash}
+            onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, ""))}
+          />
         </label>
         <label className={styles.field}>
           <span>Card amount</span>
-          <input inputMode="decimal" value={card} onChange={(e) => setCard(e.target.value.replace(/[^\d.]/g, ""))} />
+          <input
+            inputMode="decimal"
+            value={card}
+            onChange={(e) => setCard(e.target.value.replace(/[^\d.]/g, ""))}
+          />
         </label>
         {card && (
           <label className={styles.field}>
             <span>Card approval reference</span>
-            <input value={cardReference} onChange={(e) => setCardReference(e.target.value)} />
+            <input
+              value={cardReference}
+              onChange={(e) => setCardReference(e.target.value)}
+            />
           </label>
         )}
       </div>
       <div className={styles.actions}>
-        <button type="button" className="pc-btn-primary-sm" onClick={() => void complete()} disabled={busy || !lines.length}>
+        <button
+          type="button"
+          className="pc-btn-primary-sm"
+          onClick={() => void complete()}
+          disabled={busy || !lines.length}
+        >
           {busy ? "Completing…" : "Complete sale"}
         </button>
-        <button type="button" className="pc-btn-outline" onClick={() => void hold()} disabled={busy || !lines.length}>
+        <button
+          type="button"
+          className="pc-btn-outline"
+          onClick={() => void hold()}
+          disabled={busy || !lines.length}
+        >
           Hold
         </button>
-        <button type="button" className="pc-btn-outline" onClick={() => setLines([])} disabled={busy || !lines.length}>
+        <button
+          type="button"
+          className="pc-btn-outline"
+          onClick={() => setLines([])}
+          disabled={busy || !lines.length}
+        >
           Clear
         </button>
-        <button type="button" className="pc-btn-outline" onClick={refresh} disabled={busy}>
+        <button
+          type="button"
+          className="pc-btn-outline"
+          onClick={refresh}
+          disabled={busy}
+        >
           Refresh products
         </button>
       </div>
@@ -312,9 +433,15 @@ export function Checkout() {
               <li key={h.holdId} className={styles.counterOption}>
                 <span>
                   {h.holdRef}
-                  {h.label ? ` · ${h.label}` : ""} · {h.itemCount} items · {h.total} · {h.heldBy}
+                  {h.label ? ` · ${h.label}` : ""} · {h.itemCount} items ·{" "}
+                  {h.total} · {h.heldBy}
                 </span>
-                <button type="button" className="pc-btn-outline" onClick={() => void recall(h.holdId)} disabled={busy || lines.length > 0}>
+                <button
+                  type="button"
+                  className="pc-btn-outline"
+                  onClick={() => void recall(h.holdId)}
+                  disabled={busy || lines.length > 0}
+                >
                   Recall
                 </button>
               </li>

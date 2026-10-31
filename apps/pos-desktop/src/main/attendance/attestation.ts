@@ -9,11 +9,16 @@ import {
   type WindowsSessionEvidence,
 } from "@pharmaceylon/shared";
 
-type Challenge = TerminalEnrollmentCommand | TerminalSessionCommand | OnlineTerminalCommand<unknown>;
+type Challenge =
+  | TerminalEnrollmentCommand
+  | TerminalSessionCommand
+  | OnlineTerminalCommand<unknown>;
 
 /** The server's challenge digest: sha256 of the challenge's canonical command text. */
 export function challengeDigest(challenge: unknown): string {
-  return createHash("sha256").update(terminalSigningText("command", challenge), "utf8").digest("hex");
+  return createHash("sha256")
+    .update(terminalSigningText("command", challenge), "utf8")
+    .digest("hex");
 }
 
 /**
@@ -33,7 +38,10 @@ export function buildAttestation(input: {
   const counter =
     challenge.kind === "terminal_enrollment"
       ? { registerId: challenge.registerId, tillId: challenge.tillId }
-      : { registerId: challenge.session.registerId, tillId: challenge.session.tillId };
+      : {
+          registerId: challenge.session.registerId,
+          tillId: challenge.session.tillId,
+        };
   return {
     contractVersion: 1,
     kind: "local_attendance",

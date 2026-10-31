@@ -1,4 +1,11 @@
-import { createPrivateKey, createPublicKey, generateKeyPairSync, randomUUID, sign, type KeyObject } from "node:crypto";
+import {
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  randomUUID,
+  sign,
+  type KeyObject,
+} from "node:crypto";
 import { terminalSigningText, type Signed } from "@pharmaceylon/shared";
 
 export type SigningPurpose = "command" | "attendance";
@@ -20,11 +27,20 @@ export class DeviceKey {
     return new DeviceKey(privateKey, randomUUID(), rawPublicKeyHex(privateKey));
   }
 
-  static fromStored(keyId: string, pkcs8: Buffer, expectedPublicKeyHex: string): DeviceKey {
-    const privateKey = createPrivateKey({ key: pkcs8, format: "der", type: "pkcs8" });
+  static fromStored(
+    keyId: string,
+    pkcs8: Buffer,
+    expectedPublicKeyHex: string,
+  ): DeviceKey {
+    const privateKey = createPrivateKey({
+      key: pkcs8,
+      format: "der",
+      type: "pkcs8",
+    });
     const publicKeyHex = rawPublicKeyHex(privateKey);
     // A swapped or corrupted blob must not sign as this enrollment.
-    if (publicKeyHex !== expectedPublicKeyHex) throw new Error("Stored device key does not match its public key.");
+    if (publicKeyHex !== expectedPublicKeyHex)
+      throw new Error("Stored device key does not match its public key.");
     return new DeviceKey(privateKey, keyId, publicKeyHex);
   }
 
@@ -39,14 +55,19 @@ export class DeviceKey {
       algorithm: "Ed25519",
       keyId: this.keyId,
       payload,
-      signature: sign(null, Buffer.from(terminalSigningText(purpose, payload), "utf8"), this.privateKey).toString(
-        "base64url",
-      ),
+      signature: sign(
+        null,
+        Buffer.from(terminalSigningText(purpose, payload), "utf8"),
+        this.privateKey,
+      ).toString("base64url"),
     };
   }
 }
 
 function rawPublicKeyHex(privateKey: KeyObject): string {
-  const spki = createPublicKey(privateKey).export({ format: "der", type: "spki" }) as Buffer;
+  const spki = createPublicKey(privateKey).export({
+    format: "der",
+    type: "spki",
+  }) as Buffer;
   return spki.subarray(-32).toString("hex");
 }

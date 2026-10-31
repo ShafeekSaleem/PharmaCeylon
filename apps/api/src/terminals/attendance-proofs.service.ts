@@ -26,8 +26,16 @@ import {
 } from "./terminal-wire";
 
 type Tx = Prisma.TransactionClient;
-const PURPOSES: readonly LocalAttendancePurpose[] = ["enrollment", "session", "command"];
-const PROTOCOLS: readonly WindowsSessionEvidence["protocol"][] = ["console", "rdp", "unknown"];
+const PURPOSES: readonly LocalAttendancePurpose[] = [
+  "enrollment",
+  "session",
+  "command",
+];
+const PROTOCOLS: readonly WindowsSessionEvidence["protocol"][] = [
+  "console",
+  "rdp",
+  "unknown",
+];
 
 function parseAttestation(raw: unknown) {
   const envelope = parseEnvelope(raw);
@@ -53,22 +61,30 @@ function parseAttestation(raw: unknown) {
   uuid(p.registerId);
   uuid(p.tillId);
   hex(p.payloadDigest);
-  const session = object(p.windowsSession, ["sessionId", "protocol", "remoteSession"]);
+  const session = object(p.windowsSession, [
+    "sessionId",
+    "protocol",
+    "remoteSession",
+  ]);
   if (
     !Number.isSafeInteger(session.sessionId) ||
     (session.sessionId as number) < 0 ||
     (session.sessionId as number) > 2_147_483_647 ||
-    !PROTOCOLS.includes(session.protocol as WindowsSessionEvidence["protocol"]) ||
+    !PROTOCOLS.includes(
+      session.protocol as WindowsSessionEvidence["protocol"],
+    ) ||
     typeof session.remoteSession !== "boolean"
   )
     invalid();
   text(p.appVersion, 64);
-  if (!Number.isSafeInteger(p.observedAt) || (p.observedAt as number) < 0) invalid();
+  if (!Number.isSafeInteger(p.observedAt) || (p.observedAt as number) < 0)
+    invalid();
   return { envelope, payload: p as unknown as LocalAttendanceAttestation };
 }
 
 // jsonb does not keep key order, so compare the stored challenge canonically.
-const same = (a: unknown, b: unknown) => boundedCanonical(a) === boundedCanonical(b);
+const same = (a: unknown, b: unknown) =>
+  boundedCanonical(a) === boundedCanonical(b);
 
 /**
  * P2 attendance intake (`POST /terminals/attendance-proofs`). The desktop's trusted main process
@@ -89,8 +105,14 @@ export class AttendanceProofsService {
     private readonly access: AccessService,
   ) {}
 
-  record(user: RequestUser, branchId: string, raw: unknown): Promise<LocalAttendanceProofReceipt> {
-    return this.prisma.$transaction((tx) => this.recordInTransaction(tx, user, branchId, raw));
+  record(
+    user: RequestUser,
+    branchId: string,
+    raw: unknown,
+  ): Promise<LocalAttendanceProofReceipt> {
+    return this.prisma.$transaction((tx) =>
+      this.recordInTransaction(tx, user, branchId, raw),
+    );
   }
 
   async recordInTransaction(
@@ -110,9 +132,16 @@ export class AttendanceProofsService {
       envelope.keyId !== identity.keyId
     )
       denied("IDENTITY_MISMATCH");
-    const attestationDigest = sha256(terminalSigningText("attendance", payload));
+    const attestationDigest = sha256(
+      terminalSigningText("attendance", payload),
+    );
 
-    const replay = await this.existing(tx, user, payload.proofId, attestationDigest);
+    const replay = await this.existing(
+      tx,
+      user,
+      payload.proofId,
+      attestationDigest,
+    );
     if (replay) return replay;
 
     const now = new Date();
@@ -128,9 +157,16 @@ export class AttendanceProofsService {
       },
     });
     if (!challenge) denied("CHALLENGE_INVALID");
-    const publicKeyHex = await this.signingKey(tx, user, branchId, payload, challenge.payload);
+    const publicKeyHex = await this.signingKey(
+      tx,
+      user,
+      branchId,
+      payload,
+      challenge.payload,
+    );
     verifySignature(envelope, publicKeyHex, "attendance");
-    if (!isLocalConsoleSession(payload.windowsSession)) denied("REMOTE_SESSION_DENIED");
+    if (!isLocalConsoleSession(payload.windowsSession))
+      denied("REMOTE_SESSION_DENIED");
 
     // Concurrent identical uploads: the loser waits on the primary key, inserts nothing and
     // then reads the winner's row, so both return the same proof.
@@ -161,17 +197,37 @@ export class AttendanceProofsService {
       skipDuplicates: true,
     });
     if (inserted.count === 1)
-      return { proofId: payload.proofId, purpose: payload.purpose, expiresAt: challenge.expiresAt.getTime() };
-    const raced = await this.existing(tx, user, payload.proofId, attestationDigest);
+      return {
+        proofId: payload.proofId,
+        purpose: payload.purpose,
+        expiresAt: challenge.expiresAt.getTime(),
+      };
+    const raced = await this.existing(
+      tx,
+      user,
+      payload.proofId,
+      attestationDigest,
+    );
     if (!raced) this.conflict();
     return raced;
   }
 
   /** Same signed attestation → the original proof (consumed or not); anything else → 409. */
-  private async existing(tx: Tx, user: RequestUser, proofId: string, attestationDigest: string) {
-    const row = await tx.terminalAttendanceProof.findUnique({ where: { id: proofId } });
+  private async existing(
+    tx: Tx,
+    user: RequestUser,
+    proofId: string,
+    attestationDigest: string,
+  ) {
+    const row = await tx.terminalAttendanceProof.findUnique({
+      where: { id: proofId },
+    });
     if (!row) return null;
-    if (row.tenantId !== user.tenantId || row.attestationDigest !== attestationDigest) this.conflict();
+    if (
+      row.tenantId !== user.tenantId ||
+      row.attestationDigest !== attestationDigest
+    )
+      this.conflict();
     return {
       proofId: row.id,
       purpose: row.purpose as LocalAttendancePurpose,
@@ -182,7 +238,8 @@ export class AttendanceProofsService {
   private conflict(): never {
     throw new ConflictException({
       code: "REPLAY_CONFLICT",
-      message: "This attendance proof ID was already used for different content.",
+      message:
+        "This attendance proof ID was already used for different content.",
     });
   }
 
@@ -222,7 +279,8 @@ export class AttendanceProofsService {
       },
       include: { terminal: true },
     });
-    if (!enrollment || enrollment.revokedAt || enrollment.terminal.retiredAt) denied("TERMINAL_REVOKED");
+    if (!enrollment || enrollment.revokedAt || enrollment.terminal.retiredAt)
+      denied("TERMINAL_REVOKED");
     return enrollment.publicKeyHex;
   }
 }

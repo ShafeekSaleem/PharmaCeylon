@@ -12,20 +12,34 @@ export function normalizeServerUrl(raw: string, packaged: boolean): string {
   try {
     url = new URL(raw.trim());
   } catch {
-    throw new ActionFailure("SERVER_URL_INVALID", "Enter the full server address, starting with https://.");
+    throw new ActionFailure(
+      "SERVER_URL_INVALID",
+      "Enter the full server address, starting with https://.",
+    );
   }
   const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && !packaged && local))
-    throw new ActionFailure("SERVER_URL_INVALID", "The server address must start with https://.");
+  if (
+    url.protocol !== "https:" &&
+    !(url.protocol === "http:" && !packaged && local)
+  )
+    throw new ActionFailure(
+      "SERVER_URL_INVALID",
+      "The server address must start with https://.",
+    );
   if (url.username || url.password || url.search || url.hash)
-    throw new ActionFailure("SERVER_URL_INVALID", "Enter only the server address.");
+    throw new ActionFailure(
+      "SERVER_URL_INVALID",
+      "Enter only the server address.",
+    );
   let path = url.pathname.replace(/\/+$/, "");
   if (!path.endsWith("/api/v1")) path = `${path}/api/v1`;
   return `${url.origin}${path}`;
 }
 
 export function readServerUrl(db: PosDatabase): string | null {
-  const row = db.prepare("SELECT value FROM app_meta WHERE key = ?").get(KEY) as { value: string } | undefined;
+  const row = db
+    .prepare("SELECT value FROM app_meta WHERE key = ?")
+    .get(KEY) as { value: string } | undefined;
   return row?.value ?? null;
 }
 

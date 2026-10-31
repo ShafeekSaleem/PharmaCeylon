@@ -1,5 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { ActionResult, Counter, DeviceState, OfflineCounterView } from "../../shared/ipc-contract";
+import type {
+  ActionResult,
+  Counter,
+  DeviceState,
+  OfflineCounterView,
+} from "../../shared/ipc-contract";
 import styles from "./App.module.css";
 
 type Props = { state: DeviceState; onState: (state: DeviceState) => void };
@@ -7,7 +12,10 @@ type Props = { state: DeviceState; onState: (state: DeviceState) => void };
 function useAction() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function run<T>(action: () => Promise<ActionResult<T>>, onOk: (value: T) => void) {
+  async function run<T>(
+    action: () => Promise<ActionResult<T>>,
+    onOk: (value: T) => void,
+  ) {
     setBusy(true);
     setError(null);
     try {
@@ -60,7 +68,11 @@ function ServerSetup({ state, onState }: Props) {
         />
       </label>
       <div className={styles.actions}>
-        <button type="submit" className="pc-btn-outline" disabled={busy || !url.trim()}>
+        <button
+          type="submit"
+          className="pc-btn-outline"
+          disabled={busy || !url.trim()}
+        >
           Save server address
         </button>
       </div>
@@ -70,7 +82,11 @@ function ServerSetup({ state, onState }: Props) {
   );
 }
 
-function SignInForm({ onState, title, hint }: Props & { title: string; hint: string }) {
+function SignInForm({
+  onState,
+  title,
+  hint,
+}: Props & { title: string; hint: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const { busy, error, run } = useAction();
@@ -85,14 +101,24 @@ function SignInForm({ onState, title, hint }: Props & { title: string; hint: str
     );
   }
   return (
-    <form className={styles.form} onSubmit={submit} aria-labelledby="sign-in-heading">
+    <form
+      className={styles.form}
+      onSubmit={submit}
+      aria-labelledby="sign-in-heading"
+    >
       <h2 id="sign-in-heading" className={styles.panelTitle}>
         {title}
       </h2>
       <p className="pc-muted">{hint}</p>
       <label className={styles.field}>
         <span>Email</span>
-        <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} disabled={busy} />
+        <input
+          type="email"
+          autoComplete="username"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={busy}
+        />
       </label>
       <label className={styles.field}>
         <span>Password</span>
@@ -105,7 +131,11 @@ function SignInForm({ onState, title, hint }: Props & { title: string; hint: str
         />
       </label>
       <div className={styles.actions}>
-        <button type="submit" className="pc-btn-primary-sm" disabled={busy || !email || !password}>
+        <button
+          type="submit"
+          className="pc-btn-primary-sm"
+          disabled={busy || !email || !password}
+        >
           {busy ? "Signing in…" : "Sign in"}
         </button>
       </div>
@@ -132,7 +162,9 @@ function EnrollPanel({ state, onState }: Props) {
       () => window.pos.listCounters({ branchId }),
       (list) => {
         setCounters(list);
-        setRegisterId(list.find((c) => c.isActive && !c.terminal)?.registerId ?? "");
+        setRegisterId(
+          list.find((c) => c.isActive && !c.terminal)?.registerId ?? "",
+        );
       },
     );
     // One load per branch choice.
@@ -151,8 +183,16 @@ function EnrollPanel({ state, onState }: Props) {
 
   function enroll(event: FormEvent) {
     event.preventDefault();
-    if (mode === "code") void run(() => window.pos.enrollWithCode({ branchId, code, label }), onState);
-    else void run(() => window.pos.enroll({ branchId, registerId, label }), onState);
+    if (mode === "code")
+      void run(
+        () => window.pos.enrollWithCode({ branchId, code, label }),
+        onState,
+      );
+    else
+      void run(
+        () => window.pos.enroll({ branchId, registerId, label }),
+        onState,
+      );
   }
 
   function signOut() {
@@ -164,7 +204,12 @@ function EnrollPanel({ state, onState }: Props) {
       <div className={styles.form}>
         <p>Your account has no branches this counter can be enrolled at.</p>
         <div className={styles.actions}>
-          <button type="button" className="pc-btn-outline" onClick={signOut} disabled={busy}>
+          <button
+            type="button"
+            className="pc-btn-outline"
+            onClick={signOut}
+            disabled={busy}
+          >
             Sign out
           </button>
         </div>
@@ -173,13 +218,17 @@ function EnrollPanel({ state, onState }: Props) {
     );
 
   return (
-    <form className={styles.form} onSubmit={enroll} aria-labelledby="enroll-heading">
+    <form
+      className={styles.form}
+      onSubmit={enroll}
+      aria-labelledby="enroll-heading"
+    >
       <h2 id="enroll-heading" className={styles.panelTitle}>
         Enroll this computer
       </h2>
       <p className="pc-muted">
-        Signed in as {state.operator?.fullName}. Enrolling binds this computer to one counter at one branch, and only
-        works at the computer itself.
+        Signed in as {state.operator?.fullName}. Enrolling binds this computer
+        to one counter at one branch, and only works at the computer itself.
       </p>
       <div className={styles.actions} role="group" aria-label="How to enroll">
         <button
@@ -193,7 +242,9 @@ function EnrollPanel({ state, onState }: Props) {
         </button>
         <button
           type="button"
-          className={mode === "counter" ? "pc-btn-primary-sm" : "pc-btn-outline"}
+          className={
+            mode === "counter" ? "pc-btn-primary-sm" : "pc-btn-outline"
+          }
           aria-pressed={mode === "counter"}
           onClick={() => setMode("counter")}
           disabled={busy}
@@ -203,7 +254,11 @@ function EnrollPanel({ state, onState }: Props) {
       </div>
       <label className={styles.field}>
         <span>Branch</span>
-        <select value={branchId} onChange={(e) => setBranchId(e.target.value)} disabled={busy}>
+        <select
+          value={branchId}
+          onChange={(e) => setBranchId(e.target.value)}
+          disabled={busy}
+        >
           {state.branches.map((branch) => (
             <option key={branch.id} value={branch.id}>
               {branch.name}
@@ -225,60 +280,95 @@ function EnrollPanel({ state, onState }: Props) {
           />
         </label>
       ) : (
-      <fieldset className={styles.form} disabled={busy}>
-        <legend className={styles.field}>Counter</legend>
-        {counters === null ? (
-          <p className="pc-muted">Loading counters…</p>
-        ) : counters.length === 0 ? (
-          <p className="pc-muted">This branch has no counters yet. Add one below.</p>
-        ) : (
-          <ul className={styles.counterList}>
-            {counters.map((counter) => {
-              const unavailable = !counter.isActive || counter.terminal !== null;
-              return (
-                <li key={counter.registerId}>
-                  <label className={styles.counterOption} aria-disabled={unavailable}>
-                    <input
-                      type="radio"
-                      name="counter"
-                      value={counter.registerId}
-                      checked={registerId === counter.registerId}
-                      onChange={() => setRegisterId(counter.registerId)}
-                      disabled={unavailable}
-                    />
-                    <span>{counter.label}</span>
-                    {counter.terminal && <span className="pc-muted">— in use by {counter.terminal.label}</span>}
-                    {!counter.isActive && <span className="pc-muted">— switched off</span>}
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <div className={styles.actions}>
-          <label className={styles.field}>
-            <span>New counter name</span>
-            <input value={newCounter} onChange={(e) => setNewCounter(e.target.value)} placeholder="Counter 2" />
-          </label>
-          <button type="button" className="pc-btn-outline" onClick={addCounter} disabled={!newCounter.trim()}>
-            Add counter
-          </button>
-        </div>
-      </fieldset>
+        <fieldset className={styles.form} disabled={busy}>
+          <legend className={styles.field}>Counter</legend>
+          {counters === null ? (
+            <p className="pc-muted">Loading counters…</p>
+          ) : counters.length === 0 ? (
+            <p className="pc-muted">
+              This branch has no counters yet. Add one below.
+            </p>
+          ) : (
+            <ul className={styles.counterList}>
+              {counters.map((counter) => {
+                const unavailable =
+                  !counter.isActive || counter.terminal !== null;
+                return (
+                  <li key={counter.registerId}>
+                    <label
+                      className={styles.counterOption}
+                      aria-disabled={unavailable}
+                    >
+                      <input
+                        type="radio"
+                        name="counter"
+                        value={counter.registerId}
+                        checked={registerId === counter.registerId}
+                        onChange={() => setRegisterId(counter.registerId)}
+                        disabled={unavailable}
+                      />
+                      <span>{counter.label}</span>
+                      {counter.terminal && (
+                        <span className="pc-muted">
+                          — in use by {counter.terminal.label}
+                        </span>
+                      )}
+                      {!counter.isActive && (
+                        <span className="pc-muted">— switched off</span>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className={styles.actions}>
+            <label className={styles.field}>
+              <span>New counter name</span>
+              <input
+                value={newCounter}
+                onChange={(e) => setNewCounter(e.target.value)}
+                placeholder="Counter 2"
+              />
+            </label>
+            <button
+              type="button"
+              className="pc-btn-outline"
+              onClick={addCounter}
+              disabled={!newCounter.trim()}
+            >
+              Add counter
+            </button>
+          </div>
+        </fieldset>
       )}
       <label className={styles.field}>
         <span>Name for this computer</span>
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Front desk PC" disabled={busy} />
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Front desk PC"
+          disabled={busy}
+        />
       </label>
       <div className={styles.actions}>
         <button
           type="submit"
           className="pc-btn-primary-sm"
-          disabled={busy || !label.trim() || (mode === "code" ? code.trim().length < 4 : !registerId)}
+          disabled={
+            busy ||
+            !label.trim() ||
+            (mode === "code" ? code.trim().length < 4 : !registerId)
+          }
         >
           {busy ? "Working…" : "Enroll this computer"}
         </button>
-        <button type="button" className="pc-btn-outline" onClick={signOut} disabled={busy}>
+        <button
+          type="button"
+          className="pc-btn-outline"
+          onClick={signOut}
+          disabled={busy}
+        >
           Cancel and sign out
         </button>
       </div>
@@ -287,7 +377,17 @@ function EnrollPanel({ state, onState }: Props) {
   );
 }
 
-function PinField({ label, value, onChange, disabled }: { label: string; value: string; onChange: (v: string) => void; disabled: boolean }) {
+function PinField({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled: boolean;
+}) {
   return (
     <label className={styles.field}>
       <span>{label}</span>
@@ -326,20 +426,39 @@ function PinSetup({ state, onState, change }: Props & { change: boolean }) {
   }
   return (
     <form className={styles.form} onSubmit={submit}>
-      <h3 className={styles.panelTitle}>{change ? "Change your PIN" : "Set your PIN"}</h3>
+      <h3 className={styles.panelTitle}>
+        {change ? "Change your PIN" : "Set your PIN"}
+      </h3>
       <p className="pc-muted">
-        One personal PIN, 4 to 8 digits, for locking this counter and for working here during an internet outage.
-        Never share it.
+        One personal PIN, 4 to 8 digits, for locking this counter and for
+        working here during an internet outage. Never share it.
       </p>
       <PinField label="New PIN" value={pin} onChange={setPin} disabled={busy} />
-      <PinField label="Repeat the PIN" value={confirm} onChange={setConfirm} disabled={busy} />
+      <PinField
+        label="Repeat the PIN"
+        value={confirm}
+        onChange={setConfirm}
+        disabled={busy}
+      />
       <label className={styles.field}>
         <span>Your login password</span>
-        <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={busy} />
+        <input
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={busy}
+        />
       </label>
-      {mismatch && <p className={styles.resultFailed}>The two PINs are different.</p>}
+      {mismatch && (
+        <p className={styles.resultFailed}>The two PINs are different.</p>
+      )}
       <div className={styles.actions}>
-        <button type="submit" className="pc-btn-primary-sm" disabled={busy || !PIN_OK.test(pin) || pin !== confirm || !password}>
+        <button
+          type="submit"
+          className="pc-btn-primary-sm"
+          disabled={busy || !PIN_OK.test(pin) || pin !== confirm || !password}
+        >
           Save PIN
         </button>
       </div>
@@ -364,10 +483,22 @@ function PinPrepare({ onState }: Props) {
   return (
     <form className={styles.form} onSubmit={submit}>
       <h3 className={styles.panelTitle}>Prepare this counter for your PIN</h3>
-      <p className="pc-muted">Enter your PIN once here while online. This counter can then check it on its own.</p>
-      <PinField label="Your PIN" value={pin} onChange={setPin} disabled={busy} />
+      <p className="pc-muted">
+        Enter your PIN once here while online. This counter can then check it on
+        its own.
+      </p>
+      <PinField
+        label="Your PIN"
+        value={pin}
+        onChange={setPin}
+        disabled={busy}
+      />
       <div className={styles.actions}>
-        <button type="submit" className="pc-btn-primary-sm" disabled={busy || !PIN_OK.test(pin)}>
+        <button
+          type="submit"
+          className="pc-btn-primary-sm"
+          disabled={busy || !PIN_OK.test(pin)}
+        >
           Prepare
         </button>
       </div>
@@ -400,7 +531,11 @@ function LockScreen({ state, onState }: Props) {
           hint={`This signs ${state.staffSession?.staffName ?? "the current person"} out of this counter.`}
         />
         <div className={styles.actions}>
-          <button type="button" className="pc-btn-outline" onClick={() => setSwitching(false)}>
+          <button
+            type="button"
+            className="pc-btn-outline"
+            onClick={() => setSwitching(false)}
+          >
             Back
           </button>
         </div>
@@ -412,10 +547,19 @@ function LockScreen({ state, onState }: Props) {
       <p>{state.staffSession?.staffName} is signed in at this counter.</p>
       <PinField label="PIN" value={pin} onChange={setPin} disabled={busy} />
       <div className={styles.actions}>
-        <button type="submit" className="pc-btn-primary-sm" disabled={busy || !PIN_OK.test(pin)}>
+        <button
+          type="submit"
+          className="pc-btn-primary-sm"
+          disabled={busy || !PIN_OK.test(pin)}
+        >
           Unlock
         </button>
-        <button type="button" className="pc-btn-outline" onClick={() => setSwitching(true)} disabled={busy}>
+        <button
+          type="button"
+          className="pc-btn-outline"
+          onClick={() => setSwitching(true)}
+          disabled={busy}
+        >
           Switch user
         </button>
       </div>
@@ -444,9 +588,10 @@ function OfflineCounterPanel() {
       ) : view.authorization ? (
         <>
           <p>
-            The owner authorized this counter to keep selling during internet outages ({view.authorization.reason}).
-            Confirm here to activate it.
-            {view.otherCounterNominated && " The current offline counter must already be disabled and its sales recovered."}
+            The owner authorized this counter to keep selling during internet
+            outages ({view.authorization.reason}). Confirm here to activate it.
+            {view.otherCounterNominated &&
+              " The current offline counter must already be disabled and its sales recovered."}
           </p>
           <div className={styles.actions}>
             <button
@@ -454,7 +599,13 @@ function OfflineCounterPanel() {
               className="pc-btn-primary-sm"
               disabled={busy}
               onClick={() =>
-                void run(() => window.pos.activateOffline({ authorizationId: view.authorization!.authorizationId }), setView)
+                void run(
+                  () =>
+                    window.pos.activateOffline({
+                      authorizationId: view.authorization!.authorizationId,
+                    }),
+                  setView,
+                )
               }
             >
               Activate as offline counter
@@ -463,8 +614,10 @@ function OfflineCounterPanel() {
         </>
       ) : (
         <p className="pc-muted">
-          {view.otherCounterNominated ? "Another counter is the branch's offline counter." : "No offline counter yet."} The
-          owner authorizes one from the back office.
+          {view.otherCounterNominated
+            ? "Another counter is the branch's offline counter."
+            : "No offline counter yet."}{" "}
+          The owner authorizes one from the back office.
         </p>
       )}
       <ErrorLine error={error} />
@@ -487,10 +640,19 @@ function SignedIn({ state, onState }: Props) {
         <dt>Since</dt>
         <dd>{new Date(session.openedAt).toLocaleTimeString()}</dd>
         <dt>PIN</dt>
-        <dd>{!pin?.set ? "Not set" : pin.prepared ? "Ready on this counter" : "Not prepared on this counter"}</dd>
+        <dd>
+          {!pin?.set
+            ? "Not set"
+            : pin.prepared
+              ? "Ready on this counter"
+              : "Not prepared on this counter"}
+        </dd>
       </dl>
       {pin?.lockedUntil && (
-        <p className={styles.resultFailed}>Your PIN is locked after wrong attempts until {new Date(pin.lockedUntil).toLocaleTimeString()}.</p>
+        <p className={styles.resultFailed}>
+          Your PIN is locked after wrong attempts until{" "}
+          {new Date(pin.lockedUntil).toLocaleTimeString()}.
+        </p>
       )}
       {(!pin?.set || changing) && (
         <PinSetup
@@ -502,20 +664,37 @@ function SignedIn({ state, onState }: Props) {
           change={Boolean(pin?.set)}
         />
       )}
-      {pin?.set && !pin.prepared && !changing && <PinPrepare state={state} onState={onState} />}
+      {pin?.set && !pin.prepared && !changing && (
+        <PinPrepare state={state} onState={onState} />
+      )}
       <OfflineCounterPanel />
       <div className={styles.actions}>
         {pin?.prepared && (
-          <button type="button" className="pc-btn-primary-sm" onClick={() => void run(() => window.pos.lock(), onState)} disabled={busy}>
+          <button
+            type="button"
+            className="pc-btn-primary-sm"
+            onClick={() => void run(() => window.pos.lock(), onState)}
+            disabled={busy}
+          >
             Lock
           </button>
         )}
         {pin?.set && !changing && (
-          <button type="button" className="pc-btn-outline" onClick={() => setChanging(true)} disabled={busy}>
+          <button
+            type="button"
+            className="pc-btn-outline"
+            onClick={() => setChanging(true)}
+            disabled={busy}
+          >
             Change PIN
           </button>
         )}
-        <button type="button" className="pc-btn-outline" onClick={() => void run(() => window.pos.signOut(), onState)} disabled={busy}>
+        <button
+          type="button"
+          className="pc-btn-outline"
+          onClick={() => void run(() => window.pos.signOut(), onState)}
+          disabled={busy}
+        >
           Sign out
         </button>
       </div>
@@ -528,14 +707,19 @@ function SignedIn({ state, onState }: Props) {
 export function CounterAccess({ state, onState }: Props) {
   const enrollment = state.enrollment;
   const active = enrollment?.status === "active";
-  const remote = state.windowsSession.protocol !== "console" || state.windowsSession.remoteSession;
+  const remote =
+    state.windowsSession.protocol !== "console" ||
+    state.windowsSession.remoteSession;
 
   return (
-    <section className={`${styles.panel} ${styles.wide}`} aria-label="Counter access">
+    <section
+      className={`${styles.panel} ${styles.wide}`}
+      aria-label="Counter access"
+    >
       {remote && (
         <p role="alert" className={styles.resultFailed}>
-          This computer is being used remotely or Windows could not confirm its own screen. Enrolling and signing in
-          only work at the computer itself.
+          This computer is being used remotely or Windows could not confirm its
+          own screen. Enrolling and signing in only work at the computer itself.
         </p>
       )}
       {enrollment && (
@@ -549,11 +733,16 @@ export function CounterAccess({ state, onState }: Props) {
         </dl>
       )}
       {enrollment?.status === "pending" && (
-        <p className="pc-muted">Enrollment did not finish. A manager signing in here will complete or cancel it.</p>
+        <p className="pc-muted">
+          Enrollment did not finish. A manager signing in here will complete or
+          cancel it.
+        </p>
       )}
-      {(enrollment?.status === "revoked" || enrollment?.status === "retired") && (
+      {(enrollment?.status === "revoked" ||
+        enrollment?.status === "retired") && (
         <p className={styles.resultFailed}>
-          This counter was switched off in the back office. A manager can sign in to enroll this computer again.
+          This counter was switched off in the back office. A manager can sign
+          in to enroll this computer again.
         </p>
       )}
 
@@ -570,7 +759,9 @@ export function CounterAccess({ state, onState }: Props) {
         />
       ) : (
         <>
-          {state.serverUrlEditable && <ServerSetup state={state} onState={onState} />}
+          {state.serverUrlEditable && (
+            <ServerSetup state={state} onState={onState} />
+          )}
           <SignInForm
             state={state}
             onState={onState}

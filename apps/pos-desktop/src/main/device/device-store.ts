@@ -68,7 +68,9 @@ export class DeviceStore {
   constructor(private readonly db: PosDatabase) {}
 
   private row(): Row | undefined {
-    return this.db.prepare("SELECT * FROM device_identity WHERE id = 1").get() as Row | undefined;
+    return this.db
+      .prepare("SELECT * FROM device_identity WHERE id = 1")
+      .get() as Row | undefined;
   }
 
   read(): DeviceIdentity | null {
@@ -79,7 +81,13 @@ export class DeviceStore {
   /** The signing key for the stored enrollment; checked against its pinned public key. */
   key(): DeviceKey | null {
     const row = this.row();
-    return row ? DeviceKey.fromStored(row.key_id, row.private_key_pkcs8, row.public_key_hex) : null;
+    return row
+      ? DeviceKey.fromStored(
+          row.key_id,
+          row.private_key_pkcs8,
+          row.public_key_hex,
+        )
+      : null;
   }
 
   savePending(input: {
@@ -94,37 +102,44 @@ export class DeviceStore {
     enrolledByUserId: string;
     now: Date;
   }): void {
-    if (input.key.keyId !== input.identity.keyId) throw new Error("Key does not match the enrollment identity.");
+    if (input.key.keyId !== input.identity.keyId)
+      throw new Error("Key does not match the enrollment identity.");
     const existing = this.row();
-    if (existing && existing.status !== "revoked" && existing.status !== "retired")
+    if (
+      existing &&
+      existing.status !== "revoked" &&
+      existing.status !== "retired"
+    )
       throw new Error("This device already has an enrollment.");
-    this.db.transaction(() => {
-      this.db.prepare("DELETE FROM device_identity WHERE id = 1").run();
-      this.db
-        .prepare(
-          `INSERT INTO device_identity (id, status, api_base_url, tenant_id, branch_id, branch_name, terminal_id,
+    this.db
+      .transaction(() => {
+        this.db.prepare("DELETE FROM device_identity WHERE id = 1").run();
+        this.db
+          .prepare(
+            `INSERT INTO device_identity (id, status, api_base_url, tenant_id, branch_id, branch_name, terminal_id,
              enrollment_id, key_id, register_id, till_id, counter_label, label, public_key_hex, private_key_pkcs8,
              enrolled_by_user_id, created_at)
            VALUES (1, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          input.apiBaseUrl,
-          input.identity.tenantId,
-          input.identity.branchId,
-          input.branchName,
-          input.identity.terminalId,
-          input.identity.enrollmentId,
-          input.identity.keyId,
-          input.registerId,
-          input.tillId,
-          input.counterLabel,
-          input.label,
-          input.key.publicKeyHex,
-          input.key.exportPkcs8(),
-          input.enrolledByUserId,
-          input.now.toISOString(),
-        );
-    }).immediate();
+          )
+          .run(
+            input.apiBaseUrl,
+            input.identity.tenantId,
+            input.identity.branchId,
+            input.branchName,
+            input.identity.terminalId,
+            input.identity.enrollmentId,
+            input.identity.keyId,
+            input.registerId,
+            input.tillId,
+            input.counterLabel,
+            input.label,
+            input.key.publicKeyHex,
+            input.key.exportPkcs8(),
+            input.enrolledByUserId,
+            input.now.toISOString(),
+          );
+      })
+      .immediate();
   }
 
   /** Records what the server says about this enrollment. */
@@ -140,7 +155,11 @@ export class DeviceStore {
 
   /** Only a pending attempt the server never accepted may be discarded. */
   discardPending(): void {
-    this.db.prepare("DELETE FROM device_identity WHERE id = 1 AND status = 'pending'").run();
+    this.db
+      .prepare(
+        "DELETE FROM device_identity WHERE id = 1 AND status = 'pending'",
+      )
+      .run();
   }
 
   recordSessionOpened(input: {
@@ -155,7 +174,13 @@ export class DeviceStore {
         `INSERT INTO staff_session_log (work_session_id, staff_user_id, staff_name, enrollment_id, opened_at)
          VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(input.workSessionId, input.staffUserId, input.staffName, input.enrollmentId, input.now.toISOString());
+      .run(
+        input.workSessionId,
+        input.staffUserId,
+        input.staffName,
+        input.enrollmentId,
+        input.now.toISOString(),
+      );
   }
 
   recordSessionClosed(workSessionId: string, reason: string, now: Date): void {
@@ -167,13 +192,25 @@ export class DeviceStore {
   }
 
   /** A session left open by a crash or power cut; the server still holds the binding. */
-  openSession(): { workSessionId: string; staffUserId: string; staffName: string } | null {
+  openSession(): {
+    workSessionId: string;
+    staffUserId: string;
+    staffName: string;
+  } | null {
     const row = this.db
       .prepare(
         `SELECT work_session_id, staff_user_id, staff_name FROM staff_session_log
          WHERE closed_at IS NULL ORDER BY opened_at DESC LIMIT 1`,
       )
-      .get() as { work_session_id: string; staff_user_id: string; staff_name: string } | undefined;
-    return row ? { workSessionId: row.work_session_id, staffUserId: row.staff_user_id, staffName: row.staff_name } : null;
+      .get() as
+      | { work_session_id: string; staff_user_id: string; staff_name: string }
+      | undefined;
+    return row
+      ? {
+          workSessionId: row.work_session_id,
+          staffUserId: row.staff_user_id,
+          staffName: row.staff_name,
+        }
+      : null;
   }
 }

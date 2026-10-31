@@ -5,7 +5,10 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { PrepareOfflineActivationDto } from "./dto/offline-assignment.dto";
-import { OFFLINE_ACTIVATION_PERMISSION, OfflineActivationService } from "./offline-activation.service";
+import {
+  OFFLINE_ACTIVATION_PERMISSION,
+  OfflineActivationService,
+} from "./offline-activation.service";
 
 /** Revised D13 local activation (contract: docs/API_CONTRACT.md "Offline-counter assignment").
  * Signed command from the exact authorized target with verified local attendance; the remote
@@ -33,7 +36,11 @@ export class OfflineActivationController {
   @RequirePermission(OFFLINE_ACTIVATION_PERMISSION)
   @Post("activate")
   @HttpCode(200)
-  activate(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string, @Body() body: unknown) {
+  activate(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Body() body: unknown,
+  ) {
     return this.activation.activate(user, branchId, body);
   }
 }

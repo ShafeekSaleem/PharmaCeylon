@@ -14,7 +14,12 @@ import type {
   WindowsSessionEvidence,
   WorkSessionIdentity,
 } from "@pharmaceylon/shared";
-import type { ActionError, Branch, DeviceState, OfflineCounterView } from "../../shared/ipc-contract";
+import type {
+  ActionError,
+  Branch,
+  DeviceState,
+  OfflineCounterView,
+} from "../../shared/ipc-contract";
 import { ApiError, type ApiSession, type AuthUser } from "../api/api-client";
 import { buildAttestation } from "../attendance/attestation";
 import { DeviceKey } from "../device/device-key";
@@ -35,40 +40,61 @@ export type TerminalServiceDeps = {
   now?: () => Date;
 };
 
-type StaffSession = { workSessionId: string; staffUserId: string; staffName: string; openedAt: string };
+type StaffSession = {
+  workSessionId: string;
+  staffUserId: string;
+  staffName: string;
+  openedAt: string;
+};
 
 /** Plain-language explanations for refusals a person at the counter can act on. */
 const MESSAGES: Record<string, string> = {
-  NETWORK: "The server could not be reached. Check the internet connection and try again.",
+  NETWORK:
+    "The server could not be reached. Check the internet connection and try again.",
   SERVER_NOT_SET: "Set the server address first.",
   REMOTE_SESSION_DENIED:
     "This must be done at the computer itself, not over Remote Desktop. Sign in at the counter and try again.",
-  LOCAL_ATTENDANCE_UNAVAILABLE: "Windows did not confirm this is the computer's own screen. Try again at the counter.",
-  TERMINAL_REVOKED: "This counter has been switched off in the back office. A manager must enroll it again.",
+  LOCAL_ATTENDANCE_UNAVAILABLE:
+    "Windows did not confirm this is the computer's own screen. Try again at the counter.",
+  TERMINAL_REVOKED:
+    "This counter has been switched off in the back office. A manager must enroll it again.",
   PERMISSION_DENIED: "Your account is not allowed to do this at this branch.",
   IDENTITY_MISMATCH: "This counter belongs to a different branch or account.",
   CHALLENGE_EXPIRED: "That took too long. Try again.",
   CHALLENGE_INVALID: "That took too long. Try again.",
   CHALLENGE_USED_OR_EXPIRED: "That took too long. Try again.",
-  ENROLLMENT_CODE_INVALID: "That code is not valid here. Check it, or ask a manager for a new one.",
+  ENROLLMENT_CODE_INVALID:
+    "That code is not valid here. Check it, or ask a manager for a new one.",
   NOT_SIGNED_IN: "Sign in first.",
   HTTP_401: "Your sign-in has expired. Sign in again.",
   PIN_INCORRECT: "That PIN is not right.",
-  PIN_LOCKED: "Too many wrong PINs. Wait 15 minutes or sign in with your password.",
+  PIN_LOCKED:
+    "Too many wrong PINs. Wait 15 minutes or sign in with your password.",
   PIN_NOT_SET: "Set your PIN first.",
   PASSWORD_INCORRECT: "Your login password is not right.",
   LOCKED: "The counter is locked. Unlock it first.",
-  OFFLINE_AUTHORIZATION_NOT_CURRENT: "That authorization is no longer current. Ask the owner to authorize this counter again.",
-  D11_CLEARANCE_REQUIRED: "The branch's current offline counter must be disabled and its sales recovered first.",
+  OFFLINE_AUTHORIZATION_NOT_CURRENT:
+    "That authorization is no longer current. Ask the owner to authorize this counter again.",
+  D11_CLEARANCE_REQUIRED:
+    "The branch's current offline counter must be disabled and its sales recovered first.",
 };
 
 export function explain(error: unknown): ActionError {
   if (error instanceof ApiError) {
-    const message = MESSAGES[error.code] ?? (error.status === 401 ? MESSAGES.HTTP_401 : error.message);
-    return { code: error.code, message: message ?? "The server refused the request." };
+    const message =
+      MESSAGES[error.code] ??
+      (error.status === 401 ? MESSAGES.HTTP_401 : error.message);
+    return {
+      code: error.code,
+      message: message ?? "The server refused the request.",
+    };
   }
-  if (error instanceof ActionFailure) return { code: error.code, message: error.message };
-  return { code: "UNEXPECTED", message: "Something went wrong. Please try again." };
+  if (error instanceof ActionFailure)
+    return { code: error.code, message: error.message };
+  return {
+    code: "UNEXPECTED",
+    message: "Something went wrong. Please try again.",
+  };
 }
 
 export class ActionFailure extends Error {
@@ -114,12 +140,27 @@ export class TerminalService {
             enrolledAt: device.enrolledAt,
           }
         : null,
-      operator: operator ? { userId: operator.id, fullName: operator.fullName, email: operator.email } : null,
+      operator: operator
+        ? {
+            userId: operator.id,
+            fullName: operator.fullName,
+            email: operator.email,
+          }
+        : null,
       staffSession: this.staff,
-      pin: this.staff && device ? this.pinState(device.identity.enrollmentId) : null,
+      pin:
+        this.staff && device
+          ? this.pinState(device.identity.enrollmentId)
+          : null,
       locked: this.locked,
-      branches: operator && (!device || device.status !== "active") ? this.branches : [],
-      windowsSession: { protocol: windows.protocol, remoteSession: windows.remoteSession },
+      branches:
+        operator && (!device || device.status !== "active")
+          ? this.branches
+          : [],
+      windowsSession: {
+        protocol: windows.protocol,
+        remoteSession: windows.remoteSession,
+      },
     };
   }
 
@@ -144,7 +185,10 @@ export class TerminalService {
       if (device && device.status === "active") {
         await this.refreshStatus();
         if (this.deps.store.read()?.status !== "active")
-          throw new ActionFailure("TERMINAL_REVOKED", MESSAGES.TERMINAL_REVOKED!);
+          throw new ActionFailure(
+            "TERMINAL_REVOKED",
+            MESSAGES.TERMINAL_REVOKED!,
+          );
         await this.openStaffSession(user);
       } else {
         this.branches = await this.loadBranches();
@@ -161,14 +205,24 @@ export class TerminalService {
     const device = this.deps.store.read();
     if (staff && device) {
       try {
-        await this.deps.api.request("POST", `/terminals/sessions/${staff.workSessionId}/end`, {
-          branchId: device.identity.branchId,
-        });
+        await this.deps.api.request(
+          "POST",
+          `/terminals/sessions/${staff.workSessionId}/end`,
+          {
+            branchId: device.identity.branchId,
+          },
+        );
       } catch (error) {
         // Offline or already superseded: the next sign-in at this till replaces the binding.
-        this.deps.logger.warn("terminal.session_end_failed", { code: error instanceof ApiError ? error.code : "unknown" });
+        this.deps.logger.warn("terminal.session_end_failed", {
+          code: error instanceof ApiError ? error.code : "unknown",
+        });
       }
-      this.deps.store.recordSessionClosed(staff.workSessionId, reason, this.now());
+      this.deps.store.recordSessionClosed(
+        staff.workSessionId,
+        reason,
+        this.now(),
+      );
     }
     this.staff = null;
     this.credential = null;
@@ -206,27 +260,51 @@ export class TerminalService {
   lock(): DeviceState {
     const { staff, device } = this.requireStaff(true);
     if (this.pinState(device.identity.enrollmentId)?.prepared !== true)
-      throw new ActionFailure("PIN_NOT_PREPARED", "Prepare your PIN on this counter before locking it.");
+      throw new ActionFailure(
+        "PIN_NOT_PREPARED",
+        "Prepare your PIN on this counter before locking it.",
+      );
     this.locked = true;
-    this.deps.logger.info("terminal.locked", { workSessionId: staff.workSessionId });
+    this.deps.logger.info("terminal.locked", {
+      workSessionId: staff.workSessionId,
+    });
     return this.state();
   }
 
   /** Only the signed-in person's own PIN unlocks; anyone else signs in, which switches user. */
   unlock(pin: string): DeviceState {
     const { staff, device } = this.requireStaff(true);
-    const result = this.deps.pins.check(staff.staffUserId, device.identity.enrollmentId, pin, this.now());
-    if (result === "locked") throw new ActionFailure("PIN_LOCKED", MESSAGES.PIN_LOCKED!);
-    if (result === "not_prepared") throw new ActionFailure("PIN_NOT_PREPARED", "Sign out and sign in with your password.");
-    if (result === "wrong") throw new ActionFailure("PIN_INCORRECT", MESSAGES.PIN_INCORRECT!);
+    const result = this.deps.pins.check(
+      staff.staffUserId,
+      device.identity.enrollmentId,
+      pin,
+      this.now(),
+    );
+    if (result === "locked")
+      throw new ActionFailure("PIN_LOCKED", MESSAGES.PIN_LOCKED!);
+    if (result === "not_prepared")
+      throw new ActionFailure(
+        "PIN_NOT_PREPARED",
+        "Sign out and sign in with your password.",
+      );
+    if (result === "wrong")
+      throw new ActionFailure("PIN_INCORRECT", MESSAGES.PIN_INCORRECT!);
     this.locked = false;
     return this.state();
   }
 
-  private keepVerifier(staff: StaffSession, enrollmentId: string, credential: TerminalStaffCredentialView, pin: string) {
+  private keepVerifier(
+    staff: StaffSession,
+    enrollmentId: string,
+    credential: TerminalStaffCredentialView,
+    pin: string,
+  ) {
     this.credential = credential;
     // Only a server-confirmed PIN at its current version becomes a local verifier.
-    if (credential.pinSet && credential.preparedVersion === credential.pinVersion)
+    if (
+      credential.pinSet &&
+      credential.preparedVersion === credential.pinVersion
+    )
       this.deps.pins.save({
         staffUserId: staff.staffUserId,
         staffName: staff.staffName,
@@ -239,47 +317,84 @@ export class TerminalService {
 
   private pinState(enrollmentId: string): DeviceState["pin"] {
     if (!this.staff || !this.credential) return null;
-    const local = this.deps.pins.preparedVersion(this.staff.staffUserId, enrollmentId);
+    const local = this.deps.pins.preparedVersion(
+      this.staff.staffUserId,
+      enrollmentId,
+    );
     return {
       set: this.credential.pinSet,
       prepared:
         this.credential.pinSet &&
         this.credential.preparedVersion === this.credential.pinVersion &&
         local === this.credential.pinVersion,
-      lockedUntil: this.credential.lockedUntil === null ? null : new Date(this.credential.lockedUntil).toISOString(),
+      lockedUntil:
+        this.credential.lockedUntil === null
+          ? null
+          : new Date(this.credential.lockedUntil).toISOString(),
     };
   }
 
   private requireStaff(allowLocked = false) {
     const device = this.requireActive();
-    if (!this.staff) throw new ActionFailure("NOT_SIGNED_IN", MESSAGES.NOT_SIGNED_IN!);
-    if (this.locked && !allowLocked) throw new ActionFailure("LOCKED", MESSAGES.LOCKED!);
+    if (!this.staff)
+      throw new ActionFailure("NOT_SIGNED_IN", MESSAGES.NOT_SIGNED_IN!);
+    if (this.locked && !allowLocked)
+      throw new ActionFailure("LOCKED", MESSAGES.LOCKED!);
     return { staff: this.staff, device };
   }
 
   async listCounters(branchId: string): Promise<TerminalCounterView[]> {
     this.requireBranch(branchId);
-    return this.deps.api.request<TerminalCounterView[]>("GET", "/terminals/counters", { branchId });
+    return this.deps.api.request<TerminalCounterView[]>(
+      "GET",
+      "/terminals/counters",
+      { branchId },
+    );
   }
 
-  async createCounter(branchId: string, label: string): Promise<TerminalCounterView> {
+  async createCounter(
+    branchId: string,
+    label: string,
+  ): Promise<TerminalCounterView> {
     this.requireBranch(branchId);
-    return this.deps.api.request<TerminalCounterView>("POST", "/terminals/counters", { branchId, body: { label } });
+    return this.deps.api.request<TerminalCounterView>(
+      "POST",
+      "/terminals/counters",
+      { branchId, body: { label } },
+    );
   }
 
   /** Enrolls this computer as one counter at one branch. The signed-in user is the enroller. */
-  async enroll(input: { branchId: string; registerId: string; label: string }): Promise<DeviceState> {
+  async enroll(input: {
+    branchId: string;
+    registerId: string;
+    label: string;
+  }): Promise<DeviceState> {
     const user = this.requireOperator();
     const branch = this.requireBranch(input.branchId);
     const existing = this.deps.store.read();
-    if (existing && existing.status !== "revoked" && existing.status !== "retired")
-      throw new ActionFailure("ALREADY_ENROLLED", "This computer is already enrolled.");
+    if (
+      existing &&
+      existing.status !== "revoked" &&
+      existing.status !== "retired"
+    )
+      throw new ActionFailure(
+        "ALREADY_ENROLLED",
+        "This computer is already enrolled.",
+      );
     const apiBaseUrl = this.baseUrl();
-    if (!apiBaseUrl) throw new ApiError(0, "SERVER_NOT_SET", MESSAGES.SERVER_NOT_SET!);
+    if (!apiBaseUrl)
+      throw new ApiError(0, "SERVER_NOT_SET", MESSAGES.SERVER_NOT_SET!);
 
     const counters = await this.listCounters(branch.id);
-    const counter = counters.find((c) => c.registerId === input.registerId && c.isActive);
-    if (!counter) throw new ActionFailure("COUNTER_NOT_FOUND", "Choose one of this branch's counters.");
+    const counter = counters.find(
+      (c) => c.registerId === input.registerId && c.isActive,
+    );
+    if (!counter)
+      throw new ActionFailure(
+        "COUNTER_NOT_FOUND",
+        "Choose one of this branch's counters.",
+      );
     if (counter.terminal)
       throw new ActionFailure(
         "COUNTER_OCCUPIED",
@@ -287,32 +402,75 @@ export class TerminalService {
       );
 
     const key = DeviceKey.generate();
-    const challenge = await this.deps.api.request<TerminalEnrollmentCommand>("POST", "/terminals/enrollments/challenge", {
-      branchId: branch.id,
-      body: { registerId: counter.registerId, keyId: key.keyId, publicKeyHex: key.publicKeyHex, label: input.label },
+    const challenge = await this.deps.api.request<TerminalEnrollmentCommand>(
+      "POST",
+      "/terminals/enrollments/challenge",
+      {
+        branchId: branch.id,
+        body: {
+          registerId: counter.registerId,
+          keyId: key.keyId,
+          publicKeyHex: key.publicKeyHex,
+          label: input.label,
+        },
+      },
+    );
+    return this.completeEnrollment({
+      key,
+      challenge,
+      user,
+      branch,
+      apiBaseUrl,
+      counterLabel: counter.label,
+      label: input.label,
     });
-    return this.completeEnrollment({ key, challenge, user, branch, apiBaseUrl, counterLabel: counter.label, label: input.label });
   }
 
   /** Enrolls with a manager's one-time code: any staff member at the computer can do this. */
-  async enrollWithCode(input: { branchId: string; code: string; label: string }): Promise<DeviceState> {
+  async enrollWithCode(input: {
+    branchId: string;
+    code: string;
+    label: string;
+  }): Promise<DeviceState> {
     const user = this.requireOperator();
     const branch = this.requireBranch(input.branchId);
     const existing = this.deps.store.read();
-    if (existing && existing.status !== "revoked" && existing.status !== "retired")
-      throw new ActionFailure("ALREADY_ENROLLED", "This computer is already enrolled.");
+    if (
+      existing &&
+      existing.status !== "revoked" &&
+      existing.status !== "retired"
+    )
+      throw new ActionFailure(
+        "ALREADY_ENROLLED",
+        "This computer is already enrolled.",
+      );
     const apiBaseUrl = this.baseUrl();
-    if (!apiBaseUrl) throw new ApiError(0, "SERVER_NOT_SET", MESSAGES.SERVER_NOT_SET!);
+    if (!apiBaseUrl)
+      throw new ApiError(0, "SERVER_NOT_SET", MESSAGES.SERVER_NOT_SET!);
     const key = DeviceKey.generate();
-    const { command, counterLabel } = await this.deps.api.request<TerminalEnrollmentCodeChallenge>(
-      "POST",
-      "/terminals/enrollments/code-challenge",
-      {
-        branchId: branch.id,
-        body: { code: input.code, keyId: key.keyId, publicKeyHex: key.publicKeyHex, label: input.label },
-      },
-    );
-    return this.completeEnrollment({ key, challenge: command, user, branch, apiBaseUrl, counterLabel, label: input.label });
+    const { command, counterLabel } =
+      await this.deps.api.request<TerminalEnrollmentCodeChallenge>(
+        "POST",
+        "/terminals/enrollments/code-challenge",
+        {
+          branchId: branch.id,
+          body: {
+            code: input.code,
+            keyId: key.keyId,
+            publicKeyHex: key.publicKeyHex,
+            label: input.label,
+          },
+        },
+      );
+    return this.completeEnrollment({
+      key,
+      challenge: command,
+      user,
+      branch,
+      apiBaseUrl,
+      counterLabel,
+      label: input.label,
+    });
   }
 
   private async completeEnrollment(input: {
@@ -325,9 +483,21 @@ export class TerminalService {
     label: string;
   }): Promise<DeviceState> {
     const { key, challenge, user, branch, apiBaseUrl } = input;
-    if (challenge.publicKeyHex !== key.publicKeyHex || challenge.identity.keyId !== key.keyId)
-      throw new ActionFailure("CHALLENGE_INVALID", "The server returned a challenge for a different key.");
-    const proof = await this.recordAttendance(key, challenge, "enrollment", user, branch.id);
+    if (
+      challenge.publicKeyHex !== key.publicKeyHex ||
+      challenge.identity.keyId !== key.keyId
+    )
+      throw new ActionFailure(
+        "CHALLENGE_INVALID",
+        "The server returned a challenge for a different key.",
+      );
+    const proof = await this.recordAttendance(
+      key,
+      challenge,
+      "enrollment",
+      user,
+      branch.id,
+    );
 
     // Saved before finishing, so the key survives a crash or a lost response.
     this.deps.store.savePending({
@@ -343,12 +513,20 @@ export class TerminalService {
       now: this.now(),
     });
     try {
-      await this.deps.api.request<TerminalIdentity>("POST", "/terminals/enrollments", {
-        branchId: branch.id,
-        body: { envelope: key.sign(challenge, "command"), attendanceProofId: proof.proofId },
-      });
+      await this.deps.api.request<TerminalIdentity>(
+        "POST",
+        "/terminals/enrollments",
+        {
+          branchId: branch.id,
+          body: {
+            envelope: key.sign(challenge, "command"),
+            attendanceProofId: proof.proofId,
+          },
+        },
+      );
     } catch (error) {
-      if (error instanceof ApiError && !error.uncertain) this.deps.store.discardPending();
+      if (error instanceof ApiError && !error.uncertain)
+        this.deps.store.discardPending();
       throw error;
     }
     this.deps.store.setStatus("active", this.now());
@@ -364,7 +542,8 @@ export class TerminalService {
   /** Asks the server whether this enrollment still stands and records the answer. */
   async refreshStatus(): Promise<DeviceState> {
     const device = this.deps.store.read();
-    if (!device || device.status === "pending" || !this.deps.api.user) return this.state();
+    if (!device || device.status === "pending" || !this.deps.api.user)
+      return this.state();
     const status = await this.deps.api.request<TerminalEnrollmentStatusView>(
       "GET",
       `/terminals/enrollments/${device.identity.enrollmentId}`,
@@ -372,42 +551,67 @@ export class TerminalService {
     );
     this.deps.store.setStatus(status.status, this.now());
     if (status.status !== "active" && this.staff) {
-      this.deps.store.recordSessionClosed(this.staff.workSessionId, "terminal_revoked", this.now());
+      this.deps.store.recordSessionClosed(
+        this.staff.workSessionId,
+        "terminal_revoked",
+        this.now(),
+      );
       this.staff = null;
     }
     return this.state();
   }
 
   /** Signs and records an attendance proof for a signed command prepared by the server. */
-  async attendCommand(command: OnlineTerminalCommand<unknown>): Promise<LocalAttendanceProofReceipt> {
+  async attendCommand(
+    command: OnlineTerminalCommand<unknown>,
+  ): Promise<LocalAttendanceProofReceipt> {
     const device = this.requireActive();
     const user = this.requireOperator();
-    return this.recordAttendance(this.requireKey(), command, "command", user, device.identity.branchId);
+    return this.recordAttendance(
+      this.requireKey(),
+      command,
+      "command",
+      user,
+      device.identity.branchId,
+    );
   }
 
   /** Go-live evidence: the signed-in person confirms the test receipt came out of this printer. */
-  async confirmTestReceipt(printerName: string): Promise<{ confirmedAt: string }> {
+  async confirmTestReceipt(
+    printerName: string,
+  ): Promise<{ confirmedAt: string }> {
     const { staff, device } = this.requireStaff();
-    const result = await this.deps.api.request<{ testReceiptId: string; confirmedAt: number }>(
-      "POST",
-      `/terminals/sessions/${staff.workSessionId}/test-receipt`,
-      { branchId: device.identity.branchId, body: { printerName } },
-    );
+    const result = await this.deps.api.request<{
+      testReceiptId: string;
+      confirmedAt: number;
+    }>("POST", `/terminals/sessions/${staff.workSessionId}/test-receipt`, {
+      branchId: device.identity.branchId,
+      body: { printerName },
+    });
     return { confirmedAt: new Date(result.confirmedAt).toISOString() };
   }
 
   /** Whether this counter is the branch's offline counter, or has an authorization waiting. */
   async offlineCounter(): Promise<OfflineCounterView> {
     const { device } = this.requireStaff();
-    const view = await this.deps.api.request<OfflineAssignmentView>("GET", "/terminals/offline-assignment", {
-      branchId: device.identity.branchId,
-    });
+    const view = await this.deps.api.request<OfflineAssignmentView>(
+      "GET",
+      "/terminals/offline-assignment",
+      {
+        branchId: device.identity.branchId,
+      },
+    );
     const waiting = view.authorizations.find(
-      (a) => a.status === "authorized" && a.targetEnrollmentId === device.identity.enrollmentId,
+      (a) =>
+        a.status === "authorized" &&
+        a.targetEnrollmentId === device.identity.enrollmentId,
     );
     return {
-      thisCounterNominated: view.nomination?.enrollmentId === device.identity.enrollmentId,
-      otherCounterNominated: view.nomination !== null && view.nomination.enrollmentId !== device.identity.enrollmentId,
+      thisCounterNominated:
+        view.nomination?.enrollmentId === device.identity.enrollmentId,
+      otherCounterNominated:
+        view.nomination !== null &&
+        view.nomination.enrollmentId !== device.identity.enrollmentId,
       nominationVersion: view.nominationVersion,
       authorization: waiting
         ? {
@@ -425,8 +629,14 @@ export class TerminalService {
     const { staff, device } = this.requireStaff();
     const user = this.requireOperator();
     const current = await this.offlineCounter();
-    if (!current.authorization || current.authorization.authorizationId !== authorizationId)
-      throw new ActionFailure("OFFLINE_AUTHORIZATION_NOT_CURRENT", MESSAGES.OFFLINE_AUTHORIZATION_NOT_CURRENT!);
+    if (
+      !current.authorization ||
+      current.authorization.authorizationId !== authorizationId
+    )
+      throw new ActionFailure(
+        "OFFLINE_AUTHORIZATION_NOT_CURRENT",
+        MESSAGES.OFFLINE_AUTHORIZATION_NOT_CURRENT!,
+      );
     const command = await this.deps.api.request<OnlineTerminalCommand<unknown>>(
       "POST",
       "/terminals/offline-assignment/activate/challenge",
@@ -435,44 +645,104 @@ export class TerminalService {
         body: {
           workSessionId: staff.workSessionId,
           authorizationId,
-          expectedNominationVersion: current.authorization.expectedNominationVersion,
+          expectedNominationVersion:
+            current.authorization.expectedNominationVersion,
         },
       },
     );
     const key = this.requireKey();
-    const proof = await this.recordAttendance(key, command, "command", user, device.identity.branchId);
-    const result = await this.deps.api.request<OfflineActivationResult>("POST", "/terminals/offline-assignment/activate", {
-      branchId: device.identity.branchId,
-      body: { envelope: key.sign(command, "command"), attendanceProofId: proof.proofId },
+    const proof = await this.recordAttendance(
+      key,
+      command,
+      "command",
+      user,
+      device.identity.branchId,
+    );
+    const result = await this.deps.api.request<OfflineActivationResult>(
+      "POST",
+      "/terminals/offline-assignment/activate",
+      {
+        branchId: device.identity.branchId,
+        body: {
+          envelope: key.sign(command, "command"),
+          attendanceProofId: proof.proofId,
+        },
+      },
+    );
+    this.deps.logger.info("terminal.offline_activated", {
+      nominationVersion: result.nominationVersion,
     });
-    this.deps.logger.info("terminal.offline_activated", { nominationVersion: result.nominationVersion });
     return this.offlineCounter();
   }
 
   /** The signed-in staff member, their open session and this device's identity and key. */
-  current(): { staff: StaffSession; identity: TerminalIdentity; key: DeviceKey } | null {
+  current(): {
+    staff: StaffSession;
+    identity: TerminalIdentity;
+    key: DeviceKey;
+  } | null {
     const device = this.deps.store.read();
-    if (!this.staff || !device || device.status !== "active" || this.locked) return null;
-    return { staff: this.staff, identity: device.identity, key: this.requireKey() };
+    if (!this.staff || !device || device.status !== "active" || this.locked)
+      return null;
+    return {
+      staff: this.staff,
+      identity: device.identity,
+      key: this.requireKey(),
+    };
   }
 
   private async openStaffSession(user: AuthUser): Promise<void> {
     const device = this.requireActive();
     const key = this.requireKey();
-    const challenge = await this.deps.api.request<TerminalSessionCommand>("POST", "/terminals/sessions/challenge", {
-      branchId: device.identity.branchId,
-      body: { identity: device.identity },
-    });
-    const fields = ["tenantId", "branchId", "terminalId", "enrollmentId", "keyId"] as const;
-    if (fields.some((field) => challenge.identity[field] !== device.identity[field]))
-      throw new ActionFailure("CHALLENGE_INVALID", "The server returned a challenge for a different counter.");
-    const proof = await this.recordAttendance(key, challenge, "session", user, device.identity.branchId);
-    const session = await this.deps.api.request<WorkSessionIdentity>("POST", "/terminals/sessions", {
-      branchId: device.identity.branchId,
-      body: { envelope: key.sign(challenge, "command"), attendanceProofId: proof.proofId },
-    });
+    const challenge = await this.deps.api.request<TerminalSessionCommand>(
+      "POST",
+      "/terminals/sessions/challenge",
+      {
+        branchId: device.identity.branchId,
+        body: { identity: device.identity },
+      },
+    );
+    const fields = [
+      "tenantId",
+      "branchId",
+      "terminalId",
+      "enrollmentId",
+      "keyId",
+    ] as const;
+    if (
+      fields.some(
+        (field) => challenge.identity[field] !== device.identity[field],
+      )
+    )
+      throw new ActionFailure(
+        "CHALLENGE_INVALID",
+        "The server returned a challenge for a different counter.",
+      );
+    const proof = await this.recordAttendance(
+      key,
+      challenge,
+      "session",
+      user,
+      device.identity.branchId,
+    );
+    const session = await this.deps.api.request<WorkSessionIdentity>(
+      "POST",
+      "/terminals/sessions",
+      {
+        branchId: device.identity.branchId,
+        body: {
+          envelope: key.sign(challenge, "command"),
+          attendanceProofId: proof.proofId,
+        },
+      },
+    );
     const stale = this.deps.store.openSession();
-    if (stale) this.deps.store.recordSessionClosed(stale.workSessionId, "superseded", this.now());
+    if (stale)
+      this.deps.store.recordSessionClosed(
+        stale.workSessionId,
+        "superseded",
+        this.now(),
+      );
     const openedAt = this.now();
     this.deps.store.recordSessionOpened({
       workSessionId: session.workSessionId,
@@ -494,15 +764,23 @@ export class TerminalService {
       { branchId: device.identity.branchId },
     );
     // A PIN changed or reset elsewhere makes this counter's verifier useless; drop it now.
-    const local = this.deps.pins.preparedVersion(user.id, device.identity.enrollmentId);
-    if (local !== null && (!this.credential.pinSet || local !== this.credential.pinVersion)) this.deps.pins.forget(user.id);
+    const local = this.deps.pins.preparedVersion(
+      user.id,
+      device.identity.enrollmentId,
+    );
+    if (
+      local !== null &&
+      (!this.credential.pinSet || local !== this.credential.pinVersion)
+    )
+      this.deps.pins.forget(user.id);
   }
 
   /** A pending enrollment is promoted if the server accepted it, and discarded if it did not. */
   private async resolvePending(user: AuthUser): Promise<void> {
     const device = this.deps.store.read();
     if (!device || device.status !== "pending") return;
-    if (!user.branchRoles.some((r) => r.branchId === device.identity.branchId)) return;
+    if (!user.branchRoles.some((r) => r.branchId === device.identity.branchId))
+      return;
     try {
       const status = await this.deps.api.request<TerminalEnrollmentStatusView>(
         "GET",
@@ -511,21 +789,28 @@ export class TerminalService {
       );
       this.deps.store.setStatus(status.status, this.now());
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404) this.deps.store.discardPending();
+      if (error instanceof ApiError && error.status === 404)
+        this.deps.store.discardPending();
       else throw error;
     }
   }
 
   private async recordAttendance(
     key: DeviceKey,
-    challenge: TerminalEnrollmentCommand | TerminalSessionCommand | OnlineTerminalCommand<unknown>,
+    challenge:
+      | TerminalEnrollmentCommand
+      | TerminalSessionCommand
+      | OnlineTerminalCommand<unknown>,
     purpose: LocalAttendancePurpose,
     user: AuthUser,
     branchId: string,
   ): Promise<LocalAttendanceProofReceipt> {
     const windowsSession = this.deps.readWindowsSession();
     if (windowsSession.protocol !== "console" || windowsSession.remoteSession)
-      throw new ActionFailure("REMOTE_SESSION_DENIED", MESSAGES.REMOTE_SESSION_DENIED!);
+      throw new ActionFailure(
+        "REMOTE_SESSION_DENIED",
+        MESSAGES.REMOTE_SESSION_DENIED!,
+      );
     const attestation = buildAttestation({
       challenge,
       purpose,
@@ -534,46 +819,64 @@ export class TerminalService {
       appVersion: this.deps.appVersion,
       now: this.now().getTime(),
     });
-    return this.deps.api.request<LocalAttendanceProofReceipt>("POST", "/terminals/attendance-proofs", {
-      branchId,
-      body: key.sign(attestation, "attendance"),
-    });
+    return this.deps.api.request<LocalAttendanceProofReceipt>(
+      "POST",
+      "/terminals/attendance-proofs",
+      {
+        branchId,
+        body: key.sign(attestation, "attendance"),
+      },
+    );
   }
 
   private async loadBranches(): Promise<Branch[]> {
     const context = await this.deps.api.request<{
-      branchRoles: { branchId: string; branch: { id: string; code?: string; name?: string } }[];
+      branchRoles: {
+        branchId: string;
+        branch: { id: string; code?: string; name?: string };
+      }[];
     }>("GET", "/tenant/context");
     const seen = new Map<string, Branch>();
     for (const role of context.branchRoles) {
       if (!role.branch.name || seen.has(role.branchId)) continue;
-      seen.set(role.branchId, { id: role.branchId, code: role.branch.code ?? "", name: role.branch.name });
+      seen.set(role.branchId, {
+        id: role.branchId,
+        code: role.branch.code ?? "",
+        name: role.branch.name,
+      });
     }
     return [...seen.values()];
   }
 
   private requireOperator(): AuthUser {
     const user = this.deps.api.user;
-    if (!user) throw new ApiError(401, "NOT_SIGNED_IN", MESSAGES.NOT_SIGNED_IN!);
+    if (!user)
+      throw new ApiError(401, "NOT_SIGNED_IN", MESSAGES.NOT_SIGNED_IN!);
     return user;
   }
 
   private requireBranch(branchId: string): Branch {
     this.requireOperator();
     const branch = this.branches.find((b) => b.id === branchId);
-    if (!branch) throw new ActionFailure("BRANCH_NOT_AVAILABLE", "Choose one of your branches.");
+    if (!branch)
+      throw new ActionFailure(
+        "BRANCH_NOT_AVAILABLE",
+        "Choose one of your branches.",
+      );
     return branch;
   }
 
   private requireActive() {
     const device = this.deps.store.read();
-    if (!device || device.status !== "active") throw new ActionFailure("NOT_ENROLLED", "This computer is not enrolled.");
+    if (!device || device.status !== "active")
+      throw new ActionFailure("NOT_ENROLLED", "This computer is not enrolled.");
     return device;
   }
 
   private requireKey(): DeviceKey {
     const key = this.deps.store.key();
-    if (!key) throw new ActionFailure("NOT_ENROLLED", "This computer is not enrolled.");
+    if (!key)
+      throw new ActionFailure("NOT_ENROLLED", "This computer is not enrolled.");
     return key;
   }
 }

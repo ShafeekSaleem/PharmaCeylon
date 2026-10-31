@@ -1,5 +1,15 @@
 import { Type } from "class-transformer";
-import { IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from "class-validator";
+import {
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from "class-validator";
 
 /** POST /terminals/counters */
 export class CreateTerminalCounterDto {

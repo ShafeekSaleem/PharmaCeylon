@@ -22,20 +22,33 @@ const MAX_SESSION_ID = 2_147_483_647;
  * which the server refuses. Remote-control tools that drive the console session (AnyDesk,
  * TeamViewer, Chrome Remote Desktop) look like the console here; that limit is documented.
  */
-export function classifyWindowsSession(facts: WindowsSessionFacts | null): WindowsSessionEvidence {
-  if (!facts) return { sessionId: 0, protocol: "unknown", remoteSession: false };
+export function classifyWindowsSession(
+  facts: WindowsSessionFacts | null,
+): WindowsSessionEvidence {
+  if (!facts)
+    return { sessionId: 0, protocol: "unknown", remoteSession: false };
   const sessionId =
-    Number.isSafeInteger(facts.processSessionId) && facts.processSessionId >= 0 && facts.processSessionId <= MAX_SESSION_ID
+    Number.isSafeInteger(facts.processSessionId) &&
+    facts.processSessionId >= 0 &&
+    facts.processSessionId <= MAX_SESSION_ID
       ? facts.processSessionId
       : 0;
-  const remoteSession = facts.remoteSessionMetric || facts.clientProtocol === 1 || facts.clientProtocol === 2;
-  if (facts.clientProtocol === 2) return { sessionId, protocol: "rdp", remoteSession: true };
+  const remoteSession =
+    facts.remoteSessionMetric ||
+    facts.clientProtocol === 1 ||
+    facts.clientProtocol === 2;
+  if (facts.clientProtocol === 2)
+    return { sessionId, protocol: "rdp", remoteSession: true };
   const onConsole =
     facts.clientProtocol === 0 &&
     !remoteSession &&
     facts.activeConsoleSessionId !== NO_CONSOLE_SESSION &&
     facts.processSessionId === facts.activeConsoleSessionId;
-  return { sessionId, protocol: onConsole ? "console" : "unknown", remoteSession };
+  return {
+    sessionId,
+    protocol: onConsole ? "console" : "unknown",
+    remoteSession,
+  };
 }
 
 type Reader = () => WindowsSessionFacts | null;
@@ -44,7 +57,9 @@ type Reader = () => WindowsSessionFacts | null;
  * Reads the facts straight from user32/kernel32/wtsapi32 through koffi: no shell, no environment
  * variables (SESSIONNAME is trivially set by anyone). Any failure reads as null → `unknown`.
  */
-export function createWindowsSessionReader(platform: NodeJS.Platform = process.platform): Reader {
+export function createWindowsSessionReader(
+  platform: NodeJS.Platform = process.platform,
+): Reader {
   if (platform !== "win32") return () => null;
   let bound: Reader | null = null;
   return () => {
@@ -63,14 +78,24 @@ function bindWin32(): Reader {
   const user32 = koffi.load("user32.dll");
   const kernel32 = koffi.load("kernel32.dll");
   const wtsapi32 = koffi.load("wtsapi32.dll");
-  const GetSystemMetrics = user32.func("int __stdcall GetSystemMetrics(int nIndex)");
-  const GetCurrentProcessId = kernel32.func("uint32_t __stdcall GetCurrentProcessId()");
-  const ProcessIdToSessionId = kernel32.func("bool __stdcall ProcessIdToSessionId(uint32_t pid, _Out_ uint32_t *sid)");
-  const WTSGetActiveConsoleSessionId = kernel32.func("uint32_t __stdcall WTSGetActiveConsoleSessionId()");
+  const GetSystemMetrics = user32.func(
+    "int __stdcall GetSystemMetrics(int nIndex)",
+  );
+  const GetCurrentProcessId = kernel32.func(
+    "uint32_t __stdcall GetCurrentProcessId()",
+  );
+  const ProcessIdToSessionId = kernel32.func(
+    "bool __stdcall ProcessIdToSessionId(uint32_t pid, _Out_ uint32_t *sid)",
+  );
+  const WTSGetActiveConsoleSessionId = kernel32.func(
+    "uint32_t __stdcall WTSGetActiveConsoleSessionId()",
+  );
   const WTSQuerySessionInformationW = wtsapi32.func(
     "bool __stdcall WTSQuerySessionInformationW(void *server, uint32_t session, int infoClass, _Out_ void **buffer, _Out_ uint32_t *bytes)",
   );
-  const WTSFreeMemory = wtsapi32.func("void __stdcall WTSFreeMemory(void *memory)");
+  const WTSFreeMemory = wtsapi32.func(
+    "void __stdcall WTSFreeMemory(void *memory)",
+  );
   const SM_REMOTESESSION = 0x1000;
   const WTS_CURRENT_SESSION = 0xffffffff;
   const WTSClientProtocolType = 16;
@@ -81,9 +106,18 @@ function bindWin32(): Reader {
     const buffer: unknown[] = [null];
     const bytes = [0];
     let clientProtocol: number | null = null;
-    if (WTSQuerySessionInformationW(null, WTS_CURRENT_SESSION, WTSClientProtocolType, buffer, bytes)) {
+    if (
+      WTSQuerySessionInformationW(
+        null,
+        WTS_CURRENT_SESSION,
+        WTSClientProtocolType,
+        buffer,
+        bytes,
+      )
+    ) {
       try {
-        if ((bytes[0] ?? 0) >= 2 && buffer[0]) clientProtocol = koffi.decode(buffer[0], "uint16_t") as number;
+        if ((bytes[0] ?? 0) >= 2 && buffer[0])
+          clientProtocol = koffi.decode(buffer[0], "uint16_t") as number;
       } finally {
         WTSFreeMemory(buffer[0]);
       }

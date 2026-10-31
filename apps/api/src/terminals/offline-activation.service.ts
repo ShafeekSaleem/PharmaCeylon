@@ -1,6 +1,9 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import type { OfflineActivationResult, OnlineTerminalCommand } from "@pharmaceylon/shared";
+import type {
+  OfflineActivationResult,
+  OnlineTerminalCommand,
+} from "@pharmaceylon/shared";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -9,15 +12,23 @@ import { TerminalTrustService } from "./terminal-trust.service";
 import { invalid, object, text, uuid } from "./terminal-wire";
 
 type Tx = Prisma.TransactionClient;
-export const OFFLINE_ACTIVATION_OPERATION = "POST /api/v1/terminals/offline-assignment/activate";
+export const OFFLINE_ACTIVATION_OPERATION =
+  "POST /api/v1/terminals/offline-assignment/activate";
 /** Branch permission to confirm activation locally. Not the owner's assignment authority. */
 export const OFFLINE_ACTIVATION_PERMISSION = "terminal.activate_offline";
 
-export type ActivationBody = Readonly<{ authorizationId: string; expectedNominationVersion: number }>;
+export type ActivationBody = Readonly<{
+  authorizationId: string;
+  expectedNominationVersion: number;
+}>;
 function parseActivationBody(raw: unknown): ActivationBody {
   const body = object(raw, ["authorizationId", "expectedNominationVersion"]);
   uuid(body.authorizationId);
-  if (!Number.isSafeInteger(body.expectedNominationVersion) || (body.expectedNominationVersion as number) < 0) invalid();
+  if (
+    !Number.isSafeInteger(body.expectedNominationVersion) ||
+    (body.expectedNominationVersion as number) < 0
+  )
+    invalid();
   return body as ActivationBody;
 }
 const descriptor = {
@@ -28,8 +39,14 @@ const descriptor = {
 
 type Nomination = Prisma.OfflineTerminalNominationGetPayload<object>;
 export type ClearanceDecision =
-  | Readonly<{ cleared: true; basis: "initial_nomination" | "recovery_evidence" }>
-  | Readonly<{ cleared: false; reason: "PREVIOUS_STILL_ACTIVE" | "OFFLINE_RECOVERY_EVIDENCE_REQUIRED" }>;
+  | Readonly<{
+      cleared: true;
+      basis: "initial_nomination" | "recovery_evidence";
+    }>
+  | Readonly<{
+      cleared: false;
+      reason: "PREVIOUS_STILL_ACTIVE" | "OFFLINE_RECOVERY_EVIDENCE_REQUIRED";
+    }>;
 
 /**
  * D11 clearance port. Activation may replace a nominated terminal only once the old one can no
@@ -43,17 +60,25 @@ export class OfflineActivationClearance {
   async check(tx: Tx, previous: Nomination | null): Promise<ClearanceDecision> {
     if (!previous) return { cleared: true, basis: "initial_nomination" };
     const old = await tx.terminalEnrollment.findFirst({
-      where: { tenantId: previous.tenantId, branchId: previous.branchId, id: previous.enrollmentId },
+      where: {
+        tenantId: previous.tenantId,
+        branchId: previous.branchId,
+        id: previous.enrollmentId,
+      },
       include: { terminal: true },
     });
-    if (old && !old.revokedAt && !old.terminal.retiredAt) return { cleared: false, reason: "PREVIOUS_STILL_ACTIVE" };
+    if (old && !old.revokedAt && !old.terminal.retiredAt)
+      return { cleared: false, reason: "PREVIOUS_STILL_ACTIVE" };
     return (await this.recoveryEvidence(tx, previous))
       ? { cleared: true, basis: "recovery_evidence" }
       : { cleared: false, reason: "OFFLINE_RECOVERY_EVIDENCE_REQUIRED" };
   }
 
   /** P3/P5 integration point: grant cutoff or expiry plus journal recovery/loss review. */
-  protected async recoveryEvidence(_tx: Tx, _previous: Nomination): Promise<boolean> {
+  protected async recoveryEvidence(
+    _tx: Tx,
+    _previous: Nomination,
+  ): Promise<boolean> {
     return false;
   }
 }
@@ -79,31 +104,66 @@ export class OfflineActivationService {
   prepare(
     user: RequestUser,
     branchId: string,
-    input: { workSessionId: string; authorizationId: string; expectedNominationVersion: number },
+    input: {
+      workSessionId: string;
+      authorizationId: string;
+      expectedNominationVersion: number;
+    },
   ): Promise<OnlineTerminalCommand<ActivationBody>> {
     return this.prisma.$transaction((tx) =>
-      this.trust.prepareCommand(tx, user, branchId, input.workSessionId, descriptor, {
-        authorizationId: input.authorizationId,
-        expectedNominationVersion: input.expectedNominationVersion,
-      }),
+      this.trust.prepareCommand(
+        tx,
+        user,
+        branchId,
+        input.workSessionId,
+        descriptor,
+        {
+          authorizationId: input.authorizationId,
+          expectedNominationVersion: input.expectedNominationVersion,
+        },
+      ),
     );
   }
 
-  activate(user: RequestUser, branchId: string, raw: unknown): Promise<OfflineActivationResult> {
+  activate(
+    user: RequestUser,
+    branchId: string,
+    raw: unknown,
+  ): Promise<OfflineActivationResult> {
     const body = object(raw, ["envelope", "attendanceProofId"]);
     const proofId = text(body.attendanceProofId);
     return this.prisma.$transaction(async (tx) => {
-      const { command, attendanceId } = await this.trust.verifyCommand(tx, user, branchId, descriptor, body.envelope, proofId);
+      const { command, attendanceId } = await this.trust.verifyCommand(
+        tx,
+        user,
+        branchId,
+        descriptor,
+        body.envelope,
+        proofId,
+      );
       const { identity } = command;
-      const authorization = await this.assignments.requireCurrent(tx, user.tenantId, branchId, {
-        authorizationId: command.body.authorizationId,
-        targetEnrollmentId: identity.enrollmentId,
-        expectedNominationVersion: command.body.expectedNominationVersion,
-      });
-      if (authorization.targetTerminalId !== identity.terminalId || authorization.targetKeyId !== identity.keyId)
-        throw new ConflictException({ code: "OFFLINE_AUTHORIZATION_NOT_CURRENT", message: "This authorization is for a different counter." });
+      const authorization = await this.assignments.requireCurrent(
+        tx,
+        user.tenantId,
+        branchId,
+        {
+          authorizationId: command.body.authorizationId,
+          targetEnrollmentId: identity.enrollmentId,
+          expectedNominationVersion: command.body.expectedNominationVersion,
+        },
+      );
+      if (
+        authorization.targetTerminalId !== identity.terminalId ||
+        authorization.targetKeyId !== identity.keyId
+      )
+        throw new ConflictException({
+          code: "OFFLINE_AUTHORIZATION_NOT_CURRENT",
+          message: "This authorization is for a different counter.",
+        });
 
-      const previous = await tx.offlineTerminalNomination.findFirst({ where: { tenantId: user.tenantId, branchId } });
+      const previous = await tx.offlineTerminalNomination.findFirst({
+        where: { tenantId: user.tenantId, branchId },
+      });
       const decision = await this.clearance.check(tx, previous);
       if (!decision.cleared)
         throw new ConflictException({
@@ -116,12 +176,25 @@ export class OfflineActivationService {
         });
 
       const now = new Date();
-      const consumed = await tx.offlineTerminalAssignmentAuthorization.updateMany({
-        where: { id: authorization.id, tenantId: user.tenantId, branchId, status: "authorized" },
-        data: { status: "consumed", consumedAt: now, consumedByUserId: user.userId },
-      });
+      const consumed =
+        await tx.offlineTerminalAssignmentAuthorization.updateMany({
+          where: {
+            id: authorization.id,
+            tenantId: user.tenantId,
+            branchId,
+            status: "authorized",
+          },
+          data: {
+            status: "consumed",
+            consumedAt: now,
+            consumedByUserId: user.userId,
+          },
+        });
       if (consumed.count !== 1)
-        throw new ConflictException({ code: "OFFLINE_AUTHORIZATION_NOT_CURRENT", message: "This authorization was already used." });
+        throw new ConflictException({
+          code: "OFFLINE_AUTHORIZATION_NOT_CURRENT",
+          message: "This authorization was already used.",
+        });
       const version = (previous?.version ?? 0) + 1;
       const target = {
         terminalId: identity.terminalId,
@@ -134,13 +207,22 @@ export class OfflineActivationService {
       };
       if (previous) {
         const moved = await tx.offlineTerminalNomination.updateMany({
-          where: { tenantId: user.tenantId, branchId, version: previous.version },
+          where: {
+            tenantId: user.tenantId,
+            branchId,
+            version: previous.version,
+          },
           data: target,
         });
         if (moved.count !== 1)
-          throw new ConflictException({ code: "NOMINATION_VERSION_CHANGED", message: "The branch's offline counter just changed." });
+          throw new ConflictException({
+            code: "NOMINATION_VERSION_CHANGED",
+            message: "The branch's offline counter just changed.",
+          });
       } else {
-        await tx.offlineTerminalNomination.create({ data: { tenantId: user.tenantId, branchId, ...target } });
+        await tx.offlineTerminalNomination.create({
+          data: { tenantId: user.tenantId, branchId, ...target },
+        });
       }
       await this.audit.log(
         {

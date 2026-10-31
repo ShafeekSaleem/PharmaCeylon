@@ -45,6 +45,8 @@ export type LocalAttendanceProofReceipt = Readonly<{
 }>;
 
 /** Accept only the positively identified physical console session. */
-export function isLocalConsoleSession(session: WindowsSessionEvidence): boolean {
+export function isLocalConsoleSession(
+  session: WindowsSessionEvidence,
+): boolean {
   return session.protocol === "console" && session.remoteSession === false;
 }

@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type {
   TerminalEnrollmentCodeChallenge,
@@ -9,14 +13,19 @@ import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
-import { newEnrollmentCode, TerminalTrustService } from "./terminal-trust.service";
+import {
+  newEnrollmentCode,
+  TerminalTrustService,
+} from "./terminal-trust.service";
 import { denied, sha256, uuid } from "./terminal-wire";
 
 type Tx = Prisma.TransactionClient;
 const MANAGE = "tenant.management";
 const DEFAULT_MINUTES = 60;
 
-type CodeRow = Prisma.TerminalEnrollmentCodeGetPayload<{ include: { counter: true } }>;
+type CodeRow = Prisma.TerminalEnrollmentCodeGetPayload<{
+  include: { counter: true };
+}>;
 
 function view(row: CodeRow, now = Date.now()): TerminalEnrollmentCodeView {
   return {
@@ -31,7 +40,13 @@ function view(row: CodeRow, now = Date.now()): TerminalEnrollmentCodeView {
     usedByUserId: row.usedByUserId,
     enrollmentId: row.enrollmentId,
     revokedAt: row.revokedAt?.getTime() ?? null,
-    status: row.usedAt ? "used" : row.revokedAt ? "revoked" : row.expiresAt.getTime() <= now ? "expired" : "outstanding",
+    status: row.usedAt
+      ? "used"
+      : row.revokedAt
+        ? "revoked"
+        : row.expiresAt.getTime() <= now
+          ? "expired"
+          : "outstanding",
   };
 }
 
@@ -55,7 +70,10 @@ export class EnrollmentCodesService {
     if (!access.has(MANAGE)) denied("PERMISSION_DENIED");
   }
 
-  list(user: RequestUser, branchId: string): Promise<TerminalEnrollmentCodeView[]> {
+  list(
+    user: RequestUser,
+    branchId: string,
+  ): Promise<TerminalEnrollmentCodeView[]> {
     return this.prisma.$transaction(async (tx) => {
       await this.manager(tx, user, branchId);
       const rows = await tx.terminalEnrollmentCode.findMany({
@@ -76,14 +94,22 @@ export class EnrollmentCodesService {
     return this.prisma.$transaction(async (tx) => {
       await this.manager(tx, user, branchId);
       const counter = await tx.terminalCounter.findFirst({
-        where: { tenantId: user.tenantId, branchId, id: uuid(input.registerId), isActive: true },
-        include: { terminals: { where: { retiredAt: null }, select: { id: true } } },
+        where: {
+          tenantId: user.tenantId,
+          branchId,
+          id: uuid(input.registerId),
+          isActive: true,
+        },
+        include: {
+          terminals: { where: { retiredAt: null }, select: { id: true } },
+        },
       });
       if (!counter) throw new NotFoundException("Counter not found.");
       if (counter.terminals.length)
         throw new ConflictException({
           code: "COUNTER_OCCUPIED",
-          message: "A computer is already enrolled on this counter. Retire it first.",
+          message:
+            "A computer is already enrolled on this counter. Retire it first.",
         });
       const minutes = input.expiresInMinutes ?? DEFAULT_MINUTES;
       const { code, display } = newEnrollmentCode();
@@ -109,7 +135,10 @@ export class EnrollmentCodesService {
           eventName: "terminal.enrollment_code_issued",
           entityName: "terminal_enrollment_code",
           entityId: row.id,
-          payload: { registerId: counter.id, expiresAt: row.expiresAt.toISOString() },
+          payload: {
+            registerId: counter.id,
+            expiresAt: row.expiresAt.toISOString(),
+          },
         },
         tx,
       );
@@ -117,7 +146,11 @@ export class EnrollmentCodesService {
     });
   }
 
-  revoke(user: RequestUser, branchId: string, codeId: string): Promise<TerminalEnrollmentCodeView> {
+  revoke(
+    user: RequestUser,
+    branchId: string,
+    codeId: string,
+  ): Promise<TerminalEnrollmentCodeView> {
     return this.prisma.$transaction(async (tx) => {
       await this.manager(tx, user, branchId);
       await tx.$queryRaw`SELECT id FROM terminal_enrollment_code WHERE tenant_id = ${user.tenantId}::uuid
@@ -129,7 +162,13 @@ export class EnrollmentCodesService {
       if (!row) throw new NotFoundException("Enrollment code not found.");
       if (row.usedAt || row.revokedAt) return view(row);
       await tx.terminalEnrollmentCode.updateMany({
-        where: { tenantId: user.tenantId, branchId, id: codeId, usedAt: null, revokedAt: null },
+        where: {
+          tenantId: user.tenantId,
+          branchId,
+          id: codeId,
+          usedAt: null,
+          revokedAt: null,
+        },
         data: { revokedAt: new Date(), revokedByUserId: user.userId },
       });
       await this.audit.log(
@@ -156,6 +195,8 @@ export class EnrollmentCodesService {
     branchId: string,
     input: { code: string; keyId: string; publicKeyHex: string; label: string },
   ): Promise<TerminalEnrollmentCodeChallenge> {
-    return this.prisma.$transaction((tx) => this.trust.beginEnrollmentWithCode(tx, user, branchId, input));
+    return this.prisma.$transaction((tx) =>
+      this.trust.beginEnrollmentWithCode(tx, user, branchId, input),
+    );
   }
 }

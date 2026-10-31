@@ -34,7 +34,9 @@ export type TerminalSignedWithProof<T> = Readonly<{
 }>;
 
 /** POST `/terminals/sessions/challenge`. */
-export type TerminalSessionChallengeRequest = Readonly<{ identity: TerminalIdentity }>;
+export type TerminalSessionChallengeRequest = Readonly<{
+  identity: TerminalIdentity;
+}>;
 
 /** GET `/terminals/enrollments/:enrollmentId`. */
 export type TerminalEnrollmentStatusView = Readonly<{
@@ -74,10 +76,16 @@ export type TerminalEnrollmentCodeView = Readonly<{
 }>;
 
 /** POST `/terminals/enrollment-codes`. `expiresInMinutes` 5–1440, default 60. */
-export type TerminalEnrollmentCodeIssueRequest = Readonly<{ registerId: string; expiresInMinutes?: number }>;
+export type TerminalEnrollmentCodeIssueRequest = Readonly<{
+  registerId: string;
+  expiresInMinutes?: number;
+}>;
 
 /** The issue response: show `code` to the manager once (formatted `XXXXX-XXXXX`). */
-export type TerminalEnrollmentCodeIssued = Readonly<{ code: string; view: TerminalEnrollmentCodeView }>;
+export type TerminalEnrollmentCodeIssued = Readonly<{
+  code: string;
+  view: TerminalEnrollmentCodeView;
+}>;
 
 /** POST `/terminals/enrollments/code-challenge`: any branch staff member redeems a code. */
 export type TerminalEnrollmentCodeChallengeRequest = Readonly<{

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
@@ -33,7 +41,10 @@ export class TerminalEnrollmentController {
 
   @RequirePermission(MANAGE)
   @Get("counters")
-  counters(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+  counters(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+  ) {
     return this.enrollment.listCounters(user, branchId);
   }
 
@@ -92,7 +103,12 @@ export class TerminalEnrollmentController {
     @Param("enrollmentId", ParseUUIDPipe) enrollmentId: string,
     @Body() dto: TerminalReasonDto,
   ) {
-    return this.enrollment.revokeEnrollment(user, branchId, enrollmentId, dto.reason);
+    return this.enrollment.revokeEnrollment(
+      user,
+      branchId,
+      enrollmentId,
+      dto.reason,
+    );
   }
 
   @RequirePermission(MANAGE)
@@ -104,7 +120,12 @@ export class TerminalEnrollmentController {
     @Param("terminalId", ParseUUIDPipe) terminalId: string,
     @Body() dto: TerminalReasonDto,
   ) {
-    return this.enrollment.retireTerminal(user, branchId, terminalId, dto.reason);
+    return this.enrollment.retireTerminal(
+      user,
+      branchId,
+      terminalId,
+      dto.reason,
+    );
   }
 
   @RequirePermission(COUNTER)
@@ -157,7 +178,12 @@ export class TerminalEnrollmentController {
     @Param("workSessionId", ParseUUIDPipe) workSessionId: string,
     @Body() dto: ConfirmTestReceiptDto,
   ) {
-    return this.enrollment.recordTestReceipt(user, branchId, workSessionId, dto.printerName);
+    return this.enrollment.recordTestReceipt(
+      user,
+      branchId,
+      workSessionId,
+      dto.printerName,
+    );
   }
 
   @RequirePermission(COUNTER)
@@ -179,7 +205,10 @@ export class TerminalEnrollmentController {
     @Param("workSessionId", ParseUUIDPipe) workSessionId: string,
     @Body() dto: SetCounterPinDto,
   ) {
-    return this.credentials.setPin(user, branchId, workSessionId, { pin: dto.pin, password: dto.password });
+    return this.credentials.setPin(user, branchId, workSessionId, {
+      pin: dto.pin,
+      password: dto.password,
+    });
   }
 
   @RequirePermission(COUNTER)

@@ -27,8 +27,17 @@ const fakeProtector: SecretProtector = {
   protect: (plain) => Buffer.from(plain.split("").reverse().join(""), "utf8"),
   unprotect: (blob) => blob.toString("utf8").split("").reverse().join(""),
 };
-const logger: Logger = { info: () => undefined, warn: () => undefined, error: () => undefined, flush: async () => {} };
-const CONSOLE: WindowsSessionEvidence = { sessionId: 1, protocol: "console", remoteSession: false };
+const logger: Logger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+  flush: async () => {},
+};
+const CONSOLE: WindowsSessionEvidence = {
+  sessionId: 1,
+  protocol: "console",
+  remoteSession: false,
+};
 
 const tenantId = randomUUID();
 const branchId = randomUUID();
@@ -42,15 +51,33 @@ const manager: AuthUser = {
   roles: ["manager"],
   branchRoles: [{ branchId, role: "manager" }],
 };
-const cashier: AuthUser = { ...manager, id: randomUUID(), email: "cashier@example.test", fullName: "Cashier", roles: ["cashier"] };
+const cashier: AuthUser = {
+  ...manager,
+  id: randomUUID(),
+  email: "cashier@example.test",
+  fullName: "Cashier",
+  roles: ["cashier"],
+};
 
-function verifies(envelope: Signed<unknown>, publicKeyHex: string, purpose: "command" | "attendance") {
+function verifies(
+  envelope: Signed<unknown>,
+  publicKeyHex: string,
+  purpose: "command" | "attendance",
+) {
   const key = createPublicKey({
-    key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(publicKeyHex, "hex")]),
+    key: Buffer.concat([
+      Buffer.from("302a300506032b6570032100", "hex"),
+      Buffer.from(publicKeyHex, "hex"),
+    ]),
     format: "der",
     type: "spki",
   });
-  return verify(null, Buffer.from(terminalSigningText(purpose, envelope.payload)), key, Buffer.from(envelope.signature, "base64url"));
+  return verify(
+    null,
+    Buffer.from(terminalSigningText(purpose, envelope.payload)),
+    key,
+    Buffer.from(envelope.signature, "base64url"),
+  );
 }
 
 /** A server that checks what a real one would: signatures, digests and bindings. */
@@ -60,14 +87,18 @@ class FakeServer {
   failFinishEnrollment: ApiError | null = null;
   pin: string | null = null;
   nominatedEnrollment: string | null = null;
-  authorization: { authorizationId: string; targetEnrollmentId: string } | null = null;
+  authorization: {
+    authorizationId: string;
+    targetEnrollmentId: string;
+  } | null = null;
   enrolledIdentity: { enrollmentId: string } | null = null;
   pinVersion = 0;
   preparedVersion: number | null = null;
   enrolledKey: string | null = null;
   readonly proofs = new Map<string, LocalAttendanceAttestation>();
   readonly calls: string[] = [];
-  private challenge: TerminalEnrollmentCommand | TerminalSessionCommand | null = null;
+  private challenge: TerminalEnrollmentCommand | TerminalSessionCommand | null =
+    null;
   private occupied = false;
 
   readonly api = {
@@ -81,7 +112,11 @@ class FakeServer {
     logout: async () => {
       this.user = null;
     },
-    request: async (method: string, path: string, opts: { body?: any; branchId?: string } = {}) => {
+    request: async (
+      method: string,
+      path: string,
+      opts: { body?: any; branchId?: string } = {},
+    ) => {
       this.calls.push(`${method} ${path}`);
       return this.handle(method, path, opts.body);
     },
@@ -90,7 +125,11 @@ class FakeServer {
   private handle(method: string, path: string, body: any): unknown {
     const now = Date.now();
     if (path === "/tenant/context")
-      return { branchRoles: [{ branchId, branch: { id: branchId, code: "MAIN", name: "Main" } }] };
+      return {
+        branchRoles: [
+          { branchId, branch: { id: branchId, code: "MAIN", name: "Main" } },
+        ],
+      };
     if (path === "/terminals/counters")
       return [
         {
@@ -98,19 +137,36 @@ class FakeServer {
           tillId,
           label: "Counter 1",
           isActive: true,
-          terminal: this.occupied ? { terminalId: randomUUID(), label: "Other", enrollmentId: null, enrolledAt: null } : null,
+          terminal: this.occupied
+            ? {
+                terminalId: randomUUID(),
+                label: "Other",
+                enrollmentId: null,
+                enrolledAt: null,
+              }
+            : null,
         },
       ];
     if (path === "/terminals/enrollments/code-challenge") {
-      if (body.code !== "ABCDE-12345") throw new ApiError(403, "ENROLLMENT_CODE_INVALID", "x");
-      const command = this.handle(method, "/terminals/enrollments/challenge", { ...body, registerId }) as TerminalEnrollmentCommand;
+      if (body.code !== "ABCDE-12345")
+        throw new ApiError(403, "ENROLLMENT_CODE_INVALID", "x");
+      const command = this.handle(method, "/terminals/enrollments/challenge", {
+        ...body,
+        registerId,
+      }) as TerminalEnrollmentCommand;
       return { command, counterLabel: "Code counter" };
     }
     if (path === "/terminals/enrollments/challenge") {
       this.challenge = {
         contractVersion: 1,
         kind: "terminal_enrollment",
-        identity: { tenantId, branchId, terminalId: randomUUID(), enrollmentId: randomUUID(), keyId: body.keyId },
+        identity: {
+          tenantId,
+          branchId,
+          terminalId: randomUUID(),
+          enrollmentId: randomUUID(),
+          keyId: body.keyId,
+        },
         requestedByUserId: this.user!.id,
         registerId,
         tillId,
@@ -125,19 +181,31 @@ class FakeServer {
     if (path === "/terminals/attendance-proofs") {
       const envelope = body as Signed<LocalAttendanceAttestation>;
       const a = envelope.payload;
-      const key = this.challenge!.kind === "terminal_enrollment" ? this.challenge!.publicKeyHex : this.enrolledKey!;
-      if (!verifies(envelope, key, "attendance")) throw new ApiError(403, "INVALID_SIGNATURE", "bad signature");
-      if (a.payloadDigest !== challengeDigest(this.challenge)) throw new ApiError(403, "CHALLENGE_INVALID", "digest");
-      if (a.actorUserId !== this.user!.id) throw new ApiError(403, "IDENTITY_MISMATCH", "actor");
+      const key =
+        this.challenge!.kind === "terminal_enrollment"
+          ? this.challenge!.publicKeyHex
+          : this.enrolledKey!;
+      if (!verifies(envelope, key, "attendance"))
+        throw new ApiError(403, "INVALID_SIGNATURE", "bad signature");
+      if (a.payloadDigest !== challengeDigest(this.challenge))
+        throw new ApiError(403, "CHALLENGE_INVALID", "digest");
+      if (a.actorUserId !== this.user!.id)
+        throw new ApiError(403, "IDENTITY_MISMATCH", "actor");
       this.proofs.set(a.proofId, a);
-      return { proofId: a.proofId, purpose: a.purpose, expiresAt: now + 60_000 };
+      return {
+        proofId: a.proofId,
+        purpose: a.purpose,
+        expiresAt: now + 60_000,
+      };
     }
     if (path === "/terminals/enrollments") {
       const challenge = this.challenge as TerminalEnrollmentCommand;
-      if (!verifies(body.envelope, challenge.publicKeyHex, "command")) throw new ApiError(403, "INVALID_SIGNATURE", "x");
+      if (!verifies(body.envelope, challenge.publicKeyHex, "command"))
+        throw new ApiError(403, "INVALID_SIGNATURE", "x");
       if (this.proofs.get(body.attendanceProofId)?.purpose !== "enrollment")
         throw new ApiError(403, "LOCAL_ATTENDANCE_UNAVAILABLE", "x");
-      if (this.failFinishEnrollment && !this.failFinishEnrollment.uncertain) throw this.failFinishEnrollment;
+      if (this.failFinishEnrollment && !this.failFinishEnrollment.uncertain)
+        throw this.failFinishEnrollment;
       this.enrolledKey = challenge.publicKeyHex;
       this.enrolledIdentity = challenge.identity;
       this.occupied = true;
@@ -146,13 +214,25 @@ class FakeServer {
       return challenge.identity;
     }
     if (path.startsWith("/terminals/enrollments/"))
-      return { enrollmentId: path.split("/").pop(), terminalId: randomUUID(), registerId, tillId, label: "PC", status: this.enrollmentStatus };
+      return {
+        enrollmentId: path.split("/").pop(),
+        terminalId: randomUUID(),
+        registerId,
+        tillId,
+        label: "PC",
+        status: this.enrollmentStatus,
+      };
     if (path === "/terminals/sessions/challenge") {
       this.challenge = {
         contractVersion: 1,
         kind: "terminal_session",
         identity: body.identity,
-        session: { workSessionId: randomUUID(), staffUserId: this.user!.id, registerId, tillId },
+        session: {
+          workSessionId: randomUUID(),
+          staffUserId: this.user!.id,
+          registerId,
+          tillId,
+        },
         tokenVersion: 0,
         issuedAt: now,
         expiresAt: now + 120_000,
@@ -162,7 +242,8 @@ class FakeServer {
     }
     if (path === "/terminals/sessions") {
       const challenge = this.challenge as TerminalSessionCommand;
-      if (!verifies(body.envelope, this.enrolledKey!, "command")) throw new ApiError(403, "INVALID_SIGNATURE", "x");
+      if (!verifies(body.envelope, this.enrolledKey!, "command"))
+        throw new ApiError(403, "INVALID_SIGNATURE", "x");
       if (this.proofs.get(body.attendanceProofId)?.purpose !== "session")
         throw new ApiError(403, "LOCAL_ATTENDANCE_UNAVAILABLE", "x");
       return challenge.session;
@@ -172,7 +253,12 @@ class FakeServer {
       return {
         branchId,
         nomination: this.nominatedEnrollment
-          ? { terminalId: randomUUID(), enrollmentId: this.nominatedEnrollment, version: 1, activatedAt: now }
+          ? {
+              terminalId: randomUUID(),
+              enrollmentId: this.nominatedEnrollment,
+              version: 1,
+              activatedAt: now,
+            }
           : null,
         nominationVersion: this.nominatedEnrollment ? 1 : 0,
         delegations: [],
@@ -203,12 +289,20 @@ class FakeServer {
         kind: "online_operation",
         commandId: randomUUID(),
         identity: (this.challenge as TerminalSessionCommand).identity,
-        session: { workSessionId: body.workSessionId, staffUserId: this.user!.id, registerId, tillId },
+        session: {
+          workSessionId: body.workSessionId,
+          staffUserId: this.user!.id,
+          registerId,
+          tillId,
+        },
         operation: "POST /api/v1/terminals/offline-assignment/activate",
         issuedAt: now,
         expiresAt: now + 120_000,
         serverNonce: "d".repeat(64),
-        body: { authorizationId: body.authorizationId, expectedNominationVersion: body.expectedNominationVersion },
+        body: {
+          authorizationId: body.authorizationId,
+          expectedNominationVersion: body.expectedNominationVersion,
+        },
         approvalEvidenceId: null,
         pharmacistEvidenceId: null,
         operatingHoursExceptionId: null,
@@ -216,7 +310,8 @@ class FakeServer {
       return this.challenge;
     }
     if (path === "/terminals/offline-assignment/activate") {
-      if (!verifies(body.envelope, this.enrolledKey!, "command")) throw new ApiError(403, "INVALID_SIGNATURE", "x");
+      if (!verifies(body.envelope, this.enrolledKey!, "command"))
+        throw new ApiError(403, "INVALID_SIGNATURE", "x");
       if (this.proofs.get(body.attendanceProofId)?.purpose !== "command")
         throw new ApiError(403, "LOCAL_ATTENDANCE_UNAVAILABLE", "x");
       this.nominatedEnrollment = this.authorization!.targetEnrollmentId;
@@ -231,7 +326,8 @@ class FakeServer {
     });
     if (path.endsWith("/credential")) return credential();
     if (path.endsWith("/pin")) {
-      if (body.password !== "password") throw new ApiError(401, "PASSWORD_INCORRECT", "x");
+      if (body.password !== "password")
+        throw new ApiError(401, "PASSWORD_INCORRECT", "x");
       this.pin = body.pin;
       this.pinVersion += 1;
       this.preparedVersion = this.pinVersion;
@@ -283,7 +379,11 @@ afterEach(() => {
 describe("TerminalService enrollment", () => {
   it("enrolls with a fresh key, proves attendance and signs the manager out", async () => {
     const state = await enrolled();
-    expect(state.enrollment).toMatchObject({ status: "active", branchName: "Main", counterLabel: "Counter 1" });
+    expect(state.enrollment).toMatchObject({
+      status: "active",
+      branchName: "Main",
+      counterLabel: "Counter 1",
+    });
     expect(state.operator).toBeNull();
     const key = new DeviceStore(local.db).key()!;
     expect(key.publicKeyHex).toBe(server.enrolledKey);
@@ -295,7 +395,9 @@ describe("TerminalService enrollment", () => {
     const terminal = service();
     await terminal.signIn(manager.email, "password");
     windowsSession = { sessionId: 2, protocol: "rdp", remoteSession: true };
-    await expect(terminal.enroll({ branchId, registerId, label: "PC" })).rejects.toMatchObject({
+    await expect(
+      terminal.enroll({ branchId, registerId, label: "PC" }),
+    ).rejects.toMatchObject({
       code: "REMOTE_SESSION_DENIED",
     });
     expect(server.calls).not.toContain("POST /terminals/attendance-proofs");
@@ -306,11 +408,15 @@ describe("TerminalService enrollment", () => {
     server.failFinishEnrollment = new ApiError(403, "PERMISSION_DENIED", "no");
     const terminal = service();
     await terminal.signIn(manager.email, "password");
-    await expect(terminal.enroll({ branchId, registerId, label: "PC" })).rejects.toBeInstanceOf(ApiError);
+    await expect(
+      terminal.enroll({ branchId, registerId, label: "PC" }),
+    ).rejects.toBeInstanceOf(ApiError);
     expect(new DeviceStore(local.db).read()).toBeNull();
 
     server.failFinishEnrollment = new ApiError(0, "NETWORK", "offline");
-    await expect(terminal.enroll({ branchId, registerId, label: "PC" })).rejects.toBeInstanceOf(ApiError);
+    await expect(
+      terminal.enroll({ branchId, registerId, label: "PC" }),
+    ).rejects.toBeInstanceOf(ApiError);
     expect(new DeviceStore(local.db).read()?.status).toBe("pending");
 
     // The next sign-in asks the server, which did accept it, and promotes the pending enrollment.
@@ -335,12 +441,19 @@ describe("TerminalService enrollment", () => {
         logger,
       });
       await terminal.signIn(manager.email, "password");
-      await expect(terminal.enroll({ branchId, registerId, label: "PC 2" })).rejects.toMatchObject({
+      await expect(
+        terminal.enroll({ branchId, registerId, label: "PC 2" }),
+      ).rejects.toMatchObject({
         code: "COUNTER_OCCUPIED",
       });
     } finally {
       second.db.close();
-      rmSync(other, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      rmSync(other, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
     }
   });
 });
@@ -350,8 +463,13 @@ describe("TerminalService staff sessions", () => {
     const terminal = service();
     await enrolled(terminal);
     const state = await terminal.signIn(cashier.email, "password");
-    expect(state.staffSession).toMatchObject({ staffUserId: cashier.id, staffName: "Cashier" });
-    expect(new DeviceStore(local.db).openSession()?.staffUserId).toBe(cashier.id);
+    expect(state.staffSession).toMatchObject({
+      staffUserId: cashier.id,
+      staffName: "Cashier",
+    });
+    expect(new DeviceStore(local.db).openSession()?.staffUserId).toBe(
+      cashier.id,
+    );
 
     const after = await terminal.signOut();
     expect(after.staffSession).toBeNull();
@@ -362,17 +480,23 @@ describe("TerminalService staff sessions", () => {
   it("switching user closes the previous person's session first", async () => {
     const terminal = service();
     await enrolled(terminal);
-    const first = (await terminal.signIn(cashier.email, "password")).staffSession!;
-    const second = (await terminal.signIn(manager.email, "password")).staffSession!;
+    const first = (await terminal.signIn(cashier.email, "password"))
+      .staffSession!;
+    const second = (await terminal.signIn(manager.email, "password"))
+      .staffSession!;
     expect(second.workSessionId).not.toBe(first.workSessionId);
-    expect(new DeviceStore(local.db).openSession()?.workSessionId).toBe(second.workSessionId);
+    expect(new DeviceStore(local.db).openSession()?.workSessionId).toBe(
+      second.workSessionId,
+    );
   });
 
   it("refuses to open a session once the back office has revoked the counter", async () => {
     const terminal = service();
     await enrolled(terminal);
     server.enrollmentStatus = "revoked";
-    await expect(terminal.signIn(cashier.email, "password")).rejects.toMatchObject({ code: "TERMINAL_REVOKED" });
+    await expect(
+      terminal.signIn(cashier.email, "password"),
+    ).rejects.toMatchObject({ code: "TERMINAL_REVOKED" });
     expect(terminal.state().enrollment?.status).toBe("revoked");
     expect(terminal.state().operator).toBeNull();
   });
@@ -384,8 +508,19 @@ describe("attendance building blocks", () => {
     const challenge: TerminalSessionCommand = {
       contractVersion: 1,
       kind: "terminal_session",
-      identity: { tenantId, branchId, terminalId: randomUUID(), enrollmentId: randomUUID(), keyId: key.keyId },
-      session: { workSessionId: randomUUID(), staffUserId: cashier.id, registerId, tillId },
+      identity: {
+        tenantId,
+        branchId,
+        terminalId: randomUUID(),
+        enrollmentId: randomUUID(),
+        keyId: key.keyId,
+      },
+      session: {
+        workSessionId: randomUUID(),
+        staffUserId: cashier.id,
+        registerId,
+        tillId,
+      },
       tokenVersion: 3,
       issuedAt: 1,
       expiresAt: 2,
@@ -399,31 +534,116 @@ describe("attendance building blocks", () => {
       appVersion: "1.2.3",
       now: 5,
     });
-    const expected = createHash("sha256").update(terminalSigningText("command", challenge)).digest("hex");
-    expect(attestation).toMatchObject({ payloadDigest: expected, registerId, tillId, identity: challenge.identity });
-    expect(verifies(key.sign(attestation, "attendance"), key.publicKeyHex, "attendance")).toBe(true);
-    expect(verifies(key.sign(attestation, "attendance"), key.publicKeyHex, "command")).toBe(false);
+    const expected = createHash("sha256")
+      .update(terminalSigningText("command", challenge))
+      .digest("hex");
+    expect(attestation).toMatchObject({
+      payloadDigest: expected,
+      registerId,
+      tillId,
+      identity: challenge.identity,
+    });
+    expect(
+      verifies(
+        key.sign(attestation, "attendance"),
+        key.publicKeyHex,
+        "attendance",
+      ),
+    ).toBe(true);
+    expect(
+      verifies(
+        key.sign(attestation, "attendance"),
+        key.publicKeyHex,
+        "command",
+      ),
+    ).toBe(false);
   });
 
   it("restores a stored key only when it matches its pinned public key", () => {
     const key = DeviceKey.generate();
-    expect(DeviceKey.fromStored(key.keyId, key.exportPkcs8(), key.publicKeyHex).publicKeyHex).toBe(key.publicKeyHex);
-    expect(() => DeviceKey.fromStored(key.keyId, key.exportPkcs8(), DeviceKey.generate().publicKeyHex)).toThrow();
+    expect(
+      DeviceKey.fromStored(key.keyId, key.exportPkcs8(), key.publicKeyHex)
+        .publicKeyHex,
+    ).toBe(key.publicKeyHex);
+    expect(() =>
+      DeviceKey.fromStored(
+        key.keyId,
+        key.exportPkcs8(),
+        DeviceKey.generate().publicKeyHex,
+      ),
+    ).toThrow();
   });
 
   it.each([
     [null, "unknown", false],
-    [{ processSessionId: 1, activeConsoleSessionId: 1, remoteSessionMetric: false, clientProtocol: 0 }, "console", false],
-    [{ processSessionId: 2, activeConsoleSessionId: 1, remoteSessionMetric: true, clientProtocol: 2 }, "rdp", true],
-    [{ processSessionId: 1, activeConsoleSessionId: 1, remoteSessionMetric: true, clientProtocol: 0 }, "unknown", true],
-    [{ processSessionId: 2, activeConsoleSessionId: 1, remoteSessionMetric: false, clientProtocol: 0 }, "unknown", false],
-    [{ processSessionId: 1, activeConsoleSessionId: 0xffffffff, remoteSessionMetric: false, clientProtocol: 0 }, "unknown", false],
-    [{ processSessionId: 1, activeConsoleSessionId: 1, remoteSessionMetric: false, clientProtocol: null }, "unknown", false],
-  ] as const)("classifies Windows session facts %j as %s", (facts, protocol, remote) => {
-    const result = classifyWindowsSession(facts);
-    expect(result.protocol).toBe(protocol);
-    expect(result.remoteSession).toBe(remote);
-  });
+    [
+      {
+        processSessionId: 1,
+        activeConsoleSessionId: 1,
+        remoteSessionMetric: false,
+        clientProtocol: 0,
+      },
+      "console",
+      false,
+    ],
+    [
+      {
+        processSessionId: 2,
+        activeConsoleSessionId: 1,
+        remoteSessionMetric: true,
+        clientProtocol: 2,
+      },
+      "rdp",
+      true,
+    ],
+    [
+      {
+        processSessionId: 1,
+        activeConsoleSessionId: 1,
+        remoteSessionMetric: true,
+        clientProtocol: 0,
+      },
+      "unknown",
+      true,
+    ],
+    [
+      {
+        processSessionId: 2,
+        activeConsoleSessionId: 1,
+        remoteSessionMetric: false,
+        clientProtocol: 0,
+      },
+      "unknown",
+      false,
+    ],
+    [
+      {
+        processSessionId: 1,
+        activeConsoleSessionId: 0xffffffff,
+        remoteSessionMetric: false,
+        clientProtocol: 0,
+      },
+      "unknown",
+      false,
+    ],
+    [
+      {
+        processSessionId: 1,
+        activeConsoleSessionId: 1,
+        remoteSessionMetric: false,
+        clientProtocol: null,
+      },
+      "unknown",
+      false,
+    ],
+  ] as const)(
+    "classifies Windows session facts %j as %s",
+    (facts, protocol, remote) => {
+      const result = classifyWindowsSession(facts);
+      expect(result.protocol).toBe(protocol);
+      expect(result.remoteSession).toBe(remote);
+    },
+  );
 });
 
 describe("TerminalService PINs and locking", () => {
@@ -431,7 +651,11 @@ describe("TerminalService PINs and locking", () => {
     const terminal = service();
     await enrolled(terminal);
     let state = await terminal.signIn(cashier.email, "password");
-    expect(state.pin).toEqual({ set: false, prepared: false, lockedUntil: null });
+    expect(state.pin).toEqual({
+      set: false,
+      prepared: false,
+      lockedUntil: null,
+    });
     expect(() => terminal.lock()).toThrow(/Prepare your PIN/);
 
     state = await terminal.setPin("4821", "password");
@@ -439,12 +663,18 @@ describe("TerminalService PINs and locking", () => {
     state = terminal.lock();
     expect(state.locked).toBe(true);
     expect(terminal.current()).toBeNull();
-    await expect(terminal.setPin("1111", "password")).rejects.toMatchObject({ code: "LOCKED" });
+    await expect(terminal.setPin("1111", "password")).rejects.toMatchObject({
+      code: "LOCKED",
+    });
 
-    expect(() => terminal.unlock("0000")).toThrow(expect.objectContaining({ code: "PIN_INCORRECT" }));
+    expect(() => terminal.unlock("0000")).toThrow(
+      expect.objectContaining({ code: "PIN_INCORRECT" }),
+    );
     expect(terminal.unlock("4821").locked).toBe(false);
     // The verifier is a scrypt hash, never the PIN.
-    const row = local.db.prepare("SELECT verifier FROM staff_credential").get() as { verifier: Buffer };
+    const row = local.db
+      .prepare("SELECT verifier FROM staff_credential")
+      .get() as { verifier: Buffer };
     expect(row.verifier.includes(Buffer.from("4821"))).toBe(false);
   });
 
@@ -454,10 +684,22 @@ describe("TerminalService PINs and locking", () => {
     await terminal.signIn(cashier.email, "password");
     await terminal.setPin("4821", "password");
     terminal.lock();
-    for (let i = 0; i < 4; i++) expect(() => terminal.unlock("0000")).toThrow(expect.objectContaining({ code: "PIN_INCORRECT" }));
-    expect(() => terminal.unlock("0000")).toThrow(expect.objectContaining({ code: "PIN_LOCKED" }));
+    for (let i = 0; i < 4; i++)
+      expect(() => terminal.unlock("0000")).toThrow(
+        expect.objectContaining({ code: "PIN_INCORRECT" }),
+      );
+    expect(() => terminal.unlock("0000")).toThrow(
+      expect.objectContaining({ code: "PIN_LOCKED" }),
+    );
     // A fresh service (app restart) reads the same persisted lockout.
-    expect(new PinStore(local.db).check(cashier.id, terminal.state().enrollment!.enrollmentId, "4821", new Date())).toBe("locked");
+    expect(
+      new PinStore(local.db).check(
+        cashier.id,
+        terminal.state().enrollment!.enrollmentId,
+        "4821",
+        new Date(),
+      ),
+    ).toBe("locked");
   });
 
   it("prepares a counter for a PIN set elsewhere and drops a verifier made stale by a change", async () => {
@@ -468,7 +710,9 @@ describe("TerminalService PINs and locking", () => {
     await enrolled(terminal);
     let state = await terminal.signIn(cashier.email, "password");
     expect(state.pin).toMatchObject({ set: true, prepared: false });
-    await expect(terminal.preparePin("1357")).rejects.toMatchObject({ code: "PIN_INCORRECT" });
+    await expect(terminal.preparePin("1357")).rejects.toMatchObject({
+      code: "PIN_INCORRECT",
+    });
     state = await terminal.preparePin("2468");
     expect(state.pin?.prepared).toBe(true);
 
@@ -478,7 +722,9 @@ describe("TerminalService PINs and locking", () => {
     await terminal.signOut();
     state = await terminal.signIn(cashier.email, "password");
     expect(state.pin).toMatchObject({ set: true, prepared: false });
-    expect(local.db.prepare("SELECT count(*) AS n FROM staff_credential").get()).toEqual({ n: 0 });
+    expect(
+      local.db.prepare("SELECT count(*) AS n FROM staff_credential").get(),
+    ).toEqual({ n: 0 });
   });
 });
 
@@ -486,11 +732,20 @@ describe("TerminalService enrollment codes", () => {
   it("lets a cashier enroll with a manager's code", async () => {
     const terminal = service();
     await terminal.signIn(cashier.email, "password");
-    await expect(terminal.enrollWithCode({ branchId, code: "WRONG-CODE0", label: "PC" })).rejects.toMatchObject({
+    await expect(
+      terminal.enrollWithCode({ branchId, code: "WRONG-CODE0", label: "PC" }),
+    ).rejects.toMatchObject({
       code: "ENROLLMENT_CODE_INVALID",
     });
-    const state = await terminal.enrollWithCode({ branchId, code: "ABCDE-12345", label: "PC" });
-    expect(state.enrollment).toMatchObject({ status: "active", counterLabel: "Code counter" });
+    const state = await terminal.enrollWithCode({
+      branchId,
+      code: "ABCDE-12345",
+      label: "PC",
+    });
+    expect(state.enrollment).toMatchObject({
+      status: "active",
+      counterLabel: "Code counter",
+    });
     expect(new DeviceStore(local.db).read()?.enrolledByUserId).toBe(cashier.id);
   });
 });
@@ -500,23 +755,43 @@ describe("TerminalService offline counter activation", () => {
     const terminal = service();
     await enrolled(terminal);
     await terminal.signIn(manager.email, "password");
-    expect(await terminal.offlineCounter()).toMatchObject({ thisCounterNominated: false, authorization: null });
+    expect(await terminal.offlineCounter()).toMatchObject({
+      thisCounterNominated: false,
+      authorization: null,
+    });
 
-    server.authorization = { authorizationId: randomUUID(), targetEnrollmentId: server.enrolledIdentity!.enrollmentId };
+    server.authorization = {
+      authorizationId: randomUUID(),
+      targetEnrollmentId: server.enrolledIdentity!.enrollmentId,
+    };
     const waiting = await terminal.offlineCounter();
-    expect(waiting.authorization?.authorizationId).toBe(server.authorization.authorizationId);
-    const after = await terminal.activateOffline(waiting.authorization!.authorizationId);
-    expect(after).toMatchObject({ thisCounterNominated: true, authorization: null });
-    expect([...server.proofs.values()].some((p) => p.purpose === "command")).toBe(true);
+    expect(waiting.authorization?.authorizationId).toBe(
+      server.authorization.authorizationId,
+    );
+    const after = await terminal.activateOffline(
+      waiting.authorization!.authorizationId,
+    );
+    expect(after).toMatchObject({
+      thisCounterNominated: true,
+      authorization: null,
+    });
+    expect(
+      [...server.proofs.values()].some((p) => p.purpose === "command"),
+    ).toBe(true);
   });
 
   it("refuses to activate from a remote session", async () => {
     const terminal = service();
     await enrolled(terminal);
     await terminal.signIn(manager.email, "password");
-    server.authorization = { authorizationId: randomUUID(), targetEnrollmentId: server.enrolledIdentity!.enrollmentId };
+    server.authorization = {
+      authorizationId: randomUUID(),
+      targetEnrollmentId: server.enrolledIdentity!.enrollmentId,
+    };
     windowsSession = { sessionId: 3, protocol: "rdp", remoteSession: true };
-    await expect(terminal.activateOffline(server.authorization.authorizationId)).rejects.toMatchObject({
+    await expect(
+      terminal.activateOffline(server.authorization.authorizationId),
+    ).rejects.toMatchObject({
       code: "REMOTE_SESSION_DENIED",
     });
     expect(server.nominatedEnrollment).toBeNull();

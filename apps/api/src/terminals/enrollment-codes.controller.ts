@@ -1,11 +1,23 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
-import { IssueEnrollmentCodeDto, RedeemEnrollmentCodeDto } from "./dto/terminal-enrollment.dto";
+import {
+  IssueEnrollmentCodeDto,
+  RedeemEnrollmentCodeDto,
+} from "./dto/terminal-enrollment.dto";
 import { EnrollmentCodesService } from "./enrollment-codes.service";
 
 /** P2 one-time enrollment codes (contract: docs/API_CONTRACT.md "Desktop enrollment and staff
@@ -30,7 +42,10 @@ export class EnrollmentCodesController {
     @RequireBranchId() branchId: string,
     @Body() dto: IssueEnrollmentCodeDto,
   ) {
-    return this.codes.issue(user, branchId, { registerId: dto.registerId, expiresInMinutes: dto.expiresInMinutes });
+    return this.codes.issue(user, branchId, {
+      registerId: dto.registerId,
+      expiresInMinutes: dto.expiresInMinutes,
+    });
   }
 
   @RequirePermission("tenant.management")

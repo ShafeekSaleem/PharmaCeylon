@@ -21,7 +21,8 @@ type Row = {
   locked_until: string | null;
 };
 
-const derive = (pin: string, salt: Buffer) => scryptSync(pin, salt, KEY_BYTES, SCRYPT);
+const derive = (pin: string, salt: Buffer) =>
+  scryptSync(pin, salt, KEY_BYTES, SCRYPT);
 
 /**
  * This counter's local PIN verifiers (D-W5). A verifier is written only after the server
@@ -32,7 +33,9 @@ export class PinStore {
   constructor(private readonly db: PosDatabase) {}
 
   private row(staffUserId: string): Row | undefined {
-    return this.db.prepare("SELECT * FROM staff_credential WHERE staff_user_id = ?").get(staffUserId) as Row | undefined;
+    return this.db
+      .prepare("SELECT * FROM staff_credential WHERE staff_user_id = ?")
+      .get(staffUserId) as Row | undefined;
   }
 
   /** The server-confirmed version this counter holds a verifier for, if it is for this enrollment. */
@@ -41,7 +44,14 @@ export class PinStore {
     return row && row.enrollment_id === enrollmentId ? row.pin_version : null;
   }
 
-  save(input: { staffUserId: string; staffName: string; enrollmentId: string; pinVersion: number; pin: string; now: Date }) {
+  save(input: {
+    staffUserId: string;
+    staffName: string;
+    enrollmentId: string;
+    pinVersion: number;
+    pin: string;
+    now: Date;
+  }) {
     if (!PIN.test(input.pin)) throw new Error("Invalid PIN format.");
     const salt = randomBytes(16);
     this.db
@@ -65,25 +75,42 @@ export class PinStore {
 
   /** A server PIN change or reset makes this counter's verifier stale. */
   forget(staffUserId: string): void {
-    this.db.prepare("DELETE FROM staff_credential WHERE staff_user_id = ?").run(staffUserId);
+    this.db
+      .prepare("DELETE FROM staff_credential WHERE staff_user_id = ?")
+      .run(staffUserId);
   }
 
-  check(staffUserId: string, enrollmentId: string, pin: string, now: Date): PinCheck {
+  check(
+    staffUserId: string,
+    enrollmentId: string,
+    pin: string,
+    now: Date,
+  ): PinCheck {
     const row = this.row(staffUserId);
     if (!row || row.enrollment_id !== enrollmentId) return "not_prepared";
-    if (row.locked_until && Date.parse(row.locked_until) > now.getTime()) return "locked";
-    const ok = PIN.test(pin) && timingSafeEqual(derive(pin, row.salt), row.verifier);
+    if (row.locked_until && Date.parse(row.locked_until) > now.getTime())
+      return "locked";
+    const ok =
+      PIN.test(pin) && timingSafeEqual(derive(pin, row.salt), row.verifier);
     if (ok) {
       this.db
-        .prepare("UPDATE staff_credential SET failed_attempts = 0, locked_until = NULL WHERE staff_user_id = ?")
+        .prepare(
+          "UPDATE staff_credential SET failed_attempts = 0, locked_until = NULL WHERE staff_user_id = ?",
+        )
         .run(staffUserId);
       return "ok";
     }
     const failures = row.failed_attempts + 1;
     const lock = failures >= MAX_PIN_FAILURES;
     this.db
-      .prepare("UPDATE staff_credential SET failed_attempts = ?, locked_until = ? WHERE staff_user_id = ?")
-      .run(lock ? 0 : failures, lock ? new Date(now.getTime() + PIN_LOCK_MS).toISOString() : null, staffUserId);
+      .prepare(
+        "UPDATE staff_credential SET failed_attempts = ?, locked_until = ? WHERE staff_user_id = ?",
+      )
+      .run(
+        lock ? 0 : failures,
+        lock ? new Date(now.getTime() + PIN_LOCK_MS).toISOString() : null,
+        staffUserId,
+      );
     return lock ? "locked" : "wrong";
   }
 }

@@ -1,7 +1,12 @@
 /** Minimal fetch surface; production passes Electron's net.fetch with credentials omitted. */
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body?: string; signal: AbortSignal },
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body?: string;
+    signal: AbortSignal;
+  },
 ) => Promise<{ status: number; ok: boolean; text(): Promise<string> }>;
 
 export type AuthUser = {
@@ -41,7 +46,8 @@ function parseError(status: number, text: string): ApiError {
     const body = JSON.parse(text) as { code?: unknown; message?: unknown };
     if (typeof body.code === "string") code = body.code;
     if (typeof body.message === "string") message = body.message;
-    else if (Array.isArray(body.message) && typeof body.message[0] === "string") message = body.message[0];
+    else if (Array.isArray(body.message) && typeof body.message[0] === "string")
+      message = body.message[0];
   } catch {
     // Not JSON: keep the generic message.
   }
@@ -66,11 +72,19 @@ export class ApiSession {
   }
 
   async login(email: string, password: string): Promise<AuthUser> {
-    const result = await this.send<{ accessToken: string; refreshToken: string; user: AuthUser }>("POST", "/auth/login", {
+    const result = await this.send<{
+      accessToken: string;
+      refreshToken: string;
+      user: AuthUser;
+    }>("POST", "/auth/login", {
       body: { email, password },
       auth: false,
     });
-    this.tokens = { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
+    this.tokens = {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    };
     return result.user;
   }
 
@@ -79,7 +93,9 @@ export class ApiSession {
     const tokens = this.tokens;
     if (!tokens) return;
     try {
-      await this.send("POST", "/auth/logout", { body: { refreshToken: tokens.refreshToken } });
+      await this.send("POST", "/auth/logout", {
+        body: { refreshToken: tokens.refreshToken },
+      });
     } catch {
       // Offline or already expired: the refresh session simply ages out.
     } finally {
@@ -94,7 +110,11 @@ export class ApiSession {
   request<T>(
     method: string,
     path: string,
-    opts: { body?: unknown; branchId?: string; headers?: Record<string, string> } = {},
+    opts: {
+      body?: unknown;
+      branchId?: string;
+      headers?: Record<string, string>;
+    } = {},
   ): Promise<T> {
     return this.send<T>(method, path, opts);
   }
@@ -102,16 +122,30 @@ export class ApiSession {
   private async send<T>(
     method: string,
     path: string,
-    opts: { body?: unknown; branchId?: string; auth?: boolean; headers?: Record<string, string> },
+    opts: {
+      body?: unknown;
+      branchId?: string;
+      auth?: boolean;
+      headers?: Record<string, string>;
+    },
     retried = false,
   ): Promise<T> {
     const base = this.baseUrl();
-    if (!base) throw new ApiError(0, "SERVER_NOT_SET", "The server address has not been set.");
-    const headers: Record<string, string> = { ...opts.headers, Accept: "application/json" };
+    if (!base)
+      throw new ApiError(
+        0,
+        "SERVER_NOT_SET",
+        "The server address has not been set.",
+      );
+    const headers: Record<string, string> = {
+      ...opts.headers,
+      Accept: "application/json",
+    };
     if (opts.body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.branchId) headers["x-branch-id"] = opts.branchId;
     if (opts.auth !== false) {
-      if (!this.tokens) throw new ApiError(401, "NOT_SIGNED_IN", "Sign in first.");
+      if (!this.tokens)
+        throw new ApiError(401, "NOT_SIGNED_IN", "Sign in first.");
       headers.Authorization = `Bearer ${this.tokens.accessToken}`;
     }
 
@@ -127,7 +161,12 @@ export class ApiSession {
       throw new ApiError(0, "NETWORK", "The server could not be reached.");
     }
 
-    if (response.status === 401 && opts.auth !== false && !retried && (await this.refresh())) {
+    if (
+      response.status === 401 &&
+      opts.auth !== false &&
+      !retried &&
+      (await this.refresh())
+    ) {
       return this.send<T>(method, path, opts, true);
     }
     const text = await response.text();
@@ -139,12 +178,19 @@ export class ApiSession {
     const tokens = this.tokens;
     if (!tokens) return false;
     try {
-      const result = await this.send<{ accessToken: string; refreshToken: string; user: AuthUser }>(
-        "POST",
-        "/auth/refresh",
-        { body: { refreshToken: tokens.refreshToken }, auth: false },
-      );
-      this.tokens = { accessToken: result.accessToken, refreshToken: result.refreshToken, user: result.user };
+      const result = await this.send<{
+        accessToken: string;
+        refreshToken: string;
+        user: AuthUser;
+      }>("POST", "/auth/refresh", {
+        body: { refreshToken: tokens.refreshToken },
+        auth: false,
+      });
+      this.tokens = {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+      };
       return true;
     } catch {
       this.tokens = null;
