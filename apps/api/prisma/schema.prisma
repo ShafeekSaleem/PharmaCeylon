@@ -2489,6 +2489,11 @@ model Sale {
   soldBy         String     @map("sold_by") @db.Uuid
   /// Pharmacist/manager/owner who authorised controlled dispense (self or PIN co-sign).
   dispensedBy    String?    @map("dispensed_by") @db.Uuid
+  /// P2 attribution: the enrolled counter, till and staff session the sale was rung up on, from
+  /// the seller's own verified open session there. Null for web POS sales.
+  terminalId     String?    @map("terminal_id") @db.Uuid
+  tillId         String?    @map("till_id") @db.Uuid
+  workSessionId  String?    @map("work_session_id") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at")
 
   branch       Branch        @relation(fields: [branchId], references: [id])

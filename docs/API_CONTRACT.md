@@ -492,6 +492,15 @@ different content is 409 `REPLAY_CONFLICT`. Enrollment, session and command veri
 it once, in their own transaction, so a failed operation leaves it usable. Freshness comes from the
 server challenge; the device's `observedAt` is recorded, not trusted.
 
+**Online checkout from a counter.** The desktop rings up sales through the normal
+`POST /sales/checkout` (same pricing, VAT, FEFO, controlled-item and idempotency rules as the web
+POS) with an extra `x-terminal-session: <workSessionId>` header. The server requires that session to
+be the seller's own open binding on an active enrollment at this branch (`SESSION_INVALID`
+otherwise) and records `sale.terminal_id`, `till_id` and `work_session_id`. This is attribution,
+not authority, and it serializes sales per counter on the enrollment lock. Web POS sales leave the
+columns null. Every online counter, including a nominated offline one, sells the same shared
+available stock.
+
 **Limits.** This is evidence that the trusted process ran in the physical console session, not
 proof that a person inspected goods. Remote Desktop is refused. Third-party remote-control tools
 (AnyDesk, TeamViewer, Chrome Remote Desktop and similar) drive the console session and are not

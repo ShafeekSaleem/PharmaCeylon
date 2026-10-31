@@ -16,11 +16,14 @@ import { StaffCredentialsService } from "../../src/terminals/staff-credentials.s
 import { EnrollmentCodesService } from "../../src/terminals/enrollment-codes.service";
 import { counterEvidence } from "../../src/terminals/counter-evidence";
 import { TerminalEnrollmentService } from "../../src/terminals/terminal-enrollment.service";
+import { StockService } from "../../src/inventory/stock/stock.service";
+import { TaxService } from "../../src/pricing/tax.service";
+import { SalesService } from "../../src/sales/sales.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
-import { createPrisma, createTenant, type TenantFixture } from "./fixtures";
+import { createPrisma, createStockedBatch, createTenant, type TenantFixture } from "./fixtures";
 
 /** P2: enrollment and staff sessions with the PRODUCTION attendance verifier. Proofs are real
  * signed attestations recorded through AttendanceProofsService; nothing is stubbed. */
@@ -469,5 +472,71 @@ describe("go-live evidence from counters", () => {
     } finally {
       ({ fx, owner, clerk } = saved);
     }
+  });
+});
+
+describe("online checkout attributed to the counter, till and staff session", () => {
+  const stock = new StockService();
+  const sales = new SalesService(
+    prisma as never,
+    audit,
+    new TaxService({ get: () => "0" } as never),
+    {} as never,
+    { assertCanSell: async () => undefined } as never,
+    stock,
+    trust,
+  );
+  const sell = (actor: RequestUser, workSessionId: string | undefined, key: string) =>
+    sales.checkout(
+      fx.tenantId,
+      fx.mainBranchId,
+      actor.userId,
+      [],
+      { items: [{ productId: fx.productId, qty: 1, unitPrice: "15.00" }] } as never,
+      key,
+      workSessionId ? { user: actor, workSessionId } : undefined,
+    );
+
+  it("two counters race for the last unit: it sells once, on the counter and till that won", async () => {
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 1 });
+    const a = await enroll();
+    const b = await enroll();
+    const sessionA = await openSession(a.device, a.identity, clerk);
+    const sessionB = await openSession(b.device, b.identity, owner);
+    const results = await Promise.allSettled([
+      sell(clerk, sessionA.workSessionId, randomUUID()),
+      sell(owner, sessionB.workSessionId, randomUUID()),
+    ]);
+    const won = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof sell>>> => r.status === "fulfilled");
+    expect(won).toHaveLength(1);
+    const sale = await prisma.sale.findFirstOrThrow({ where: { tenantId: fx.tenantId, id: won[0]!.value!.id } });
+    const expected = sale.soldBy === clerk.userId ? { a, s: sessionA } : { a: b, s: sessionB };
+    expect(sale).toMatchObject({
+      terminalId: expected.a.identity.terminalId,
+      workSessionId: expected.s.workSessionId,
+      tillId: expected.s.tillId,
+    });
+    const onHand = await prisma.batchStock.findFirst({ where: { tenantId: fx.tenantId, batchId } });
+    expect(onHand?.onHandQty).toBe(0);
+  });
+
+  it("refuses someone else's or a closed session, and sells nothing", async () => {
+    await createStockedBatch(prisma, stock, fx, { qty: 5 });
+    const { device, identity } = await enroll();
+    const session = await openSession(device, identity, clerk);
+    await expect(sell(owner, session.workSessionId, randomUUID())).rejects.toMatchObject({
+      response: { code: "SESSION_INVALID" },
+    });
+    await tx((c) => trust.endSession(c, clerk, fx.mainBranchId, session.workSessionId));
+    await expect(sell(clerk, session.workSessionId, randomUUID())).rejects.toMatchObject({
+      response: { code: "SESSION_INVALID" },
+    });
+    // Web POS sales stay unattributed.
+    const web = await sell(clerk, undefined, randomUUID());
+    expect(await prisma.sale.findFirstOrThrow({ where: { tenantId: fx.tenantId, id: web!.id } })).toMatchObject({
+      terminalId: null,
+      tillId: null,
+      workSessionId: null,
+    });
   });
 });

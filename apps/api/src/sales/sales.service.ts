@@ -45,6 +45,8 @@ import {
 } from "./sale-returnable";
 import { SALE_INCLUDE } from "./sale-read.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
+import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { TerminalTrustService } from "../terminals/terminal-trust.service";
 
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
@@ -146,6 +148,7 @@ export class SalesService {
     private readonly pharmacistApproval: PharmacistApprovalService,
     private readonly setupReadiness: SetupReadinessService,
     private readonly stock: StockService,
+    private readonly terminalTrust?: TerminalTrustService,
   ) {}
 
   private branchEffectiveRoles(
@@ -288,6 +291,8 @@ export class SalesService {
     branchRoles: BranchRoleEntry[],
     dto: CheckoutDto,
     idempotencyKeyRaw: string | undefined,
+    /** P2: the seller's own open staff session on an enrolled counter, for attribution only. */
+    counter?: { user: RequestUser; workSessionId: string },
   ) {
     await this.setupReadiness.assertCanSell(tenantId, branchId);
     const idempotencyKey = normalizeIdempotencyKey(idempotencyKeyRaw);
@@ -426,6 +431,20 @@ export class SalesService {
 
     try {
       const sale = await this.prisma.$transaction(async (tx) => {
+        // Attribution, not authority: the session must be the seller's own, open, on an active
+        // enrollment at this branch. It serializes sales per counter on the enrollment lock.
+        let attribution: { terminalId: string; tillId: string; workSessionId: string } | null = null;
+        if (counter) {
+          if (!this.terminalTrust) throw new Error("Counter attribution needs the terminal trust service");
+          if (counter.user.userId !== userId) throw new ForbiddenException("The counter session belongs to someone else");
+          const { session, identity } = await this.terminalTrust.requireOpenSession(
+            tx,
+            counter.user,
+            branchId,
+            counter.workSessionId,
+          );
+          attribution = { terminalId: identity.terminalId, tillId: session.tillId, workSessionId: session.id };
+        }
         const lines: Array<{
           productId: string;
           batchId: string;
@@ -602,6 +621,9 @@ export class SalesService {
                 notes: dto.notes?.trim() || null,
                 soldBy: userId,
                 dispensedBy: dispensedBy,
+                terminalId: attribution?.terminalId ?? null,
+                tillId: attribution?.tillId ?? null,
+                workSessionId: attribution?.workSessionId ?? null,
                 items: {
                   create: lines.map((l) => ({
                     tenantId,

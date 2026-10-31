@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -32,6 +33,8 @@ import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { PosService } from "./pos.service";
 import { SaleReadService } from "./sale-read.service";
 import { SalesService } from "./sales.service";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @ApiTags("sales")
 @Controller("sales")
@@ -208,8 +211,11 @@ export class SalesController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Headers("x-terminal-session") terminalSession: string | undefined,
     @Body() dto: CheckoutDto,
   ) {
+    if (terminalSession !== undefined && !UUID.test(terminalSession))
+      throw new BadRequestException("x-terminal-session must be a staff session id");
     return this.sales.checkout(
       user.tenantId,
       branchId,
@@ -217,6 +223,7 @@ export class SalesController {
       user.branchRoles,
       dto,
       idempotencyKey,
+      terminalSession ? { user, workSessionId: terminalSession } : undefined,
     );
   }
 
