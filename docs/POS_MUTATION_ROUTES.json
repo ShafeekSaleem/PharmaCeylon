@@ -946,6 +946,36 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/attendance-proofs",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/counters",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/devices/:terminalId/retire",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/enrollments",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/enrollments/:enrollmentId/revoke",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/enrollments/challenge",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminals/offline-assignment/authorizations",
     "source": "apps/api/src/terminals/offline-assignment.controller.ts"
   },
@@ -963,6 +993,21 @@
     "method": "POST",
     "path": "/api/v1/terminals/offline-assignment/delegations/:delegationId/revoke",
     "source": "apps/api/src/terminals/offline-assignment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/sessions",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/sessions/:workSessionId/end",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/sessions/challenge",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
   },
   {
     "method": "POST",
