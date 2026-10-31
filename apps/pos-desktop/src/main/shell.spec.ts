@@ -56,6 +56,18 @@ describe("buildReadinessReport", () => {
     expect(statusOf(report, "device")).toBe("not_ready");
   });
 
+  it("reports the device check from the enrollment status", () => {
+    expect(statusOf(buildReadinessReport({ ...healthy, enrollmentStatus: "active" }, new Date()), "device")).toBe("ok");
+    expect(statusOf(buildReadinessReport({ ...healthy, enrollmentStatus: "pending" }, new Date()), "device")).toBe(
+      "warning",
+    );
+    expect(statusOf(buildReadinessReport({ ...healthy, enrollmentStatus: "revoked" }, new Date()), "device")).toBe(
+      "failed",
+    );
+    // An enrolled device is still not ready for an outage until the grant and the rest exist.
+    expect(buildReadinessReport({ ...healthy, enrollmentStatus: "active" }, new Date()).ready).toBe(false);
+  });
+
   it("fails the database and schema checks when the store is not usable", () => {
     const report = buildReadinessReport({ ...healthy, databaseOpen: false }, new Date());
     expect(statusOf(report, "database")).toBe("failed");

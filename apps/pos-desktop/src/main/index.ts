@@ -1,6 +1,9 @@
-import { app, BrowserWindow, dialog, Menu, safeStorage, session } from "electron";
+import { app, BrowserWindow, dialog, Menu, net, safeStorage, session } from "electron";
 import { join } from "node:path";
+import type { ActionResult } from "../shared/ipc-contract";
+import { ApiSession } from "./api/api-client";
 import { checkApi } from "./api-check";
+import { classifyWindowsSession, createWindowsSessionReader } from "./attendance/windows-session";
 import type { SecretProtector } from "./db/key-store";
 import { migrations } from "./db/migrations";
 import { registerIpcHandlers } from "./ipc/handle";
@@ -10,7 +13,10 @@ import { printTestReceipt } from "./printing/test-receipt";
 import { buildReadinessReport } from "./readiness";
 import { isAppUrl } from "./renderer-path";
 import { hardenSession, hardenWebContents, mainFetch, registerAppScheme, serveRenderer } from "./security";
+import { normalizeServerUrl, readServerUrl, writeServerUrl } from "./server-url";
 import { runSmokeTest } from "./smoke";
+import { DeviceStore } from "./device/device-store";
+import { ActionFailure, explain, TerminalService } from "./terminal/terminal-service";
 import { createMainWindow } from "./window";
 
 const smokeMode = process.argv.includes("--smoke-test");
@@ -25,9 +31,11 @@ if (smokeMode) {
 const devServerUrl = app.isPackaged ? null : (process.env.ELECTRON_RENDERER_URL ?? null);
 const devServerOrigin = devServerUrl ? new URL(devServerUrl).origin : null;
 
-// Until device activation supplies it, the API address comes from the
-// environment (and defaults to the local Nest port in development).
-const apiBaseUrl = process.env.POS_API_BASE_URL ?? (app.isPackaged ? null : "http://127.0.0.1:3001/api/v1");
+// Before enrollment the server address comes from setup (saved in the local database), then the
+// environment, then the local Nest port in development. An enrolled counter uses the address it
+// enrolled against.
+const defaultApiBaseUrl = process.env.POS_API_BASE_URL ?? (app.isPackaged ? null : "http://127.0.0.1:3001/api/v1");
+const readWindowsSession = createWindowsSessionReader();
 
 // DPAPI, via Electron: the blob can only be opened by this Windows user on this machine.
 const protector: SecretProtector = {
@@ -38,6 +46,28 @@ const protector: SecretProtector = {
 
 let mainWindow: BrowserWindow | null = null;
 let store: LocalStore | null = null;
+let terminal: TerminalService | null = null;
+
+function currentApiBaseUrl(): string | null {
+  if (!store) return defaultApiBaseUrl;
+  return new DeviceStore(store.db).read()?.apiBaseUrl ?? readServerUrl(store.db) ?? defaultApiBaseUrl;
+}
+
+/** Runs a renderer-requested action; refusals come back as explained data, details go to the log. */
+async function act<T>(
+  logger: ReturnType<typeof createLogger>,
+  name: string,
+  run: (service: TerminalService) => Promise<T> | T,
+): Promise<ActionResult<T>> {
+  if (!terminal) return { ok: false, error: { code: "NOT_READY", message: "The counter is still starting." } };
+  try {
+    return { ok: true, value: await run(terminal) };
+  } catch (error) {
+    const explained = explain(error);
+    logger.warn("terminal.action_refused", { action: name, code: explained.code });
+    return { ok: false, error: explained };
+  }
+}
 
 function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogger>): void {
   registerIpcHandlers(
@@ -55,10 +85,11 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
             schemaVersion,
             latestSchemaVersion: migrations.length,
             credentialStoreAvailable: protector.isAvailable(),
+            enrollmentStatus: store ? (new DeviceStore(store.db).read()?.status ?? null) : null,
           },
           new Date(),
         ),
-      checkApi: () => checkApi(apiBaseUrl, mainFetch),
+      checkApi: () => checkApi(currentApiBaseUrl(), mainFetch),
       listPrinters: async () => {
         const printers = (await mainWindow?.webContents.getPrintersAsync()) ?? [];
         return printers.map((printer) => ({
@@ -67,6 +98,34 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         }));
       },
       printTestReceipt: ({ printerName }) => printTestReceipt(printerName, app.getVersion()),
+      getDeviceState: () => {
+        if (terminal) return terminal.state();
+        const windows = classifyWindowsSession(readWindowsSession());
+        return {
+          serverUrl: currentApiBaseUrl(),
+          serverUrlEditable: false,
+          enrollment: null,
+          operator: null,
+          staffSession: null,
+          branches: [],
+          windowsSession: { protocol: windows.protocol, remoteSession: windows.remoteSession },
+        };
+      },
+      setServerUrl: ({ url }) =>
+        act(logger, "setServerUrl", (service) => {
+          if (!store) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (new DeviceStore(store.db).read())
+            throw new ActionFailure("ALREADY_ENROLLED", "An enrolled counter keeps the server it enrolled with.");
+          writeServerUrl(store.db, normalizeServerUrl(url, app.isPackaged), new Date());
+          return service.state();
+        }),
+      signIn: ({ email, password }) => act(logger, "signIn", (service) => service.signIn(email, password)),
+      signOut: () => act(logger, "signOut", (service) => service.signOut()),
+      refreshEnrollment: () => act(logger, "refreshEnrollment", (service) => service.refreshStatus()),
+      listCounters: ({ branchId }) => act(logger, "listCounters", (service) => service.listCounters(branchId)),
+      createCounter: ({ branchId, label }) =>
+        act(logger, "createCounter", (service) => service.createCounter(branchId, label)),
+      enroll: (input) => act(logger, "enroll", (service) => service.enroll(input)),
     },
     { isTrustedSender: (url) => isAppUrl(url, devServerOrigin), logger },
   );
@@ -104,6 +163,17 @@ async function start(): Promise<void> {
   }
 
   logger.info("startup.ready", { appVersion: app.getVersion(), schemaVersion: store.schemaVersion });
+  const deviceStore = new DeviceStore(store.db);
+  terminal = new TerminalService({
+    store: deviceStore,
+    // No cookie jar: the server must see a Bearer client, never a browser session.
+    api: new ApiSession(currentApiBaseUrl, (url, init) => net.fetch(url, { ...init, credentials: "omit" })),
+    serverUrl: currentApiBaseUrl,
+    serverUrlEditable: true,
+    readWindowsSession: () => classifyWindowsSession(readWindowsSession()),
+    appVersion: app.getVersion(),
+    logger,
+  });
   registerIpc(store.schemaVersion, logger);
   mainWindow = createMainWindow({ devServerUrl, show: true });
   mainWindow.on("closed", () => (mainWindow = null));

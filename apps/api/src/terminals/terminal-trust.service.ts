@@ -456,6 +456,36 @@ export class TerminalTrustService {
     });
     text(attendanceId);
     await this.consume(tx, user, branchId, challenge.id);
+    // One open binding per till. A colleague signing in at the counter (or the same person after
+    // a crash) replaces the previous binding; the enrollment lock serializes this per terminal.
+    // Deauthorization only: shift/cash state is separate and unaffected.
+    const superseded = await tx.terminalStaffSession.findMany({
+      where: { tenantId: user.tenantId, branchId, tillId: session.tillId, closedAt: null },
+      select: { id: true, staffUserId: true },
+    });
+    if (superseded.length) {
+      await tx.terminalStaffSession.updateMany({
+        where: { tenantId: user.tenantId, branchId, id: { in: superseded.map((s) => s.id) }, closedAt: null },
+        data: { closedAt: new Date() },
+      });
+      for (const previous of superseded)
+        await this.audit.log(
+          {
+            tenantId: user.tenantId,
+            branchId,
+            actorUserId: user.userId,
+            eventName: "terminal.session_superseded",
+            entityName: "terminal_staff_session",
+            entityId: previous.id,
+            payload: {
+              enrollmentId: identity.enrollmentId,
+              previousStaffUserId: previous.staffUserId,
+              nextWorkSessionId: session.workSessionId,
+            },
+          },
+          tx,
+        );
+    }
     const bound = await tx.terminalStaffSession.create({
       data: {
         id: session.workSessionId,

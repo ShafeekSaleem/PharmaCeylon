@@ -5,6 +5,16 @@ export type ReadinessFacts = {
   schemaVersion: number;
   latestSchemaVersion: number;
   credentialStoreAvailable: boolean;
+  /** This counter's enrollment as last confirmed with the server; null when not enrolled. */
+  enrollmentStatus?: "pending" | "active" | "revoked" | "retired" | null;
+};
+
+const DEVICE_CHECK: Record<"none" | "pending" | "active" | "revoked" | "retired", Pick<ReadinessCheck, "status" | "detail">> = {
+  none: { status: "not_ready", detail: "This device has not been enrolled at a branch." },
+  pending: { status: "warning", detail: "Enrollment did not finish. A manager must sign in here." },
+  active: { status: "ok", detail: "Enrolled as a counter." },
+  revoked: { status: "failed", detail: "This counter was switched off in the back office." },
+  retired: { status: "failed", detail: "This computer was retired in the back office." },
 };
 
 const NEEDS_ACTIVATION = "Available once this device is activated.";
@@ -38,12 +48,7 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
         ? "Database key is protected by Windows."
         : "Windows credential protection is not available.",
     },
-    {
-      id: "device",
-      label: "Device activation",
-      status: "not_ready",
-      detail: "This device has not been activated for a branch.",
-    },
+    { id: "device", label: "Device enrollment", ...DEVICE_CHECK[facts.enrollmentStatus ?? "none"] },
     { id: "grant", label: "Offline permission", status: "not_ready", detail: NEEDS_ACTIVATION },
     { id: "catalogue", label: "Product catalogue", status: "not_ready", detail: NEEDS_ACTIVATION },
     { id: "receipt-numbers", label: "Receipt numbering", status: "not_ready", detail: NEEDS_ACTIVATION },

@@ -8,6 +8,10 @@ files:
   # The SQLite binding ships N-API prebuilds for every platform; keep Windows only.
   - "!**/better-sqlite3-multiple-ciphers/prebuilds/{darwin,linux,linuxmusl}-*"
   - "!**/better-sqlite3-multiple-ciphers/{deps,src,binding.gyp}"
+  # koffi (Windows session checks) ships prebuilt binaries for every platform; keep Windows x64.
+  - "!**/koffi/build/koffi/{darwin,freebsd,linux,openbsd,musl}_*"
+  - "!**/koffi/build/koffi/win32_{arm64,ia32}"
+  - "!**/koffi/{src,vendor}"
 asar: true
 asarUnpack:
   - "**/*.node"
