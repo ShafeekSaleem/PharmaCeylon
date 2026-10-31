@@ -130,6 +130,9 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         act(logger, "createCounter", (service) => service.createCounter(branchId, label)),
       enroll: (input) => act(logger, "enroll", (service) => service.enroll(input)),
       enrollWithCode: (input) => act(logger, "enrollWithCode", (service) => service.enrollWithCode(input)),
+      offlineCounter: () => act(logger, "offlineCounter", (service) => service.offlineCounter()),
+      activateOffline: ({ authorizationId }) =>
+        act(logger, "activateOffline", (service) => service.activateOffline(authorizationId)),
       setPin: ({ pin, password }) => act(logger, "setPin", (service) => service.setPin(pin, password)),
       preparePin: ({ pin }) => act(logger, "preparePin", (service) => service.preparePin(pin)),
       lock: () => act(logger, "lock", (service) => service.lock()),

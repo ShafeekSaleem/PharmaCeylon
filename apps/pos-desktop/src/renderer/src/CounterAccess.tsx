@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { ActionResult, Counter, DeviceState } from "../../shared/ipc-contract";
+import type { ActionResult, Counter, DeviceState, OfflineCounterView } from "../../shared/ipc-contract";
 import styles from "./App.module.css";
 
 type Props = { state: DeviceState; onState: (state: DeviceState) => void };
@@ -424,6 +424,54 @@ function LockScreen({ state, onState }: Props) {
   );
 }
 
+/** Shown to people who can manage the branch; others get a refusal and see nothing. */
+function OfflineCounterPanel() {
+  const [view, setView] = useState<OfflineCounterView | null>(null);
+  const [hidden, setHidden] = useState(false);
+  const { busy, error, run } = useAction();
+  useEffect(() => {
+    void window.pos
+      .offlineCounter()
+      .then((result) => (result.ok ? setView(result.value) : setHidden(true)))
+      .catch(() => setHidden(true));
+  }, []);
+  if (hidden || !view) return null;
+  return (
+    <div className={styles.form}>
+      <h3 className={styles.panelTitle}>Offline counter</h3>
+      {view.thisCounterNominated ? (
+        <p className={styles.resultOk}>This is the branch's offline counter.</p>
+      ) : view.authorization ? (
+        <>
+          <p>
+            The owner authorized this counter to keep selling during internet outages ({view.authorization.reason}).
+            Confirm here to activate it.
+            {view.otherCounterNominated && " The current offline counter must already be disabled and its sales recovered."}
+          </p>
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className="pc-btn-primary-sm"
+              disabled={busy}
+              onClick={() =>
+                void run(() => window.pos.activateOffline({ authorizationId: view.authorization!.authorizationId }), setView)
+              }
+            >
+              Activate as offline counter
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="pc-muted">
+          {view.otherCounterNominated ? "Another counter is the branch's offline counter." : "No offline counter yet."} The
+          owner authorizes one from the back office.
+        </p>
+      )}
+      <ErrorLine error={error} />
+    </div>
+  );
+}
+
 function SignedIn({ state, onState }: Props) {
   const { busy, error, run } = useAction();
   const [changing, setChanging] = useState(false);
@@ -455,6 +503,7 @@ function SignedIn({ state, onState }: Props) {
         />
       )}
       {pin?.set && !pin.prepared && !changing && <PinPrepare state={state} onState={onState} />}
+      <OfflineCounterPanel />
       <div className={styles.actions}>
         {pin?.prepared && (
           <button type="button" className="pc-btn-primary-sm" onClick={() => void run(() => window.pos.lock(), onState)} disabled={busy}>

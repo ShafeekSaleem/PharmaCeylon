@@ -1,5 +1,7 @@
 import type {
   LocalAttendanceProofReceipt,
+  OfflineActivationResult,
+  OfflineAssignmentView,
   LocalAttendancePurpose,
   OnlineTerminalCommand,
   TerminalCounterView,
@@ -12,7 +14,7 @@ import type {
   WindowsSessionEvidence,
   WorkSessionIdentity,
 } from "@pharmaceylon/shared";
-import type { ActionError, Branch, DeviceState } from "../../shared/ipc-contract";
+import type { ActionError, Branch, DeviceState, OfflineCounterView } from "../../shared/ipc-contract";
 import { ApiError, type ApiSession, type AuthUser } from "../api/api-client";
 import { buildAttestation } from "../attendance/attestation";
 import { DeviceKey } from "../device/device-key";
@@ -56,6 +58,8 @@ const MESSAGES: Record<string, string> = {
   PIN_NOT_SET: "Set your PIN first.",
   PASSWORD_INCORRECT: "Your login password is not right.",
   LOCKED: "The counter is locked. Unlock it first.",
+  OFFLINE_AUTHORIZATION_NOT_CURRENT: "That authorization is no longer current. Ask the owner to authorize this counter again.",
+  D11_CLEARANCE_REQUIRED: "The branch's current offline counter must be disabled and its sales recovered first.",
 };
 
 export function explain(error: unknown): ActionError {
@@ -379,6 +383,59 @@ export class TerminalService {
     const device = this.requireActive();
     const user = this.requireOperator();
     return this.recordAttendance(this.requireKey(), command, "command", user, device.identity.branchId);
+  }
+
+  /** Whether this counter is the branch's offline counter, or has an authorization waiting. */
+  async offlineCounter(): Promise<OfflineCounterView> {
+    const { device } = this.requireStaff();
+    const view = await this.deps.api.request<OfflineAssignmentView>("GET", "/terminals/offline-assignment", {
+      branchId: device.identity.branchId,
+    });
+    const waiting = view.authorizations.find(
+      (a) => a.status === "authorized" && a.targetEnrollmentId === device.identity.enrollmentId,
+    );
+    return {
+      thisCounterNominated: view.nomination?.enrollmentId === device.identity.enrollmentId,
+      otherCounterNominated: view.nomination !== null && view.nomination.enrollmentId !== device.identity.enrollmentId,
+      nominationVersion: view.nominationVersion,
+      authorization: waiting
+        ? {
+            authorizationId: waiting.authorizationId,
+            expectedNominationVersion: waiting.expectedNominationVersion,
+            reason: waiting.reason,
+            authorizedAt: new Date(waiting.authorizedAt).toISOString(),
+          }
+        : null,
+    };
+  }
+
+  /** Revised D13 step 2: confirm, here, the owner's or delegated manager's authorization. */
+  async activateOffline(authorizationId: string): Promise<OfflineCounterView> {
+    const { staff, device } = this.requireStaff();
+    const user = this.requireOperator();
+    const current = await this.offlineCounter();
+    if (!current.authorization || current.authorization.authorizationId !== authorizationId)
+      throw new ActionFailure("OFFLINE_AUTHORIZATION_NOT_CURRENT", MESSAGES.OFFLINE_AUTHORIZATION_NOT_CURRENT!);
+    const command = await this.deps.api.request<OnlineTerminalCommand<unknown>>(
+      "POST",
+      "/terminals/offline-assignment/activate/challenge",
+      {
+        branchId: device.identity.branchId,
+        body: {
+          workSessionId: staff.workSessionId,
+          authorizationId,
+          expectedNominationVersion: current.authorization.expectedNominationVersion,
+        },
+      },
+    );
+    const key = this.requireKey();
+    const proof = await this.recordAttendance(key, command, "command", user, device.identity.branchId);
+    const result = await this.deps.api.request<OfflineActivationResult>("POST", "/terminals/offline-assignment/activate", {
+      branchId: device.identity.branchId,
+      body: { envelope: key.sign(command, "command"), attendanceProofId: proof.proofId },
+    });
+    this.deps.logger.info("terminal.offline_activated", { nominationVersion: result.nominationVersion });
+    return this.offlineCounter();
   }
 
   /** The signed-in staff member, their open session and this device's identity and key. */

@@ -141,8 +141,9 @@ Four routes, all `management`: `POST /terminals/offline-assignment/delegations`,
 `…/delegations/:delegationId/revoke`, `…/authorizations` and
 `…/authorizations/:authorizationId/revoke`. They record owner delegation and online assignment
 authorization only — no nomination, grant, stock or cash effect, no terminal proof. Activation on
-the exact target is a separate local signed step (P2/P3) and will be classified with its own
-operation. Contract: [API_CONTRACT.md](API_CONTRACT.md).
+the exact target is a separate local signed step: `…/activate/challenge` is `identity` (issues a
+challenge) and `…/activate` is `local_record` (signed, attended, on the exact target; writes the
+nomination, no grant). Contract: [API_CONTRACT.md](API_CONTRACT.md).
 
 ## P2 desktop enrollment and staff sessions
 

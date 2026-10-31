@@ -59,6 +59,9 @@ class FakeServer {
   enrollmentStatus: "active" | "revoked" = "active";
   failFinishEnrollment: ApiError | null = null;
   pin: string | null = null;
+  nominatedEnrollment: string | null = null;
+  authorization: { authorizationId: string; targetEnrollmentId: string } | null = null;
+  enrolledIdentity: { enrollmentId: string } | null = null;
   pinVersion = 0;
   preparedVersion: number | null = null;
   enrolledKey: string | null = null;
@@ -136,6 +139,7 @@ class FakeServer {
         throw new ApiError(403, "LOCAL_ATTENDANCE_UNAVAILABLE", "x");
       if (this.failFinishEnrollment && !this.failFinishEnrollment.uncertain) throw this.failFinishEnrollment;
       this.enrolledKey = challenge.publicKeyHex;
+      this.enrolledIdentity = challenge.identity;
       this.occupied = true;
       // An uncertain failure is a lost response: the server did enroll the device.
       if (this.failFinishEnrollment) throw this.failFinishEnrollment;
@@ -164,6 +168,61 @@ class FakeServer {
       return challenge.session;
     }
     if (path.endsWith("/end")) return undefined;
+    if (path === "/terminals/offline-assignment")
+      return {
+        branchId,
+        nomination: this.nominatedEnrollment
+          ? { terminalId: randomUUID(), enrollmentId: this.nominatedEnrollment, version: 1, activatedAt: now }
+          : null,
+        nominationVersion: this.nominatedEnrollment ? 1 : 0,
+        delegations: [],
+        authorizations: this.authorization
+          ? [
+              {
+                ...this.authorization,
+                targetTerminalId: randomUUID(),
+                expectedNominationVersion: 0,
+                reason: "Front desk",
+                tenantId,
+                branchId,
+                authorizedByUserId: manager.id,
+                authorizedAt: now,
+                status: "authorized",
+                authority: "owner",
+                delegationId: null,
+                revokedAt: null,
+                revocationReason: null,
+                consumedAt: null,
+              },
+            ]
+          : [],
+      };
+    if (path === "/terminals/offline-assignment/activate/challenge") {
+      this.challenge = {
+        contractVersion: 1,
+        kind: "online_operation",
+        commandId: randomUUID(),
+        identity: (this.challenge as TerminalSessionCommand).identity,
+        session: { workSessionId: body.workSessionId, staffUserId: this.user!.id, registerId, tillId },
+        operation: "POST /api/v1/terminals/offline-assignment/activate",
+        issuedAt: now,
+        expiresAt: now + 120_000,
+        serverNonce: "d".repeat(64),
+        body: { authorizationId: body.authorizationId, expectedNominationVersion: body.expectedNominationVersion },
+        approvalEvidenceId: null,
+        pharmacistEvidenceId: null,
+        operatingHoursExceptionId: null,
+      } as never;
+      return this.challenge;
+    }
+    if (path === "/terminals/offline-assignment/activate") {
+      if (!verifies(body.envelope, this.enrolledKey!, "command")) throw new ApiError(403, "INVALID_SIGNATURE", "x");
+      if (this.proofs.get(body.attendanceProofId)?.purpose !== "command")
+        throw new ApiError(403, "LOCAL_ATTENDANCE_UNAVAILABLE", "x");
+      this.nominatedEnrollment = this.authorization!.targetEnrollmentId;
+      this.authorization = null;
+      return { nominationVersion: 1 };
+    }
     const credential = () => ({
       pinSet: this.pin !== null,
       pinVersion: this.pinVersion,
@@ -433,5 +492,33 @@ describe("TerminalService enrollment codes", () => {
     const state = await terminal.enrollWithCode({ branchId, code: "ABCDE-12345", label: "PC" });
     expect(state.enrollment).toMatchObject({ status: "active", counterLabel: "Code counter" });
     expect(new DeviceStore(local.db).read()?.enrolledByUserId).toBe(cashier.id);
+  });
+});
+
+describe("TerminalService offline counter activation", () => {
+  it("shows a waiting authorization and activates it with a signed, attended command", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    await terminal.signIn(manager.email, "password");
+    expect(await terminal.offlineCounter()).toMatchObject({ thisCounterNominated: false, authorization: null });
+
+    server.authorization = { authorizationId: randomUUID(), targetEnrollmentId: server.enrolledIdentity!.enrollmentId };
+    const waiting = await terminal.offlineCounter();
+    expect(waiting.authorization?.authorizationId).toBe(server.authorization.authorizationId);
+    const after = await terminal.activateOffline(waiting.authorization!.authorizationId);
+    expect(after).toMatchObject({ thisCounterNominated: true, authorization: null });
+    expect([...server.proofs.values()].some((p) => p.purpose === "command")).toBe(true);
+  });
+
+  it("refuses to activate from a remote session", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    await terminal.signIn(manager.email, "password");
+    server.authorization = { authorizationId: randomUUID(), targetEnrollmentId: server.enrolledIdentity!.enrollmentId };
+    windowsSession = { sessionId: 3, protocol: "rdp", remoteSession: true };
+    await expect(terminal.activateOffline(server.authorization.authorizationId)).rejects.toMatchObject({
+      code: "REMOTE_SESSION_DENIED",
+    });
+    expect(server.nominatedEnrollment).toBeNull();
   });
 });
