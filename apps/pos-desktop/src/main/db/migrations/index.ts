@@ -3,6 +3,7 @@ import { foundation } from "./0001-foundation";
 import { deviceIdentity } from "./0002-device-identity";
 import { staffCredentials } from "./0003-staff-credentials";
 import { checkoutDrafts } from "./0004-checkout-drafts";
+import { signedCommands } from "./0005-signed-commands";
 
 /** Append only. A released migration is never edited or reordered. */
-export const migrations: readonly Migration[] = [foundation, deviceIdentity, staffCredentials, checkoutDrafts];
+export const migrations: readonly Migration[] = [foundation, deviceIdentity, staffCredentials, checkoutDrafts, signedCommands];

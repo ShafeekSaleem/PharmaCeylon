@@ -165,6 +165,29 @@ export const checkoutDraftSchema = z.object({
 });
 export type CheckoutDraftView = z.infer<typeof checkoutDraftSchema>;
 
+export const refundAtCounterSchema = z.object({
+  refundRequestId: uuid,
+  requestNumber: z.string(),
+  invoiceNo: z.string().nullable(),
+  amount: z.string(),
+  refundMethod: z.string().nullable(),
+  reason: z.string(),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+  approvalEvidenceId: uuid.nullable(),
+});
+export type RefundAtCounter = z.infer<typeof refundAtCounterSchema>;
+
+export const refundExecutedSchema = z.object({
+  requestNumber: z.string(),
+  amountMinor: z.number().int(),
+  refundedTo: z.array(z.object({ method: z.string(), amountMinor: z.number().int() })),
+  alreadyApplied: z.boolean(),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+});
+export type RefundExecuted = z.infer<typeof refundExecutedSchema>;
+
 export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
 export type ActionError = z.infer<typeof actionErrorSchema>;
 
@@ -236,6 +259,22 @@ export const ipcContract = {
     channel: "pos:checkout:print",
     input: z.object({ saleId: uuid, printerName: z.string().min(1).max(260) }),
     output: printResultSchema,
+  },
+  refundsReady: { channel: "pos:counter:refunds", input: noInput, output: result(z.array(refundAtCounterSchema)) },
+  executeRefund: {
+    channel: "pos:counter:execute-refund",
+    input: z.object({ refundRequestId: uuid }),
+    output: result(refundExecutedSchema),
+  },
+  pendingCommands: {
+    channel: "pos:counter:pending-commands",
+    input: noInput,
+    output: z.array(z.object({ commandId: uuid, operation: z.string(), createdAt: z.string() })),
+  },
+  retryCommand: {
+    channel: "pos:counter:retry-command",
+    input: z.object({ commandId: uuid }),
+    output: result(z.object({ replayed: z.boolean() })),
   },
   confirmTestReceipt: {
     channel: "pos:printers:confirm-test-receipt",

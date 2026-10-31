@@ -13,6 +13,8 @@ import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
 import { renderSaleReceiptHtml } from "./printing/receipt-html";
 import { CheckoutService } from "./checkout/checkout-service";
+import { CounterWorkService } from "./terminal/counter-work";
+import { SignedCommandService } from "./terminal/signed-commands";
 import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport } from "./readiness";
 import { isAppUrl } from "./renderer-path";
@@ -53,6 +55,8 @@ let mainWindow: BrowserWindow | null = null;
 let store: LocalStore | null = null;
 let terminal: TerminalService | null = null;
 let checkout: CheckoutService | null = null;
+let commands: SignedCommandService | null = null;
+let counterWork: CounterWorkService | null = null;
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
 
@@ -163,6 +167,22 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         if (!sale || !device) return { ok: false, error: "That sale is not available to print here." };
         return printHtml(printerName, renderSaleReceiptHtml(sale, { branchName: device.branchName, counterLabel: device.counterLabel }));
       },
+      refundsReady: () =>
+        act(logger, "refundsReady", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.refundsReady();
+        }),
+      executeRefund: ({ refundRequestId }) =>
+        act(logger, "executeRefund", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.executeRefund(refundRequestId);
+        }),
+      pendingCommands: () => commands?.pending() ?? [],
+      retryCommand: ({ commandId }) =>
+        act(logger, "retryCommand", async () => {
+          if (!commands) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return { replayed: (await commands.retry(commandId)).replayed };
+        }),
       confirmTestReceipt: ({ printerName }) =>
         act(logger, "confirmTestReceipt", (service) => service.confirmTestReceipt(printerName)),
       offlineCounter: () => act(logger, "offlineCounter", (service) => service.offlineCounter()),
@@ -223,6 +243,8 @@ async function start(): Promise<void> {
     logger,
   });
   checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger });
+  commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
+  counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);
   mainWindow = createMainWindow({ devServerUrl, show: true });
   mainWindow.on("closed", () => (mainWindow = null));
