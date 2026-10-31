@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import type { CatalogProduct, CheckoutDraftView, CompletedSale, Printer } from "../../shared/ipc-contract";
+import type { CatalogProduct, CheckoutDraftView, CompletedSale, HeldCart, Printer } from "../../shared/ipc-contract";
 import styles from "./App.module.css";
 
 type Line = { product: CatalogProduct; qty: number };
@@ -116,6 +116,37 @@ export function Checkout() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sale, setSale] = useState<CompletedSale | null>(null);
+  const [holds, setHolds] = useState<HeldCart[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const loadHolds = useCallback(() => {
+    void window.pos.listHolds().then((result) => setHolds(result.ok ? result.value : []));
+  }, []);
+  useEffect(loadHolds, [loadHolds]);
+
+  async function hold() {
+    setError(null);
+    const result = await window.pos.holdCart({ lines: lines.map((l) => ({ productId: l.product.productId, qty: l.qty })) });
+    if (result.ok) {
+      setLines([]);
+      setNotice(`Held as ${result.value.holdRef}.`);
+      loadHolds();
+    } else setError(result.error.message);
+  }
+
+  async function recall(holdId: string) {
+    setError(null);
+    const result = await window.pos.recallHold({ holdId });
+    loadHolds();
+    if (!result.ok) return setError(result.error.message);
+    const byId = new Map((catalog ?? []).map((p) => [p.productId, p]));
+    const restored = result.value.flatMap((l) => {
+      const product = byId.get(l.productId);
+      return product ? [{ product, qty: Math.min(l.qty, product.available) }] : [];
+    });
+    setLines(restored);
+    if (restored.length < result.value.length) setNotice("Some held items are no longer available and were left out.");
+  }
 
   const refresh = useCallback(() => {
     setError(null);
@@ -262,6 +293,9 @@ export function Checkout() {
         <button type="button" className="pc-btn-primary-sm" onClick={() => void complete()} disabled={busy || !lines.length}>
           {busy ? "Completing…" : "Complete sale"}
         </button>
+        <button type="button" className="pc-btn-outline" onClick={() => void hold()} disabled={busy || !lines.length}>
+          Hold
+        </button>
         <button type="button" className="pc-btn-outline" onClick={() => setLines([])} disabled={busy || !lines.length}>
           Clear
         </button>
@@ -269,6 +303,25 @@ export function Checkout() {
           Refresh products
         </button>
       </div>
+      {notice && <p role="status">{notice}</p>}
+      {holds.length > 0 && (
+        <div className={styles.form}>
+          <h3 className={styles.panelTitle}>Held carts</h3>
+          <ul className={styles.counterList}>
+            {holds.map((h) => (
+              <li key={h.holdId} className={styles.counterOption}>
+                <span>
+                  {h.holdRef}
+                  {h.label ? ` · ${h.label}` : ""} · {h.itemCount} items · {h.total} · {h.heldBy}
+                </span>
+                <button type="button" className="pc-btn-outline" onClick={() => void recall(h.holdId)} disabled={busy || lines.length > 0}>
+                  Recall
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {error && (
         <p role="alert" className={styles.resultFailed}>
           {error}

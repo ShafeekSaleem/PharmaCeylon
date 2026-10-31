@@ -153,6 +153,21 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           recentSales.set(sale.saleId, sale);
           return sale;
         }),
+      holdCart: ({ lines, label }) =>
+        act(logger, "holdCart", () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return checkout.hold(lines, label);
+        }),
+      listHolds: () =>
+        act(logger, "listHolds", () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return checkout.holds();
+        }),
+      recallHold: ({ holdId }) =>
+        act(logger, "recallHold", () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return checkout.recall(holdId);
+        }),
       pendingCheckouts: () => checkout?.pending() ?? [],
       retryCheckout: ({ draftId }) =>
         act(logger, "retryCheckout", async () => {

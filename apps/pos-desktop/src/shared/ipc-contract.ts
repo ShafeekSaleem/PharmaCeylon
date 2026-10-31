@@ -188,6 +188,17 @@ export const refundExecutedSchema = z.object({
 });
 export type RefundExecuted = z.infer<typeof refundExecutedSchema>;
 
+export const heldCartSchema = z.object({
+  holdId: uuid,
+  holdRef: z.string(),
+  label: z.string().nullable(),
+  itemCount: z.number().int(),
+  total: z.string(),
+  createdAt: z.string(),
+  heldBy: z.string(),
+});
+export type HeldCart = z.infer<typeof heldCartSchema>;
+
 export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
 export type ActionError = z.infer<typeof actionErrorSchema>;
 
@@ -248,6 +259,20 @@ export const ipcContract = {
       tender: tenderSchema,
     }),
     output: result(completedSaleSchema),
+  },
+  holdCart: {
+    channel: "pos:checkout:hold",
+    input: z.object({
+      lines: z.array(z.object({ productId: uuid, qty: z.number().int().min(1).max(9999) })).min(1).max(200),
+      label: z.string().trim().max(120).optional(),
+    }),
+    output: result(z.object({ holdRef: z.string() })),
+  },
+  listHolds: { channel: "pos:checkout:holds", input: noInput, output: result(z.array(heldCartSchema)) },
+  recallHold: {
+    channel: "pos:checkout:recall",
+    input: z.object({ holdId: uuid }),
+    output: result(z.array(z.object({ productId: z.string(), qty: z.number().int() }))),
   },
   pendingCheckouts: { channel: "pos:checkout:pending", input: noInput, output: z.array(checkoutDraftSchema) },
   retryCheckout: {

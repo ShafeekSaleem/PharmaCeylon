@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CatalogProduct, CheckoutDraftView, CompletedSale, Tender } from "../../shared/ipc-contract";
+import type { CatalogProduct, CheckoutDraftView, CompletedSale, HeldCart, Tender } from "../../shared/ipc-contract";
 import { ApiError, type ApiSession } from "../api/api-client";
 import type { PosDatabase } from "../db/database";
 import type { Logger } from "../logging/logger";
@@ -164,6 +164,60 @@ export class CheckoutService {
       )
       .run(id, staff.workSessionId, staff.staffUserId, JSON.stringify(request), totalMinor, at, at);
     return this.send(id, request, staff.workSessionId, identity.branchId);
+  }
+
+  /** Parks the cart on the server so any counter at the branch can recall it. */
+  async hold(lines: { productId: string; qty: number }[], label: string | undefined): Promise<{ holdRef: string }> {
+    const { identity } = this.counter();
+    if (!lines.length) throw new ActionFailure("CART_EMPTY", "There is nothing to hold.");
+    const totalMinor = lines.reduce((sum, line) => {
+      const product = this.catalogCache.get(line.productId);
+      if (!product) throw new ActionFailure("CATALOG_STALE", "The product list changed. Refresh it and try again.");
+      return sum + toMinor(product.unitPrice) * line.qty;
+    }, 0);
+    const held = await this.deps.api.request<{ id: string; holdRef: string }>("POST", "/sales/holds", {
+      branchId: identity.branchId,
+      body: {
+        label: label?.trim() || undefined,
+        itemCount: lines.reduce((sum, l) => sum + l.qty, 0),
+        total: fromMinor(totalMinor),
+        lines: lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+        meta: { source: "desktop_counter" },
+      },
+    });
+    return { holdRef: held.holdRef };
+  }
+
+  async holds(): Promise<HeldCart[]> {
+    const { identity } = this.counter();
+    const rows = await this.deps.api.request<
+      { id: string; holdRef: string; label: string | null; itemCount: number; total: string; createdAt: string; heldByName: string }[]
+    >("GET", "/sales/holds", { branchId: identity.branchId });
+    return rows.map((r) => ({
+      holdId: r.id,
+      holdRef: r.holdRef,
+      label: r.label,
+      itemCount: r.itemCount,
+      total: r.total,
+      createdAt: r.createdAt,
+      heldBy: r.heldByName,
+    }));
+  }
+
+  /** Recall claims the hold atomically on the server: two counters cannot both get it. */
+  async recall(holdId: string): Promise<{ productId: string; qty: number }[]> {
+    const { identity } = this.counter();
+    const held = await this.deps.api.request<{ payload: { lines?: unknown[] } | null }>("POST", `/sales/holds/${holdId}/recall`, {
+      branchId: identity.branchId,
+    });
+    const lines = Array.isArray(held.payload?.lines) ? held.payload!.lines : [];
+    // Accept only what this counter can sell from: product ids and whole quantities.
+    return lines.flatMap((raw) => {
+      const line = raw as { productId?: unknown; qty?: unknown };
+      return typeof line.productId === "string" && Number.isSafeInteger(line.qty) && (line.qty as number) > 0
+        ? [{ productId: line.productId, qty: line.qty as number }]
+        : [];
+    });
   }
 
   /** Resends an uncertain checkout exactly as it was first sent. */

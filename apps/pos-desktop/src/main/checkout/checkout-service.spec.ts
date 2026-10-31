@@ -55,6 +55,9 @@ function service() {
     request: async (_method: string, path: string, opts: { body?: unknown; headers?: Record<string, string> } = {}) => {
       calls.push({ path, opts });
       if (path === "/sales/pos/catalog") return catalogResponse;
+      if (path === "/sales/holds" && opts.body) return { id: randomUUID(), holdRef: "HOLD-0007" };
+      if (path.endsWith("/recall"))
+        return { payload: { lines: [{ productId: paracetamol, qty: 2 }, { productId: "x", qty: "3" }, { name: "web-only" }] } };
       if (path === "/sales/checkout") {
         // The draft must already be on disk when the request leaves.
         const row = local.db.prepare("SELECT status FROM checkout_draft WHERE id = ?").get(opts.headers?.["Idempotency-Key"]);
@@ -155,5 +158,15 @@ describe("CheckoutService", () => {
       code: "CARD_REFERENCE_REQUIRED",
     });
     expect(calls.some((c) => c.path === "/sales/checkout")).toBe(false);
+  });
+});
+
+describe("held carts", () => {
+  it("holds with catalog totals and recalls only sellable product lines", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    await expect(checkout.hold([{ productId: paracetamol, qty: 3 }], "Blue shirt")).resolves.toEqual({ holdRef: "HOLD-0007" });
+    expect(calls.find((c) => c.path === "/sales/holds")!.opts.body).toMatchObject({ itemCount: 3, total: "7.50", label: "Blue shirt" });
+    await expect(checkout.recall(randomUUID())).resolves.toEqual([{ productId: paracetamol, qty: 2 }]);
   });
 });
