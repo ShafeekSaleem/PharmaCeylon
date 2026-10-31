@@ -39,3 +39,22 @@ export type OfflineAssignmentAuthorizeRequest = Readonly<{
   expectedNominationVersion: number;
   reason: string;
 }>;
+
+/** P2 revised D13 activation, step 1: POST `/terminals/offline-assignment/activate/challenge` on the
+ * exact target, from the activator's own open staff session there. Returns the
+ * `OnlineTerminalCommand<{ authorizationId, expectedNominationVersion }>` to sign verbatim. */
+export type OfflineActivationPrepareRequest = Readonly<{
+  workSessionId: string;
+  authorizationId: string;
+  expectedNominationVersion: number;
+}>;
+
+/** Step 2: POST `/terminals/offline-assignment/activate` with `{ envelope, attendanceProofId }`. */
+export type OfflineActivationResult = Readonly<{
+  terminalId: string;
+  enrollmentId: string;
+  nominationVersion: number;
+  activatedAt: number;
+  authorizedByUserId: string;
+  activatedByUserId: string;
+}>;

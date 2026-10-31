@@ -38,3 +38,17 @@ export class RevokeOfflineAssignmentDto {
   @MaxLength(500)
   reason!: string;
 }
+
+/** POST /terminals/offline-assignment/activate/challenge — `OfflineActivationPrepareRequest`. */
+export class PrepareOfflineActivationDto {
+  @IsUUID()
+  workSessionId!: string;
+
+  @IsUUID()
+  authorizationId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  expectedNominationVersion!: number;
+}

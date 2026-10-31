@@ -547,6 +547,18 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     riskLevel: "elevated",
   },
 
+  {
+    // Revised D13: confirming, at the exact enrolled counter, that it becomes the branch's
+    // offline-capable terminal. The remote authorization (owner or delegated manager) is separate.
+    key: "terminal.activate_offline",
+    module: "terminal",
+    label: "Activate the offline counter at the counter",
+    description:
+      "Confirm, at the enrolled counter an owner or delegated manager authorized, that it becomes the branch's offline-capable counter. Needs verified local attendance.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+  },
+
   // ── Suppliers ──
   {
     key: "suppliers.view",

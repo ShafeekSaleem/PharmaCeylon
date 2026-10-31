@@ -4,6 +4,8 @@ import { BusinessHoursAcknowledgements } from "./business-hours-acknowledgements
 import { EnrollmentCodesController } from "./enrollment-codes.controller";
 import { EnrollmentCodesService } from "./enrollment-codes.service";
 import { LocalAttendanceVerifier } from "./local-attendance.verifier";
+import { OfflineActivationController } from "./offline-activation.controller";
+import { OfflineActivationClearance, OfflineActivationService } from "./offline-activation.service";
 import { OfflineAssignmentController } from "./offline-assignment.controller";
 import { OfflineAssignmentService } from "./offline-assignment.service";
 import { OperatingHoursEvidence } from "./operating-hours.evidence";
@@ -13,7 +15,12 @@ import { TerminalEnrollmentService } from "./terminal-enrollment.service";
 import { TerminalTrustService } from "./terminal-trust.service";
 
 @Module({
-  controllers: [OfflineAssignmentController, TerminalEnrollmentController, EnrollmentCodesController],
+  controllers: [
+    OfflineAssignmentController,
+    OfflineActivationController,
+    TerminalEnrollmentController,
+    EnrollmentCodesController,
+  ],
   providers: [
     LocalAttendanceVerifier,
     TerminalTrustService,
@@ -24,6 +31,8 @@ import { TerminalTrustService } from "./terminal-trust.service";
     TerminalEnrollmentService,
     StaffCredentialsService,
     EnrollmentCodesService,
+    OfflineActivationClearance,
+    OfflineActivationService,
   ],
   exports: [
     TerminalTrustService,

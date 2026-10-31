@@ -991,6 +991,16 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/offline-assignment/activate",
+    "source": "apps/api/src/terminals/offline-activation.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/offline-assignment/activate/challenge",
+    "source": "apps/api/src/terminals/offline-activation.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminals/offline-assignment/authorizations",
     "source": "apps/api/src/terminals/offline-assignment.controller.ts"
   },

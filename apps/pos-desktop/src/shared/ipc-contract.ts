@@ -104,6 +104,21 @@ export const deviceStateSchema = z.object({
 });
 export type DeviceState = z.infer<typeof deviceStateSchema>;
 
+export const offlineCounterSchema = z.object({
+  thisCounterNominated: z.boolean(),
+  otherCounterNominated: z.boolean(),
+  nominationVersion: z.number().int().min(0),
+  authorization: z
+    .object({
+      authorizationId: uuid,
+      expectedNominationVersion: z.number().int().min(0),
+      reason: z.string(),
+      authorizedAt: z.string(),
+    })
+    .nullable(),
+});
+export type OfflineCounterView = z.infer<typeof offlineCounterSchema>;
+
 export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
 export type ActionError = z.infer<typeof actionErrorSchema>;
 
@@ -155,6 +170,12 @@ export const ipcContract = {
     channel: "pos:enrollment:enroll-with-code",
     input: z.object({ branchId: uuid, code: z.string().trim().min(4).max(32), label }),
     output: result(deviceStateSchema),
+  },
+  offlineCounter: { channel: "pos:offline:status", input: noInput, output: result(offlineCounterSchema) },
+  activateOffline: {
+    channel: "pos:offline:activate",
+    input: z.object({ authorizationId: uuid }),
+    output: result(offlineCounterSchema),
   },
   setPin: {
     channel: "pos:staff:set-pin",

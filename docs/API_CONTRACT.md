@@ -391,17 +391,29 @@ enrollment at this branch), `NOMINATION_VERSION_CHANGED`, `OFFLINE_TARGET_ALREAD
 `AUTHORIZATION_ID_CONFLICT` (409). Delegations and authorizations are retained: content is
 immutable, revocation/consumption is recorded once, nothing is deleted.
 
-**Activation (second step, P2/P3; not exposed yet).** On the exact target, an authorized local
-staff member confirms activation online with a signed command (`OfflineTerminalActivation`:
-`authorizationId`, identity, session, `expectedNominationVersion`) and verified local attendance.
-The confirmer needs a branch activation permission, not the owner's assignment authority. In one
-transaction the server must: verify the signed command and attendance; call
-`OfflineAssignmentService.requireCurrent` (authorization still outstanding for this exact
-enrollment, enrollment active, nomination version unchanged, original authorizer still an owner or
-still a delegated manager with branch management); apply D11 clearance (old grant can no longer
-sell, old journal resolved or loss reviewed, or initial nomination); then mark the authorization
-`consumed` (with the activator), upsert `offline_terminal_nomination` with `version + 1`, and audit
-authorizer and activator separately. Stale, revoked or consumed authorizations require renewal.
+**Activation (second step, P2).** On the exact target, a staff member holding
+`terminal.activate_offline` (owner and manager by default; not the owner's assignment authority)
+confirms from their own open staff session there:
+
+1. `POST /terminals/offline-assignment/activate/challenge` `OfflineActivationPrepareRequest` →
+   `OnlineTerminalCommand<{ authorizationId, expectedNominationVersion }>` (operation
+   `POST /api/v1/terminals/offline-assignment/activate`).
+2. Record an attendance proof for that command (purpose `command`) and
+   `POST /terminals/offline-assignment/activate` `{ envelope, attendanceProofId }` →
+   `OfflineActivationResult`.
+
+In one transaction the server verifies the signed command and attendance, calls
+`OfflineAssignmentService.requireCurrent` (authorization outstanding for this exact
+terminal/enrollment/key, enrollment active, nomination version unchanged, original authorizer still
+an owner or still a delegated manager with branch management), applies D11 clearance, marks the
+authorization `consumed` by the activator, writes `offline_terminal_nomination` at `version + 1`
+and audits `terminal.offline_activated` with authorizer and activator separately. Concurrent
+activations serialize on the enrollment and branch locks; only one consumes the authorization.
+D11: a branch's first nomination is cleared; replacing a nominated terminal needs the old one
+revoked or retired (`D11_CLEARANCE_REQUIRED` reason `PREVIOUS_STILL_ACTIVE`) **and** grant
+cutoff plus journal recovery evidence, which P3/P5 provide — until then replacement fails closed
+(`OFFLINE_RECOVERY_EVIDENCE_REQUIRED`). Stale, revoked or consumed authorizations are
+409 `OFFLINE_AUTHORIZATION_NOT_CURRENT` and need renewal. Activation issues no grant.
 
 ## Desktop enrollment and staff sessions (P2)
 
