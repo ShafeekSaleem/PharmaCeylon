@@ -781,6 +781,27 @@ model BusinessHoursAcknowledgement {
   @@map("business_hours_acknowledgement")
 }
 
+/// P1 #47: a pharmacist's SLMC registration, as an owner recorded it. Clinical execution needs
+/// the staff member's current registration: unrevoked and not past `expiresOn` in the branch's
+/// timezone. Roles and permissions never stand in for it, an owner's included. Rows are kept:
+/// content never changes, revocation is recorded once, and a renewal revokes the row it replaces.
+model PharmacistRegistration {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @map("tenant_id") @db.Uuid
+  userId           String           @map("user_id") @db.Uuid
+  slmcNumber       String           @map("slmc_number") @db.VarChar(32)
+  expiresOn        DateTime         @map("expires_on") @db.Date
+  recordedByUserId String           @map("recorded_by_user_id") @db.Uuid
+  recordedAt       DateTime         @default(now()) @map("recorded_at")
+  revokedAt        DateTime?        @map("revoked_at")
+  revokedByUserId  String?          @map("revoked_by_user_id") @db.Uuid
+  revocationReason String?          @map("revocation_reason") @db.VarChar(500)
+  membership       TenantMembership @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, userId])
+  @@map("pharmacist_registration")
+}
+
 /// Revised D13: an owner's explicit, per-branch delegation of offline-terminal assignment to one
 /// manager. Never implied by a role or permission edit; managers cannot delegate onward. Content
 /// is immutable; revocation is recorded once.
@@ -1115,6 +1136,7 @@ model TenantMembership {
 
   tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pharmacistRegistrations PharmacistRegistration[]
 
   @@unique([tenantId, userId])
   @@index([userId, isActive])

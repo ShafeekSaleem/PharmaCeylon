@@ -4,6 +4,7 @@ import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { denied } from "../terminals/terminal-wire";
 import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
 import { SupplierPaymentEvidenceService } from "../purchasing/ledger/supplier-payment-evidence.service";
+import { PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
 
 /** Integration ports for server-resolved evidence. No owner/manager shortcut and no
  * caller-supplied verified booleans. Real domain providers must bind the exact command,
@@ -11,19 +12,24 @@ import { SupplierPaymentEvidenceService } from "../purchasing/ledger/supplier-pa
  */
 @Injectable()
 export class MandatoryOperationEvidence {
-  /** The application module installs the real branch-hours provider (P1 MR 7). Without one —
-   * a bare instance in a test or script — the hours port keeps failing closed. */
+  /** The application module installs the real branch-hours (P1 MR 7) and pharmacist-registration
+   * providers. Without one — a bare instance in a test or script — that port keeps failing closed. */
   constructor(
     @Optional() private readonly hoursProvider?: OperatingHoursEvidence,
     @Optional()
     private readonly paymentProvider?: SupplierPaymentEvidenceService,
+    @Optional()
+    private readonly clinicalProvider?: PharmacistRegistrationService,
   ) {}
 
+  /** The signed session's staff member must hold a current SLMC registration an owner recorded
+   * (P1 #47); no role, permission or ownership substitutes for it. */
   async clinical(
-    _tx: Prisma.TransactionClient,
-    _command: OnlineTerminalCommand<unknown>,
+    tx: Prisma.TransactionClient,
+    command: OnlineTerminalCommand<unknown>,
   ): Promise<void> {
-    denied("PHARMACIST_REQUIRED");
+    if (!this.clinicalProvider) denied("PHARMACIST_REQUIRED");
+    await this.clinicalProvider.assertForCommand(tx, command);
   }
   async hours(
     tx: Prisma.TransactionClient,

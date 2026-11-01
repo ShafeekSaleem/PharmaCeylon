@@ -402,6 +402,35 @@ sell, old journal resolved or loss reviewed, or initial nomination); then mark t
 `consumed` (with the activator), upsert `offline_terminal_nomination` with `version + 1`, and audit
 authorizer and activator separately. Stale, revoked or consumed authorizations require renewal.
 
+## Pharmacist registrations (P1)
+
+Who counts as a qualified pharmacist is a recorded fact, not a role: an owner records each
+pharmacist's SLMC registration number and the date it expires. Clinical execution needs the staff
+member's **current** registration. No role, permission or ownership stands in for it, an owner's
+included. Remote management (`identity`); none of these routes dispenses anything.
+
+| Route | Who | Effect |
+| --- | --- | --- |
+| `GET /admin/pharmacist-registrations` | `users.view` | Every registration, current ones first: `{ id, userId, fullName, email, slmcNumber, expiresOn, status, recordedByUserId, recordedAt, revokedAt, revokedByUserId, revocationReason }`. `status` is `current`, `expired` (past `expiresOn` in the tenant's timezone) or `revoked`. |
+| `POST /admin/pharmacist-registrations` `{ userId, slmcNumber, expiresOn: "YYYY-MM-DD" }` | **owner only** (route gate `users.manage`; needs `x-branch-id`) | Records the registration for an active staff member. The number is stored trimmed and upper-case (letters, digits, `/`, `-`, up to 32). The date may be today but not past, and at most 10 years ahead. A renewal revokes the registration it replaces in the same transaction; sending the current values again changes nothing. |
+| `POST /admin/pharmacist-registrations/:registrationId/revoke` `{ reason }` | owner only | Revokes it. Revoking again is a no-op. |
+
+Refusals carry `code`: `PHARMACIST_REGISTRATION_OWNER_ONLY` (403) and `SLMC_NUMBER_IN_USE` (409:
+another staff member's current registration has this number). Authority is read live, and again
+after the staff member's membership or the registration row is locked. Each change and its audit
+event (`pharmacist_registration.recorded` / `.revoked`) commit together. Registrations are retained:
+content is immutable, revocation is recorded once, nothing is deleted, and a membership with
+registrations on record cannot be deleted.
+
+**The clinical check.** A signed command with a clinical effect passes only if the signed session's
+staff member (`session.staffUserId`) has a current registration and an active account assigned to
+the command's branch. "Current" means unrevoked and not past `expiresOn` in the branch's timezone.
+Otherwise the command is refused with `PHARMACIST_REQUIRED`. The registration is share-locked: a
+revocation that commits first is seen, and a later one waits for the clinical transaction. A
+co-signing pharmacist (`pharmacistEvidenceId`) is not accepted online yet (`INVALID_COMMAND`); it
+arrives with the desktop dispensing flow. The check is `PharmacistRegistrationService.assertQualified`,
+which the pharmacist PIN co-sign will call too.
+
 ## Sales lifecycle (pilot)
 
 - **Checkout**: `POST /api/v1/sales/checkout` — optional `Idempotency-Key`. Line **tax**: send `taxAmount` per line, or omit to apply **VAT** from server config (see below).

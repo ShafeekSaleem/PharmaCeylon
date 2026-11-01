@@ -10,7 +10,7 @@ not-live `/products/import/confirm` path retains a mixed/local classification; l
 imports always stage. The web uses the management `/stage` path outside known not-live branches.
 
 Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
-200, including held-workflow splits, rollout/hours, four import-split routes, counter policy,
+202, including the two pharmacist-registration routes, held-workflow splits, rollout/hours, four import-split routes, counter policy,
 counter alerts, the two signed terminal-command routes, the four D13 assignment routes and the
 five P6 prepared-receipt routes, four refund-request routes and three supplier-payment
 evidence routes. Evidence upload is `attachment`, unused-proof revocation is `management`,
@@ -67,7 +67,7 @@ offline approvals, refunds/voids and stock operations remain blocked.
 | `products/*` | Online remote catalog/prices/eligibility/categories/tags/aliases/NMRA/barcode and catalog-only import/analyze/preview/selection. Import confirm/undo creating/removing batches or stock requires local execution; split mixed jobs. Preserve historical snapshot identities. D-W2 (live branches): an import's stock rows may be staged remotely as a no-effect draft; posting them is the local step. |
 | `catalog-tasks/*` | Online remote catalog refresh/apply/dismiss/reopen, including bulk safe apply, with permissions and provenance. A stock-bearing side effect requires local execution. |
 | `customers/*`, `prescriptions` | Online remote administrative customer contact editing with existing permissions/privacy. Prescription clinical verification, qualified sign-off and dispensing remain local and online; administrative permission is not clinical authority. |
-| `admin/*`, `staff-invitations/*` | Online identity/access administration; remote management allowed with existing permissions. Changes invalidate sessions/grants according to revocation policy; cannot retroactively undo disconnected sales. |
+| `admin/*`, `staff-invitations/*` | Online identity/access administration; remote management allowed with existing permissions. Changes invalidate sessions/grants according to revocation policy; cannot retroactively undo disconnected sales. `admin/pharmacist-registrations` (record, revoke) is owner-only `identity`: it records qualification evidence that clinical execution checks, and dispenses nothing. |
 | `auth/*` | Authentication/self-profile/password/avatar/session management, allowed online from permitted clients; never confers terminal authority by itself. |
 | `tenant/*` | Online remote tenant/branch/settings management. Settings version future grants, never rewrite signed historical grants or rebind enrolled identity. Revised D13 separates remote online assignment authorization from exact-target local online activation. W1: `branches/:branchId/pos-rollout/live` and `/fallback` (POST and DELETE) are the owner-only desktop POS switch and web-POS fallback (D-W1, D-W7), classified `management`; going live is refused until the go-live checklist passes. |
 | `onboarding/*`, `setup/readiness/*` | Online setup/configuration; existing permission checks retained. Must not add stock/dispensing operations under this exemption. D-W2 (live branches): opening stock is staged as a no-effect draft; confirming and posting it is local (`setup/readiness/confirm` for `opening_inventory` already requires a local terminal). New staging routes must be inventoried as management, and their posting routes as stock. |
