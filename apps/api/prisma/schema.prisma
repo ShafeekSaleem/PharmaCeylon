@@ -629,6 +629,8 @@ model TerminalEnrollment {
   receipts         TerminalCommandReceipt[]
   sessions         TerminalStaffSession[]
   hoursAcknowledgements BusinessHoursAcknowledgement[]
+  supportRecords        OfflineSupportRecord[]
+  supportConflicts      OfflineSupportConflict[]
   offlineAssignmentAuthorizations OfflineTerminalAssignmentAuthorization[]
   offlineNominations              OfflineTerminalNomination[]
 
@@ -779,6 +781,77 @@ model BusinessHoursAcknowledgement {
   @@unique([tenantId, enrollmentId, recordId])
   @@index([tenantId, branchId, startsAt])
   @@map("business_hours_acknowledgement")
+}
+
+/// P1 #47 support evidence signed by a counter: append-only sale-incident notes and external-card
+/// attempt events (one row per event; several events share an attemptId). Held until P3/P5 verify
+/// the sign-in, shift, sale and card-machine result they cite. Never posts a sale, stock, cash or
+/// refund effect. Signed content is immutable; only the verification outcome moves, once.
+model OfflineSupportRecord {
+  id                 String    @id @default(uuid()) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  branchId           String    @map("branch_id") @db.Uuid
+  terminalId         String    @map("terminal_id") @db.Uuid
+  enrollmentId       String    @map("enrollment_id") @db.Uuid
+  keyId              String    @map("key_id") @db.VarChar(128)
+  /// "sale_incident" | "external_card_attempt"
+  kind               String    @db.VarChar(32)
+  recordId           String    @map("record_id") @db.Uuid
+  recordHash         String    @map("record_hash") @db.Char(64)
+  envelope           Json
+  staffSignInId      String    @map("staff_sign_in_id") @db.Uuid
+  workSessionId      String    @map("work_session_id") @db.Uuid
+  recordedAt         DateTime  @map("recorded_at")
+  /// Incident: the sale it is about. Card attempt: the sale it was linked to (linked_to_sale only).
+  saleCommandId      String?   @map("sale_command_id") @db.Uuid
+  recordedByUserId   String?   @map("recorded_by_user_id") @db.Uuid
+  incidentCategory   String?   @map("incident_category") @db.VarChar(32)
+  description        String?   @db.VarChar(1000)
+  attemptId          String?   @map("attempt_id") @db.Uuid
+  checkoutDraftId    String?   @map("checkout_draft_id") @db.Uuid
+  reviewedSaleDigest String?   @map("reviewed_sale_digest") @db.Char(64)
+  amountMinor        BigInt?   @map("amount_minor")
+  cardState          String?   @map("card_state") @db.VarChar(16)
+  providerReference  String?   @map("provider_reference") @db.VarChar(64)
+  approvalCode       String?   @map("approval_code") @db.VarChar(32)
+  approvedAt         DateTime? @map("approved_at")
+  verifiedByUserId   String?   @map("verified_by_user_id") @db.Uuid
+  /// "held" until verified; "accepted" or "rejected" afterwards.
+  status             String    @default("held") @db.VarChar(16)
+  heldReason         String?   @map("held_reason") @db.VarChar(64)
+  verifiedAt         DateTime? @map("verified_at")
+  receivedAt         DateTime  @default(now()) @map("received_at")
+  receivedByUserId   String    @map("received_by_user_id") @db.Uuid
+  enrollment         TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_support_record_enrollment_fkey")
+
+  @@unique([tenantId, enrollmentId, recordId])
+  @@index([tenantId, enrollmentId, attemptId])
+  @@index([tenantId, branchId, status])
+  @@map("offline_support_record")
+}
+
+/// Changed content uploaded under a support record ID that already holds other content. The
+/// original keeps its receipt; this keeps the conflicting signed upload for repair. One row per
+/// distinct conflicting content. Immutable and never deleted.
+model OfflineSupportConflict {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  branchId           String   @map("branch_id") @db.Uuid
+  terminalId         String   @map("terminal_id") @db.Uuid
+  enrollmentId       String   @map("enrollment_id") @db.Uuid
+  keyId              String   @map("key_id") @db.VarChar(128)
+  /// The kind the conflicting upload claims; may differ from the original's.
+  kind               String   @db.VarChar(32)
+  recordId           String   @map("record_id") @db.Uuid
+  recordHash         String   @map("record_hash") @db.Char(64)
+  originalRecordHash String   @map("original_record_hash") @db.Char(64)
+  envelope           Json
+  receivedAt         DateTime @default(now()) @map("received_at")
+  receivedByUserId   String   @map("received_by_user_id") @db.Uuid
+  enrollment         TerminalEnrollment @relation(fields: [tenantId, branchId, terminalId, enrollmentId, keyId], references: [tenantId, branchId, terminalId, id, keyId], onDelete: Restrict, onUpdate: Restrict, map: "offline_support_conflict_enrollment_fkey")
+
+  @@unique([tenantId, enrollmentId, recordId, recordHash], map: "offline_support_conflict_record_content_key")
+  @@map("offline_support_conflict")
 }
 
 /// P1 #47: a pharmacist's SLMC registration, as an owner recorded it. Clinical execution needs

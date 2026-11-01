@@ -88,6 +88,26 @@ const stock = {
 };
 
 describe("Transactional operation authorization independently of owner permissions", () => {
+  it("checks a body-derived grant everywhere it checks a fixed one, and rejects unknown keys", async () => {
+    const evidence = new MandatoryOperationEvidence();
+    jest.spyOn(evidence, "hours").mockResolvedValue(undefined);
+    const f = fixture(evidence);
+    const granted = new Set(["inventory.write_off"]);
+    f.access.resolveLive.mockResolvedValue({ has: (key: string) => granted.has(key) });
+    const descriptor = {
+      ...stock,
+      permission: (body: { quantity: number }) => body.quantity > 0 ? "inventory.manage" : "inventory.write_off",
+    };
+    await expect(f.service.authorize({} as never, user, branchId, descriptor, localInput))
+      .rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+    f.terminal.command = { ...f.terminal.command, body: { quantity: -1 } };
+    await f.service.authorize({} as never, user, branchId, descriptor, { ...localInput, body: { quantity: -1 } });
+    expect(f.terminals.verifyCommand.mock.calls[0][3]).toMatchObject({ permission: "inventory.write_off" });
+    await expect(f.service.authorize({} as never, user, branchId,
+      { ...stock, permission: () => "inventory.everything" }, localInput))
+      .rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+  });
+
   it.each(["APPROVAL_EXPIRED", "APPROVAL_INVALID"])(
     "rejects %s discovered after a mandatory evidence wait",
     async (code) => {

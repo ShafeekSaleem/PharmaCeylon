@@ -25,6 +25,7 @@ import {
 import { expandCommercialCategoryIds } from "../products/product-query.util";
 import { reorderGap, resolveStockStatus } from "../products/stock-qty.util";
 import type { ActorAccess } from "../security/access.service";
+import type { CommandProvenance } from "../terminals/command-provenance";
 import { AUTO_QUARANTINE_EXPIRED_REASON } from "./quarantine.constants";
 import { StockAdjustmentDto, ADJUSTMENT_KIND_LABELS } from "./dto/stock-adjustment.dto";
 import { QuarantineBatchDto, ReleaseQuarantineDto } from "./dto/quarantine-batch.dto";
@@ -1151,8 +1152,13 @@ export class InventoryService {
     branchId: string,
     access: ActorAccess,
     dto: StockAdjustmentDto,
-    /** Server-owned composition hook, never populated from a request DTO. */
-    execution?: { tx: Prisma.TransactionClient; authorize: () => Promise<unknown> },
+    /** Server-owned composition hook, never populated from a request DTO. `command` is verified
+     * signed-command provenance, copied into the success audit. */
+    execution?: {
+      tx: Prisma.TransactionClient;
+      authorize: () => Promise<unknown>;
+      command?: CommandProvenance;
+    },
   ) {
     const db = execution?.tx ?? this.prisma;
     const userId = access.userId;
@@ -1310,6 +1316,7 @@ export class InventoryService {
             referenceId,
             openedNewBatch: Boolean(dto.newBatch),
             fromQuarantine: Boolean(dto.fromQuarantine),
+            ...(execution?.command ? { command: execution.command } : {}),
           },
         },
         tx,

@@ -311,6 +311,38 @@ in policy metadata. Production terminal/attendance enforcement still awaits the 
 cutover. Approval-optional direct adjustments/receipts retain existing policies. No offline allocation,
 new mandatory TTL or additional approver/executor separation is introduced.
 
+## MR 4d: direct adjustments split; no route is mixed
+
+`POST /inventory/adjustments` used to post or hold depending on the actor and the write-off
+policy. It is now counter work only (`stock`): an increase (`inventory.manage`) or a write-off
+the actor may post alone (`inventory.write_off`, and under the threshold or a self-approving
+role) posts now; any other write-off is refused with 409 `WRITE_OFF_APPROVAL_REQUIRED` before
+anything moves. The new remote `POST /inventory/adjustment-requests` (`management`) records the
+held write-off for approval and moves no stock, whoever sends it; request and its audit share a
+transaction, and approvers are notified after commit. The web sends a refused write-off as a
+request, so the user sees the same result as before.
+
+The direct core reads authority and the write-off policy live, then again after the batch lock,
+in the caller's transaction. It is also the eleventh signed operation. Its exact body has every
+key, with prices in minor units. The signed direction picks the grant. Operation descriptors may
+now derive their permission from the strictly parsed body, which is checked at prepare,
+authorization, execution and replay. A refused command leaves no effect, receipt or spent nonce.
+The adjustment audit carries the command provenance. Direct adjustments are reviewed as back-room
+stock work with no selling-hours limit, like held write-off posting.
+
+`POST /products/import/confirm` is no longer `mixed_stock`: the `product_import` profile resolves
+`legacyStockPosting` (a stock-bearing file at a branch that is not live), physical only then and
+management otherwise. That makes the import/undo and adjustment portions of item 1 complete; no
+route keeps a mixed classification. `mixed_stock` remains only for internal services that
+contain both kinds of method. The registry has 201 routes.
+
+Validation: PostgreSQL regressions cover direct refusal with no held row, request without stock,
+the threshold for a manager who cannot self-approve, authority removal during a real batch-lock
+wait, signed write-off replay and concurrency, opening stock on a new batch for a clerk who
+cannot write off, refused signed write-offs, and audit-failure rollback. Unit tests cover the
+strict signed body, direction-derived grants (including unknown keys) and the resolved
+classifications. A web test covers the request fallback.
+
 ## MR 5: signed command execution with original-result receipts
 
 Builds on MR 1–4c. `TerminalCommandExecutor` (`apps/api/src/terminal-commands/`) is the
@@ -497,8 +529,8 @@ caller's tenant and branch, verifies Ed25519 against the enrollment's pinned key
 clocks more than five minutes ahead (`CLOCK_UNTRUSTED`) and bounds the window to 24 hours.
 `business_hours_acknowledgement` keeps the exact envelope and the SHA-256 of its signing text,
 unique per tenant + enrollment + record ID: identical uploads (including concurrent ones, under a
-transaction-scoped advisory lock) replay the stored receipt; changed content under the same ID is
-`REPLAY_CONFLICT`. Records are stored `held` (`grant_unverified`, or `enrollment_revoked` for a
+transaction-scoped advisory lock) replay the stored receipt. Changed content under the same ID was
+`REPLAY_CONFLICT`; since MR 9 it returns a `conflict` receipt and the upload is retained. Records are stored `held` (`grant_unverified`, or `enrollment_revoked` for a
 revoked/retired device, retained for reconciliation) until P3/P5 verify the grant, nomination and
 prepared-manager sign-in they cite; a trigger keeps signed content immutable, forbids deletion and
 lets the verification outcome change once. They never post a sale, shift, stock or cash effect
@@ -570,7 +602,7 @@ current one.
   domain cores already copy into their success audit. A bare instance still fails closed. `pharmacistEvidenceId` must stay null
   online (`INVALID_COMMAND`) until co-sign evidence exists.
 
-Two new `identity` routes plus a GET (202 in the inventory). No signed operation carries a clinical
+Two new `identity` routes plus a GET (203 in the inventory with #94 and #95). No signed operation carries a clinical
 effect yet, so no execution path changes. Still open:
 - **Pharmacist PIN co-sign.** `PharmacistApprovalService` still accepts any role holding
   `sales.approve_controlled`; it must call `assertQualified`. This waits for #93, which edits that
@@ -751,6 +783,57 @@ Validation includes real PostgreSQL replay/concurrency, all three methods, chang
 tenant/branch/uploader isolation, immutable/revoked evidence, permission changes during invoice
 and later sequence waits, audit-failure rollback and legacy supplier-ledger regression coverage.
 
+## MR 9: sale-incident and external-card attempt records
+
+`OfflineSupportRecords` (`terminals/offline-support-records.service.ts`) is the intake for the
+rest of the shared `OfflineSupportRecord` stream: `OfflineSaleIncident` notes and
+`ExternalCardAttemptRecord` events. `record()` dispatches on the signed `kind`, including D8
+acknowledgements, so P5 sync has one entry point. There is no HTTP route yet, so the route
+inventory is unchanged. The wire contract is in
+[API_CONTRACT.md](API_CONTRACT.md#offline-support-records-p1-sync-intake).
+
+- **Shared checks** (`terminals/support-record-intake.ts`, also used by the hours service):
+  exact-key parse, identity bound to the caller's tenant and branch, device clock at most five
+  minutes ahead, uploader live at the branch, transaction-scoped locks, Ed25519 against the
+  enrollment's pinned key, SHA-256 of the signed payload.
+- **One record-ID space** per tenant + enrollment across all three kinds. Incidents and card events
+  share `offline_support_record` (unique ID); every kind takes the same record lock and the lookup
+  reads both support tables.
+- **Conflicts are retained.** The readiness contract says changed-content ID reuse conflicts and
+  retains evidence for repair. A changed upload now returns a `conflict` receipt rather than
+  throwing, so the caller's transaction commits it to `offline_support_conflict` (one row per
+  distinct content, immutable). The original keeps its receipt. This also changes the D8 path:
+  MR 7 threw `REPLAY_CONFLICT` and dropped the upload.
+- **Card attempts.** Each state change is its own record; several share an `attemptId`. Each state
+  carries exactly its own fields (database check too). Events of one attempt are serialized by an
+  attempt lock taken before the record lock. An event whose checkout draft, reviewed-sale digest,
+  amount, provider reference, linked sale or approval (code and time) disagrees with an earlier
+  event of the attempt is held
+  as `attempt_mismatch`, so one attempt cannot be charged differently or linked to two sales
+  unnoticed. Earlier events are not changed; P5 verification reads the whole attempt.
+- **No card numbers.** Descriptions, provider references and approval codes are refused when they
+  may contain a card number (`containsCardNumber` in shared, for the desktop to check before
+  signing): any Luhn-valid span of 13–19 digits made of whole space- or dash-separated groups, or
+  any 13–19 digit window inside one unbroken group longer than 16 digits, so neighbouring digits
+  cannot hide one. Some long references are refused too; a refused record is rewritten, a stored
+  PAN could never be removed. Audit payloads carry IDs, category/state and amount, never free text or codes.
+- **Held, never effective.** Records are `held` (`sale_unverified`, `payment_unverified`,
+  `attempt_mismatch`, or `enrollment_revoked` for a revoked or retired device) until P3/P5 verify
+  the sign-in, shift, sale and card-machine result they cite. Signed content is immutable and never
+  deleted; the outcome moves once. They post no sale, payment, stock, cash or refund effect.
+
+Not done here, and blocked: verifying held records and refusing dependent sale/shift commands
+until their evidence is accepted (P3 grants and sign-ins, P4 shifts, P5 sync and drain gates), the
+online incident review queue (P5/W-epics), and resolution linkage.
+
+Tests: `offline-support-records.spec.ts` (parsers: every card state's exact fields, amounts,
+digests, approval time, card numbers, sizes) and `test/integration/support-records.int-spec.ts`
+(PostgreSQL): held persistence and replay with no sale/payment/stock/return effect, a full attempt
+lifecycle, every mismatch kind, concurrent events of one attempt, concurrent identical uploads,
+conflicts within and across kinds (including a D8 acknowledgement ID), wrong signature, branch,
+clock, uploader token and kind, revoked device, audit-failure rollback, immutability and the
+per-kind database shape. `hours-evidence.int-spec.ts` now checks D8 conflict retention.
+
 ## Remaining P1 MRs, in order
 
 ### MR 4c: product-import stock staging and separate posting
@@ -809,19 +892,21 @@ prior evidence is retained and current self-approval rules still apply. Review v
 50 PostgreSQL workflow/approval tests, 50 focused API tests, 2 UI recovery tests, API/web types,
 tenant/stock scanners and the 166-route inventory.
 
-1. **Separate approval from execution:** finish stock-bearing import/undo stages.
-   Stocktakes are split in MR 4a and held requests in MR 4b. Retain
-   remote commercial management and normal reservations; coordinate P6 screens.
+1. **Separate approval from execution:** done. Stocktakes are split in MR 4a, held requests in
+   MR 4b, import staging/undo in MR 4c, and direct adjustments and the import confirm
+   classification in MR 4d; no route remains mixed. Remote commercial management and normal
+   reservations are retained.
 2. **Transactional command execution:** done for the five split physical operations (MR 5).
    Still open:
    - further adapters as more handlers are split (sales/refunds, cash); transfers, prepared
-     receipts and supplier returns are done (P6 slices above);
+     receipts, supplier returns (P6 slices above) and direct adjustments (MR 4d) are done;
    - ~~persisted provenance for import/background workers and maintenance writers~~ (MR 6);
    - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
    - restricting browser routes to terminals once W1 rollout and P2 are ready.
 3. **Readiness evidence and integration:** hours acknowledgements (intake and persistence done in
    MR 7; grant/sign-in verification needs P3/P2), assisted handover, incident
-   and card-attempt records, dependency ordering, failure/alternate-path tests and coordinated
+   and card-attempt records (intake and persistence done in MR 9; verification and dependency
+   gating need P3/P4/P5), dependency ordering, failure/alternate-path tests and coordinated
    P2/P6 rollout, including attendance/mandatory-evidence providers, D13 authorizations/delegation
    and local activation with D11 clearance, and actual financial-shift binding.
    P5 owns offline business replay and discrepancy settlement.

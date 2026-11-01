@@ -11,7 +11,10 @@ import { PrismaService } from "../prisma/prisma.service";
 import { tenantTransactionStorage } from "../prisma/tenant-transaction.store";
 import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
-import { OperationAuthorizationService } from "../security/operation-authorization.service";
+import {
+  OperationAuthorizationService,
+  operationPermission,
+} from "../security/operation-authorization.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { TerminalTrustService } from "../terminals/terminal-trust.service";
 import {
@@ -90,7 +93,7 @@ export class TerminalCommandExecutor {
         uuid(request.workSessionId),
         {
           operation: `${descriptor.method} ${descriptor.routeTemplate}`,
-          permission: descriptor.permission,
+          permission: operationPermission(descriptor, descriptor.parseBody(request.body)),
           parseBody: descriptor.parseBody,
         },
         request.body,
@@ -177,7 +180,8 @@ export class TerminalCommandExecutor {
     if (!authorized.terminal || authorized.terminal.digest !== requestDigest)
       denied("TERMINAL_REQUIRED");
     // The route gate read cached claims; require it live, as the operation permission is.
-    await this.requireLiveAuthority(tx, user, branchId, operation);
+    await this.requireLiveAuthority(tx, user, branchId,
+      operationPermission(operation.descriptor, authorized.body));
     const provenance: CommandProvenance = {
       commandId: command.commandId,
       requestDigest,
@@ -250,7 +254,9 @@ export class TerminalCommandExecutor {
     verifySignature(envelope, enrollment.publicKeyHex);
     if (existing.actorUserId !== user.userId || existing.branchId !== branchId)
       denied("IDENTITY_MISMATCH");
-    await this.requireLiveAuthority(tx, user, branchId, operation);
+    // A body-derived grant reads the strictly parsed body, as authorization does, never raw input.
+    await this.requireLiveAuthority(tx, user, branchId,
+      operationPermission(operation.descriptor, operation.descriptor.parseBody(envelope.payload.body)));
     if (
       existing.requestDigest !== requestDigest ||
       existing.operation !== envelope.payload.operation ||
@@ -297,9 +303,9 @@ export class TerminalCommandExecutor {
   }
 
   /** Live account, token version, branch assignment and both the route and operation grants. */
-  private async requireLiveAuthority(tx: Tx, user: RequestUser, branchId: string, operation: Operation) {
+  private async requireLiveAuthority(tx: Tx, user: RequestUser, branchId: string, permission: string) {
     const actor = await this.access.resolveLive(user, branchId, tx);
-    if (!actor.has(TERMINAL_EXECUTE) || !actor.has(operation.descriptor.permission))
+    if (!actor.has(TERMINAL_EXECUTE) || !actor.has(permission))
       denied("PERMISSION_DENIED");
   }
 

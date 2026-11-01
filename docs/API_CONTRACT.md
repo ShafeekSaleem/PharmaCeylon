@@ -4,7 +4,8 @@
 
 - `POST /products/import/stage`: same multipart upload, mapping/category decisions and
   Idempotency-Key as `/confirm`, with no physical stock effect. `/confirm` retains legacy
-  not-live behavior but auto-stages at desktop-live branches, including checkout fallback.
+  not-live behavior but auto-stages at desktop-live branches, including checkout fallback. Its
+  classification is resolved, not mixed: physical only for that legacy not-live stock posting.
 - `GET /products/import/:importId/stock`: selected-branch draft, version, rows, staging actor
   and first posting time. Requires current `products.import`; saved `costPrice` is null without
   `costs.view`. Row `postedBatchId` is the durable posting result.
@@ -186,8 +187,9 @@ operations are unchanged and are not yet restricted to terminals.
 selling hours for operations that sell or open a shift: the structured weekly hours (W7), dated
 exceptions including confirmed gazette holidays, the owner's mandatory limits and unrevoked
 business extensions, in the branch's timezone at authorization time. Back-room stock operations
-(the five v1 operations: stocktake post, held write-off post, held delivery post, import stock
-post and import stock undo) are reviewed as not selling-time restricted; every other operation,
+(stocktake post, held write-off post, held delivery post, import stock post and undo, transfer
+dispatch and receipt, prepared receipt post, supplier return completion and direct adjustments)
+are reviewed as not selling-time restricted; every other operation,
 including any added later and not reviewed, is hours-checked. Online commands never carry an
 hours exception: `operatingHoursExceptionId` must be `null` (`INVALID_COMMAND` otherwise). The
 online remedy for after-hours selling is a business extension approved on the web; the
@@ -224,6 +226,18 @@ transaction.
 | `POST /api/v1/sales/refund-requests/:id/execute` | `{ refundRequestId }` | the request's `executionApprovalId`; `null` when it needs no approval (below) | `sales.refund` |
 | `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
+| `POST /api/v1/inventory/adjustments` | `{ kind, movementType, productId, batchId, newBatch, qty, reason, fromQuarantine }` | `null` | `inventory.manage` to add stock, `inventory.write_off` to write it off |
+
+Direct adjustments: every key is present. `movementType` is `adjustment_in`/`adjustment_out` for
+a `correction` (which also needs a `reason`) and `null` otherwise. `batchId` is `null` only with
+`newBatch: { batchNo, expiryDate: "YYYY-MM-DD", costPriceMinor, sellingPriceMinor, supplierId }`,
+which only an increase may carry; prices are LKR minor units. `reason` and `batchNo` are exact,
+trimmed text; `fromQuarantine` is a write-off option. The grant follows the signed direction. A
+write-off that needs approval is refused (`WRITE_OFF_APPROVAL_REQUIRED`) with no effect, receipt
+or spent nonce; it goes through a held request instead. Each command is its own adjustment: a
+retry of the same command replays the original result (`stock_adjustment.posted` with `batchId`,
+`movementType`, `qty`, `stockReferenceId`), and a distinct command adjusts again. The
+`inventory.adjustment` audit carries the command provenance.
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
@@ -402,6 +416,41 @@ sell, old journal resolved or loss reviewed, or initial nomination); then mark t
 `consumed` (with the activator), upsert `offline_terminal_nomination` with `version + 1`, and audit
 authorizer and activator separately. Stale, revoked or consumed authorizations require renewal.
 
+## Offline support records (P1, sync intake)
+
+The `OfflineSupportRecord` stream (`@pharmaceylon/shared`, `pos-resilience-contracts.ts`) is what a
+counter signs while offline that is evidence, not a sale or shift: D8 hours acknowledgements,
+sale-incident notes and external-card attempt events. There is **no HTTP route yet**. P5 sync calls
+`OfflineSupportRecords.record(tx, user, branchId, signedEnvelope)`, which dispatches on the signed
+`kind`. The uploader needs a live sign-in at the branch. Each record is an Ed25519 `Signed<T>`
+envelope with `command` purpose, verified against the enrollment's pinned key.
+
+| Check | Refusal |
+| --- | --- |
+| Unknown or missing key, wrong state fields, coerced values, untrimmed or oversized text, a possible full card number (`containsCardNumber`) in a description, provider reference or approval code | `INVALID_COMMAND` (400) |
+| Identity not the caller's tenant/branch, unknown enrollment | `IDENTITY_MISMATCH` (403) |
+| Signature not from the enrollment's key | `INVALID_SIGNATURE` (403) |
+| `recordedAt` more than five minutes ahead of the server | `CLOCK_UNTRUSTED` (403) |
+
+A record ID is unique per tenant + enrollment across all three kinds. The result is a
+`SupportRecordReceipt`:
+
+- **First upload.** `{ status: "held", heldReason, replayed: false }`. `heldReason` is
+  `grant_unverified` (hours), `sale_unverified` (incident), `payment_unverified` (card attempt),
+  `attempt_mismatch` (a card event whose draft, digest, amount, provider reference or linked sale
+  disagrees with an earlier event of the same attempt), or `enrollment_revoked` (revoked or retired
+  device, kept for reconciliation).
+- **The same bytes again.** The original receipt with `replayed: true`.
+- **Changed content under a used ID.** `{ status: "conflict", originalRecordHash }`. The original
+  is unchanged and the conflicting signed upload is kept in `offline_support_conflict` for repair.
+  This is a result, not an exception, so the evidence commits; the sync caller reports it to the
+  device as `REPLAY_CONFLICT`.
+
+Records stay `held` until P3/P5 verify the grant, sign-in, shift, sale and card-machine result they
+cite. A held record is not accepted. These records never post a sale, payment, stock, cash or refund
+effect and authorize nothing. Card-attempt events never carry card credentials, only the
+provider's reference and approval code.
+
 ## Pharmacist registrations (P1)
 
 Who counts as a qualified pharmacist is a recorded fact, not a role: an owner records each
@@ -545,7 +594,8 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | Body `{ qty?, reasonCode: expired\|damaged\|recall\|inspection\|other, reason? }`. `qty` defaults to everything not already held or reserved; `reason` required for `other`. |
 | `POST /inventory/batches/:id/release-quarantine` | `inventory.release_quarantine` | Body `{ qty?, reason? }`. Refused for expired batches. |
 | `POST /inventory/quarantine-expired` | `inventory.manage_bulk` | Holds every sellable unit on expired batches. Returns `{ quarantined, units, batchIds }`. |
-| `POST /inventory/adjustments` | `inventory.manage` or `inventory.write_off` | Body `{ kind, productId, batchId \| newBatch, qty, reason? }`. `kind` says what happened: `found`, `opening` (in), `damaged`, `expired`, `lost` (out), `correction` (either way — send `movementType`, and a `reason`). Damaged and expired units come out of quarantine first. A decrease is **held** instead of posted when the caller lacks `inventory.write_off`, or when its value reaches `TenantSettings.approvalRequiredWriteOffThreshold` and the caller's role may not approve its own requests; the response is then `{ held: true, heldAdjustment }` and people with `inventory.write_off` are notified. Callers without `kind` keep the old shape (`movementType`, `reason` for decreases, `fromQuarantine`). |
+| `POST /inventory/adjustments` | `inventory.manage` (increase) or `inventory.write_off` (decrease) | Counter work (`stock`): posts now or not at all, returning `{ held: false, ok, referenceId, batchId }`. Body `{ kind, productId, batchId \| newBatch, qty, reason? }`. `kind` says what happened: `found`, `opening` (in), `damaged`, `expired`, `lost` (out), `correction` (either way — send `movementType`, and a `reason`). Damaged and expired units come out of quarantine first. A decrease that needs approval — the caller lacks `inventory.write_off`, or its value reaches `TenantSettings.approvalRequiredWriteOffThreshold` and the caller's role may not approve its own requests — is refused with **409 `WRITE_OFF_APPROVAL_REQUIRED`** before anything moves; nothing is held. Send it to `adjustment-requests`. Authority and the policy are read live, and again after the batch lock. Callers without `kind` keep the old shape (`movementType`, `reason` for decreases, `fromQuarantine`). Also a signed terminal command (below). |
+| `POST /inventory/adjustment-requests` | `inventory.manage` or `inventory.write_off` | Remote (`management`). The same body, for a decrease only (`newBatch` and increases are refused). Records a held write-off and moves no stock, whoever sends it: `{ held: true, heldAdjustment, notified }`. The request and its `inventory.write_off_held` audit commit together; people with `inventory.write_off` are notified after commit. Accept and post it through `held-adjustments/:id/*`. |
 | `GET /inventory/held-adjustments` | `inventory.view` | Awaiting/approved write-offs at the branch: kind, qty, `value` (**null** without `costs.view`), note, product, batch, requester, `approvalReview: { expectedVersion, expectedDigest }`, `executionApprovalId` and execution stamps. |
 | `POST /inventory/held-adjustments/:id/accept` | `inventory.write_off` | Requires `{ approvalId, expectedVersion, expectedDigest }` from the displayed preview. Records exact approval only, sets `approved`, and leaves stock unchanged. Existing self-approval rules apply. The stable approval UUID makes identical retries safe; a fresh UUID explicitly replaces unusable evidence. |
 | `POST /inventory/held-adjustments/:id/post` | `inventory.write_off` | Body `{ approvalId }` pins the displayed approval. Posts the saved adjustment in the same transaction as reference/status/audit, after current executor/approver and exact-material checks under locks. Repeats return the original posted record. Insufficient stock leaves the approval intact for review. |

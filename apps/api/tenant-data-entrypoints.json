@@ -139,9 +139,9 @@
       "reason": "Locks one enrollment by the caller's tenant, branch header and signed enrollment id before the scoped receipt lookup, so identical command retries serialize and replay the committed original result."
     },
     {
-      "path": "src/terminals/business-hours-acknowledgements.service.ts",
+      "path": "src/terminals/support-record-intake.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Transaction-scoped advisory lock on the caller's tenant + signed enrollment id + record id only, so identical acknowledgement uploads serialize and replay the stored receipt; no data is read or written by raw SQL."
+      "reason": "Transaction-scoped advisory locks on the caller's tenant + signed enrollment id + support record id (and, for card attempts, attempt id) only, so identical support-record uploads serialize and replay the stored receipt; no data is read or written by raw SQL."
     },
     {
       "path": "src/clinical/pharmacist-registration.service.ts",

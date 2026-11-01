@@ -537,13 +537,23 @@ describe("Operations workflows against PostgreSQL", () => {
         });
       });
 
+      beforeAll(async () => {
+        await prisma.userBranchRole.create({ data: {
+          tenantId: fx.tenantId, userId: fx.clerkId, branchId: fx.mainBranchId, role: RoleName.inventory_clerk,
+        } });
+      });
+      afterAll(async () => {
+        await prisma.userBranchRole.deleteMany({ where: { tenantId: fx.tenantId, userId: fx.clerkId } });
+      });
+      const approvalRequired = { response: { code: "WRITE_OFF_APPROVAL_REQUIRED" } };
+
       it("takes damaged units from quarantine first and records why", async () => {
         const batchId = await createStockedBatch(prisma, stock, fx, { qty: 10 });
         await inventory().quarantineBatch(fx.tenantId, fx.mainBranchId, fx.clerkId, batchId, {
           qty: 3,
           reasonCode: "damaged",
         });
-        const result = await adjustments().adjust(fx.tenantId, fx.mainBranchId, manager(), {
+        const result = await adjustments().postDirect(liveUser(), fx.mainBranchId, {
           productId: fx.productId,
           batchId,
           kind: "damaged",
@@ -560,19 +570,21 @@ describe("Operations workflows against PostgreSQL", () => {
         expect(row.reason).toBe("Damaged");
       });
 
-      it("holds a clerk's write-off until someone who may write off stock accepts it", async () => {
+      it("refuses a clerk's direct write-off; their request is held until someone who may write off accepts it", async () => {
         const batchId = await createStockedBatch(prisma, stock, fx, { qty: 8 });
-        const result = await adjustments().adjust(fx.tenantId, fx.mainBranchId, clerk(), {
-          productId: fx.productId,
-          batchId,
-          kind: "lost",
-          qty: 2,
-          reason: "Missing after delivery",
-        });
+        const dto = { productId: fx.productId, batchId, kind: "lost" as const, qty: 2, reason: "Missing after delivery" };
+        const before = await prisma.heldAdjustment.count({ where: { tenantId: fx.tenantId } });
+        await expect(adjustments().postDirect(liveUser(fx.clerkId), fx.mainBranchId, dto)).rejects.toMatchObject(approvalRequired);
+        expect(await prisma.heldAdjustment.count({ where: { tenantId: fx.tenantId } })).toBe(before);
+        const result = await adjustments().request(liveUser(fx.clerkId), fx.mainBranchId, dto);
         expect(result.held).toBe(true);
         expect((await batchTotals(prisma, batchId)).onHand).toBe(8);
+        expect(await prisma.stockLedger.count({ where: { batchId, movementType: "adjustment_out" } })).toBe(0);
 
-        const id = (result as { heldAdjustment: { id: string } }).heldAdjustment.id;
+        const id = result.heldAdjustment.id;
+        const held = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId, eventName: "inventory.write_off_held",
+          payload: { path: ["heldAdjustmentId"], equals: id } } });
+        expect(held.payload).toMatchObject({ kind: "lost", qty: 2, stockPosted: false });
         const input = await approvalInput(id);
         await expect(adjustments().accept(liveUser(fx.clerkId), fx.mainBranchId, id, input)).rejects.toBeInstanceOf(ForbiddenException);
         await adjustments().accept(liveUser(), fx.mainBranchId, id, input);
@@ -582,38 +594,88 @@ describe("Operations workflows against PostgreSQL", () => {
         await expect(adjustments().accept(liveUser(), fx.mainBranchId, id, input)).rejects.toThrow(/already been decided/);
       });
 
-      it("holds a write-off over the threshold even for a manager who can't self-approve", async () => {
+      it("refuses a write-off over the threshold for a manager who can't self-approve, and holds their request", async () => {
         await prisma.tenantSettings.upsert({
           where: { tenantId: fx.tenantId },
-          update: { approvalRequiredWriteOffThreshold: 50 },
-          create: { tenantId: fx.tenantId, approvalRequiredWriteOffThreshold: 50 },
+          update: { approvalRequiredWriteOffThreshold: 50, selfApprovalRoleKeys: ["owner"] },
+          create: { tenantId: fx.tenantId, approvalRequiredWriteOffThreshold: 50, selfApprovalRoleKeys: ["owner"] },
         });
         const batchId = await createStockedBatch(prisma, stock, fx, { qty: 20 });
-        const held = await adjustments().adjust(
-          fx.tenantId,
-          fx.mainBranchId,
-          actor(fx.managerId, "all", { canSelfApprove: false }),
-          { productId: fx.productId, batchId, kind: "expired", qty: 10 },
-        );
-        expect(held.held).toBe(true);
-        const posted = await adjustments().adjust(fx.tenantId, fx.mainBranchId, manager(), {
-          productId: fx.productId,
-          batchId,
-          kind: "expired",
-          qty: 10,
-        });
+        const dto = { productId: fx.productId, batchId, kind: "expired" as const, qty: 10 };
+        try {
+          await expect(adjustments().postDirect(liveUser(), fx.mainBranchId, dto)).rejects.toMatchObject(approvalRequired);
+          expect((await adjustments().request(liveUser(), fx.mainBranchId, dto)).held).toBe(true);
+          expect((await batchTotals(prisma, batchId)).onHand).toBe(20);
+          // Under the threshold, the same manager posts directly.
+          expect((await adjustments().postDirect(liveUser(), fx.mainBranchId, { ...dto, qty: 1 })).held).toBe(false);
+        } finally {
+          await prisma.tenantSettings.update({ where: { tenantId: fx.tenantId }, data: { selfApprovalRoleKeys: ["owner", "manager"] } });
+        }
+        const posted = await adjustments().postDirect(liveUser(), fx.mainBranchId, dto);
         expect(posted.held).toBe(false);
+        expect((await batchTotals(prisma, batchId)).onHand).toBe(9);
+      });
+
+      it("requests write-offs only, and never moves stock even for someone who could post it", async () => {
+        const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+        await expect(adjustments().request(liveUser(), fx.mainBranchId,
+          { productId: fx.productId, batchId, kind: "found", qty: 1 })).rejects.toThrow(/Only a write-off/);
+        await expect(adjustments().request(liveUser(), fx.mainBranchId,
+          { productId: fx.productId, batchId, movementType: "adjustment_out", qty: 1 })).rejects.toThrow(/reason/);
+        const result = await adjustments().request(liveUser(), fx.mainBranchId,
+          { productId: fx.productId, batchId, kind: "damaged", qty: 1 });
+        expect(result.heldAdjustment.status).toBe("awaiting_approval");
+        expect((await batchTotals(prisma, batchId)).onHand).toBe(5);
+      });
+
+      it("re-reads authority after the batch lock: a write-off right removed mid-wait posts nothing", async () => {
+        const batchId = await createStockedBatch(prisma, stock, fx, { qty: 6 });
+        const dto = { productId: fx.productId, batchId, kind: "lost" as const, qty: 1, reason: "Gone" };
+        const ledger = () => prisma.stockLedger.count({ where: { batchId, movementType: "adjustment_out" } });
+        const before = await ledger();
+        let unlock!: () => void;
+        let locked!: () => void;
+        const isLocked = new Promise<void>((resolve) => (locked = resolve));
+        const holder = prisma.$transaction(async (c) => {
+          await c.$queryRaw`SELECT id FROM batch WHERE id = ${batchId}::uuid FOR UPDATE`;
+          locked();
+          await new Promise<void>((resolve) => (unlock = resolve));
+        }, { timeout: 15_000 });
+        await isLocked;
+        const outcome = adjustments().postDirect(liveUser(), fx.mainBranchId, dto)
+          .then(() => null, (error: unknown) => error);
+        try {
+          let waiting = false;
+          for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+            const rows = await prisma.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%FROM batch%'`;
+            waiting = Number(rows[0]?.count) > 0;
+            if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          expect(waiting).toBe(true);
+          await prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, userId: fx.managerId }, data: { role: RoleName.cashier } });
+        } finally {
+          unlock();
+          await holder;
+        }
+        try {
+          expect(await outcome).toBeInstanceOf(ForbiddenException);
+        } finally {
+          await prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, userId: fx.managerId }, data: { role: RoleName.manager } });
+        }
+        expect(await ledger()).toBe(before);
+        expect((await batchTotals(prisma, batchId)).onHand).toBe(6);
       });
 
       it("rejects without moving stock", async () => {
         const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
-        const result = await adjustments().adjust(fx.tenantId, fx.mainBranchId, clerk(), {
+        const result = await adjustments().request(liveUser(fx.clerkId), fx.mainBranchId, {
           productId: fx.productId,
           batchId,
           kind: "damaged",
           qty: 1,
         });
-        const id = (result as { heldAdjustment: { id: string } }).heldAdjustment.id;
+        const id = result.heldAdjustment.id;
         await adjustments().reject(fx.tenantId, fx.mainBranchId, manager(), id, "Found it on the shelf");
         expect((await batchTotals(prisma, batchId)).onHand).toBe(5);
       });

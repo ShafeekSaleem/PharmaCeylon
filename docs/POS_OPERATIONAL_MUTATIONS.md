@@ -5,12 +5,15 @@ The API now has an explicit route-profile registry and reviewed internal-entry i
 its tests check coverage and conditional effects. These declarations are not installed guards.
 Stocktake and held-request approval now record authorization without stock effects; their
 separate posting routes remain physical. Product import now has management staging/replacement
-and catalog undo, with separate physical stock posting and legacy stock undo. Only the legacy
-not-live `/products/import/confirm` path retains a mixed/local classification; live/fallback
-imports always stage. The web uses the management `/stage` path outside known not-live branches.
+and catalog undo, with separate physical stock posting and legacy stock undo. No route is classified mixed:
+`/products/import/confirm` resolves `legacyStockPosting` (stock-bearing file at a not-live
+branch) and is management-only otherwise, since live/fallback imports always stage. The web uses
+the management `/stage` path outside known not-live branches. Direct adjustments are physical
+(`stock`) and refuse write-offs that need approval; the remote `adjustment-requests` route
+records them for approval without moving stock.
 
 Baseline: develop `4a2fa3a`, 2026-10-19, with 166 unsafe routes. The current inventory has
-202, including the two pharmacist-registration routes, held-workflow splits, rollout/hours, four import-split routes, counter policy,
+203, including the two pharmacist-registration routes, the write-off request route, held-workflow splits, rollout/hours, four import-split routes, counter policy,
 counter alerts, the two signed terminal-command routes, the four D13 assignment routes and the
 five P6 prepared-receipt routes, four refund-request routes and three supplier-payment
 evidence routes. Evidence upload is `attachment`, unused-proof revocation is `management`,
@@ -58,7 +61,7 @@ offline approvals, refunds/voids and stock operations remain blocked.
 | `sales/holds`, `sales/holds/:id`, `sales/holds/:id/recall` | Local POS cart writes/recall tied to till/session; current holds reserve no stock and are not a snapshot/journal. |
 | `sales/pos/me/pos-pin`, `sales/pos/me/pos-pin/clear` | Staff credential administration; online authenticated self-service, not sale approval. No offline credential changes. |
 | Future signed offline `shift_open` / `shift_close` commands | Approved D7b lifecycle exception on the nominated terminal's same till: local cash-count handover and new shift, prepared staff only. Not existing HTTP routes; sync them in the same durable command sequence as sales. No stock/outage/expiry reset; D9 adds no sale-count/value caps. |
-| `inventory/*` | Online remote adjustment requests/review/approve/reject. Local actual counts/condition confirmation and stock posting, expiry confirmation, quarantine/release. Held accept authorizes exact material; the separate held post executes stock. |
+| `inventory/*` | Online remote adjustment requests (`adjustment-requests`)/review/approve/reject. Local actual counts/condition confirmation and stock posting (direct `adjustments`, also a signed command), expiry confirmation, quarantine/release. Held accept authorizes exact material; the separate held post executes stock. |
 | `transfers/*` | Online remote draft/review/approve/reject/cancel and ordinary reservation/release. Local source dispatch and destination receiving, each with its branch authority. No new offline reservations. P6 split: `approve` issues exact `transfer.ship` evidence and reserves (`reservation`); `ship` is the source post pinned to that approval and `receive` the destination post pinned to the dispatch (both `stock`, both signed operations). |
 | `stocktakes/*` | Online remote planning/scheduling/review/recount request/approval. Local physical count capture/confirmation and post/complete, including legacy completion. Stocktake approval now persists exact management evidence only; `post` applies stock/quarantine and completes. Preserve event timing to avoid double counting offline sales. D-W3: `start`, `submit` and `complete` stay `local_record` and `post` stays `stock`. While a count started at the counter is open, phones and the web may enter attributed count lines; `PATCH :id/lines` moves from `local_record` to an attributed draft-entry classification when W5 implements that, and stays `local_record` until then. |
 | `returns/*` | Online remote supplier-return preparation/review/approval/rejection and commercial credit records. Local actual goods departure and stock posting. Customer return inspection/disposition and refund execution remain local sales workflows. P6: `approve` (and a self-approving create/submit) records exact `goods_return.complete` evidence only; `complete` is pinned to the latest approval and is the physical step (stock out + debit note), also a signed command. |
@@ -117,7 +120,7 @@ Inventory actual routes when P1/P2/P5/P6 introduce them; do not claim the route 
 | Assignment authorization / activation | Remote authenticated owner/delegated-manager online request versus signed local online target confirmation; no grant on authorization alone |
 | Business-hours acknowledgement | Prepared manager, own PIN, signed bounded evidence tied to grant/outage; mandatory restrictions and expiry cannot be overridden |
 | Assisted absent-cashier shift close | Prepared manager's explicit capability and reason, original cashier/session retained with counting actor and variance |
-| Sale incident / payment-attempt evidence sync | Signed append-only evidence, idempotent record ID/digest, no stock/refund/cash mutation; online manager recovery for corrections |
+| Sale incident / payment-attempt evidence sync | Signed append-only evidence, idempotent record ID/digest, no stock/refund/cash mutation; online manager recovery for corrections. Intake and held persistence: `OfflineSupportRecords` (P1, no route yet) |
 | Stock discrepancy settlement | Remote review/authorization with exact count/timeline linkage; local physical execution and exactly-once movement/existing-settlement accounting |
 
 See [POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md) for scenarios, trust
@@ -157,11 +160,13 @@ signed-operation registry:
 - import stock post;
 - import undo-stock;
 - prepared receipt post (P6);
-- supplier return complete (P6).
+- supplier return complete (P6);
+- direct adjustment (P1: increases need `inventory.manage`, write-offs `inventory.write_off`;
+  a write-off that needs approval is refused, never held).
 
 Each of these remains classified as `stock` on its own route. Execution reuses those routes'
 domain cores and StockService, and commits effects, audit and the original-result receipt
 together. Adding an operation to the registry needs the same classification review as a new
 route. The production attendance provider still denies every command, so these routes do
-not activate the terminal boundary. (The hours provider is real since MR 7; these five stock
+not activate the terminal boundary. (The hours provider is real since MR 7; these back-room stock
 operations are reviewed as not selling-time restricted.) Contract: [API_CONTRACT.md](API_CONTRACT.md).
