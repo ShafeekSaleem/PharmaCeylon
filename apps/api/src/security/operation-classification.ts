@@ -8,13 +8,17 @@ import { MUTATION_ACTIONS } from "./mutation-actions";
 export type ActionProfile =
   | "management" | "identity" | "personalization" | "attachment"
   | "reservation" | "stock" | "mixed_stock" | "local_record"
-  | "checkout" | "refund" | "clinical" | "supplier_payment" | "readiness_confirmation";
+  | "checkout" | "refund" | "clinical" | "supplier_payment" | "readiness_confirmation"
+  | "product_import";
 
 export type ResolvedActionFacts = Readonly<{
   paymentKind?: "bank" | "cash";
   clinicalSale?: boolean;
   cashMovement?: boolean;
   readinessTask?: "opening_inventory" | "sales_settings" | "checkout";
+  /** Product import: true only for legacy stock posting (a stock-bearing file at a branch that
+   * is not live). Live branches, including checkout fallback, stage the stock as a draft. */
+  legacyStockPosting?: boolean;
 }>;
 
 export type ActionClassification = Readonly<{
@@ -48,6 +52,10 @@ export function classifyProfile(profile: ActionProfile, facts: ResolvedActionFac
     case "supplier_payment":
       if (facts.paymentKind !== "bank" && facts.paymentKind !== "cash") throw new Error("Resolved payment kind is required");
       effects = [facts.paymentKind === "bank" ? "bank_payment_record" : "branch_cash"]; break;
+    case "product_import":
+      if (typeof facts.legacyStockPosting !== "boolean") throw new Error("Resolved import stock posting is required");
+      effects = facts.legacyStockPosting ? ["management_record", "physical_stock"] : ["management_record"];
+      break;
     case "readiness_confirmation":
       if (!["opening_inventory", "sales_settings", "checkout"].includes(facts.readinessTask ?? "")) {
         throw new Error("Resolved readiness task is required");

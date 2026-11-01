@@ -13,8 +13,9 @@ describe("P1 server action classification", () => {
     expect(new Set(keys).size).toBe(keys.length);
     expect(Object.keys(MUTATION_ACTIONS).sort()).toEqual(keys.sort());
     for (const profile of Object.values(MUTATION_ACTIONS)) {
-      expect(classifyProfile(profile, { paymentKind: "bank", clinicalSale: false, cashMovement: false, readinessTask: "sales_settings" }).effects.length).toBeGreaterThan(0);
+      expect(classifyProfile(profile, { paymentKind: "bank", clinicalSale: false, cashMovement: false, readinessTask: "sales_settings", legacyStockPosting: false }).effects.length).toBeGreaterThan(0);
     }
+    expect(Object.values(MUTATION_ACTIONS)).not.toContain("mixed_stock");
     for (const entry of INTERNAL_OPERATION_ACTIONS) expect(existsSync(resolve(__dirname, "..", entry.source))).toBe(true);
   });
 
@@ -26,9 +27,17 @@ describe("P1 server action classification", () => {
     expect(() => classifyProfile("unknown" as never)).toThrow();
   });
 
-  it.each(["products/import/confirm"])("does not mistake mixed handler %s for remote approval", path => {
-    expect(route(path)).toMatchObject({ requiresLocalTerminal: true, needsApprovalExecutionSplit: true });
-    expect(route(path).effects).toContain("physical_stock");
+  it("resolves import confirm from where the stock goes, never defaulting to remote", () => {
+    expect(() => route("products/import/confirm")).toThrow("import stock posting");
+    const confirm = (legacyStockPosting: boolean) =>
+      classifyMutation("POST", "/api/v1/products/import/confirm", { legacyStockPosting });
+    expect(confirm(false)).toMatchObject({ effects: ["management_record"], requiresLocalTerminal: false, needsApprovalExecutionSplit: false });
+    expect(confirm(true)).toMatchObject({ effects: ["management_record", "physical_stock"], requiresLocalTerminal: true, needsApprovalExecutionSplit: false });
+  });
+
+  it("separates remote write-off requests from direct counter adjustments", () => {
+    expect(route("inventory/adjustment-requests")).toMatchObject({ effects: ["management_record"], requiresLocalTerminal: false });
+    expect(route("inventory/adjustments")).toMatchObject({ effects: ["physical_stock"], requiresLocalTerminal: true, needsApprovalExecutionSplit: false });
   });
 
   it("separates management import drafts from physical posting and legacy stock undo", () => {

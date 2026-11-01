@@ -1,7 +1,8 @@
 import type { ActionProfile } from "./operation-classification";
 
 /** Explicit reviewed route templates; no prefix defaults. Update with the route inventory.
- * mixed_stock means the current handler can both authorize/manage and physically execute.
+ * No route is mixed_stock: every handler either manages/authorizes or physically executes, or
+ * resolves which from server state (product_import). mixed_stock remains for internal services.
  * Non-operational profiles retain existing auth/CSRF/permission rules, including @Public.
  * These declarations are not installed guards or permission grants.
  */
@@ -46,7 +47,8 @@ export const MUTATION_ACTIONS = Object.freeze({
   "PATCH /api/v1/customers/:id": "management",
   "DELETE /api/v1/dashboard/layout": "personalization",
   "PUT /api/v1/dashboard/layout": "personalization",
-  "POST /api/v1/inventory/adjustments": "mixed_stock",
+  "POST /api/v1/inventory/adjustment-requests": "management",
+  "POST /api/v1/inventory/adjustments": "stock",
   "POST /api/v1/inventory/batches/:id/confirm-expiry": "stock",
   "POST /api/v1/inventory/batches/:id/quarantine": "stock",
   "POST /api/v1/inventory/batches/:id/release-quarantine": "stock",
@@ -87,7 +89,7 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/products/import/:importId/stock/post": "stock",
   "POST /api/v1/products/import/stage": "management",
   "POST /api/v1/products/import/analyze": "management",
-  "POST /api/v1/products/import/confirm": "mixed_stock",
+  "POST /api/v1/products/import/confirm": "product_import",
   "POST /api/v1/products/import/preview": "management",
   "POST /api/v1/products/nmra-import/confirm": "management",
   "POST /api/v1/products/nmra-import/preview": "management",

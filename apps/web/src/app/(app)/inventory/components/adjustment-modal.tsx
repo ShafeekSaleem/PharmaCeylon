@@ -12,6 +12,7 @@ import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
 import { InventoryFilterSelect } from "./inventory-filter-select";
+import { submitAdjustment } from "./submit-adjustment";
 
 /** What happened to the stock — each sets the direction and is recorded as the reason. */
 type Kind = "found" | "damaged" | "expired" | "lost" | "opening" | "correction";
@@ -211,11 +212,7 @@ function AdjustmentModalContent({
             }
           : { batchId }),
       };
-      const result = await apiJson<{ held: boolean }>("/inventory/adjustments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const result = await submitAdjustment(body);
       const units = `${qty} unit${qty === 1 ? "" : "s"}`;
       onSuccess?.(
         result.held

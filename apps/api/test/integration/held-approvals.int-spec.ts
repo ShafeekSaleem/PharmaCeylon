@@ -31,10 +31,10 @@ type Kind = "adjustment" | "delivery";
 async function fixture(kind: Kind, requester = fx.clerkId) {
   const batchId = await createStockedBatch(prisma, stock, fx, { qty: 20 });
   if (kind === "adjustment") {
-    const result = await adjustments.adjust(fx.tenantId, branch(), actor(requester, ["inventory.manage"]), {
+    const result = await adjustments.request(user(requester), branch(), {
       productId: fx.productId, batchId, qty: 2, kind: "lost", reason: "Missing during count",
     });
-    return { id: (result as { heldAdjustment: { id: string } }).heldAdjustment.id, batchId, poId: "" };
+    return { id: result.heldAdjustment.id, batchId, poId: "" };
   }
   const batch = await prisma.batch.findFirstOrThrow({ where: { tenantId: fx.tenantId, id: batchId } });
   const po = await prisma.purchaseOrder.create({ data: {

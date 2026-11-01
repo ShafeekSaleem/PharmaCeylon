@@ -196,6 +196,11 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/inventory/adjustment-requests",
+    "source": "apps/api/src/inventory/inventory.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/inventory/adjustments",
     "source": "apps/api/src/inventory/inventory.controller.ts"
   },

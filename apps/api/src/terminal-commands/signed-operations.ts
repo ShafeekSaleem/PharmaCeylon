@@ -1,11 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import type {
-  SignedOperationBody,
-  SignedOperationResult,
-  SignedPhysicalOperation,
+import {
+  STOCK_ADJUSTMENT_KINDS,
+  type SignedOperationBody,
+  type SignedOperationResult,
+  type SignedPhysicalOperation,
 } from "@pharmaceylon/shared";
 import { AdjustmentService } from "../inventory/adjustment.service";
+import { adjustmentDirection, type StockAdjustmentDto } from "../inventory/dto/stock-adjustment.dto";
 import { ImportStockService } from "../product-import/import-stock.service";
 import { ProductImportService } from "../product-import/product-import.service";
 import { HeldDeliveryService } from "../purchasing/held-delivery.service";
@@ -83,6 +85,59 @@ function transferReceiveBody(raw: unknown): TransferReceiveBody {
   }
   return body as TransferReceiveBody;
 }
+type AdjustmentBody = SignedOperationBody["POST /api/v1/inventory/adjustments"];
+/** Batch prices are numeric(12,2): at most 9,999,999,999.99. */
+const MAX_PRICE_MINOR = 999_999_999_999;
+const trimmed = (value: unknown, max: number) => {
+  if (text(value, max) !== (value as string).trim()) invalid();
+  return value as string;
+};
+function adjustmentBody(raw: unknown): AdjustmentBody {
+  const body = object(raw, ["kind", "movementType", "productId", "batchId", "newBatch", "qty", "reason", "fromQuarantine"]);
+  if (!(STOCK_ADJUSTMENT_KINDS as readonly unknown[]).includes(body.kind)) invalid();
+  if (body.kind === "correction") {
+    if (body.movementType !== "adjustment_in" && body.movementType !== "adjustment_out") invalid();
+    if (body.reason === null) invalid();
+  } else if (body.movementType !== null) invalid();
+  const increase = adjustmentDirection(body as AdjustmentBody) === "in";
+  uuid(body.productId);
+  if (body.newBatch === null) uuid(body.batchId);
+  else {
+    if (body.batchId !== null || !increase) invalid();
+    const batch = object(body.newBatch, ["batchNo", "expiryDate", "costPriceMinor", "sellingPriceMinor", "supplierId"]);
+    trimmed(batch.batchNo, 64);
+    const expiry = batch.expiryDate;
+    if (typeof expiry !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) invalid();
+    const day = new Date(`${expiry}T00:00:00Z`);
+    if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== expiry) invalid();
+    if (count(batch.costPriceMinor, 0) > MAX_PRICE_MINOR || count(batch.sellingPriceMinor, 0) > MAX_PRICE_MINOR) invalid();
+    if (batch.supplierId !== null) uuid(batch.supplierId);
+  }
+  count(body.qty, 1);
+  if (body.reason !== null) trimmed(body.reason, 512);
+  if (typeof body.fromQuarantine !== "boolean" || (body.fromQuarantine && increase)) invalid();
+  return body as AdjustmentBody;
+}
+/** The same request the browser route takes; prices go from minor units back to 2dp amounts. */
+function adjustmentDto(body: AdjustmentBody): StockAdjustmentDto {
+  const batch = body.newBatch;
+  return {
+    kind: body.kind,
+    productId: body.productId,
+    qty: body.qty,
+    ...(body.movementType ? { movementType: body.movementType } : {}),
+    ...(body.batchId ? { batchId: body.batchId } : {}),
+    ...(batch ? { newBatch: {
+      batchNo: batch.batchNo,
+      expiryDate: batch.expiryDate,
+      costPrice: batch.costPriceMinor / 100,
+      sellingPrice: batch.sellingPriceMinor / 100,
+      ...(batch.supplierId ? { supplierId: batch.supplierId } : {}),
+    } } : {}),
+    ...(body.reason !== null ? { reason: body.reason } : {}),
+    ...(body.fromQuarantine ? { fromQuarantine: true } : {}),
+  };
+}
 /** "12.50" → 1250. Money in a receipt is integer minor units (canonical JSON has no floats). */
 const minor = (amount: string) => Math.round(Number(amount) * 100);
 const approvalId = (context: SignedExecutionContext) => {
@@ -155,6 +210,30 @@ export class SignedOperations {
             afterCommit: posted.changed
               ? () => adjustments.notifyPosted(user.tenantId, branchId, body.heldAdjustmentId)
               : undefined,
+          };
+        },
+      },
+      // A direct adjustment at the counter: increases need inventory.manage, write-offs
+      // inventory.write_off. A write-off that needs approval is refused, never held, here.
+      "POST /api/v1/inventory/adjustments": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/inventory/adjustments",
+          permission: (b) => adjustmentDirection(b) === "in" ? "inventory.manage" : "inventory.write_off",
+          parseBody: adjustmentBody,
+        },
+        async execute(tx, user, branchId, body, context) {
+          const posted = await adjustments.postDirectInTransaction(tx, user, branchId, adjustmentDto(body),
+            context.command);
+          return {
+            result: {
+              type: "stock_adjustment.posted",
+              productId: body.productId,
+              batchId: posted.batchId,
+              movementType: adjustmentDirection(body) === "in" ? "adjustment_in" : "adjustment_out",
+              qty: body.qty,
+              stockReferenceId: posted.referenceId,
+            },
           };
         },
       },
