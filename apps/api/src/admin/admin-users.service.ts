@@ -438,28 +438,70 @@ export class AdminUsersService {
     return { ok: true };
   }
 
-  /** PIN lock/session state for the Manage Staff "Security" panel. */
+  /**
+   * PIN lock/session state for the Manage Staff "Security" panel, plus the counters the person
+   * has prepared (D-W5). A preparation is current only while it matches their PIN version: a
+   * change or reset means each counter must be prepared again before it can unlock offline.
+   */
   async getSecurity(tenantId: string, targetUserId: string) {
     const target = await this.prisma.appUser.findFirst({
       where: { id: targetUserId, tenantMemberships: { some: { tenantId } } },
-      select: { posPinHash: true, failedPosPinAttempts: true, posPinLockedUntil: true },
+      select: {
+        posPinHash: true,
+        failedPosPinAttempts: true,
+        posPinLockedUntil: true,
+        posPinVersion: true,
+      },
     });
     if (!target) throw new NotFoundException("User not found");
 
     const now = new Date();
-    const sessions = await this.prisma.session.findMany({
-      where: { tenantId, userId: targetUserId, revokedAt: null, expiresAt: { gt: now } },
-      orderBy: { lastUsedAt: "desc" },
-      select: { id: true, userAgent: true, ipAddress: true, lastUsedAt: true, createdAt: true },
-    });
+    const [sessions, preparations] = await Promise.all([
+      this.prisma.session.findMany({
+        where: { tenantId, userId: targetUserId, revokedAt: null, expiresAt: { gt: now } },
+        orderBy: { lastUsedAt: "desc" },
+        select: { id: true, userAgent: true, ipAddress: true, lastUsedAt: true, createdAt: true },
+      }),
+      // Revoked or retired counters can't unlock anything, so they are not listed.
+      this.prisma.terminalStaffPreparation.findMany({
+        where: {
+          tenantId,
+          staffUserId: targetUserId,
+          enrollment: { revokedAt: null, terminal: { retiredAt: null } },
+        },
+        orderBy: { preparedAt: "desc" },
+        select: {
+          terminalId: true,
+          branchId: true,
+          pinVersion: true,
+          preparedAt: true,
+          enrollment: {
+            select: {
+              terminal: { select: { label: true, branch: { select: { name: true } } } },
+            },
+          },
+        },
+      }),
+    ]);
 
+    const pinSet = Boolean(target.posPinHash);
     return {
       pin: {
-        isSet: Boolean(target.posPinHash),
+        isSet: pinSet,
         isLocked: Boolean(target.posPinLockedUntil && target.posPinLockedUntil.getTime() > now.getTime()),
         lockedUntil: target.posPinLockedUntil,
         failedAttempts: target.failedPosPinAttempts,
+        version: target.posPinVersion,
       },
+      preparedCounters: preparations.map((p) => ({
+        terminalId: p.terminalId,
+        branchId: p.branchId,
+        branchName: p.enrollment.terminal.branch.name,
+        counterLabel: p.enrollment.terminal.label,
+        preparedAt: p.preparedAt,
+        pinVersion: p.pinVersion,
+        current: pinSet && p.pinVersion === target.posPinVersion,
+      })),
       sessions,
     };
   }

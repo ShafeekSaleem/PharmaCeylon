@@ -30,6 +30,7 @@ describe("AdminUsersService", () => {
     role: { findUnique: jest.Mock; findFirst: jest.Mock };
     tenantMembership: { update: jest.Mock; delete: jest.Mock };
     session: { findMany: jest.Mock };
+    terminalStaffPreparation: { findMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let audit: AuditService;
@@ -60,6 +61,7 @@ describe("AdminUsersService", () => {
         delete: jest.fn().mockResolvedValue({}),
       },
       session: { findMany: jest.fn() },
+      terminalStaffPreparation: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((input: unknown) =>
         typeof input === "function"
           ? (input as (tx: unknown) => Promise<unknown>)(prisma)
@@ -442,6 +444,7 @@ describe("AdminUsersService", () => {
         posPinHash: "hash",
         failedPosPinAttempts: 2,
         posPinLockedUntil: future,
+        posPinVersion: 3,
       });
       prisma.session.findMany.mockResolvedValue([
         { id: "s1", userAgent: "Chrome", ipAddress: "10.0.0.1", lastUsedAt: new Date(), createdAt: new Date() },
@@ -454,10 +457,45 @@ describe("AdminUsersService", () => {
         isLocked: true,
         lockedUntil: future,
         failedAttempts: 2,
+        version: 3,
       });
       expect(result.sessions).toHaveLength(1);
       expect(prisma.session.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ userId: targetId, revokedAt: null }) }),
+      );
+    });
+
+    it("lists active counters the person prepared, current only at their PIN version", async () => {
+      prisma.appUser.findFirst.mockResolvedValue({
+        posPinHash: "hash",
+        failedPosPinAttempts: 0,
+        posPinLockedUntil: null,
+        posPinVersion: 4,
+      });
+      prisma.session.findMany.mockResolvedValue([]);
+      const counter = (terminalId: string, pinVersion: number) => ({
+        terminalId,
+        branchId: "b1",
+        pinVersion,
+        preparedAt: new Date(),
+        enrollment: { terminal: { label: `Counter ${terminalId}`, branch: { name: "Main" } } },
+      });
+      prisma.terminalStaffPreparation.findMany.mockResolvedValue([counter("t1", 4), counter("t2", 3)]);
+
+      const result = await service.getSecurity(tenantId, targetId);
+
+      expect(result.preparedCounters).toEqual([
+        expect.objectContaining({ terminalId: "t1", counterLabel: "Counter t1", branchName: "Main", current: true }),
+        expect.objectContaining({ terminalId: "t2", current: false }),
+      ]);
+      expect(prisma.terminalStaffPreparation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId,
+            staffUserId: targetId,
+            enrollment: { revokedAt: null, terminal: { retiredAt: null } },
+          },
+        }),
       );
     });
 

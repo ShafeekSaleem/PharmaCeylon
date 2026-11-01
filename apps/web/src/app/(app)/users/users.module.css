@@ -429,3 +429,10 @@
   gap: 1rem;
 }
 
+
+/* ── PIN status (D-W5) ── */
+
+.mutedText {
+  color: var(--pc-muted-fg);
+  font-size: 0.78rem;
+}

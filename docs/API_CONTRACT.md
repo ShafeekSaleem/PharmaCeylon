@@ -501,6 +501,22 @@ not authority, and it serializes sales per counter on the enrollment lock. Web P
 columns null. Every online counter, including a nominated offline one, sells the same shared
 available stock.
 
+**Prescription and controlled items at the counter.** The desktop links a customer
+(`GET /customers`) and a prescription (`GET /prescriptions`, or `POST /prescriptions` with
+`prescriptions.create`), and for controlled items sends `pharmacistApproval: { approverUserId,
+pin }`, the co-signer's online PIN or, without one, their login password (approvers come from
+`GET /sales/pos/approvers`). Checkout refusals carry `code: "PRESCRIPTION_REQUIRED"` (no
+prescription linked) and `code: "PHARMACIST_APPROVAL_REQUIRED"` (controlled items, a seller who
+cannot dispense them, no co-sign). The desktop never stores the PIN: its draft keeps only who
+co-signed. An idempotent replay returns the original sale without re-verifying it, so a resent
+draft needs the PIN again only if the first request never reached the server.
+
+**PIN status for back office (W3).** `GET /admin/users/:userId/security` adds `pin.version` and
+`preparedCounters[]`: `{ terminalId, branchId, branchName, counterLabel, preparedAt, pinVersion,
+current }` for active, unretired counters. `current` is true only while `pinVersion` equals the
+person's PIN version and a PIN is set. `POST /admin/users/:userId/reset-pin` clears the PIN and
+bumps the version, which makes every preparation stale.
+
 **Limits.** This is evidence that the trusted process ran in the physical console session, not
 proof that a person inspected goods. Remote Desktop is refused. Third-party remote-control tools
 (AnyDesk, TeamViewer, Chrome Remote Desktop and similar) drive the console session and are not

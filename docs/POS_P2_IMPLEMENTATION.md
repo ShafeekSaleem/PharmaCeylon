@@ -18,6 +18,8 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
 | Online checkout | `x-terminal-session` attribution on `POST /sales/checkout` (`sale.terminal_id/till_id/work_session_id`) | Server-priced cart, cash/card/split tender, crash-safe drafts (`checkout_draft`) confirmed by idempotent resend, receipts, held carts |
 | Physical execution | (P1 executor) | `SignedCommandService` with stored envelopes (`signed_command`); remote-approved refunds executed at the counter showing requester, approver and executor |
 | Readiness | — | Device enrollment, prepared staff, unconfirmed sales/actions |
+| Prescriptions and co-sign | Checkout refusals coded `PRESCRIPTION_REQUIRED` / `PHARMACIST_APPROVAL_REQUIRED` | Link a customer and prescription (find or record), pharmacist co-sign by PIN for controlled items; the PIN is sent once and never stored (the draft keeps the co-signer only, migration 0006); holds carry the customer and prescription |
+| Web (W6, W3) | `GET /admin/users/:id/security` adds PIN version and prepared counters | Settings → Counters & devices: counters, enrolled computer, issue and revoke codes, report lost, retire. Users → Manage staff: PIN state, version, prepared and stale counters, reset for every role |
 
 ## Verification
 
@@ -33,8 +35,9 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
 
 ## Not done in P2 yet
 
-- **Pharmacist co-sign and prescription capture at the counter.** Rx/controlled items are refused
-  at the desktop with a clear message. Clinical capture belongs with W5.
+- **Clinical verification beyond the existing checkout rules.** The counter links and records
+  prescriptions and takes the pharmacist co-sign the server already enforced for the web POS.
+  Fuller clinical capture (dose checks, dispensing labels) belongs with W5.
 - **D8 acknowledgement and assisted-handover capability preparation.** These need P3 grants and
   P4 shifts.
 - **D11 replacement clearance evidence.** The first nomination works. Replacing a nominated
@@ -42,5 +45,5 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
 - **Windows packaging smoke.** The full enroll, sign-in, restart and print run on packaged
   hardware is still to do. Electron's binary download is blocked by npm 11's install-script
   policy on the development machine.
-- **Web screens.** The W6 Counters page (issue/revoke codes, retire) and W3 PIN status consume
-  the endpoints above.
+- **Web D13 authorization screen.** Owners still authorize an offline counter's assignment
+  through the P1 endpoint; W6 has no button for it yet. The installer download link is also W6.
