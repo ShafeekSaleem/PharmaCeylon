@@ -39,6 +39,7 @@ import { AdjustmentService } from "../src/inventory/adjustment.service";
 import { TaxService } from "../src/pricing/tax.service";
 import { PermissionsService } from "../src/security/permissions.service";
 import { AccessService, type ActorAccess } from "../src/security/access.service";
+import { ManagementApprovalsService } from "../src/security/management-approvals.service";
 import { NotificationsService } from "../src/notifications/notifications.service";
 import { PharmacistApprovalService } from "../src/sales/pharmacist-approval.service";
 import { SalesService } from "../src/sales/sales.service";
@@ -150,7 +151,9 @@ const stocktakes = new StocktakesService(prisma, audit, stock);
 const returns = new ReturnsService(prisma, audit, stock);
 const heldSales = new HeldSalesService(prisma);
 const inventory = new InventoryService(prisma, audit, stock, stockRead);
-const adjustments = new AdjustmentService(prisma, inventory, notifications, audit);
+const adjustments = new AdjustmentService(
+  prisma, inventory, notifications, audit, access, new ManagementApprovalsService(access, audit),
+);
 
 type Actor = { id: string; user: RequestUser };
 type Branch = { id: string; code: string; name: string };
@@ -173,6 +176,8 @@ async function actor(email: string): Promise<Actor> {
       tenantId,
       email: row.email,
       fullName: row.fullName,
+      // Live-authority paths (direct adjustments) compare this with the account row.
+      tokenVersion: row.tokenVersion,
       authMethod: "bearer",
       branchRoles: row.userBranchRoles.map((r) => ({ branchId: r.branchId, role: r.role, roleId: r.roleId })),
     },
@@ -943,13 +948,20 @@ function planAdjustments(days: number) {
       const lots = await lotsAt(b.id, when, kind === "expired" ? 0 : 45);
       if (lots.length === 0) return count("Adjustments", "skipped");
       const lot = pick(rng, lots);
-      await adjustments.adjust(tenantId, b.id, await accessFor(who, b.id), {
+      const dto = {
         kind: held ? "damaged" : kind,
         productId: lot.productId,
         batchId: lot.batchId,
         qty: held ? 2 : 1 + Math.floor(rng() * 2),
         reason: note,
-      } as never);
+      } as never;
+      // As the web does: post directly, and send it for approval when the write-off needs it.
+      if (held) await adjustments.request(who.user, b.id, dto);
+      else
+        await adjustments.postDirect(who.user, b.id, dto).catch(async (error: { response?: { code?: string } }) => {
+          if (error.response?.code !== "WRITE_OFF_APPROVAL_REQUIRED") throw error;
+          await adjustments.request(who.user, b.id, dto);
+        });
       count("Adjustments", "ok");
     });
   }

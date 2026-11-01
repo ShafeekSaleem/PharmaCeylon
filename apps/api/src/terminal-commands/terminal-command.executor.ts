@@ -253,8 +253,9 @@ export class TerminalCommandExecutor {
     verifySignature(envelope, enrollment.publicKeyHex);
     if (existing.actorUserId !== user.userId || existing.branchId !== branchId)
       denied("IDENTITY_MISMATCH");
+    // A body-derived grant reads the strictly parsed body, as authorization does, never raw input.
     await this.requireLiveAuthority(tx, user, branchId,
-      operationPermission(operation.descriptor, envelope.payload.body));
+      operationPermission(operation.descriptor, operation.descriptor.parseBody(envelope.payload.body)));
     if (
       existing.requestDigest !== requestDigest ||
       existing.operation !== envelope.payload.operation ||
