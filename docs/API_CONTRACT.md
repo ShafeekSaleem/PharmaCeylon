@@ -227,6 +227,7 @@ transaction.
 | `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
 | `POST /api/v1/inventory/adjustments` | `{ kind, movementType, productId, batchId, newBatch, qty, reason, fromQuarantine }` | `null` | `inventory.manage` to add stock, `inventory.write_off` to write it off |
+| `POST /api/v1/prescriptions` | `{ rxNumber, patientName, doctorName, doctorRegNo, issuedOn, validUntil, customerId, notes }` | `null` | `prescriptions.create`, plus a current SLMC registration (below) |
 
 Direct adjustments: every key is present. `movementType` is `adjustment_in`/`adjustment_out` for
 a `correction` (which also needs a `reason`) and `null` otherwise. `batchId` is `null` only with
@@ -238,6 +239,19 @@ or spent nonce; it goes through a held request instead. Each command is its own 
 retry of the same command replays the original result (`stock_adjustment.posted` with `batchId`,
 `movementType`, `qty`, `stockReferenceId`), and a distinct command adjusts again. The
 `inventory.adjustment` audit carries the command provenance.
+
+Prescriptions (clinical): the signed session's staff member must hold a current SLMC
+registration recorded by an owner (`admin/pharmacist-registrations`) at the branch, with an active
+account and a role there. No role, permission or ownership substitutes for it: an owner or
+manager without one is refused with `PHARMACIST_REQUIRED`, with no effect, receipt or spent
+nonce, and so is a command prepared before the registration was revoked. Every key is present:
+`rxNumber`, `doctorRegNo`, `validUntil`, `customerId` and `notes` may be `null` (a `null`
+`rxNumber` is allocated `RX-#####` from the branch sequence). Text is exact and trimmed with the
+browser route's limits, dates are `YYYY-MM-DD`, and `validUntil` may not precede `issuedOn`.
+Result: `{ type: "prescription.recorded", prescriptionId, rxNumber, pharmacistRegistrationId }`.
+Each command is its own prescription, and a retry replays the original result. The
+`prescription.recorded` audit carries the command provenance, including
+`pharmacistRegistrationId`. Recording a prescription is counter work, so it is hours-checked.
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
@@ -704,6 +718,7 @@ Two read paths per entity, deliberately different, because a counter picker and 
 | `PATCH /customers/:id` | Partial update; `customers.manage`. |
 | `GET /prescriptions?q=` | POS picker, branch-scoped, capped at 50. |
 | `GET /prescriptions/register` | Prescriptions page. `q`, `validity` (`all`/`valid`/`expired`), `page`, `pageSize`. |
+| `POST /prescriptions` | Record one presented at the counter; `prescriptions.create`. Classified `clinical`. Also a signed terminal command, which additionally needs the session's pharmacist to hold a current SLMC registration (see "Signed terminal commands"). Both paths write a `prescription.recorded` audit. A number already used at the branch is 400. |
 
 **Semantics**
 

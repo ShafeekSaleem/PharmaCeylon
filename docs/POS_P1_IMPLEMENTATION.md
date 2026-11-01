@@ -602,13 +602,13 @@ current one.
   domain cores already copy into their success audit. A bare instance still fails closed. `pharmacistEvidenceId` must stay null
   online (`INVALID_COMMAND`) until co-sign evidence exists.
 
-Two new `identity` routes plus a GET (203 in the inventory with #94 and #95). No signed operation carries a clinical
-effect yet, so no execution path changes. Still open:
+Two new `identity` routes plus a GET (203 in the inventory with #94 and #95). When it merged, no signed operation carried a clinical
+effect yet; MR 10a below adds the first. Still open:
 - **Pharmacist PIN co-sign.** `PharmacistApprovalService` still accepts any role holding
   `sales.approve_controlled`; it must call `assertQualified`. This waits for #93, which edits that
   service and the desktop dispensing flow.
-- **Checkout and prescriptions.** Clinical checkout and prescription adapters will reach the port
-  once they are split.
+- **Checkout.** Clinical checkout reaches the port once it is split (P2 #93 owns checkout).
+  Prescription recording reaches it through MR 10a.
 - **Web.** The Users & Roles screen for recording registrations is web work.
 
 Tests: `test/integration/pharmacist-registration.int-spec.ts` (PostgreSQL, 15). They cover:
@@ -625,6 +625,37 @@ Tests: `test/integration/pharmacist-registration.int-spec.ts` (PostgreSQL, 15). 
 - a renewal committing during the wait, and revocation times under API clock skew;
 - the evidence port, including returning the registration, rejecting co-sign evidence and failing
   closed without a provider.
+
+## MR 10a: prescriptions as a signed clinical operation
+
+`POST /api/v1/prescriptions` was classified `clinical` with no signed adapter, so the clinical
+port had no caller. It is now the twelfth v1 signed operation:
+
+- **Adapter** (`terminal-commands/signed-operations.ts`). Strict exact-key body with the browser
+  DTO's limits, trimmed text and real `YYYY-MM-DD` dates. Permission `prescriptions.create`; no
+  approval. `OperationAuthorizationService` sees the `clinical_dispensing` effect and calls
+  `MandatoryOperationEvidence.clinical`, so the signed session's staff member must hold a current
+  registration (MR 10). The executor puts the registration in `CommandProvenance`, and the result
+  repeats it as `pharmacistRegistrationId`.
+- **Core** (`PrescriptionsService.createInTransaction`). One implementation for the browser route
+  and the adapter, in the caller's transaction. The customer check now reads on that
+  transaction, a concurrent duplicate number is the same 400 rather than a 500, and both paths
+  write a `prescription.recorded` audit; the signed one carries the command provenance.
+- **Hours.** Not added to the reviewed back-room list, so recording is hours-checked like any
+  other counter work.
+- **Not changed.** The browser route keeps its behaviour and is not restricted to terminals
+  (coordinated enforcement comes after #93 and W1). `pharmacistEvidenceId` stays `null`: a
+  cashier's session with a pharmacist co-signing by PIN is the co-sign work after #93, which
+  follows the 2026-11-01 decision to handle prescriptions inside Sell.
+
+Tests: `terminal-command.executor.spec.ts` (registry and body parser) and
+`test/integration/terminal-execution.int-spec.ts` "prescriptions through signed commands". They
+cover:
+- a registered pharmacist recording once, a concurrent replay and the audit provenance;
+- owner and manager refusal without a registration, leaving no effect, receipt or spent nonce;
+- a revocation landing between prepare and execute;
+- approval evidence refused;
+- an injected audit failure rolling back the prescription and receipt, followed by a successful retry.
 
 ## P6 #52 slice: transfer approval, dispatch and receipt
 
