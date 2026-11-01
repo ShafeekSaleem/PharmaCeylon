@@ -1,0 +1,2055 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-screen="sell">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PharmaCeylon POS — desktop</title>
+<style>
+/* PharmaCeylon POS (desktop) — UI mockups. Colours follow apps/web/src/app/globals.css. */
+:root {
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  --chrome: #ffffff;
+  --chrome-line: #e4e9f0;
+  --canvas: #f2f5f9;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-2: #475569;
+  --text-3: #8391a7;
+
+  --primary: #0d9488;
+  --primary-ink: #0f766e;
+  --primary-soft: rgba(13, 148, 136, 0.07);
+  --primary-soft-2: rgba(13, 148, 136, 0.13);
+  --on-primary: #ffffff;
+  --grad: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+  --cyan: #0891b2;
+
+  --ok: #16a34a;   --ok-ink: #166534;   --ok-soft: #effcf3;  --ok-line: #bbf7d0;
+  --warn: #d97706; --warn-ink: #92400e; --warn-soft: #fffaeb; --warn-line: #fde68a;
+  --bad: #dc2626;  --bad-ink: #991b1b;  --bad-soft: #fef2f2;  --bad-line: #fecaca;
+  --info: #0891b2; --info-ink: #155e75; --info-soft: #ecfeff; --info-line: #a5f3fc;
+  --rx: #7c3aed;   --rx-ink: #6d28d9;   --rx-soft: #f5f3ff;  --rx-line: #ddd6fe;
+  --badge: #dc2626; --on-badge: #ffffff;
+
+  --t-teal: #0d9488; --t-cyan: #0891b2; --t-indigo: #4f46e5; --t-rose: #e11d48;
+  --t-amber: #d97706; --t-violet: #7c3aed; --t-emerald: #059669; --t-blue: #2563eb;
+
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 24px 60px -24px rgba(15, 23, 42, 0.28);
+  --focus: 0 0 0 3px rgba(13, 148, 136, 0.18);
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --chrome: #0d1524;
+  --chrome-line: rgba(255, 255, 255, 0.07);
+  --canvas: #0a101b;
+  --surface: #121b2c;
+  --surface-2: #162133;
+  --surface-3: #1b2639;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  --text: #e6edf7;
+  --text-2: #a3b1c6;
+  --text-3: #6b7a93;
+
+  --primary: #2dd4bf;
+  --primary-ink: #5eead4;
+  --primary-soft: rgba(45, 212, 191, 0.08);
+  --primary-soft-2: rgba(45, 212, 191, 0.15);
+  --on-primary: #04201c;
+  --grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
+  --cyan: #22d3ee;
+
+  --ok: #34d399;   --ok-ink: #6ee7b7;   --ok-soft: rgba(52, 211, 153, 0.09);  --ok-line: rgba(52, 211, 153, 0.26);
+  --warn: #fbbf24; --warn-ink: #fcd34d; --warn-soft: rgba(251, 191, 36, 0.09); --warn-line: rgba(251, 191, 36, 0.28);
+  --bad: #f87171;  --bad-ink: #fca5a5;  --bad-soft: rgba(248, 113, 113, 0.09); --bad-line: rgba(248, 113, 113, 0.28);
+  --info: #22d3ee; --info-ink: #7dd3fc; --info-soft: rgba(34, 211, 238, 0.08); --info-line: rgba(34, 211, 238, 0.24);
+  --rx: #a78bfa;   --rx-ink: #c4b5fd;   --rx-soft: rgba(167, 139, 250, 0.11); --rx-line: rgba(167, 139, 250, 0.3);
+  --badge: #f87171; --on-badge: #2a0a0a;
+
+  --t-teal: #2dd4bf; --t-cyan: #22d3ee; --t-indigo: #818cf8; --t-rose: #fb7185;
+  --t-amber: #fbbf24; --t-violet: #a78bfa; --t-emerald: #34d399; --t-blue: #60a5fa;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
+  --focus: 0 0 0 3px rgba(45, 212, 191, 0.2);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #d9dee6; }
+:root[data-theme="dark"] body { background: #05080f; }
+body {
+  font: 13.5px/1.4 var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+.shot body { display: block; min-height: 0; }
+.ic { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.grow { flex: 1; }
+.mono { font-family: var(--mono); font-size: 12px; letter-spacing: -0.01em; }
+.muted { color: var(--text-3); }
+small { font-size: inherit; }
+kbd {
+  font: 600 10.5px/1 var(--font);
+  padding: 3px 5px 3px;
+  border-radius: 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  color: var(--text-3);
+  background: var(--surface);
+  letter-spacing: 0.02em;
+}
+
+/* ---------- window ---------- */
+.win {
+  width: 1600px; height: 1000px;
+  display: flex; flex-direction: column;
+  background: var(--canvas);
+  overflow: hidden; position: relative;
+  box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.45);
+  border-radius: 10px;
+}
+.shot .win { box-shadow: none; border-radius: 0; }
+
+.titlebar {
+  height: 40px; flex: none;
+  display: flex; align-items: center; gap: 12px;
+  padding-left: 14px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--chrome-line);
+}
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; }
+.logo { width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(135deg, #0d9488, #0891b2); display: grid; place-items: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+.logo svg { width: 14px; height: 14px; fill: #fff; }
+.brand .tag-pos { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--primary-ink); background: var(--primary-soft-2); padding: 2px 6px; border-radius: 5px; }
+.tb-sep { width: 1px; height: 18px; background: var(--line-strong); }
+.tb-where { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12.5px; }
+.tb-where .ic { width: 14px; height: 14px; color: var(--text-3); }
+.tb-where b { color: var(--text); font-weight: 600; }
+.conn { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--ok-ink); background: var(--ok-soft); border: 1px solid var(--ok-line); padding: 3px 10px 3px 9px; border-radius: 999px; }
+.conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.conn em { font-style: normal; font-weight: 500; color: var(--text-2); }
+.tb-clock { font-size: 12.5px; color: var(--text-2); font-weight: 500; padding: 0 2px; }
+.tb-icon { width: 32px; height: 28px; display: grid; place-items: center; color: var(--text-2); border-radius: 6px; position: relative; }
+.tb-icon .ic { width: 16px; height: 16px; }
+.tb-icon .pip { position: absolute; top: 5px; right: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--badge); border: 1.5px solid var(--chrome); }
+.winctl { display: flex; height: 100%; margin-left: 4px; }
+.winctl span { width: 46px; display: grid; place-items: center; color: var(--text-2); }
+.winctl svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1; fill: none; }
+
+.frame { flex: 1; display: flex; min-height: 0; }
+.rail {
+  width: 84px; flex: none;
+  background: var(--chrome);
+  border-right: 1px solid var(--chrome-line);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 0 12px; gap: 3px;
+}
+.ri {
+  position: relative; width: 70px; height: 60px; border-radius: 10px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  color: var(--text-2); font-size: 11.5px; font-weight: 500; letter-spacing: -0.005em;
+  text-align: center; line-height: 1.15;
+}
+.ri .ic { width: 21px; height: 21px; stroke-width: 1.8; }
+.ri.active { background: var(--primary-soft-2); color: var(--primary-ink); font-weight: 600; }
+.ri.active::before { content: ""; position: absolute; left: -7px; top: 17px; bottom: 17px; width: 3px; border-radius: 0 3px 3px 0; background: var(--primary); }
+.ri .badge { position: absolute; top: 5px; right: 11px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--badge); color: var(--on-badge); font-size: 10.5px; font-weight: 700; display: grid; place-items: center; border: 2px solid var(--chrome); }
+.rail-sep { width: 36px; height: 1px; background: var(--line); margin: 7px 0; }
+.rail-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.me { position: relative; width: 40px; height: 40px; margin-top: 6px; }
+.me .av { width: 40px; height: 40px; font-size: 13.5px; }
+.me i { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border-radius: 50%; background: var(--ok); border: 2.5px solid var(--chrome); }
+
+.statusbar {
+  height: 30px; flex: none;
+  display: flex; align-items: center;
+  padding: 0 6px;
+  background: var(--chrome);
+  border-top: 1px solid var(--chrome-line);
+  font-size: 11.5px; color: var(--text-2);
+}
+.sb { display: flex; align-items: center; gap: 6px; padding: 0 12px; height: 18px; border-right: 1px solid var(--line); white-space: nowrap; }
+.sb:last-child { border-right: 0; }
+.sb .ic { width: 13px; height: 13px; color: var(--text-3); }
+.sb b { color: var(--text); font-weight: 600; }
+.sb .d { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.sb.okc .ic { color: var(--ok); }
+
+.content { flex: 1; min-width: 0; padding: 14px; display: flex; min-height: 0; position: relative; }
+.screen { display: none; flex: 1; min-height: 0; min-width: 0; }
+[data-screen="sell"] .screen.sell { display: grid; }
+[data-screen="work"] .screen.work { display: grid; }
+[data-screen="lock"] .frame { display: none; }
+[data-screen="lock"] .screen.lock { display: flex; }
+[data-screen="lock"] .statusbar { display: none; }
+[data-screen="rxa"] .screen.sell { display: grid; }
+[data-screen="rxq"] .screen.rxq { display: grid; }
+[data-screen="returns"] .screen.returns { display: grid; }
+[data-screen="stock"] .screen.stk { display: grid; }
+[data-screen="cash"] .screen.cash { display: grid; }
+/* Variants: data-only shows an element on one screen only, data-not hides it there. */
+html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [data-only="rxq"] { display: none !important; }
+[data-screen="rxa"] [data-not~="rxa"], [data-screen="rxq"] [data-not~="rxq"] { display: none !important; }
+
+/* ---------- shared bits ---------- */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.ph { display: flex; align-items: center; gap: 10px; padding: 14px 16px 12px; }
+.ph h2 { font: 600 15.5px/1.2 var(--font-display); letter-spacing: -0.01em; }
+.btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border-radius: 8px; font: 600 12.5px/1 var(--font); color: var(--text-2); border: 1px solid transparent; background: none; white-space: nowrap; }
+.btn .ic { width: 15px; height: 15px; }
+.btn.outline { border-color: var(--line-strong); background: var(--surface); color: var(--text); }
+.btn.ghost:hover { background: var(--surface-3); }
+.btn.soft { background: var(--surface-3); color: var(--text); }
+.btn.sm { height: 28px; padding: 0 9px; font-size: 12px; }
+.btn.icon { width: 32px; padding: 0; justify-content: center; }
+.btn .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--surface-3); color: var(--text); font-size: 11px; display: grid; place-items: center; }
+.btn.primary { background: var(--grad); color: var(--on-primary); box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--primary) 70%, transparent), inset 0 1px 0 rgba(255,255,255,.18); }
+.btn.primary kbd { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.35); color: var(--on-primary); }
+:root[data-theme="dark"] .btn.primary kbd { background: rgba(4,32,28,.12); border-color: rgba(4,32,28,.3); }
+.btn.xl { height: 56px; font-size: 16px; border-radius: 11px; justify-content: center; gap: 12px; }
+.btn.lg { height: 40px; padding: 0 16px; font-size: 13.5px; border-radius: 9px; }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; border: 1px solid transparent; }
+.pill .ic { width: 12px; height: 12px; stroke-width: 2.4; }
+.pill.ok { color: var(--ok-ink); background: var(--ok-soft); border-color: var(--ok-line); }
+.pill.warn { color: var(--warn-ink); background: var(--warn-soft); border-color: var(--warn-line); }
+.pill.bad { color: var(--bad-ink); background: var(--bad-soft); border-color: var(--bad-line); }
+.pill.info { color: var(--info-ink); background: var(--info-soft); border-color: var(--info-line); }
+.pill.neutral { color: var(--text-2); background: var(--surface-3); border-color: var(--line); }
+.pill.brand { color: var(--primary-ink); background: var(--primary-soft-2); }
+.rx { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 5px; font: 700 10.5px/1 var(--font); letter-spacing: 0.04em; color: var(--rx-ink); background: var(--rx-soft); border: 1px solid var(--rx-line); }
+
+.av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 12.5px; flex: none; color: var(--c, var(--t-teal)); background: color-mix(in srgb, var(--c, var(--t-teal)) 15%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c, var(--t-teal)) 28%, transparent); }
+
+.caret { display: inline-block; width: 1.5px; height: 1.1em; background: var(--primary); vertical-align: -0.18em; margin-left: 1px; }
+
+/* ---------- SELL ---------- */
+.sell { grid-template-columns: 388px minmax(0, 1fr) 364px; gap: 14px; }
+
+.find-top { padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
+.search {
+  height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px;
+  border-radius: 10px; background: var(--surface); border: 1.5px solid var(--primary); box-shadow: var(--focus);
+  font-size: 16px; font-weight: 500;
+}
+.search > .ic { width: 22px; height: 22px; color: var(--primary); }
+.search .typed { flex: 1; }
+.chips { display: flex; gap: 6px; }
+.chip { height: 28px; padding: 0 11px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--surface-3); border: 1px solid transparent; }
+.chip.on { background: var(--primary-soft-2); color: var(--primary-ink); border-color: color-mix(in srgb, var(--primary) 30%, transparent); }
+.res-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px 6px; font-size: 11.5px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.res-head .hint { text-transform: none; letter-spacing: 0; font-weight: 500; display: flex; gap: 5px; align-items: center; }
+.res-head kbd { font-size: 9.5px; padding: 2px 4px; }
+.results { list-style: none; padding: 0 8px; display: flex; flex-direction: column; gap: 2px; }
+.res { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 9px; border: 1px solid transparent; }
+.res.sel { background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 35%, transparent); }
+.res-main { flex: 1; min-width: 0; }
+.res-name { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+.res mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.res-meta { font-size: 12px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res-side { text-align: right; flex: none; }
+.price { font-weight: 700; font-size: 13.5px; }
+.price small { font-weight: 500; color: var(--text-3); font-size: 11.5px; margin-left: 1px; }
+.stock { font-size: 11.5px; font-weight: 600; margin-top: 2px; }
+.stock.ok { color: var(--ok); }
+.stock.warn { color: var(--warn); }
+.stock.none { color: var(--text-3); }
+.res.dim .res-name, .res.dim .price { color: var(--text-3); }
+.res .enter { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: var(--primary); color: var(--on-primary); flex: none; }
+.res .enter .ic { width: 14px; height: 14px; stroke-width: 2.4; }
+
+.quick { margin-top: auto; padding: 12px 14px 14px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.sub-h { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+.sub-h span { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.qgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.qk { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+.qk .qi { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); flex: none; }
+.qk .qi .ic { width: 17px; height: 17px; }
+.qk b { display: block; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.qk small { display: block; font-size: 11.5px; color: var(--text-3); }
+.qk .fk { margin-left: auto; align-self: flex-start; }
+.qk .fk kbd { font-size: 9.5px; padding: 2px 4px; }
+
+.cust { display: flex; align-items: center; gap: 11px; margin: 0 16px 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); }
+.cust b { display: block; font-size: 13.5px; }
+.cust small { display: block; font-size: 12px; color: var(--text-3); }
+.cust .pill { margin-left: 6px; }
+.thead, .ln { display: grid; grid-template-columns: 28px minmax(0, 1fr) 112px 76px 96px; align-items: center; column-gap: 8px; padding: 0 16px; }
+.thead { height: 32px; font-size: 11.5px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.thead .r, .ln .r { text-align: right; }
+.thead .c { text-align: center; }
+.lines { flex: 1; overflow: hidden; }
+.ln { min-height: 62px; padding-top: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); position: relative; }
+.ln.sel { background: var(--primary-soft); }
+.ln.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--primary); }
+.ln .n { color: var(--text-3); font-size: 12px; font-weight: 600; }
+.ln .nm { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ln .mt { display: flex; align-items: center; gap: 7px; margin-top: 4px; font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; }
+.ln .mt > .t { overflow: hidden; text-overflow: ellipsis; }
+.ln .mt .pill { height: 19px; font-size: 11px; padding: 0 7px; }
+.ln .qty { display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 600; }
+.ln .qty small { font-size: 12px; color: var(--text-3); font-weight: 500; }
+.stepper { display: inline-flex; align-items: center; height: 32px; border: 1.5px solid var(--primary); border-radius: 8px; background: var(--surface); box-shadow: var(--focus); }
+.stepper span { width: 28px; display: grid; place-items: center; color: var(--text-2); }
+.stepper span .ic { width: 14px; height: 14px; stroke-width: 2.4; }
+.stepper b { min-width: 30px; text-align: center; font-size: 14px; }
+.ln .pr { color: var(--text-2); }
+.ln .am { font-weight: 700; font-size: 14px; }
+.ln .was { display: block; font-size: 11.5px; color: var(--text-3); text-decoration: line-through; font-weight: 500; }
+.ticket-foot { display: flex; align-items: center; gap: 14px; padding: 11px 16px; border-top: 1px solid var(--line); background: var(--surface-2); font-size: 12px; color: var(--text-3); }
+.ticket-foot b { color: var(--text); font-weight: 600; }
+.ticket-foot .keys { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+.ticket-foot .keys span { display: flex; gap: 5px; align-items: center; }
+.ticket-foot kbd { font-size: 9.5px; padding: 2px 4px; }
+
+.pay { padding: 18px; gap: 14px; }
+.due-l { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.due-v { font: 700 44px/1.05 var(--font-display); letter-spacing: -0.025em; margin-top: 6px; }
+.due-v small { font-size: 22px; font-weight: 600; color: var(--text-3); margin-right: 6px; letter-spacing: 0; }
+.brk { display: grid; grid-template-columns: 1fr auto; row-gap: 5px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line-strong); font-size: 13px; }
+.brk dt { color: var(--text-2); }
+.brk dd { text-align: right; font-weight: 600; }
+.brk dd.neg { color: var(--ok); }
+.cosign { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--ok-soft); border: 1px solid var(--ok-line); }
+.cosign .ic { color: var(--ok); width: 18px; height: 18px; margin-top: 1px; }
+.cosign b { display: block; font-size: 12.5px; color: var(--ok-ink); }
+.cosign small { display: block; font-size: 12px; color: var(--text-2); }
+.methods { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.m { height: 72px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font: 600 12.5px/1 var(--font); color: var(--text-2); }
+.m .ic { width: 20px; height: 20px; stroke-width: 1.8; }
+.m.on { border: 1.5px solid var(--primary); background: var(--primary-soft); color: var(--primary-ink); box-shadow: var(--focus); }
+.fld-l { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; display: flex; justify-content: space-between; }
+.fld-l kbd { font-size: 9.5px; padding: 2px 4px; }
+.money-in { height: 56px; display: flex; align-items: center; padding: 0 14px; border-radius: 10px; border: 1.5px solid var(--primary); box-shadow: var(--focus); font: 700 22px/1 var(--font-display); background: var(--surface); }
+.money-in small { font-size: 14px; color: var(--text-3); font-weight: 600; margin-right: 8px; }
+.tender { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.tender span { height: 42px; border-radius: 8px; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; background: var(--surface-3); color: var(--text-2); }
+.tender span.on { background: var(--primary-soft-2); color: var(--primary-ink); }
+.change { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.change span { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.change b { font: 700 26px/1 var(--font-display); color: var(--ok); letter-spacing: -0.02em; }
+.rcpt { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; }
+.rcpt small { display: block; font-weight: 500; color: var(--text-3); font-size: 11.5px; }
+.toggle { width: 34px; height: 20px; border-radius: 10px; background: var(--primary); position: relative; flex: none; }
+.toggle::after { content: ""; position: absolute; right: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+.extras { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.extras span { height: 40px; border-radius: 9px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.extras .ic { width: 15px; height: 15px; }
+.extras kbd { font-size: 9.5px; padding: 2px 4px; }
+.pay-actions { display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
+.pill.rxp { color: var(--rx-ink); background: var(--rx-soft); border-color: var(--rx-line); }
+
+/* ---------- A: PRESCRIPTION SHEET INSIDE SELL ---------- */
+.rx-scrim { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.26); z-index: 2; }
+:root[data-theme="dark"] .rx-scrim { background: rgba(2, 6, 14, 0.55); }
+.rx-sheet { position: absolute; top: 14px; right: 14px; bottom: 14px; width: 600px; z-index: 3; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: var(--shadow-lg), -20px 0 60px -30px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; overflow: hidden; }
+.sh-h { display: flex; align-items: center; gap: 14px; padding: 18px 18px 16px 20px; }
+.sh-h .kind { width: 44px; height: 44px; border-radius: 12px; }
+.sh-h .kind .ic { width: 22px; height: 22px; }
+.sh-h h2 { font: 650 20px/1.2 var(--font-display); letter-spacing: -0.015em; margin-top: 3px; }
+.ministeps { display: flex; align-items: center; gap: 10px; padding: 11px 20px; background: var(--surface-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ms { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-3); white-space: nowrap; }
+.ms i { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font: 700 11px/1 var(--font); font-style: normal; border: 1.5px solid var(--line-strong); background: var(--surface); }
+.ms i .ic { width: 12px; height: 12px; stroke-width: 2.8; }
+.ms.done { color: var(--text-2); }
+.ms.done i { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.ms.now { color: var(--text); }
+.ms.now i { background: var(--rx); border-color: var(--rx); color: #fff; box-shadow: 0 0 0 3px var(--rx-soft); }
+.ms-line { flex: 1; height: 1.5px; background: var(--line-strong); }
+.sh-b { flex: 1; min-height: 0; overflow: hidden; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; }
+.paper-row { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--line-strong); }
+.paper-row b { display: block; font-size: 13px; }
+.paper-row small { display: block; font-size: 12px; color: var(--text-3); margin-top: 1px; }
+.thumb { width: 50px; height: 64px; border-radius: 4px; background: #fffdf7; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25); transform: rotate(-4deg); padding: 7px 6px; display: flex; flex-direction: column; gap: 5px; flex: none; }
+.thumb i { height: 2px; border-radius: 1px; background: #94a3b8; }
+.thumb i:first-child { width: 70%; height: 3px; background: #334155; }
+.thumb i.s { width: 60%; background: #475569; }
+.form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.f label { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 5px; height: 20px; }
+.f label > span:not(.pill) { font-weight: 500; color: var(--text-3); }
+.f label .pill { height: 19px; font-size: 10.5px; padding: 0 7px; }
+.f .in { height: 40px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface); display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 13.5px; font-weight: 500; }
+.f .in .ic { width: 15px; height: 15px; color: var(--text-3); }
+.f .in.ph { color: var(--text-3); }
+.f.wide { grid-column: 1 / -1; }
+.covers { display: flex; flex-direction: column; gap: 6px; }
+.covers .sub-h { margin-bottom: 2px; }
+.cv { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13px; }
+.cv b { font-weight: 600; }
+.cv .q { margin-left: auto; color: var(--text-2); font-weight: 600; }
+.cb { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line-strong); background: var(--surface); display: grid; place-items: center; flex: none; }
+.cb .ic { width: 12px; height: 12px; stroke-width: 3; }
+.cb.on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.pharm { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; border: 1.5px solid var(--rx); background: var(--rx-soft); box-shadow: 0 0 0 3px var(--rx-soft); }
+.pharm .av { width: 42px; height: 42px; font-size: 14px; }
+.pharm b { display: block; font-size: 13.5px; }
+.pharm small { display: block; font-size: 12px; color: var(--text-2); }
+.pin-mini { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.pin-mini small { font-size: 11.5px; color: var(--text-3); font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.pin-mini kbd { font-size: 9.5px; padding: 2px 4px; }
+.dots.sm { margin: 0; gap: 8px; }
+.dots.sm i { width: 12px; height: 12px; }
+.dots.sm i.f { background: var(--rx); border-color: var(--rx); }
+.autochecks { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text-2); }
+.autochecks span { display: flex; align-items: center; gap: 6px; }
+.autochecks .ic { width: 14px; height: 14px; color: var(--ok); stroke-width: 2.6; }
+.sh-f { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.sh-f .tot small { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.sh-f .tot b { font: 700 20px/1.2 var(--font-display); letter-spacing: -0.01em; }
+
+/* ---------- COUNTER WORK ---------- */
+.work { grid-template-rows: auto minmax(0, 1fr); gap: 14px; }
+.page-h { display: flex; align-items: flex-end; gap: 20px; padding: 2px 2px 0; }
+.page-h h1 { font: 650 22px/1.15 var(--font-display); letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px; }
+.page-h p { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+.seg { margin-left: auto; display: flex; padding: 3px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); gap: 2px; }
+.seg span { height: 30px; padding: 0 12px; border-radius: 7px; display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.seg span i { font-style: normal; font-size: 11px; min-width: 18px; height: 18px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); padding: 0 5px; }
+.seg span.on { background: var(--primary-soft-2); color: var(--primary-ink); }
+.seg span.on i { background: var(--primary); color: var(--on-primary); }
+.work-body { display: grid; grid-template-columns: 456px minmax(0, 1fr); gap: 14px; min-height: 0; }
+.queue { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; }
+.qcard { display: flex; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); position: relative; }
+.qcard.sel { border: 1.5px solid var(--primary); background: color-mix(in srgb, var(--primary) 5%, var(--surface)); box-shadow: var(--focus); }
+.kind { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; flex: none; color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); }
+.kind .ic { width: 19px; height: 19px; }
+.qc-main { flex: 1; min-width: 0; }
+.qc-top { display: flex; align-items: center; gap: 8px; }
+.qc-top b { font-size: 13.5px; }
+.qc-top .mono { color: var(--text-3); }
+.qc-top .when { margin-left: auto; font-size: 11.5px; color: var(--text-3); }
+.qc-desc { font-size: 12.5px; color: var(--text-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qc-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.q-done { margin-top: 2px; display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-radius: 12px; border: 1px dashed var(--line-strong); font-size: 12.5px; color: var(--text-2); font-weight: 600; }
+.q-done .ic { width: 15px; height: 15px; color: var(--ok); }
+.q-done span { margin-left: auto; color: var(--text-3); font-weight: 500; }
+.qc-foot .by { font-size: 11.5px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
+
+.detail .dh { padding: 18px 20px 14px; display: flex; gap: 14px; align-items: flex-start; }
+.detail .dh .kind { width: 46px; height: 46px; border-radius: 12px; }
+.detail .dh .kind .ic { width: 23px; height: 23px; }
+.eyebrow { font-size: 11.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.07em; }
+.dh h2 { font: 650 20px/1.2 var(--font-display); letter-spacing: -0.015em; margin-top: 3px; }
+.dh .meta { display: flex; gap: 14px; font-size: 12.5px; color: var(--text-2); margin-top: 6px; }
+.dh .meta span { display: flex; align-items: center; gap: 5px; }
+.dh .meta .ic { width: 14px; height: 14px; color: var(--text-3); }
+.dh .right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+
+.trail { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0 20px; padding: 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); position: relative; }
+.step { display: flex; gap: 10px; align-items: flex-start; position: relative; }
+.step .dotc { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--surface); border: 1.5px solid var(--line-strong); color: var(--text-3); }
+.step .dotc .ic { width: 13px; height: 13px; stroke-width: 2.6; }
+.step.done .dotc { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.step.now .dotc { background: var(--primary); border-color: var(--primary); color: var(--on-primary); box-shadow: var(--focus); }
+.step .sl { font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.step b { display: block; font-size: 13px; margin-top: 1px; }
+.step small { display: block; font-size: 11.5px; color: var(--text-3); }
+.step .chev { position: absolute; right: 2px; top: 6px; color: var(--line-strong); }
+.trail-note { display: flex; align-items: center; gap: 6px; margin: 8px 20px 0; font-size: 12px; color: var(--ok-ink); }
+.trail-note .ic { width: 14px; height: 14px; color: var(--ok); }
+
+.scanbar { display: flex; align-items: center; gap: 10px; margin: 14px 20px 12px; height: 42px; padding: 0 12px; border-radius: 10px; border: 1px dashed var(--line-strong); color: var(--text-3); font-size: 13px; background: var(--surface); }
+.scanbar .ic { width: 19px; height: 19px; color: var(--primary); }
+.scanbar kbd { margin-left: auto; }
+
+.gtable { margin: 0 20px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.gr { display: grid; grid-template-columns: minmax(0, 1fr) 70px 92px 118px 92px 156px; align-items: center; column-gap: 10px; padding: 0 14px; min-height: 50px; border-bottom: 1px solid var(--line); }
+.gr:last-child { border-bottom: 0; }
+.gr.h { min-height: 32px; background: var(--surface-2); font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.gr .c { text-align: center; }
+.gr .pn { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gr .ps { font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.gr.sel { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
+.cell { height: 32px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); display: flex; align-items: center; padding: 0 9px; font-size: 13px; font-weight: 600; }
+.cell.num { justify-content: center; }
+.cell.warn { border-color: var(--warn); background: var(--warn-soft); color: var(--warn-ink); }
+.cell.focus { border: 1.5px solid var(--primary); box-shadow: var(--focus); }
+.cell.empty { color: var(--text-3); font-weight: 500; }
+.gr .ord { text-align: center; color: var(--text-2); font-weight: 600; }
+.gr.more { min-height: 38px; font-size: 12px; color: var(--text-3); background: var(--surface-2); }
+
+.notes { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; margin: 12px 20px 0; }
+.nt { display: flex; gap: 10px; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); font-size: 12.5px; color: var(--text-2); }
+.nt .ic { width: 16px; height: 16px; color: var(--text-3); margin-top: 1px; }
+.nt b { color: var(--text); font-weight: 600; }
+.nt small { display: block; color: var(--text-3); font-size: 11.5px; margin-top: 2px; }
+.nt .docs { display: flex; gap: 6px; margin-top: 6px; }
+.dfoot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.prog { width: 240px; }
+.prog-l { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+.prog-l b { color: var(--text); }
+.bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; border: 1px solid var(--line); }
+.bar i { display: block; height: 100%; width: 75%; background: var(--grad); border-radius: 3px; }
+
+/* ---------- RETURNS ---------- */
+.returns { grid-template-columns: 348px minmax(0, 1fr) 364px; gap: 14px; }
+.ret-find { padding-bottom: 14px; }
+.ret-find .seg { margin: 0 14px; }
+.ret-find .seg span { flex: 1; justify-content: center; padding: 0 6px; white-space: nowrap; }
+.ret-find .search { margin: 12px 14px 0; font-size: 15px; }
+.ret-find .search .mono { font-size: 15px; letter-spacing: 0; }
+.hint-l { font-size: 12px; color: var(--text-3); margin: 8px 16px 0; }
+.ret-find .chips { margin: 10px 14px 0; flex-wrap: wrap; }
+.found { margin: 14px 14px 0; padding: 14px; border-radius: 12px; border: 1.5px solid var(--primary); background: color-mix(in srgb, var(--primary) 5%, var(--surface)); box-shadow: var(--focus); display: flex; flex-direction: column; gap: 10px; }
+.found-top { display: flex; align-items: center; gap: 8px; }
+.found-top .ic { width: 16px; height: 16px; color: var(--ok); }
+.found-top b { font-size: 13px; }
+.found-top .mono { color: var(--text-2); margin-left: auto; }
+.found dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12.5px; }
+.found dt { color: var(--text-3); }
+.found dd { text-align: right; font-weight: 600; }
+.found .who-row { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px dashed var(--line-strong); }
+.found .who-row b { display: block; font-size: 13px; }
+.found .who-row small { display: block; font-size: 12px; color: var(--text-3); }
+.web-card { margin: 12px 14px 0; display: flex; gap: 11px; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); }
+.web-card .kind { width: 34px; height: 34px; border-radius: 9px; }
+.web-card .kind .ic { width: 17px; height: 17px; }
+.web-card b { display: block; font-size: 12.5px; }
+.web-card small { display: block; font-size: 12px; color: var(--text-3); margin-top: 1px; }
+.web-card .go { margin-left: auto; align-self: center; color: var(--text-3); }
+.rules { margin: auto 14px 0; padding: 12px 13px; border-radius: 10px; background: var(--info-soft); border: 1px solid var(--info-line); font-size: 12px; color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
+.rules div { display: flex; gap: 8px; }
+.rules .ic { width: 14px; height: 14px; color: var(--info); margin-top: 1px; }
+.thead.r6, .ln.r6 { grid-template-columns: 22px minmax(0, 1fr) 54px 100px 182px 84px; }
+.ln.r6 .sold { text-align: center; color: var(--text-2); font-weight: 600; }
+.ln.r6 .sold small { display: block; font-size: 11px; color: var(--text-3); font-weight: 500; }
+.ln.off .nm, .ln.off .am, .ln.off .sold { color: var(--text-3); }
+.ln .zero { display: inline-flex; align-items: center; justify-content: center; height: 32px; min-width: 86px; border-radius: 8px; border: 1px dashed var(--line-strong); color: var(--text-3); font-weight: 600; }
+.stepper.calm { border: 1px solid var(--line-strong); box-shadow: none; }
+.cond { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--surface-3); gap: 2px; }
+.cond span { height: 26px; padding: 0 9px; border-radius: 6px; display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--text-3); white-space: nowrap; }
+.cond span .ic { width: 13px; height: 13px; }
+.cond span.on { background: var(--surface); box-shadow: var(--shadow), 0 0 0 1px var(--line); }
+.cond span.on.ok { color: var(--ok-ink); }
+.cond span.on.q { color: var(--warn-ink); }
+.cond.na { background: none; font-size: 12px; color: var(--text-3); padding: 0; }
+.refund { padding: 18px; gap: 14px; }
+.refund .due-v { color: var(--text); }
+.methods.two { grid-template-columns: 1fr 1fr; }
+.methods.two .m { height: 64px; flex-direction: row; gap: 10px; }
+.methods.two .m small { display: block; font-size: 11.5px; font-weight: 500; color: var(--text-3); margin-top: 3px; }
+.methods.two .m.on small { color: var(--primary-ink); opacity: 0.8; }
+.appr { border-radius: 12px; border: 1.5px solid var(--warn-line); background: var(--warn-soft); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.appr-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--warn-ink); }
+.appr-h .ic { width: 16px; height: 16px; }
+.appr-row { display: flex; align-items: center; gap: 11px; }
+.appr-row .av { width: 38px; height: 38px; }
+.appr-row b { display: block; font-size: 13px; }
+.appr-row small { display: block; font-size: 12px; color: var(--text-2); }
+.appr-row .dots.sm i.f { background: var(--warn); border-color: var(--warn); }
+.appr .alt { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+.appr .alt b { color: var(--primary-ink); }
+.effect { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-2); }
+.effect span { display: flex; align-items: center; gap: 6px; }
+.effect i { width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+
+/* ---------- STOCK ---------- */
+.stk { grid-template-rows: auto minmax(0, 1fr); gap: 14px; }
+.stk-body { display: grid; grid-template-columns: 392px minmax(0, 1fr); gap: 14px; min-height: 0; }
+.res .exp { font-size: 11.5px; font-weight: 600; margin-top: 2px; color: var(--text-3); }
+.res .exp.warn { color: var(--warn); }
+.res .exp.bad { color: var(--bad); }
+.att { display: flex; flex-direction: column; gap: 8px; }
+.att-r { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+.att-r .qi { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); flex: none; }
+.att-r .qi .ic { width: 16px; height: 16px; }
+.att-r b { display: block; font-size: 12.5px; }
+.att-r small { display: block; font-size: 11.5px; color: var(--text-3); }
+.att-r .go { margin-left: auto; color: var(--text-3); }
+.att-r .go .ic { width: 16px; height: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0 20px; }
+.tile { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); }
+.tile small { display: block; font-size: 11.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.tile b { display: block; font: 700 24px/1.15 var(--font-display); letter-spacing: -0.02em; margin-top: 4px; }
+.tile b em { font-style: normal; font-size: 13px; font-weight: 600; color: var(--text-3); margin-left: 4px; letter-spacing: 0; }
+.tile span { display: block; font-size: 12px; color: var(--text-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile.main { background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 30%, transparent); }
+.tile.main b { color: var(--primary-ink); }
+.sec-h { display: flex; align-items: center; justify-content: space-between; margin: 14px 20px 8px; font-size: 11.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.sec-h span { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.gtable.bt .gr { grid-template-columns: 104px 132px 72px 84px 96px minmax(0, 1fr) 118px; min-height: 52px; }
+.gtable.bt .gr.h { min-height: 32px; }
+.gtable.bt .num { text-align: center; font-weight: 600; }
+.gtable.bt .num.dim { color: var(--text-3); font-weight: 500; }
+.gtable.bt .ex b { display: block; font-size: 13px; font-weight: 600; }
+.gtable.bt .ex small { display: block; font-size: 11.5px; color: var(--text-3); }
+.gtable.bt .ex.bad b { color: var(--bad); }
+.gtable.bt .ex.warn b { color: var(--warn-ink); }
+.gtable.bt .act { text-align: right; }
+.two-cards { display: grid; grid-template-columns: 1fr 1.25fr; gap: 12px; margin: 12px 20px 0; }
+.card2 { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.card2 .sub-h { margin-bottom: 0; }
+.kv { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.kv b { margin-left: auto; font-weight: 600; }
+.kv small { font-size: 11.5px; color: var(--text-3); }
+.kv .dotb { width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+.card2 .foot-n { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.mv { display: grid; grid-template-columns: 76px minmax(0, 1fr) 54px; gap: 8px; align-items: baseline; font-size: 12.5px; }
+.mv .t { color: var(--text-3); font-size: 12px; }
+.mv .d { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.mv .d b { color: var(--text); font-weight: 600; }
+.mv .q { text-align: right; font-weight: 700; }
+.mv .q.in { color: var(--ok); }
+.mv .q.out { color: var(--text); }
+.mv .q.hold { color: var(--warn); }
+.dfoot .lim { font-size: 12.5px; color: var(--text-2); }
+.dfoot .lim b { display: block; color: var(--text); font-size: 13px; }
+
+/* ---------- CASH & SHIFT ---------- */
+.cash { grid-template-rows: auto minmax(0, 1fr); gap: 14px; }
+.cash-body { display: grid; grid-template-columns: minmax(0, 1fr) 452px; gap: 14px; min-height: 0; }
+.cash-left { display: flex; flex-direction: column; gap: 14px; min-height: 0; min-width: 0; }
+.shift-h { display: flex; align-items: center; gap: 12px; padding: 16px 18px 14px; }
+.shift-h .av { width: 42px; height: 42px; font-size: 14px; }
+.shift-h b { display: block; font-size: 14.5px; }
+.shift-h small { display: block; font-size: 12.5px; color: var(--text-3); margin-top: 1px; }
+.shift-h .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.shift-card .tiles { margin: 0 18px 18px; }
+.tile.neg b { color: var(--text); }
+.cash-two { display: grid; grid-template-columns: 1fr 1.15fr; gap: 14px; flex: 1; min-height: 0; }
+.cash-two .panel { padding-bottom: 6px; }
+.pm { display: flex; flex-direction: column; padding: 0 18px; }
+.pm-r { display: grid; grid-template-columns: 30px minmax(0, 1fr) 70px 104px; align-items: center; gap: 10px; min-height: 46px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.pm-r .qi { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); }
+.pm-r .qi .ic { width: 16px; height: 16px; }
+.pm-r b { font-weight: 600; }
+.pm-r small { display: block; font-size: 11.5px; color: var(--text-3); }
+.pm-r .n { text-align: right; color: var(--text-3); font-size: 12px; }
+.pm-r .a { text-align: right; font-weight: 700; }
+.pm-r .a.neg { color: var(--bad); }
+.pm-r.tot { border-bottom: 0; min-height: 50px; }
+.pm-r.last { border-bottom: 0; }
+.pm-r.tot b, .pm-r.tot .a { font-size: 14.5px; }
+.pm-sub { margin: 10px 18px 4px; font-size: 11.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.log { display: flex; flex-direction: column; padding: 0 18px; }
+.lgr { display: grid; grid-template-columns: 30px minmax(0, 1fr) 100px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.lgr:last-child { border-bottom: 0; }
+.lgr .qi { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); }
+.lgr .qi .ic { width: 15px; height: 15px; }
+.lgr b { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lgr small { display: block; font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lgr .a { text-align: right; font-weight: 700; font-size: 13.5px; }
+.lgr .a small { font-weight: 500; }
+.lgr .a.neg { color: var(--bad); }
+.lgr .a.pos { color: var(--ok); }
+.ph .btn.sm { margin-left: auto; }
+.follow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 12px; background: var(--warn-soft); border: 1px solid var(--warn-line); }
+.follow .ic { width: 18px; height: 18px; color: var(--warn); }
+.follow b { display: block; font-size: 13px; }
+.follow small { display: block; font-size: 12px; color: var(--text-2); }
+.follow .btn { margin-left: auto; }
+.count { padding: 0; }
+.cnt-h { padding: 18px 20px 12px; }
+.cnt-h h2 { font: 650 19px/1.2 var(--font-display); letter-spacing: -0.015em; margin-top: 3px; }
+.cnt-h p { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
+.den { margin: 0 20px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.den-r { display: grid; grid-template-columns: 104px 18px 84px minmax(0, 1fr); align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.den-r:last-child { border-bottom: 0; }
+.den-r.h { height: 30px; background: var(--surface-2); font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.den-r .nv { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
+.den-r .nv i { width: 22px; height: 14px; border-radius: 3px; background: color-mix(in srgb, var(--c) 30%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 55%, transparent); }
+.den-r .nv i.coin { width: 14px; height: 14px; border-radius: 50%; }
+.den-r .x { color: var(--text-3); text-align: center; }
+.den-r .cell { height: 30px; }
+.den-r .am { text-align: right; font-weight: 600; }
+.den-r.sel { background: var(--primary-soft); }
+.tot3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 20px 0; }
+.tot3 div { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); }
+.tot3 small { display: block; font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.tot3 b { display: block; font: 700 17px/1.2 var(--font-display); margin-top: 3px; }
+.tot3 .short { background: var(--bad-soft); border-color: var(--bad-line); }
+.tot3 .short small, .tot3 .short b { color: var(--bad-ink); }
+.count .f { margin: 12px 20px 0; }
+.ho { display: flex; align-items: center; gap: 11px; margin: 12px 20px 0; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line-strong); }
+.ho .av { width: 36px; height: 36px; }
+.ho b { display: block; font-size: 13px; }
+.ho small { display: block; font-size: 12px; color: var(--text-3); }
+.ho .ic { width: 15px; height: 15px; color: var(--text-3); margin-left: auto; }
+.offl { display: flex; gap: 8px; margin: 10px 20px 0; font-size: 12px; color: var(--text-3); }
+.offl .ic { width: 14px; height: 14px; margin-top: 1px; color: var(--info); }
+
+/* ---------- B: PHARMACIST QUEUE ---------- */
+.rxq { grid-template-rows: auto minmax(0, 1fr); gap: 14px; }
+.rxq-body { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 14px; min-height: 0; }
+.lanes { gap: 7px; }
+.lane-h { display: flex; align-items: center; gap: 8px; padding: 6px 4px 1px; font-size: 11.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.07em; }
+.lane-h:first-child { padding-top: 0; }
+.lane-h i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.lane-h span { margin-left: auto; font-size: 11px; min-width: 20px; height: 18px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); letter-spacing: 0; }
+.qcard.tight { padding: 10px 12px; }
+.qcard.tight .qc-foot { margin-top: 6px; }
+.qcard .av { width: 36px; height: 36px; }
+.trail.four { grid-template-columns: repeat(4, 1fr); }
+.chk-body { display: grid; grid-template-columns: 296px minmax(0, 1fr); gap: 18px; margin: 14px 20px 0; min-height: 0; }
+.paper-col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.paper { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #fffdf7; color: #1e293b; border-radius: 6px; padding: 16px 18px; box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06), 0 10px 26px -12px rgba(15, 23, 42, 0.35); border: 1px solid #ece6d6; transform: rotate(-0.6deg); }
+:root[data-theme="dark"] .paper { filter: brightness(0.9); border-color: transparent; }
+.pp-h { text-align: center; padding-bottom: 9px; border-bottom: 1.5px solid #0f766e; }
+.pp-h b { display: block; font: 700 14.5px/1.2 Georgia, serif; color: #0f3d3a; }
+.pp-h small { display: block; font: 11px/1.35 Georgia, serif; color: #475569; }
+.pp-pt { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; font: 11px/1.3 Georgia, serif; color: #475569; }
+.pp-pt u, .pp-l, .pp-l em { font-family: "Ink Free", "Segoe Print", cursive; text-decoration: none; color: #1d3a8a; }
+.pp-pt u { font-size: 14px; font-weight: 600; border-bottom: 1px dotted #94a3b8; padding: 0 2px; }
+.pp-rx { font: 700 26px/1 Georgia, serif; color: #0f3d3a; margin: 10px 0 2px; }
+.pp-rx sub { font-size: 16px; vertical-align: -3px; }
+.pp-l { list-style: none; display: flex; flex-direction: column; gap: 9px; font-size: 17px; line-height: 1.15; font-weight: 600; padding-left: 6px; }
+.pp-l em { display: block; font-style: normal; font-size: 15px; font-weight: 400; padding-left: 18px; color: #1e40af; }
+.sig { position: absolute; right: 18px; bottom: 16px; width: 120px; height: 40px; fill: none; stroke: #1d3a8a; stroke-width: 1.8; stroke-linecap: round; }
+.stamp { position: absolute; left: 18px; bottom: 14px; width: 62px; height: 62px; border-radius: 50%; border: 2px solid rgba(124, 58, 237, 0.55); color: rgba(124, 58, 237, 0.7); display: grid; place-items: center; text-align: center; font: 700 8.5px/1.15 Georgia, serif; letter-spacing: 0.04em; transform: rotate(-14deg); }
+.paper-cap { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-3); padding: 0 2px; }
+.chk-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+.gtable.dx { margin: 0; }
+.gtable.dx .gr { grid-template-columns: minmax(0, 1fr) 150px 44px 104px; min-height: 56px; }
+.gtable.dx .gr.h { min-height: 32px; }
+.gr .pn .rx { margin-left: 6px; vertical-align: 1px; }
+.checks { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+.checks .sub-h { margin-bottom: 1px; }
+.ck { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); }
+.ck small { margin-left: auto; font-size: 11.5px; color: var(--text-3); }
+.ck.now { padding: 7px 8px; margin: 0 -8px; border-radius: 8px; background: var(--primary-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--primary) 45%, transparent); }
+.ck.now .cb { border-color: var(--primary); }
+.ck kbd { margin-left: auto; font-size: 9.5px; padding: 2px 4px; }
+.reg { display: flex; gap: 11px; padding: 12px 14px; border-radius: 10px; background: var(--rx-soft); border: 1px solid var(--rx-line); font-size: 12.5px; color: var(--text-2); }
+.reg .ic { width: 17px; height: 17px; color: var(--rx); margin-top: 1px; }
+.reg b { color: var(--text); font-weight: 600; }
+.reg small { display: block; font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+.bag { display: flex; align-items: center; gap: 10px; }
+.bag .ic { width: 20px; height: 20px; color: var(--text-3); }
+.bag b { display: block; font-size: 13px; }
+.bag small { display: block; font-size: 12px; color: var(--text-3); }
+
+/* ---------- LOCK ---------- */
+.lock { flex: 1; min-height: 0; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+.lock::before {
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(900px 520px at 12% 8%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 60%),
+    radial-gradient(800px 600px at 92% 100%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 60%);
+}
+.lock-wrap { position: relative; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.lock-head { text-align: center; }
+.lock-time { font: 300 64px/1 var(--font-display); letter-spacing: -0.03em; }
+.lock-date { font-size: 15px; color: var(--text-2); margin-top: 8px; }
+.lock-card { width: 1060px; display: grid; grid-template-columns: minmax(0, 1fr) 380px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-lg); overflow: hidden; }
+.who { padding: 24px 26px; }
+.who h2 { font: 650 18px/1.2 var(--font-display); letter-spacing: -0.01em; }
+.who > p { font-size: 13px; color: var(--text-2); margin-top: 4px; }
+.staff { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 18px; }
+.st { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.st .av { width: 42px; height: 42px; font-size: 14px; }
+.st b { display: block; font-size: 13.5px; }
+.st small { display: block; font-size: 12px; color: var(--text-3); }
+.st .pill { margin-top: 5px; height: 20px; font-size: 11px; }
+.st.sel { border: 1.5px solid var(--primary); background: var(--primary-soft); box-shadow: var(--focus); }
+.st.off { opacity: 0.62; }
+.who .note { display: flex; gap: 10px; margin-top: 16px; padding: 11px 13px; border-radius: 10px; background: var(--info-soft); border: 1px solid var(--info-line); font-size: 12.5px; color: var(--text-2); }
+.who .foot { font-size: 12px; color: var(--text-3); margin-top: 12px; }
+.who .note .ic { color: var(--info); width: 17px; height: 17px; margin-top: 1px; }
+.who .note b { color: var(--text); }
+.pin { padding: 24px 28px; background: var(--surface-2); border-left: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; }
+.pin .av { width: 64px; height: 64px; font-size: 21px; }
+.pin h3 { font: 650 17px/1.2 var(--font-display); margin-top: 10px; }
+.pin p { font-size: 12.5px; color: var(--text-3); margin-top: 3px; }
+.dots { display: flex; gap: 14px; margin: 18px 0 18px; }
+.dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-strong); }
+.dots i.f { background: var(--primary); border-color: var(--primary); }
+.pad { display: grid; grid-template-columns: repeat(3, 84px); gap: 10px; }
+.pad span { height: 54px; border-radius: 12px; display: grid; place-items: center; font: 600 21px/1 var(--font-display); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.pad span .ic { width: 20px; height: 20px; color: var(--text-2); }
+.pad span.go { background: var(--grad); border: 0; color: var(--on-primary); }
+.pad span.go .ic { color: var(--on-primary); stroke-width: 2.6; }
+.pin .forgot { font-size: 12px; color: var(--text-3); margin-top: 16px; text-align: center; }
+.lock-chips { display: flex; gap: 8px; }
+.lock-chips .pill { height: 28px; padding: 0 12px; font-size: 12px; background: var(--surface); }
+.lock-chips .pill .ic { width: 14px; height: 14px; }
+
+/* viewer switcher (hidden in screenshots) */
+.switcher { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 6px; padding: 6px; border-radius: 12px; background: #0f172a; box-shadow: 0 10px 30px rgba(0,0,0,.35); font: 600 12px/1 "Segoe UI", system-ui, sans-serif; z-index: 10; }
+.switcher a { color: #cbd5e1; text-decoration: none; padding: 8px 10px; border-radius: 8px; }
+.switcher a.on { background: #0d9488; color: #fff; }
+.switcher i { width: 1px; background: #334155; margin: 4px 2px; }
+.shot .switcher { display: none; }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+<symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2" /> <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /> <circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" /> <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" /> <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" /> <path d="m2 2 20 20" /></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" /></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /> <circle cx="12" cy="7" r="4" /></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14" /> <path d="M12 5v14" /></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18" /> <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /> <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol>
+<symbol id="i-grip-vertical" viewBox="0 0 24 24"><circle cx="9" cy="5" r="1" /> <circle cx="9" cy="12" r="1" /> <circle cx="9" cy="19" r="1" /> <circle cx="15" cy="5" r="1" /> <circle cx="15" cy="12" r="1" /> <circle cx="15" cy="19" r="1" /></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
+<symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" /> <path d="M11 8v6" /> <path d="M8 11h6" /></symbol>
+<symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /> <polyline points="16 17 21 12 16 7" /> <line x1="21" x2="9" y1="12" y2="12" /></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /> <circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="i-bar-chart" viewBox="0 0 24 24"><line x1="12" x2="12" y1="20" y2="10" /> <line x1="18" x2="18" y1="20" y2="4" /> <line x1="6" x2="6" y1="20" y2="16" /></symbol>
+<symbol id="i-package" viewBox="0 0 24 24"><path d="M16.5 9.4 7.55 4.24" /> <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /> <polyline points="3.29 7 12 12 20.71 7" /> <line x1="12" x2="12" y1="22" y2="12" /></symbol>
+<symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /> <path d="M12 9v4" /> <path d="M12 17h.01" /></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="M12 16v-4" /> <path d="M12 8h.01" /></symbol>
+<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <circle cx="12" cy="12" r="6" /> <circle cx="12" cy="12" r="2" /></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /></symbol>
+<symbol id="i-cloud-sun" viewBox="0 0 24 24"><path d="M12 2v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="M20 12h2" /> <path d="m19.07 4.93-1.41 1.41" /> <path d="M15.947 12.65a4 4 0 0 0-5.925-4.128" /> <path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z" /> <path d="M2 12h2" /></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></symbol>
+<symbol id="i-trophy" viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /> <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /> <path d="M4 22h16" /> <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" /> <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /> <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" /></symbol>
+<symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" /> <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" /></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /> <path d="M21 3v5h-5" /> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /> <path d="M8 16H3v5" /></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <polyline points="7 10 12 15 17 10" /> <line x1="12" x2="12" y1="15" y2="3" /></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <polyline points="17 8 12 3 7 8" /> <line x1="12" x2="12" y1="3" y2="15" /></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /></symbol>
+<symbol id="i-clipboard" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /> <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /></symbol>
+<symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" /> <path d="M15 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 13.52 8H14" /> <circle cx="17" cy="18" r="2" /> <circle cx="7" cy="18" r="2" /></symbol>
+<symbol id="i-dollar-sign" viewBox="0 0 24 24"><line x1="12" x2="12" y1="2" y2="22" /> <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1" /> <rect width="7" height="7" x="14" y="3" rx="1" /> <rect width="7" height="7" x="14" y="14" rx="1" /> <rect width="7" height="7" x="3" y="14" rx="1" /></symbol>
+<symbol id="i-shopping-cart" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1" /> <circle cx="19" cy="21" r="1" /> <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" /></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /> <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" x2="20" y1="12" y2="12" /> <line x1="4" x2="20" y1="6" y2="6" /> <line x1="4" x2="20" y1="18" y2="18" /></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <circle cx="9" cy="7" r="4" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <path d="M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /> <path d="m3.3 7 8.7 5 8.7-5" /> <path d="M12 22V12" /></symbol>
+<symbol id="i-shopping-bag" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /> <path d="M3 6h18" /> <path d="M16 10a4 4 0 0 1-8 0" /></symbol>
+<symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /></symbol>
+<symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /> <path d="M14 2v4a2 2 0 0 0 2 2h4" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" /></symbol>
+<symbol id="i-clipboard-list" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /> <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /> <path d="M12 11h4" /> <path d="M12 16h4" /> <path d="M8 11h.01" /> <path d="M8 16h.01" /></symbol>
+<symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6" /></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
+<symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></symbol>
+<symbol id="i-more-vertical" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1" fill="currentColor" /> <circle cx="12" cy="12" r="1" fill="currentColor" /> <circle cx="12" cy="19" r="1" fill="currentColor" /></symbol>
+<symbol id="i-more-horizontal" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor" /> <circle cx="12" cy="12" r="1" fill="currentColor" /> <circle cx="19" cy="12" r="1" fill="currentColor" /></symbol>
+<symbol id="i-banknote" viewBox="0 0 24 24"><rect width="20" height="12" x="2" y="6" rx="2" /> <circle cx="12" cy="12" r="2" /> <path d="M6 12h.01M18 12h.01" /></symbol>
+<symbol id="i-credit-card" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2" /> <path d="M2 10h20" /></symbol>
+<symbol id="i-smartphone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" /> <path d="M12 18h.01" /></symbol>
+<symbol id="i-split" viewBox="0 0 24 24"><path d="M16 3h5v5" /> <path d="M8 3H3v5" /> <path d="M21 3 3 21" /> <path d="m14 15 7 6" /> <path d="M16 21h5v-5" /></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1" /> <rect x="14" y="4" width="4" height="16" rx="1" /></symbol>
+<symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /> <path d="M3 3v5h5" /></symbol>
+<symbol id="i-printer" viewBox="0 0 24 24"><path d="M6 9V2h12v7" /> <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /> <rect x="6" y="14" width="12" height="8" rx="1" /></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /> <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" /> <path d="M7 3v4a1 1 0 0 0 1 1h7" /></symbol>
+<symbol id="i-keyboard" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2" /> <path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M8 13h8" /></symbol>
+<symbol id="i-pill" viewBox="0 0 24 24"><path d="m10.5 20.5-7-7a4.95 4.95 0 0 1 7-7l7 7a4.95 4.95 0 0 1-7 7Z" /> <path d="m8.5 8.5 7 7" /></symbol>
+<symbol id="i-stethoscope" viewBox="0 0 24 24"><path d="M11 2v2a4 4 0 0 1-8 0V2" /> <path d="M7 8v3a6 6 0 0 0 12 0V9" /> <circle cx="19" cy="7" r="2" /></symbol>
+<symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2.5-1.5L9 22l2.5-1.5L14 22l2.5-1.5L19 22V2l-2.5 1.5L14 2l-2.5 1.5L9 2 6.5 3.5 4 2Z" /> <path d="M8 8h8M8 12h6" /></symbol>
+<symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1" /> <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" /> <path d="M10 12h4" /></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4" /> <path d="M9.5 9.5 7 7M17 17l-2.5-2.5M14.5 9.5 17 7M7 17l2.5-2.5" /></symbol>
+<symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-corner-down-left" viewBox="0 0 24 24"><path d="m9 10-5 5 5 5" /> <path d="M20 4v7a4 4 0 0 1-4 4H4" /></symbol>
+<symbol id="i-barcode-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2" /> <path d="M17 3h2a2 2 0 0 1 2 2v2" /> <path d="M21 17v2a2 2 0 0 1-2 2h-2" /> <path d="M7 21H5a2 2 0 0 1-2-2v-2" /> <path d="M7 8v8" /> <path d="M10 8v8" /> <path d="M13 8v5" /> <path d="M16 8v8" /> <path d="M4 12h16" stroke-dasharray="2 2" /></symbol>
+<symbol id="i-user-plus" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <circle cx="9" cy="7" r="4" /> <path d="M19 8v6" /> <path d="M22 11h-6" /></symbol>
+<symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3Z" /></symbol>
+<symbol id="i-headset" viewBox="0 0 24 24"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" /></symbol>
+<symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /> <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" /></symbol>
+<symbol id="i-baby" viewBox="0 0 24 24"><path d="M10 2h4" /> <path d="M11 2v3.34a4 4 0 0 1-1.53 3.14A4 4 0 0 0 8 11.62V20a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-8.38a4 4 0 0 0-1.47-3.14A4 4 0 0 1 13 5.34V2" /> <path d="M8 15h8" /></symbol>
+<symbol id="i-droplet" viewBox="0 0 24 24"><path d="M12 2.69s-6 6.4-6 10.53a6 6 0 0 0 12 0c0-4.13-6-10.53-6-10.53Z" /></symbol>
+<symbol id="i-first-aid" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4" /> <path d="M12 8v8M8 12h8" /></symbol>
+<symbol id="i-coffee" viewBox="0 0 24 24"><path d="M17 8h1a4 4 0 1 1 0 8h-1" /> <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" /> <path d="M6 2v2M10 2v2M14 2v2" /></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /> <path d="M9 22V12h6v10" /></symbol>
+<symbol id="i-map-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /> <circle cx="12" cy="10" r="3" /></symbol>
+<symbol id="i-maximize" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3" /> <path d="M21 8V5a2 2 0 0 0-2-2h-3" /> <path d="M3 16v3a2 2 0 0 0 2 2h3" /> <path d="M16 21h3a2 2 0 0 0 2-2v-3" /></symbol>
+<symbol id="i-minimize" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3" /> <path d="M21 8h-3a2 2 0 0 1-2-2V3" /> <path d="M3 16h3a2 2 0 0 1 2 2v3" /> <path d="M16 21v-3a2 2 0 0 1 2-2h3" /></symbol>
+<symbol id="i-focus" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2" /> <path d="M17 3h2a2 2 0 0 1 2 2v2" /> <path d="M21 17v2a2 2 0 0 1-2 2h-2" /> <path d="M7 21H5a2 2 0 0 1-2-2v-2" /> <circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+<symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+<symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></symbol>
+<symbol id="i-package-check" viewBox="0 0 24 24"><path d="m16 16 2 2 4-4"/><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="m7.5 4.27 9 5.15"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/></symbol>
+<symbol id="i-arrow-left-right" viewBox="0 0 24 24"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></symbol>
+<symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="i-thermometer" viewBox="0 0 24 24"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></symbol>
+<symbol id="i-backspace" viewBox="0 0 24 24"><path d="M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Z"/><line x1="18" x2="12" y1="9" y2="15"/><line x1="12" x2="18" y1="9" y2="15"/></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></symbol>
+<symbol id="i-book-open" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+</svg>
+<div class="win">
+  <!-- Title bar: who and where this counter is, connection, clock, Windows controls -->
+  <header class="titlebar">
+    <div class="brand">
+      <span class="logo"><svg viewBox="0 0 24 24"><path d="M9.5 3h5a1 1 0 0 1 1 1v4.5H20a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-4.5V20a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-4.5H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h4.5V4a1 1 0 0 1 1-1z"/></svg></span>
+      PharmaCeylon <span class="tag-pos">POS</span>
+    </div>
+    <span class="tb-sep"></span>
+    <div class="tb-where" data-not="rxq"><svg class="ic"><use href="#i-map-pin"/></svg><b>Kollupitiya</b> · Counter 2</div>
+    <div class="tb-where" data-only="rxq"><svg class="ic"><use href="#i-map-pin"/></svg><b>Kollupitiya</b> · Dispensary</div>
+    <div class="grow"></div>
+    <div class="conn"><span class="dot"></span>Online <em>· synced 8 s ago</em></div>
+    <span class="tb-icon"><svg class="ic"><use href="#i-bell"/></svg><span class="pip"></span></span>
+    <div class="tb-clock">Sun 1 Nov · 14:32</div>
+    <div class="winctl">
+      <span><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></span>
+      <span><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" rx="1"/></svg></span>
+      <span><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></span>
+    </div>
+  </header>
+
+  <div class="frame">
+    <!-- Navigation rail -->
+    <nav class="rail">
+      <div class="ri" data-nav="sell"><svg class="ic"><use href="#i-shopping-cart"/></svg>Sell</div>
+      <!-- Dispense exists only in approach B (pharmacist queue), deferred; approach A keeps prescriptions inside Sell. -->
+      <div class="ri" data-nav="rx" data-only="rxq"><svg class="ic"><use href="#i-pill"/></svg>Dispense<span class="badge">5</span></div>
+      <div class="ri" data-nav="returns"><svg class="ic"><use href="#i-rotate-ccw"/></svg>Returns</div>
+      <div class="rail-sep"></div>
+      <div class="ri" data-nav="work"><svg class="ic"><use href="#i-inbox"/></svg>Counter work<span class="badge">7</span></div>
+      <div class="ri" data-nav="stock"><svg class="ic"><use href="#i-clipboard-list"/></svg>Stock</div>
+      <div class="ri" data-nav="cash"><svg class="ic"><use href="#i-wallet"/></svg>Cash &amp; shift</div>
+      <div class="rail-bottom">
+        <div class="ri" data-nav="counter"><svg class="ic"><use href="#i-monitor"/></svg>This counter</div>
+        <div class="ri" data-nav="lock"><svg class="ic"><use href="#i-lock"/></svg>Lock</div>
+        <div class="me" data-not="rxq"><span class="av" style="--c: var(--t-teal)">SR</span><i></i></div>
+        <div class="me" data-only="rxq"><span class="av" style="--c: var(--t-violet)">DW</span><i></i></div>
+      </div>
+    </nav>
+
+    <main class="content">
+
+      <!-- ================= SELL ================= -->
+      <section class="screen sell">
+        <!-- Find -->
+        <div class="panel find">
+          <div class="find-top">
+            <div class="search">
+              <svg class="ic"><use href="#i-barcode-scan"/></svg>
+              <span class="typed">amox<span class="caret"></span></span>
+              <kbd>F6</kbd>
+            </div>
+            <div class="chips">
+              <span class="chip on">All</span>
+              <span class="chip">In stock</span>
+              <span class="chip">Prescription</span>
+              <span class="chip">OTC</span>
+              <span class="chip">Favourites</span>
+            </div>
+          </div>
+          <div class="res-head"><span>7 matches</span><span class="hint"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> add</span></div>
+          <ul class="results">
+            <li class="res sel">
+              <div class="res-main">
+                <div class="res-name"><span><mark>Amox</mark>icillin 500mg Capsules</span><span class="rx">Rx</span></div>
+                <div class="res-meta">Generic · per capsule · expiry 03/2027</div>
+              </div>
+              <div class="res-side"><div class="price">Rs 18.50<small>/cap</small></div><div class="stock ok">340 in stock</div></div>
+              <span class="enter"><svg class="ic"><use href="#i-corner-down-left"/></svg></span>
+            </li>
+            <li class="res">
+              <div class="res-main">
+                <div class="res-name"><span><mark>Amox</mark>icillin 250mg Capsules</span><span class="rx">Rx</span></div>
+                <div class="res-meta">Generic · per capsule · expiry 09/2027</div>
+              </div>
+              <div class="res-side"><div class="price">Rs 11.00<small>/cap</small></div><div class="stock ok">120 in stock</div></div>
+            </li>
+            <li class="res">
+              <div class="res-main">
+                <div class="res-name"><span>Augmentin 625mg Tablets</span><span class="rx">Rx</span></div>
+                <div class="res-meta"><mark>Amox</mark>icillin + clavulanic acid · pack of 14</div>
+              </div>
+              <div class="res-side"><div class="price">Rs 145.00<small>/tab</small></div><div class="stock ok">48 in stock</div></div>
+            </li>
+            <li class="res">
+              <div class="res-main">
+                <div class="res-name"><span><mark>Amox</mark>icillin 125mg/5ml Syrup</span><span class="rx">Rx</span></div>
+                <div class="res-meta">Suspension · 100 ml bottle · expiry 02/2027</div>
+              </div>
+              <div class="res-side"><div class="price">Rs 420.00<small>/btl</small></div><div class="stock warn">6 left</div></div>
+            </li>
+            <li class="res">
+              <div class="res-main">
+                <div class="res-name"><span><mark>Amox</mark>il 500mg Capsules</span><span class="rx">Rx</span></div>
+                <div class="res-meta">Brand · GSK · per capsule · expiry 11/2027</div>
+              </div>
+              <div class="res-side"><div class="price">Rs 32.00<small>/cap</small></div><div class="stock ok">90 in stock</div></div>
+            </li>
+            <li class="res">
+              <div class="res-main">
+                <div class="res-name"><span>Co-<mark>amox</mark>iclav 375mg Tablets</span><span class="rx">Rx</span></div>
+                <div class="res-meta">Generic · pack of 15 · expiry 07/2027</div>
+              </div>
+              <div class="res-side"><div class="price">Rs 68.00<small>/tab</small></div><div class="stock ok">75 in stock</div></div>
+            </li>
+            <li class="res dim">
+              <div class="res-main">
+                <div class="res-name"><span><mark>Amox</mark>icillin 250mg Dispersible</span><span class="rx">Rx</span></div>
+                <div class="res-meta">Bambalapitiya has 30 · request a transfer</div>
+              </div>
+              <div class="res-side"><div class="price">Rs 14.00<small>/tab</small></div><div class="stock none">Out of stock</div></div>
+            </li>
+          </ul>
+          <div class="quick">
+            <div class="sub-h">Quick keys <span>Ctrl + 1–6</span></div>
+            <div class="qgrid">
+              <div class="qk"><span class="qi" style="--c: var(--t-teal)"><svg class="ic"><use href="#i-pill"/></svg></span><div><b>Panadol 500mg</b><small>Strip of 12 · Rs 96.00</small></div></div>
+              <div class="qk"><span class="qi" style="--c: var(--t-violet)"><svg class="ic"><use href="#i-pill"/></svg></span><div><b>Piriton 4mg</b><small>Strip of 10 · Rs 42.00</small></div></div>
+              <div class="qk"><span class="qi" style="--c: var(--t-cyan)"><svg class="ic"><use href="#i-droplet"/></svg></span><div><b>Jeevanee ORS</b><small>Sachet · Rs 35.00</small></div></div>
+              <div class="qk"><span class="qi" style="--c: var(--t-emerald)"><svg class="ic"><use href="#i-leaf"/></svg></span><div><b>Siddhalepa Balm</b><small>25 g · Rs 360.00</small></div></div>
+              <div class="qk"><span class="qi" style="--c: var(--t-amber)"><svg class="ic"><use href="#i-coffee"/></svg></span><div><b>Link Samahan</b><small>Sachet · Rs 30.00</small></div></div>
+              <div class="qk"><span class="qi" style="--c: var(--t-rose)"><svg class="ic"><use href="#i-first-aid"/></svg></span><div><b>Dettol 250 ml</b><small>Bottle · Rs 690.00</small></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ticket -->
+        <div class="panel ticket">
+          <div class="ph">
+            <h2>Current sale</h2><span class="mono muted">T2-1101-0057</span>
+            <span class="grow"></span>
+            <span class="btn ghost"><svg class="ic"><use href="#i-pause"/></svg>Hold <kbd>F8</kbd></span>
+            <span class="btn ghost"><svg class="ic"><use href="#i-archive"/></svg>Held <span class="count">3</span></span>
+            <span class="btn ghost icon"><svg class="ic"><use href="#i-more-horizontal"/></svg></span>
+          </div>
+          <div class="cust">
+            <span class="av" style="--c: var(--t-rose)">NP</span>
+            <div><b>Nimali Perera</b><small>077 412 3398 · 2 prescriptions on file</small></div>
+            <span class="grow"></span>
+            <span class="btn sm outline">Change customer <kbd>F7</kbd></span>
+          </div>
+          <div class="thead"><span>#</span><span>Item</span><span class="c">Qty</span><span class="r">Price</span><span class="r">Amount</span></div>
+          <div class="lines">
+            <div class="ln">
+              <span class="n">1</span>
+              <div><div class="nm">Panadol 500mg Tablets</div><div class="mt"><span class="t">Strip of 12 · Batch PN2409 · Exp 08/2027</span></div></div>
+              <div class="qty">2 <small>strips</small></div>
+              <span class="pr r">96.00</span><span class="am r">192.00</span>
+            </div>
+            <div class="ln sel">
+              <span class="n">2</span>
+              <div><div class="nm">Amoxicillin 500mg Capsules</div><div class="mt"><span class="rx">Rx</span><span class="pill ok" data-not="rxa"><svg class="ic"><use href="#i-check"/></svg>Verified</span><span class="pill rxp" data-only="rxa">Needs prescription</span><span class="t">Batch AMX-5512 · Exp 03/2027</span></div></div>
+              <div class="qty"><span class="stepper"><span><svg class="ic"><use href="#i-minus"/></svg></span><b>21</b><span><svg class="ic"><use href="#i-plus"/></svg></span></span></div>
+              <span class="pr r">18.50</span><span class="am r">388.50</span>
+            </div>
+            <div class="ln">
+              <span class="n">3</span>
+              <div><div class="nm">Omeprazole 20mg Capsules</div><div class="mt"><span class="rx">Rx</span><span class="pill ok" data-not="rxa"><svg class="ic"><use href="#i-check"/></svg>Verified</span><span class="pill rxp" data-only="rxa">Needs prescription</span><span class="t">Batch OM-2207 · Exp 06/2027</span></div></div>
+              <div class="qty">14 <small>caps</small></div>
+              <span class="pr r">22.00</span><span class="am r">308.00</span>
+            </div>
+            <div class="ln">
+              <span class="n">4</span>
+              <div><div class="nm">Redoxon Vitamin C 1000mg Effervescent</div><div class="mt"><span class="pill info"><svg class="ic"><use href="#i-tag"/></svg>Promo −10%</span><span class="t">Tube of 10 · Exp 01/2028</span></div></div>
+              <div class="qty">1 <small>tube</small></div>
+              <span class="pr r">1,250.00</span><span class="am r"><span class="was">1,250.00</span>1,125.00</span>
+            </div>
+            <div class="ln">
+              <span class="n">5</span>
+              <div><div class="nm">Siddhalepa Ayurveda Balm 25 g</div><div class="mt"><span class="t">Jar · Batch SB-1180 · Exp 05/2028</span></div></div>
+              <div class="qty">1 <small>jar</small></div>
+              <span class="pr r">360.00</span><span class="am r">360.00</span>
+            </div>
+            <div class="ln">
+              <span class="n">6</span>
+              <div><div class="nm">Jeevanee ORS Sachet</div><div class="mt"><span class="t">Sachet · Batch JV-0412 · Exp 10/2027</span></div></div>
+              <div class="qty">4 <small>sachets</small></div>
+              <span class="pr r">35.00</span><span class="am r">140.00</span>
+            </div>
+            <div class="ln">
+              <span class="n">7</span>
+              <div><div class="nm">Cetirizine 10mg Tablets</div><div class="mt"><span class="t">Loose tablets · Batch CTZ-1088 · Exp 12/2027</span></div></div>
+              <div class="qty">10 <small>tabs</small></div>
+              <span class="pr r">8.00</span><span class="am r">80.00</span>
+            </div>
+            <div class="ln">
+              <span class="n">8</span>
+              <div><div class="nm">Surgical Face Mask, 3-ply</div><div class="mt"><span class="t">Single · Batch FM-3301</span></div></div>
+              <div class="qty">5 <small>masks</small></div>
+              <span class="pr r">25.00</span><span class="am r">125.00</span>
+            </div>
+          </div>
+          <div class="ticket-foot">
+            <span><b>8</b> lines · <b>58</b> units</span>
+            <div class="keys">
+              <span><kbd>+</kbd><kbd>−</kbd> qty</span>
+              <span><kbd>Del</kbd> remove</span>
+              <span><kbd>F9</kbd> discount</span>
+              <span><kbd>F10</kbd> pharmacist</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pay -->
+        <div class="panel pay">
+          <div>
+            <div class="due-l">Total to pay</div>
+            <div class="due-v"><small>Rs</small>2,718.50</div>
+            <dl class="brk">
+              <dt>Subtotal</dt><dd>2,843.50</dd>
+              <dt>Promotions</dt><dd class="neg">−125.00</dd>
+            </dl>
+          </div>
+          <div class="cosign">
+            <svg class="ic"><use href="#i-shield-check"/></svg>
+            <div><b>Prescription items verified</b><small>Dilshan W., pharmacist · co-signed 14:29</small></div>
+          </div>
+          <div class="methods">
+            <span class="m on"><svg class="ic"><use href="#i-banknote"/></svg>Cash</span>
+            <span class="m"><svg class="ic"><use href="#i-credit-card"/></svg>Card</span>
+            <span class="m"><svg class="ic"><use href="#i-split"/></svg>Split</span>
+          </div>
+          <div>
+            <div class="fld-l">Cash received <kbd>Num</kbd></div>
+            <div class="money-in"><small>Rs</small>3,000.00<span class="caret"></span></div>
+            <div class="tender"><span>Exact</span><span>2,800</span><span class="on">3,000</span><span>5,000</span></div>
+          </div>
+          <div class="change"><span>Change to give</span><b>Rs 281.50</b></div>
+          <div class="extras">
+            <span><svg class="ic"><use href="#i-tag"/></svg>Discount <kbd>F9</kbd></span>
+            <span><svg class="ic"><use href="#i-edit"/></svg>Note</span>
+            <span><svg class="ic"><use href="#i-receipt"/></svg>Last receipt</span>
+          </div>
+          <div class="pay-actions">
+            <div class="rcpt"><span class="toggle"></span><div>Print receipt<small>EPSON TM-T82III · 80 mm</small></div><span class="toggle" style="margin-left:auto"></span><div>Rx labels<small>2 labels</small></div></div>
+            <span class="btn primary xl"><svg class="ic" style="width:20px;height:20px"><use href="#i-check-circle"/></svg>Complete sale <kbd>F12</kbd></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= COUNTER WORK ================= -->
+      <section class="screen work">
+        <div class="page-h">
+          <div>
+            <h1>Counter work</h1>
+            <p>Approved on the web and waiting for this branch. Stock and cash only move when you finish it here.</p>
+          </div>
+          <div class="seg">
+            <span class="on">All <i>7</i></span>
+            <span>Receive <i>2</i></span>
+            <span>Transfers <i>2</i></span>
+            <span>Refunds <i>1</i></span>
+            <span>Stock <i>2</i></span>
+          </div>
+        </div>
+        <div class="work-body">
+          <div class="queue">
+            <div class="qcard sel">
+              <span class="kind" style="--c: var(--t-teal)"><svg class="ic"><use href="#i-package-check"/></svg></span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Receive goods</b><span class="mono">PO-2026-0187</span><span class="when">13:50</span></div>
+                <div class="qc-desc">Hemas Pharmaceuticals · 12 lines · Rs 184,320.00</div>
+                <div class="qc-foot"><span class="pill ok">Delivery is here</span><span class="by">Approved by Dilini F.</span></div>
+              </div>
+            </div>
+            <div class="qcard">
+              <span class="kind" style="--c: var(--t-cyan)"><svg class="ic"><use href="#i-arrow-left-right"/></svg></span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Transfer in</b><span class="mono">TR-0093</span><span class="when">12:15</span></div>
+                <div class="qc-desc">From Bambalapitiya · 6 lines</div>
+                <div class="qc-foot"><span class="pill info">On the way</span><span class="by">Dispatched by Ashan K.</span></div>
+              </div>
+            </div>
+            <div class="qcard">
+              <span class="kind" style="--c: var(--t-rose)"><svg class="ic"><use href="#i-rotate-ccw"/></svg></span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Refund</b><span class="mono">RF-0031</span><span class="when">11:40</span></div>
+                <div class="qc-desc">Sale INV-T1-1031-0412 · Rs 1,840.00 back to card</div>
+                <div class="qc-foot"><span class="pill warn">Inspect returned goods</span><span class="by">Authorized by Dilini F.</span></div>
+              </div>
+            </div>
+            <div class="qcard">
+              <span class="kind" style="--c: var(--t-indigo)"><svg class="ic"><use href="#i-upload"/></svg></span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Transfer out</b><span class="mono">TR-0095</span><span class="when">10:05</span></div>
+                <div class="qc-desc">To Nugegoda · 4 lines · pick and dispatch</div>
+                <div class="qc-foot"><span class="pill neutral">Ready to pick</span><span class="by">Approved by Ruwan P.</span></div>
+              </div>
+            </div>
+            <div class="qcard">
+              <span class="kind" style="--c: var(--t-amber)"><svg class="ic"><use href="#i-alert-triangle"/></svg></span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Write-off</b><span class="mono">WO-0018</span><span class="when">09:30</span></div>
+                <div class="qc-desc">3 expired batches · Rs 6,210.00 at cost</div>
+                <div class="qc-foot"><span class="pill warn">Quarantine, then write off</span><span class="by">Approved by Dilini F.</span></div>
+              </div>
+            </div>
+            <div class="qcard">
+              <span class="kind" style="--c: var(--t-emerald)"><svg class="ic"><use href="#i-clipboard-list"/></svg></span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Stocktake</b><span class="mono">ST-0009</span><span class="when">Yesterday</span></div>
+                <div class="qc-desc">Aisle B · analgesics · counted on phones by 3 people</div>
+                <div class="qc-foot"><span class="pill info">Count open · 142 of 380 lines</span><span class="by">Submit here</span></div>
+              </div>
+            </div>
+            <div class="qcard">
+              <span class="kind" style="--c: var(--t-teal)"><svg class="ic"><use href="#i-package-check"/></svg></span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Receive goods</b><span class="mono">PO-2026-0191</span><span class="when">Due today</span></div>
+                <div class="qc-desc">Sunshine Healthcare · 5 lines · Rs 42,775.00</div>
+                <div class="qc-foot"><span class="pill neutral">Expected this afternoon</span><span class="by">Approved by Dilini F.</span></div>
+              </div>
+            </div>
+            <div class="q-done"><svg class="ic"><use href="#i-check-circle"/></svg>Done at this counter today · 4<span>Show</span></div>
+          </div>
+
+          <div class="panel detail">
+            <div class="dh">
+              <span class="kind" style="--c: var(--t-teal)"><svg class="ic"><use href="#i-package-check"/></svg></span>
+              <div>
+                <div class="eyebrow">Receive goods</div>
+                <h2>PO-2026-0187 · Hemas Pharmaceuticals</h2>
+                <div class="meta">
+                  <span><svg class="ic"><use href="#i-file-text"/></svg>Invoice HPL-88412</span>
+                  <span><svg class="ic"><use href="#i-package"/></svg>12 lines</span>
+                  <span><svg class="ic"><use href="#i-dollar-sign"/></svg>Rs 184,320.00</span>
+                </div>
+              </div>
+              <div class="right">
+                <span class="pill brand"><svg class="ic"><use href="#i-check"/></svg>Approved — waiting at the counter</span>
+                <span class="btn sm outline"><svg class="ic"><use href="#i-printer"/></svg>Print checklist</span>
+              </div>
+            </div>
+
+            <div class="trail">
+              <div class="step done">
+                <span class="dotc"><svg class="ic"><use href="#i-check"/></svg></span>
+                <div><div class="sl">Requested</div><b>Kasun Jayasinghe</b><small>Purchasing · web · 29 Oct, 09:12</small></div>
+              </div>
+              <div class="step done">
+                <span class="dotc"><svg class="ic"><use href="#i-check"/></svg></span>
+                <div><div class="sl">Approved · v3</div><b>Dilini Fernando</b><small>Branch manager · web · 29 Oct, 10:40</small></div>
+              </div>
+              <div class="step now">
+                <span class="dotc"><svg class="ic"><use href="#i-package-check"/></svg></span>
+                <div><div class="sl">Receiving</div><b>You · Sachini Rathnayake</b><small>Counter 2 · at the counter · now</small></div>
+              </div>
+            </div>
+            <div class="trail-note"><svg class="ic"><use href="#i-shield-check"/></svg>Matches the approved version — nothing has changed since approval.</div>
+
+            <div class="scanbar"><svg class="ic"><use href="#i-barcode-scan"/></svg>Scan a pack or carton to jump to its line<kbd>F6</kbd></div>
+
+            <div class="gtable">
+              <div class="gr h"><span>Product</span><span class="c">Ordered</span><span class="c">Received</span><span>Batch</span><span>Expiry</span><span>Check</span></div>
+              <div class="gr">
+                <div><div class="pn">Panadol 500mg Tablets</div><div class="ps">Box of 96 × 12s</div></div>
+                <span class="ord">20</span><span class="cell num">20</span><span class="cell">PN2410</span><span class="cell">09/2028</span>
+                <span><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Checked</span></span>
+              </div>
+              <div class="gr">
+                <div><div class="pn">Amoxicillin 500mg Capsules</div><div class="ps">Pack of 100</div></div>
+                <span class="ord">15</span><span class="cell num">15</span><span class="cell">AMX-5530</span><span class="cell">04/2028</span>
+                <span><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Checked</span></span>
+              </div>
+              <div class="gr">
+                <div><div class="pn">Augmentin 625mg Tablets</div><div class="ps">Pack of 14</div></div>
+                <span class="ord">10</span><span class="cell num warn">8</span><span class="cell">AUG-7781</span><span class="cell">12/2027</span>
+                <span><span class="pill warn"><svg class="ic"><use href="#i-alert-triangle"/></svg>2 short · noted</span></span>
+              </div>
+              <div class="gr">
+                <div><div class="pn">Lantus SoloStar 100 IU/ml pen</div><div class="ps">Box of 5 · keep at 2–8 °C</div></div>
+                <span class="ord">5</span><span class="cell num">5</span><span class="cell">LN-0921</span><span class="cell">06/2027</span>
+                <span><span class="pill info"><svg class="ic"><use href="#i-thermometer"/></svg>Cold chain · 4 °C</span></span>
+              </div>
+              <div class="gr">
+                <div><div class="pn">Cetirizine 10mg Tablets</div><div class="ps">Pack of 100</div></div>
+                <span class="ord">30</span><span class="cell num">30</span><span class="cell">CTZ-1102</span><span class="cell">02/2028</span>
+                <span><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Checked</span></span>
+              </div>
+              <div class="gr sel">
+                <div><div class="pn">Losartan 50mg Tablets</div><div class="ps">Pack of 100</div></div>
+                <span class="ord">20</span><span class="cell num focus">20<span class="caret"></span></span><span class="cell empty">Batch no.</span><span class="cell empty">MM/YYYY</span>
+                <span><span class="pill neutral">To check</span></span>
+              </div>
+              <div class="gr more"><span>6 more lines · 4 checked, 2 to check</span><span></span><span></span><span></span><span></span><span style="text-align:right">Show all</span></div>
+            </div>
+
+            <div class="notes">
+              <div class="nt"><svg class="ic"><use href="#i-mail"/></svg><div><b>Note from Dilini F.</b> “Lantus goes straight into the fridge. Augmentin may come short: accept it, I'll chase Hemas.”<small>Added on the web · 29 Oct, 10:41</small></div></div>
+              <div class="nt"><svg class="ic"><use href="#i-file-text"/></svg><div><b>Documents</b><small>Attached on the web</small><div class="docs"><span class="pill neutral">Invoice HPL-88412.pdf</span><span class="pill neutral">Delivery note</span></div></div></div>
+            </div>
+
+            <div class="dfoot">
+              <div class="prog">
+                <div class="prog-l"><span><b>9 of 12</b> lines checked</span><span>75%</span></div>
+                <div class="bar"><i></i></div>
+              </div>
+              <span class="grow"></span>
+              <span class="btn ghost lg"><svg class="ic"><use href="#i-alert-triangle"/></svg>Report a problem</span>
+              <span class="btn outline lg"><svg class="ic"><use href="#i-save"/></svg>Save, finish later</span>
+              <span class="btn primary lg"><svg class="ic"><use href="#i-package-check"/></svg>Post receiving <kbd>Ctrl ↵</kbd></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= RETURNS ================= -->
+      <section class="screen returns">
+        <!-- Find the sale -->
+        <div class="panel ret-find">
+          <div class="ph"><h2>Returns</h2><span class="grow"></span><span class="pill neutral">Online only</span></div>
+          <div class="seg">
+            <span class="on">Find a sale</span>
+            <span>From web <i>1</i></span>
+            <span>Today <i>3</i></span>
+          </div>
+          <div class="search">
+            <svg class="ic"><use href="#i-barcode-scan"/></svg>
+            <span class="typed mono">INV-T1-1029-0188</span>
+            <kbd>F6</kbd>
+          </div>
+          <div class="hint-l">Scan the barcode on the receipt, or type the invoice number.</div>
+          <div class="chips">
+            <span class="chip">Customer phone</span>
+            <span class="chip">Date and amount</span>
+            <span class="chip">Recent at this branch</span>
+          </div>
+
+          <div class="found">
+            <div class="found-top"><svg class="ic"><use href="#i-check-circle"/></svg><b>Sale found</b><span class="mono">INV-T1-1029-0188</span></div>
+            <dl>
+              <dt>Sold</dt><dd>Thu 29 Oct · 16:42</dd>
+              <dt>Where</dt><dd>Counter 1 · Kasun J.</dd>
+              <dt>Paid</dt><dd>Card · Visa •• 4417</dd>
+              <dt>Total</dt><dd>Rs 6,992.00 · 5 lines</dd>
+              <dt>Returns</dt><dd>1 earlier, on 30 Oct</dd>
+            </dl>
+            <div class="who-row">
+              <span class="av" style="--c: var(--t-amber)">RJ</span>
+              <div><b>Ruwan Jayawardena</b><small>071 482 0937 · customer since 2024</small></div>
+            </div>
+          </div>
+
+          <div class="web-card">
+            <span class="kind" style="--c: var(--t-rose)"><svg class="ic"><use href="#i-rotate-ccw"/></svg></span>
+            <div><b>RF-0031 prepared on the web</b><small>Rs 1,840.00 back to card · authorized by Dilini F.</small></div>
+            <span class="go"><svg class="ic"><use href="#i-chevron-right"/></svg></span>
+          </div>
+
+          <div class="rules">
+            <div><svg class="ic"><use href="#i-info"/></svg><span>Prescription and controlled items go to quarantine for a pharmacist to inspect.</span></div>
+            <div><svg class="ic"><use href="#i-info"/></svg><span>Refunds over Rs 5,000.00 need a manager's PIN here, or approval on the web.</span></div>
+          </div>
+        </div>
+
+        <!-- Lines to return -->
+        <div class="panel ticket">
+          <div class="ph">
+            <h2>Items to return</h2><span class="mono muted">INV-T1-1029-0188</span>
+            <span class="grow"></span>
+            <span class="btn ghost"><svg class="ic"><use href="#i-receipt"/></svg>View receipt</span>
+            <span class="btn ghost"><svg class="ic"><use href="#i-rotate-ccw"/></svg>Return everything</span>
+          </div>
+          <div class="cust">
+            <span class="av" style="--c: var(--t-amber)">RJ</span>
+            <div><b>Ruwan Jayawardena</b><small>Bought 29 Oct, 3 days ago · paid by card</small></div>
+            <span class="grow"></span>
+            <span class="pill info">Back to the original card</span>
+          </div>
+          <div class="thead r6"><span>#</span><span>Item</span><span class="c">Sold</span><span class="c">Return</span><span>Condition</span><span class="r">Refund</span></div>
+          <div class="lines">
+            <div class="ln r6 sel">
+              <span class="n">1</span>
+              <div><div class="nm">Accu-Chek Active Strips ×50</div><div class="mt"><span class="pill ok">Sealed</span><span class="t">ACA-2210 · Exp 05/2027</span></div></div>
+              <div class="sold">1<small>box</small></div>
+              <div class="qty"><span class="stepper"><span><svg class="ic"><use href="#i-minus"/></svg></span><b>1</b><span><svg class="ic"><use href="#i-plus"/></svg></span></span></div>
+              <div><span class="cond"><span class="on ok"><svg class="ic"><use href="#i-check"/></svg>Restock</span><span>Quarantine</span></span></div>
+              <span class="am r">4,850.00</span>
+            </div>
+            <div class="ln r6">
+              <span class="n">2</span>
+              <div><div class="nm">Softclix Lancets ×25</div><div class="mt"><span class="pill warn">Box opened</span><span class="t">SCL-0874 · Exp 09/2028</span></div></div>
+              <div class="sold">1<small>box</small></div>
+              <div class="qty"><span class="stepper calm"><span><svg class="ic"><use href="#i-minus"/></svg></span><b>1</b><span><svg class="ic"><use href="#i-plus"/></svg></span></span></div>
+              <div><span class="cond"><span>Restock</span><span class="on q"><svg class="ic"><use href="#i-alert-triangle"/></svg>Quarantine</span></span></div>
+              <span class="am r">1,450.00</span>
+            </div>
+            <div class="ln r6 off">
+              <span class="n">3</span>
+              <div><div class="nm">Losartan 50mg Tablets</div><div class="mt"><span class="rx">Rx</span><span class="t">LS-4410 · Exp 01/2028</span></div></div>
+              <div class="sold">30<small>tabs</small></div>
+              <div class="qty"><span class="zero">0</span></div>
+              <div><span class="cond na">Quarantine if returned</span></div>
+              <span class="am r">—</span>
+            </div>
+            <div class="ln r6 off">
+              <span class="n">4</span>
+              <div><div class="nm">Jeevanee ORS Sachet</div><div class="mt"><span class="t">JV-0412 · Exp 10/2027</span></div></div>
+              <div class="sold">4<small>sachets</small></div>
+              <div class="qty"><span class="zero">0</span></div>
+              <div><span class="cond na">—</span></div>
+              <span class="am r">—</span>
+            </div>
+            <div class="ln r6 off">
+              <span class="n">5</span>
+              <div><div class="nm">Panadol 500mg Tablets</div><div class="mt"><span class="pill neutral">Refunded 30 Oct</span></div></div>
+              <div class="sold">2<small>strips</small></div>
+              <div class="qty"><span class="zero">None left</span></div>
+              <div><span class="cond na">—</span></div>
+              <span class="am r">—</span>
+            </div>
+          </div>
+          <div class="ticket-foot">
+            <span><b>2</b> items · <b>2</b> units coming back</span>
+            <div class="keys">
+              <span><kbd>+</kbd><kbd>−</kbd> qty</span>
+              <span><kbd>R</kbd> restock</span>
+              <span><kbd>Q</kbd> quarantine</span>
+              <span><kbd>A</kbd> all</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Refund -->
+        <div class="panel refund">
+          <div>
+            <div class="due-l">Refund to customer</div>
+            <div class="due-v"><small>Rs</small>6,300.00</div>
+            <dl class="brk">
+              <dt>Test strips ×1</dt><dd>4,850.00</dd>
+              <dt>Lancets ×1</dt><dd>1,450.00</dd>
+            </dl>
+          </div>
+          <div class="f">
+            <label>Reason</label>
+            <div class="in">Wrong item<svg class="ic"><use href="#i-chevron-down"/></svg></div>
+          </div>
+          <div class="f">
+            <label>Note <span>optional</span></label>
+            <div class="in">His meter needs Accu-Chek Instant strips.</div>
+          </div>
+          <div>
+            <div class="fld-l">Refund by</div>
+            <div class="methods two">
+              <span class="m on"><svg class="ic"><use href="#i-credit-card"/></svg><span>Card<small>Visa •• 4417, as paid</small></span></span>
+              <span class="m"><svg class="ic"><use href="#i-banknote"/></svg><span>Cash<small>From the drawer</small></span></span>
+            </div>
+          </div>
+          <div class="appr">
+            <div class="appr-h"><svg class="ic"><use href="#i-shield-check"/></svg>Over the Rs 5,000.00 refund limit</div>
+            <div class="appr-row">
+              <span class="av" style="--c: var(--t-blue)">DF</span>
+              <div><b>Dilini Fernando</b><small>Branch manager · ready on this counter</small></div>
+              <span class="grow"></span>
+              <div class="dots sm"><i class="f"></i><i class="f"></i><i></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="alt">Not here? <b>Send it for approval on the web</b></div>
+          </div>
+          <div class="effect">
+            <span style="--c: var(--ok)"><i></i>1 back on the shelf</span>
+            <span style="--c: var(--warn)"><i></i>1 to quarantine, awaiting inspection</span>
+          </div>
+          <div class="pay-actions">
+            <span class="btn primary xl"><svg class="ic" style="width:20px;height:20px"><use href="#i-rotate-ccw"/></svg>Refund Rs 6,300.00 <kbd>F12</kbd></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= STOCK ================= -->
+      <section class="screen stk">
+        <div class="page-h">
+          <div>
+            <h1>Stock</h1>
+            <p>Look up any product, quarantine or release a batch, adjust and write off. Large write-offs need a manager.</p>
+          </div>
+          <div class="seg">
+            <span class="on">Look up</span>
+            <span>Expiring soon <i>6</i></span>
+            <span>Quarantined <i>4</i></span>
+            <span>Counts <i>1</i></span>
+          </div>
+        </div>
+        <div class="stk-body">
+          <div class="panel find">
+            <div class="find-top">
+              <div class="search">
+                <svg class="ic"><use href="#i-barcode-scan"/></svg>
+                <span class="typed">augm<span class="caret"></span></span>
+                <kbd>F6</kbd>
+              </div>
+              <div class="chips">
+                <span class="chip on">All</span>
+                <span class="chip">Low stock</span>
+                <span class="chip">Prescription</span>
+                <span class="chip">Controlled</span>
+              </div>
+            </div>
+            <div class="res-head"><span>4 matches</span><span class="hint">Available · nearest expiry</span></div>
+            <ul class="results">
+              <li class="res sel">
+                <div class="res-main">
+                  <div class="res-name"><span><mark>Augm</mark>entin 625mg Tablets</span><span class="rx">Rx</span></div>
+                  <div class="res-meta">GSK · pack of 14 · 4 batches</div>
+                </div>
+                <div class="res-side"><div class="price">146 <small>tabs</small></div><div class="exp bad">Expired batch held</div></div>
+              </li>
+              <li class="res">
+                <div class="res-main">
+                  <div class="res-name"><span><mark>Augm</mark>entin 375mg Tablets</span><span class="rx">Rx</span></div>
+                  <div class="res-meta">GSK · pack of 15 · 2 batches</div>
+                </div>
+                <div class="res-side"><div class="price">60 <small>tabs</small></div><div class="exp">Exp 06/2027</div></div>
+              </li>
+              <li class="res">
+                <div class="res-main">
+                  <div class="res-name"><span><mark>Augm</mark>entin 228mg/5ml Syrup</span><span class="rx">Rx</span></div>
+                  <div class="res-meta">GSK · 70 ml bottle · 1 batch</div>
+                </div>
+                <div class="res-side"><div class="price">5 <small>btl</small></div><div class="exp warn">Below reorder (8)</div></div>
+              </li>
+              <li class="res">
+                <div class="res-main">
+                  <div class="res-name"><span><mark>Augm</mark>entin Duo 1g Tablets</span><span class="rx">Rx</span></div>
+                  <div class="res-meta">GSK · pack of 14 · 1 batch</div>
+                </div>
+                <div class="res-side"><div class="price">28 <small>tabs</small></div><div class="exp">Exp 03/2028</div></div>
+              </li>
+            </ul>
+            <div class="quick">
+              <div class="sub-h">Needs attention <span>Kollupitiya</span></div>
+              <div class="att">
+                <div class="att-r"><span class="qi" style="--c: var(--t-rose)"><svg class="ic"><use href="#i-calendar"/></svg></span><div><b>6 batches expire within 30 days</b><small>Review and quarantine before they're sold</small></div><span class="go"><svg class="ic"><use href="#i-chevron-right"/></svg></span></div>
+                <div class="att-r"><span class="qi" style="--c: var(--t-amber)"><svg class="ic"><use href="#i-alert-triangle"/></svg></span><div><b>4 batches in quarantine</b><small>Release, write off or return to supplier</small></div><span class="go"><svg class="ic"><use href="#i-chevron-right"/></svg></span></div>
+                <div class="att-r"><span class="qi" style="--c: var(--t-emerald)"><svg class="ic"><use href="#i-clipboard-list"/></svg></span><div><b>Stocktake ST-0009 open</b><small>142 of 380 lines counted · submit here</small></div><span class="go"><svg class="ic"><use href="#i-chevron-right"/></svg></span></div>
+                <div class="att-r"><span class="qi" style="--c: var(--t-blue)"><svg class="ic"><use href="#i-package"/></svg></span><div><b>9 products below reorder level</b><small>Purchase orders are raised on the web</small></div><span class="go"><svg class="ic"><use href="#i-chevron-right"/></svg></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel detail">
+            <div class="dh">
+              <span class="kind" style="--c: var(--t-teal)"><svg class="ic"><use href="#i-package"/></svg></span>
+              <div>
+                <div class="eyebrow">Product</div>
+                <h2>Augmentin 625mg Tablets</h2>
+                <div class="meta">
+                  <span><svg class="ic"><use href="#i-pill"/></svg>Amoxicillin + clavulanic acid</span>
+                  <span><svg class="ic"><use href="#i-box"/></svg>GSK · pack of 14</span>
+                  <span><svg class="ic"><use href="#i-tag"/></svg>Rs 145.00 / tab</span>
+                </div>
+              </div>
+              <div class="right">
+                <span class="pill rxp">Prescription only</span>
+                <span class="btn sm outline"><svg class="ic"><use href="#i-printer"/></svg>Shelf label</span>
+              </div>
+            </div>
+
+            <div class="tiles">
+              <div class="tile main"><small>Available</small><b>146<em>tabs</em></b><span>Can be sold now</span></div>
+              <div class="tile"><small>On hand</small><b>164<em>tabs</em></b><span>Across 4 batches</span></div>
+              <div class="tile"><small>Reserved</small><b>14<em>tabs</em></b><span>Transfer TR-0095 to Nugegoda</span></div>
+              <div class="tile"><small>Quarantined</small><b>4<em>tabs</em></b><span>Expired · not for sale</span></div>
+            </div>
+
+            <div class="sec-h">Batches <span>Oldest expiry first · sold in this order</span></div>
+            <div class="gtable bt" style="margin: 0 20px">
+              <div class="gr h"><span>Batch</span><span>Expiry</span><span class="c">On hand</span><span class="c">Reserved</span><span class="c">Quarantined</span><span>Status</span><span></span></div>
+              <div class="gr sel">
+                <span class="mono">AUG-6904</span>
+                <div class="ex bad"><b>Aug 2026</b><small>Expired 3 months ago</small></div>
+                <span class="num">4</span><span class="num dim">—</span><span class="num">4</span>
+                <span><span class="pill warn">Quarantined · expired</span></span>
+                <span class="act"><span class="btn sm outline">Write off</span></span>
+              </div>
+              <div class="gr">
+                <span class="mono">AUG-7311</span>
+                <div class="ex warn"><b>24 Nov 2026</b><small>In 23 days</small></div>
+                <span class="num">6</span><span class="num dim">—</span><span class="num dim">—</span>
+                <span><span class="pill bad">Expiring · sell or hold</span></span>
+                <span class="act"><span class="btn sm outline">Quarantine</span></span>
+              </div>
+              <div class="gr">
+                <span class="mono">AUG-7520</span>
+                <div class="ex"><b>Feb 2027</b><small>In 3 months</small></div>
+                <span class="num">56</span><span class="num">14</span><span class="num dim">—</span>
+                <span><span class="pill info">Sell first</span></span>
+                <span class="act"><span class="btn sm ghost">Adjust</span></span>
+              </div>
+              <div class="gr">
+                <span class="mono">AUG-7781</span>
+                <div class="ex"><b>Dec 2027</b><small>In 13 months</small></div>
+                <span class="num">98</span><span class="num dim">—</span><span class="num dim">—</span>
+                <span><span class="pill ok">Good</span></span>
+                <span class="act"><span class="btn sm ghost">Adjust</span></span>
+              </div>
+            </div>
+
+            <div class="two-cards">
+              <div class="card2">
+                <div class="sub-h">Other branches <span>Available</span></div>
+                <div class="kv" style="--c: var(--ok)"><span class="dotb"></span>Bambalapitiya<b>64</b></div>
+                <div class="kv" style="--c: var(--ok)"><span class="dotb"></span>Nugegoda<small>+14 on the way</small><b>20</b></div>
+                <div class="kv" style="--c: var(--ok)"><span class="dotb"></span>Galle<b>32</b></div>
+                <div class="kv" style="--c: var(--bad)"><span class="dotb"></span>Kandy<b>0</b></div>
+                <div class="foot-n">Transfers are requested and approved on the web.</div>
+              </div>
+              <div class="card2">
+                <div class="sub-h">Recent movements <span>All batches</span></div>
+                <div class="mv"><span class="t">Today 14:05</span><span class="d">Sold · <b>INV-T2-1101-0049</b> · Sachini R.</span><span class="q out">−14</span></div>
+                <div class="mv"><span class="t">31 Oct</span><span class="d">Reserved · <b>TR-0095</b> to Nugegoda · Ruwan P.</span><span class="q hold">14</span></div>
+                <div class="mv"><span class="t">30 Oct</span><span class="d">Quarantined · expired · <b>AUG-6904</b> · Sachini R.</span><span class="q hold">4</span></div>
+                <div class="mv"><span class="t">22 Oct</span><span class="d">Received · <b>PO-2026-0164</b> · Hemas</span><span class="q in">+98</span></div>
+                <div class="mv"><span class="t">18 Oct</span><span class="d">Found in count · <b>ST-0008</b> · Nadeesha S.</span><span class="q in">+2</span></div>
+              </div>
+            </div>
+
+            <div class="dfoot">
+              <div class="lim"><b>Write off AUG-6904 · 4 tabs · Rs 412.00 at cost</b>Under the Rs 10,000.00 limit, so no manager approval needed.</div>
+              <span class="grow"></span>
+              <span class="btn ghost lg"><svg class="ic"><use href="#i-clipboard-list"/></svg>Count this product</span>
+              <span class="btn outline lg"><svg class="ic"><use href="#i-edit"/></svg>Adjust stock</span>
+              <span class="btn primary lg"><svg class="ic"><use href="#i-trash"/></svg>Write off <kbd>Ctrl ↵</kbd></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= CASH & SHIFT ================= -->
+      <section class="screen cash">
+        <div class="page-h">
+          <div>
+            <h1>Cash &amp; shift</h1>
+            <p>Till 2 at Counter 2. One shift is open on this till at a time; each person counts the cash when they start and finish.</p>
+          </div>
+          <div class="seg">
+            <span class="on">This shift</span>
+            <span>Pay out <i>1</i></span>
+            <span>Past shifts</span>
+          </div>
+        </div>
+        <div class="cash-body">
+          <div class="cash-left">
+            <div class="panel shift-card">
+              <div class="shift-h">
+                <span class="av" style="--c: var(--t-teal)">SR</span>
+                <div><b>Shift S-0412 · Sachini Rathnayake</b><small>Cashier · opened 08:02 with Rs 5,000.00 counted · 6 h 30 min so far</small></div>
+                <div class="right">
+                  <span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Synced 14:32</span>
+                  <span class="btn sm outline"><svg class="ic"><use href="#i-printer"/></svg>Print X report</span>
+                </div>
+              </div>
+              <div class="tiles">
+                <div class="tile"><small>Opening cash</small><b>5,000.00</b><span>Counted by Sachini, 08:02</span></div>
+                <div class="tile"><small>Cash taken</small><b>+29,580.00</b><span>42 cash sales</span></div>
+                <div class="tile neg"><small>Cash paid out</small><b>−9,730.00</b><span>1 refund · 1 supplier payout</span></div>
+                <div class="tile main"><small>Expected in drawer</small><b>24,850.00</b><span>What the count should show</span></div>
+              </div>
+            </div>
+
+            <div class="cash-two">
+              <div class="panel">
+                <div class="ph"><h2>Takings this shift</h2><span class="btn sm ghost">By hour</span></div>
+                <div class="pm">
+                  <div class="pm-r"><span class="qi" style="--c: var(--t-emerald)"><svg class="ic"><use href="#i-banknote"/></svg></span><b>Cash</b><span class="n">42 sales</span><span class="a">29,580.00</span></div>
+                  <div class="pm-r"><span class="qi" style="--c: var(--t-blue)"><svg class="ic"><use href="#i-credit-card"/></svg></span><b>Card</b><span class="n">19 sales</span><span class="a">48,210.00</span></div>
+                  <div class="pm-r"><span class="qi" style="--c: var(--t-violet)"><svg class="ic"><use href="#i-smartphone"/></svg></span><b>Mobile wallet</b><span class="n">3 sales</span><span class="a">3,400.00</span></div>
+                  <div class="pm-r"><span class="qi" style="--c: var(--t-amber)"><svg class="ic"><use href="#i-user"/></svg></span><div><b>On account</b><small>Customer credit</small></div><span class="n">2 sales</span><span class="a">2,150.00</span></div>
+                  <div class="pm-r tot"><span></span><b>Sales</b><span class="n">66 sales</span><span class="a">83,340.00</span></div>
+                </div>
+                <div class="pm-sub">Refunds</div>
+                <div class="pm">
+                  <div class="pm-r"><span class="qi" style="--c: var(--t-rose)"><svg class="ic"><use href="#i-banknote"/></svg></span><div><b>Cash</b><small>RF-0029 · Panadol, 2 strips</small></div><span class="n">1</span><span class="a neg">−1,180.00</span></div>
+                  <div class="pm-r last"><span class="qi" style="--c: var(--t-rose)"><svg class="ic"><use href="#i-credit-card"/></svg></span><div><b>Card</b><small>RF-0032 · test strips and lancets</small></div><span class="n">1</span><span class="a neg">−6,300.00</span></div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="ph"><h2>Cash in and out of the drawer</h2></div>
+                <div class="log">
+                  <div class="lgr"><span class="qi" style="--c: var(--t-teal)"><svg class="ic"><use href="#i-wallet"/></svg></span><div><b>Opening count</b><small>08:02 · Sachini R. · 2 × 1,000, 4 × 500, 10 × 100</small></div><span class="a">5,000.00</span></div>
+                  <div class="lgr"><span class="qi" style="--c: var(--t-indigo)"><svg class="ic"><use href="#i-truck"/></svg></span><div><b>Supplier payout · PO-2026-0172</b><small>09:15 · Sunshine Healthcare · approved on the web by Dilini F.</small></div><span class="a neg">−8,550.00</span></div>
+                  <div class="lgr"><span class="qi" style="--c: var(--t-rose)"><svg class="ic"><use href="#i-rotate-ccw"/></svg></span><div><b>Cash refund · RF-0029</b><small>11:40 · Sachini R. · back on the shelf</small></div><span class="a neg">−1,180.00</span></div>
+                  <div class="lgr"><span class="qi" style="--c: var(--t-emerald)"><svg class="ic"><use href="#i-banknote"/></svg></span><div><b>Cash sales</b><small>08:05 to 14:30 · 42 sales, change given</small></div><span class="a pos">+29,580.00</span></div>
+                </div>
+                <div class="pm-sub">Waiting to be paid out</div>
+                <div class="log">
+                  <div class="lgr"><span class="qi" style="--c: var(--t-amber)"><svg class="ic"><use href="#i-truck"/></svg></span><div><b>Supplier payout · PO-2026-0191</b><small>Sunshine Healthcare · cash on delivery · approved by Dilini F.</small></div><span class="a">42,775.00<small style="display:block">this afternoon</small></span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="follow">
+              <svg class="ic"><use href="#i-alert-triangle"/></svg>
+              <div><b>Card payment to sort out · Rs 1,250.00</b><small>Approved on the card machine at 12:48 but sale T2-1101-0031 didn't finish. It's kept apart from sales until a manager resolves it online.</small></div>
+              <span class="btn sm outline">View</span>
+            </div>
+          </div>
+
+          <div class="panel count">
+            <div class="cnt-h">
+              <div class="eyebrow">Close shift S-0412</div>
+              <h2>Count the drawer</h2>
+              <p>Count every note and coin. Any difference stays on record, even if the next person counts something else.</p>
+            </div>
+            <div class="den">
+              <div class="den-r h"><span>Note or coin</span><span></span><span class="c">Count</span><span class="r" style="text-align:right">Amount</span></div>
+              <div class="den-r"><span class="nv" style="--c: var(--t-violet)"><i></i>5,000</span><span class="x">×</span><span class="cell num">2</span><span class="am">10,000.00</span></div>
+              <div class="den-r"><span class="nv" style="--c: var(--t-blue)"><i></i>1,000</span><span class="x">×</span><span class="cell num">9</span><span class="am">9,000.00</span></div>
+              <div class="den-r"><span class="nv" style="--c: var(--t-amber)"><i></i>500</span><span class="x">×</span><span class="cell num">6</span><span class="am">3,000.00</span></div>
+              <div class="den-r"><span class="nv" style="--c: var(--t-rose)"><i></i>100</span><span class="x">×</span><span class="cell num">14</span><span class="am">1,400.00</span></div>
+              <div class="den-r"><span class="nv" style="--c: var(--t-emerald)"><i></i>50</span><span class="x">×</span><span class="cell num">11</span><span class="am">550.00</span></div>
+              <div class="den-r"><span class="nv" style="--c: var(--t-cyan)"><i></i>20</span><span class="x">×</span><span class="cell num">15</span><span class="am">300.00</span></div>
+              <div class="den-r sel"><span class="nv" style="--c: var(--t-amber)"><i class="coin"></i>Coins</span><span class="x"></span><span class="cell num focus">400<span class="caret"></span></span><span class="am">400.00</span></div>
+            </div>
+            <div class="tot3">
+              <div><small>Counted</small><b>24,650.00</b></div>
+              <div><small>Expected</small><b>24,850.00</b></div>
+              <div class="short"><small>Short</small><b>−200.00</b></div>
+            </div>
+            <div class="f">
+              <label>Note on the difference</label>
+              <div class="in">Possibly too much change around 12:10, checking receipts.</div>
+            </div>
+            <div class="ho">
+              <span class="av" style="--c: var(--t-emerald)">KJ</span>
+              <div><b>Next: Kasun Jayasinghe</b><small>Opens his own shift and counts the drawer with his PIN</small></div>
+              <svg class="ic"><use href="#i-chevron-down"/></svg>
+            </div>
+            <div class="offl"><svg class="ic"><use href="#i-info"/></svg><span>Works offline too. The close is saved on this counter and shows "not yet synced" until the server confirms it.</span></div>
+            <div class="dfoot" style="margin-top: auto">
+              <span class="btn ghost lg">End of day</span>
+              <span class="grow"></span>
+              <span class="btn primary lg"><svg class="ic"><use href="#i-lock"/></svg>Close shift and hand over <kbd>Ctrl ↵</kbd></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= A: PRESCRIPTION SHEET OVER SELL ================= -->
+      <div class="rx-scrim" data-only="rxa"></div>
+      <aside class="rx-sheet" data-only="rxa">
+        <div class="sh-h">
+          <span class="kind" style="--c: var(--t-violet)"><svg class="ic"><use href="#i-pill"/></svg></span>
+          <div>
+            <div class="eyebrow">2 items on this sale need a prescription</div>
+            <h2>Prescription for Nimali Perera</h2>
+          </div>
+          <span class="grow"></span>
+          <span class="btn ghost icon"><svg class="ic"><use href="#i-x"/></svg></span>
+        </div>
+        <div class="ministeps">
+          <span class="ms done"><i><svg class="ic"><use href="#i-check"/></svg></i>Prescription details</span>
+          <span class="ms-line"></span>
+          <span class="ms now"><i>2</i>Pharmacist check</span>
+          <span class="ms-line"></span>
+          <span class="ms"><i>3</i>Payment</span>
+        </div>
+        <div class="sh-b">
+          <div class="paper-row">
+            <span class="thumb"><i></i><i></i><i class="s"></i><i></i><i class="s"></i><i></i></span>
+            <div><b>Paper prescription photographed</b><small>Counter webcam · 14:30 · kept with this sale</small></div>
+            <span class="grow"></span>
+            <span class="btn sm outline"><svg class="ic"><use href="#i-camera"/></svg>Retake</span>
+          </div>
+          <div class="form">
+            <div class="f"><label>Patient <span class="pill brand">From customer</span></label><div class="in">Nimali Perera</div></div>
+            <div class="f"><label>Prescription no.</label><div class="in"><span class="mono">RX-KOL-0419</span></div></div>
+            <div class="f"><label>Doctor</label><div class="in">Dr. Anura Gunasekara</div></div>
+            <div class="f"><label>SLMC reg. no. <span>optional</span></label><div class="in">18452</div></div>
+            <div class="f"><label>Issued on</label><div class="in">30 Oct 2026<svg class="ic"><use href="#i-calendar"/></svg></div></div>
+            <div class="f"><label>Valid until <span>optional</span></label><div class="in ph">DD/MM/YYYY<svg class="ic"><use href="#i-calendar"/></svg></div></div>
+            <div class="f wide"><label>Notes <span>optional</span></label><div class="in">Finish the whole antibiotic course. Omeprazole before breakfast.</div></div>
+          </div>
+          <div class="covers">
+            <div class="sub-h">Covers these items <span>2 of 2</span></div>
+            <div class="cv"><span class="cb on"><svg class="ic"><use href="#i-check"/></svg></span><b>Amoxicillin 500mg Capsules</b><span class="rx">Rx</span><span class="q">21 caps</span></div>
+            <div class="cv"><span class="cb on"><svg class="ic"><use href="#i-check"/></svg></span><b>Omeprazole 20mg Capsules</b><span class="rx">Rx</span><span class="q">14 caps</span></div>
+          </div>
+          <div class="pharm">
+            <span class="av" style="--c: var(--t-violet)">DW</span>
+            <div><b>Dilshan Wickramasinghe</b><small>Pharmacist · ready on this counter</small></div>
+            <span class="grow"></span>
+            <div class="pin-mini"><small>Pharmacist's PIN <kbd>F10</kbd></small><div class="dots sm"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></div></div>
+          </div>
+          <div class="autochecks">
+            <span><svg class="ic"><use href="#i-check"/></svg>Issued 2 days ago</span>
+            <span><svg class="ic"><use href="#i-check"/></svg>Quantities match the sale</span>
+            <span><svg class="ic"><use href="#i-check"/></svg>Counter online, so this can be co-signed</span>
+          </div>
+        </div>
+        <div class="sh-f">
+          <div class="tot"><small>Total</small><b>Rs 2,718.50</b></div>
+          <span class="grow"></span>
+          <span class="btn outline lg">Back to sale <kbd>Esc</kbd></span>
+          <span class="btn primary lg"><svg class="ic"><use href="#i-shield-check"/></svg>Co-sign and pay <kbd>↵</kbd></span>
+        </div>
+      </aside>
+
+      <!-- ================= B: PHARMACIST QUEUE ================= -->
+      <section class="screen rxq">
+        <div class="page-h">
+          <div>
+            <h1>Dispensing</h1>
+            <p>Prescriptions handed in at this branch. An assistant prepares them, a pharmacist checks them, the till takes payment.</p>
+          </div>
+          <div class="seg">
+            <span class="on">All <i>7</i></span>
+            <span>Handed in <i>2</i></span>
+            <span>Preparing <i>2</i></span>
+            <span>To check <i>1</i></span>
+            <span>Ready <i>2</i></span>
+          </div>
+        </div>
+        <div class="rxq-body">
+          <div class="queue lanes">
+            <div class="lane-h" style="--c: var(--t-blue)"><i></i>Handed in<span>2</span></div>
+            <div class="qcard tight">
+              <span class="av" style="--c: var(--t-cyan)">FN</span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Fathima Nazeer</b><span class="mono">RX-0421</span><span class="when">2 min</span></div>
+                <div class="qc-desc">2 items · paper photographed at Counter 2</div>
+                <div class="qc-foot"><span class="pill info">Waiting in the shop</span><span class="by">Not started</span></div>
+              </div>
+            </div>
+            <div class="qcard tight">
+              <span class="av" style="--c: var(--t-amber)">RJ</span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Ruwan Jayawardena</b><span class="mono">RX-0422</span><span class="when">14:05</span></div>
+                <div class="qc-desc">4 items · repeat of RX-0377 from September</div>
+                <div class="qc-foot"><span class="pill neutral">Collecting at 17:30</span><span class="by">Not started</span></div>
+              </div>
+            </div>
+
+            <div class="lane-h" style="--c: var(--t-amber)"><i></i>Preparing<span>2</span></div>
+            <div class="qcard tight">
+              <span class="av" style="--c: var(--t-emerald)">MR</span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Mohamed Rizwan</b><span class="mono">RX-0419</span><span class="when">5 min</span></div>
+                <div class="qc-desc">2 items · Nadeesha S. is picking</div>
+                <div class="qc-foot"><span class="pill info">Waiting in the shop</span><span class="by">1 of 2 scanned</span></div>
+              </div>
+            </div>
+            <div class="qcard tight">
+              <span class="av" style="--c: var(--t-blue)">KW</span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Kamala Wijesinghe</b><span class="mono">RX-0420</span><span class="when">13:40</span></div>
+                <div class="qc-desc">5 items · Insulin pens from the fridge last</div>
+                <div class="qc-foot"><span class="pill warn">1 item short · owe 10 tabs</span><span class="by">Nadeesha S.</span></div>
+              </div>
+            </div>
+
+            <div class="lane-h" style="--c: var(--t-violet)"><i></i>Pharmacist check<span>1</span></div>
+            <div class="qcard tight sel">
+              <span class="av" style="--c: var(--t-rose)">NP</span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Nimali Perera</b><span class="mono">RX-0418</span><span class="when">6 min</span></div>
+                <div class="qc-desc">3 items · 1 controlled · prepared by Nadeesha S.</div>
+                <div class="qc-foot"><span class="pill warn">Waiting in the shop · 6 min</span><span class="by">You</span></div>
+              </div>
+            </div>
+
+            <div class="lane-h" style="--c: var(--t-emerald)"><i></i>Ready to collect<span>2</span></div>
+            <div class="qcard tight">
+              <span class="av" style="--c: var(--t-indigo)">SB</span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Sunil Bandara</b><span class="mono">RX-0416</span><span class="when">14:12</span></div>
+                <div class="qc-desc">3 items · checked by Dilshan W.</div>
+                <div class="qc-foot"><span class="pill ok">Paying at Counter 2</span><span class="by">Bag on the till</span></div>
+              </div>
+            </div>
+            <div class="qcard tight">
+              <span class="av" style="--c: var(--t-teal)">PD</span>
+              <div class="qc-main">
+                <div class="qc-top"><b>Priyanka Dissanayake</b><span class="mono">RX-0415</span><span class="when">11:30</span></div>
+                <div class="qc-desc">1 item · checked by Dilshan W.</div>
+                <div class="qc-foot"><span class="pill ok">Bagged · shelf B2</span><span class="by">Collect by 19:00</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel detail">
+            <div class="dh">
+              <span class="kind" style="--c: var(--t-violet)"><svg class="ic"><use href="#i-pill"/></svg></span>
+              <div>
+                <div class="eyebrow">Pharmacist check</div>
+                <h2>RX-0418 · Nimali Perera, 34</h2>
+                <div class="meta">
+                  <span><svg class="ic"><use href="#i-stethoscope"/></svg>Dr. Anura Gunasekara · SLMC 18452</span>
+                  <span><svg class="ic"><use href="#i-calendar"/></svg>Issued 30 Oct</span>
+                  <span><svg class="ic"><use href="#i-package"/></svg>3 items</span>
+                </div>
+              </div>
+              <div class="right">
+                <span class="pill warn"><svg class="ic"><use href="#i-clock"/></svg>Customer waiting · 6 min</span>
+                <span class="btn sm outline"><svg class="ic"><use href="#i-printer"/></svg>Reprint bag label</span>
+              </div>
+            </div>
+
+            <div class="trail four">
+              <div class="step done">
+                <span class="dotc"><svg class="ic"><use href="#i-check"/></svg></span>
+                <div><div class="sl">Handed in</div><b>Sachini R.</b><small>Counter 2 · 14:21</small></div>
+              </div>
+              <div class="step done">
+                <span class="dotc"><svg class="ic"><use href="#i-check"/></svg></span>
+                <div><div class="sl">Prepared</div><b>Nadeesha S.</b><small>Assistant · 14:27</small></div>
+              </div>
+              <div class="step now">
+                <span class="dotc"><svg class="ic"><use href="#i-shield-check"/></svg></span>
+                <div><div class="sl">Pharmacist check</div><b>You · Dilshan W.</b><small>Dispensary · now</small></div>
+              </div>
+              <div class="step">
+                <span class="dotc"><svg class="ic"><use href="#i-banknote"/></svg></span>
+                <div><div class="sl">Pay and collect</div><b>At the till</b><small>Scan the bag label</small></div>
+              </div>
+            </div>
+
+            <div class="chk-body">
+              <div class="paper-col">
+                <div class="paper">
+                  <div class="pp-h"><b>Dr. Anura Gunasekara</b><small>MBBS (Col) · SLMC Reg. 18452</small><small>Kollupitiya Family Clinic · Colombo 03</small></div>
+                  <div class="pp-pt"><span>Name <u>Nimali Perera</u></span><span>Age <u>34</u></span></div>
+                  <div class="pp-pt"><span>Date <u>30/10/26</u></span></div>
+                  <div class="pp-rx">R<sub>x</sub></div>
+                  <ol class="pp-l">
+                    <li>Amoxicillin 500mg<em>1 tds × 7/7</em></li>
+                    <li>Omeprazole 20mg<em>1 mane × 14/7</em></li>
+                    <li>Diazepam 5mg<em>1 nocte × 5/7</em></li>
+                  </ol>
+                  <span class="stamp">FAMILY<br>CLINIC<br>COL 03</span>
+                  <svg class="sig" viewBox="0 0 120 40"><path d="M4 30c8-16 14-24 20-12s4 16 12 0 10-14 14-2 6 10 14-4 10-8 14 2 8 6 16-4M60 34c14-2 30-3 52-6"/></svg>
+                </div>
+                <div class="paper-cap"><span>Photographed at hand-in · 14:21</span><span class="btn sm ghost"><svg class="ic"><use href="#i-zoom-in"/></svg>Zoom</span></div>
+              </div>
+
+              <div class="chk-col">
+                <div class="gtable dx">
+                  <div class="gr h"><span>Prescribed</span><span>Dispensed</span><span class="c">Qty</span><span>Scan</span></div>
+                  <div class="gr">
+                    <div><div class="pn">Amoxicillin 500mg Capsules</div><div class="ps">1 capsule 3 times a day · 7 days</div></div>
+                    <div><div class="pn">AMX-5512</div><div class="ps">Generic · exp 03/2027</div></div>
+                    <span class="ord">21</span>
+                    <span><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Matches</span></span>
+                  </div>
+                  <div class="gr">
+                    <div><div class="pn">Omeprazole 20mg Capsules</div><div class="ps">1 capsule every morning · 14 days</div></div>
+                    <div><div class="pn">OM-2207</div><div class="ps">Generic · exp 06/2027</div></div>
+                    <span class="ord">14</span>
+                    <span><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Matches</span></span>
+                  </div>
+                  <div class="gr">
+                    <div><div class="pn">Diazepam 5mg Tablets<span class="rx">Controlled</span></div><div class="ps">1 tablet at night · 5 days</div></div>
+                    <div><div class="pn">DZ-0311</div><div class="ps">Generic · exp 01/2028</div></div>
+                    <span class="ord">5</span>
+                    <span><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Matches</span></span>
+                  </div>
+                </div>
+
+                <div class="checks">
+                  <div class="sub-h">Your check <span>3 of 4 done</span></div>
+                  <div class="ck"><span class="cb on"><svg class="ic"><use href="#i-check"/></svg></span>Every pack scanned and matches the prescription<small>From the scans</small></div>
+                  <div class="ck"><span class="cb on"><svg class="ic"><use href="#i-check"/></svg></span>Patient, doctor and date match the paper</div>
+                  <div class="ck"><span class="cb on"><svg class="ic"><use href="#i-check"/></svg></span>Controlled quantity is within the prescription (5 of 5)</div>
+                  <div class="ck now"><span class="cb"></span>Directions written on every pack<kbd>Space</kbd></div>
+                </div>
+
+                <div class="reg">
+                  <svg class="ic"><use href="#i-book-open"/></svg>
+                  <div><b>Controlled drugs register.</b> Diazepam 5mg × 5 to Nimali Perera, prescribed by Dr. A. Gunasekara (SLMC 18452). Balance 245 → 240.<small>Written automatically when you approve, in your name</small></div>
+                </div>
+
+                <div class="nt"><svg class="ic"><use href="#i-mail"/></svg><div><b>Note from Nadeesha S.</b> “She asked whether the Diazepam is safe with her sleeping tablets. Told her you would explain at the till.”<small>Added while preparing · 14:27</small></div></div>
+              </div>
+            </div>
+
+            <div class="dfoot">
+              <div class="bag"><svg class="ic"><use href="#i-tag"/></svg><div><b>Bag label RX-0418</b><small>The till scans it to load the items and your approval</small></div></div>
+              <span class="grow"></span>
+              <span class="btn ghost lg"><svg class="ic"><use href="#i-phone"/></svg>Query the doctor</span>
+              <span class="btn outline lg"><svg class="ic"><use href="#i-rotate-ccw"/></svg>Back to preparing</span>
+              <span class="btn primary lg"><svg class="ic"><use href="#i-shield-check"/></svg>Approve, send to till <kbd>Ctrl ↵</kbd></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ================= LOCK / SIGN IN ================= -->
+  <section class="screen lock">
+    <div class="lock-wrap">
+      <div class="lock-head">
+        <div class="lock-time">14:32</div>
+        <div class="lock-date">Sunday, 1 November 2026 · Kollupitiya · Counter 2</div>
+      </div>
+      <div class="lock-card">
+        <div class="who">
+          <h2>Who's at the counter?</h2>
+          <p>Pick your name and enter your personal PIN. Everything you do here is recorded in your name.</p>
+          <div class="staff">
+            <div class="st sel"><span class="av" style="--c: var(--t-teal)">SR</span><div><b>Sachini Rathnayake</b><small>Cashier</small><span class="pill brand">Shift open since 08:02</span></div></div>
+            <div class="st"><span class="av" style="--c: var(--t-violet)">DW</span><div><b>Dilshan Wickramasinghe</b><small>Pharmacist</small><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Ready on this counter</span></div></div>
+            <div class="st"><span class="av" style="--c: var(--t-blue)">DF</span><div><b>Dilini Fernando</b><small>Branch manager</small><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Ready on this counter</span></div></div>
+            <div class="st"><span class="av" style="--c: var(--t-amber)">NS</span><div><b>Nadeesha Silva</b><small>Pharmacy assistant</small><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Ready on this counter</span></div></div>
+            <div class="st off"><span class="av" style="--c: var(--t-emerald)">KJ</span><div><b>Kasun Jayasinghe</b><small>Cashier</small><span class="pill warn">Sign in once while online</span></div></div>
+            <div class="st off"><span class="av" style="--c: var(--t-rose)">TP</span><div><b>Tharindu Perera</b><small>Cashier</small><span class="pill bad"><svg class="ic"><use href="#i-lock"/></svg>PIN locked · ask a manager</span></div></div>
+          </div>
+          <div class="note"><svg class="ic"><use href="#i-info"/></svg><div><b>Shift S-0412 is open on this till.</b> Sachini continues it. Anyone else hands over the shift with a cash count first.</div></div>
+          <div class="foot">Not on the list? Staff are added in the web back office and appear here after the next sync.</div>
+        </div>
+        <div class="pin">
+          <span class="av" style="--c: var(--t-teal)">SR</span>
+          <h3>Sachini Rathnayake</h3>
+          <p>Enter your 6-digit PIN</p>
+          <div class="dots"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></div>
+          <div class="pad">
+            <span>1</span><span>2</span><span>3</span>
+            <span>4</span><span>5</span><span>6</span>
+            <span>7</span><span>8</span><span>9</span>
+            <span><svg class="ic"><use href="#i-backspace"/></svg></span><span>0</span><span class="go"><svg class="ic"><use href="#i-arrow-right"/></svg></span>
+          </div>
+          <div class="forgot">Forgot your PIN? Ask a manager to reset it on the web.</div>
+        </div>
+      </div>
+      <div class="lock-chips">
+        <span class="pill ok"><svg class="ic"><use href="#i-cloud"/></svg>Online · synced 14:32</span>
+        <span class="pill ok"><svg class="ic"><use href="#i-printer"/></svg>Printer ready</span>
+        <span class="pill ok"><svg class="ic"><use href="#i-monitor"/></svg>At the counter · console session</span>
+        <span class="pill info"><svg class="ic"><use href="#i-shield-check"/></svg>Offline backup counter · ready until 22:00</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Status bar: the counter's health at a glance -->
+  <footer class="statusbar">
+    <span class="sb okc"><span class="d"></span><b>Online</b> · last sync 14:32:08</span>
+    <span class="sb" data-not="rxq"><svg class="ic"><use href="#i-clock"/></svg>Shift <b>S-0412</b> · Sachini R. · since 08:02</span>
+    <span class="sb" data-not="rxq"><svg class="ic"><use href="#i-wallet"/></svg>Drawer expected <b>Rs 24,850.00</b></span>
+    <span class="sb" data-only="rxq"><svg class="ic"><use href="#i-pill"/></svg>Dispensary station · <b>no cash drawer</b></span>
+    <span class="sb" data-only="rxq"><svg class="ic"><use href="#i-user"/></svg>Signed in <b>Dilshan W.</b> · pharmacist</span>
+    <span class="sb okc"><svg class="ic"><use href="#i-printer"/></svg>EPSON TM-T82III · ready</span>
+    <span class="grow"></span>
+    <span class="sb"><svg class="ic"><use href="#i-shield-check"/></svg>Offline backup · ready until 22:00</span>
+    <span class="sb okc"><svg class="ic"><use href="#i-monitor"/></svg>At the counter</span>
+    <span class="sb">v1.0.0</span>
+  </footer>
+</div>
+
+<nav class="switcher" id="switcher"></nav>
+
+<script>
+  const q = new URLSearchParams(location.search);
+  const screen = q.get("screen") || "sell";
+  const theme = q.get("theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const root = document.documentElement;
+  root.dataset.screen = screen;
+  root.dataset.theme = theme;
+  if (q.has("shot")) root.classList.add("shot");
+  const nav = { rxa: "sell", rxq: "rx" }[screen] || screen;
+  document.querySelectorAll(".ri").forEach((el) => el.classList.toggle("active", el.dataset.nav === nav));
+
+  const sw = document.getElementById("switcher");
+  const link = (s, t, label) => `<a href="?screen=${s}&theme=${t}" class="${s === screen && t === theme ? "on" : ""}">${label}</a>`;
+  sw.innerHTML = [
+    link("sell", theme, "Sell"), link("returns", theme, "Returns"), link("work", theme, "Counter work"),
+    link("stock", theme, "Stock"), link("cash", theme, "Cash & shift"), link("lock", theme, "Sign in"),
+    "<i></i>", link("rxa", theme, "Rx in the sale"), link("rxq", theme, "Pharmacist queue (later)"),
+    "<i></i>", link(screen, "light", "Light"), link(screen, "dark", "Dark"),
+  ].join("");
+</script>
+</body>
+</html>
