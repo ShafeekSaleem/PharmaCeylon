@@ -103,6 +103,25 @@ describe("ApiSession", () => {
     expect(refreshes).toBe(1);
   });
 
+  it("never refreshes and resends a 401 that carries a refusal code, so a wrong secret counts once", async () => {
+    const fetchImpl = jest
+      .fn<ReturnType<FetchLike>, Parameters<FetchLike>>()
+      .mockResolvedValueOnce(
+        reply(200, { accessToken: "a1", refreshToken: "r1", user }),
+      )
+      .mockResolvedValueOnce(
+        reply(401, { code: "PIN_INCORRECT", message: "That PIN is not right." }),
+      );
+    const api = new ApiSession(() => "https://pos.test/api/v1", fetchImpl);
+    await api.login("a@b.c", "secret");
+    await expect(api.request("POST", "/terminals/sessions/s/prepare")).rejects.toMatchObject({
+      status: 401,
+      code: "PIN_INCORRECT",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(api.user).toEqual(user);
+  });
+
   it("keeps the tokens when the refresh can't reach the server", async () => {
     const fetchImpl = jest
       .fn<ReturnType<FetchLike>, Parameters<FetchLike>>()

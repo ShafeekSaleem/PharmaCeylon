@@ -70,6 +70,17 @@ export class PinStore {
     else this.anchors.delete(staffUserId);
   }
 
+  /**
+   * Writes back the time left on every running lockout. Called on a timer and at quit, so a long
+   * lock keeps counting down while the app runs even if nobody tries a PIN.
+   */
+  checkpoint(): void {
+    const rows = this.db
+      .prepare("SELECT * FROM staff_credential WHERE lock_remaining_ms > 0")
+      .all() as Row[];
+    for (const row of rows) this.persistLock(row.staff_user_id, this.remainingLock(row));
+  }
+
   /** Milliseconds left on this person's lockout here, for the screen. */
   lockRemainingMs(staffUserId: string): number {
     const row = this.row(staffUserId);

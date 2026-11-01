@@ -241,8 +241,10 @@ export class PharmacistApprovalService {
         },
       },
     });
+    // Refusals about the approver's secret are 403s, never 401: clients treat 401 as an expired
+    // session and refresh and resend, which would count one wrong PIN twice.
     if (!user) {
-      throw new UnauthorizedException("Approver not found");
+      throw new ForbiddenException({ code: "APPROVER_NOT_FOUND", message: "Approver not found" });
     }
 
     const allowed = await this.hasApproverRole(user.userBranchRoles, branchId, permission);
@@ -255,9 +257,11 @@ export class PharmacistApprovalService {
     }
 
     if (user.posPinLockedUntil && user.posPinLockedUntil.getTime() > Date.now()) {
-      throw new UnauthorizedException(
-        "Approver PIN is temporarily locked after too many failed attempts. Try again shortly or use Hold for pharmacist.",
-      );
+      throw new ForbiddenException({
+        code: "APPROVER_PIN_LOCKED",
+        message:
+          "Approver PIN is temporarily locked after too many failed attempts. Try again shortly or use Hold for pharmacist.",
+      });
     }
 
     const secretOk = user.posPinHash
@@ -287,11 +291,12 @@ export class PharmacistApprovalService {
         entityId: user.id,
         payload: { failures, locked: Boolean(locked) },
       });
-      throw new UnauthorizedException(
-        user.posPinHash
+      throw new ForbiddenException({
+        code: "APPROVER_PIN_INCORRECT",
+        message: user.posPinHash
           ? "Incorrect pharmacist PIN"
           : "Incorrect password (this approver has not set a till PIN yet)",
-      );
+      });
     }
 
     if (user.failedPosPinAttempts > 0 || user.posPinLockedUntil) {

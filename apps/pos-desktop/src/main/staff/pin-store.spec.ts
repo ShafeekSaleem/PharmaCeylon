@@ -72,6 +72,18 @@ describe("PinStore lockout", () => {
     expect(restarted.check("u1", "e1", "4821")).toBe("ok");
   });
 
+  it("keeps counting down while the app runs, even when nobody tries a PIN", () => {
+    lockOut(pins());
+    const running = pins();
+    running.checkpoint();
+    for (let minute = 0; minute < 14; minute++) {
+      uptime += 60_000;
+      running.checkpoint();
+    }
+    // Restart after 14 minutes of uptime: one minute is left, not the whole lock.
+    expect(pins().lockRemainingMs("u1")).toBe(60_000);
+  });
+
   it("doubles each further lockout and resets only on the right PIN", () => {
     expect([1, 2, 3, 10].map(lockDurationMs)).toEqual([
       PIN_LOCK_MS,

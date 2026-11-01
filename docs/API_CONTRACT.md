@@ -507,7 +507,12 @@ available stock.
 pin }`, the co-signer's online PIN or, without one, their login password (approvers come from
 `GET /sales/pos/approvers`). Checkout refusals carry `code: "PRESCRIPTION_REQUIRED"` (no
 prescription linked) and `code: "PHARMACIST_APPROVAL_REQUIRED"` (controlled items, a seller who
-cannot dispense them, no co-sign). The desktop never stores the PIN: its draft keeps only who
+cannot dispense them, no co-sign). A wrong or locked co-signer secret is **403** with
+`APPROVER_PIN_INCORRECT`, `APPROVER_PIN_LOCKED` or `APPROVER_NOT_FOUND`, as are the counter's own
+`PASSWORD_INCORRECT` and `PIN_INCORRECT`: a 401 means only that the access token lapsed, and
+clients refresh and resend on it, which would count one wrong secret twice. Overlapping retries
+of one `Idempotency-Key` serialize inside the checkout transaction, so a resend sent while the
+first attempt still runs replays that sale. The desktop never stores the PIN: its draft keeps only who
 co-signed. An idempotent replay returns the original sale without re-verifying it, so a resent
 draft needs the PIN again only if the first request never reached the server.
 

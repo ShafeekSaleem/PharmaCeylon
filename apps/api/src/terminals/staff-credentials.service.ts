@@ -152,8 +152,9 @@ export class StaffCredentialsService {
         code: "ACCOUNT_LOCKED",
         message: "Too many wrong passwords. Try again in a few minutes.",
       });
+    // 403, not 401: a 401 makes clients refresh and resend, counting the attempt twice.
     if (outcome === "wrong")
-      throw new UnauthorizedException({
+      throw new ForbiddenException({
         code: "PASSWORD_INCORRECT",
         message: "Login password is incorrect.",
       });
@@ -228,7 +229,7 @@ export class StaffCredentialsService {
         message: "Too many wrong PINs. Try again later.",
       });
     if (outcome === "wrong")
-      throw new UnauthorizedException({
+      throw new ForbiddenException({
         code: "PIN_INCORRECT",
         message: "That PIN is not right.",
       });

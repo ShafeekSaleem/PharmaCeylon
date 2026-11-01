@@ -68,6 +68,13 @@ function isBatchExpired(expiryDate: Date, todayUtc: Date): boolean {
   return expUtc < todayUtc;
 }
 
+/** Thrown inside the checkout transaction when the same key's first attempt has committed. */
+class CheckoutReplay extends Error {
+  constructor(readonly saleId: string) {
+    super("checkout replay");
+  }
+}
+
 /** `INV-YYMM-000123` — human-readable at the counter, unique per branch. */
 async function nextInvoiceNo(
   tx: Prisma.TransactionClient,
@@ -434,6 +441,25 @@ export class SalesService {
 
     try {
       const sale = await this.prisma.$transaction(async (tx) => {
+        if (idempotencyKey) {
+          // Same key, same lock. A resend that overlaps its first attempt (a client timeout while
+          // the original still runs) waits here, then finds the committed record and replays it,
+          // instead of failing on stock the original just took and being taken as a refusal.
+          // Hash collisions only over-serialize.
+          const lockKey = `checkout:${tenantId}:${userId}:${idempotencyKey}`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+          const committed = await tx.idempotencyRecord.findUnique({
+            where: {
+              tenantId_userId_scope_idempotencyKey: {
+                tenantId,
+                userId,
+                scope: IDEMPOTENCY_SCOPE.checkout,
+                idempotencyKey,
+              },
+            },
+          });
+          if (committed) throw new CheckoutReplay(committed.resourceId);
+        }
         // Attribution, not authority: the session must be the seller's own, open, on an active
         // enrollment at this branch. It serializes sales per counter on the enrollment lock.
         let attribution: { terminalId: string; tillId: string; workSessionId: string } | null = null;
@@ -742,6 +768,11 @@ export class SalesService {
         include: SALE_INCLUDE,
       });
     } catch (e) {
+      if (e instanceof CheckoutReplay)
+        return this.prisma.sale.findFirst({
+          where: { id: e.saleId, tenantId, branchId },
+          include: SALE_INCLUDE,
+        });
       if (idempotencyKey && isPrismaUniqueFieldError(e, "idempotency")) {
         const row = await this.prisma.idempotencyRecord.findUnique({
           where: {

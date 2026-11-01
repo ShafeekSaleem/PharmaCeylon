@@ -40,6 +40,14 @@ export class ApiError extends Error {
 
 const TIMEOUT_MS = 15_000;
 
+function hasRefusalCode(text: string): boolean {
+  try {
+    return typeof (JSON.parse(text) as { code?: unknown }).code === "string";
+  } catch {
+    return false;
+  }
+}
+
 function parseError(status: number, text: string): ApiError {
   let code = `HTTP_${status}`;
   let message = "The server refused the request.";
@@ -177,13 +185,20 @@ export class ApiSession {
       throw new ApiError(0, "NETWORK", "The server could not be reached.");
     }
 
-    if (response.status === 401 && opts.auth !== false && !retried) {
+    const text = await response.text();
+    // Only a plain 401 means the access token lapsed. A 401 carrying a refusal code is an answer
+    // about this request (a wrong secret); refreshing and resending would count it twice.
+    if (
+      response.status === 401 &&
+      opts.auth !== false &&
+      !retried &&
+      !hasRefusalCode(text)
+    ) {
       const outcome = await this.refresh(sentToken!);
       if (outcome === "refreshed") return this.send<T>(method, path, opts, true);
       if (outcome === "unreachable")
         throw new ApiError(0, "NETWORK", "The server could not be reached.");
     }
-    const text = await response.text();
     if (!response.ok) throw parseError(response.status, text);
     return (text ? JSON.parse(text) : undefined) as T;
   }

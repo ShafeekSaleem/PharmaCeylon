@@ -941,6 +941,23 @@ describe("online checkout attributed to the counter, till and staff session", ()
     expect(onHand?.onHandQty).toBe(0);
   });
 
+  it("a resend overlapping its first attempt replays that sale instead of failing on its stock", async () => {
+    await createStockedBatch(prisma, stock, fx, { qty: 1 });
+    const a = await enroll();
+    const session = await openSession(a.device, a.identity, clerk);
+    const key = randomUUID();
+    // Both start before either commits: without the in-transaction recheck the second would wait
+    // on the batch lock and then fail on the unit the first just sold.
+    const [first, second] = await Promise.all([
+      sell(clerk, session.workSessionId, key),
+      sell(clerk, session.workSessionId, key),
+    ]);
+    expect(second!.id).toBe(first!.id);
+    expect(
+      await prisma.sale.count({ where: { tenantId: fx.tenantId, soldBy: clerk.userId, workSessionId: session.workSessionId } }),
+    ).toBe(1);
+  });
+
   it("refuses someone else's or a closed session, and sells nothing", async () => {
     await createStockedBatch(prisma, stock, fx, { qty: 5 });
     const { device, identity } = await enroll();

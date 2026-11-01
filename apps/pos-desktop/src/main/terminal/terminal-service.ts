@@ -57,7 +57,7 @@ const MESSAGES: Record<string, string> = {
   LOCAL_ATTENDANCE_UNAVAILABLE:
     "Windows did not confirm this is the computer's own screen. Try again at the counter.",
   TERMINAL_REVOKED:
-    "This counter has been switched off in the back office. A manager must enroll it again.",
+    "This computer was switched off in the back office. If it was reported lost, a manager retires it in Settings → Counters & devices before enrolling it again.",
   PERMISSION_DENIED: "Your account is not allowed to do this at this branch.",
   IDENTITY_MISMATCH: "This counter belongs to a different branch or account.",
   CHALLENGE_EXPIRED: "That took too long. Try again.",

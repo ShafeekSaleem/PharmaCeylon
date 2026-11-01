@@ -738,11 +738,18 @@ export function CounterAccess({ state, onState }: Props) {
           cancel it.
         </p>
       )}
-      {(enrollment?.status === "revoked" ||
-        enrollment?.status === "retired") && (
+      {enrollment?.status === "revoked" && (
         <p className={styles.resultFailed}>
-          This counter was switched off in the back office. A manager can sign
-          in to enroll this computer again.
+          This computer&apos;s key was revoked in the back office, so it can&apos;t
+          sell. It still holds its counter: to use it again, a manager retires
+          it in Settings → Counters &amp; devices, then signs in here to enroll
+          it again.
+        </p>
+      )}
+      {enrollment?.status === "retired" && (
+        <p className={styles.resultFailed}>
+          This computer was retired in the back office. A manager can sign in
+          to enroll it again.
         </p>
       )}
 

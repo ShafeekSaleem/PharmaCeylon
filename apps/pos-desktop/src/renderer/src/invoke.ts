@@ -1,22 +1,28 @@
 import type { ActionResult } from "../../shared/ipc-contract";
 
 /**
- * Calls a bridge action and always comes back with a result. Main rejects input that fails its
- * checks (and a sender it doesn't trust) instead of answering, which would otherwise leave a
- * button that silently does nothing.
+ * Calls a bridge action and always comes back with a result. Main rejects instead of answering
+ * when input fails its checks ("Invalid request."), the sender isn't trusted, or a handler fails
+ * unexpectedly; any of those would otherwise leave a button that silently does nothing.
  */
 export async function invoke<T>(
   action: () => Promise<ActionResult<T>>,
 ): Promise<ActionResult<T>> {
   try {
     return await action();
-  } catch {
+  } catch (error) {
+    const invalid = error instanceof Error && error.message.includes("Invalid request.");
     return {
       ok: false,
-      error: {
-        code: "INVALID_INPUT",
-        message: "Check what you entered (amounts, quantities, PINs) and try again.",
-      },
+      error: invalid
+        ? {
+            code: "INVALID_INPUT",
+            message: "Check what you entered (amounts, quantities, PINs) and try again.",
+          }
+        : {
+            code: "UNEXPECTED",
+            message: "Something went wrong. Please try again.",
+          },
     };
   }
 }

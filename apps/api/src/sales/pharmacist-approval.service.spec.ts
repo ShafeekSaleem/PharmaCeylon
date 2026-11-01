@@ -1,4 +1,4 @@
-import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
+import { ForbiddenException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { RoleName } from "@prisma/client";
 import * as bcrypt from "bcrypt";
@@ -76,7 +76,10 @@ describe("PharmacistApprovalService", () => {
 
     await expect(
       service.verifyApproverPin(tenantId, branchId, approverId, "0000", actorUserId),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: "APPROVER_PIN_INCORRECT" },
+    });
     expect(prisma.appUser.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: approverId },

@@ -292,11 +292,16 @@ async function start(): Promise<void> {
 
   logger.info("startup.ready", { appVersion: app.getVersion(), schemaVersion: store.schemaVersion });
   const deviceStore = new DeviceStore(store.db);
+  // Offline PIN lockouts count down in uptime; save their progress so a restart resumes it.
+  const pins = new PinStore(store.db);
+  pins.checkpoint();
+  setInterval(() => pins.checkpoint(), 60_000).unref();
+  app.on("before-quit", () => pins.checkpoint());
   // No cookie jar: the server must see a Bearer client, never a browser session.
   const terminalApi = new ApiSession(currentApiBaseUrl, (url, init) => net.fetch(url, { ...init, credentials: "omit" }));
   terminal = new TerminalService({
     store: deviceStore,
-    pins: new PinStore(store.db),
+    pins,
     api: terminalApi,
     serverUrl: currentApiBaseUrl,
     serverUrlEditable: true,
