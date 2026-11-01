@@ -42,7 +42,18 @@ const devServerOrigin = devServerUrl ? new URL(devServerUrl).origin : null;
 // Before enrollment the server address comes from setup (saved in the local database), then the
 // environment, then the local Nest port in development. An enrolled counter uses the address it
 // enrolled against.
-const defaultApiBaseUrl = process.env.POS_API_BASE_URL ?? (app.isPackaged ? null : "http://127.0.0.1:3001/api/v1");
+// The environment address gets the same checks as one typed at setup: HTTPS when packaged.
+const defaultApiBaseUrl = configuredServerUrl(process.env.POS_API_BASE_URL);
+
+function configuredServerUrl(raw: string | undefined): string | null {
+  if (!raw) return app.isPackaged ? null : "http://127.0.0.1:3001/api/v1";
+  try {
+    return normalizeServerUrl(raw, app.isPackaged);
+  } catch {
+    // Refused: setup asks for the address instead of trusting an unsafe one.
+    return null;
+  }
+}
 const readWindowsSession = createWindowsSessionReader();
 
 // DPAPI, via Electron: the blob can only be opened by this Windows user on this machine.

@@ -703,6 +703,54 @@ describe("one-time enrollment codes", () => {
     });
   });
 
+  it("409s a code finished after a manager enrolled another computer there, and enrolls nothing", async () => {
+    const { id: registerId } = await counter("Raced counter");
+    const issued = await codes.issue(owner, fx.mainBranchId, { registerId });
+    const { device, command } = await redeem(issued.code);
+    const proof = await record(
+      device,
+      attestation(command, "enrollment", clerk),
+      clerk,
+    );
+    // Meanwhile a manager enrolls a different computer directly on the same counter.
+    const other = terminalDevice();
+    const direct = await beginEnrollment(other, registerId);
+    const directProof = await record(
+      other,
+      attestation(direct, "enrollment", owner),
+    );
+    await tx((c) =>
+      trust.finishEnrollment(
+        c,
+        owner,
+        fx.mainBranchId,
+        other.sign(direct, direct.identity.keyId),
+        directProof.proofId,
+      ),
+    );
+    await expect(
+      tx((c) =>
+        trust.finishEnrollment(
+          c,
+          clerk,
+          fx.mainBranchId,
+          device.sign(command, command.identity.keyId),
+          proof.proofId,
+        ),
+      ),
+    ).rejects.toMatchObject({ status: 409, response: { code: "COUNTER_OCCUPIED" } });
+    expect(
+      await prisma.operationalTerminal.count({
+        where: { tenantId: fx.tenantId, id: command.identity.terminalId },
+      }),
+    ).toBe(0);
+    // And a fresh challenge for the occupied counter is refused up front.
+    await expect(beginEnrollment(terminalDevice(), registerId)).rejects.toMatchObject({
+      status: 409,
+      response: { code: "COUNTER_OCCUPIED" },
+    });
+  });
+
   it("refuses a code revoked between redeeming and finishing, and enrolls nothing", async () => {
     const { id: registerId } = await counter("Revoked code counter");
     const issued = await codes.issue(owner, fx.mainBranchId, {

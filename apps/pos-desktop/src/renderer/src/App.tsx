@@ -152,14 +152,18 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [refreshApi]);
 
-  // Enrolling, signing in or preparing a PIN changes what the readiness checks can see.
-  useEffect(() => {
-    if (!device) return;
+  const refreshReadiness = useCallback(() => {
     window.pos
       .getReadiness()
       .then(setReadiness)
       .catch(() => undefined);
-  }, [device]);
+  }, []);
+
+  // Enrolling, signing in or preparing a PIN changes what the readiness checks can see, and so
+  // does a sale or action left unconfirmed.
+  useEffect(() => {
+    if (device) refreshReadiness();
+  }, [device, refreshReadiness]);
 
   return (
     <div className={styles.shell}>
@@ -178,8 +182,8 @@ export function App() {
 
       <main className={styles.content}>
         {device && <CounterAccess state={device} onState={setDevice} />}
-        {device?.staffSession && !device.locked && <Checkout key={device.staffSession.workSessionId} />}
-        {device?.staffSession && !device.locked && <CounterWork key={`work-${device.staffSession.workSessionId}`} />}
+        {device?.staffSession && !device.locked && <Checkout key={device.staffSession.workSessionId} onActivity={refreshReadiness} />}
+        {device?.staffSession && !device.locked && <CounterWork key={`work-${device.staffSession.workSessionId}`} onActivity={refreshReadiness} />}
         <section className={styles.panel} aria-labelledby="readiness-heading">
           <h2 id="readiness-heading" className={styles.panelTitle}>
             Offline readiness

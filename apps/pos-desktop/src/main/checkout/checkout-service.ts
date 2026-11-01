@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  CatalogView,
   CatalogProduct,
   CheckoutDraftView,
   CoSign,
@@ -9,12 +10,14 @@ import type {
   Tender,
 } from "../../shared/ipc-contract";
 import { ApiError, type ApiSession } from "../api/api-client";
+import { isDefiniteRefusal } from "../api/definite-refusal";
 import type { PosDatabase } from "../db/database";
 import type { Logger } from "../logging/logger";
 import {
   ActionFailure,
   type TerminalService,
 } from "../terminal/terminal-service";
+import { saleTotalMinor } from "../../shared/sale-total";
 import { fromMinor, toMinor } from "./money";
 
 type RawCatalogProduct = {
@@ -75,6 +78,8 @@ type DraftRow = {
   invoice_no: string | null;
   error_code: string | null;
   co_signer_id: string | null;
+  branch_id: string | null;
+  enrollment_id: string | null;
   created_at: string;
 };
 
@@ -111,6 +116,7 @@ const toSale = (sale: RawSale): CompletedSale => ({
  */
 export class CheckoutService {
   private catalogCache: Map<string, CatalogProduct> = new Map();
+  private vatRatePercent = 0;
 
   constructor(
     private readonly deps: {
@@ -136,12 +142,13 @@ export class CheckoutService {
     return current;
   }
 
-  async catalog(): Promise<CatalogProduct[]> {
+  async catalog(): Promise<CatalogView> {
     const { identity } = this.counter();
-    const raw = await this.deps.api.request<
-      RawCatalogProduct[] | { products: RawCatalogProduct[] }
-    >("GET", "/sales/pos/catalog", { branchId: identity.branchId });
-    const list = Array.isArray(raw) ? raw : raw.products;
+    const raw = await this.deps.api.request<{
+      products: RawCatalogProduct[];
+      vatRatePercent?: number;
+    }>("GET", "/sales/pos/catalog", { branchId: identity.branchId });
+    const list = raw.products;
     const products: CatalogProduct[] = list
       .filter((p) => p.batches.length > 0)
       .map((p) => ({
@@ -159,7 +166,11 @@ export class CheckoutService {
         isControlled: p.isControlled,
       }));
     this.catalogCache = new Map(products.map((p) => [p.productId, p]));
-    return products;
+    this.vatRatePercent =
+      typeof raw.vatRatePercent === "number" && raw.vatRatePercent > 0
+        ? raw.vatRatePercent
+        : 0;
+    return { products, vatRatePercent: this.vatRatePercent };
   }
 
   /** Builds the request from the cached server catalog; the renderer supplies only ids and quantities. */
@@ -194,14 +205,25 @@ export class CheckoutService {
         unitPrice: product.unitPrice,
       };
     });
-    // Estimate before tax: the server adds VAT and returns the final total, which the receipt shows.
-    const totalMinor = items.reduce(
-      (sum, i) => sum + toMinor(i.unitPrice) * i.qty,
-      0,
+    // The total the cashier reviewed, VAT included, as the server will compute it.
+    const { totalMinor } = saleTotalMinor(
+      items.map((i) => ({ unitPriceMinor: toMinor(i.unitPrice), qty: i.qty })),
+      this.vatRatePercent,
     );
     const payments: CheckoutRequest["payments"] = [];
     const cash = tender.cashAmount ? toMinor(tender.cashAmount) : 0;
     const card = tender.cardAmount ? toMinor(tender.cardAmount) : 0;
+    // An empty tender would be booked by the server as exact cash nobody counted.
+    if (cash + card <= 0)
+      throw new ActionFailure(
+        "TENDER_REQUIRED",
+        `Enter what the customer paid. The total is ${fromMinor(totalMinor)}.`,
+      );
+    if (cash + card < totalMinor)
+      throw new ActionFailure(
+        "TENDER_SHORT",
+        `The customer has paid ${fromMinor(cash + card)} of ${fromMinor(totalMinor)}.`,
+      );
     if (card > 0) {
       if (!tender.cardReference?.trim())
         throw new ActionFailure(
@@ -248,8 +270,8 @@ export class CheckoutService {
     const at = this.now().toISOString();
     this.deps.db
       .prepare(
-        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, co_signer_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'submitted', ?, ?, ?)`,
+        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, co_signer_id, branch_id, enrollment_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'submitted', ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -258,6 +280,8 @@ export class CheckoutService {
         JSON.stringify(request),
         totalMinor,
         coSign?.approverUserId ?? null,
+        identity.branchId,
+        identity.enrollmentId,
         at,
         at,
       );
@@ -267,6 +291,7 @@ export class CheckoutService {
       staff.workSessionId,
       identity.branchId,
       coSign,
+      false,
     );
   }
 
@@ -389,6 +414,16 @@ export class CheckoutService {
         "DRAFT_OTHER_STAFF",
         "Only the person who rang this sale up can confirm it.",
       );
+    // The sale belongs to the branch and enrollment it was rung up on. Resending it from a counter
+    // re-enrolled elsewhere would post it, and take the stock, at the wrong branch.
+    if (
+      (row.branch_id && row.branch_id !== identity.branchId) ||
+      (row.enrollment_id && row.enrollment_id !== identity.enrollmentId)
+    )
+      throw new ActionFailure(
+        "DRAFT_OTHER_COUNTER",
+        "This sale was rung up before the counter was re-enrolled. Check it in Sales history on the web.",
+      );
     if (coSign && coSign.approverUserId !== row.co_signer_id)
       throw new ActionFailure(
         "CO_SIGNER_CHANGED",
@@ -400,6 +435,7 @@ export class CheckoutService {
       staff.workSessionId,
       identity.branchId,
       coSign,
+      true,
     );
   }
 
@@ -449,7 +485,8 @@ export class CheckoutService {
     request: CheckoutRequest,
     workSessionId: string,
     branchId: string,
-    coSign?: CoSign,
+    coSign: CoSign | undefined,
+    resend: boolean,
   ): Promise<CompletedSale> {
     try {
       const sale = await this.deps.api.request<RawSale>(
@@ -481,9 +518,14 @@ export class CheckoutService {
           "The server did not answer. The sale may have gone through: confirm it before taking payment again.",
         );
       }
-      this.mark(id, "refused", {
-        errorCode: error instanceof ApiError ? error.code : "UNEXPECTED",
-      });
+      const errorCode = error instanceof ApiError ? error.code : "UNEXPECTED";
+      if (!isDefiniteRefusal(error, resend)) {
+        // Refused before the server could find the first attempt (sign-in, permission, the
+        // co-sign PIN): the original may still have landed, so it stays pending.
+        this.mark(id, "uncertain", { errorCode });
+        throw error;
+      }
+      this.mark(id, "refused", { errorCode });
       throw error;
     }
   }

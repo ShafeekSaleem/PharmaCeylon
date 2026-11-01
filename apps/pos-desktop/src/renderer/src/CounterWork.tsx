@@ -4,11 +4,12 @@ import type {
   RefundExecuted,
 } from "../../shared/ipc-contract";
 import styles from "./App.module.css";
+import { invoke } from "./invoke";
 
 const amount = (minor: number) => (minor / 100).toFixed(2);
 
 /** Remote-prepared work only the counter may execute. Hidden for people without the permission. */
-export function CounterWork() {
+export function CounterWork({ onActivity }: { onActivity?: () => void } = {}) {
   const [refunds, setRefunds] = useState<RefundAtCounter[] | null>(null);
   const [pending, setPending] = useState<
     { commandId: string; operation: string; createdAt: string }[]
@@ -18,18 +19,26 @@ export function CounterWork() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
+    void invoke(() => window.pos.refundsReady()).then((result) =>
+      setRefunds(result.ok ? result.value : []),
+    );
     void window.pos
-      .refundsReady()
-      .then((result) => setRefunds(result.ok ? result.value : []));
-    void window.pos.pendingCommands().then(setPending);
-  }, []);
+      .pendingCommands()
+      .then((list) => {
+        setPending(list);
+        onActivity?.();
+      })
+      .catch(() => undefined);
+  }, [onActivity]);
   useEffect(load, [load]);
 
   async function execute(id: string) {
     setBusy(true);
     setError(null);
     try {
-      const result = await window.pos.executeRefund({ refundRequestId: id });
+      const result = await invoke(() =>
+        window.pos.executeRefund({ refundRequestId: id }),
+      );
       if (result.ok) setDone(result.value);
       else setError(result.error.message);
     } finally {
@@ -39,7 +48,8 @@ export function CounterWork() {
   }
 
   async function confirm(commandId: string) {
-    const result = await window.pos.retryCommand({ commandId });
+    setError(null);
+    const result = await invoke(() => window.pos.retryCommand({ commandId }));
     if (!result.ok) setError(result.error.message);
     load();
   }

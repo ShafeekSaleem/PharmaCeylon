@@ -10,7 +10,7 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
 | Area | API (`apps/api`) | Desktop (`apps/pos-desktop`) |
 | --- | --- | --- |
 | Enrollment | `/terminals` routes over P1's `TerminalTrustService`; manager-at-the-computer or one-time enrollment code (`terminal_enrollment_code`, SHA-256 only, single use, consumed with the enrollment) | Ed25519 key generated in main, PKCS#8 in SQLCipher (`device_identity`), pending row saved before finish so a lost response never strands the key |
-| Local attendance | `terminal_attendance_proof` + production `LocalAttendanceVerifier`; only the physical console session, bound to one challenge, consumed once in the caller's transaction | Windows session read through koffi (`ProcessIdToSessionId`, `WTSGetActiveConsoleSessionId`, `SM_REMOTESESSION`, `WTSClientProtocolType`); signed `LocalAttendanceAttestation` |
+| Local attendance | `terminal_attendance_proof` + `LocalAttendanceVerifier` (see "Decision needed" below); only the physical console session, bound to one challenge, consumed once in the caller's transaction | Windows session read through koffi (`ProcessIdToSessionId`, `WTSGetActiveConsoleSessionId`, `SM_REMOTESESSION`, `WTSClientProtocolType`); signed `LocalAttendanceAttestation` |
 | Staff sessions | Session challenge/finish/end; a new session supersedes an older open binding on the till | Sign in, switch user, sign out, enrollment status refresh, revoked counters stop |
 | PINs (D-W5) | `posPinVersion`, `terminal_staff_preparation`; set/change at the counter with the password, prepare with the co-sign lockout | scrypt verifier per person and version (`staff_credential`), lock/unlock offline with a persisted throttle |
 | D13 activation | `terminal.activate_offline`; signed, attended activation on the exact target; `requireCurrent`; D11 clearance port; separate authorizer/activator audit | Offline counter panel shows a waiting authorization and activates it |
@@ -32,6 +32,23 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
   sessions, PINs, activation, checkout drafts, holds and signed commands. Typecheck and
   `electron-vite build` also pass. The koffi reader was exercised on a real Windows console
   session.
+
+## Decision needed before an operational release
+
+**The attendance proof is the device's own claim.** The desktop's main process reads the Windows
+session and signs that reading with the counter's own Ed25519 key, bound to a fresh server
+challenge. That stops replays, Remote Desktop and a forged proof from another device. It does not
+stop someone who controls the counter computer, because the same key signs the claim. The epic
+rules out an operational release on client-claimed attendance. The options are:
+
+- Keep verification closed (refusing every proof, as P1 did) until there is a real trust anchor,
+  such as a TPM-backed key with attestation.
+- Treat the one-time enrollment code as the out-of-band binding and accept the documented limits
+  for v1 (API_CONTRACT.md, "Limits").
+- Get explicit product sign-off that the documented limits are acceptable for v1.
+
+This needs a product owner's decision. Until then the verifier is a candidate, not a release
+control.
 
 ## Not done in P2 yet
 

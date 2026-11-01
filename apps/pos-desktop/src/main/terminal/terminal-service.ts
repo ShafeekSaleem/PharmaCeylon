@@ -173,9 +173,11 @@ export class TerminalService {
    * not enrolled yet it only signs in, so a manager can enroll it.
    */
   async signIn(email: string, password: string): Promise<DeviceState> {
+    // Check the new person first: a wrong password must not end the current session.
+    const login = await this.deps.api.authenticate(email, password);
     if (this.staff) await this.signOut("switch_user");
     else if (this.deps.api.user) await this.deps.api.logout();
-    const user = await this.deps.api.login(email, password);
+    const user = this.deps.api.adopt(login);
     try {
       let device = this.deps.store.read();
       if (device?.status === "pending") {
@@ -278,7 +280,6 @@ export class TerminalService {
       staff.staffUserId,
       device.identity.enrollmentId,
       pin,
-      this.now(),
     );
     if (result === "locked")
       throw new ActionFailure("PIN_LOCKED", MESSAGES.PIN_LOCKED!);

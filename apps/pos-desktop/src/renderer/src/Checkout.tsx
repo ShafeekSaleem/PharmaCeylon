@@ -14,8 +14,10 @@ import type {
   PrescriptionView,
   Printer,
 } from "../../shared/ipc-contract";
+import { saleTotalMinor } from "../../shared/sale-total";
 import styles from "./App.module.css";
 import { DispensingPanel } from "./Dispensing";
+import { invoke, moneyInput } from "./invoke";
 
 type Line = { product: CatalogProduct; qty: number };
 
@@ -104,27 +106,42 @@ function Receipt({
 }
 
 function PendingCheckouts({
+  reloadKey,
   onResolved,
+  onCount,
 }: {
+  reloadKey: number;
   onResolved: (sale: CompletedSale) => void;
+  onCount: (count: number) => void;
 }) {
   const [drafts, setDrafts] = useState<CheckoutDraftView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pins, setPins] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
-    void window.pos.pendingCheckouts().then(setDrafts);
-  }, []);
-  useEffect(load, [load]);
+    void window.pos
+      .pendingCheckouts()
+      .then((list) => {
+        setDrafts(list);
+        onCount(list.length);
+      })
+      .catch(() => undefined);
+  }, [onCount]);
+  useEffect(load, [load, reloadKey]);
   if (!drafts.length) return null;
   async function confirm(draft: CheckoutDraftView) {
     setError(null);
+    setBusy(true);
     const pin = pins[draft.draftId];
-    const result = await window.pos.retryCheckout({
-      draftId: draft.draftId,
-      ...(draft.coSignerId && pin
-        ? { coSign: { approverUserId: draft.coSignerId, pin } }
-        : {}),
-    });
+    const result = await invoke(() =>
+      window.pos.retryCheckout({
+        draftId: draft.draftId,
+        ...(draft.coSignerId && pin
+          ? { coSign: { approverUserId: draft.coSignerId, pin } }
+          : {}),
+      }),
+    );
+    setBusy(false);
     setPins((current) => ({ ...current, [draft.draftId]: "" }));
     if (result.ok) onResolved(result.value);
     else setError(result.error.message);
@@ -163,6 +180,7 @@ function PendingCheckouts({
               type="button"
               className="pc-btn-outline"
               onClick={() => void confirm(d)}
+              disabled={busy}
             >
               Confirm with server
             </button>
@@ -175,8 +193,13 @@ function PendingCheckouts({
 }
 
 /** Online checkout at this counter. Prices and totals are the server's; this only collects choices. */
-export function Checkout() {
+export function Checkout({ onActivity }: { onActivity?: () => void } = {}) {
   const [catalog, setCatalog] = useState<CatalogProduct[] | null>(null);
+  const [vatRatePercent, setVatRatePercent] = useState(0);
+  const [pendingKey, setPendingKey] = useState(0);
+  // The cart whose sale may already have gone through: it can't be sent again, only confirmed
+  // above or cleared to start a different sale.
+  const [awaiting, setAwaiting] = useState(false);
   const [query, setQuery] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [cash, setCash] = useState("");
@@ -209,21 +232,27 @@ export function Checkout() {
     setPrescription(null);
     setApproverId("");
     setPin("");
+    setCash("");
+    setCard("");
+    setCardReference("");
+    setAwaiting(false);
   }
 
   const loadHolds = useCallback(() => {
-    void window.pos
-      .listHolds()
-      .then((result) => setHolds(result.ok ? result.value : []));
+    void invoke(() => window.pos.listHolds()).then((result) =>
+      setHolds(result.ok ? result.value : []),
+    );
   }, []);
   useEffect(loadHolds, [loadHolds]);
 
   async function hold() {
     setError(null);
-    const result = await window.pos.holdCart({
-      lines: lines.map((l) => ({ productId: l.product.productId, qty: l.qty })),
-      dispensing,
-    });
+    const result = await invoke(() =>
+      window.pos.holdCart({
+        lines: lines.map((l) => ({ productId: l.product.productId, qty: l.qty })),
+        dispensing,
+      }),
+    );
     if (result.ok) {
       resetSale();
       setNotice(`Held as ${result.value.holdRef}.`);
@@ -233,29 +262,39 @@ export function Checkout() {
 
   async function recall(holdId: string) {
     setError(null);
-    const result = await window.pos.recallHold({ holdId });
+    // Recalling claims the hold on the server, so price it against a fresh product list first:
+    // lines that can't be matched would otherwise be lost with the hold.
+    const fresh = await invoke(() => window.pos.catalog());
+    if (!fresh.ok) return setError(fresh.error.message);
+    setCatalog(fresh.value.products);
+    setVatRatePercent(fresh.value.vatRatePercent);
+    const result = await invoke(() => window.pos.recallHold({ holdId }));
     loadHolds();
     if (!result.ok) return setError(result.error.message);
-    const byId = new Map((catalog ?? []).map((p) => [p.productId, p]));
+    const byId = new Map(fresh.value.products.map((p) => [p.productId, p]));
     const held = result.value;
     setCustomer(held.customer);
     setPrescription(held.prescription);
     const restored = held.lines.flatMap((l) => {
       const product = byId.get(l.productId);
-      return product
+      return product && product.available > 0
         ? [{ product, qty: Math.min(l.qty, product.available) }]
         : [];
     });
     setLines(restored);
-    if (restored.length < held.lines.length)
-      setNotice("Some held items are no longer available and were left out.");
+    const short = held.lines.length - restored.length;
+    if (short > 0)
+      setNotice(
+        `${short} held item${short === 1 ? " is" : "s are"} out of stock and ${short === 1 ? "was" : "were"} left out.`,
+      );
   }
 
   const refresh = useCallback(() => {
     setError(null);
-    void window.pos.catalog().then((result) => {
-      if (result.ok) setCatalog(result.value);
-      else setError(result.error.message);
+    void invoke(() => window.pos.catalog()).then((result) => {
+      if (!result.ok) return setError(result.error.message);
+      setCatalog(result.value.products);
+      setVatRatePercent(result.value.vatRatePercent);
     });
   }, []);
   useEffect(refresh, [refresh]);
@@ -264,10 +303,12 @@ export function Checkout() {
     () => (catalog ?? []).filter((p) => matches(p, query)).slice(0, 20),
     [catalog, query],
   );
-  const estimate = lines.reduce(
-    (sum, l) => sum + minor(l.product.unitPrice) * l.qty,
-    0,
+  const totals = saleTotalMinor(
+    lines.map((l) => ({ unitPriceMinor: minor(l.product.unitPrice), qty: l.qty })),
+    vatRatePercent,
   );
+  const tenderedMinor = (cash ? minor(cash) : 0) + (card ? minor(card) : 0);
+  const tenderShort = tenderedMinor < totals.totalMinor;
 
   function add(product: CatalogProduct) {
     setLines((current) => {
@@ -285,12 +326,16 @@ export function Checkout() {
     setQuery("");
   }
 
-  function setQty(productId: string, qty: number) {
+  function setQty(productId: string, raw: number) {
+    // Whole units only, never more than is available.
+    const qty = Number.isFinite(raw) ? Math.floor(raw) : 0;
     setLines((current) =>
       qty <= 0
         ? current.filter((l) => l.product.productId !== productId)
         : current.map((l) =>
-            l.product.productId === productId ? { ...l, qty } : l,
+            l.product.productId === productId
+              ? { ...l, qty: Math.min(qty, l.product.available) }
+              : l,
           ),
     );
   }
@@ -306,40 +351,53 @@ export function Checkout() {
   }
 
   async function complete() {
-    if (hasControlled && approverId && !pin) {
+    if (awaiting) return;
+    if (hasControlled && approverId && pin.length < 4) {
       setError("Ask the pharmacist to enter their PIN.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const result = await window.pos.submitCheckout({
-        lines: lines.map((l) => ({
-          productId: l.product.productId,
-          qty: l.qty,
-        })),
-        tender: {
-          ...(cash ? { cashAmount: cash } : {}),
-          ...(card ? { cardAmount: card, cardReference } : {}),
-        },
-        dispensing,
-        ...(hasControlled && approverId
-          ? { coSign: { approverUserId: approverId, pin } }
-          : {}),
-      });
+      const result = await invoke(() =>
+        window.pos.submitCheckout({
+          lines: lines.map((l) => ({
+            productId: l.product.productId,
+            qty: l.qty,
+          })),
+          tender: {
+            ...(cash ? { cashAmount: cash } : {}),
+            ...(card ? { cardAmount: card, cardReference } : {}),
+          },
+          dispensing,
+          ...(hasControlled && approverId
+            ? { coSign: { approverUserId: approverId, pin } }
+            : {}),
+        }),
+      );
       // The PIN is good for one attempt; never leave it sitting in the form.
       setPin("");
       if (result.ok) {
         setSale(result.value);
         resetSale();
-        setCash("");
-        setCard("");
-        setCardReference("");
-      } else setError(result.error.message);
+      } else {
+        setError(result.error.message);
+        if (result.error.code === "CHECKOUT_UNCERTAIN") setAwaiting(true);
+      }
     } finally {
       setBusy(false);
+      // Show any sale left unconfirmed straight away, with its confirm button.
+      setPendingKey((k) => k + 1);
     }
   }
+
+  const onPendingCount = useCallback(
+    (count: number) => {
+      if (count === 0) setAwaiting(false);
+      onActivity?.();
+    },
+    [onActivity],
+  );
 
   if (sale)
     return (
@@ -360,7 +418,15 @@ export function Checkout() {
   return (
     <section className={`${styles.panel} ${styles.wide}`} aria-label="Checkout">
       <h2 className={styles.panelTitle}>Checkout</h2>
-      <PendingCheckouts onResolved={setSale} />
+      <PendingCheckouts
+        reloadKey={pendingKey}
+        onCount={onPendingCount}
+        onResolved={(resolved) => {
+          setSale(resolved);
+          // Confirming the sale that was on screen settles that cart.
+          if (awaiting) resetSale();
+        }}
+      />
       <form className={styles.form} onSubmit={onSearch}>
         <label className={styles.field}>
           <span>Scan or search</span>
@@ -443,17 +509,31 @@ export function Checkout() {
           onPin={setPin}
         />
       )}
-      <p>
-        Before tax: <strong>{display(estimate)}</strong>{" "}
-        <span className="pc-muted">(tax is added at checkout)</span>
-      </p>
+      {lines.length > 0 && (
+        <dl className={styles.facts} aria-label="Sale total">
+          <dt>Subtotal</dt>
+          <dd>{display(totals.subtotalMinor)}</dd>
+          <dt>VAT{vatRatePercent ? ` (${vatRatePercent}%)` : ""}</dt>
+          <dd>{display(totals.taxMinor)}</dd>
+          <dt>Total</dt>
+          <dd>
+            <strong>{display(totals.totalMinor)}</strong>
+          </dd>
+          {tenderedMinor > totals.totalMinor && (
+            <>
+              <dt>Change</dt>
+              <dd>{display(tenderedMinor - totals.totalMinor)}</dd>
+            </>
+          )}
+        </dl>
+      )}
       <div className={styles.actions}>
         <label className={styles.field}>
           <span>Cash received</span>
           <input
             inputMode="decimal"
             value={cash}
-            onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, ""))}
+            onChange={(e) => setCash(moneyInput(e.target.value))}
           />
         </label>
         <label className={styles.field}>
@@ -461,7 +541,7 @@ export function Checkout() {
           <input
             inputMode="decimal"
             value={card}
-            onChange={(e) => setCard(e.target.value.replace(/[^\d.]/g, ""))}
+            onChange={(e) => setCard(moneyInput(e.target.value))}
           />
         </label>
         {card && (
@@ -479,7 +559,7 @@ export function Checkout() {
           type="button"
           className="pc-btn-primary-sm"
           onClick={() => void complete()}
-          disabled={busy || !lines.length}
+          disabled={busy || awaiting || !lines.length || tenderShort}
         >
           {busy ? "Completing…" : "Complete sale"}
         </button>
@@ -487,7 +567,7 @@ export function Checkout() {
           type="button"
           className="pc-btn-outline"
           onClick={() => void hold()}
-          disabled={busy || !lines.length}
+          disabled={busy || awaiting || !lines.length}
         >
           Hold
         </button>
@@ -508,6 +588,17 @@ export function Checkout() {
           Refresh products
         </button>
       </div>
+      {awaiting && (
+        <p role="alert" className={styles.resultFailed}>
+          This sale may already have gone through. Confirm it above; don&apos;t
+          take payment again. Clear only to start a different sale.
+        </p>
+      )}
+      {lines.length > 0 && tenderShort && !awaiting && (
+        <p className="pc-muted">
+          Enter what the customer paid: at least {display(totals.totalMinor)}.
+        </p>
+      )}
       {notice && <p role="status">{notice}</p>}
       {holds.length > 0 && (
         <div className={styles.form}>
@@ -524,7 +615,7 @@ export function Checkout() {
                   type="button"
                   className="pc-btn-outline"
                   onClick={() => void recall(h.holdId)}
-                  disabled={busy || lines.length > 0}
+                  disabled={busy || lines.length > 0 || catalog === null}
                 >
                   Recall
                 </button>

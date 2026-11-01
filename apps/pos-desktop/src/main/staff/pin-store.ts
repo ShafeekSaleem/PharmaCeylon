@@ -6,6 +6,12 @@ const SCRYPT = { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
 const KEY_BYTES = 32;
 export const MAX_PIN_FAILURES = 5;
 export const PIN_LOCK_MS = 15 * 60_000;
+/** Each further lockout doubles, up to a day: ~25 guesses in the first day instead of ~480. */
+const MAX_PIN_LOCK_MS = 24 * 60 * 60_000;
+
+export function lockDurationMs(lockouts: number): number {
+  return Math.min(PIN_LOCK_MS * 2 ** Math.max(lockouts - 1, 0), MAX_PIN_LOCK_MS);
+}
 const PIN = /^\d{4,8}$/;
 
 export type PinCheck = "ok" | "wrong" | "locked" | "not_prepared";
@@ -19,6 +25,8 @@ type Row = {
   verifier: Buffer;
   failed_attempts: number;
   locked_until: string | null;
+  lock_remaining_ms: number;
+  lockouts: number;
 };
 
 const derive = (pin: string, salt: Buffer) =>
@@ -30,7 +38,43 @@ const derive = (pin: string, salt: Buffer) =>
  * this store is ever sent anywhere.
  */
 export class PinStore {
-  constructor(private readonly db: PosDatabase) {}
+  /**
+   * Lockouts count down on the app's monotonic clock, never the Windows clock: moving the clock
+   * forward must not end one. The remaining time is written back on every check, so a restart
+   * resumes it (time while the app is closed doesn't count, which only makes a lock longer).
+   */
+  private readonly anchors = new Map<string, { at: number; remaining: number }>();
+
+  constructor(
+    private readonly db: PosDatabase,
+    private readonly monotonic: () => number = () => performance.now(),
+  ) {}
+
+  private remainingLock(row: Row): number {
+    if (row.lock_remaining_ms <= 0) return 0;
+    const anchor = this.anchors.get(row.staff_user_id);
+    const now = this.monotonic();
+    if (!anchor || anchor.remaining !== row.lock_remaining_ms) {
+      this.anchors.set(row.staff_user_id, { at: now, remaining: row.lock_remaining_ms });
+      return row.lock_remaining_ms;
+    }
+    return Math.max(anchor.remaining - (now - anchor.at), 0);
+  }
+
+  private persistLock(staffUserId: string, remaining: number) {
+    this.db
+      .prepare("UPDATE staff_credential SET lock_remaining_ms = ? WHERE staff_user_id = ?")
+      .run(Math.ceil(remaining), staffUserId);
+    if (remaining > 0)
+      this.anchors.set(staffUserId, { at: this.monotonic(), remaining: Math.ceil(remaining) });
+    else this.anchors.delete(staffUserId);
+  }
+
+  /** Milliseconds left on this person's lockout here, for the screen. */
+  lockRemainingMs(staffUserId: string): number {
+    const row = this.row(staffUserId);
+    return row ? this.remainingLock(row) : 0;
+  }
 
   private row(staffUserId: string): Row | undefined {
     return this.db
@@ -60,7 +104,8 @@ export class PinStore {
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(staff_user_id) DO UPDATE SET staff_name = excluded.staff_name, enrollment_id = excluded.enrollment_id,
            pin_version = excluded.pin_version, salt = excluded.salt, verifier = excluded.verifier,
-           prepared_at = excluded.prepared_at, failed_attempts = 0, locked_until = NULL`,
+           prepared_at = excluded.prepared_at, failed_attempts = 0, locked_until = NULL,
+           lock_remaining_ms = 0, lockouts = 0`,
       )
       .run(
         input.staffUserId,
@@ -80,37 +125,34 @@ export class PinStore {
       .run(staffUserId);
   }
 
-  check(
-    staffUserId: string,
-    enrollmentId: string,
-    pin: string,
-    now: Date,
-  ): PinCheck {
+  check(staffUserId: string, enrollmentId: string, pin: string): PinCheck {
     const row = this.row(staffUserId);
     if (!row || row.enrollment_id !== enrollmentId) return "not_prepared";
-    if (row.locked_until && Date.parse(row.locked_until) > now.getTime())
+    const remaining = this.remainingLock(row);
+    if (remaining > 0) {
+      this.persistLock(staffUserId, remaining);
       return "locked";
+    }
     const ok =
       PIN.test(pin) && timingSafeEqual(derive(pin, row.salt), row.verifier);
     if (ok) {
       this.db
         .prepare(
-          "UPDATE staff_credential SET failed_attempts = 0, locked_until = NULL WHERE staff_user_id = ?",
+          "UPDATE staff_credential SET failed_attempts = 0, locked_until = NULL, lock_remaining_ms = 0, lockouts = 0 WHERE staff_user_id = ?",
         )
         .run(staffUserId);
+      this.anchors.delete(staffUserId);
       return "ok";
     }
     const failures = row.failed_attempts + 1;
     const lock = failures >= MAX_PIN_FAILURES;
+    const lockouts = lock ? row.lockouts + 1 : row.lockouts;
     this.db
       .prepare(
-        "UPDATE staff_credential SET failed_attempts = ?, locked_until = ? WHERE staff_user_id = ?",
+        "UPDATE staff_credential SET failed_attempts = ?, lockouts = ? WHERE staff_user_id = ?",
       )
-      .run(
-        lock ? 0 : failures,
-        lock ? new Date(now.getTime() + PIN_LOCK_MS).toISOString() : null,
-        staffUserId,
-      );
+      .run(lock ? 0 : failures, lockouts, staffUserId);
+    if (lock) this.persistLock(staffUserId, lockDurationMs(lockouts));
     return lock ? "locked" : "wrong";
   }
 }

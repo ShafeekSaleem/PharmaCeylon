@@ -66,6 +66,7 @@ function Counters() {
   const [issueFor, setIssueFor] = useState<TerminalCounterView | null>(null);
   const [issued, setIssued] = useState<TerminalEnrollmentCodeIssued | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -97,12 +98,16 @@ function Counters() {
   }
 
   async function revokeCode(codeId: string) {
+    if (revoking) return;
+    setRevoking(codeId);
     setError(null);
     try {
       await countersApi.revokeCode(codeId);
       await load();
     } catch (err) {
       setError(message(err, "Couldn't revoke the code."));
+    } finally {
+      setRevoking(null);
     }
   }
 
@@ -222,7 +227,12 @@ function Counters() {
               <span className={css.rowHint}>
                 Expires {new Date(code.expiresAt).toLocaleString()}
               </span>
-              <ModalButton variant="secondary" onClick={() => void revokeCode(code.codeId)}>
+              <ModalButton
+                variant="secondary"
+                onClick={() => void revokeCode(code.codeId)}
+                loading={revoking === code.codeId}
+                disabled={revoking !== null}
+              >
                 Revoke
               </ModalButton>
             </div>

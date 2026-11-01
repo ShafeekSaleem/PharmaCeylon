@@ -7,6 +7,7 @@ import {
   type SignedPhysicalOperation,
 } from "@pharmaceylon/shared";
 import { ApiError, type ApiSession } from "../api/api-client";
+import { isDefiniteRefusal } from "../api/definite-refusal";
 import type { PosDatabase } from "../db/database";
 import type { Logger } from "../logging/logger";
 import { ActionFailure, type TerminalService } from "./terminal-service";
@@ -100,6 +101,7 @@ export class SignedCommandService {
       envelope,
       proof.proofId,
       identity.branchId,
+      false,
     );
   }
 
@@ -142,6 +144,7 @@ export class SignedCommandService {
       JSON.parse(row.envelope_json) as Signed<unknown>,
       row.attendance_proof_id,
       current.identity.branchId,
+      true,
     );
   }
 
@@ -168,6 +171,7 @@ export class SignedCommandService {
     envelope: Signed<unknown>,
     attendanceProofId: string,
     branchId: string,
+    resend: boolean,
   ): Promise<OnlineCommandReceipt<O>> {
     try {
       const receipt = await this.deps.api.request<OnlineCommandReceipt<O>>(
@@ -192,9 +196,13 @@ export class SignedCommandService {
           "The server did not answer. Confirm this action before trying again.",
         );
       }
-      this.mark(commandId, "refused", {
-        errorCode: error instanceof ApiError ? error.code : "UNEXPECTED",
-      });
+      const errorCode = error instanceof ApiError ? error.code : "UNEXPECTED";
+      // A resend refused before the server found the original receipt proves nothing.
+      this.mark(
+        commandId,
+        isDefiniteRefusal(error, resend) ? "refused" : "uncertain",
+        { errorCode },
+      );
       throw error;
     }
   }

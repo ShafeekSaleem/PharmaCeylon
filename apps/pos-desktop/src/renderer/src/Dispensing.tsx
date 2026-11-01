@@ -5,8 +5,15 @@ import type {
   PrescriptionView,
 } from "../../shared/ipc-contract";
 import styles from "./App.module.css";
+import { invoke } from "./invoke";
 
-const today = () => new Date().toISOString().slice(0, 10);
+/** Today on this computer's calendar: a prescription written this morning in Colombo is dated
+ * today, though UTC may still be yesterday. */
+const today = () => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
 
 function CustomerPicker({
   customer,
@@ -23,7 +30,7 @@ function CustomerPicker({
     event.preventDefault();
     setError(null);
     if (!query.trim()) return;
-    const result = await window.pos.searchCustomers({ q: query });
+    const result = await invoke(() => window.pos.searchCustomers({ q: query }));
     if (result.ok) setFound(result.value);
     else setError(result.error.message);
   }
@@ -99,14 +106,16 @@ function RecordPrescription({
     setBusy(true);
     setError(null);
     try {
-      const result = await window.pos.recordPrescription({
-        patientName,
-        doctorName,
-        issuedOn,
-        ...(doctorRegNo.trim() ? { doctorRegNo } : {}),
-        ...(validUntil ? { validUntil } : {}),
-        ...(customer ? { customerId: customer.customerId } : {}),
-      });
+      const result = await invoke(() =>
+        window.pos.recordPrescription({
+          patientName,
+          doctorName,
+          issuedOn,
+          ...(doctorRegNo.trim() ? { doctorRegNo } : {}),
+          ...(validUntil ? { validUntil } : {}),
+          ...(customer ? { customerId: customer.customerId } : {}),
+        }),
+      );
       if (result.ok) onRecorded(result.value);
       else setError(result.error.message);
     } finally {
@@ -192,17 +201,19 @@ function PrescriptionPicker({
   // A chosen customer's own prescriptions are the likely ones; show them without a search.
   useEffect(() => {
     if (!customer || prescription) return;
-    void window.pos
-      .searchPrescriptions({ customerId: customer.customerId })
-      .then((result) => setFound(result.ok ? result.value : []));
+    void invoke(() =>
+      window.pos.searchPrescriptions({ customerId: customer.customerId }),
+    ).then((result) => setFound(result.ok ? result.value : []));
   }, [customer, prescription]);
 
   async function search(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    const result = await window.pos.searchPrescriptions({
-      ...(query.trim() ? { q: query } : {}),
-    });
+    const result = await invoke(() =>
+      window.pos.searchPrescriptions({
+        ...(query.trim() ? { q: query } : {}),
+      }),
+    );
     if (result.ok) setFound(result.value);
     else setError(result.error.message);
   }
@@ -301,7 +312,7 @@ export function CoSignFields({
   const [approvers, setApprovers] = useState<ApproverView[]>([]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    void window.pos.listApprovers().then((result) => {
+    void invoke(() => window.pos.listApprovers()).then((result) => {
       if (result.ok) setApprovers(result.value);
       else setError(result.error.message);
     });

@@ -134,6 +134,12 @@ export const catalogProductSchema = z.object({
 });
 export type CatalogProduct = z.infer<typeof catalogProductSchema>;
 
+export const catalogSchema = z.object({
+  products: z.array(catalogProductSchema),
+  vatRatePercent: z.number().min(0).max(100),
+});
+export type CatalogView = z.infer<typeof catalogSchema>;
+
 export const customerSchema = z.object({
   customerId: uuid,
   fullName: z.string(),
@@ -308,7 +314,7 @@ export const ipcContract = {
     input: z.object({ branchId: uuid, code: z.string().trim().min(4).max(32), label }),
     output: result(deviceStateSchema),
   },
-  catalog: { channel: "pos:checkout:catalog", input: noInput, output: result(z.array(catalogProductSchema)) },
+  catalog: { channel: "pos:checkout:catalog", input: noInput, output: result(catalogSchema) },
   submitCheckout: {
     channel: "pos:checkout:submit",
     input: z.object({

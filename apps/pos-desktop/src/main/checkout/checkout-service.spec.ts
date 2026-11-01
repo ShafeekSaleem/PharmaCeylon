@@ -30,6 +30,13 @@ const morphine = randomUUID();
 const prescriptionId = randomUUID();
 const customerId = randomUUID();
 const pharmacistId = randomUUID();
+let identity = {
+  tenantId: randomUUID(),
+  branchId,
+  terminalId: randomUUID(),
+  enrollmentId: randomUUID(),
+  keyId: "k",
+};
 
 const catalogResponse = {
   products: [
@@ -59,6 +66,7 @@ const catalogResponse = {
     },
   ],
   departments: [],
+  vatRatePercent: 0,
 };
 const saleResponse = (id = randomUUID()) => ({
   id,
@@ -128,13 +136,7 @@ function service() {
   const terminal = {
     current: () => ({
       staff: { workSessionId, staffUserId, staffName: "Cashier", openedAt: "" },
-      identity: {
-        tenantId: randomUUID(),
-        branchId,
-        terminalId: randomUUID(),
-        enrollmentId: randomUUID(),
-        keyId: "k",
-      },
+      identity,
     }),
   };
   return new CheckoutService({
@@ -150,6 +152,8 @@ beforeEach(() => {
   local = openLocalStore(dir, protector, migrations);
   calls = [];
   checkoutReply = () => saleResponse();
+  catalogResponse.vatRatePercent = 0;
+  identity = { ...identity, branchId, enrollmentId: randomUUID() };
 });
 afterEach(() => {
   local.db.close();
@@ -223,7 +227,7 @@ describe("CheckoutService", () => {
       throw new ApiError(400, "INSUFFICIENT_STOCK", "Not enough stock");
     };
     await expect(
-      checkout.submit([{ productId: paracetamol, qty: 1 }], {}),
+      checkout.submit([{ productId: paracetamol, qty: 1 }], { cashAmount: "5" }),
     ).rejects.toBeInstanceOf(ApiError);
     expect(checkout.pending()).toEqual([]);
     expect(
@@ -290,7 +294,7 @@ describe("CheckoutService", () => {
     await expect(
       checkout.submit(
         [{ productId: morphine, qty: 1 }],
-        {},
+        { cashAmount: "40" },
         { prescriptionId },
         { approverUserId: pharmacistId, pin: "4321" },
       ),
@@ -310,6 +314,72 @@ describe("CheckoutService", () => {
     });
     const [first, second] = calls.filter((c) => c.path === "/sales/checkout");
     expect(second!.opts.body).toEqual(first!.opts.body);
+  });
+});
+
+describe("checkout safety", () => {
+  it("refuses an empty or short tender against the VAT-inclusive total", async () => {
+    catalogResponse.vatRatePercent = 18;
+    const checkout = service();
+    await expect(checkout.catalog()).resolves.toMatchObject({ vatRatePercent: 18 });
+    // 3 x 2.50 = 7.50, VAT 1.35 (half up), total 8.85.
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 3 }], {}),
+    ).rejects.toMatchObject({ code: "TENDER_REQUIRED" });
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 3 }], { cashAmount: "8.84" }),
+    ).rejects.toMatchObject({ code: "TENDER_SHORT" });
+    expect(calls.some((c) => c.path === "/sales/checkout")).toBe(false);
+    await checkout.submit([{ productId: paracetamol, qty: 3 }], { cashAmount: "8.85" });
+    expect(
+      local.db.prepare("SELECT total_minor FROM checkout_draft").get(),
+    ).toEqual({ total_minor: 885 });
+  });
+
+  it("keeps a resend pending when it is refused before the server could find the original", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 1 }], { cashAmount: "5" }),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const [pending] = checkout.pending();
+    for (const refusal of [
+      new ApiError(401, "HTTP_401", "Approver PIN is incorrect"),
+      new ApiError(403, "PHARMACIST_APPROVAL_REQUIRED", "co-sign"),
+      new ApiError(409, "BRANCH_SETUP_INCOMPLETE", "setup"),
+    ]) {
+      checkoutReply = () => {
+        throw refusal;
+      };
+      await expect(checkout.retry(pending!.draftId)).rejects.toBe(refusal);
+      expect(checkout.pending()).toHaveLength(1);
+    }
+    // Answered after the replay lookup: the sale never happened.
+    checkoutReply = () => {
+      throw new ApiError(400, "INSUFFICIENT_STOCK", "Not enough stock");
+    };
+    await expect(checkout.retry(pending!.draftId)).rejects.toBeInstanceOf(ApiError);
+    expect(checkout.pending()).toEqual([]);
+  });
+
+  it("won't resend a sale from a counter re-enrolled since it was rung up", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 1 }], { cashAmount: "5" }),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const [pending] = checkout.pending();
+    identity = { ...identity, branchId: randomUUID(), enrollmentId: randomUUID() };
+    await expect(checkout.retry(pending!.draftId)).rejects.toMatchObject({
+      code: "DRAFT_OTHER_COUNTER",
+    });
+    expect(calls.filter((c) => c.path === "/sales/checkout")).toHaveLength(1);
   });
 });
 

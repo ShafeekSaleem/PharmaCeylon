@@ -428,7 +428,7 @@ transaction. Nothing here nominates an offline terminal, issues a grant or opens
 | `GET /terminals/counters` | `tenant.management` | `TerminalCounterView[]` — registers, tills and the terminal on each |
 | `POST /terminals/counters` | `tenant.management` | `{ label }` → `TerminalCounterView` |
 | `POST /terminals/enrollments/challenge` | `tenant.management` | `TerminalEnrollmentChallengeRequest` → `TerminalEnrollmentCommand` (two-minute challenge) |
-| `POST /terminals/enrollments` | `tenant.management` | `{ envelope, attendanceProofId }` → `TerminalIdentity` |
+| `POST /terminals/enrollments` | `terminal.execute`; `tenant.management` too unless the challenge came from a code | `{ envelope, attendanceProofId }` → `TerminalIdentity`; 409 `COUNTER_OCCUPIED` if a computer enrolled there first |
 | `GET /terminals/enrollments/:enrollmentId` | `terminal.execute` | `TerminalEnrollmentStatusView` (`active` / `revoked` / `retired`) |
 | `POST /terminals/enrollments/:enrollmentId/revoke` | `tenant.management` | `{ reason }` → 204; closes its staff sessions |
 | `POST /terminals/devices/:terminalId/retire` | `tenant.management` | `{ reason }` → 204; frees the counter for a replacement |

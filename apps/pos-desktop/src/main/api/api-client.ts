@@ -19,6 +19,7 @@ export type AuthUser = {
 };
 
 type Tokens = { accessToken: string; refreshToken: string; user: AuthUser };
+export type PendingLogin = Readonly<Tokens>;
 
 /** Server refusals keep their code so callers can explain them; transport failures are `network`. */
 export class ApiError extends Error {
@@ -61,6 +62,10 @@ function parseError(status: number, text: string): ApiError {
  */
 export class ApiSession {
   private tokens: Tokens | null = null;
+  /** The refresh in flight, shared: the server treats a second use of a refresh token as theft
+   * and revokes the whole login, so two requests failing together must refresh once. */
+  private refreshing: Promise<"refreshed" | "rejected" | "unreachable"> | null =
+    null;
 
   constructor(
     private readonly baseUrl: () => string | null,
@@ -72,6 +77,12 @@ export class ApiSession {
   }
 
   async login(email: string, password: string): Promise<AuthUser> {
+    return this.adopt(await this.authenticate(email, password));
+  }
+
+  /** Checks credentials and returns the new login without replacing the current one, so a
+   * mistyped password at "switch user" leaves the person already signed in untouched. */
+  async authenticate(email: string, password: string): Promise<PendingLogin> {
     const result = await this.send<{
       accessToken: string;
       refreshToken: string;
@@ -80,12 +91,16 @@ export class ApiSession {
       body: { email, password },
       auth: false,
     });
-    this.tokens = {
+    return {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
       user: result.user,
     };
-    return result.user;
+  }
+
+  adopt(login: PendingLogin): AuthUser {
+    this.tokens = { ...login };
+    return login.user;
   }
 
   /** Revokes this refresh session; local tokens are dropped whatever the server says. */
@@ -143,10 +158,11 @@ export class ApiSession {
     };
     if (opts.body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.branchId) headers["x-branch-id"] = opts.branchId;
+    const sentToken = opts.auth !== false ? this.tokens?.accessToken : undefined;
     if (opts.auth !== false) {
-      if (!this.tokens)
+      if (!sentToken)
         throw new ApiError(401, "NOT_SIGNED_IN", "Sign in first.");
-      headers.Authorization = `Bearer ${this.tokens.accessToken}`;
+      headers.Authorization = `Bearer ${sentToken}`;
     }
 
     let response: Awaited<ReturnType<FetchLike>>;
@@ -161,40 +177,55 @@ export class ApiSession {
       throw new ApiError(0, "NETWORK", "The server could not be reached.");
     }
 
-    if (
-      response.status === 401 &&
-      opts.auth !== false &&
-      !retried &&
-      (await this.refresh())
-    ) {
-      return this.send<T>(method, path, opts, true);
+    if (response.status === 401 && opts.auth !== false && !retried) {
+      const outcome = await this.refresh(sentToken!);
+      if (outcome === "refreshed") return this.send<T>(method, path, opts, true);
+      if (outcome === "unreachable")
+        throw new ApiError(0, "NETWORK", "The server could not be reached.");
     }
     const text = await response.text();
     if (!response.ok) throw parseError(response.status, text);
     return (text ? JSON.parse(text) : undefined) as T;
   }
 
-  private async refresh(): Promise<boolean> {
+  /**
+   * Refreshes once for every request that failed with the same access token. A request whose
+   * token was already replaced just retries. Only a definite refusal drops the tokens; an
+   * unreachable server keeps them, so a network blip doesn't sign the counter out.
+   */
+  private refresh(
+    sentToken: string,
+  ): Promise<"refreshed" | "rejected" | "unreachable"> {
+    if (this.refreshing) return this.refreshing;
     const tokens = this.tokens;
-    if (!tokens) return false;
-    try {
-      const result = await this.send<{
-        accessToken: string;
-        refreshToken: string;
-        user: AuthUser;
-      }>("POST", "/auth/refresh", {
-        body: { refreshToken: tokens.refreshToken },
-        auth: false,
-      });
-      this.tokens = {
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        user: result.user,
-      };
-      return true;
-    } catch {
-      this.tokens = null;
-      return false;
-    }
+    if (!tokens) return Promise.resolve("rejected");
+    if (tokens.accessToken !== sentToken) return Promise.resolve("refreshed");
+    this.refreshing = (async () => {
+      try {
+        const result = await this.send<{
+          accessToken: string;
+          refreshToken: string;
+          user: AuthUser;
+        }>("POST", "/auth/refresh", {
+          body: { refreshToken: tokens.refreshToken },
+          auth: false,
+        });
+        // A sign-out or another sign-in meanwhile owns the session now.
+        if (this.tokens !== tokens) return "rejected";
+        this.tokens = {
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          user: result.user,
+        };
+        return "refreshed";
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 0) return "unreachable";
+        if (this.tokens === tokens) this.tokens = null;
+        return "rejected";
+      } finally {
+        this.refreshing = null;
+      }
+    })();
+    return this.refreshing;
   }
 }

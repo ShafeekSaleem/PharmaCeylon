@@ -14,6 +14,10 @@ const PIN = /^\d{4,8}$/;
 // Same policy as counter co-sign, on the same counters: one PIN, one lockout.
 const MAX_PIN_FAILURES = 5;
 const PIN_LOCK_MINUTES = 15;
+// The login password is checked here too, so it shares login's lockout (AuthService): guessing it
+// at a counter is no cheaper than guessing it at the sign-in screen.
+const MAX_PASSWORD_FAILURES = 5;
+const PASSWORD_LOCK_MINUTES = 15;
 
 type Tx = Parameters<Parameters<PrismaService["$transaction"]>[0]>[0];
 
@@ -60,7 +64,7 @@ export class StaffCredentialsService {
         code: "PIN_FORMAT",
         message: "A PIN is 4 to 8 digits.",
       });
-    const passwordWrong = await this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.$transaction(async (tx) => {
       const { identity, enrollment } = await this.trust.requireOpenSession(
         tx,
         user,
@@ -68,8 +72,43 @@ export class StaffCredentialsService {
         workSessionId,
       );
       const account = await this.account(tx, user);
-      if (!(await bcrypt.compare(input.password, account.passwordHash)))
-        return true;
+      const now = new Date();
+      if (account.lockedUntil && account.lockedUntil > now) return "locked" as const;
+      if (!(await bcrypt.compare(input.password, account.passwordHash))) {
+        // Counted atomically and committed before the refusal is thrown.
+        // tenant-scope: verified-parent — the caller's open session and live branch access were verified above.
+        const { failedLoginAttempts } = await tx.appUser.update({
+          where: { id: user.userId },
+          data: { failedLoginAttempts: { increment: 1 } },
+          select: { failedLoginAttempts: true },
+        });
+        const lock = failedLoginAttempts >= MAX_PASSWORD_FAILURES;
+        if (lock)
+          // tenant-scope: verified-parent — as above.
+          await tx.appUser.update({
+            where: { id: user.userId },
+            data: { lockedUntil: new Date(now.getTime() + PASSWORD_LOCK_MINUTES * 60_000) },
+          });
+        await this.audit.log(
+          {
+            tenantId: user.tenantId,
+            branchId,
+            actorUserId: user.userId,
+            eventName: "auth.login_failed",
+            entityName: "app_user",
+            entityId: user.userId,
+            payload: { attempts: failedLoginAttempts, locked: lock, via: "counter_pin_set" },
+          },
+          tx,
+        );
+        return "wrong" as const;
+      }
+      if (account.failedLoginAttempts > 0 || account.lockedUntil)
+        // tenant-scope: verified-parent — as above.
+        await tx.appUser.update({
+          where: { id: user.userId },
+          data: { failedLoginAttempts: 0, lockedUntil: null },
+        });
       const posPinHash = await bcrypt.hash(input.pin, 10);
       // tenant-scope: verified-parent — the caller's open session and live branch access were verified above.
       const updated = await tx.appUser.update({
@@ -106,9 +145,14 @@ export class StaffCredentialsService {
         },
         tx,
       );
-      return false;
+      return "set" as const;
     });
-    if (passwordWrong)
+    if (outcome === "locked")
+      throw new ForbiddenException({
+        code: "ACCOUNT_LOCKED",
+        message: "Too many wrong passwords. Try again in a few minutes.",
+      });
+    if (outcome === "wrong")
       throw new UnauthorizedException({
         code: "PASSWORD_INCORRECT",
         message: "Login password is incorrect.",
@@ -141,18 +185,22 @@ export class StaffCredentialsService {
       if (account.posPinLockedUntil && account.posPinLockedUntil > now)
         return "locked" as const;
       if (!(await bcrypt.compare(pin, account.posPinHash))) {
-        const failures = account.failedPosPinAttempts + 1;
+        // An atomic increment: concurrent wrong guesses each count, and exactly one reaches the limit.
         // tenant-scope: verified-parent — the caller's open session and live branch access were verified above.
-        await tx.appUser.update({
+        const { failedPosPinAttempts } = await tx.appUser.update({
           where: { id: user.userId },
-          data: {
-            failedPosPinAttempts: failures >= MAX_PIN_FAILURES ? 0 : failures,
-            posPinLockedUntil:
-              failures >= MAX_PIN_FAILURES
-                ? new Date(now.getTime() + PIN_LOCK_MINUTES * 60_000)
-                : undefined,
-          },
+          data: { failedPosPinAttempts: { increment: 1 } },
+          select: { failedPosPinAttempts: true },
         });
+        if (failedPosPinAttempts >= MAX_PIN_FAILURES)
+          // tenant-scope: verified-parent — as above.
+          await tx.appUser.update({
+            where: { id: user.userId },
+            data: {
+              failedPosPinAttempts: 0,
+              posPinLockedUntil: new Date(now.getTime() + PIN_LOCK_MINUTES * 60_000),
+            },
+          });
         return "wrong" as const;
       }
       // tenant-scope: verified-parent — the caller's open session and live branch access were verified above.
@@ -203,6 +251,8 @@ export class StaffCredentialsService {
         posPinVersion: true,
         failedPosPinAttempts: true,
         posPinLockedUntil: true,
+        failedLoginAttempts: true,
+        lockedUntil: true,
       },
     });
     if (!account) throw new UnauthorizedException("User not found");

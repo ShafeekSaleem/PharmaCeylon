@@ -105,9 +105,22 @@ class FakeServer {
     get user() {
       return server.user;
     },
-    login: async (email: string) => {
-      this.user = email === cashier.email ? cashier : manager;
-      return this.user;
+    login: async (email: string, password: string) =>
+      this.api.adopt(await this.api.authenticate(email, password)),
+    authenticate: async (email: string, password: string) => {
+      if (password !== "password") {
+        const { ApiError } = await import("../api/api-client");
+        throw new ApiError(401, "HTTP_401", "Invalid credentials");
+      }
+      return {
+        accessToken: "a",
+        refreshToken: "r",
+        user: email === cashier.email ? cashier : manager,
+      };
+    },
+    adopt: (login: { user: typeof cashier }) => {
+      this.user = login.user;
+      return login.user;
     },
     logout: async () => {
       this.user = null;
@@ -490,6 +503,21 @@ describe("TerminalService staff sessions", () => {
     );
   });
 
+  it("a wrong password at switch user leaves the current person signed in", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    const first = (await terminal.signIn(cashier.email, "password"))
+      .staffSession!;
+    await expect(terminal.signIn(manager.email, "wrong")).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(terminal.state().staffSession?.workSessionId).toBe(first.workSessionId);
+    expect(new DeviceStore(local.db).openSession()?.workSessionId).toBe(
+      first.workSessionId,
+    );
+    expect(server.calls.some((c) => c.endsWith("/end"))).toBe(false);
+  });
+
   it("refuses to open a session once the back office has revoked the counter", async () => {
     const terminal = service();
     await enrolled(terminal);
@@ -697,7 +725,6 @@ describe("TerminalService PINs and locking", () => {
         cashier.id,
         terminal.state().enrollment!.enrollmentId,
         "4821",
-        new Date(),
       ),
     ).toBe("locked");
   });

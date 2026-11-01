@@ -205,4 +205,20 @@ describe("signed counter commands", () => {
     expect(executes[1]!.body).toEqual(executes[0]!.body);
     expect(commands.pending()).toEqual([]);
   });
+
+  it("keeps a resent command pending when it is refused before the server could find the original", async () => {
+    const { work, commands } = services();
+    executeReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(work.executeRefund(refundRequestId)).rejects.toMatchObject({
+      code: "COMMAND_UNCERTAIN",
+    });
+    const [pending] = commands.pending();
+    executeReply = () => {
+      throw new ApiError(401, "NOT_SIGNED_IN", "Sign in first.");
+    };
+    await expect(commands.retry(pending!.commandId)).rejects.toBeInstanceOf(ApiError);
+    expect(commands.pending()).toHaveLength(1);
+  });
 });

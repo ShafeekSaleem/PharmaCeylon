@@ -131,7 +131,7 @@
     {
       "path": "src/terminals/terminal-trust.service.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Locks one enrollment by bound tenant, branch and enrollment id to serialize command/session verification, revocation and session closure through the caller's transaction."
+      "reason": "Locks one enrollment by bound tenant, branch and enrollment id to serialize command/session verification, revocation and session closure through the caller's transaction; locks one counter by tenant, branch and register id so concurrent enrollments onto it serialize."
     },
     {
       "path": "src/terminal-commands/terminal-command.executor.ts",

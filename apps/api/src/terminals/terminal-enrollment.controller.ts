@@ -6,8 +6,10 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  UseGuards,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -74,7 +76,9 @@ export class TerminalEnrollmentController {
     });
   }
 
-  @RequirePermission(MANAGE)
+  // The finish step is shared by both flows: a manager's direct enrollment and a staff member
+  // redeeming a code. The service requires tenant.management unless the challenge carries a code.
+  @RequirePermission(COUNTER)
   @Post("enrollments")
   finishEnrollment(
     @CurrentUser() user: RequestUser,
@@ -196,7 +200,10 @@ export class TerminalEnrollmentController {
     return this.credentials.credential(user, branchId, workSessionId);
   }
 
+  // Both check a secret; the per-account lockouts are the real limit, this caps the rate.
   @RequirePermission(COUNTER)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("sessions/:workSessionId/pin")
   @HttpCode(200)
   setPin(
@@ -212,6 +219,8 @@ export class TerminalEnrollmentController {
   }
 
   @RequirePermission(COUNTER)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("sessions/:workSessionId/prepare")
   @HttpCode(200)
   prepare(

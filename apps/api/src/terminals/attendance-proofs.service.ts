@@ -191,6 +191,9 @@ export class AttendanceProofsService {
           windowsSessionId: payload.windowsSession.sessionId,
           appVersion: payload.appVersion,
           observedAt: new Date(payload.observedAt),
+          // The app clock, like expiresAt and consumedAt: the row's CHECKs compare them, and the
+          // database default would mix in the DB clock near a challenge's expiry.
+          createdAt: now,
           expiresAt: challenge.expiresAt,
         },
       ],

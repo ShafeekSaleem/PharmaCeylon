@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
@@ -122,6 +122,31 @@ export class TerminalTrustService {
     return counter;
   }
 
+  /**
+   * One computer per counter. Locks the counter row so concurrent enrollments onto it serialize,
+   * then refuses an occupied counter with 409 rather than tripping the unique index (a 500).
+   */
+  private async vacantCounter(
+    tx: Tx,
+    tenantId: string,
+    branchId: string,
+    registerId: string,
+    tillId?: string,
+  ) {
+    const counter = await this.counter(tx, tenantId, branchId, registerId, tillId);
+    await tx.$queryRaw`SELECT id FROM terminal_counter WHERE tenant_id = ${tenantId}::uuid
+      AND branch_id = ${branchId}::uuid AND id = ${counter.id}::uuid FOR UPDATE`;
+    const occupied = await tx.operationalTerminal.count({
+      where: { tenantId, branchId, registerId: counter.id, retiredAt: null },
+    });
+    if (occupied)
+      throw new ConflictException({
+        code: "COUNTER_OCCUPIED",
+        message: "A computer is already enrolled on this counter. Retire it first.",
+      });
+    return counter;
+  }
+
   private async challenge<T extends { serverNonce: string; expiresAt: number }>(
     tx: Tx,
     user: RequestUser,
@@ -171,7 +196,7 @@ export class TerminalTrustService {
     text(input.keyId);
     hex(input.publicKeyHex);
     text(input.label, 120);
-    const counter = await this.counter(
+    const counter = await this.vacantCounter(
       tx,
       user.tenantId,
       branchId,
@@ -219,7 +244,13 @@ export class TerminalTrustService {
       },
     });
     if (!code) denied("ENROLLMENT_CODE_INVALID");
-    const counter = await this.counter(tx, user.tenantId, branchId, code.registerId, code.tillId);
+    const counter = await this.vacantCounter(
+      tx,
+      user.tenantId,
+      branchId,
+      code.registerId,
+      code.tillId,
+    );
     const command = await this.challenge(
       tx,
       user,
@@ -371,7 +402,8 @@ export class TerminalTrustService {
       : null;
     if (!code) await this.actor(tx, user, branchId, "tenant.management");
     verifySignature(envelope, payload.publicKeyHex);
-    await this.counter(
+    // Rechecked under the counter lock: a computer may have enrolled here since the challenge.
+    await this.vacantCounter(
       tx,
       user.tenantId,
       branchId,
