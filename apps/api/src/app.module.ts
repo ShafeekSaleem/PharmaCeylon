@@ -38,6 +38,7 @@ import { SetupModule } from "./setup/setup.module";
 import { TerminalsModule } from "./terminals/terminals.module";
 import { OperationalAuthorizationModule } from "./security/operational-authorization.module";
 import { TerminalCommandsModule } from "./terminal-commands/terminal-commands.module";
+import { ClinicalModule } from "./clinical/clinical.module";
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { TerminalCommandsModule } from "./terminal-commands/terminal-commands.mo
     TerminalsModule,
     OperationalAuthorizationModule,
     TerminalCommandsModule,
+    ClinicalModule,
   ],
   controllers: [HealthController],
   providers: [

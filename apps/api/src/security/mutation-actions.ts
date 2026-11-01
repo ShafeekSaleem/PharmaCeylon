@@ -12,6 +12,8 @@ export const MUTATION_ACTIONS = Object.freeze({
   "DELETE /api/v1/admin/roles/:roleId": "identity",
   "PATCH /api/v1/admin/roles/:roleId": "identity",
   "PATCH /api/v1/admin/roles/:roleId/permissions": "identity",
+  "POST /api/v1/admin/pharmacist-registrations": "identity",
+  "POST /api/v1/admin/pharmacist-registrations/:registrationId/revoke": "identity",
   "POST /api/v1/admin/users": "identity",
   "DELETE /api/v1/admin/users/:userId": "identity",
   "PATCH /api/v1/admin/users/:userId": "identity",

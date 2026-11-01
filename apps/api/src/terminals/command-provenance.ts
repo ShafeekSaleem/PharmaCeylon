@@ -12,4 +12,6 @@ export type CommandProvenance = Readonly<{
   tillId: string;
   workSessionId: string;
   attendanceId: string;
+  /** The SLMC registration a clinical operation relied on (P1 #47); null for non-clinical ones. */
+  pharmacistRegistrationId: string | null;
 }>;

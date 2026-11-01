@@ -144,6 +144,11 @@
       "reason": "Transaction-scoped advisory locks on the caller's tenant + signed enrollment id + support record id (and, for card attempts, attempt id) only, so identical support-record uploads serialize and replay the stored receipt; no data is read or written by raw SQL."
     },
     {
+      "path": "src/clinical/pharmacist-registration.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one tenant membership or pharmacist registration row by the caller's tenant id and the target id (FOR UPDATE / FOR SHARE) to serialize recording, revocation and the clinical check; no data is written by raw SQL."
+    },
+    {
       "path": "src/terminals/offline-assignment.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one branch row by the caller's tenant and branch id to serialize offline-counter delegation, assignment authorization, revocation and activation-time revalidation; no data is written by raw SQL."

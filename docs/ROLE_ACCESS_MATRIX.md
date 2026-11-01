@@ -119,6 +119,17 @@ The Inventory page is visible to every role holding `inventory.view` (all five b
 - **Money is separate from stock.** Recording what a supplier billed and what was paid moved out of `suppliers.manage` (which the clerk holds) into `purchasing.invoice` and `suppliers.pay`. The clerk who books a delivery in never sees payables; the Invoices tab only appears for someone holding either key. Custom roles that already had `suppliers.manage` kept both.
 - **Agreeing what a supplier charges is its own permission.** `suppliers.manage` (which the inventory clerk holds) covers the supplier record; the price list — reading it included — needs `suppliers.manage_prices`, granted to owners and managers. A clerk raising an order still gets lines priced from the list; they just cannot change what the pharmacy has agreed to pay. Custom roles that already held `suppliers.manage` keep the new key, because that was a deliberate choice someone made.
 
+## Pharmacist qualification (P1)
+
+| Action | Permission | owner | manager | pharmacist | cashier | inventory_clerk |
+| --- | --- | --- | --- | --- | --- | --- |
+| See pharmacist registrations | `users.view` | yes | yes | — | — | — |
+| Record or revoke a pharmacist's SLMC registration | owner only (route gate `users.manage`) | yes | — | — | — | — |
+| Clinical execution at the counter | the operation's permission **and** a current registration | registration needed | registration needed | registration needed | registration needed | registration needed |
+
+- **Qualification is a recorded fact, not a role.** The pharmacist role and permissions such as `sales.approve_controlled` say what someone may do. They do not say that the person is a registered pharmacist. Clinical execution also needs that person's current SLMC registration, which only an owner records. An owner who dispenses needs one too.
+- **Owner only, and not configurable.** Granting `users.manage` to a role doesn't let it record registrations. A manager can't make themselves, or anyone else, qualified.
+
 ## Approving your own requests
 
 Holding an approve permission (`purchasing.approve`, `transfers.approve`, `returns.approve`, `stocktakes.review`) lets someone approve *other people's* requests. Whether they may approve requests **they raised** is the tenant's choice in Settings → Approval Rules:

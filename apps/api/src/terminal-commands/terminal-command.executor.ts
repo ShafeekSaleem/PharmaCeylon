@@ -192,6 +192,7 @@ export class TerminalCommandExecutor {
       tillId: command.session.tillId,
       workSessionId: command.session.workSessionId,
       attendanceId: authorized.terminal.attendanceId,
+      pharmacistRegistrationId: authorized.clinical?.registrationId ?? null,
     };
     const executed = await operation.execute(tx, user, branchId, authorized.body, {
       approvalEvidenceId: command.approvalEvidenceId,

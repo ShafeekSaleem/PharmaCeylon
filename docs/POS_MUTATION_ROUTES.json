@@ -1,6 +1,16 @@
 [
   {
     "method": "POST",
+    "path": "/api/v1/admin/pharmacist-registrations",
+    "source": "apps/api/src/clinical/pharmacist-registration.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/pharmacist-registrations/:registrationId/revoke",
+    "source": "apps/api/src/clinical/pharmacist-registration.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/admin/roles",
     "source": "apps/api/src/admin/roles-admin.controller.ts"
   },

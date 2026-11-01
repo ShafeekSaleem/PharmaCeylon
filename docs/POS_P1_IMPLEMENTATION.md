@@ -576,6 +576,56 @@ revoked/foreign target, stale token, owner-only/per-branch/no-onward delegation,
 delegation, delegation revocation cascading, `requireCurrent` (target/version, role edit removing
 authority, revoked target/authorization) and evidence immutability.
 
+## MR 10: pharmacist registrations and clinical evidence
+
+Revised D10 and the P1 acceptance list require qualified clinical verification that roles,
+permissions and ownership cannot provide. The policy decided on 2026-11-01: an owner records
+each pharmacist's SLMC registration number and its expiry date, and clinical execution needs a
+current one.
+
+- **Record** (`pharmacist_registration`, `clinical/pharmacist-registration.service.ts`). Owner-only,
+  read live and again after the staff member's membership row is locked (`FOR UPDATE`). There is
+  one current registration per staff member, and one current holder per SLMC number (partial unique
+  indexes). A renewal revokes the row it replaces in the same transaction, with audit. Triggers keep
+  content immutable, record revocation once and forbid deletion. A restricting foreign key to
+  `tenant_membership` blocks deleting a membership that has registrations. Staged (disabled)
+  tenant RLS policy.
+- **Check** (`assertQualified`). The staff member must have a current registration (unrevoked, not
+  past `expires_on` in the branch's timezone), an active account and membership, and a role at the
+  branch. The registration is share-locked: a revocation that commits during the wait is seen, and a
+  later one waits for the clinical transaction. A renewal that commits during the wait is found by
+  one fresh read. Refusals are `PHARMACIST_REQUIRED`. Revocation times never precede the recording,
+  even across API instances whose clocks differ.
+- **Port.** `MandatoryOperationEvidence.clinical` now delegates to the provider for the signed
+  session's staff member and returns the registration relied on. `OperationAuthorizationService`
+  passes it on, and the executor puts it in `CommandProvenance.pharmacistRegistrationId`, which
+  domain cores already copy into their success audit. A bare instance still fails closed. `pharmacistEvidenceId` must stay null
+  online (`INVALID_COMMAND`) until co-sign evidence exists.
+
+Two new `identity` routes plus a GET (203 in the inventory with #94 and #95). No signed operation carries a clinical
+effect yet, so no execution path changes. Still open:
+- **Pharmacist PIN co-sign.** `PharmacistApprovalService` still accepts any role holding
+  `sales.approve_controlled`; it must call `assertQualified`. This waits for #93, which edits that
+  service and the desktop dispensing flow.
+- **Checkout and prescriptions.** Clinical checkout and prescription adapters will reach the port
+  once they are split.
+- **Web.** The Users & Roles screen for recording registrations is web work.
+
+Tests: `test/integration/pharmacist-registration.int-spec.ts` (PostgreSQL, 15). They cover:
+- owner recording, number normalization and audit;
+- manager refusal;
+- validation;
+- renewal, idempotent re-recording and a number already in use;
+- concurrent recording;
+- immutability, delete protection and membership delete protection;
+- an owner refused without a registration;
+- expired and revoked registrations;
+- wrong-branch and deactivated accounts;
+- a real lock wait in both directions (revocation during the check, and revocation waiting for a clinical transaction);
+- a renewal committing during the wait, and revocation times under API clock skew;
+- the evidence port, including returning the registration, rejecting co-sign evidence and failing
+  closed without a provider.
+
 ## P6 #52 slice: transfer approval, dispatch and receipt
 
 Transfers already reserved on approval and moved stock on ship/receive; what was missing was the

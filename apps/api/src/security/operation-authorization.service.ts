@@ -120,7 +120,7 @@ export class OperationAuthorizationService {
       );
       if (boundedCanonical(latest) !== boundedCanonical(classification))
         denied("INVALID_COMMAND");
-      return { body, classification, terminal: null, approval: null };
+      return { body, classification, terminal: null, approval: null, clinical: null };
     }
     if (!input.signedCommand || !input.attendanceProofId)
       denied("TERMINAL_REQUIRED");
@@ -189,8 +189,9 @@ export class OperationAuthorizationService {
         ? await descriptor.resolveFacts(tx, user, branchId, body)
         : undefined,
     );
-    if (classification.effects.includes("clinical_dispensing"))
-      await this.evidence.clinical(tx, terminal.command);
+    const clinical = classification.effects.includes("clinical_dispensing")
+      ? await this.evidence.clinical(tx, terminal.command)
+      : null;
     if (classification.effects.includes("bank_payment_record"))
       await this.evidence.bankPayment(tx, {
         tenantId: user.tenantId,
@@ -206,6 +207,6 @@ export class OperationAuthorizationService {
     // provider and the executor lookup, with no further awaits before returning.
     if (recheckWaiver && !(await recheckWaiver())) denied("APPROVAL_REQUIRED");
     if (revalidateApproval) approval = await revalidateApproval();
-    return { body, classification, terminal, approval };
+    return { body, classification, terminal, approval, clinical };
   }
 }
