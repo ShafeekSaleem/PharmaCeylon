@@ -361,6 +361,7 @@ describe("SignedOperations body parsers", () => {
 
   it("lists exactly the v1 physical operations", () => {
     expect(ops.operations().sort()).toEqual([
+      "POST /api/v1/inventory/adjustments",
       "POST /api/v1/inventory/held-adjustments/:id/post",
       "POST /api/v1/products/import/:importId/stock/post",
       "POST /api/v1/products/import/:importId/undo-stock",
@@ -416,6 +417,63 @@ describe("SignedOperations body parsers", () => {
       const id = randomUUID();
       expect(refund.parseBody({ refundRequestId: id })).toEqual({ refundRequestId: id });
       expect(() => refund.parseBody({ refundRequestId: id, amount: 1 })).toThrow();
+    });
+  });
+
+  describe("direct adjustment body", () => {
+    const adjustment = ops.get("POST /api/v1/inventory/adjustments").descriptor;
+    const writeOff = {
+      kind: "damaged", movementType: null, productId: randomUUID(), batchId: randomUUID(), newBatch: null,
+      qty: 2, reason: null, fromQuarantine: false,
+    };
+    const newBatch = { batchNo: "B-7", expiryDate: "2027-03-31", costPriceMinor: 1250, sellingPriceMinor: 1800, supplierId: null };
+    const opening = { ...writeOff, kind: "opening", batchId: null, newBatch };
+
+    it("accepts exact write-offs, corrections and opening stock on a new batch", () => {
+      for (const body of [
+        writeOff,
+        { ...writeOff, kind: "expired", fromQuarantine: true, reason: "Past date" },
+        { ...writeOff, kind: "correction", movementType: "adjustment_in", reason: "Miscounted" },
+        opening,
+        { ...opening, newBatch: { ...newBatch, supplierId: randomUUID(), costPriceMinor: 0 } },
+      ])
+        expect(adjustment.parseBody(body)).toBe(body);
+      expect(adjustment.approval).toBeUndefined();
+    });
+
+    it.each([
+      { ...writeOff, extra: 1 },
+      { ...writeOff, kind: "stolen" },
+      { ...writeOff, movementType: "adjustment_out" },
+      { ...writeOff, kind: "correction", movementType: "adjustment_out", reason: null },
+      { ...writeOff, kind: "correction", movementType: null, reason: "Why" },
+      { ...writeOff, batchId: null },
+      { ...writeOff, qty: 0 },
+      { ...writeOff, qty: "2" },
+      { ...writeOff, qty: 1.5 },
+      { ...writeOff, reason: " padded " },
+      { ...writeOff, reason: "" },
+      { ...writeOff, fromQuarantine: "false" },
+      { ...opening, fromQuarantine: true },
+      { ...writeOff, batchId: null, newBatch },
+      { ...opening, batchId: randomUUID() },
+      { ...opening, newBatch: { ...newBatch, expiryDate: "2027-02-30" } },
+      { ...opening, newBatch: { ...newBatch, expiryDate: "31/03/2027" } },
+      { ...opening, newBatch: { ...newBatch, costPriceMinor: 12.5 } },
+      { ...opening, newBatch: { ...newBatch, sellingPriceMinor: -1 } },
+      { ...opening, newBatch: { ...newBatch, costPriceMinor: 1_000_000_000_000 } },
+      { ...opening, newBatch: { ...newBatch, batchNo: " B-7" } },
+      { ...opening, newBatch: { batchNo: "B-7", expiryDate: "2027-03-31", costPriceMinor: 1, sellingPriceMinor: 1 } },
+    ])("rejects %j", (body) => {
+      expect(() => adjustment.parseBody(body)).toThrow();
+    });
+
+    it("needs inventory.manage to add stock and inventory.write_off to write it off", () => {
+      const permission = adjustment.permission as (body: unknown) => string;
+      expect(permission(writeOff)).toBe("inventory.write_off");
+      expect(permission(opening)).toBe("inventory.manage");
+      expect(permission({ ...writeOff, kind: "correction", movementType: "adjustment_in" })).toBe("inventory.manage");
+      expect(permission({ ...writeOff, kind: "correction", movementType: "adjustment_out" })).toBe("inventory.write_off");
     });
   });
 

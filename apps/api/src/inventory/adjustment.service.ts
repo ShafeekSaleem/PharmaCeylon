@@ -25,6 +25,7 @@ import { AccessService, type ActorAccess } from "../security/access.service";
 import {
   ADJUSTMENT_KIND_LABELS,
   ADJUSTMENT_KINDS,
+  adjustmentDirection,
   type AdjustmentKind,
   StockAdjustmentDto,
 } from "./dto/stock-adjustment.dto";
@@ -42,11 +43,14 @@ type HeldRow = Prisma.HeldAdjustmentGetPayload<{ include: typeof HELD_INCLUDE }>
 /**
  * Stock adjustments, with a second pair of eyes on write-offs.
  *
- * Adding stock posts straight away for anyone who may manage inventory. A write-off posts straight
- * away only for someone who may write off stock — and, when it is worth at least the tenant's
- * write-off threshold, only if their role may also approve its own requests. Anyone else's
- * write-off (a clerk recording breakage, a manager held to a second approver) is kept exactly as
- * entered until someone who may write off stock accepts it. Nothing moves until then.
+ * Two separate actions (P1 #47, revised D10):
+ * - `postDirect` is counter work: it moves stock now or not at all. Adding stock needs inventory
+ *   management. A write-off needs someone who may write off stock and, when it is worth at least
+ *   the tenant's write-off threshold, whose role may also approve its own requests. Any other
+ *   write-off is refused with WRITE_OFF_APPROVAL_REQUIRED; nothing is held by this action.
+ * - `request` records a write-off for approval from anywhere (a clerk recording breakage, a
+ *   manager held to a second approver). It is kept exactly as entered and moves no stock until
+ *   someone who may write off stock accepts it and it is posted at the counter.
  */
 @Injectable()
 export class AdjustmentService {
@@ -59,60 +63,75 @@ export class AdjustmentService {
     private readonly approvals: ManagementApprovalsService,
   ) {}
 
-  async adjust(tenantId: string, branchId: string, access: ActorAccess, dto: StockAdjustmentDto) {
-    const increase =
-      dto.kind && dto.kind !== "correction"
-        ? dto.kind === "found" || dto.kind === "opening"
-        : dto.movementType === "adjustment_in";
-    if (increase) {
-      return { held: false as const, ...(await this.inventory.adjustment(tenantId, branchId, access, dto)) };
-    }
+  async postDirect(user: RequestUser, branchId: string, dto: StockAdjustmentDto) {
+    const posted = await this.prisma.$transaction(tx => this.postDirectInTransaction(tx, user, branchId, dto));
+    return { held: false as const, ...posted };
+  }
 
-    const canWriteOff = access.has("inventory.write_off");
-    if (!canWriteOff && !access.has("inventory.manage")) {
-      throw new ForbiddenException("Your role can't adjust stock");
-    }
-    if (!dto.batchId) throw new BadRequestException("Choose the batch to write off");
-    const batch = await this.prisma.batch.findFirst({
-      where: { id: dto.batchId, tenantId, branchId, productId: dto.productId },
-      select: { id: true, costPrice: true },
-    });
-    if (!batch) throw new BadRequestException("Invalid batch");
-    const value = batch.costPrice.mul(dto.qty);
+  /** Direct posting core shared by the browser route and the signed terminal adapter, in the
+   * caller's READ COMMITTED transaction. Authority and the write-off policy are read live, and
+   * again after the batch lock. `command` is verified provenance copied into the success audit.
+   */
+  async postDirectInTransaction(tx: Prisma.TransactionClient, user: RequestUser, branchId: string,
+    dto: StockAdjustmentDto, command?: CommandProvenance) {
+    const direction = adjustmentDirection(dto);
+    if (!direction) throw new BadRequestException("Say whether the correction adds or removes stock");
+    const increase = direction === "in";
+    const allowed = async () => {
+      const actor = await this.access.resolveLive(user, branchId, tx);
+      if (increase) {
+        if (!actor.has("inventory.manage")) throw new ForbiddenException("Your role can't add stock");
+      } else await this.requireDirectWriteOff(tx, user.tenantId, branchId, actor, dto);
+      return actor;
+    };
+    const actor = await allowed();
+    return this.inventory.adjustment(user.tenantId, branchId, actor, dto, { tx, authorize: allowed, command });
+  }
 
-    const settings = await this.prisma.tenantSettings.findUnique({
-      where: { tenantId },
-      select: { approvalRequiredWriteOffThreshold: true },
-    });
-    const threshold = settings?.approvalRequiredWriteOffThreshold ?? null;
-    const overLimit = threshold != null && value.gte(threshold);
-    const needsApproval = !canWriteOff || (overLimit && !access.canSelfApprove);
-    if (!needsApproval) {
-      return { held: false as const, ...(await this.inventory.adjustment(tenantId, branchId, access, dto)) };
-    }
-
-    if (dto.kind === "correction" && !dto.reason?.trim()) {
-      throw new BadRequestException("Say what the correction is for");
-    }
+  async request(user: RequestUser, branchId: string, dto: StockAdjustmentDto) {
+    if (adjustmentDirection(dto) !== "out") throw new BadRequestException("Only a write-off can be sent for approval");
+    if (dto.newBatch) throw new BadRequestException("New batches can only be created with stock increases");
+    const note = dto.reason?.trim() || null;
+    if (dto.kind === "correction" && !note) throw new BadRequestException("Say what the correction is for");
+    if (!dto.kind && !note) throw new BadRequestException("Enter a reason for the write-off");
     const kind: AdjustmentKind = dto.kind ?? "correction";
-    const row = await this.prisma.heldAdjustment.create({
-      data: {
-        tenantId,
+    const { row, actor } = await this.prisma.$transaction(async tx => {
+      const actor = await this.access.resolveLive(user, branchId, tx);
+      if (!actor.has("inventory.write_off") && !actor.has("inventory.manage")) {
+        throw new ForbiddenException("Your role can't adjust stock");
+      }
+      const batch = await this.writeOffBatch(tx, user.tenantId, branchId, dto);
+      const value = batch.costPrice.mul(dto.qty);
+      const row = await tx.heldAdjustment.create({
+        data: {
+          tenantId: user.tenantId,
+          branchId,
+          productId: dto.productId,
+          batchId: batch.id,
+          kind,
+          qty: dto.qty,
+          value,
+          note,
+          payload: { ...dto, movementType: "adjustment_out" } as unknown as Prisma.InputJsonValue,
+          requestedBy: user.userId,
+        },
+        include: HELD_INCLUDE,
+      });
+      await this.audit.log({
+        tenantId: user.tenantId,
         branchId,
-        productId: dto.productId,
-        batchId: batch.id,
-        kind,
-        qty: dto.qty,
-        value,
-        note: dto.reason?.trim() || null,
-        payload: { ...dto, movementType: "adjustment_out" } as unknown as Prisma.InputJsonValue,
-        requestedBy: access.userId,
-      },
-      include: HELD_INCLUDE,
+        actorUserId: user.userId,
+        eventName: "inventory.write_off_held",
+        entityName: "product",
+        entityId: dto.productId,
+        payload: { heldAdjustmentId: row.id, kind, qty: dto.qty, value: value.toFixed(2), stockPosted: false },
+      }, tx);
+      return { row, actor };
     });
 
+    // After commit: the approvers learn there is something to decide.
     const notified = await this.notifications.notifyByPermission(
-      tenantId,
+      user.tenantId,
       "inventory.write_off",
       NotificationCategory.inventory,
       {
@@ -125,19 +144,40 @@ export class AdjustmentService {
         entityId: row.id,
         requiresAction: true,
       },
-      access.userId,
+      user.userId,
       { branchId },
     );
-    await this.audit.log({
-      tenantId,
-      branchId,
-      actorUserId: access.userId,
-      eventName: "inventory.write_off_held",
-      entityName: "product",
-      entityId: dto.productId,
-      payload: { heldAdjustmentId: row.id, kind, qty: dto.qty, value: value.toFixed(2), notified },
+    return { held: true as const, heldAdjustment: this.map(row, actor.has("costs.view")), notified };
+  }
+
+  /** A write-off this person may post without anyone else, or WRITE_OFF_APPROVAL_REQUIRED. */
+  private async requireDirectWriteOff(tx: Prisma.TransactionClient, tenantId: string, branchId: string,
+    actor: ActorAccess, dto: StockAdjustmentDto) {
+    const canWriteOff = actor.has("inventory.write_off");
+    if (!canWriteOff && !actor.has("inventory.manage")) throw new ForbiddenException("Your role can't adjust stock");
+    const batch = await this.writeOffBatch(tx, tenantId, branchId, dto);
+    const settings = await tx.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { approvalRequiredWriteOffThreshold: true },
     });
-    return { held: true as const, heldAdjustment: this.map(row, access.has("costs.view")), notified };
+    const threshold = settings?.approvalRequiredWriteOffThreshold ?? null;
+    const overLimit = threshold != null && batch.costPrice.mul(dto.qty).gte(threshold);
+    if (!canWriteOff || (overLimit && !actor.canSelfApprove)) {
+      throw new ConflictException({
+        code: "WRITE_OFF_APPROVAL_REQUIRED",
+        message: "This write-off needs approval. Send it for approval; nothing moves until it's accepted.",
+      });
+    }
+  }
+
+  private async writeOffBatch(tx: Prisma.TransactionClient, tenantId: string, branchId: string, dto: StockAdjustmentDto) {
+    if (!dto.batchId) throw new BadRequestException("Choose the batch to write off");
+    const batch = await tx.batch.findFirst({
+      where: { id: dto.batchId, tenantId, branchId, productId: dto.productId },
+      select: { id: true, costPrice: true },
+    });
+    if (!batch) throw new BadRequestException("Invalid batch");
+    return batch;
   }
 
   async listHeld(tenantId: string, branchId: string, canViewCost: boolean) {

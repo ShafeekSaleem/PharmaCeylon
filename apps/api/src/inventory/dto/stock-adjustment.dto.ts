@@ -63,6 +63,15 @@ export const ADJUSTMENT_KIND_LABELS: Record<AdjustmentKind, string> = {
   correction: "Correction",
 };
 
+/** What happened sets the direction; only a correction says it itself. Null: not said. */
+export function adjustmentDirection(dto: {
+  kind?: AdjustmentKind;
+  movementType?: "adjustment_in" | "adjustment_out" | null;
+}): "in" | "out" | null {
+  if (dto.kind && dto.kind !== "correction") return dto.kind === "found" || dto.kind === "opening" ? "in" : "out";
+  return dto.movementType === "adjustment_in" ? "in" : dto.movementType === "adjustment_out" ? "out" : null;
+}
+
 export class StockAdjustmentDto {
   /** What happened. Omitted, `movementType` and a typed `reason` say it, as before. */
   @IsOptional()

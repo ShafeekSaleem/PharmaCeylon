@@ -311,6 +311,38 @@ in policy metadata. Production terminal/attendance enforcement still awaits the 
 cutover. Approval-optional direct adjustments/receipts retain existing policies. No offline allocation,
 new mandatory TTL or additional approver/executor separation is introduced.
 
+## MR 4d: direct adjustments split; no route is mixed
+
+`POST /inventory/adjustments` used to post or hold depending on the actor and the write-off
+policy. It is now counter work only (`stock`): an increase (`inventory.manage`) or a write-off
+the actor may post alone (`inventory.write_off`, and under the threshold or a self-approving
+role) posts now; any other write-off is refused with 409 `WRITE_OFF_APPROVAL_REQUIRED` before
+anything moves. The new remote `POST /inventory/adjustment-requests` (`management`) records the
+held write-off for approval and moves no stock, whoever sends it; request and its audit share a
+transaction, and approvers are notified after commit. The web sends a refused write-off as a
+request, so the user sees the same result as before.
+
+The direct core reads authority and the write-off policy live, then again after the batch lock,
+in the caller's transaction. It is also the eleventh signed operation. Its exact body has every
+key, with prices in minor units. The signed direction picks the grant. Operation descriptors may
+now derive their permission from the strictly parsed body, which is checked at prepare,
+authorization, execution and replay. A refused command leaves no effect, receipt or spent nonce.
+The adjustment audit carries the command provenance. Direct adjustments are reviewed as back-room
+stock work with no selling-hours limit, like held write-off posting.
+
+`POST /products/import/confirm` is no longer `mixed_stock`: the `product_import` profile resolves
+`legacyStockPosting` (a stock-bearing file at a branch that is not live), physical only then and
+management otherwise. That makes the import/undo and adjustment portions of item 1 complete; no
+route keeps a mixed classification. `mixed_stock` remains only for internal services that
+contain both kinds of method. The registry has 201 routes.
+
+Validation: PostgreSQL regressions cover direct refusal with no held row, request without stock,
+the threshold for a manager who cannot self-approve, authority removal during a real batch-lock
+wait, signed write-off replay and concurrency, opening stock on a new batch for a clerk who
+cannot write off, refused signed write-offs, and audit-failure rollback. Unit tests cover the
+strict signed body, direction-derived grants (including unknown keys) and the resolved
+classifications. A web test covers the request fallback.
+
 ## MR 5: signed command execution with original-result receipts
 
 Builds on MR 1–4c. `TerminalCommandExecutor` (`apps/api/src/terminal-commands/`) is the
@@ -759,13 +791,14 @@ prior evidence is retained and current self-approval rules still apply. Review v
 50 PostgreSQL workflow/approval tests, 50 focused API tests, 2 UI recovery tests, API/web types,
 tenant/stock scanners and the 166-route inventory.
 
-1. **Separate approval from execution:** finish stock-bearing import/undo stages.
-   Stocktakes are split in MR 4a and held requests in MR 4b. Retain
-   remote commercial management and normal reservations; coordinate P6 screens.
+1. **Separate approval from execution:** done. Stocktakes are split in MR 4a, held requests in
+   MR 4b, import staging/undo in MR 4c, and direct adjustments and the import confirm
+   classification in MR 4d; no route remains mixed. Remote commercial management and normal
+   reservations are retained.
 2. **Transactional command execution:** done for the five split physical operations (MR 5).
    Still open:
    - further adapters as more handlers are split (sales/refunds, cash); transfers, prepared
-     receipts and supplier returns are done (P6 slices above);
+     receipts, supplier returns (P6 slices above) and direct adjustments (MR 4d) are done;
    - ~~persisted provenance for import/background workers and maintenance writers~~ (MR 6);
    - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
    - restricting browser routes to terminals once W1 rollout and P2 are ready.

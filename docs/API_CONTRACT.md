@@ -4,7 +4,8 @@
 
 - `POST /products/import/stage`: same multipart upload, mapping/category decisions and
   Idempotency-Key as `/confirm`, with no physical stock effect. `/confirm` retains legacy
-  not-live behavior but auto-stages at desktop-live branches, including checkout fallback.
+  not-live behavior but auto-stages at desktop-live branches, including checkout fallback. Its
+  classification is resolved, not mixed: physical only for that legacy not-live stock posting.
 - `GET /products/import/:importId/stock`: selected-branch draft, version, rows, staging actor
   and first posting time. Requires current `products.import`; saved `costPrice` is null without
   `costs.view`. Row `postedBatchId` is the durable posting result.
@@ -186,8 +187,9 @@ operations are unchanged and are not yet restricted to terminals.
 selling hours for operations that sell or open a shift: the structured weekly hours (W7), dated
 exceptions including confirmed gazette holidays, the owner's mandatory limits and unrevoked
 business extensions, in the branch's timezone at authorization time. Back-room stock operations
-(the five v1 operations: stocktake post, held write-off post, held delivery post, import stock
-post and import stock undo) are reviewed as not selling-time restricted; every other operation,
+(stocktake post, held write-off post, held delivery post, import stock post and undo, transfer
+dispatch and receipt, prepared receipt post, supplier return completion and direct adjustments)
+are reviewed as not selling-time restricted; every other operation,
 including any added later and not reviewed, is hours-checked. Online commands never carry an
 hours exception: `operatingHoursExceptionId` must be `null` (`INVALID_COMMAND` otherwise). The
 online remedy for after-hours selling is a business extension approved on the web; the
@@ -224,6 +226,18 @@ transaction.
 | `POST /api/v1/sales/refund-requests/:id/execute` | `{ refundRequestId }` | the request's `executionApprovalId`; `null` when it needs no approval (below) | `sales.refund` |
 | `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
+| `POST /api/v1/inventory/adjustments` | `{ kind, movementType, productId, batchId, newBatch, qty, reason, fromQuarantine }` | `null` | `inventory.manage` to add stock, `inventory.write_off` to write it off |
+
+Direct adjustments: every key is present. `movementType` is `adjustment_in`/`adjustment_out` for
+a `correction` (which also needs a `reason`) and `null` otherwise. `batchId` is `null` only with
+`newBatch: { batchNo, expiryDate: "YYYY-MM-DD", costPriceMinor, sellingPriceMinor, supplierId }`,
+which only an increase may carry; prices are LKR minor units. `reason` and `batchNo` are exact,
+trimmed text; `fromQuarantine` is a write-off option. The grant follows the signed direction. A
+write-off that needs approval is refused (`WRITE_OFF_APPROVAL_REQUIRED`) with no effect, receipt
+or spent nonce; it goes through a held request instead. Each command is its own adjustment: a
+retry of the same command replays the original result (`stock_adjustment.posted` with `batchId`,
+`movementType`, `qty`, `stockReferenceId`), and a distinct command adjusts again. The
+`inventory.adjustment` audit carries the command provenance.
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
@@ -513,7 +527,8 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | Body `{ qty?, reasonCode: expired\|damaged\|recall\|inspection\|other, reason? }`. `qty` defaults to everything not already held or reserved; `reason` required for `other`. |
 | `POST /inventory/batches/:id/release-quarantine` | `inventory.release_quarantine` | Body `{ qty?, reason? }`. Refused for expired batches. |
 | `POST /inventory/quarantine-expired` | `inventory.manage_bulk` | Holds every sellable unit on expired batches. Returns `{ quarantined, units, batchIds }`. |
-| `POST /inventory/adjustments` | `inventory.manage` or `inventory.write_off` | Body `{ kind, productId, batchId \| newBatch, qty, reason? }`. `kind` says what happened: `found`, `opening` (in), `damaged`, `expired`, `lost` (out), `correction` (either way — send `movementType`, and a `reason`). Damaged and expired units come out of quarantine first. A decrease is **held** instead of posted when the caller lacks `inventory.write_off`, or when its value reaches `TenantSettings.approvalRequiredWriteOffThreshold` and the caller's role may not approve its own requests; the response is then `{ held: true, heldAdjustment }` and people with `inventory.write_off` are notified. Callers without `kind` keep the old shape (`movementType`, `reason` for decreases, `fromQuarantine`). |
+| `POST /inventory/adjustments` | `inventory.manage` (increase) or `inventory.write_off` (decrease) | Counter work (`stock`): posts now or not at all, returning `{ held: false, ok, referenceId, batchId }`. Body `{ kind, productId, batchId \| newBatch, qty, reason? }`. `kind` says what happened: `found`, `opening` (in), `damaged`, `expired`, `lost` (out), `correction` (either way — send `movementType`, and a `reason`). Damaged and expired units come out of quarantine first. A decrease that needs approval — the caller lacks `inventory.write_off`, or its value reaches `TenantSettings.approvalRequiredWriteOffThreshold` and the caller's role may not approve its own requests — is refused with **409 `WRITE_OFF_APPROVAL_REQUIRED`** before anything moves; nothing is held. Send it to `adjustment-requests`. Authority and the policy are read live, and again after the batch lock. Callers without `kind` keep the old shape (`movementType`, `reason` for decreases, `fromQuarantine`). Also a signed terminal command (below). |
+| `POST /inventory/adjustment-requests` | `inventory.manage` or `inventory.write_off` | Remote (`management`). The same body, for a decrease only (`newBatch` and increases are refused). Records a held write-off and moves no stock, whoever sends it: `{ held: true, heldAdjustment, notified }`. The request and its `inventory.write_off_held` audit commit together; people with `inventory.write_off` are notified after commit. Accept and post it through `held-adjustments/:id/*`. |
 | `GET /inventory/held-adjustments` | `inventory.view` | Awaiting/approved write-offs at the branch: kind, qty, `value` (**null** without `costs.view`), note, product, batch, requester, `approvalReview: { expectedVersion, expectedDigest }`, `executionApprovalId` and execution stamps. |
 | `POST /inventory/held-adjustments/:id/accept` | `inventory.write_off` | Requires `{ approvalId, expectedVersion, expectedDigest }` from the displayed preview. Records exact approval only, sets `approved`, and leaves stock unchanged. Existing self-approval rules apply. The stable approval UUID makes identical retries safe; a fresh UUID explicitly replaces unusable evidence. |
 | `POST /inventory/held-adjustments/:id/post` | `inventory.write_off` | Body `{ approvalId }` pins the displayed approval. Posts the saved adjustment in the same transaction as reference/status/audit, after current executor/approver and exact-material checks under locks. Repeats return the original posted record. Insufficient stock leaves the approval intact for review. |

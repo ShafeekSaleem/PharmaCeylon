@@ -25,7 +25,9 @@ import { PERMISSION_KEYS } from "./permission-catalog";
 export type OperationDescriptor<T> = Readonly<{
   method: string;
   routeTemplate: string;
-  permission: string;
+  /** A function only where one route carries two reviewed grants (a stock increase versus a
+   * write-off). It reads the strictly parsed signed body, never a header or client label. */
+  permission: string | ((body: T) => string);
   parseBody: BodyParser<T>;
   resolveFacts?: (
     tx: Prisma.TransactionClient,
@@ -48,6 +50,14 @@ export type OperationDescriptor<T> = Readonly<{
     ) => Promise<boolean>;
   };
 }>;
+
+/** The grant an operation needs for this exact parsed body. */
+export function operationPermission<T>(descriptor: OperationDescriptor<T>, body: T): string {
+  const permission =
+    typeof descriptor.permission === "function" ? descriptor.permission(body) : descriptor.permission;
+  if (!PERMISSION_KEYS.includes(permission)) denied("INVALID_COMMAND");
+  return permission;
+}
 
 /** Extends existing AccessService authorization at the transactional service boundary,
  * not a fifth guard. Existing routes are not cut over until domain/P2 adapters are ready.
@@ -73,13 +83,12 @@ export class OperationAuthorizationService {
       attendanceProofId?: string;
     },
   ) {
-    if (!PERMISSION_KEYS.includes(descriptor.permission))
-      denied("INVALID_COMMAND");
     const body = descriptor.parseBody(input.body);
     if (boundedCanonical(body) !== boundedCanonical(input.body))
       denied("INVALID_COMMAND");
+    const permission = operationPermission(descriptor, body);
     const actor = await this.access.resolveLive(user, branchId, tx);
-    if (!actor.has(descriptor.permission)) denied("PERMISSION_DENIED");
+    if (!actor.has(permission)) denied("PERMISSION_DENIED");
     const facts = descriptor.resolveFacts
       ? await descriptor.resolveFacts(tx, user, branchId, body)
       : undefined;
@@ -101,7 +110,7 @@ export class OperationAuthorizationService {
         });
       // Evidence/fact providers can block; never reuse pre-wait authority.
       const current = await this.access.resolveLive(user, branchId, tx);
-      if (!current.has(descriptor.permission)) denied("PERMISSION_DENIED");
+      if (!current.has(permission)) denied("PERMISSION_DENIED");
       const latest = classifyMutation(
         descriptor.method,
         descriptor.routeTemplate,
@@ -121,7 +130,7 @@ export class OperationAuthorizationService {
       branchId,
       {
         operation,
-        permission: descriptor.permission,
+        permission,
         parseBody: descriptor.parseBody,
       },
       input.signedCommand,
@@ -192,7 +201,7 @@ export class OperationAuthorizationService {
       });
     await this.evidence.hours(tx, terminal.command);
     const current = await this.access.resolveLive(user, branchId, tx);
-    if (!current.has(descriptor.permission)) denied("PERMISSION_DENIED");
+    if (!current.has(permission)) denied("PERMISSION_DENIED");
     // Locks cannot freeze time or approver grants. Recheck after every evidence
     // provider and the executor lookup, with no further awaits before returning.
     if (recheckWaiver && !(await recheckWaiver())) denied("APPROVAL_REQUIRED");

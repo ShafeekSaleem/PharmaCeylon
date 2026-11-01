@@ -24,6 +24,8 @@ export const OPERATIONS_WITHOUT_SELLING_HOURS: ReadonlySet<string> = new Set<Sig
   // work too (reviewed 2026-10-29).
   "POST /api/v1/purchasing/prepared-receipts/:id/post",
   "POST /api/v1/returns/:id/complete",
+  // P1: a direct adjustment is the same back-room stock work as posting a held one.
+  "POST /api/v1/inventory/adjustments",
 ]);
 
 /**

@@ -272,19 +272,30 @@ export class InventoryController {
   }
 
   /**
-   * Increases need `inventory.manage`. A write-off posts for someone with `inventory.write_off`
-   * (over the tenant's threshold, only if they may also approve their own requests); anyone else
-   * who manages inventory has it held for an approver — `{ held: true }`.
+   * Counter work: posts the adjustment now or not at all. Increases need `inventory.manage`. A
+   * write-off needs `inventory.write_off` (over the tenant's threshold, only if they may also
+   * approve their own requests); any other write-off is refused with 409
+   * WRITE_OFF_APPROVAL_REQUIRED, and nothing is held — send it to `adjustment-requests`.
    */
   @RequirePermission("inventory.manage", "inventory.write_off")
   @Post("adjustments")
-  async adjustment(
+  adjustment(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Body() dto: StockAdjustmentDto,
   ) {
-    const access = await this.access.resolve(user, branchId);
-    return this.adjustments.adjust(user.tenantId, branchId, access, dto);
+    return this.adjustments.postDirect(user, branchId, dto);
+  }
+
+  /** Remote: records a write-off for approval (`{ held: true }`). Moves no stock. */
+  @RequirePermission("inventory.manage", "inventory.write_off")
+  @Post("adjustment-requests")
+  requestAdjustment(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Body() dto: StockAdjustmentDto,
+  ) {
+    return this.adjustments.request(user, branchId, dto);
   }
 
   @RequirePermission("inventory.view")

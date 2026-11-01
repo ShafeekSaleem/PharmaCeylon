@@ -173,9 +173,9 @@ async function approvedStocktake(countedQty = 47, stocked = 50) {
 }
 async function approvedHeldAdjustment() {
   const batchId = await createStockedBatch(prisma, stock, fx, { qty: 20 });
-  const held = await adjustments.adjust(fx.tenantId, branch(), actor(fx.clerkId, ["inventory.manage"]), {
+  const held = await adjustments.request(user(fx.clerkId), branch(), {
     productId: fx.productId, batchId, qty: 2, kind: "lost", reason: "Missing during count",
-  }) as { heldAdjustment: { id: string } };
+  });
   const id = held.heldAdjustment.id;
   const review = (await adjustments.listHeld(fx.tenantId, branch(), true)).find(row => row.id === id)!.approvalReview;
   const accepted = await adjustments.accept(user(fx.ownerId), branch(), id, { approvalId: randomUUID(), ...review });
@@ -567,6 +567,82 @@ describe("held and import physical operations through signed commands", () => {
       .rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
     await expect(signedCommand(counter, "POST /api/v1/inventory/held-adjustments/:id/post",
       { heldAdjustmentId: randomUUID() }, null)).rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+  });
+});
+
+describe("direct adjustments through signed commands", () => {
+  const DIRECT = "POST /api/v1/inventory/adjustments" as const;
+  const writeOff = (batchId: string, qty = 2) => ({
+    kind: "damaged", movementType: null, productId: fx.productId, batchId, newBatch: null,
+    qty, reason: "Dropped", fromQuarantine: false,
+  });
+  afterEach(() => prisma.tenantSettings.updateMany({ where: { tenantId: fx.tenantId },
+    data: { approvalRequiredWriteOffThreshold: null, selfApprovalRoleKeys: ["owner", "manager"] } }));
+
+  it("posts a write-off once, replays the original result and records the command in the audit", async () => {
+    const counter = await counterFor(fx.managerId);
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 10 });
+    const { payload, request } = await signedCommand(counter, DIRECT, writeOff(batchId), null);
+    const [a, b] = await Promise.all([run(counter, request), run(counter, request)]);
+    expect(a.receiptId).toBe(b.receiptId);
+    expect(a.result).toEqual({ type: "stock_adjustment.posted", productId: fx.productId, batchId,
+      movementType: "adjustment_out", qty: 2, stockReferenceId: expect.any(String) });
+    expect((await batchTotals(prisma, batchId)).onHand).toBe(8);
+    const event = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId, eventName: "inventory.adjustment",
+      payload: { path: ["referenceId"], equals: (a.result as { stockReferenceId: string }).stockReferenceId } } });
+    expect(event.payload).toMatchObject({ kind: "damaged", qty: 2, command: { commandId: payload.commandId,
+      terminalId: counter.identity.terminalId, workSessionId: counter.session.workSessionId } });
+    expect(await executionAudits(payload.commandId)).toBe(1);
+    // A distinct command is a second adjustment, not a replay.
+    const second = await signedCommand(counter, DIRECT, writeOff(batchId), null);
+    await run(counter, second.request);
+    expect((await batchTotals(prisma, batchId)).onHand).toBe(6);
+  });
+
+  it("opens a new batch with opening stock for someone who may add, but not write off, stock", async () => {
+    const counter = await counterFor(fx.clerkId);
+    const batchNo = `OPEN-${randomUUID().slice(0, 8)}`;
+    const body = { kind: "opening", movementType: null, productId: fx.productId, batchId: null,
+      newBatch: { batchNo, expiryDate: daysFromToday(400).toISOString().slice(0, 10), costPriceMinor: 1250,
+        sellingPriceMinor: 1899, supplierId: null }, qty: 7, reason: null, fromQuarantine: false };
+    const { request } = await signedCommand(counter, DIRECT, body, null);
+    const receipt = await run(counter, request);
+    const batch = await prisma.batch.findFirstOrThrow({ where: { tenantId: fx.tenantId, branchId: branch(), batchNo } });
+    expect(receipt.result).toMatchObject({ batchId: batch.id, movementType: "adjustment_in", qty: 7 });
+    expect([batch.costPrice.toFixed(2), batch.sellingPrice.toFixed(2)]).toEqual(["12.50", "18.99"]);
+    expect((await batchTotals(prisma, batch.id)).onHand).toBe(7);
+
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 4 });
+    await expect(signedCommand(counter, DIRECT, writeOff(batchId), null))
+      .rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+  });
+
+  it("refuses a write-off that needs approval with no effect, receipt, held request or spent nonce", async () => {
+    await prisma.tenantSettings.upsert({ where: { tenantId: fx.tenantId },
+      update: { approvalRequiredWriteOffThreshold: 1, selfApprovalRoleKeys: ["owner"] },
+      create: { tenantId: fx.tenantId, approvalRequiredWriteOffThreshold: 1, selfApprovalRoleKeys: ["owner"] } });
+    const counter = await counterFor(fx.managerId);
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 10 });
+    const heldBefore = await prisma.heldAdjustment.count({ where: { tenantId: fx.tenantId } });
+    const { payload, request } = await signedCommand(counter, DIRECT, writeOff(batchId), null);
+    await expect(run(counter, request)).rejects.toMatchObject({ response: { code: "WRITE_OFF_APPROVAL_REQUIRED" } });
+    expect((await batchTotals(prisma, batchId)).onHand).toBe(10);
+    expect(await receiptsFor(payload.commandId)).toBe(0);
+    expect(await prisma.heldAdjustment.count({ where: { tenantId: fx.tenantId } })).toBe(heldBefore);
+    expect(await challengeConsumed(payload.serverNonce)).toBe(false);
+  });
+
+  it("takes no approval evidence and rolls everything back when the adjustment audit fails", async () => {
+    const counter = await counterFor(fx.managerId);
+    const batchId = await createStockedBatch(prisma, stock, fx, { qty: 5 });
+    await expect(signedCommand(counter, DIRECT, writeOff(batchId), randomUUID()))
+      .rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+    const { payload, request } = await signedCommand(counter, DIRECT, writeOff(batchId), null);
+    audit.failOn = "inventory.adjustment";
+    await expect(run(counter, request)).rejects.toThrow("Injected inventory.adjustment audit failure");
+    expect((await batchTotals(prisma, batchId)).onHand).toBe(5);
+    expect(await receiptsFor(payload.commandId)).toBe(0);
+    expect(await executionAudits(payload.commandId)).toBe(0);
   });
 });
 

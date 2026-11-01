@@ -16,6 +16,7 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/sales/refund-requests/:id/execute",
   "POST /api/v1/purchasing/prepared-receipts/:id/post",
   "POST /api/v1/returns/:id/complete",
+  "POST /api/v1/inventory/adjustments",
 ] as const;
 export type SignedPhysicalOperation = typeof SIGNED_PHYSICAL_OPERATIONS[number];
 
@@ -47,7 +48,29 @@ export type SignedOperationBody = {
   "POST /api/v1/sales/refund-requests/:id/execute": Readonly<{ refundRequestId: string }>;
   "POST /api/v1/purchasing/prepared-receipts/:id/post": Readonly<{ preparedReceiptId: string }>;
   "POST /api/v1/returns/:id/complete": Readonly<{ goodsReturnId: string }>;
+  /** A direct adjustment at the counter. approvalEvidenceId must be null: a write-off that needs
+   * approval is refused (WRITE_OFF_APPROVAL_REQUIRED) and goes through a held request instead.
+   * movementType is set for a correction only; batchId is null only with newBatch (increases). */
+  "POST /api/v1/inventory/adjustments": Readonly<{
+    kind: StockAdjustmentKind;
+    movementType: "adjustment_in" | "adjustment_out" | null;
+    productId: string;
+    batchId: string | null;
+    newBatch: Readonly<{
+      batchNo: string;
+      expiryDate: string; // YYYY-MM-DD
+      costPriceMinor: number;
+      sellingPriceMinor: number;
+      supplierId: string | null;
+    }> | null;
+    qty: number;
+    reason: string | null; // required for a correction
+    fromQuarantine: boolean; // write-offs only
+  }>;
 };
+
+export const STOCK_ADJUSTMENT_KINDS = ["found", "damaged", "expired", "lost", "opening", "correction"] as const;
+export type StockAdjustmentKind = typeof STOCK_ADJUSTMENT_KINDS[number];
 
 /** "already_applied": a distinct command found the document already posted; no second effect. */
 export type SignedOperationEffect = "applied" | "already_applied";
@@ -95,11 +118,16 @@ export type SignedOperationResult = {
     debitNoteId: string | null; // null when the returned lines are worth nothing to claim
     effect: SignedOperationEffect;
   }>;
+  /** Each command is its own adjustment; a replay returns this original receipt. */
+  "POST /api/v1/inventory/adjustments": Readonly<{
+    type: "stock_adjustment.posted"; productId: string; batchId: string;
+    movementType: "adjustment_in" | "adjustment_out"; qty: number; stockReferenceId: string;
+  }>;
 };
 
 /** POST /api/v1/terminal-commands/prepare (Bearer + x-branch-id). Returns OnlineTerminalCommand<body>.
- * approvalEvidenceId is required for stocktake/held posting, must be null for import operations and
- * transfer receipt, and is the transfer's approval (or null where waived) for transfer dispatch;
+ * approvalEvidenceId is required for stocktake/held posting, must be null for import operations,
+ * direct adjustments and transfer receipt, and is the transfer's approval (or null where waived) for transfer dispatch;
  * pharmacist/hours evidence IDs must be null for every v1 operation.
  */
 export type TerminalCommandPrepareRequest<O extends SignedPhysicalOperation = SignedPhysicalOperation> = Readonly<{

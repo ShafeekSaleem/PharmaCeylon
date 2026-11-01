@@ -27,7 +27,7 @@ export const INTERNAL_OPERATION_ACTIONS = [
     source: "inventory/adjustment.service.ts",
     profile: "mixed_stock",
     authority: "domain",
-    note: "adjust preserves existing optional-approval policy; accept records exact approval only; post executes the approved write-off. reject is management.",
+    note: "postDirect/postDirectInTransaction post now (increases, and write-offs the actor may post alone) or refuse WRITE_OFF_APPROVAL_REQUIRED; request records a held write-off and moves no stock; accept records exact approval only; post executes the approved write-off. request/accept/reject are management.",
   },
   {
     source: "inventory/inventory.service.ts",
@@ -81,7 +81,7 @@ export const INTERNAL_OPERATION_ACTIONS = [
     source: "product-import/product-import.service.ts",
     profile: "mixed_stock",
     authority: "worker",
-    note: "Legacy not-live imports retain stock execution; live/fallback and explicit stage imports write only catalog/draft. Management undo refuses posted stock; legacy stock undo is separate physical execution. The background worker persists its initiator (user, token version, branch, permission) and revalidates it on every write transaction; legacy rows without recorded authority cannot be written by a worker. Signed undo/post carry command provenance.",
+    note: "Legacy not-live imports retain stock execution (confirm resolves legacyStockPosting); live/fallback and explicit stage imports write only catalog/draft. Management undo refuses posted stock; legacy stock undo is separate physical execution. The background worker persists its initiator (user, token version, branch, permission) and revalidates it on every write transaction; legacy rows without recorded authority cannot be written by a worker. Signed undo/post carry command provenance.",
   },
   {
     source: "product-import/import-stock.service.ts",
