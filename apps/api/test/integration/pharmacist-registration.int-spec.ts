@@ -44,7 +44,8 @@ async function clear() {
   // Registrations are retained by trigger; revoke whatever another test left current.
   await prisma.pharmacistRegistration.updateMany({
     where: { tenantId: fx.tenantId, revokedAt: null },
-    data: { revokedAt: new Date(), revokedByUserId: fx.ownerId, revocationReason: "test reset" },
+    // An hour ahead: a test may leave a row recorded by a clock that runs fast.
+    data: { revokedAt: new Date(Date.now() + 3_600_000), revokedByUserId: fx.ownerId, revocationReason: "test reset" },
   });
 }
 function command(staffUserId: string, overrides: Partial<OnlineTerminalCommand<unknown>> = {}): OnlineTerminalCommand<unknown> {
@@ -147,6 +148,24 @@ describe("recording", () => {
     expect(await prisma.pharmacistRegistration.count({ where: { tenantId: fx.tenantId, userId: secondPharmacistId, revokedAt: null } })).toBe(1);
   });
 
+  it("never records a revocation before the recording, whatever the API clock says", async () => {
+    // Recorded by an instance whose clock runs a minute ahead.
+    const ahead = new Date(Date.now() + 60_000);
+    const skewed = await prisma.pharmacistRegistration.create({
+      data: { tenantId: fx.tenantId, userId: pharmacistId, slmcNumber: "PH-15", expiresOn: new Date(`${dayKey(30)}T00:00:00Z`),
+        recordedByUserId: fx.ownerId, recordedAt: ahead },
+    });
+    const renewed = await record(pharmacistId, "PH-15", dayKey(300));
+    const old = await prisma.pharmacistRegistration.findUniqueOrThrow({ where: { id: skewed.id } });
+    expect(old.revokedAt!.getTime()).toBeGreaterThanOrEqual(ahead.getTime());
+    const again = await prisma.pharmacistRegistration.create({
+      data: { tenantId: fx.tenantId, userId: secondPharmacistId, slmcNumber: "PH-16", expiresOn: new Date(`${dayKey(30)}T00:00:00Z`),
+        recordedByUserId: fx.ownerId, recordedAt: ahead },
+    });
+    await expect(registrations.revoke(user(fx.ownerId), fx.mainBranchId, again.id, "Typo")).resolves.toMatchObject({ status: "revoked" });
+    expect(renewed.status).toBe("current");
+  });
+
   it("retains evidence: content is immutable, revocation is recorded once, nothing is deleted", async () => {
     const row = await record(pharmacistId, "PH-5");
     await expect(prisma.pharmacistRegistration.update({ where: { id: row.id }, data: { slmcNumber: "PH-6" } })).rejects.toThrow(/immutable/);
@@ -188,7 +207,8 @@ describe("the clinical check", () => {
   });
 
   it("needs an active account assigned to the branch", async () => {
-    await record(pharmacistId, "PH-9");
+    const row = await record(pharmacistId, "PH-9");
+    expect(row.accountActive).toBe(true);
     await expect(qualified(pharmacistId, fx.otherBranchId)).resolves.toBe("PHARMACIST_REQUIRED");
     await prisma.tenantMembership.update({
       where: { tenantId_userId: { tenantId: fx.tenantId, userId: pharmacistId } },
@@ -196,6 +216,9 @@ describe("the clinical check", () => {
     });
     try {
       await expect(qualified(pharmacistId)).resolves.toBe("PHARMACIST_REQUIRED");
+      // The list says so beside the registration's own status.
+      const listed = (await registrations.list(user(fx.ownerId))).find((r) => r.id === row.id);
+      expect(listed).toMatchObject({ status: "current", accountActive: false });
     } finally {
       await prisma.tenantMembership.update({
         where: { tenantId_userId: { tenantId: fx.tenantId, userId: pharmacistId } },
@@ -233,6 +256,39 @@ describe("the clinical check", () => {
     await expect(outcome).resolves.toBe("PHARMACIST_REQUIRED");
   });
 
+  it("sees the new registration when a renewal commits while it waits", async () => {
+    const old = await record(pharmacistId, "PH-14", dayKey(5));
+    let release!: () => void;
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    let renewedId = "";
+    const renewing = tx(async (c) => {
+      await c.pharmacistRegistration.updateMany({
+        where: { id: old.id, revokedAt: null },
+        data: { revokedAt: new Date(), revokedByUserId: fx.ownerId, revocationReason: "Replaced by a newer registration" },
+      });
+      renewedId = (await c.pharmacistRegistration.create({
+        data: { tenantId: fx.tenantId, userId: pharmacistId, slmcNumber: "PH-14", expiresOn: new Date(`${dayKey(400)}T00:00:00Z`),
+          recordedByUserId: fx.ownerId },
+      })).id;
+      locked();
+      await new Promise<void>((resolve) => (release = resolve));
+    });
+    await isLocked;
+    const outcome = tx((c) => registrations.assertQualified(c, { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: pharmacistId }));
+    let waiting = false;
+    for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+      const rows = await prisma.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%pharmacist_registration%'`;
+      waiting = Number(rows[0]?.count) > 0;
+      if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    release();
+    await renewing;
+    expect(waiting).toBe(true);
+    await expect(outcome).resolves.toMatchObject({ registrationId: renewedId, slmcNumber: "PH-14" });
+  });
+
   it("makes a revocation wait for a clinical transaction already relying on the registration", async () => {
     const row = await record(pharmacistId, "PH-11");
     let release!: () => void;
@@ -260,8 +316,8 @@ describe("MandatoryOperationEvidence.clinical", () => {
   const evidence = new MandatoryOperationEvidence(undefined, undefined, registrations);
 
   it("checks the signed session's staff member", async () => {
-    await record(pharmacistId, "PH-12");
-    await expect(code(tx((c) => evidence.clinical(c, command(pharmacistId))))).resolves.toBe("ok");
+    const row = await record(pharmacistId, "PH-12");
+    await expect(tx((c) => evidence.clinical(c, command(pharmacistId)))).resolves.toEqual({ registrationId: row.id, slmcNumber: "PH-12" });
     await expect(code(tx((c) => evidence.clinical(c, command(fx.ownerId))))).resolves.toBe("PHARMACIST_REQUIRED");
   });
 

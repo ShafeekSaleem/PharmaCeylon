@@ -28,9 +28,17 @@ const MAX_YEARS_AHEAD = 10;
 
 export type PharmacistRegistrationStatus = "current" | "expired" | "revoked";
 
+/** What a clinical check relied on; copied into the operation's command provenance. */
+export type ClinicalEvidence = Readonly<{ registrationId: string; slmcNumber: string }>;
+
 type Row = Prisma.PharmacistRegistrationGetPayload<{
-  include: { membership: { select: { user: { select: { fullName: true; email: true } } } } };
+  include: { membership: { select: { isActive: true; user: { select: { fullName: true; email: true; isActive: true } } } } };
 }>;
+const ROW_INCLUDE = {
+  membership: { select: { isActive: true, user: { select: { fullName: true, email: true, isActive: true } } } },
+} as const;
+/** Revocation time never precedes recording, even across API instances with skewed clocks. */
+const revocationTime = (recordedAt: Date) => new Date(Math.max(Date.now(), recordedAt.getTime()));
 
 /**
  * P1 #47: who is a qualified pharmacist, as a fact an owner records, not a role.
@@ -57,7 +65,7 @@ export class PharmacistRegistrationService {
       this.prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { timezone: true } }),
       this.prisma.pharmacistRegistration.findMany({
         where: { tenantId: user.tenantId },
-        include: { membership: { select: { user: { select: { fullName: true, email: true } } } } },
+        include: ROW_INCLUDE,
         orderBy: [{ revokedAt: { sort: "desc", nulls: "first" } }, { recordedAt: "desc" }],
         take: 500,
       }),
@@ -98,7 +106,7 @@ export class PharmacistRegistrationService {
         });
         if (previous && previous.slmcNumber === slmcNumber && previous.expiresOn.getTime() === expiresOn.getTime())
           return this.map(await this.load(tx, user.tenantId, previous.id), today);
-        const now = new Date();
+        const now = previous ? revocationTime(previous.recordedAt) : new Date();
         if (previous)
           await tx.pharmacistRegistration.updateMany({
             where: { id: previous.id, tenantId: user.tenantId, revokedAt: null },
@@ -142,7 +150,8 @@ export class PharmacistRegistrationService {
     if (!note) throw new BadRequestException("Say why the registration is being revoked.");
     return this.prisma.$transaction(async (tx) => {
       await this.requireOwner(tx, user, branchId);
-      const rows = await tx.$queryRaw<{ id: string; revoked_at: Date | null }[]>`SELECT id, revoked_at
+      const rows = await tx.$queryRaw<{ id: string; recorded_at: Date; revoked_at: Date | null }[]>`SELECT id,
+        recorded_at, revoked_at
         FROM pharmacist_registration WHERE id = ${registrationId}::uuid AND tenant_id = ${user.tenantId}::uuid
         FOR UPDATE`;
       if (rows.length !== 1) throw new NotFoundException("Registration not found.");
@@ -151,7 +160,7 @@ export class PharmacistRegistrationService {
       if (rows[0].revoked_at) return this.map(await this.load(tx, user.tenantId, registrationId), today);
       await tx.pharmacistRegistration.updateMany({
         where: { id: registrationId, tenantId: user.tenantId, revokedAt: null },
-        data: { revokedAt: new Date(), revokedByUserId: user.userId, revocationReason: note },
+        data: { revokedAt: revocationTime(rows[0].recorded_at), revokedByUserId: user.userId, revocationReason: note },
       });
       await this.audit.log(
         {
@@ -173,13 +182,19 @@ export class PharmacistRegistrationService {
    * Clinical evidence for one staff member at one branch, on the caller's transaction, or
    * `PHARMACIST_REQUIRED`. Returns the registration it relied on, for provenance.
    */
-  async assertQualified(tx: Tx, staff: { tenantId: string; branchId: string; userId: string }, at: Date = new Date()) {
-    const rows = await tx.$queryRaw<{ id: string; slmc_number: string; expires_on: Date }[]>`SELECT r.id,
+  async assertQualified(
+    tx: Tx,
+    staff: { tenantId: string; branchId: string; userId: string },
+    at: Date = new Date(),
+  ): Promise<ClinicalEvidence> {
+    const current = () => tx.$queryRaw<{ id: string; slmc_number: string; expires_on: Date }[]>`SELECT r.id,
         r.slmc_number, r.expires_on
       FROM pharmacist_registration r
       WHERE r.tenant_id = ${staff.tenantId}::uuid AND r.user_id = ${staff.userId}::uuid AND r.revoked_at IS NULL
       FOR SHARE OF r`;
-    const registration = rows[0];
+    // A renewal that commits while this waits revokes the row it locked and inserts one this
+    // statement cannot see; one fresh statement sees it. A revocation alone still finds nothing.
+    const registration = (await current())[0] ?? (await current())[0];
     if (!registration) denied("PHARMACIST_REQUIRED");
     // Read after the lock: account, membership and branch assignment as they are now.
     const branch = await tx.branch.findFirst({
@@ -202,9 +217,9 @@ export class PharmacistRegistrationService {
   /** The `MandatoryOperationEvidence.clinical` provider: the signed session's own staff member
    * must be qualified. A co-signing pharmacist (`pharmacistEvidenceId`) is not accepted online
    * yet; that evidence arrives with the desktop dispensing flow. */
-  async assertForCommand(tx: Tx, command: OnlineTerminalCommand<unknown>, at: Date = new Date()): Promise<void> {
+  async assertForCommand(tx: Tx, command: OnlineTerminalCommand<unknown>, at: Date = new Date()): Promise<ClinicalEvidence> {
     if (command.pharmacistEvidenceId !== null) invalid();
-    await this.assertQualified(
+    return this.assertQualified(
       tx,
       { tenantId: command.identity.tenantId, branchId: command.identity.branchId, userId: command.session.staffUserId },
       at,
@@ -228,7 +243,7 @@ export class PharmacistRegistrationService {
   private load(tx: Tx, tenantId: string, id: string): Promise<Row> {
     return tx.pharmacistRegistration.findFirstOrThrow({
       where: { id, tenantId },
-      include: { membership: { select: { user: { select: { fullName: true, email: true } } } } },
+      include: ROW_INCLUDE,
     });
   }
 
@@ -239,6 +254,9 @@ export class PharmacistRegistrationService {
       userId: row.userId,
       fullName: row.membership.user.fullName,
       email: row.membership.user.email,
+      // `status` describes the registration only; the clinical check also needs an active
+      // account assigned to the branch.
+      accountActive: row.membership.isActive && row.membership.user.isActive,
       slmcNumber: row.slmcNumber,
       expiresOn: row.expiresOn.toISOString().slice(0, 10),
       status,

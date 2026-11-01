@@ -411,7 +411,7 @@ included. Remote management (`identity`); none of these routes dispenses anythin
 
 | Route | Who | Effect |
 | --- | --- | --- |
-| `GET /admin/pharmacist-registrations` | `users.view` | Every registration, current ones first: `{ id, userId, fullName, email, slmcNumber, expiresOn, status, recordedByUserId, recordedAt, revokedAt, revokedByUserId, revocationReason }`. `status` is `current`, `expired` (past `expiresOn` in the tenant's timezone) or `revoked`. |
+| `GET /admin/pharmacist-registrations` | `users.view` | Every registration, current ones first: `{ id, userId, fullName, email, accountActive, slmcNumber, expiresOn, status, recordedByUserId, recordedAt, revokedAt, revokedByUserId, revocationReason }`. `status` describes the registration only: `current`, `expired` (past `expiresOn` in the tenant's timezone) or `revoked`. `accountActive` is false when the staff member's account or membership is deactivated; the check refuses them whatever `status` says. |
 | `POST /admin/pharmacist-registrations` `{ userId, slmcNumber, expiresOn: "YYYY-MM-DD" }` | **owner only** (route gate `users.manage`; needs `x-branch-id`) | Records the registration for an active staff member. The number is stored trimmed and upper-case (letters, digits, `/`, `-`, up to 32). The date may be today but not past, and at most 10 years ahead. A renewal revokes the registration it replaces in the same transaction; sending the current values again changes nothing. |
 | `POST /admin/pharmacist-registrations/:registrationId/revoke` `{ reason }` | owner only | Revokes it. Revoking again is a no-op. |
 
@@ -426,7 +426,10 @@ registrations on record cannot be deleted.
 staff member (`session.staffUserId`) has a current registration and an active account assigned to
 the command's branch. "Current" means unrevoked and not past `expiresOn` in the branch's timezone.
 Otherwise the command is refused with `PHARMACIST_REQUIRED`. The registration is share-locked: a
-revocation that commits first is seen, and a later one waits for the clinical transaction. A
+revocation that commits first is seen, and a later one waits for the clinical transaction; a
+renewal that commits during the wait is found by one fresh read, so it is not refused. The
+registration relied on is returned and copied into the command provenance
+(`pharmacistRegistrationId`) for the operation's success audit. A
 co-signing pharmacist (`pharmacistEvidenceId`) is not accepted online yet (`INVALID_COMMAND`); it
 arrives with the desktop dispensing flow. The check is `PharmacistRegistrationService.assertQualified`,
 which the pharmacist PIN co-sign will call too.

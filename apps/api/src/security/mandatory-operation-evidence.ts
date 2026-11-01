@@ -4,7 +4,7 @@ import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { denied } from "../terminals/terminal-wire";
 import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
 import { SupplierPaymentEvidenceService } from "../purchasing/ledger/supplier-payment-evidence.service";
-import { PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
+import { type ClinicalEvidence, PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
 
 /** Integration ports for server-resolved evidence. No owner/manager shortcut and no
  * caller-supplied verified booleans. Real domain providers must bind the exact command,
@@ -23,13 +23,14 @@ export class MandatoryOperationEvidence {
   ) {}
 
   /** The signed session's staff member must hold a current SLMC registration an owner recorded
-   * (P1 #47); no role, permission or ownership substitutes for it. */
+   * (P1 #47); no role, permission or ownership substitutes for it. Returns the registration
+   * relied on, for the operation's provenance. */
   async clinical(
     tx: Prisma.TransactionClient,
     command: OnlineTerminalCommand<unknown>,
-  ): Promise<void> {
+  ): Promise<ClinicalEvidence> {
     if (!this.clinicalProvider) denied("PHARMACIST_REQUIRED");
-    await this.clinicalProvider.assertForCommand(tx, command);
+    return this.clinicalProvider.assertForCommand(tx, command);
   }
   async hours(
     tx: Prisma.TransactionClient,

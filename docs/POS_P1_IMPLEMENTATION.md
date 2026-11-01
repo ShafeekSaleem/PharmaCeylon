@@ -561,9 +561,13 @@ current one.
 - **Check** (`assertQualified`). The staff member must have a current registration (unrevoked, not
   past `expires_on` in the branch's timezone), an active account and membership, and a role at the
   branch. The registration is share-locked: a revocation that commits during the wait is seen, and a
-  later one waits for the clinical transaction. Refusals are `PHARMACIST_REQUIRED`.
+  later one waits for the clinical transaction. A renewal that commits during the wait is found by
+  one fresh read. Refusals are `PHARMACIST_REQUIRED`. Revocation times never precede the recording,
+  even across API instances whose clocks differ.
 - **Port.** `MandatoryOperationEvidence.clinical` now delegates to the provider for the signed
-  session's staff member. A bare instance still fails closed. `pharmacistEvidenceId` must stay null
+  session's staff member and returns the registration relied on. `OperationAuthorizationService`
+  passes it on, and the executor puts it in `CommandProvenance.pharmacistRegistrationId`, which
+  domain cores already copy into their success audit. A bare instance still fails closed. `pharmacistEvidenceId` must stay null
   online (`INVALID_COMMAND`) until co-sign evidence exists.
 
 Two new `identity` routes plus a GET (202 in the inventory). No signed operation carries a clinical
@@ -575,7 +579,7 @@ effect yet, so no execution path changes. Still open:
   once they are split.
 - **Web.** The Users & Roles screen for recording registrations is web work.
 
-Tests: `test/integration/pharmacist-registration.int-spec.ts` (PostgreSQL, 13). They cover:
+Tests: `test/integration/pharmacist-registration.int-spec.ts` (PostgreSQL, 15). They cover:
 - owner recording, number normalization and audit;
 - manager refusal;
 - validation;
@@ -586,7 +590,9 @@ Tests: `test/integration/pharmacist-registration.int-spec.ts` (PostgreSQL, 13). 
 - expired and revoked registrations;
 - wrong-branch and deactivated accounts;
 - a real lock wait in both directions (revocation during the check, and revocation waiting for a clinical transaction);
-- the evidence port, including rejecting co-sign evidence and failing closed without a provider.
+- a renewal committing during the wait, and revocation times under API clock skew;
+- the evidence port, including returning the registration, rejecting co-sign evidence and failing
+  closed without a provider.
 
 ## P6 #52 slice: transfer approval, dispatch and receipt
 
