@@ -236,11 +236,22 @@ describe("D8 after-hours acknowledgement records", () => {
     expect(await prisma.auditEvent.count({ where: { tenantId: fx.tenantId, entityId: rows[0]!.id } })).toBe(1);
   });
 
-  it("refuses a replayed record ID with different content", async () => {
+  it("keeps the original under a reused record ID and retains the changed content as a conflict", async () => {
     const { device, identity } = await enrolledDevice();
     const payload = acknowledgement(identity);
-    await record(device.sign(payload, identity.keyId));
-    await expect(code(record(device.sign({ ...payload, endsAt: payload.endsAt + 60_000 }, identity.keyId)))).resolves.toBe("REPLAY_CONFLICT");
+    const original = await record(device.sign(payload, identity.keyId));
+    const changed = device.sign({ ...payload, endsAt: payload.endsAt + 60_000 }, identity.keyId);
+    await expect(record(changed)).resolves.toMatchObject({
+      status: "conflict",
+      originalRecordHash: original.recordHash,
+      replayed: false,
+    });
+    await expect(record(changed)).resolves.toMatchObject({ status: "conflict", replayed: true });
+    const kept = await prisma.offlineSupportConflict.findMany({ where: { tenantId: fx.tenantId, recordId: payload.recordId } });
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toMatchObject({ kind: "business_hours_acknowledgement", originalRecordHash: original.recordHash });
+    expect(kept[0]!.envelope).toEqual(changed);
+    await expect(record(device.sign(payload, identity.keyId))).resolves.toEqual({ ...original, replayed: true });
   });
 
   it("serializes concurrent identical uploads into one record", async () => {

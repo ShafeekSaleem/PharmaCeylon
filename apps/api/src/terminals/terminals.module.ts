@@ -3,6 +3,7 @@ import { BusinessHoursAcknowledgements } from "./business-hours-acknowledgements
 import { LocalAttendanceVerifier } from "./local-attendance.verifier";
 import { OfflineAssignmentController } from "./offline-assignment.controller";
 import { OfflineAssignmentService } from "./offline-assignment.service";
+import { OfflineSupportRecords } from "./offline-support-records.service";
 import { OperatingHoursEvidence } from "./operating-hours.evidence";
 import { TerminalTrustService } from "./terminal-trust.service";
 
@@ -13,6 +14,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     TerminalTrustService,
     OperatingHoursEvidence,
     BusinessHoursAcknowledgements,
+    OfflineSupportRecords,
     OfflineAssignmentService,
   ],
   exports: [
@@ -20,6 +22,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     LocalAttendanceVerifier,
     OperatingHoursEvidence,
     BusinessHoursAcknowledgements,
+    OfflineSupportRecords,
     OfflineAssignmentService,
   ],
 })

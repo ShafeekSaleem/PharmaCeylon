@@ -122,6 +122,15 @@ test('uncertain card attempts recover the original outcome instead of inviting a
   assert.equal(c.externalCardRecoveryAction('declined'), 'retry_payment_with_new_attempt');
   assert.throws(() => c.externalCardRecoveryAction('unknown'));
 });
+test('support-record text that may hold a full card number is detected before signing', () => {
+  for (const pan of ['4111111111111111', '4111 1111 1111 1111', '4111-1111-1111-1111', 'ref 5500000000000004 ok',
+    // Neighbouring digits must not hide one (review of #94).
+    'card 4111 1111 1111 1111 2 units', 'qty 3 4111111111111111', 'ref 4111111111111111000',
+    'paid 4111 1111 1111 1111 2 times', '12 5500-0000-0000-0004'])
+    assert.equal(c.containsCardNumber(pan), true, pan);
+  for (const safe of ['4111111111111112', 'RRN 123456789012', 'Approval 004512', '0771234567', '', 'two units, not three'])
+    assert.equal(c.containsCardNumber(safe), false, safe);
+});
 test('readiness shows preparation/storage/payment issues before an outage', () => {
   const ready = { nominated: true, grantUsable: true, snapshotFreshForOutageEntry: true, preparedStaffAvailable: true,
     localStorageHealthy: true, trustedClock: true, localAttendanceVerified: true,

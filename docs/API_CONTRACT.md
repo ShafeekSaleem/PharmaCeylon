@@ -416,6 +416,41 @@ sell, old journal resolved or loss reviewed, or initial nomination); then mark t
 `consumed` (with the activator), upsert `offline_terminal_nomination` with `version + 1`, and audit
 authorizer and activator separately. Stale, revoked or consumed authorizations require renewal.
 
+## Offline support records (P1, sync intake)
+
+The `OfflineSupportRecord` stream (`@pharmaceylon/shared`, `pos-resilience-contracts.ts`) is what a
+counter signs while offline that is evidence, not a sale or shift: D8 hours acknowledgements,
+sale-incident notes and external-card attempt events. There is **no HTTP route yet**. P5 sync calls
+`OfflineSupportRecords.record(tx, user, branchId, signedEnvelope)`, which dispatches on the signed
+`kind`. The uploader needs a live sign-in at the branch. Each record is an Ed25519 `Signed<T>`
+envelope with `command` purpose, verified against the enrollment's pinned key.
+
+| Check | Refusal |
+| --- | --- |
+| Unknown or missing key, wrong state fields, coerced values, untrimmed or oversized text, a possible full card number (`containsCardNumber`) in a description, provider reference or approval code | `INVALID_COMMAND` (400) |
+| Identity not the caller's tenant/branch, unknown enrollment | `IDENTITY_MISMATCH` (403) |
+| Signature not from the enrollment's key | `INVALID_SIGNATURE` (403) |
+| `recordedAt` more than five minutes ahead of the server | `CLOCK_UNTRUSTED` (403) |
+
+A record ID is unique per tenant + enrollment across all three kinds. The result is a
+`SupportRecordReceipt`:
+
+- **First upload.** `{ status: "held", heldReason, replayed: false }`. `heldReason` is
+  `grant_unverified` (hours), `sale_unverified` (incident), `payment_unverified` (card attempt),
+  `attempt_mismatch` (a card event whose draft, digest, amount, provider reference or linked sale
+  disagrees with an earlier event of the same attempt), or `enrollment_revoked` (revoked or retired
+  device, kept for reconciliation).
+- **The same bytes again.** The original receipt with `replayed: true`.
+- **Changed content under a used ID.** `{ status: "conflict", originalRecordHash }`. The original
+  is unchanged and the conflicting signed upload is kept in `offline_support_conflict` for repair.
+  This is a result, not an exception, so the evidence commits; the sync caller reports it to the
+  device as `REPLAY_CONFLICT`.
+
+Records stay `held` until P3/P5 verify the grant, sign-in, shift, sale and card-machine result they
+cite. A held record is not accepted. These records never post a sale, payment, stock, cash or refund
+effect and authorize nothing. Card-attempt events never carry card credentials, only the
+provider's reference and approval code.
+
 ## Sales lifecycle (pilot)
 
 - **Checkout**: `POST /api/v1/sales/checkout` — optional `Idempotency-Key`. Line **tax**: send `taxAmount` per line, or omit to apply **VAT** from server config (see below).
