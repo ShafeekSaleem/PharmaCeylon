@@ -224,18 +224,24 @@ export class OfflineSupportRecords {
         reviewedSaleDigest: true,
         amountMinor: true,
         providerReference: true,
+        approvalCode: true,
+        approvedAt: true,
         saleCommandId: true,
       },
     });
     const reference = "providerReference" in event ? event.providerReference : null;
     const saleCommandId = event.state === "linked_to_sale" ? event.saleCommandId : null;
+    const approval = event.state === "approved" ? { code: event.approvalCode, at: event.approvedAt } : null;
     const mismatch = earlier.some(
       (e) =>
         e.checkoutDraftId !== event.checkoutDraftId ||
         e.reviewedSaleDigest !== event.reviewedSaleDigest ||
         e.amountMinor !== BigInt(event.amountMinor) ||
         (reference !== null && e.providerReference !== null && e.providerReference !== reference) ||
-        (saleCommandId !== null && e.saleCommandId !== null && e.saleCommandId !== saleCommandId),
+        (saleCommandId !== null && e.saleCommandId !== null && e.saleCommandId !== saleCommandId) ||
+        // Two approvals of one attempt must be the same approval.
+        (approval !== null && e.approvalCode !== null &&
+          (e.approvalCode !== approval.code || e.approvedAt?.getTime() !== approval.at)),
     );
     const heldReason = upload.revoked
       ? "enrollment_revoked"

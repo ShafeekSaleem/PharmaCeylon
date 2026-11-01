@@ -209,6 +209,9 @@ describe("external-card attempt events", () => {
       cardEvent(identity, { ...attempt, checkoutDraftId: randomUUID() }),
       cardEvent(identity, attempt, { ...approved, providerReference: "RRN 610099999999" }),
       cardEvent(identity, attempt, linked(randomUUID())),
+      // A second approval of the same attempt must be the same approval.
+      cardEvent(identity, attempt, { ...approved, approvalCode: "009999" }),
+      cardEvent(identity, attempt, { ...approved, approvedAt: approved.approvedAt + 1_000 }),
     ];
     for (const event of mismatches)
       await expect(record(device.sign(event, identity.keyId))).resolves.toMatchObject({ status: "held", heldReason: "attempt_mismatch" });
@@ -216,6 +219,45 @@ describe("external-card attempt events", () => {
     await expect(record(device.sign(cardEvent(identity, binding()), identity.keyId))).resolves.toMatchObject({
       heldReason: "payment_unverified",
     });
+  });
+
+  it("re-reads the uploader's authority after the attempt-lock wait", async () => {
+    const { device, identity } = await enrolledDevice();
+    const attempt = binding();
+    const signed = device.sign(cardEvent(identity, attempt), identity.keyId);
+    const key = `card_attempt:${fx.tenantId}:${identity.enrollmentId}:${attempt.attemptId}`;
+    let release!: () => void;
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    const holder = tx(async (c) => {
+      await c.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+      locked();
+      await new Promise<void>((resolve) => (release = resolve));
+    });
+    await isLocked;
+    const outcome = code(record(signed));
+    try {
+      let waiting = false;
+      for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+        const rows = await prisma.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%pg_advisory_xact_lock%'
+            AND pid <> pg_backend_pid()`;
+        waiting = Number(rows[0]?.count) > 0;
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(waiting).toBe(true);
+      // Signed out everywhere while the upload waits.
+      await prisma.appUser.update({ where: { id: fx.clerkId }, data: { tokenVersion: { increment: 1 } } });
+    } finally {
+      release();
+      await holder;
+    }
+    try {
+      await expect(outcome).resolves.toMatch(/Live branch authentication required/);
+    } finally {
+      await prisma.appUser.update({ where: { id: fx.clerkId }, data: { tokenVersion: 0 } });
+    }
+    expect(await prisma.offlineSupportRecord.count({ where: { tenantId: fx.tenantId, attemptId: attempt.attemptId } })).toBe(0);
   });
 
   it("serializes concurrent events of one attempt, so a disagreeing one is always caught", async () => {

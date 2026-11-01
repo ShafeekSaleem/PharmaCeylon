@@ -72,7 +72,7 @@ export async function verifySupportUpload<
     denied("IDENTITY_MISMATCH");
   if (record.recordedAt > now + SUPPORT_RECORD_CLOCK_SKEW_MS) denied("CLOCK_UNTRUSTED");
   // The uploader must be live at this branch; the staff, sign-in and shift the record cites are
-  // verified against P2/P3 evidence later.
+  // verified against P2/P3 evidence later. Checked before the locks and again after their wait.
   await access.resolveLive(user, branchId, tx);
 
   for (const key of [
@@ -80,6 +80,7 @@ export async function verifySupportUpload<
     `support:${user.tenantId}:${identity.enrollmentId}:${record.recordId}`,
   ])
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+  await access.resolveLive(user, branchId, tx);
   const enrollment = await tx.terminalEnrollment.findFirst({
     where: {
       id: identity.enrollmentId,

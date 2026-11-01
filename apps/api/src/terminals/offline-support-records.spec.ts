@@ -63,6 +63,8 @@ describe("parseSaleIncident", () => {
     ["untrimmed text", { description: " Two units " }],
     ["an oversized description", { description: "x".repeat(1001) }],
     ["a card number in the description", { description: "Customer card 4111 1111 1111 1111 failed" }],
+    ["a card number next to other digits", { description: "Customer paid 4111 1111 1111 1111 2 times" }],
+    ["a card number inside a longer number", { description: "Reference 4111111111111111000" }],
     ["a non-UUID sale", { saleCommandId: "sale-1" }],
     ["a coerced time", { recordedAt: "1800000000000" }],
   ])("refuses %s", (_name, overrides) => {

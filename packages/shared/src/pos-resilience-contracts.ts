@@ -49,12 +49,28 @@ export function externalCardRecoveryAction(state: ExternalCardAttemptRecord["sta
 
 /** True when free text holds what may be a full card number: 13–19 digits, optionally separated by
  * single spaces or dashes, that pass the Luhn check. Check before signing a support record; the API
- * refuses such records so no PAN is ever stored. */
+ * refuses such records so no PAN is ever stored.
+ *
+ * Within a run of digits groups ("qty 3 4111 1111 1111 1111 2"), every contiguous span of whole
+ * groups is tested, so neighbouring digits cannot hide a card number. Inside one unbroken group
+ * longer than a 16-digit card ("4111111111111111000"), every 13–19 digit window is tested. That
+ * flags more long references; a refused record is rewritten, a stored PAN can never be removed. */
 export function containsCardNumber(value: string): boolean {
-  // Whole digit runs only: testing every window inside a run would flag most long references.
   for (const match of value.matchAll(/\d(?:[ -]?\d)*/g)) {
-    const digits = match[0].replace(/[ -]/g, "");
-    if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) return true;
+    const groups = match[0].split(/[ -]/);
+    for (let start = 0; start < groups.length; start++) {
+      let digits = "";
+      for (let end = start; end < groups.length && digits.length < 19; end++) {
+        digits += groups[end];
+        if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) return true;
+      }
+    }
+    for (const group of groups) {
+      if (group.length <= 16) continue;
+      for (let length = 13; length <= 19; length++)
+        for (let at = 0; at + length <= group.length; at++)
+          if (luhn(group.slice(at, at + length))) return true;
+    }
   }
   return false;
 }
