@@ -1,40 +1,29 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import {
   MAX_HOURS_EXTENSION_MS,
   type OfflineBusinessHoursAcknowledgement,
-  type Signed,
 } from "@pharmaceylon/shared";
 import { AuditService } from "../audit/audit.service";
 import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import {
-  commandText,
-  denied,
-  invalid,
-  object,
-  parseEnvelope,
-  parseIdentity,
-  sha256,
-  text,
-  uuid,
-  verifySignature,
-} from "./terminal-wire";
+  existingSupportRecord,
+  replayOrRetainConflict,
+  SUPPORT_RECORD_CLOCK_SKEW_MS,
+  verifySupportUpload,
+  type SupportRecordReceipt,
+} from "./support-record-intake";
+import { invalid, object, parseIdentity, text, uuid } from "./terminal-wire";
 
 type Tx = Prisma.TransactionClient;
 
 /** A device clock this far ahead of the server is not trusted evidence. */
-export const ACKNOWLEDGEMENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
+export const ACKNOWLEDGEMENT_CLOCK_SKEW_MS = SUPPORT_RECORD_CLOCK_SKEW_MS;
 const MAX_REASON_LENGTH = 500;
 
 /** Outcome of recording one signed acknowledgement; identical for a first upload and a replay. */
-export type HoursAcknowledgementReceipt = Readonly<{
-  recordId: string;
-  recordHash: string;
-  status: "held" | "accepted" | "rejected";
-  heldReason: string | null;
-  replayed: boolean;
-}>;
+export type HoursAcknowledgementReceipt = SupportRecordReceipt;
 
 function safeInteger(value: unknown, minimum = 0): number {
   if (!Number.isSafeInteger(value) || (value as number) < minimum) invalid();
@@ -86,8 +75,10 @@ export function parseHoursAcknowledgement(raw: unknown): OfflineBusinessHoursAck
  *
  * - Exact-key parse, no coercion; identity must match the caller's tenant and branch.
  * - The Ed25519 signature is checked against the enrollment's pinned key, never a supplied one.
- * - Idempotent per tenant + enrollment + recordId on the SHA-256 of the signed payload: the same
- *   bytes replay the stored receipt; different content under the same ID is REPLAY_CONFLICT.
+ * - Idempotent per tenant + enrollment + recordId on the SHA-256 of the signed payload, sharing
+ *   one ID space with the other support records (`support-record-intake.ts`): the same bytes
+ *   replay the stored receipt; different content under the same ID returns `conflict` and is
+ *   retained for repair.
  * - Stored as `held`. The grant, nomination and prepared-manager sign-in it cites do not exist
  *   server-side yet (P3 grants, P2 PIN sign-ins); verification moves it to accepted/rejected.
  *   A revoked device's upload is retained for reconciliation, still held.
@@ -109,62 +100,21 @@ export class BusinessHoursAcknowledgements {
     raw: unknown,
     now: number = Date.now(),
   ): Promise<HoursAcknowledgementReceipt> {
-    const envelope = parseEnvelope(raw) as Signed<OfflineBusinessHoursAcknowledgement>;
-    const ack = parseHoursAcknowledgement(envelope.payload);
+    const upload = await verifySupportUpload(
+      tx,
+      this.access,
+      user,
+      branchId,
+      raw,
+      parseHoursAcknowledgement,
+      now,
+    );
+    const { envelope, record: ack, recordHash } = upload;
     const { identity } = ack;
-    if (
-      identity.tenantId !== user.tenantId ||
-      identity.branchId !== branchId ||
-      envelope.keyId !== identity.keyId
-    )
-      denied("IDENTITY_MISMATCH");
-    if (ack.recordedAt > now + ACKNOWLEDGEMENT_CLOCK_SKEW_MS) denied("CLOCK_UNTRUSTED");
-    // The uploading staff member must be live at this branch; the acknowledging manager's own
-    // authority is checked against the grant's prepared staff when the record is verified.
-    await this.access.resolveLive(user, branchId, tx);
+    const existing = await existingSupportRecord(tx, user.tenantId, identity.enrollmentId, ack.recordId);
+    if (existing) return replayOrRetainConflict(tx, this.audit, user, branchId, upload, existing);
 
-    const key = `hours_ack:${user.tenantId}:${identity.enrollmentId}:${ack.recordId}`;
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
-    const enrollment = await tx.terminalEnrollment.findFirst({
-      where: {
-        id: identity.enrollmentId,
-        tenantId: identity.tenantId,
-        branchId: identity.branchId,
-        terminalId: identity.terminalId,
-        keyId: identity.keyId,
-      },
-      select: { publicKeyHex: true, revokedAt: true, terminal: { select: { retiredAt: true } } },
-    });
-    if (!enrollment) denied("IDENTITY_MISMATCH");
-    verifySignature(envelope, enrollment.publicKeyHex);
-    const recordHash = sha256(commandText(envelope.payload));
-
-    const existing = await tx.businessHoursAcknowledgement.findUnique({
-      where: {
-        tenantId_enrollmentId_recordId: {
-          tenantId: user.tenantId,
-          enrollmentId: identity.enrollmentId,
-          recordId: ack.recordId,
-        },
-      },
-    });
-    if (existing) {
-      if (existing.recordHash !== recordHash)
-        throw new ConflictException({
-          code: "REPLAY_CONFLICT",
-          message: "This acknowledgement ID was already recorded with different content",
-        });
-      return {
-        recordId: existing.recordId,
-        recordHash,
-        status: existing.status as HoursAcknowledgementReceipt["status"],
-        heldReason: existing.heldReason,
-        replayed: true,
-      };
-    }
-
-    const heldReason =
-      enrollment.revokedAt || enrollment.terminal.retiredAt ? "enrollment_revoked" : "grant_unverified";
+    const heldReason = upload.revoked ? "enrollment_revoked" : "grant_unverified";
     const saved = await tx.businessHoursAcknowledgement.create({
       data: {
         tenantId: user.tenantId,

@@ -47,6 +47,27 @@ export function externalCardRecoveryAction(state: ExternalCardAttemptRecord["sta
   }
 }
 
+/** True when free text holds what may be a full card number: 13–19 digits, optionally separated by
+ * single spaces or dashes, that pass the Luhn check. Check before signing a support record; the API
+ * refuses such records so no PAN is ever stored. */
+export function containsCardNumber(value: string): boolean {
+  // Whole digit runs only: testing every window inside a run would flag most long references.
+  for (const match of value.matchAll(/\d(?:[ -]?\d)*/g)) {
+    const digits = match[0].replace(/[ -]/g, "");
+    if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) return true;
+  }
+  return false;
+}
+function luhn(digits: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < digits.length; i++) {
+    let d = digits.charCodeAt(digits.length - 1 - i) - 48;
+    if (i % 2 === 1) d = d * 2 > 9 ? d * 2 - 9 : d * 2;
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+
 /** An independent evidence stream: IDs/digests deduplicate; no sale/shift sequence is consumed.
  * Upload dependencies before dependent commands; retain held evidence and gate drain completion.
  */

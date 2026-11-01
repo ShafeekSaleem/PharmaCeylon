@@ -497,8 +497,8 @@ caller's tenant and branch, verifies Ed25519 against the enrollment's pinned key
 clocks more than five minutes ahead (`CLOCK_UNTRUSTED`) and bounds the window to 24 hours.
 `business_hours_acknowledgement` keeps the exact envelope and the SHA-256 of its signing text,
 unique per tenant + enrollment + record ID: identical uploads (including concurrent ones, under a
-transaction-scoped advisory lock) replay the stored receipt; changed content under the same ID is
-`REPLAY_CONFLICT`. Records are stored `held` (`grant_unverified`, or `enrollment_revoked` for a
+transaction-scoped advisory lock) replay the stored receipt. Changed content under the same ID was
+`REPLAY_CONFLICT`; since MR 9 it returns a `conflict` receipt and the upload is retained. Records are stored `held` (`grant_unverified`, or `enrollment_revoked` for a
 revoked/retired device, retained for reconciliation) until P3/P5 verify the grant, nomination and
 prepared-manager sign-in they cite; a trigger keeps signed content immutable, forbids deletion and
 lets the verification outcome change once. They never post a sale, shift, stock or cash effect
@@ -701,6 +701,53 @@ Validation includes real PostgreSQL replay/concurrency, all three methods, chang
 tenant/branch/uploader isolation, immutable/revoked evidence, permission changes during invoice
 and later sequence waits, audit-failure rollback and legacy supplier-ledger regression coverage.
 
+## MR 9: sale-incident and external-card attempt records
+
+`OfflineSupportRecords` (`terminals/offline-support-records.service.ts`) is the intake for the
+rest of the shared `OfflineSupportRecord` stream: `OfflineSaleIncident` notes and
+`ExternalCardAttemptRecord` events. `record()` dispatches on the signed `kind`, including D8
+acknowledgements, so P5 sync has one entry point. There is no HTTP route yet, so the route
+inventory is unchanged. The wire contract is in
+[API_CONTRACT.md](API_CONTRACT.md#offline-support-records-p1-sync-intake).
+
+- **Shared checks** (`terminals/support-record-intake.ts`, also used by the hours service):
+  exact-key parse, identity bound to the caller's tenant and branch, device clock at most five
+  minutes ahead, uploader live at the branch, transaction-scoped locks, Ed25519 against the
+  enrollment's pinned key, SHA-256 of the signed payload.
+- **One record-ID space** per tenant + enrollment across all three kinds. Incidents and card events
+  share `offline_support_record` (unique ID); every kind takes the same record lock and the lookup
+  reads both support tables.
+- **Conflicts are retained.** The readiness contract says changed-content ID reuse conflicts and
+  retains evidence for repair. A changed upload now returns a `conflict` receipt rather than
+  throwing, so the caller's transaction commits it to `offline_support_conflict` (one row per
+  distinct content, immutable). The original keeps its receipt. This also changes the D8 path:
+  MR 7 threw `REPLAY_CONFLICT` and dropped the upload.
+- **Card attempts.** Each state change is its own record; several share an `attemptId`. Each state
+  carries exactly its own fields (database check too). Events of one attempt are serialized by an
+  attempt lock taken before the record lock. An event whose checkout draft, reviewed-sale digest,
+  amount, provider reference or linked sale disagrees with an earlier event of the attempt is held
+  as `attempt_mismatch`, so one attempt cannot be charged differently or linked to two sales
+  unnoticed. Earlier events are not changed; P5 verification reads the whole attempt.
+- **No card numbers.** Descriptions, provider references and approval codes are refused when they
+  contain a Luhn-valid 13–19 digit run (`containsCardNumber` in shared, for the desktop to check
+  before signing). Audit payloads carry IDs, category/state and amount, never free text or codes.
+- **Held, never effective.** Records are `held` (`sale_unverified`, `payment_unverified`,
+  `attempt_mismatch`, or `enrollment_revoked` for a revoked or retired device) until P3/P5 verify
+  the sign-in, shift, sale and card-machine result they cite. Signed content is immutable and never
+  deleted; the outcome moves once. They post no sale, payment, stock, cash or refund effect.
+
+Not done here, and blocked: verifying held records and refusing dependent sale/shift commands
+until their evidence is accepted (P3 grants and sign-ins, P4 shifts, P5 sync and drain gates), the
+online incident review queue (P5/W-epics), and resolution linkage.
+
+Tests: `offline-support-records.spec.ts` (parsers: every card state's exact fields, amounts,
+digests, approval time, card numbers, sizes) and `test/integration/support-records.int-spec.ts`
+(PostgreSQL): held persistence and replay with no sale/payment/stock/return effect, a full attempt
+lifecycle, every mismatch kind, concurrent events of one attempt, concurrent identical uploads,
+conflicts within and across kinds (including a D8 acknowledgement ID), wrong signature, branch,
+clock, uploader token and kind, revoked device, audit-failure rollback, immutability and the
+per-kind database shape. `hours-evidence.int-spec.ts` now checks D8 conflict retention.
+
 ## Remaining P1 MRs, in order
 
 ### MR 4c: product-import stock staging and separate posting
@@ -771,7 +818,8 @@ tenant/stock scanners and the 166-route inventory.
    - restricting browser routes to terminals once W1 rollout and P2 are ready.
 3. **Readiness evidence and integration:** hours acknowledgements (intake and persistence done in
    MR 7; grant/sign-in verification needs P3/P2), assisted handover, incident
-   and card-attempt records, dependency ordering, failure/alternate-path tests and coordinated
+   and card-attempt records (intake and persistence done in MR 9; verification and dependency
+   gating need P3/P4/P5), dependency ordering, failure/alternate-path tests and coordinated
    P2/P6 rollout, including attendance/mandatory-evidence providers, D13 authorizations/delegation
    and local activation with D11 clearance, and actual financial-shift binding.
    P5 owns offline business replay and discrepancy settlement.

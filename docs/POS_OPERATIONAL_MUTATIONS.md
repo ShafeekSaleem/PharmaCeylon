@@ -117,7 +117,7 @@ Inventory actual routes when P1/P2/P5/P6 introduce them; do not claim the route 
 | Assignment authorization / activation | Remote authenticated owner/delegated-manager online request versus signed local online target confirmation; no grant on authorization alone |
 | Business-hours acknowledgement | Prepared manager, own PIN, signed bounded evidence tied to grant/outage; mandatory restrictions and expiry cannot be overridden |
 | Assisted absent-cashier shift close | Prepared manager's explicit capability and reason, original cashier/session retained with counting actor and variance |
-| Sale incident / payment-attempt evidence sync | Signed append-only evidence, idempotent record ID/digest, no stock/refund/cash mutation; online manager recovery for corrections |
+| Sale incident / payment-attempt evidence sync | Signed append-only evidence, idempotent record ID/digest, no stock/refund/cash mutation; online manager recovery for corrections. Intake and held persistence: `OfflineSupportRecords` (P1, no route yet) |
 | Stock discrepancy settlement | Remote review/authorization with exact count/timeline linkage; local physical execution and exactly-once movement/existing-settlement accounting |
 
 See [POS_V1_OPERATIONAL_READINESS.md](POS_V1_OPERATIONAL_READINESS.md) for scenarios, trust
