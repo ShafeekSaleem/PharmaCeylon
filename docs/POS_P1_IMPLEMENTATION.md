@@ -725,12 +725,16 @@ inventory is unchanged. The wire contract is in
 - **Card attempts.** Each state change is its own record; several share an `attemptId`. Each state
   carries exactly its own fields (database check too). Events of one attempt are serialized by an
   attempt lock taken before the record lock. An event whose checkout draft, reviewed-sale digest,
-  amount, provider reference or linked sale disagrees with an earlier event of the attempt is held
+  amount, provider reference, linked sale or approval (code and time) disagrees with an earlier
+  event of the attempt is held
   as `attempt_mismatch`, so one attempt cannot be charged differently or linked to two sales
   unnoticed. Earlier events are not changed; P5 verification reads the whole attempt.
 - **No card numbers.** Descriptions, provider references and approval codes are refused when they
-  contain a Luhn-valid 13–19 digit run (`containsCardNumber` in shared, for the desktop to check
-  before signing). Audit payloads carry IDs, category/state and amount, never free text or codes.
+  may contain a card number (`containsCardNumber` in shared, for the desktop to check before
+  signing): any Luhn-valid span of 13–19 digits made of whole space- or dash-separated groups, or
+  any 13–19 digit window inside one unbroken group longer than 16 digits, so neighbouring digits
+  cannot hide one. Some long references are refused too; a refused record is rewritten, a stored
+  PAN could never be removed. Audit payloads carry IDs, category/state and amount, never free text or codes.
 - **Held, never effective.** Records are `held` (`sale_unverified`, `payment_unverified`,
   `attempt_mismatch`, or `enrollment_revoked` for a revoked or retired device) until P3/P5 verify
   the sign-in, shift, sale and card-machine result they cite. Signed content is immutable and never
