@@ -768,11 +768,18 @@ export class SalesService {
         include: SALE_INCLUDE,
       });
     } catch (e) {
-      if (e instanceof CheckoutReplay)
-        return this.prisma.sale.findFirst({
+      if (e instanceof CheckoutReplay) {
+        const replay = await this.prisma.sale.findFirst({
           where: { id: e.saleId, tenantId, branchId },
           include: SALE_INCLUDE,
         });
+        // Same answer as the pre-transaction replay: the key belongs to a sale elsewhere.
+        if (!replay)
+          throw new BadRequestException(
+            "Idempotency-Key is already recorded but the sale could not be replayed",
+          );
+        return replay;
+      }
       if (idempotencyKey && isPrismaUniqueFieldError(e, "idempotency")) {
         const row = await this.prisma.idempotencyRecord.findUnique({
           where: {
