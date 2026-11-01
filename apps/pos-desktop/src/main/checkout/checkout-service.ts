@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import type {
   CatalogProduct,
   CheckoutDraftView,
+  CoSign,
   CompletedSale,
+  Dispensing,
   HeldCart,
   Tender,
 } from "../../shared/ipc-contract";
@@ -51,6 +53,15 @@ type RawSale = {
 type CheckoutRequest = {
   items: { productId: string; qty: number; unitPrice: string }[];
   payments: { method: "cash" | "card"; amount: string; reference?: string }[];
+  customerId?: string;
+  prescriptionId?: string;
+};
+
+/** What a recalled hold brings back: the lines plus the customer and prescription it was held with. */
+export type RecalledHold = {
+  lines: { productId: string; qty: number }[];
+  customerId: string | null;
+  prescriptionId: string | null;
 };
 
 type DraftRow = {
@@ -63,6 +74,7 @@ type DraftRow = {
   sale_id: string | null;
   invoice_no: string | null;
   error_code: string | null;
+  co_signer_id: string | null;
   created_at: string;
 };
 
@@ -143,6 +155,8 @@ export class CheckoutService {
         unitPrice: p.batches[0]!.sellingPrice,
         available: p.qtyOnHand,
         needsPharmacist: p.isControlled || p.requiresPrescription,
+        requiresPrescription: p.requiresPrescription,
+        isControlled: p.isControlled,
       }));
     this.catalogCache = new Map(products.map((p) => [p.productId, p]));
     return products;
@@ -152,6 +166,7 @@ export class CheckoutService {
   private buildRequest(
     lines: { productId: string; qty: number }[],
     tender: Tender,
+    dispensing: Dispensing,
   ): { request: CheckoutRequest; totalMinor: number } {
     if (!lines.length)
       throw new ActionFailure("CART_EMPTY", "Add something to the sale first.");
@@ -162,10 +177,11 @@ export class CheckoutService {
           "CATALOG_STALE",
           "The product list changed. Refresh it and try again.",
         );
-      if (product.needsPharmacist)
+      // The server enforces this too; asking here saves a refused sale at the till.
+      if (product.needsPharmacist && !dispensing.prescriptionId)
         throw new ActionFailure(
-          "PHARMACIST_REQUIRED",
-          `${product.name} needs a pharmacist's sign-off, which this counter does not take yet. Use the pharmacist flow.`,
+          "PRESCRIPTION_REQUIRED",
+          `${product.name} can only be sold against a prescription. Link one first.`,
         );
       if (line.qty > product.available)
         throw new ActionFailure(
@@ -199,21 +215,41 @@ export class CheckoutService {
       });
     }
     if (cash > 0) payments.push({ method: "cash", amount: fromMinor(cash) });
-    return { request: { items, payments }, totalMinor };
+    return {
+      request: {
+        items,
+        payments,
+        ...(dispensing.customerId ? { customerId: dispensing.customerId } : {}),
+        ...(dispensing.prescriptionId
+          ? { prescriptionId: dispensing.prescriptionId }
+          : {}),
+      },
+      totalMinor,
+    };
   }
 
+  /**
+   * The co-signer's PIN goes to the server with this one request and is never written to the
+   * draft: only who co-signed is kept, so an unconfirmed sale can ask the same person again.
+   */
   async submit(
     lines: { productId: string; qty: number }[],
     tender: Tender,
+    dispensing: Dispensing = {},
+    coSign?: CoSign,
   ): Promise<CompletedSale> {
     const { staff, identity } = this.counter();
-    const { request, totalMinor } = this.buildRequest(lines, tender);
+    const { request, totalMinor } = this.buildRequest(
+      lines,
+      tender,
+      dispensing,
+    );
     const id = randomUUID();
     const at = this.now().toISOString();
     this.deps.db
       .prepare(
-        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'submitted', ?, ?)`,
+        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, co_signer_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'submitted', ?, ?, ?)`,
       )
       .run(
         id,
@@ -221,16 +257,24 @@ export class CheckoutService {
         staff.staffUserId,
         JSON.stringify(request),
         totalMinor,
+        coSign?.approverUserId ?? null,
         at,
         at,
       );
-    return this.send(id, request, staff.workSessionId, identity.branchId);
+    return this.send(
+      id,
+      request,
+      staff.workSessionId,
+      identity.branchId,
+      coSign,
+    );
   }
 
   /** Parks the cart on the server so any counter at the branch can recall it. */
   async hold(
     lines: { productId: string; qty: number }[],
     label: string | undefined,
+    dispensing: Dispensing = {},
   ): Promise<{ holdRef: string }> {
     const { identity } = this.counter();
     if (!lines.length)
@@ -254,7 +298,16 @@ export class CheckoutService {
           itemCount: lines.reduce((sum, l) => sum + l.qty, 0),
           total: fromMinor(totalMinor),
           lines: lines.map((l) => ({ productId: l.productId, qty: l.qty })),
-          meta: { source: "desktop_counter" },
+          // Same meta keys as the web POS, so a hold recalls with its customer and prescription anywhere.
+          meta: {
+            source: "desktop_counter",
+            ...(dispensing.customerId
+              ? { customerId: dispensing.customerId }
+              : {}),
+            ...(dispensing.prescriptionId
+              ? { prescriptionId: dispensing.prescriptionId }
+              : {}),
+          },
         },
       },
     );
@@ -286,15 +339,28 @@ export class CheckoutService {
   }
 
   /** Recall claims the hold atomically on the server: two counters cannot both get it. */
-  async recall(holdId: string): Promise<{ productId: string; qty: number }[]> {
+  async recall(holdId: string): Promise<RecalledHold> {
     const { identity } = this.counter();
     const held = await this.deps.api.request<{
-      payload: { lines?: unknown[] } | null;
+      payload: { lines?: unknown[]; meta?: Record<string, unknown> } | null;
     }>("POST", `/sales/holds/${holdId}/recall`, {
       branchId: identity.branchId,
     });
-    const lines = Array.isArray(held.payload?.lines) ? held.payload!.lines : [];
-    // Accept only what this counter can sell from: product ids and whole quantities.
+    const raw = Array.isArray(held.payload?.lines) ? held.payload!.lines : [];
+    const meta = held.payload?.meta ?? {};
+    const id = (value: unknown) =>
+      typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value)
+        ? value
+        : null;
+    return {
+      lines: this.heldLines(raw),
+      customerId: id(meta.customerId),
+      prescriptionId: id(meta.prescriptionId),
+    };
+  }
+
+  /** Accept only what this counter can sell from: product ids and whole quantities. */
+  private heldLines(lines: unknown[]): { productId: string; qty: number }[] {
     return lines.flatMap((raw) => {
       const line = raw as { productId?: unknown; qty?: unknown };
       return typeof line.productId === "string" &&
@@ -305,8 +371,11 @@ export class CheckoutService {
     });
   }
 
-  /** Resends an uncertain checkout exactly as it was first sent. */
-  async retry(draftId: string): Promise<CompletedSale> {
+  /**
+   * Resends an uncertain checkout exactly as it was first sent. A sale the server already took
+   * replays without the co-sign; one that never arrived needs the co-signer's PIN again.
+   */
+  async retry(draftId: string, coSign?: CoSign): Promise<CompletedSale> {
     const { staff, identity } = this.counter();
     const row = this.row(draftId);
     if (!row || (row.status !== "uncertain" && row.status !== "submitted"))
@@ -320,11 +389,17 @@ export class CheckoutService {
         "DRAFT_OTHER_STAFF",
         "Only the person who rang this sale up can confirm it.",
       );
+    if (coSign && coSign.approverUserId !== row.co_signer_id)
+      throw new ActionFailure(
+        "CO_SIGNER_CHANGED",
+        "Only the pharmacist who co-signed this sale can confirm it.",
+      );
     return this.send(
       row.id,
       JSON.parse(row.request_json) as CheckoutRequest,
       staff.workSessionId,
       identity.branchId,
+      coSign,
     );
   }
 
@@ -340,6 +415,7 @@ export class CheckoutService {
       estimatedTotal: fromMinor(row.total_minor),
       createdAt: row.created_at,
       lineCount: (JSON.parse(row.request_json) as CheckoutRequest).items.length,
+      coSignerId: row.co_signer_id,
     }));
   }
 
@@ -373,6 +449,7 @@ export class CheckoutService {
     request: CheckoutRequest,
     workSessionId: string,
     branchId: string,
+    coSign?: CoSign,
   ): Promise<CompletedSale> {
     try {
       const sale = await this.deps.api.request<RawSale>(
@@ -380,7 +457,7 @@ export class CheckoutService {
         "/sales/checkout",
         {
           branchId,
-          body: request,
+          body: coSign ? { ...request, pharmacistApproval: coSign } : request,
           headers: {
             "Idempotency-Key": id,
             "x-terminal-session": workSessionId,

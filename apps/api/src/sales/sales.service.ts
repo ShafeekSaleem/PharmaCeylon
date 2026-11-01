@@ -191,9 +191,10 @@ export class SalesService {
 
     if (needsRx.length > 0 && !input.prescriptionId) {
       const names = needsRx.map((p) => p.name).join(", ");
-      throw new BadRequestException(
-        `A prescription must be linked before dispensing: ${names}`,
-      );
+      throw new BadRequestException({
+        code: "PRESCRIPTION_REQUIRED",
+        message: `A prescription must be linked before dispensing: ${names}`,
+      });
     }
 
     if (controlled.length === 0) {
@@ -211,9 +212,11 @@ export class SalesService {
       !input.pharmacistApproval?.approverUserId ||
       !input.pharmacistApproval.pin
     ) {
-      throw new ForbiddenException(
-        "Controlled medicines need pharmacist approval. Ask a pharmacist to enter their till PIN, or park this sale for handoff.",
-      );
+      throw new ForbiddenException({
+        code: "PHARMACIST_APPROVAL_REQUIRED",
+        message:
+          "Controlled medicines need pharmacist approval. Ask a pharmacist to enter their till PIN, or park this sale for handoff.",
+      });
     }
 
     const verified = await this.pharmacistApproval.verifyApproverPin(

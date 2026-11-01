@@ -13,6 +13,7 @@ import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
 import { renderSaleReceiptHtml } from "./printing/receipt-html";
 import { CheckoutService } from "./checkout/checkout-service";
+import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
 import { SignedCommandService } from "./terminal/signed-commands";
 import type { CompletedSale } from "../shared/ipc-contract";
@@ -55,6 +56,7 @@ let mainWindow: BrowserWindow | null = null;
 let store: LocalStore | null = null;
 let terminal: TerminalService | null = null;
 let checkout: CheckoutService | null = null;
+let dispensing: DispensingService | null = null;
 let commands: SignedCommandService | null = null;
 let counterWork: CounterWorkService | null = null;
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
@@ -154,17 +156,17 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return checkout.catalog();
         }),
-      submitCheckout: ({ lines, tender }) =>
+      submitCheckout: ({ lines, tender, dispensing: details, coSign }) =>
         act(logger, "submitCheckout", async () => {
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          const sale = await checkout.submit(lines, tender);
+          const sale = await checkout.submit(lines, tender, details, coSign);
           recentSales.set(sale.saleId, sale);
           return sale;
         }),
-      holdCart: ({ lines, label }) =>
+      holdCart: ({ lines, label, dispensing: details }) =>
         act(logger, "holdCart", () => {
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          return checkout.hold(lines, label);
+          return checkout.hold(lines, label, details);
         }),
       listHolds: () =>
         act(logger, "listHolds", () => {
@@ -172,17 +174,43 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           return checkout.holds();
         }),
       recallHold: ({ holdId }) =>
-        act(logger, "recallHold", () => {
-          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          return checkout.recall(holdId);
+        act(logger, "recallHold", async () => {
+          if (!checkout || !dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          const held = await checkout.recall(holdId);
+          // The hold keeps ids only; one that no longer resolves comes back unlinked.
+          const [customer, prescription] = await Promise.all([
+            held.customerId ? dispensing.customer(held.customerId).catch(() => null) : null,
+            held.prescriptionId ? dispensing.prescription(held.prescriptionId).catch(() => null) : null,
+          ]);
+          return { lines: held.lines, customer, prescription };
         }),
       pendingCheckouts: () => checkout?.pending() ?? [],
-      retryCheckout: ({ draftId }) =>
+      retryCheckout: ({ draftId, coSign }) =>
         act(logger, "retryCheckout", async () => {
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          const sale = await checkout.retry(draftId);
+          const sale = await checkout.retry(draftId, coSign);
           recentSales.set(sale.saleId, sale);
           return sale;
+        }),
+      searchCustomers: ({ q }) =>
+        act(logger, "searchCustomers", () => {
+          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return dispensing.customers(q);
+        }),
+      searchPrescriptions: (filter) =>
+        act(logger, "searchPrescriptions", () => {
+          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return dispensing.prescriptions(filter);
+        }),
+      recordPrescription: (input) =>
+        act(logger, "recordPrescription", () => {
+          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return dispensing.record(input);
+        }),
+      listApprovers: () =>
+        act(logger, "listApprovers", () => {
+          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return dispensing.approvers();
         }),
       printSaleReceipt: ({ saleId, printerName }) => {
         const sale = recentSales.get(saleId);
@@ -266,6 +294,7 @@ async function start(): Promise<void> {
     logger,
   });
   checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger });
+  dispensing = new DispensingService({ api: terminalApi, terminal });
   commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);

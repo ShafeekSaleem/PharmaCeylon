@@ -77,17 +77,34 @@ describe("SalesService controlled checkout authority", () => {
   };
 
   it("rejects cashier without PIN when cart is controlled", async () => {
+    const refusal = service.checkout(
+      tenantId,
+      branchId,
+      cashierId,
+      [{ branchId, role: RoleName.cashier }],
+      { items: [line], prescriptionId: "rx-1" },
+      undefined,
+    );
+    await expect(refusal).rejects.toBeInstanceOf(ForbiddenException);
+    // The desktop counter asks for a co-sign on this code rather than parsing the message.
+    await expect(refusal).rejects.toMatchObject({
+      response: { code: "PHARMACIST_APPROVAL_REQUIRED" },
+    });
+    expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
+    expect(txnEntered).toBe(false);
+  });
+
+  it("refuses a controlled line with no prescription, with a code the counter can act on", async () => {
     await expect(
       service.checkout(
         tenantId,
         branchId,
-        cashierId,
-        [{ branchId, role: RoleName.cashier }],
-        { items: [line], prescriptionId: "rx-1" },
+        pharmacistId,
+        [{ branchId, role: RoleName.pharmacist }],
+        { items: [line] },
         undefined,
       ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
+    ).rejects.toMatchObject({ response: { code: "PRESCRIPTION_REQUIRED" } });
     expect(txnEntered).toBe(false);
   });
 

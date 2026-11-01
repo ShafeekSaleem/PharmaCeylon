@@ -129,8 +129,63 @@ export const catalogProductSchema = z.object({
   unitPrice: z.string(),
   available: z.number().int(),
   needsPharmacist: z.boolean(),
+  requiresPrescription: z.boolean(),
+  isControlled: z.boolean(),
 });
 export type CatalogProduct = z.infer<typeof catalogProductSchema>;
+
+export const customerSchema = z.object({
+  customerId: uuid,
+  fullName: z.string(),
+  phone: z.string().nullable(),
+});
+export type CustomerView = z.infer<typeof customerSchema>;
+
+export const prescriptionSchema = z.object({
+  prescriptionId: uuid,
+  rxNumber: z.string(),
+  patientName: z.string(),
+  doctorName: z.string(),
+  issuedOn: z.string(),
+  validUntil: z.string().nullable(),
+  expired: z.boolean(),
+  customerId: uuid.nullable(),
+  customerName: z.string().nullable(),
+});
+export type PrescriptionView = z.infer<typeof prescriptionSchema>;
+
+export const approverSchema = z.object({
+  userId: uuid,
+  fullName: z.string(),
+  hasPin: z.boolean(),
+});
+export type ApproverView = z.infer<typeof approverSchema>;
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export const recordPrescriptionSchema = z.object({
+  patientName: z.string().trim().min(2).max(160),
+  doctorName: z.string().trim().min(2).max(160),
+  doctorRegNo: z.string().trim().max(64).optional(),
+  issuedOn: isoDate,
+  validUntil: isoDate.optional(),
+  customerId: uuid.optional(),
+  notes: z.string().trim().max(512).optional(),
+});
+export type RecordPrescription = z.infer<typeof recordPrescriptionSchema>;
+
+/** A pharmacist's co-sign for controlled items: their till PIN, or login password if they have none.
+ * Sent with one checkout and never stored on this computer. */
+export const coSignSchema = z.object({
+  approverUserId: uuid,
+  pin: z.string().min(4).max(128),
+});
+export type CoSign = z.infer<typeof coSignSchema>;
+
+export const dispensingSchema = z.object({
+  customerId: uuid.optional(),
+  prescriptionId: uuid.optional(),
+});
+export type Dispensing = z.infer<typeof dispensingSchema>;
 
 const money = z.string().regex(/^\d{1,9}(\.\d{1,2})?$/);
 export const tenderSchema = z.object({
@@ -162,6 +217,8 @@ export const checkoutDraftSchema = z.object({
   estimatedTotal: z.string(),
   createdAt: z.string(),
   lineCount: z.number().int(),
+  /** Who co-signed controlled items, so confirming can ask the same pharmacist again. */
+  coSignerId: uuid.nullable(),
 });
 export type CheckoutDraftView = z.infer<typeof checkoutDraftSchema>;
 
@@ -257,6 +314,8 @@ export const ipcContract = {
     input: z.object({
       lines: z.array(z.object({ productId: uuid, qty: z.number().int().min(1).max(9999) })).min(1).max(200),
       tender: tenderSchema,
+      dispensing: dispensingSchema.optional(),
+      coSign: coSignSchema.optional(),
     }),
     output: result(completedSaleSchema),
   },
@@ -265,6 +324,7 @@ export const ipcContract = {
     input: z.object({
       lines: z.array(z.object({ productId: uuid, qty: z.number().int().min(1).max(9999) })).min(1).max(200),
       label: z.string().trim().max(120).optional(),
+      dispensing: dispensingSchema.optional(),
     }),
     output: result(z.object({ holdRef: z.string() })),
   },
@@ -272,14 +332,36 @@ export const ipcContract = {
   recallHold: {
     channel: "pos:checkout:recall",
     input: z.object({ holdId: uuid }),
-    output: result(z.array(z.object({ productId: z.string(), qty: z.number().int() }))),
+    output: result(
+      z.object({
+        lines: z.array(z.object({ productId: z.string(), qty: z.number().int() })),
+        customer: customerSchema.nullable(),
+        prescription: prescriptionSchema.nullable(),
+      }),
+    ),
   },
   pendingCheckouts: { channel: "pos:checkout:pending", input: noInput, output: z.array(checkoutDraftSchema) },
   retryCheckout: {
     channel: "pos:checkout:retry",
-    input: z.object({ draftId: uuid }),
+    input: z.object({ draftId: uuid, coSign: coSignSchema.optional() }),
     output: result(completedSaleSchema),
   },
+  searchCustomers: {
+    channel: "pos:dispensing:customers",
+    input: z.object({ q: z.string().trim().min(1).max(120) }),
+    output: result(z.array(customerSchema)),
+  },
+  searchPrescriptions: {
+    channel: "pos:dispensing:prescriptions",
+    input: z.object({ q: z.string().trim().max(120).optional(), customerId: uuid.optional() }),
+    output: result(z.array(prescriptionSchema)),
+  },
+  recordPrescription: {
+    channel: "pos:dispensing:record-prescription",
+    input: recordPrescriptionSchema,
+    output: result(prescriptionSchema),
+  },
+  listApprovers: { channel: "pos:dispensing:approvers", input: noInput, output: result(z.array(approverSchema)) },
   printSaleReceipt: {
     channel: "pos:checkout:print",
     input: z.object({ saleId: uuid, printerName: z.string().min(1).max(260) }),

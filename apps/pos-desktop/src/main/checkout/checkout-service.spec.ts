@@ -27,6 +27,9 @@ const staffUserId = randomUUID();
 const workSessionId = randomUUID();
 const paracetamol = randomUUID();
 const morphine = randomUUID();
+const prescriptionId = randomUUID();
+const customerId = randomUUID();
+const pharmacistId = randomUUID();
 
 const catalogResponse = {
   products: [
@@ -106,6 +109,7 @@ function service() {
               { productId: "x", qty: "3" },
               { name: "web-only" },
             ],
+            meta: { customerId, prescriptionId: "not-an-id" },
           },
         };
       if (path === "/sales/checkout") {
@@ -230,12 +234,12 @@ describe("CheckoutService", () => {
     });
   });
 
-  it("refuses pharmacist-only items, unknown products, overselling and a card without its reference", async () => {
+  it("refuses prescription items without a prescription, unknown products, overselling and a card without its reference", async () => {
     const checkout = service();
     await checkout.catalog();
     await expect(
       checkout.submit([{ productId: morphine, qty: 1 }], {}),
-    ).rejects.toMatchObject({ code: "PHARMACIST_REQUIRED" });
+    ).rejects.toMatchObject({ code: "PRESCRIPTION_REQUIRED" });
     await expect(
       checkout.submit([{ productId: randomUUID(), qty: 1 }], {}),
     ).rejects.toMatchObject({ code: "CATALOG_STALE" });
@@ -251,6 +255,62 @@ describe("CheckoutService", () => {
     });
     expect(calls.some((c) => c.path === "/sales/checkout")).toBe(false);
   });
+
+  it("sends the prescription and co-sign, keeping who co-signed but never the PIN", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    await checkout.submit(
+      [{ productId: morphine, qty: 1 }],
+      { cashAmount: "40" },
+      { customerId, prescriptionId },
+      { approverUserId: pharmacistId, pin: "4321" },
+    );
+    const sent = calls.find((c) => c.path === "/sales/checkout")!;
+    expect(sent.opts.body).toMatchObject({
+      customerId,
+      prescriptionId,
+      pharmacistApproval: { approverUserId: pharmacistId, pin: "4321" },
+    });
+    const row = local.db
+      .prepare("SELECT request_json, co_signer_id FROM checkout_draft")
+      .get() as { request_json: string; co_signer_id: string };
+    expect(row.co_signer_id).toBe(pharmacistId);
+    expect(row.request_json).not.toContain("4321");
+    expect(JSON.parse(row.request_json)).not.toHaveProperty(
+      "pharmacistApproval",
+    );
+  });
+
+  it("confirms an unanswered co-signed sale with the same pharmacist's PIN only", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      checkout.submit(
+        [{ productId: morphine, qty: 1 }],
+        {},
+        { prescriptionId },
+        { approverUserId: pharmacistId, pin: "4321" },
+      ),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const [pending] = checkout.pending();
+    expect(pending!.coSignerId).toBe(pharmacistId);
+    await expect(
+      checkout.retry(pending!.draftId, {
+        approverUserId: randomUUID(),
+        pin: "1111",
+      }),
+    ).rejects.toMatchObject({ code: "CO_SIGNER_CHANGED" });
+    checkoutReply = () => saleResponse();
+    await checkout.retry(pending!.draftId, {
+      approverUserId: pharmacistId,
+      pin: "4321",
+    });
+    const [first, second] = calls.filter((c) => c.path === "/sales/checkout");
+    expect(second!.opts.body).toEqual(first!.opts.body);
+  });
 });
 
 describe("held carts", () => {
@@ -263,8 +323,24 @@ describe("held carts", () => {
     expect(
       calls.find((c) => c.path === "/sales/holds")!.opts.body,
     ).toMatchObject({ itemCount: 3, total: "7.50", label: "Blue shirt" });
-    await expect(checkout.recall(randomUUID())).resolves.toEqual([
-      { productId: paracetamol, qty: 2 },
-    ]);
+    await expect(checkout.recall(randomUUID())).resolves.toEqual({
+      lines: [{ productId: paracetamol, qty: 2 }],
+      customerId,
+      prescriptionId: null,
+    });
+  });
+
+  it("holds with the customer and prescription under the web POS meta keys", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    await checkout.hold([{ productId: morphine, qty: 1 }], undefined, {
+      customerId,
+      prescriptionId,
+    });
+    expect(
+      calls.find((c) => c.path === "/sales/holds")!.opts.body,
+    ).toMatchObject({
+      meta: { source: "desktop_counter", customerId, prescriptionId },
+    });
   });
 });
