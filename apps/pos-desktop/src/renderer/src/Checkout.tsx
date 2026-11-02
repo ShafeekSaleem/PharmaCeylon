@@ -194,7 +194,10 @@ function PendingCheckouts({
 }
 
 /** Online checkout at this counter. Prices and totals are the server's; this only collects choices. */
-export function Checkout({ onActivity }: { onActivity?: () => void } = {}) {
+export function Checkout({
+  onActivity,
+  onCommandSent,
+}: { onActivity?: () => void; onCommandSent?: () => void } = {}) {
   const [catalog, setCatalog] = useState<CatalogProduct[] | null>(null);
   const [vatRatePercent, setVatRatePercent] = useState(0);
   const [pendingKey, setPendingKey] = useState(0);
@@ -508,6 +511,7 @@ export function Checkout({ onActivity }: { onActivity?: () => void } = {}) {
             setPin("");
           }}
           onPin={setPin}
+          onCommandSent={onCommandSent}
         />
       )}
       {lines.length > 0 && (

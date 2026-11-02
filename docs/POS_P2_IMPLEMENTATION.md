@@ -18,7 +18,7 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
 | Online checkout | `x-terminal-session` attribution on `POST /sales/checkout` (`sale.terminal_id/till_id/work_session_id`); mandatory selling windows (W7) enforced on counter sales; overlapping retries of one key replay the original | Server-priced cart with the VAT-inclusive total, a tender covering it, cash/card/split, crash-safe drafts (`checkout_draft`) confirmed by idempotent resend, receipts, held carts |
 | Physical execution | (P1 executor) | `SignedCommandService` with stored envelopes (`signed_command`); remote-approved refunds executed at the counter showing requester, approver and executor |
 | Readiness | — | Device enrollment, prepared staff, unconfirmed sales/actions and who must confirm them |
-| Prescriptions and co-sign | Checkout refusals coded `PRESCRIPTION_REQUIRED` / `PHARMACIST_APPROVAL_REQUIRED` / `APPROVER_NOT_QUALIFIED`; wrong co-sign secrets are 403. The dispenser's SLMC registration is checked in the checkout transaction and kept on the sale; approvers are registered pharmacists only (P1 MR 10b) | Link a customer and prescription (find, or record through the signed clinical command), pharmacist co-sign by PIN for controlled items; the PIN is sent once and never stored (the draft keeps the co-signer only); holds carry the customer and prescription |
+| Prescriptions and co-sign | Checkout refusals coded `PRESCRIPTION_REQUIRED` / `PHARMACIST_APPROVAL_REQUIRED` / `APPROVER_NOT_QUALIFIED` / `SELLER_NOT_QUALIFIED`; wrong co-sign secrets are 403. The dispenser's SLMC registration is checked in the checkout transaction and kept on the sale; approvers are registered pharmacists only (P1 MR 10b) | Link a customer and prescription (find, or record through the signed clinical command), pharmacist co-sign by PIN for controlled items; the PIN is sent once and never stored (the draft keeps the co-signer only); holds carry the customer and prescription |
 | Web (W6, W3) | `GET /admin/users/:id/security` adds PIN version and prepared counters | Settings → Counters & devices: counters, enrolled computer, issue and revoke codes, report lost, retire. Users → Manage staff: PIN state, version, prepared and stale counters, reset for every role |
 
 ## Decisions
@@ -40,6 +40,9 @@ after #93 merged; details are in [POS_P1_IMPLEMENTATION.md](POS_P1_IMPLEMENTATIO
 - Whoever dispenses controlled items needs a current SLMC registration at the branch: the PIN
   co-signer, or the seller when nobody co-signs. A named co-signer is the dispenser even if the
   seller could dispense alone. The co-sign picker lists only registered pharmacists.
+- Confirming an unanswered sale: `APPROVER_NOT_QUALIFIED` and `SELLER_NOT_QUALIFIED` are final, so
+  the draft is marked refused instead of waiting for a co-signer whose registration has lapsed.
+- An unanswered prescription command shows straight away in "Waiting at the counter".
 - The desktop records a prescription through the signed `POST /api/v1/prescriptions` command
   (`SignedCommandService`), not the unsigned route, which now refuses at live branches outside a
   fallback (`PRESCRIPTION_AT_COUNTER`). So a cashier can't record one: the registered pharmacist

@@ -610,10 +610,11 @@ effect yet; MR 10a below adds the first. Still open:
 - **Checkout.** Online checkout checks the dispenser directly (MR 10b). A signed checkout command
   through the port comes when checkout is split. Prescription recording reaches the port through
   MR 10a, and the desktop now uses it.
-- **Web POS self-dispense.** On the web POS an owner, manager or pharmacist selling controlled
-  items without a co-sign is still trusted by role (MR 10b checks it at a counter). Closing it needs
-  the web POS to ask for a co-sign when the seller isn't registered, and a way to record
-  registrations first, or no one there could sell controlled items.
+- **Web POS self-dispense.** Before go-live and during a fallback, a seller with
+  `sales.approve_controlled` selling controlled items on the web POS without a co-sign is still
+  trusted by that permission (MR 10b checks it at a counter, and on any checkout at a live branch).
+  Closing it needs the web POS to ask for a co-sign when the seller isn't registered, and a way to
+  record registrations first, or no one there could sell controlled items.
 - **Web.** The Users & Roles screen for recording registrations is web work.
 
 Tests: `test/integration/pharmacist-registration.int-spec.ts` (PostgreSQL, 15). They cover:
@@ -678,22 +679,35 @@ touches P2's dispensing flow (`apps/pos-desktop/src/main/checkout/dispensing.ts`
   first refuses the sale and a later one waits for it. The refusal is 403
   `APPROVER_NOT_QUALIFIED` and names the co-signer. Before this, a seller who could dispense alone
   had any co-sign ignored without its PIN being checked.
-- **Seller dispensing alone.** At a counter (`x-terminal-session`) an owner, manager or pharmacist
-  dispensing controlled items without a co-sign needs their own registration as well (403
-  `PHARMACIST_APPROVAL_REQUIRED`, asking for a co-sign). The web POS still trusts the role (MR 10,
-  "Still open"). Desktop POS isn't live at any branch yet, so this doesn't affect sales today.
+- **Seller dispensing alone.** Authority is `sales.approve_controlled` at the branch from the
+  tenant's grants, the permission a co-signer needs (`PharmacistApprovalService.hasApproverRole`),
+  instead of a fixed list of roles. At a counter (`x-terminal-session`) the seller needs their own
+  registration as well (403 `SELLER_NOT_QUALIFIED`, asking for a co-sign), and so does any checkout
+  at a branch live on PharmaCeylon POS outside a fallback: the check is keyed to the branch's
+  state, not to a header the client can leave out. Before go-live and during a fallback the web
+  POS still trusts the permission (MR 10, "Still open"). Desktop POS isn't live at any branch yet,
+  so this doesn't affect sales today.
 - **Provenance.** `sale.dispenser_registration_id` (migration `20261103000000`) is written in the
   same transaction. A composite foreign key to `pharmacist_registration (tenant_id, user_id, id)`
-  pins it to `dispensed_by`, and a check stops it existing without a dispenser. The `sale.posted`
+  pins it to `dispensed_by`, and a check stops it existing without a dispenser. Both are added
+  `NOT VALID` and validated by `20261103000100` in its own transaction, so deploying doesn't scan
+  `sale` while checkouts are blocked. The `sale.posted`
   and `sale.pharmacist_approved` audits carry `pharmacistRegistrationId` and `slmcNumber`.
 - **Approvers.** `GET /sales/pos/approvers` lists only people `assertQualified` would accept now,
-  using `PharmacistRegistrationService.qualifiedAt` (no lock; checkout checks again). Owners
+  using `PharmacistRegistrationService.qualifiedAt` (no lock; checkout checks again). Both read the
+  same rules (`branchToday`, `qualifiedAccount`), so the picker can't drift from the check. The web
+  PIN dialog's empty state says nobody has a current registration, not that nobody is assigned. Owners
   without a registration or a role at the branch drop out. Refund approvers are unchanged.
 - **Prescriptions at the counter.** The desktop records through the signed
   `POST /api/v1/prescriptions` command with `SignedCommandService`, as refunds do. The view comes
   from the signed body and the receipt's `prescriptionId` and `rxNumber`, with no second read.
   `PHARMACIST_REQUIRED` is explained (a registered pharmacist switches in and records it). An
-  unanswered command says the prescription may already exist and waits to be confirmed.
+  unanswered command says the prescription may already exist and waits to be confirmed; the
+  counter's list of unconfirmed actions reloads after each attempt, so its confirm button shows.
+- **Resends.** `APPROVER_NOT_QUALIFIED` and `SELLER_NOT_QUALIFIED` are given only after checkout has
+  looked up the key, so the desktop takes them as final when confirming an unanswered sale
+  (`definite-refusal.ts`). Otherwise a sale whose co-signer's registration lapsed before it was
+  confirmed would stay pending for good: only that co-signer may confirm it.
 - **Browser route.** Unsigned `POST /prescriptions` refuses with 403 `PRESCRIPTION_AT_COUNTER` at a
   branch live on PharmaCeylon POS outside a fallback, the D-W5 pattern (`PIN_SET_AT_COUNTER`). It
   still works before go-live and during a fallback, unchecked, until the web carries clinical
@@ -710,8 +724,10 @@ to record it. Binding the PIN co-sign to the signed command is the next step if 
 Tests:
 - `sales.checkout-controlled.spec.ts`: the check runs on the checkout's transaction after the PIN;
   an unqualified co-signer gets `APPROVER_NOT_QUALIFIED` with nothing after it run; other failures
-  pass through; a named co-signer dispenses for a seller who could dispense alone; counter vs web
-  self-dispense; no check without controlled lines; fail closed without the service.
+  pass through; a named co-signer dispenses for a seller who could dispense alone; self-dispense at
+  a counter, on the web at a live branch, before go-live, during a fallback and when the branch
+  can't be read; authority from the tenant's grants; no check without controlled lines; fail
+  closed without the service.
 - `pharmacist-approval.service.spec.ts`: the approver list is filtered for a controlled co-sign
   and not for refunds.
 - `prescriptions.service.spec.ts`: the browser route at a live branch, before go-live, during a
@@ -722,7 +738,14 @@ Tests:
     approver list empty;
   - a registered co-signer accepted, with the sale's registration and the audit provenance;
   - a revocation in progress making checkout wait, then refusing it;
-  - the database refusing a sale whose registration belongs to someone else.
+  - the database refusing a sale whose registration belongs to someone else;
+  - a seller dispensing alone on the web: checked at a live branch without the header, trusted
+    before go-live and during a fallback;
+  - the unsigned prescription route refusing at a live branch and recording otherwise.
+- `test/integration/terminal-enrollment.int-spec.ts`: a seller dispensing alone at a real counter
+  session, refused without a registration and accepted with one, attributed to the counter.
+- Desktop: `checkout-service.spec.ts` clears an unanswered co-signed sale refused with
+  `APPROVER_NOT_QUALIFIED`. Web: `pos-pharmacist-pin-modal.spec.tsx` covers the empty state.
 - Desktop `dispensing.spec.ts` and `signed-commands.spec.ts`: the exact signed body, with no
   approval or co-sign evidence and no browser route; the receipt kept; `PHARMACIST_REQUIRED` as a
   final refusal; an unanswered command left to confirm.

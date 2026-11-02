@@ -538,8 +538,11 @@ approverUserId, pin }`, the co-signer's online PIN or, without one, their login 
 co-signer must also hold a current SLMC registration at the branch ("Pharmacist registrations",
 "Controlled checkout"), and `GET /sales/pos/approvers` lists only people who do. Checkout refusals
 carry `code: "PRESCRIPTION_REQUIRED"` (no prescription linked), `code:
-"PHARMACIST_APPROVAL_REQUIRED"` (controlled items, a seller who cannot dispense them, no co-sign)
-and `code: "APPROVER_NOT_QUALIFIED"` (403: the co-signer has no current registration here). A
+"PHARMACIST_APPROVAL_REQUIRED"` (controlled items, a seller who cannot dispense them, no co-sign),
+`code: "APPROVER_NOT_QUALIFIED"` (403: the co-signer has no current registration here) and `code:
+"SELLER_NOT_QUALIFIED"` (403: a seller dispensing alone has none). Those last two are given only
+after the transaction has looked up the key, so the desktop takes them as final on a resend: a
+sale whose co-signer's registration lapsed before it was confirmed is cleared, not left pending. A
 wrong or locked co-signer secret is **403** with `APPROVER_PIN_INCORRECT`, `APPROVER_PIN_LOCKED`
 or `APPROVER_NOT_FOUND`, as are the counter's own `PASSWORD_INCORRECT` and `PIN_INCORRECT`: a
 401 means only that the access token lapsed, and clients refresh and resend on it, which would
@@ -662,18 +665,23 @@ is locked, so a revocation that commits first refuses the sale and a later one w
   co-signer's registration. Without a current one the sale is refused with 403
   `APPROVER_NOT_QUALIFIED`, and the message names the co-signer. `sales.approve_controlled` is
   still needed as well.
-- **A seller dispensing alone** (no co-sign; an owner, manager or pharmacist at the branch) needs
-  their own current registration **at a counter** (`x-terminal-session`), or the sale is refused
-  with 403 `PHARMACIST_APPROVAL_REQUIRED`, telling them to get a co-sign. On the web POS the role
-  alone still dispenses: the web has no way yet to ask for a co-sign when the seller isn't
+- **A seller dispensing alone** (no co-sign) needs `sales.approve_controlled` at the branch, the
+  permission a co-signer needs, resolved from the tenant's grants (owner, manager and pharmacist by
+  default); without it the refusal is 403 `PHARMACIST_APPROVAL_REQUIRED`. They also need their own
+  current registration **at a counter** (`x-terminal-session`), and on any checkout at a branch
+  live on PharmaCeylon POS outside a fallback, so leaving the header out skips nothing. Without one
+  the sale is refused with 403 `SELLER_NOT_QUALIFIED`, telling them to get a co-sign. Before
+  go-live and during a fallback, when the web POS is what the branch uses, the permission alone
+  still dispenses there: the web has no way yet to ask for a co-sign when the seller isn't
   registered (still open, see POS_P1_IMPLEMENTATION.md MR 10).
 - **Provenance.** The registration relied on is stored with the sale as
   `sale.dispenser_registration_id` (`dispenserRegistrationId` in sale responses), in the same
   transaction; a composite foreign key pins it to `dispensed_by` in the tenant. `sale.posted` and
   `sale.pharmacist_approved` audits carry `pharmacistRegistrationId` and `slmcNumber`.
 - **Who is offered.** `GET /sales/pos/approvers` lists only approvers the check would accept now:
-  current registration, active account and membership, a role at the branch. The read takes no
-  lock; checkout checks again. Refund approvers (`GET /sales/pos/refund-approvers`) are not
+  current registration, active account and membership, a role at the branch, from the same rules
+  as `assertQualified` (`PharmacistRegistrationService.qualifiedAt`). The read takes no lock;
+  checkout checks again. Refund approvers (`GET /sales/pos/refund-approvers`) are not
   filtered: a refund is not clinical.
 
 ## Sales lifecycle (pilot)

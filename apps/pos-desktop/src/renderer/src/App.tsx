@@ -152,6 +152,9 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [refreshApi]);
 
+  const [commandsSent, setCommandsSent] = useState(0);
+  const onCommandSent = useCallback(() => setCommandsSent((n) => n + 1), []);
+
   const refreshReadiness = useCallback(() => {
     window.pos
       .getReadiness()
@@ -182,8 +185,8 @@ export function App() {
 
       <main className={styles.content}>
         {device && <CounterAccess state={device} onState={setDevice} />}
-        {device?.staffSession && !device.locked && <Checkout key={device.staffSession.workSessionId} onActivity={refreshReadiness} />}
-        {device?.staffSession && !device.locked && <CounterWork key={`work-${device.staffSession.workSessionId}`} onActivity={refreshReadiness} />}
+        {device?.staffSession && !device.locked && <Checkout key={device.staffSession.workSessionId} onActivity={refreshReadiness} onCommandSent={onCommandSent} />}
+        {device?.staffSession && !device.locked && <CounterWork key={`work-${device.staffSession.workSessionId}`} onActivity={refreshReadiness} reloadKey={commandsSent} />}
         <section className={styles.panel} aria-labelledby="readiness-heading">
           <h2 id="readiness-heading" className={styles.panelTitle}>
             Offline readiness

@@ -88,8 +88,11 @@ function RecordPrescription({
   customer,
   onRecorded,
   onCancel,
+  onCommandSent,
 }: {
   customer: CustomerView | null;
+  /** Recording is a signed command; one left unconfirmed waits at the counter to be confirmed. */
+  onCommandSent?: () => void;
   onRecorded: (prescription: PrescriptionView) => void;
   onCancel: () => void;
 }) {
@@ -120,6 +123,8 @@ function RecordPrescription({
       else setError(result.error.message);
     } finally {
       setBusy(false);
+      // Show a command left unconfirmed straight away, with its confirm button.
+      onCommandSent?.();
     }
   }
 
@@ -188,10 +193,12 @@ function PrescriptionPicker({
   customer,
   prescription,
   onChange,
+  onCommandSent,
 }: {
   customer: CustomerView | null;
   prescription: PrescriptionView | null;
   onChange: (prescription: PrescriptionView | null) => void;
+  onCommandSent?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<PrescriptionView[]>([]);
@@ -239,6 +246,7 @@ function PrescriptionPicker({
     return (
       <RecordPrescription
         customer={customer}
+        onCommandSent={onCommandSent}
         onRecorded={(rx) => {
           setRecording(false);
           onChange(rx);
@@ -368,6 +376,7 @@ export function DispensingPanel({
   onPrescription,
   onApprover,
   onPin,
+  onCommandSent,
 }: {
   needsPrescription: boolean;
   hasControlled: boolean;
@@ -379,6 +388,7 @@ export function DispensingPanel({
   onPrescription: (prescription: PrescriptionView | null) => void;
   onApprover: (id: string) => void;
   onPin: (pin: string) => void;
+  onCommandSent?: () => void;
 }) {
   return (
     <div className={styles.form} aria-label="Dispensing">
@@ -391,6 +401,7 @@ export function DispensingPanel({
           customer={customer}
           prescription={prescription}
           onChange={onPrescription}
+          onCommandSent={onCommandSent}
         />
       )}
       {hasControlled && (

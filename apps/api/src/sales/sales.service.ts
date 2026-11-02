@@ -52,6 +52,7 @@ import {
   type ClinicalEvidence,
   PharmacistRegistrationService,
 } from "../clinical/pharmacist-registration.service";
+import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
@@ -100,8 +101,10 @@ async function nextInvoiceNo(
 
 type BranchRoleEntry = { branchId: string; role: RoleName };
 
-/** Whose SLMC registration the checkout's transaction checks for its controlled lines. */
-type ClinicalCheck = { userId: string; coSignerName: string | null };
+/** Who dispenses a sale's controlled lines: a PIN co-signer, or the seller alone. */
+type ClinicalCheck =
+  | { kind: "co_sign"; userId: string; name: string }
+  | { kind: "self"; userId: string };
 
 export const REFUND_SALE_INCLUDE = {
   items: {
@@ -144,12 +147,6 @@ export function refundReason(dto: { reasonCode?: keyof typeof REFUND_REASON_LABE
 
 @Injectable()
 export class SalesService {
-  private static readonly CONTROLLED_SALE_ROLES: RoleName[] = [
-    RoleName.owner,
-    RoleName.manager,
-    RoleName.pharmacist,
-  ];
-
   private static readonly VOID_ROLES: RoleName[] = [
     RoleName.owner,
     RoleName.manager,
@@ -185,8 +182,8 @@ export class SalesService {
   /**
    * Prescription-required lines need a linked Rx.
    * Controlled (schedule) lines also need dispense authority: a PIN co-sign, or the seller's own
-   * role. Returns who dispenses, and whose SLMC registration the checkout's transaction must then
-   * check (P1 #47): a co-signer's always, and at a counter the seller's own.
+   * `sales.approve_controlled`, the permission a co-signer needs too. Returns who dispenses; the
+   * checkout's transaction then decides whether their SLMC registration is checked (P1 #47).
    */
   private async resolveDispenseAuthority(input: {
     tenantId: string;
@@ -201,7 +198,6 @@ export class SalesService {
     }>;
     prescriptionId: string | undefined;
     pharmacistApproval: CheckoutDto["pharmacistApproval"];
-    atCounter: boolean;
   }): Promise<{ dispensedBy: string | null; clinical: ClinicalCheck | null }> {
     const needsRx = input.products.filter(
       (p) => p.requiresPrescription || p.isControlled,
@@ -236,36 +232,49 @@ export class SalesService {
       );
       return {
         dispensedBy: verified.approverUserId,
-        clinical: {
-          userId: verified.approverUserId,
-          coSignerName: verified.approverName,
-        },
+        clinical: { kind: "co_sign", userId: verified.approverUserId, name: verified.approverName },
       };
     }
 
-    const roles = this.branchEffectiveRoles(input.branchRoles, input.branchId);
-    const selfCanDispense = roles.some((r) =>
-      SalesService.CONTROLLED_SALE_ROLES.includes(r),
-    );
-    if (!selfCanDispense) {
+    // The tenant's grants decide, as they do for a co-signer, not a fixed list of roles.
+    if (!(await this.pharmacistApproval.hasApproverRole(input.branchRoles, input.branchId))) {
       throw new ForbiddenException({
         code: "PHARMACIST_APPROVAL_REQUIRED",
         message:
           "Controlled medicines need pharmacist approval. Ask a pharmacist to enter their till PIN, or park this sale for handoff.",
       });
     }
-    // At a counter the seller's own registration is checked as well. The web POS still trusts
-    // the role here until it can ask for a co-sign when the seller isn't registered (MR 10).
-    return {
-      dispensedBy: input.userId,
-      clinical: input.atCounter ? { userId: input.userId, coSignerName: null } : null,
-    };
+    return { dispensedBy: input.userId, clinical: { kind: "self", userId: input.userId } };
+  }
+
+  /**
+   * Whether the checkout's transaction checks the dispenser's SLMC registration. Always for a
+   * co-signer, and for a seller dispensing alone at a counter. The web POS still trusts the
+   * seller's role (MR 10), but only where a branch uses it: at a branch live on PharmaCeylon POS
+   * outside a fallback, a checkout without `x-terminal-session` is checked as the counter is, so
+   * leaving the header out can't skip it. A branch that can't be read is checked.
+   */
+  private async checksDispenser(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+    check: ClinicalCheck,
+    atCounter: boolean,
+  ): Promise<boolean> {
+    if (check.kind === "co_sign" || atCounter) return true;
+    const branch = await tx.branch.findFirst({
+      where: { id: branchId, tenantId },
+      select: POS_ROLLOUT_SELECT,
+    });
+    return !branch || resolvePosRollout(branch).state === "live";
   }
 
   /**
    * P1 #47: the dispenser's current SLMC registration, on the checkout's transaction. It is
    * share-locked until the sale commits, so a revocation either commits first and refuses this
    * sale, or waits for it. The refusal names who isn't registered and what the counter can do.
+   * Both codes are given only after the transaction has looked up an earlier attempt with the
+   * same key, so a client may take them as final on a resend.
    */
   private async assertDispenserQualified(
     tx: Prisma.TransactionClient,
@@ -288,13 +297,13 @@ export class SalesService {
           : undefined;
       if (code !== "PHARMACIST_REQUIRED") throw error;
       throw new ForbiddenException(
-        check.coSignerName !== null
+        check.kind === "co_sign"
           ? {
               code: "APPROVER_NOT_QUALIFIED",
-              message: `${check.coSignerName} has no current SLMC registration at this branch, so they can't co-sign controlled medicines. Choose another pharmacist, or ask the owner to record or renew the registration.`,
+              message: `${check.name} has no current SLMC registration at this branch, so they can't co-sign controlled medicines. Choose another pharmacist, or ask the owner to record or renew the registration.`,
             }
           : {
-              code: "PHARMACIST_APPROVAL_REQUIRED",
+              code: "SELLER_NOT_QUALIFIED",
               message:
                 "You have no current SLMC registration at this branch. Ask a registered pharmacist to co-sign these controlled medicines, or park this sale for them.",
             },
@@ -502,7 +511,6 @@ export class SalesService {
       products,
       prescriptionId: dto.prescriptionId,
       pharmacistApproval: dto.pharmacistApproval,
-      atCounter: counter !== undefined,
     });
     const dispensedBy = dispense.dispensedBy;
     const productNames = new Map(products.map((p) => [p.id, p.name]));
@@ -548,9 +556,11 @@ export class SalesService {
           if (!this.operatingHours) throw new Error("Counter checkout needs the operating-hours provider");
           await this.operatingHours.assertMandatoryForSale(tx, tenantId, branchId);
         }
-        registration = dispense.clinical
-          ? await this.assertDispenserQualified(tx, tenantId, branchId, dispense.clinical)
-          : null;
+        registration =
+          dispense.clinical &&
+          (await this.checksDispenser(tx, tenantId, branchId, dispense.clinical, counter !== undefined))
+            ? await this.assertDispenserQualified(tx, tenantId, branchId, dispense.clinical)
+            : null;
         const lines: Array<{
           productId: string;
           batchId: string;

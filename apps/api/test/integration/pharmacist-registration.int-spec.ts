@@ -7,6 +7,7 @@ import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-reg
 import { businessDateKey } from "../../src/common/business-date.util";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { TaxService } from "../../src/pricing/tax.service";
+import { PrescriptionsService } from "../../src/customers/prescriptions.service";
 import { createTenantAwarePrismaProxy } from "../../src/prisma/tenant-aware-prisma.proxy";
 import { PharmacistApprovalService } from "../../src/sales/pharmacist-approval.service";
 import { SalesService } from "../../src/sales/sales.service";
@@ -49,6 +50,17 @@ const qualified = (userId: string, branchId = fx.mainBranchId) =>
   code(tx((c) => registrations.assertQualified(c, { tenantId: fx.tenantId, branchId, userId })));
 const record = (userId: string, slmcNumber: string, expiresOn = dayKey(365), by = fx.ownerId) =>
   registrations.record(user(by), fx.mainBranchId, { userId, slmcNumber, expiresOn });
+/** The main branch's desktop POS state; the shape check needs the live date and both fallback ends. */
+const rollout = (state: "not_live" | "live" | "fallback") =>
+  prisma.branch.updateMany({
+    where: { tenantId: fx.tenantId, id: fx.mainBranchId },
+    data: {
+      desktopPosRollout: state === "not_live" ? "not_live" : "live",
+      desktopPosLiveAt: state === "not_live" ? null : new Date(),
+      posFallbackStartedAt: state === "fallback" ? new Date() : null,
+      posFallbackEndsAt: state === "fallback" ? new Date(Date.now() + 3_600_000) : null,
+    },
+  });
 async function clear() {
   // Registrations are retained by trigger; revoke whatever another test left current.
   await prisma.pharmacistRegistration.updateMany({
@@ -550,5 +562,73 @@ describe("controlled checkout co-sign (P1 #47 with P2 #93)", () => {
       prisma.$executeRaw`UPDATE sale SET dispensed_by = NULL WHERE id = ${sale!.id}::uuid`,
     ).rejects.toThrow(/sale_dispenser_registration_check/);
     expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale!.id } })).dispenserRegistrationId).toBe(mine.id);
+  });
+
+  describe("a seller dispensing alone on the web, with no co-sign or counter session", () => {
+    const sellAlone = () =>
+      sales.checkout(
+        fx.tenantId,
+        fx.mainBranchId,
+        pharmacistId,
+        [{ branchId: fx.mainBranchId, role: "pharmacist" }],
+        { items: [{ productId: fx.productId, batchId, qty: 1, unitPrice: "15.00" }], prescriptionId },
+        randomUUID(),
+      );
+    const soldByPharmacist = () => prisma.sale.count({ where: { tenantId: fx.tenantId, soldBy: pharmacistId } });
+    afterEach(() => rollout("not_live"));
+
+    it("is checked at a branch live on PharmaCeylon POS, so leaving out x-terminal-session skips nothing", async () => {
+      await rollout("live");
+      const before = await soldByPharmacist();
+      await expect(code(sellAlone())).resolves.toBe("SELLER_NOT_QUALIFIED");
+      expect(await soldByPharmacist()).toBe(before);
+
+      const row = await record(pharmacistId, "PH-SA-1");
+      const sale = await sellAlone();
+      expect(await prisma.sale.findUniqueOrThrow({ where: { id: sale!.id } })).toMatchObject({
+        dispensedBy: pharmacistId,
+        dispenserRegistrationId: row.id,
+        terminalId: null,
+      });
+    });
+
+    it("is trusted by role before go-live and during an owner's fallback (still open, MR 10)", async () => {
+      for (const state of ["not_live", "fallback"] as const) {
+        await rollout(state);
+        const sale = await sellAlone();
+        expect(await prisma.sale.findUniqueOrThrow({ where: { id: sale!.id } })).toMatchObject({
+          dispensedBy: pharmacistId,
+          dispenserRegistrationId: null,
+        });
+      }
+    });
+  });
+});
+
+describe("the unsigned prescription route at a branch live on PharmaCeylon POS", () => {
+  const prescriptions = new PrescriptionsService(proxy as never, audit);
+  const create = () =>
+    prescriptions.create(fx.tenantId, fx.mainBranchId, fx.ownerId, {
+      patientName: "Nimal Perera",
+      doctorName: "Silva",
+      issuedOn: dayKey(0),
+    });
+  const recorded = () => prisma.prescription.count({ where: { tenantId: fx.tenantId, patientName: "Nimal Perera" } });
+  afterEach(() => rollout("not_live"));
+
+  it("refuses outside a fallback, whoever calls it, and records nothing", async () => {
+    await rollout("live");
+    const before = await recorded();
+    await expect(create()).rejects.toMatchObject({ status: 403, response: { code: "PRESCRIPTION_AT_COUNTER" } });
+    expect(await recorded()).toBe(before);
+  });
+
+  it("records before go-live and during an owner's fallback, when the web POS is in use", async () => {
+    const before = await recorded();
+    await rollout("not_live");
+    await expect(create()).resolves.toMatchObject({ patientName: "Nimal Perera" });
+    await rollout("fallback");
+    await expect(create()).resolves.toMatchObject({ patientName: "Nimal Perera" });
+    expect(await recorded()).toBe(before + 2);
   });
 });

@@ -18,14 +18,21 @@ describe("SalesService controlled checkout authority", () => {
   const batchId = "batch-1";
 
   let prisma: Record<string, unknown>;
-  let pharmacistApproval: { verifyApproverPin: jest.Mock };
+  let pharmacistApproval: { verifyApproverPin: jest.Mock; hasApproverRole: jest.Mock };
   let registrations: { assertQualified: jest.Mock };
   let service: SalesService;
   let txnEntered: boolean;
   let audit: AuditService;
   let tax: TaxService;
+  const rollout = (state: "not_live" | "live" | "fallback") => ({
+    desktopPosRollout: state === "not_live" ? "not_live" : "live",
+    desktopPosLiveAt: state === "not_live" ? null : new Date("2026-10-01T00:00:00Z"),
+    posFallbackStartedAt: state === "fallback" ? new Date() : null,
+    posFallbackEndsAt: state === "fallback" ? new Date(Date.now() + 3_600_000) : null,
+  });
   // Past the clinical check, the next thing checkout reads on its transaction is the tenant.
   const tx = {
+    branch: { findFirst: jest.fn() },
     tenant: {
       findUnique: jest.fn(async () => {
         throw new Error("stop-after-clinical");
@@ -41,6 +48,7 @@ describe("SalesService controlled checkout authority", () => {
   beforeEach(() => {
     txnEntered = false;
     tx.tenant.findUnique.mockClear();
+    tx.branch.findFirst.mockReset().mockResolvedValue(rollout("not_live"));
     registrations = {
       assertQualified: jest.fn().mockResolvedValue({ registrationId: "reg-1", slmcNumber: "PH/1234" }),
     };
@@ -49,6 +57,10 @@ describe("SalesService controlled checkout authority", () => {
         approverUserId: pharmacistId,
         approverName: "Dr. Anjali",
       }),
+      // The catalog default for `sales.approve_controlled`; the real check reads tenant grants.
+      hasApproverRole: jest.fn(async (roles: { role: RoleName }[]) =>
+        roles.some((r) => r.role !== RoleName.cashier && r.role !== RoleName.inventory_clerk),
+      ),
     };
 
     prisma = {
@@ -309,16 +321,52 @@ describe("SalesService controlled checkout authority", () => {
         ).rejects.toMatchObject({
           status: 403,
           response: {
-            code: "PHARMACIST_APPROVAL_REQUIRED",
+            code: "SELLER_NOT_QUALIFIED",
             message: expect.stringContaining("no current SLMC registration"),
           },
         });
         expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
+        // A counter checkout never needs the branch's rollout to decide.
+        expect(tx.branch.findFirst).not.toHaveBeenCalled();
       });
 
-      it("is still trusted by role on the web POS (still open, MR 10)", async () => {
-        await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toThrow("stop-after-clinical");
+      it("is trusted by role on the web POS before go-live and during a fallback (still open, MR 10)", async () => {
+        for (const state of ["not_live", "fallback"] as const) {
+          tx.branch.findFirst.mockResolvedValue(rollout(state));
+          await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toThrow("stop-after-clinical");
+        }
+        expect(tx.branch.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: branchId, tenantId } }),
+        );
         expect(registrations.assertQualified).not.toHaveBeenCalled();
+      });
+
+      it("is checked without x-terminal-session at a live branch, so leaving the header out skips nothing", async () => {
+        tx.branch.findFirst.mockResolvedValue(rollout("live"));
+        registrations.assertQualified.mockImplementation(async () => denied("PHARMACIST_REQUIRED"));
+        await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toMatchObject({
+          status: 403,
+          response: { code: "SELLER_NOT_QUALIFIED" },
+        });
+        expect(registrations.assertQualified).toHaveBeenCalledWith(tx, { tenantId, branchId, userId: pharmacistId });
+        expect(tx.tenant.findUnique).not.toHaveBeenCalled();
+      });
+
+      it("is checked when the branch can't be read", async () => {
+        tx.branch.findFirst.mockResolvedValue(null);
+        await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toThrow("stop-after-clinical");
+        expect(registrations.assertQualified).toHaveBeenCalled();
+      });
+
+      it("follows the tenant's grants of sales.approve_controlled, not a fixed list of roles", async () => {
+        pharmacistApproval.hasApproverRole.mockResolvedValue(false);
+        await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toMatchObject({
+          response: { code: "PHARMACIST_APPROVAL_REQUIRED" },
+        });
+        expect(pharmacistApproval.hasApproverRole).toHaveBeenCalledWith([{ branchId, role: RoleName.pharmacist }], branchId);
+
+        pharmacistApproval.hasApproverRole.mockResolvedValue(true);
+        await expect(sell(cashierId, RoleName.cashier)).rejects.toThrow("stop-after-clinical");
       });
     });
 

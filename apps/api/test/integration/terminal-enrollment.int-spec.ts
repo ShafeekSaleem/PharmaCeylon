@@ -9,6 +9,8 @@ import type {
   WindowsSessionEvidence,
 } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
+import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-registration.service";
+import { businessDateKey } from "../../src/common/business-date.util";
 import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
@@ -18,7 +20,9 @@ import { counterEvidence } from "../../src/terminals/counter-evidence";
 import { TerminalEnrollmentService } from "../../src/terminals/terminal-enrollment.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
 import { TaxService } from "../../src/pricing/tax.service";
+import { PharmacistApprovalService } from "../../src/sales/pharmacist-approval.service";
 import { SalesService } from "../../src/sales/sales.service";
+import { PermissionsService } from "../../src/security/permissions.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { OperatingHoursEvidence } from "../../src/terminals/operating-hours.evidence";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
@@ -1029,6 +1033,85 @@ describe("online checkout attributed to the counter, till and staff session", ()
       terminalId: null,
       tillId: null,
       workSessionId: null,
+    });
+  });
+});
+
+describe("a controlled sale dispensed by the seller alone at a counter (P1 #47)", () => {
+  const stock = new StockService();
+  const registrations = new PharmacistRegistrationService(prisma as never, access, audit);
+  const sales = new SalesService(
+    prisma as never,
+    audit,
+    new TaxService({ get: () => "0" } as never),
+    new PharmacistApprovalService(
+      prisma as never,
+      audit,
+      new PermissionsService(prisma as never, { get: () => 30 } as never),
+      registrations,
+    ),
+    { assertCanSell: async () => undefined } as never,
+    stock,
+    trust,
+    new OperatingHoursEvidence(),
+    registrations,
+  );
+
+  it("needs the seller's own SLMC registration, checked on the counter's checkout transaction", async () => {
+    const product = await prisma.product.create({
+      data: {
+        tenantId: fx.tenantId,
+        sku: `CTRL-${randomUUID().slice(0, 6)}`,
+        name: "Tramadol 50mg",
+        rangeStatus: "RANGED",
+        isControlled: true,
+        requiresPrescription: true,
+      },
+    });
+    const batchId = await createStockedBatch(prisma, stock, { ...fx, productId: product.id }, { qty: 5 });
+    const prescription = await prisma.prescription.create({
+      data: {
+        tenantId: fx.tenantId,
+        branchId: fx.mainBranchId,
+        rxNumber: `RX-CTR-${randomUUID().slice(0, 6)}`,
+        patientName: "Kamal Silva",
+        doctorName: "Perera",
+        issuedOn: new Date(),
+        createdBy: fx.ownerId,
+      },
+    });
+    const { device, identity } = await enroll();
+    const session = await openSession(device, identity, owner);
+    // An owner dispenses alone by role; no role stands in for the registration.
+    const sellAlone = () =>
+      sales.checkout(
+        fx.tenantId,
+        fx.mainBranchId,
+        owner.userId,
+        [{ branchId: fx.mainBranchId, role: RoleName.owner }],
+        { items: [{ productId: product.id, batchId, qty: 1, unitPrice: "15.00" }], prescriptionId: prescription.id },
+        randomUUID(),
+        { user: owner, workSessionId: session.workSessionId },
+      );
+
+    await expect(sellAlone()).rejects.toMatchObject({
+      status: 403,
+      response: { code: "SELLER_NOT_QUALIFIED", message: expect.stringContaining("no current SLMC registration") },
+    });
+    expect(await prisma.sale.count({ where: { tenantId: fx.tenantId, workSessionId: session.workSessionId } })).toBe(0);
+
+    const row = await registrations.record(owner, fx.mainBranchId, {
+      userId: owner.userId,
+      slmcNumber: `OWN-CTR-${randomUUID().slice(0, 4)}`,
+      expiresOn: businessDateKey("Asia/Colombo", new Date(Date.now() + 365 * 86_400_000)),
+    });
+    const sale = await sellAlone();
+    expect(await prisma.sale.findFirstOrThrow({ where: { tenantId: fx.tenantId, id: sale!.id } })).toMatchObject({
+      soldBy: owner.userId,
+      dispensedBy: owner.userId,
+      dispenserRegistrationId: row.id,
+      terminalId: identity.terminalId,
+      workSessionId: session.workSessionId,
     });
   });
 });

@@ -9,7 +9,10 @@ import { invoke } from "./invoke";
 const amount = (minor: number) => (minor / 100).toFixed(2);
 
 /** Remote-prepared work only the counter may execute. Hidden for people without the permission. */
-export function CounterWork({ onActivity }: { onActivity?: () => void } = {}) {
+export function CounterWork({
+  onActivity,
+  reloadKey = 0,
+}: { onActivity?: () => void; reloadKey?: number } = {}) {
   const [refunds, setRefunds] = useState<RefundAtCounter[] | null>(null);
   const [pending, setPending] = useState<
     {
@@ -35,7 +38,9 @@ export function CounterWork({ onActivity }: { onActivity?: () => void } = {}) {
       })
       .catch(() => undefined);
   }, [onActivity]);
-  useEffect(load, [load]);
+  // Reloaded when a signed command is sent elsewhere (a prescription), so one left unconfirmed
+  // shows here with its confirm button.
+  useEffect(load, [load, reloadKey]);
 
   async function execute(id: string) {
     setBusy(true);

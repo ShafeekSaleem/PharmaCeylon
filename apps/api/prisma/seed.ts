@@ -36,6 +36,7 @@ import {
   demoPricingForProduct,
   demoStockLineForIndex,
 } from "../src/nmra/nmra-normalize";
+import { businessToday, safeTimeZone } from "../src/common/business-date.util";
 import { AUTO_QUARANTINE_EXPIRED_REASON } from "../src/inventory/quarantine.constants";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -418,7 +419,8 @@ async function main() {
 
   // P1 #47: a controlled co-sign needs a current SLMC registration, so the demo pharmacist has
   // one. Registrations are kept by trigger: reuse a current one, revoke and replace one that lapsed.
-  const registrationToday = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+  // "Current" is judged as checkout judges it, on the branch's own date, not the server's.
+  const registrationToday = businessToday(safeTimeZone(mainBranch.timezone));
   const demoRegistration = await prisma.pharmacistRegistration.findFirst({
     where: { tenantId: tenant.id, userId: pharmacist.id, revokedAt: null },
   });
