@@ -206,8 +206,28 @@ export const MUTATION_ACTIONS = Object.freeze({
   // whose v1 operations are all physical stock; each is reclassified by its own route profile.
   "POST /api/v1/terminal-commands/prepare": "identity",
   "POST /api/v1/terminal-commands/execute": "stock",
+  // P2 desktop enrollment and staff sessions. Counters are branch management; the rest bind or
+  // remove a device/staff identity and move no stock, cash or grant.
+  "POST /api/v1/terminals/attendance-proofs": "identity",
+  "POST /api/v1/terminals/counters": "management",
+  "POST /api/v1/terminals/devices/:terminalId/retire": "identity",
+  "POST /api/v1/terminals/enrollments": "identity",
+  "POST /api/v1/terminals/enrollments/:enrollmentId/revoke": "identity",
+  "POST /api/v1/terminals/enrollments/challenge": "identity",
+  "POST /api/v1/terminals/enrollments/code-challenge": "identity",
+  "POST /api/v1/terminals/enrollment-codes": "identity",
+  "POST /api/v1/terminals/enrollment-codes/:codeId/revoke": "identity",
+  "POST /api/v1/terminals/sessions": "identity",
+  "POST /api/v1/terminals/sessions/:workSessionId/end": "identity",
+  "POST /api/v1/terminals/sessions/:workSessionId/pin": "identity",
+  "POST /api/v1/terminals/sessions/:workSessionId/prepare": "identity",
+  "POST /api/v1/terminals/sessions/:workSessionId/test-receipt": "local_record",
+  "POST /api/v1/terminals/sessions/challenge": "identity",
   // Revised D13 remote management: delegation and online assignment authorization only. They
   // nominate nothing; local signed activation on the exact target is a separate step.
+  // Revised D13 local activation: the signed, attended step on the exact target. Issues no grant.
+  "POST /api/v1/terminals/offline-assignment/activate": "local_record",
+  "POST /api/v1/terminals/offline-assignment/activate/challenge": "identity",
   "POST /api/v1/terminals/offline-assignment/authorizations": "management",
   "POST /api/v1/terminals/offline-assignment/authorizations/:authorizationId/revoke":
     "management",

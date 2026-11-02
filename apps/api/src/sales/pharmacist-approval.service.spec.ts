@@ -1,4 +1,4 @@
-import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
+import { ForbiddenException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { RoleName } from "@prisma/client";
 import * as bcrypt from "bcrypt";
@@ -18,6 +18,7 @@ describe("PharmacistApprovalService", () => {
   let prisma: {
     appUser: { findFirst: jest.Mock; update: jest.Mock };
     userBranchRole: { findMany: jest.Mock };
+    branch: { findFirst: jest.Mock };
   };
   let audit: AuditService;
   let service: PharmacistApprovalService;
@@ -29,6 +30,9 @@ describe("PharmacistApprovalService", () => {
         update: jest.fn().mockResolvedValue({}),
       },
       userBranchRole: { findMany: jest.fn() },
+      branch: {
+        findFirst: jest.fn().mockResolvedValue({ desktopPosRollout: "not_live", posFallbackEndsAt: null }),
+      },
     };
     audit = { log: jest.fn() } as unknown as AuditService;
     const permissions = new PermissionsService(
@@ -76,7 +80,10 @@ describe("PharmacistApprovalService", () => {
 
     await expect(
       service.verifyApproverPin(tenantId, branchId, approverId, "0000", actorUserId),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: "APPROVER_PIN_INCORRECT" },
+    });
     expect(prisma.appUser.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: approverId },
@@ -99,5 +106,44 @@ describe("PharmacistApprovalService", () => {
     await expect(
       service.verifyApproverPin(tenantId, branchId, approverId, "password", actorUserId),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  describe("web PIN set (D-W5)", () => {
+    const owner = [{ branchId, role: RoleName.owner }];
+    beforeEach(() => {
+      prisma.appUser.findFirst.mockResolvedValue({ id: actorUserId, passwordHash: "pwd" });
+      mockedBcrypt.compare.mockImplementation(async () => true);
+    });
+
+    it("refuses at a branch live on PharmaCeylon POS: the PIN is set at the counter", async () => {
+      prisma.branch.findFirst.mockResolvedValue({ desktopPosRollout: "live", posFallbackEndsAt: null });
+      await expect(
+        service.setPosPin(tenantId, actorUserId, owner, branchId, "1234", "password"),
+      ).rejects.toMatchObject({ response: { code: "PIN_SET_AT_COUNTER" } });
+      await expect(
+        service.clearPosPin(tenantId, actorUserId, owner, branchId, "password"),
+      ).rejects.toMatchObject({ response: { code: "PIN_SET_AT_COUNTER" } });
+      expect(prisma.appUser.update).not.toHaveBeenCalled();
+    });
+
+    it("still works before go-live and during a fallback to the web POS", async () => {
+      await expect(
+        service.setPosPin(tenantId, actorUserId, owner, branchId, "1234", "password"),
+      ).resolves.toEqual({ set: true });
+      prisma.branch.findFirst.mockResolvedValue({
+        desktopPosRollout: "live",
+        posFallbackEndsAt: new Date(Date.now() + 3_600_000),
+      });
+      await expect(
+        service.setPosPin(tenantId, actorUserId, owner, branchId, "1234", "password"),
+      ).resolves.toEqual({ set: true });
+    });
+
+    it("answers a wrong password with 403, not 401, so clients don't resend it", async () => {
+      mockedBcrypt.compare.mockImplementation(async () => false);
+      await expect(
+        service.setPosPin(tenantId, actorUserId, owner, branchId, "1234", "nope"),
+      ).rejects.toMatchObject({ status: 403, response: { code: "PASSWORD_INCORRECT" } });
+    });
   });
 });

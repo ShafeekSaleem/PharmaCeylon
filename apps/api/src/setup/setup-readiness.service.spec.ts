@@ -61,6 +61,9 @@ describe("SetupReadinessService", () => {
           .mockResolvedValue([{ id: "batch-1", needsExpiryReview: false }]),
       },
       terminalEnrollment: { count: jest.fn().mockResolvedValue(0) },
+      terminalStaffPreparation: { findMany: jest.fn().mockResolvedValue([]) },
+      terminalTestReceipt: { count: jest.fn().mockResolvedValue(0) },
+      appUser: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     // Catalog coverage sits in the optional block and never gates readiness — stubbed so

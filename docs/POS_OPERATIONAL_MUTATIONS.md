@@ -69,7 +69,7 @@ offline approvals, refunds/voids and stock operations remain blocked.
 | `suppliers/*` | Online remote supplier/master/price management. Legacy invoice payments use the same evidence/authority rules: bank-payment record remote, actual branch cash local. |
 | `products/*` | Online remote catalog/prices/eligibility/categories/tags/aliases/NMRA/barcode and catalog-only import/analyze/preview/selection. Import confirm/undo creating/removing batches or stock requires local execution; split mixed jobs. Preserve historical snapshot identities. D-W2 (live branches): an import's stock rows may be staged remotely as a no-effect draft; posting them is the local step. |
 | `catalog-tasks/*` | Online remote catalog refresh/apply/dismiss/reopen, including bulk safe apply, with permissions and provenance. A stock-bearing side effect requires local execution. |
-| `customers/*`, `prescriptions` | Online remote administrative customer contact editing with existing permissions/privacy. Prescription clinical verification, qualified sign-off and dispensing remain local and online; administrative permission is not clinical authority. |
+| `customers/*`, `prescriptions` | Online remote administrative customer contact editing with existing permissions/privacy. Prescription clinical verification, qualified sign-off and dispensing remain local and online; administrative permission is not clinical authority. `POST prescriptions` is `clinical` and a signed terminal command: the session's staff member must hold a current SLMC registration, and the registration relied on is recorded in the command provenance. |
 | `admin/*`, `staff-invitations/*` | Online identity/access administration; remote management allowed with existing permissions. Changes invalidate sessions/grants according to revocation policy; cannot retroactively undo disconnected sales. `admin/pharmacist-registrations` (record, revoke) is owner-only `identity`: it records qualification evidence that clinical execution checks, and dispenses nothing. |
 | `auth/*` | Authentication/self-profile/password/avatar/session management, allowed online from permitted clients; never confers terminal authority by itself. |
 | `tenant/*` | Online remote tenant/branch/settings management. Settings version future grants, never rewrite signed historical grants or rebind enrolled identity. Revised D13 separates remote online assignment authorization from exact-target local online activation. W1: `branches/:branchId/pos-rollout/live` and `/fallback` (POST and DELETE) are the owner-only desktop POS switch and web-POS fallback (D-W1, D-W7), classified `management`; going live is refused until the go-live checklist passes. |
@@ -144,8 +144,19 @@ Four routes, all `management`: `POST /terminals/offline-assignment/delegations`,
 `…/delegations/:delegationId/revoke`, `…/authorizations` and
 `…/authorizations/:authorizationId/revoke`. They record owner delegation and online assignment
 authorization only — no nomination, grant, stock or cash effect, no terminal proof. Activation on
-the exact target is a separate local signed step (P2/P3) and will be classified with its own
-operation. Contract: [API_CONTRACT.md](API_CONTRACT.md).
+the exact target is a separate local signed step: `…/activate/challenge` is `identity` (issues a
+challenge) and `…/activate` is `local_record` (signed, attended, on the exact target; writes the
+nomination, no grant). Contract: [API_CONTRACT.md](API_CONTRACT.md).
+
+## P2 desktop enrollment and staff sessions
+
+`POST /terminals/counters` is `management`. The other thirteen routes are `identity`:
+enrollment challenge/code-challenge/finish, enrollment code issue/revoke, revoke, retire,
+attendance proofs, staff-session challenge/finish/end and the caller's own PIN set/prepare.
+`POST /terminals/sessions/:workSessionId/test-receipt` is `local_record` (go-live evidence recorded
+at the counter). They
+bind or remove a device or staff identity and move no stock, cash or grant. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#desktop-enrollment-and-staff-sessions-p2).
 
 ## P1 signed terminal commands
 

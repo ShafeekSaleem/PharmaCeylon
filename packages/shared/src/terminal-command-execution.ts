@@ -17,6 +17,7 @@ export const SIGNED_PHYSICAL_OPERATIONS = [
   "POST /api/v1/purchasing/prepared-receipts/:id/post",
   "POST /api/v1/returns/:id/complete",
   "POST /api/v1/inventory/adjustments",
+  "POST /api/v1/prescriptions",
 ] as const;
 export type SignedPhysicalOperation = typeof SIGNED_PHYSICAL_OPERATIONS[number];
 
@@ -66,6 +67,19 @@ export type SignedOperationBody = {
     qty: number;
     reason: string | null; // required for a correction
     fromQuarantine: boolean; // write-offs only
+  }>;
+  /** A prescription presented at the counter. The signed session's staff member must hold a
+   * current SLMC registration at the branch (PHARMACIST_REQUIRED otherwise); approvalEvidenceId
+   * must be null. Every key is present; text is exact and trimmed; dates are YYYY-MM-DD. */
+  "POST /api/v1/prescriptions": Readonly<{
+    rxNumber: string | null; // null: the server allocates RX-#####
+    patientName: string;
+    doctorName: string;
+    doctorRegNo: string | null;
+    issuedOn: string;
+    validUntil: string | null; // null: never lapses
+    customerId: string | null;
+    notes: string | null;
   }>;
 };
 
@@ -123,11 +137,16 @@ export type SignedOperationResult = {
     type: "stock_adjustment.posted"; productId: string; batchId: string;
     movementType: "adjustment_in" | "adjustment_out"; qty: number; stockReferenceId: string;
   }>;
+  /** Each command is its own prescription; a replay returns this original receipt. */
+  "POST /api/v1/prescriptions": Readonly<{
+    type: "prescription.recorded"; prescriptionId: string; rxNumber: string;
+    pharmacistRegistrationId: string; // the SLMC registration the pharmacist was qualified by
+  }>;
 };
 
 /** POST /api/v1/terminal-commands/prepare (Bearer + x-branch-id). Returns OnlineTerminalCommand<body>.
  * approvalEvidenceId is required for stocktake/held posting, must be null for import operations,
- * direct adjustments and transfer receipt, and is the transfer's approval (or null where waived) for transfer dispatch;
+ * direct adjustments, prescriptions and transfer receipt, and is the transfer's approval (or null where waived) for transfer dispatch;
  * pharmacist/hours evidence IDs must be null for every v1 operation.
  */
 export type TerminalCommandPrepareRequest<O extends SignedPhysicalOperation = SignedPhysicalOperation> = Readonly<{

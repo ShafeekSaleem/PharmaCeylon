@@ -1,3 +1,4 @@
+import { TerminalsModule } from "../terminals/terminals.module";
 import { Module } from "@nestjs/common";
 import { CatalogModule } from "../catalog/catalog.module";
 import { HeldSalesService } from "./held-sales.service";
@@ -12,7 +13,7 @@ import { SetupModule } from "../setup/setup.module";
 import { OperationalAuthorizationModule } from "../security/operational-authorization.module";
 
 @Module({
-  imports: [CatalogModule, SetupModule, OperationalAuthorizationModule],
+  imports: [CatalogModule, SetupModule, OperationalAuthorizationModule, TerminalsModule],
   // Refund requests first: `/sales/refund-requests` must not reach `GET /sales/:id`.
   controllers: [RefundRequestsController, SalesController],
   providers: [

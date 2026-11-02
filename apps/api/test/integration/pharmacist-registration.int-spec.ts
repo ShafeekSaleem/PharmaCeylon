@@ -8,6 +8,9 @@ import { createTenantAwarePrismaProxy } from "../../src/prisma/tenant-aware-pris
 import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { MandatoryOperationEvidence } from "../../src/security/mandatory-operation-evidence";
+import { OperationAuthorizationService } from "../../src/security/operation-authorization.service";
+import { PERMISSION_KEYS } from "../../src/security/permission-catalog";
+import { object } from "../../src/terminals/terminal-wire";
 import { createPrisma, createTenant, TenantFixture } from "./fixtures";
 
 /** P1 #47: owner-recorded SLMC registrations are the only clinical qualification. */
@@ -329,5 +332,68 @@ describe("MandatoryOperationEvidence.clinical", () => {
     await expect(code(tx((c) => new MandatoryOperationEvidence().clinical(c, command(pharmacistId))))).resolves.toBe(
       "PHARMACIST_REQUIRED",
     );
+  });
+});
+
+describe("no clinical bypass through ownership or role administration", () => {
+  it("a custom role holding every permission key is still not qualified, and cannot record its own registration", async () => {
+    // Migrations seed only migration-added keys; the catalog rows come from the app seed.
+    await prisma.permission.createMany({
+      skipDuplicates: true,
+      data: PERMISSION_KEYS.map((key) => ({ key, module: key.split(".")[0]!, label: key, description: key })),
+    });
+    const role = await prisma.role.create({
+      data: {
+        tenantId: fx.tenantId,
+        key: `everything-${randomUUID().slice(0, 8)}`,
+        name: "Everything",
+        permissions: { create: PERMISSION_KEYS.map((permissionKey) => ({ tenantId: fx.tenantId, permissionKey })) },
+      },
+    });
+    const assignment = { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.managerId };
+    await prisma.userBranchRole.updateMany({ where: assignment, data: { role: "custom", roleId: role.id } });
+    try {
+      const live = await tx((c) => access.resolveLive(user(fx.managerId), fx.mainBranchId, c));
+      expect(PERMISSION_KEYS.filter((key) => !live.has(key))).toEqual([]);
+      await expect(qualified(fx.managerId)).resolves.toBe("PHARMACIST_REQUIRED");
+      await expect(code(record(fx.managerId, "SELF-1", dayKey(30), fx.managerId))).resolves.toBe(
+        "PHARMACIST_REGISTRATION_OWNER_ONLY",
+      );
+    } finally {
+      await prisma.userBranchRole.updateMany({ where: assignment, data: { role: "manager", roleId: null } });
+    }
+  });
+
+  it("the operation boundary demands a registration for clinical work even from an owner on a verified counter", async () => {
+    class OpenHours extends MandatoryOperationEvidence {
+      override async hours() {}
+    }
+    const signed = command(fx.ownerId, { operation: "POST /api/v1/sales/checkout" });
+    // The counter proof itself is covered by terminal-execution.int-spec.ts; this pins the clinical port.
+    const verifiedCounter = { verifyCommand: async () => ({ command: signed, digest: "d".repeat(64), attendanceId: randomUUID() }) };
+    const boundary = new OperationAuthorizationService(
+      access,
+      verifiedCounter as never,
+      new OpenHours(undefined, undefined, registrations),
+      {} as never,
+    );
+    const checkout = {
+      method: "POST" as const,
+      routeTemplate: "/api/v1/sales/checkout",
+      permission: "sales.pos_use",
+      parseBody: (raw: unknown) => object(raw, []),
+      resolveFacts: async () => ({ clinicalSale: true, cashMovement: true }),
+    };
+    const authorize = () =>
+      tx((c) =>
+        boundary.authorize(c, user(fx.ownerId), fx.mainBranchId, checkout, {
+          body: {},
+          signedCommand: {},
+          attendanceProofId: randomUUID(),
+        }),
+      );
+    await expect(code(authorize())).resolves.toBe("PHARMACIST_REQUIRED");
+    const row = await record(fx.ownerId, "OWN-CLIN-1");
+    await expect(authorize()).resolves.toMatchObject({ clinical: { registrationId: row.id, slmcNumber: "OWN-CLIN-1" } });
   });
 });

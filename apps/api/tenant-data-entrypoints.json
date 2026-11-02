@@ -131,7 +131,7 @@
     {
       "path": "src/terminals/terminal-trust.service.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Locks one enrollment by bound tenant, branch and enrollment id to serialize command/session verification, revocation and session closure through the caller's transaction."
+      "reason": "Locks one enrollment by bound tenant, branch and enrollment id to serialize command/session verification, revocation and session closure through the caller's transaction; locks one counter by tenant, branch and register id so concurrent enrollments onto it serialize."
     },
     {
       "path": "src/terminal-commands/terminal-command.executor.ts",
@@ -147,6 +147,16 @@
       "path": "src/clinical/pharmacist-registration.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one tenant membership or pharmacist registration row by the caller's tenant id and the target id (FOR UPDATE / FOR SHARE) to serialize recording, revocation and the clinical check; no data is written by raw SQL."
+    },
+    {
+      "path": "src/terminals/enrollment-codes.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one enrollment code row by the caller's tenant, branch and code id before revoking it; no data is written by raw SQL."
+    },
+    {
+      "path": "src/terminals/local-attendance.verifier.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one attendance proof row by the expected tenant, branch and proof id so two operations cannot consume the same proof; no data is written by raw SQL."
     },
     {
       "path": "src/terminals/offline-assignment.service.ts",
@@ -256,7 +266,7 @@
     {
       "path": "src/sales/sales.service.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Locks one tenant/branch sale before a refund or void, so concurrent refunds of the same units serialize; stock, payments, status and audit share the caller transaction."
+      "reason": "Locks one tenant/branch sale before a refund or void, so concurrent refunds of the same units serialize; stock, payments, status and audit share the caller transaction. Checkout takes a transaction-scoped advisory lock on the caller's tenant + user + idempotency key only, so overlapping retries serialize and replay the committed sale; no data is read or written by raw SQL."
     },
     {
       "path": "src/sales/refund-requests.service.ts",

@@ -170,10 +170,23 @@ function GetStartedContent() {
         >
           <h2>Prepare staff for the counter</h2>
           <p>
-            Each person must sign in on the enrolled counter before it can
-            prepare their credentials. Desktop sessions and verified
-            test-receipt evidence are still pending.
+            Each person signs in on an enrolled counter once while online and
+            enters their PIN there. A manager then prints a test receipt from
+            the counter.
           </p>
+          <ul>
+            <li>
+              Counters enrolled: {data.desktopSetup.enrolledCounters}
+            </li>
+            <li>
+              Staff prepared on a counter:{" "}
+              {data.desktopSetup.staffPrepared ? "Yes" : "Not yet"}
+            </li>
+            <li>
+              Test receipt printed:{" "}
+              {data.desktopSetup.testReceipt ? "Yes" : "Not yet"}
+            </li>
+          </ul>
           <h3>Choose an offline counter — optional</h3>
           <p>
             Offline assignment is a separate step once counter enrollment and

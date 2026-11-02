@@ -104,6 +104,17 @@ export function boundedCanonical(value: unknown): string {
   return encoded;
 }
 
+/** The exact bytes a device signed: bounded like every terminal payload, under its purpose. */
+export function signingText(
+  value: unknown,
+  purpose: "command" | "attendance",
+): string {
+  const encoded = boundedCanonical(value);
+  return purpose === "command"
+    ? encoded
+    : terminalSigningText(purpose, value);
+}
+
 export function parseEnvelope(raw: unknown): Signed<unknown> {
   boundedCanonical(raw);
   const envelope = object(raw, ["algorithm", "keyId", "payload", "signature"]);
@@ -204,6 +215,7 @@ export function parseOnlineCommand<T>(
 export function verifySignature(
   envelope: Signed<unknown>,
   publicKeyHex: string,
+  purpose: "command" | "attendance" = "command",
 ): void {
   hex(publicKeyHex);
   const key = createPublicKey({
@@ -217,7 +229,7 @@ export function verifySignature(
   if (
     !verify(
       null,
-      Buffer.from(boundedCanonical(envelope.payload)),
+      Buffer.from(signingText(envelope.payload, purpose)),
       key,
       Buffer.from(envelope.signature, "base64url"),
     )

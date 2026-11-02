@@ -45,6 +45,9 @@ import {
 } from "./sale-returnable";
 import { SALE_INCLUDE } from "./sale-read.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
+import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
+import { TerminalTrustService } from "../terminals/terminal-trust.service";
 
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
@@ -64,6 +67,13 @@ function isBatchExpired(expiryDate: Date, todayUtc: Date): boolean {
     Date.UTC(exp.getUTCFullYear(), exp.getUTCMonth(), exp.getUTCDate()),
   );
   return expUtc < todayUtc;
+}
+
+/** Thrown inside the checkout transaction when the same key's first attempt has committed. */
+class CheckoutReplay extends Error {
+  constructor(readonly saleId: string) {
+    super("checkout replay");
+  }
 }
 
 /** `INV-YYMM-000123` — human-readable at the counter, unique per branch. */
@@ -146,6 +156,8 @@ export class SalesService {
     private readonly pharmacistApproval: PharmacistApprovalService,
     private readonly setupReadiness: SetupReadinessService,
     private readonly stock: StockService,
+    private readonly terminalTrust?: TerminalTrustService,
+    private readonly operatingHours?: OperatingHoursEvidence,
   ) {}
 
   private branchEffectiveRoles(
@@ -188,9 +200,10 @@ export class SalesService {
 
     if (needsRx.length > 0 && !input.prescriptionId) {
       const names = needsRx.map((p) => p.name).join(", ");
-      throw new BadRequestException(
-        `A prescription must be linked before dispensing: ${names}`,
-      );
+      throw new BadRequestException({
+        code: "PRESCRIPTION_REQUIRED",
+        message: `A prescription must be linked before dispensing: ${names}`,
+      });
     }
 
     if (controlled.length === 0) {
@@ -208,9 +221,11 @@ export class SalesService {
       !input.pharmacistApproval?.approverUserId ||
       !input.pharmacistApproval.pin
     ) {
-      throw new ForbiddenException(
-        "Controlled medicines need pharmacist approval. Ask a pharmacist to enter their till PIN, or park this sale for handoff.",
-      );
+      throw new ForbiddenException({
+        code: "PHARMACIST_APPROVAL_REQUIRED",
+        message:
+          "Controlled medicines need pharmacist approval. Ask a pharmacist to enter their till PIN, or park this sale for handoff.",
+      });
     }
 
     const verified = await this.pharmacistApproval.verifyApproverPin(
@@ -288,6 +303,8 @@ export class SalesService {
     branchRoles: BranchRoleEntry[],
     dto: CheckoutDto,
     idempotencyKeyRaw: string | undefined,
+    /** P2: the seller's own open staff session on an enrolled counter, for attribution only. */
+    counter?: { user: RequestUser; workSessionId: string },
   ) {
     await this.setupReadiness.assertCanSell(tenantId, branchId);
     const idempotencyKey = normalizeIdempotencyKey(idempotencyKeyRaw);
@@ -426,6 +443,43 @@ export class SalesService {
 
     try {
       const sale = await this.prisma.$transaction(async (tx) => {
+        if (idempotencyKey) {
+          // Same key, same lock. A resend that overlaps its first attempt (a client timeout while
+          // the original still runs) waits here, then finds the committed record and replays it,
+          // instead of failing on stock the original just took and being taken as a refusal.
+          // Hash collisions only over-serialize.
+          const lockKey = `checkout:${tenantId}:${userId}:${idempotencyKey}`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+          const committed = await tx.idempotencyRecord.findUnique({
+            where: {
+              tenantId_userId_scope_idempotencyKey: {
+                tenantId,
+                userId,
+                scope: IDEMPOTENCY_SCOPE.checkout,
+                idempotencyKey,
+              },
+            },
+          });
+          if (committed) throw new CheckoutReplay(committed.resourceId);
+        }
+        // Attribution, not authority: the session must be the seller's own, open, on an active
+        // enrollment at this branch. It serializes sales per counter on the enrollment lock.
+        let attribution: { terminalId: string; tillId: string; workSessionId: string } | null = null;
+        if (counter) {
+          if (!this.terminalTrust) throw new Error("Counter attribution needs the terminal trust service");
+          if (counter.user.userId !== userId) throw new ForbiddenException("The counter session belongs to someone else");
+          const { session, identity } = await this.terminalTrust.requireOpenSession(
+            tx,
+            counter.user,
+            branchId,
+            counter.workSessionId,
+          );
+          attribution = { terminalId: identity.terminalId, tillId: session.tillId, workSessionId: session.id };
+          // P2 / D-W6: a counter sale respects the branch's mandatory selling restrictions.
+          // Routine closing time stays advisory online.
+          if (!this.operatingHours) throw new Error("Counter checkout needs the operating-hours provider");
+          await this.operatingHours.assertMandatoryForSale(tx, tenantId, branchId);
+        }
         const lines: Array<{
           productId: string;
           batchId: string;
@@ -602,6 +656,9 @@ export class SalesService {
                 notes: dto.notes?.trim() || null,
                 soldBy: userId,
                 dispensedBy: dispensedBy,
+                terminalId: attribution?.terminalId ?? null,
+                tillId: attribution?.tillId ?? null,
+                workSessionId: attribution?.workSessionId ?? null,
                 items: {
                   create: lines.map((l) => ({
                     tenantId,
@@ -717,6 +774,18 @@ export class SalesService {
         include: SALE_INCLUDE,
       });
     } catch (e) {
+      if (e instanceof CheckoutReplay) {
+        const replay = await this.prisma.sale.findFirst({
+          where: { id: e.saleId, tenantId, branchId },
+          include: SALE_INCLUDE,
+        });
+        // Same answer as the pre-transaction replay: the key belongs to a sale elsewhere.
+        if (!replay)
+          throw new BadRequestException(
+            "Idempotency-Key is already recorded but the sale could not be replayed",
+          );
+        return replay;
+      }
       if (idempotencyKey && isPrismaUniqueFieldError(e, "idempotency")) {
         const row = await this.prisma.idempotencyRecord.findUnique({
           where: {

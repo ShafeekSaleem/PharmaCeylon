@@ -15,11 +15,56 @@ import { apiJson, type TenantBranch } from "@/lib/auth-client";
 import { ConfirmDialog } from "../../products/components/confirm-dialog";
 import { PurchasingSelect } from "../../purchasing/components/purchasing-select";
 import { fetchAdminBranches, fetchStaffSecurity, forceStaffLogout, resetStaffPin } from "../api";
-import { DISPENSE_APPROVER_ROLES, ROLE_COLORS } from "../constants";
+import { ROLE_COLORS } from "../constants";
 import { useRoles } from "../hooks/use-roles";
 import type { AdminUser, SecurityInfo } from "../types";
 import { formatDate, roleDisplayName } from "../utils";
 import css from "../users.module.css";
+
+/**
+ * D-W5: the PIN is set and changed on the desktop, never here. Each counter keeps its own
+ * verifier, so a person can unlock a counter offline only after preparing it at their current
+ * PIN version; a change or reset makes every earlier preparation stale.
+ */
+export function PinStatus({ security }: { security: SecurityInfo }) {
+  const { pin, preparedCounters } = security;
+  const state = pin.isLocked
+    ? `Locked until ${new Date(pin.lockedUntil!).toLocaleTimeString()}`
+    : pin.isSet
+      ? "Set"
+      : "Not set";
+  const stale = preparedCounters.filter((c) => !c.current);
+  return (
+    <div style={{ marginBottom: "0.75rem" }} aria-label="PIN status">
+      <p style={{ margin: "0 0 0.35rem" }}>
+        PIN: <strong>{state}</strong>
+        {pin.isSet ? <span className={css.mutedText}> · version {pin.version}</span> : null}
+      </p>
+      {preparedCounters.length === 0 ? (
+        <p className={css.mutedText} style={{ margin: 0 }}>
+          {pin.isSet
+            ? "Not prepared on any counter yet. They sign in once at each counter while online to use it offline."
+            : "They set their PIN when they first sign in at a counter."}
+        </p>
+      ) : (
+        <ul style={{ margin: 0, paddingLeft: "1.1rem" }}>
+          {preparedCounters.map((c) => (
+            <li key={c.terminalId}>
+              {c.counterLabel} <span className={css.mutedText}>({c.branchName})</span> —{" "}
+              {c.current ? "prepared" : "needs preparing again since their PIN changed"}
+            </li>
+          ))}
+        </ul>
+      )}
+      {stale.length > 0 && pin.isSet ? (
+        <p className={css.mutedText} style={{ margin: "0.35rem 0 0" }}>
+          Until then, {stale.length === 1 ? "that counter" : "those counters"} can&apos;t unlock for them
+          offline.
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 type Props = {
   open: boolean;
@@ -89,7 +134,6 @@ export function ManageStaffModal({
   if (!staff) return null;
 
   const isSelf = staff.id === currentUserId;
-  const targetCanDispense = staff.userBranchRoles.some((r) => DISPENSE_APPROVER_ROLES.includes(r.role));
   const assignableRoles = actorIsOwner ? roles : roles.filter((r) => r.key !== "owner");
 
   async function saveName() {
@@ -346,6 +390,8 @@ export function ManageStaffModal({
           Security
         </div>
 
+        {security ? <PinStatus security={security} /> : null}
+
         <div className={css.actionsRow}>
           <ModalButton
             variant="secondary"
@@ -355,7 +401,7 @@ export function ManageStaffModal({
             <IconLogOut size={14} /> Force logout
           </ModalButton>
 
-          {targetCanDispense && security ? (
+          {security ? (
             <ModalButton
               variant="secondary"
               onClick={() => setPendingAction("resetPin")}
@@ -364,11 +410,11 @@ export function ManageStaffModal({
                 security.pin.isLocked
                   ? `Till PIN is locked (${security.pin.failedAttempts} failed attempt${security.pin.failedAttempts === 1 ? "" : "s"}) — clear it so they can set a new one`
                   : security.pin.isSet
-                    ? "Till PIN is set — clear it so they can set a new one from POS → Quick Actions"
+                    ? "PIN is set — clear it so they set a new one at the counter"
                     : "No till PIN set yet"
               }
             >
-              <IconLock size={14} /> Reset till PIN
+              <IconLock size={14} /> Reset PIN
             </ModalButton>
           ) : null}
 
@@ -412,7 +458,7 @@ export function ManageStaffModal({
               : pendingAction === "reactivate"
                 ? "Reactivate this account?"
                 : pendingAction === "resetPin"
-                  ? "Reset till PIN?"
+                  ? "Reset PIN?"
                   : "Delete this account?"
         }
         confirmLabel={
@@ -451,7 +497,7 @@ export function ManageStaffModal({
           {pendingAction === "reactivate" &&
             `Reactivate ${staff.fullName}'s account? They'll be able to log in again immediately.`}
           {pendingAction === "resetPin" &&
-            `Reset ${staff.fullName}'s till PIN? They'll need to set a new one from POS → Quick Actions.`}
+            `Reset ${staff.fullName}'s PIN? They'll set a new one at the counter, then prepare each counter they use offline again.`}
           {pendingAction === "delete" &&
             `Permanently delete ${staff.fullName}'s account? This can't be undone. It will only succeed if the account has no sales, purchases, or other activity on record.`}
         </p>

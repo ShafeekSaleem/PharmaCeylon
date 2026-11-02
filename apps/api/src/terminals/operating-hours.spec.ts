@@ -173,3 +173,40 @@ describe("MandatoryOperationEvidence.hours", () => {
     expect(provider.assertForCommand).toHaveBeenCalledWith("tx", "cmd");
   });
 });
+
+describe("OperatingHoursEvidence.assertMandatoryForSale (P2 online counter checkout)", () => {
+  class FixedClock extends OperatingHoursEvidence {
+    protected now() {
+      return at("2026-10-26T20:00"); // Monday, after routine closing
+    }
+  }
+  const tx = (branch: { operatingHours: unknown; timezone: string } | null) =>
+    ({ branch: { findFirst: async () => branch } }) as never;
+  const sale = (branch: { operatingHours: unknown; timezone: string } | null) =>
+    new FixedClock().assertMandatoryForSale(tx(branch), "t", "b");
+
+  it("lets a sale through after routine closing: routine hours stay advisory online", async () => {
+    await expect(sale({ operatingHours: hours(), timezone: COLOMBO })).resolves.toBeUndefined();
+  });
+
+  it("refuses outside a mandatory window, which nobody can override", async () => {
+    const h = hours({ mandatory: [{ day: "mon", opens: "08:00", closes: "19:00" }] });
+    await expect(sale({ operatingHours: h, timezone: COLOMBO })).rejects.toMatchObject({
+      response: { code: "OUTSIDE_OPERATING_HOURS" },
+    });
+    await expect(sale({ operatingHours: hours({ mandatory: [] }), timezone: COLOMBO })).rejects.toMatchObject({
+      response: { code: "OUTSIDE_OPERATING_HOURS" },
+    });
+  });
+
+  it("fails closed on unreadable hours or timezone, but not on hours never set", async () => {
+    await expect(sale({ operatingHours: { nope: true }, timezone: COLOMBO })).rejects.toMatchObject({
+      response: { code: "TEMPORARILY_UNAVAILABLE" },
+    });
+    await expect(sale({ operatingHours: hours(), timezone: "Not/AZone" })).rejects.toMatchObject({
+      response: { code: "TEMPORARILY_UNAVAILABLE" },
+    });
+    await expect(sale({ operatingHours: null, timezone: COLOMBO })).resolves.toBeUndefined();
+    await expect(sale(null)).rejects.toMatchObject({ response: { code: "TEMPORARILY_UNAVAILABLE" } });
+  });
+});

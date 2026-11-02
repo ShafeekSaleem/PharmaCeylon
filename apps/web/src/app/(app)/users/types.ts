@@ -62,12 +62,25 @@ export type SessionInfo = {
   createdAt: string;
 };
 
+/** A counter the person entered their PIN on while online (D-W5). Stale after a PIN change. */
+export type PreparedCounter = {
+  terminalId: string;
+  branchId: string;
+  branchName: string;
+  counterLabel: string;
+  preparedAt: string;
+  pinVersion: number;
+  current: boolean;
+};
+
 export type SecurityInfo = {
   pin: {
     isSet: boolean;
     isLocked: boolean;
     lockedUntil: string | null;
     failedAttempts: number;
+    version: number;
   };
+  preparedCounters: PreparedCounter[];
   sessions: SessionInfo[];
 };

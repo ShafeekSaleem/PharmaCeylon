@@ -12,7 +12,7 @@ describe("PrescriptionsService.list", () => {
         count: jest.fn().mockResolvedValue(0),
       },
     };
-    service = new PrescriptionsService(prisma as never);
+    service = new PrescriptionsService(prisma as never, { log: jest.fn() } as never);
   });
 
   const whereOf = () => prisma.prescription.findMany.mock.calls[0][0].where;

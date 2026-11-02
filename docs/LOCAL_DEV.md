@@ -52,7 +52,7 @@ skips anything it already created, so running it again later in the day only top
 | Web only | `npm run dev -w web` (use together with API, or use root `npm run dev`) |
 | API typecheck | `npm run lint -w api` (also checks tenant scoping and that only `StockService` writes stock) |
 | API tests | `npm run test -w api` |
-| API integration tests (DB-backed) | `npm run test:integration -w api` — needs PostgreSQL; creates and migrates `<your database>_it`, never touches your own data |
+| API integration tests (DB-backed) | `npm run test:integration -w api` — needs PostgreSQL; creates and migrates `<your database>_it_<hash>`, one per checkout (so worktrees running the suite at once never share a database; set `INTEGRATION_DATABASE_URL` to choose one), never touches your own data |
 | Stock totals check | `npm run reconcile:stock -w api` — read-only; exits 1 if `batch_stock` disagrees with the ledger |
 | Web lint | `npm run lint -w web` |
 

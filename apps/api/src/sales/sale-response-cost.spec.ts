@@ -175,7 +175,7 @@ describe("Sale responses carry no batch cost", () => {
 
   // Refund answers with the same `getSale` read as void and `GET /sales/:id`.
   it.each<[string, (controller: SalesController) => Promise<unknown>]>([
-    ["POST /sales/checkout", (c) => c.checkout(cashier, BRANCH, "key-1", { items: [] } as never)],
+    ["POST /sales/checkout", (c) => c.checkout(cashier, BRANCH, "key-1", undefined, { items: [] } as never)],
     ["GET /sales/pos/by-invoice", (c) => c.posByInvoice(cashier, BRANCH, "0042")],
     ["GET /sales", (c) => c.list(cashier, BRANCH)],
     ["GET /sales/:id", (c) => c.getOne(cashier, BRANCH, "sale-1")],

@@ -39,3 +39,6 @@ apps/api/storage/
 # Test / coverage
 coverage/
 test-results/
+
+# TypeScript incremental build state
+*.tsbuildinfo

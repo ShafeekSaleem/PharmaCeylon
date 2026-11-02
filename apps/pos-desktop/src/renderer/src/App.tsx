@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ApiReachability, AppInfo, CheckStatus, Printer, ReadinessReport } from "../../shared/ipc-contract";
+import type {
+  ApiReachability,
+  AppInfo,
+  CheckStatus,
+  DeviceState,
+  Printer,
+  ReadinessReport,
+} from "../../shared/ipc-contract";
 import styles from "./App.module.css";
+import { Checkout } from "./Checkout";
+import { CounterWork } from "./CounterWork";
+import { CounterAccess } from "./CounterAccess";
 
 const API_POLL_MS = 15_000;
 
@@ -11,11 +21,22 @@ const STATUS_LABEL: Record<CheckStatus, string> = {
   not_ready: "Not set up",
 };
 
-function PrinterTest() {
+function PrinterTest({ signedIn }: { signedIn: boolean }) {
   const [printers, setPrinters] = useState<Printer[] | null>(null);
   const [selected, setSelected] = useState("");
   const [printing, setPrinting] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [printed, setPrinted] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<string | null>(null);
+
+  async function confirm() {
+    if (!printed) return;
+    const result = await window.pos.confirmTestReceipt({ printerName: printed }).catch(() => null);
+    if (result?.ok) {
+      setConfirmed(result.value.confirmedAt);
+      setPrinted(null);
+    } else setMessage({ ok: false, text: result && !result.ok ? result.error.message : "Could not record it." });
+  }
 
   useEffect(() => {
     window.pos
@@ -37,6 +58,7 @@ function PrinterTest() {
           ? { ok: true, text: "Sent to the printer. Check that the receipt came out." }
           : { ok: false, text: result.error ?? "The test receipt did not print." },
       );
+      setPrinted(result.ok ? selected : null);
     } catch {
       setMessage({ ok: false, text: "The test receipt did not print." });
     } finally {
@@ -75,14 +97,35 @@ function PrinterTest() {
           {message.text}
         </p>
       )}
+      {printed && signedIn && (
+        <button type="button" className="pc-btn-outline" onClick={() => void confirm()}>
+          Yes, the receipt came out
+        </button>
+      )}
+      {printed && !signedIn && <p className="pc-muted">Sign in to record that the test receipt printed.</p>}
+      {confirmed && <p className={styles.resultOk}>Recorded for the branch go-live checklist.</p>}
     </section>
   );
+}
+
+function DevicePill({ device }: { device: DeviceState | null }) {
+  const status = device?.enrollment?.status;
+  if (status === "active")
+    return (
+      <span className={`${styles.pill} ${styles.pillOk}`}>
+        {device!.enrollment!.counterLabel} · {device!.enrollment!.branchName}
+      </span>
+    );
+  if (status === "revoked" || status === "retired")
+    return <span className={`${styles.pill} ${styles.pillDanger}`}>Counter switched off</span>;
+  return <span className={`${styles.pill} ${styles.pillWarning}`}>Device not enrolled</span>;
 }
 
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [api, setApi] = useState<ApiReachability | null>(null);
+  const [device, setDevice] = useState<DeviceState | null>(null);
 
   const refreshApi = useCallback(() => {
     window.pos
@@ -100,16 +143,33 @@ export function App() {
       .getReadiness()
       .then(setReadiness)
       .catch(() => undefined);
+    window.pos
+      .getDeviceState()
+      .then(setDevice)
+      .catch(() => undefined);
     refreshApi();
     const timer = window.setInterval(refreshApi, API_POLL_MS);
     return () => window.clearInterval(timer);
   }, [refreshApi]);
 
+  const refreshReadiness = useCallback(() => {
+    window.pos
+      .getReadiness()
+      .then(setReadiness)
+      .catch(() => undefined);
+  }, []);
+
+  // Enrolling, signing in or preparing a PIN changes what the readiness checks can see, and so
+  // does a sale or action left unconfirmed.
+  useEffect(() => {
+    if (device) refreshReadiness();
+  }, [device, refreshReadiness]);
+
   return (
     <div className={styles.shell}>
       <header className={styles.topBar}>
         <span className={styles.brand}>Curalio POS</span>
-        <span className={`${styles.pill} ${styles.pillWarning}`}>Device not activated</span>
+        <DevicePill device={device} />
         <span className={styles.spacer} />
         <span
           className={`${styles.pill} ${api === null ? "" : api.reachable ? styles.pillOk : styles.pillDanger}`}
@@ -121,6 +181,9 @@ export function App() {
       </header>
 
       <main className={styles.content}>
+        {device && <CounterAccess state={device} onState={setDevice} />}
+        {device?.staffSession && !device.locked && <Checkout key={device.staffSession.workSessionId} onActivity={refreshReadiness} />}
+        {device?.staffSession && !device.locked && <CounterWork key={`work-${device.staffSession.workSessionId}`} onActivity={refreshReadiness} />}
         <section className={styles.panel} aria-labelledby="readiness-heading">
           <h2 id="readiness-heading" className={styles.panelTitle}>
             Offline readiness
@@ -145,7 +208,7 @@ export function App() {
           </ul>
         </section>
 
-        <PrinterTest />
+        <PrinterTest signedIn={Boolean(device?.staffSession) && !device?.locked} />
       </main>
     </div>
   );
