@@ -966,9 +966,10 @@ describe("online checkout attributed to the counter, till and staff session", ()
     const session = await openSession(a.device, a.identity, clerk);
     const before = await prisma.branch.findFirstOrThrow({
       where: { tenantId: fx.tenantId, id: fx.mainBranchId },
-      select: { operatingHours: true },
+      select: { operatingHours: true, operatingHoursOrigin: true },
     });
-    // `mandatory: []` means no selling at all, whatever the clock says.
+    // `mandatory: []` means no selling at all, whatever the clock says. The row's shape check
+    // requires an origin with any stored hours, and only editor-made hours may carry a limit.
     await prisma.branch.updateMany({
       where: { tenantId: fx.tenantId, id: fx.mainBranchId },
       data: {
@@ -980,6 +981,7 @@ describe("online checkout attributed to the counter, till and staff session", ()
           exceptions: [],
           mandatory: [],
         },
+        operatingHoursOrigin: "editor",
       },
     });
     try {
@@ -992,7 +994,10 @@ describe("online checkout attributed to the counter, till and staff session", ()
     } finally {
       await prisma.branch.updateMany({
         where: { tenantId: fx.tenantId, id: fx.mainBranchId },
-        data: { operatingHours: before.operatingHours ?? Prisma.DbNull },
+        data: {
+          operatingHours: before.operatingHours ?? Prisma.DbNull,
+          operatingHoursOrigin: before.operatingHoursOrigin,
+        },
       });
     }
   });
