@@ -44,7 +44,7 @@ npm run prisma:seed -w api       # seed demo tenant/users/data
 Run a single API test: `npm run test -w api -- src/sales/pos.service.spec.ts` (or `cd apps/api && npx jest <path>`). Tests are colocated as `*.spec.ts` next to the source they cover.
 
 ```bash
-npm run test:integration -w api  # DB-backed tests (row locks, concurrency); builds <db>_it next to DATABASE_URL
+npm run test:integration -w api  # DB-backed tests (row locks, concurrency); builds <db>_it_<checkout hash> next to DATABASE_URL
 npm run reconcile:stock -w api    # read-only: batch_stock totals vs stock ledger + reservations
 ```
 

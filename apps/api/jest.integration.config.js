@@ -6,7 +6,9 @@
  *   npm run test:integration -w api
  *
  * Needs a reachable PostgreSQL in DATABASE_URL; the suite creates (and recreates) a database
- * named `<your database>_it` next to it and never touches your own data.
+ * named `<your database>_it_<hash of this checkout>` next to it and never touches your own data.
+ * Each checkout gets its own, so parallel worktrees do not drop each other's database;
+ * INTEGRATION_DATABASE_URL overrides the name.
  *
  * @type {import("jest").Config}
  */
