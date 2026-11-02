@@ -14,7 +14,8 @@ import type {
 
 function qs(params: Record<string, string | undefined>) {
   const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) if (value) search.set(key, value);
+  for (const [key, value] of Object.entries(params))
+    if (value) search.set(key, value);
   const text = search.toString();
   return text ? `?${text}` : "";
 }
@@ -24,14 +25,22 @@ function qs(params: Record<string, string | undefined>) {
  * is no branch, and never throws into the page. Only the first load shows as loading — a search
  * or filter change keeps the rows on screen until the new ones arrive, so the table never blinks.
  */
-function useLedgerList<T>(path: string | null, fallbackError: string, enabled = true) {
+function useLedgerList<T>(
+  path: string | null,
+  fallbackError: string,
+  enabled = true,
+) {
   const { branchId } = useAuth();
   const [rows, setRows] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const loaded = useRef(false);
+  const scope = `${branchId}:${path}:${enabled}`;
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const generation = useRef(0);
 
   const reload = useCallback(async () => {
+    const mine = ++generation.current;
     if (!branchId || !path || !enabled) {
       loaded.current = false;
       setRows([]);
@@ -42,21 +51,35 @@ function useLedgerList<T>(path: string | null, fallbackError: string, enabled = 
     if (!loaded.current) setLoading(true);
     setError(null);
     try {
-      setRows(await apiJson<T[]>(path));
+      const next = await apiJson<T[]>(path);
+      if (mine !== generation.current) return;
+      setRows(next);
+      setLoadedScope(scope);
       loaded.current = true;
     } catch (err) {
+      if (mine !== generation.current) return;
+      setLoadedScope(scope);
       setError(err instanceof Error ? err.message : fallbackError);
       setRows([]);
     } finally {
-      setLoading(false);
+      if (mine === generation.current) setLoading(false);
     }
-  }, [branchId, path, fallbackError, enabled]);
+  }, [branchId, path, fallbackError, enabled, scope]);
 
   useEffect(() => {
     void reload();
+    return () => {
+      generation.current += 1;
+    };
   }, [reload]);
 
-  return { rows, loading, error, reload, hasBranch: !!branchId };
+  return {
+    rows: loadedScope === scope ? rows : [],
+    loading: loading || (!!branchId && enabled && loadedScope !== scope),
+    error: loadedScope === scope ? error : null,
+    reload,
+    hasBranch: !!branchId,
+  };
 }
 
 export type InvoiceFilters = {
@@ -76,7 +99,10 @@ export function useInvoices(filters: InvoiceFilters, enabled = true) {
   );
 }
 
-export function usePayments(filters: { supplierId?: string; from?: string; to?: string }, enabled = true) {
+export function usePayments(
+  filters: { supplierId?: string; from?: string; to?: string },
+  enabled = true,
+) {
   return useLedgerList<PaymentRow>(
     `/purchasing/payments${qs(filters)}`,
     "Failed to load payments",
@@ -84,7 +110,10 @@ export function usePayments(filters: { supplierId?: string; from?: string; to?: 
   );
 }
 
-export function useDebitNotes(filters: { supplierId?: string; status?: string }, enabled = true) {
+export function useDebitNotes(
+  filters: { supplierId?: string; status?: string },
+  enabled = true,
+) {
   return useLedgerList<DebitNoteRow>(
     `/purchasing/debit-notes${qs(filters)}`,
     "Failed to load debit notes",
@@ -94,7 +123,9 @@ export function useDebitNotes(filters: { supplierId?: string; status?: string },
 
 export function useUnbilledDeliveries(supplierId: string | null) {
   return useLedgerList<UnbilledDelivery>(
-    supplierId ? `/purchasing/invoices/unbilled-deliveries?supplierId=${supplierId}` : null,
+    supplierId
+      ? `/purchasing/invoices/unbilled-deliveries?supplierId=${supplierId}`
+      : null,
     "Failed to load deliveries",
   );
 }
@@ -138,7 +169,9 @@ export function useInvoiceDetail(id: string | null) {
     try {
       setDetail(await apiJson<InvoiceDetail>(`/purchasing/invoices/${id}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load the invoice");
+      setError(
+        err instanceof Error ? err.message : "Failed to load the invoice",
+      );
       setDetail(null);
     } finally {
       setLoading(false);

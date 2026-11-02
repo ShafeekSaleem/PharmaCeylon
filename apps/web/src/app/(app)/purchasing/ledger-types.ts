@@ -107,6 +107,7 @@ export type PaymentRow = {
   reference: string | null;
   notes: string | null;
   recordedBy: { id: string; fullName: string } | null;
+  evidence?: { id: string; mediaType: string } | null;
   voided: boolean;
   allocations: Array<{ invoiceId: string; invoiceNumber: string; amount: string }>;
 };

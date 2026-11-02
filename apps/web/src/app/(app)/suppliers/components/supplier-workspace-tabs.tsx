@@ -1,5 +1,7 @@
 "use client";
 
+import { PaymentEvidenceDownload } from "../../purchasing/components/payment-evidence-download";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DataTable, StatusBadge, type Column } from "@/components/ui";
@@ -173,7 +175,7 @@ export function SupplierMoneyTab({ supplierId, canInvoice, canPay, refreshKey, o
     },
   ];
   const paymentColumns: Column<PaymentRow>[] = [
-    { key: "no", header: "Payment", render: (p) => p.paymentNo },
+    { key: "no", header: "Payment", render: (p) => <>{p.paymentNo}{canPay && p.evidence && <PaymentEvidenceDownload evidence={p.evidence} />}</> },
     { key: "on", header: "Paid", render: (p) => formatDate(p.paidOn) },
     { key: "method", header: "Method", render: (p) => paymentMethodLabel(p.method) },
     {
