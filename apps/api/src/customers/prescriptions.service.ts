@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { AuditService } from "../audit/audit.service";
 import { nextDocumentNumber } from "../common/document-sequence.util";
 import { PrismaService } from "../prisma/prisma.service";
+import type { CommandProvenance } from "../terminals/command-provenance";
 import { CreatePrescriptionDto } from "./dto/create-prescription.dto";
 
 const PRESCRIPTION_SELECT = {
@@ -39,7 +41,10 @@ function toUtcDate(value: string): Date {
 
 @Injectable()
 export class PrescriptionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async search(
     tenantId: string,
@@ -148,6 +153,24 @@ export class PrescriptionsService {
     userId: string,
     dto: CreatePrescriptionDto,
   ) {
+    return this.prisma.$transaction((tx) =>
+      this.createInTransaction(tx, tenantId, branchId, userId, dto),
+    );
+  }
+
+  /**
+   * Recording core shared by the browser route and the signed terminal executor, in the
+   * caller's transaction. `command` is verified provenance (including the SLMC registration the
+   * pharmacist was qualified by) copied into the success audit.
+   */
+  async createInTransaction(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+    userId: string,
+    dto: CreatePrescriptionDto,
+    command?: CommandProvenance,
+  ) {
     const issuedOn = toUtcDate(dto.issuedOn);
     const validUntil = dto.validUntil ? toUtcDate(dto.validUntil) : null;
     if (validUntil && validUntil < issuedOn) {
@@ -155,27 +178,28 @@ export class PrescriptionsService {
     }
 
     if (dto.customerId) {
-      const customer = await this.prisma.customer.findFirst({
+      const customer = await tx.customer.findFirst({
         where: { id: dto.customerId, tenantId },
         select: { id: true },
       });
       if (!customer) throw new BadRequestException("Customer not found");
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const rxNumber =
-        dto.rxNumber?.trim() ||
-        (await nextDocumentNumber(tx, tenantId, branchId, "prescription", "RX-"));
+    const rxNumber =
+      dto.rxNumber?.trim() ||
+      (await nextDocumentNumber(tx, tenantId, branchId, "prescription", "RX-"));
 
-      const clash = await tx.prescription.findFirst({
-        where: { tenantId, branchId, rxNumber },
-        select: { id: true },
-      });
-      if (clash) {
-        throw new BadRequestException(`Prescription ${rxNumber} already exists`);
-      }
+    const clash = await tx.prescription.findFirst({
+      where: { tenantId, branchId, rxNumber },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new BadRequestException(`Prescription ${rxNumber} already exists`);
+    }
 
-      return tx.prescription.create({
+    let created;
+    try {
+      created = await tx.prescription.create({
         data: {
           tenantId,
           branchId,
@@ -191,6 +215,29 @@ export class PrescriptionsService {
         },
         select: PRESCRIPTION_SELECT,
       });
-    });
+    } catch (e) {
+      // Two counters typing the same number at once: the unique index decides.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        throw new BadRequestException(`Prescription ${rxNumber} already exists`);
+      }
+      throw e;
+    }
+    await this.audit.log(
+      {
+        tenantId,
+        branchId,
+        actorUserId: userId,
+        eventName: "prescription.recorded",
+        entityName: "prescription",
+        entityId: created.id,
+        payload: {
+          rxNumber: created.rxNumber,
+          customerId: created.customerId,
+          ...(command ? { command } : {}),
+        },
+      },
+      tx,
+    );
+    return created;
   }
 }

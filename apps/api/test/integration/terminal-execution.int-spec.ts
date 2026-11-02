@@ -9,6 +9,9 @@ import type {
 } from "@pharmaceylon/shared";
 import { AuditService, type AuditInput } from "../../src/audit/audit.service";
 import { CategoryTaxonomyService } from "../../src/catalog/category-taxonomy.service";
+import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-registration.service";
+import { businessDateKey } from "../../src/common/business-date.util";
+import { PrescriptionsService } from "../../src/customers/prescriptions.service";
 import { AdjustmentService } from "../../src/inventory/adjustment.service";
 import { InventoryService } from "../../src/inventory/inventory.service";
 import { StockService } from "../../src/inventory/stock/stock.service";
@@ -91,7 +94,10 @@ const access = new AccessService(proxy as never, {} as never);
 const approvals = new ManagementApprovalsService(access, audit);
 const attendance = new FixtureAttendance();
 const trust = new TerminalTrustService(access, audit, attendance);
-const authorization = new OperationAuthorizationService(access, trust, new OpenHours(), approvals);
+const registrations = new PharmacistRegistrationService(proxy as never, access, audit);
+const authorization = new OperationAuthorizationService(access, trust,
+  new OpenHours(undefined, undefined, registrations), approvals);
+const prescriptions = new PrescriptionsService(proxy as never, audit);
 const notifications = { notifyByPermission: jest.fn().mockResolvedValue(1), notifyUser: jest.fn().mockResolvedValue(undefined) };
 const stocktakes = new StocktakesService(proxy as never, audit, stock, access, approvals);
 const adjustments = new AdjustmentService(proxy as never,
@@ -105,7 +111,7 @@ const imports = new ProductImportService(proxy as never, audit, new CategoryTaxo
     runImport = () => work({ jobId: id, importId: id, progress: () => {} });
   } } as never, { refresh: async () => {} } as never, stock, new WorkerAuthority(access));
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
-  new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never), audit, access);
+  new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
 
 let fx: TenantFixture;
 let foreign: TenantFixture;
@@ -646,6 +652,96 @@ describe("direct adjustments through signed commands", () => {
   });
 });
 
+describe("prescriptions through signed commands (clinical)", () => {
+  const RX = "POST /api/v1/prescriptions" as const;
+  let pharmacistId: string;
+  const prescription = (rxNumber: string | null) => ({
+    rxNumber, patientName: "Nimal Perera", doctorName: "Dr. Silva", doctorRegNo: "SLMC 9921",
+    issuedOn: businessDateKey("Asia/Colombo", new Date()), validUntil: null, customerId: null, notes: null,
+  });
+  const rxNumber = () => `RX-IT-${randomUUID().slice(0, 8)}`;
+  const registered = () => registrations.record(user(fx.ownerId), branch(), {
+    userId: pharmacistId, slmcNumber: `PH-${randomUUID().slice(0, 8).toUpperCase()}`,
+    expiresOn: businessDateKey("Asia/Colombo", new Date(Date.now() + 365 * 86_400_000)),
+  });
+  const recorded = (number: string) =>
+    prisma.prescription.count({ where: { tenantId: fx.tenantId, branchId: branch(), rxNumber: number } });
+
+  beforeAll(async () => {
+    const pharmacist = await prisma.appUser.create({ data: { tenantId: fx.tenantId,
+      email: `rx-pharmacist-${randomUUID().slice(0, 8)}@it.test`, fullName: "Rx Pharmacist", passwordHash: "x" } });
+    pharmacistId = pharmacist.id;
+    await prisma.tenantMembership.create({ data: { tenantId: fx.tenantId, userId: pharmacistId } });
+    await prisma.userBranchRole.create({ data: { tenantId: fx.tenantId, branchId: branch(), userId: pharmacistId,
+      role: "pharmacist" } });
+  });
+  afterEach(() => prisma.pharmacistRegistration.updateMany({
+    where: { tenantId: fx.tenantId, revokedAt: null },
+    data: { revokedAt: new Date(Date.now() + 3_600_000), revokedByUserId: fx.ownerId, revocationReason: "test reset" },
+  }));
+
+  it("records once for a registered pharmacist, replays the original result and audits the registration", async () => {
+    const registration = await registered();
+    const counter = await counterFor(pharmacistId);
+    const number = rxNumber();
+    const { payload, request } = await signedCommand(counter, RX, prescription(number), null);
+    const [a, b] = await Promise.all([run(counter, request), run(counter, request)]);
+    expect(a.receiptId).toBe(b.receiptId);
+    expect(a.result).toEqual({ type: "prescription.recorded", prescriptionId: expect.any(String), rxNumber: number,
+      pharmacistRegistrationId: registration.id });
+    expect(await recorded(number)).toBe(1);
+    const row = await prisma.prescription.findFirstOrThrow({ where: { tenantId: fx.tenantId, rxNumber: number } });
+    expect(row).toMatchObject({ createdBy: pharmacistId, doctorRegNo: "SLMC 9921", validUntil: null });
+    const event = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId,
+      eventName: "prescription.recorded", entityId: row.id } });
+    expect(event.payload).toMatchObject({ rxNumber: number, command: { commandId: payload.commandId,
+      terminalId: counter.identity.terminalId, pharmacistRegistrationId: registration.id } });
+    expect(await executionAudits(payload.commandId)).toBe(1);
+    // A distinct command is another prescription; with no number the branch sequence allocates one.
+    const second = await signedCommand(counter, RX, prescription(null), null);
+    expect((await run(counter, second.request)).result).toMatchObject({ rxNumber: expect.stringMatching(/^RX-/) });
+  });
+
+  it("refuses an owner or manager with no registration: no prescription, receipt or spent nonce", async () => {
+    for (const who of [fx.ownerId, fx.managerId]) {
+      const counter = await counterFor(who);
+      const number = rxNumber();
+      const { payload, request } = await signedCommand(counter, RX, prescription(number), null);
+      await expect(run(counter, request)).rejects.toMatchObject({ response: { code: "PHARMACIST_REQUIRED" } });
+      expect(await recorded(number)).toBe(0);
+      expect(await receiptsFor(payload.commandId)).toBe(0);
+      expect(await challengeConsumed(payload.serverNonce)).toBe(false);
+    }
+  });
+
+  it("refuses a command prepared before the registration was revoked", async () => {
+    const registration = await registered();
+    const counter = await counterFor(pharmacistId);
+    const number = rxNumber();
+    const { payload, request } = await signedCommand(counter, RX, prescription(number), null);
+    await registrations.revoke(user(fx.ownerId), branch(), registration.id, "Struck off");
+    await expect(run(counter, request)).rejects.toMatchObject({ response: { code: "PHARMACIST_REQUIRED" } });
+    expect(await recorded(number)).toBe(0);
+    expect(await receiptsFor(payload.commandId)).toBe(0);
+  });
+
+  it("takes no approval or pharmacist evidence and rolls everything back when its audit fails", async () => {
+    await registered();
+    const counter = await counterFor(pharmacistId);
+    await expect(signedCommand(counter, RX, prescription(rxNumber()), randomUUID()))
+      .rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+    const number = rxNumber();
+    const { payload, request } = await signedCommand(counter, RX, prescription(number), null);
+    audit.failOn = "prescription.recorded";
+    await expect(run(counter, request)).rejects.toThrow("Injected prescription.recorded audit failure");
+    expect(await recorded(number)).toBe(0);
+    expect(await receiptsFor(payload.commandId)).toBe(0);
+    expect(await executionAudits(payload.commandId)).toBe(0);
+    audit.failOn = null;
+    expect((await run(counter, request)).result).toMatchObject({ rxNumber: number });
+  });
+});
+
 describe("production providers stay fail-closed", () => {
   it("denies execution without a test attendance or hours provider", async () => {
     const counter = await counterFor(fx.managerId);
@@ -654,12 +750,12 @@ describe("production providers stay fail-closed", () => {
     const productionTrust = new TerminalTrustService(access, audit, new LocalAttendanceVerifier());
     const production = new TerminalCommandExecutor(proxy as never, productionTrust,
       new OperationAuthorizationService(access, productionTrust, new MandatoryOperationEvidence(), approvals),
-      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never), audit, access);
+      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
     await expect(production.execute(counter.staff, branch(), request)).rejects.toMatchObject({
       response: { code: "LOCAL_ATTENDANCE_UNAVAILABLE" } });
     const hoursOnly = new TerminalCommandExecutor(proxy as never, trust,
       new OperationAuthorizationService(access, trust, new MandatoryOperationEvidence(), approvals),
-      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never), audit, access);
+      new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
     await expect(hoursOnly.execute(counter.staff, branch(), request)).rejects.toMatchObject({
       response: { code: "TEMPORARILY_UNAVAILABLE" } });
     expect((await batchTotals(prisma, st.batchId)).onHand).toBe(50);

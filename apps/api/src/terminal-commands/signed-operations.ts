@@ -6,6 +6,7 @@ import {
   type SignedOperationResult,
   type SignedPhysicalOperation,
 } from "@pharmaceylon/shared";
+import { PrescriptionsService } from "../customers/prescriptions.service";
 import { AdjustmentService } from "../inventory/adjustment.service";
 import { adjustmentDirection, type StockAdjustmentDto } from "../inventory/dto/stock-adjustment.dto";
 import { ImportStockService } from "../product-import/import-stock.service";
@@ -138,6 +139,26 @@ function adjustmentDto(body: AdjustmentBody): StockAdjustmentDto {
     ...(body.fromQuarantine ? { fromQuarantine: true } : {}),
   };
 }
+type PrescriptionBody = SignedOperationBody["POST /api/v1/prescriptions"];
+const calendarDay = (value: unknown) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) invalid();
+  const day = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== value) invalid();
+  return value;
+};
+/** The CreatePrescriptionDto limits, with every key present and text already trimmed. */
+function prescriptionBody(raw: unknown): PrescriptionBody {
+  const body = object(raw, ["rxNumber", "patientName", "doctorName", "doctorRegNo", "issuedOn", "validUntil",
+    "customerId", "notes"]);
+  if (body.rxNumber !== null) trimmed(body.rxNumber, 64);
+  if (trimmed(body.patientName, 160).length < 2 || trimmed(body.doctorName, 160).length < 2) invalid();
+  if (body.doctorRegNo !== null) trimmed(body.doctorRegNo, 64);
+  calendarDay(body.issuedOn);
+  if (body.validUntil !== null && calendarDay(body.validUntil) < (body.issuedOn as string)) invalid();
+  if (body.customerId !== null) uuid(body.customerId);
+  if (body.notes !== null) trimmed(body.notes, 512);
+  return body as PrescriptionBody;
+}
 /** "12.50" → 1250. Money in a receipt is integer minor units (canonical JSON has no floats). */
 const minor = (amount: string) => Math.round(Number(amount) * 100);
 const approvalId = (context: SignedExecutionContext) => {
@@ -163,6 +184,7 @@ export class SignedOperations {
     preparedReceipts: PreparedReceiptService,
     returns: ReturnsService,
     refunds: RefundRequestsService,
+    prescriptions: PrescriptionsService,
   ) {
     this.registry = Object.freeze<Registry>({
       "POST /api/v1/stocktakes/:id/post": {
@@ -439,6 +461,39 @@ export class SignedOperations {
               approvalId: approvalId(context),
               debitNoteId: done.debitNoteId,
               effect: done.changed ? "applied" : "already_applied",
+            },
+          };
+        },
+      },
+      // Clinical: the authorization service requires the session's staff member to hold a
+      // current SLMC registration (MandatoryOperationEvidence.clinical) and the executor records
+      // it in the provenance. No role or permission substitutes for it.
+      "POST /api/v1/prescriptions": {
+        descriptor: {
+          method: "POST",
+          routeTemplate: "/api/v1/prescriptions",
+          permission: "prescriptions.create",
+          parseBody: prescriptionBody,
+        },
+        async execute(tx, user, branchId, body, context) {
+          const registrationId = context.command.pharmacistRegistrationId;
+          if (!registrationId) throw new Error("Clinical evidence missing from a prescription command");
+          const created = await prescriptions.createInTransaction(tx, user.tenantId, branchId, user.userId, {
+            patientName: body.patientName,
+            doctorName: body.doctorName,
+            issuedOn: body.issuedOn,
+            ...(body.rxNumber !== null ? { rxNumber: body.rxNumber } : {}),
+            ...(body.doctorRegNo !== null ? { doctorRegNo: body.doctorRegNo } : {}),
+            ...(body.validUntil !== null ? { validUntil: body.validUntil } : {}),
+            ...(body.customerId !== null ? { customerId: body.customerId } : {}),
+            ...(body.notes !== null ? { notes: body.notes } : {}),
+          }, context.command);
+          return {
+            result: {
+              type: "prescription.recorded",
+              prescriptionId: created.id,
+              rxNumber: created.rxNumber,
+              pharmacistRegistrationId: registrationId,
             },
           };
         },

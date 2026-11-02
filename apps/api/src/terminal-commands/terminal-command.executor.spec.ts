@@ -98,6 +98,7 @@ function setup(existing: Record<string, unknown> | null = null) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   const authorization = {
     authorize: jest.fn(async (_tx: unknown, _u: unknown, _b: unknown, _d: unknown,
@@ -335,7 +336,7 @@ describe("TerminalCommandExecutor", () => {
 });
 
 describe("SignedOperations body parsers", () => {
-  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+  const ops = new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
   const parse = (body: unknown) =>
     ops.get("POST /api/v1/products/import/:importId/stock/post").descriptor.parseBody(body);
   const importId = randomUUID();
@@ -363,6 +364,7 @@ describe("SignedOperations body parsers", () => {
     expect(ops.operations().sort()).toEqual([
       "POST /api/v1/inventory/adjustments",
       "POST /api/v1/inventory/held-adjustments/:id/post",
+      "POST /api/v1/prescriptions",
       "POST /api/v1/products/import/:importId/stock/post",
       "POST /api/v1/products/import/:importId/undo-stock",
       "POST /api/v1/purchasing/held-deliveries/:id/post",
@@ -417,6 +419,47 @@ describe("SignedOperations body parsers", () => {
       const id = randomUUID();
       expect(refund.parseBody({ refundRequestId: id })).toEqual({ refundRequestId: id });
       expect(() => refund.parseBody({ refundRequestId: id, amount: 1 })).toThrow();
+    });
+  });
+
+  describe("prescription body", () => {
+    const rx = ops.get("POST /api/v1/prescriptions").descriptor;
+    const body = {
+      rxNumber: null, patientName: "Nimal Perera", doctorName: "Dr. Silva", doctorRegNo: null,
+      issuedOn: "2026-11-02", validUntil: null, customerId: null, notes: null,
+    };
+
+    it("is clinical work under prescriptions.create with no approval", () => {
+      expect(rx).toMatchObject({ permission: "prescriptions.create" });
+      expect(rx.approval).toBeUndefined();
+    });
+
+    it("accepts the exact body, with or without the optional fields", () => {
+      for (const ok of [
+        body,
+        { ...body, rxNumber: "RX-77", doctorRegNo: "SLMC 1234", validUntil: "2026-12-02", customerId: randomUUID(),
+          notes: "Repeat x2" },
+        { ...body, validUntil: "2026-11-02" },
+      ])
+        expect(rx.parseBody(ok)).toBe(ok);
+    });
+
+    it.each([
+      { ...body, extra: 1 },
+      (({ notes: _n, ...rest }) => rest)(body),
+      { ...body, patientName: " Nimal" },
+      { ...body, patientName: "N" },
+      { ...body, doctorName: "" },
+      { ...body, rxNumber: "" },
+      { ...body, rxNumber: "x".repeat(65) },
+      { ...body, issuedOn: "2026-02-30" },
+      { ...body, issuedOn: "2026-11-02T00:00:00Z" },
+      { ...body, validUntil: "2026-11-01" },
+      { ...body, customerId: "nope" },
+      { ...body, notes: "x".repeat(513) },
+      { ...body, rxNumber: undefined },
+    ])("rejects %j", (bad) => {
+      expect(() => rx.parseBody(bad)).toThrow();
     });
   });
 
