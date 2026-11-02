@@ -1,16 +1,31 @@
-import { app, BrowserWindow, dialog, Menu, safeStorage, session } from "electron";
+import { app, BrowserWindow, dialog, Menu, net, safeStorage, session } from "electron";
 import { join } from "node:path";
+import type { ActionResult } from "../shared/ipc-contract";
+import { ApiSession } from "./api/api-client";
 import { checkApi } from "./api-check";
+import { classifyWindowsSession, createWindowsSessionReader } from "./attendance/windows-session";
 import type { SecretProtector } from "./db/key-store";
 import { migrations } from "./db/migrations";
 import { registerIpcHandlers } from "./ipc/handle";
 import { openLocalStore, type LocalStore } from "./local-store";
 import { createLogger } from "./logging/logger";
 import { printTestReceipt } from "./printing/test-receipt";
+import { printHtml } from "./printing/print-html";
+import { renderSaleReceiptHtml } from "./printing/receipt-html";
+import { CheckoutService } from "./checkout/checkout-service";
+import { DispensingService } from "./checkout/dispensing";
+import { CounterWorkService } from "./terminal/counter-work";
+import { SignedCommandService } from "./terminal/signed-commands";
+import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport } from "./readiness";
 import { isAppUrl } from "./renderer-path";
 import { hardenSession, hardenWebContents, mainFetch, registerAppScheme, serveRenderer } from "./security";
+import { normalizeServerUrl, readServerUrl, writeServerUrl } from "./server-url";
 import { runSmokeTest } from "./smoke";
+import { DeviceStore } from "./device/device-store";
+import { PinStore } from "./staff/pin-store";
+import { listProcessImages } from "./attendance/remote-tools";
+import { ActionFailure, explain, TerminalService } from "./terminal/terminal-service";
 import { createMainWindow } from "./window";
 
 const smokeMode = process.argv.includes("--smoke-test");
@@ -25,9 +40,22 @@ if (smokeMode) {
 const devServerUrl = app.isPackaged ? null : (process.env.ELECTRON_RENDERER_URL ?? null);
 const devServerOrigin = devServerUrl ? new URL(devServerUrl).origin : null;
 
-// Until device activation supplies it, the API address comes from the
-// environment (and defaults to the local Nest port in development).
-const apiBaseUrl = process.env.POS_API_BASE_URL ?? (app.isPackaged ? null : "http://127.0.0.1:3001/api/v1");
+// Before enrollment the server address comes from setup (saved in the local database), then the
+// environment, then the local Nest port in development. An enrolled counter uses the address it
+// enrolled against.
+// The environment address gets the same checks as one typed at setup: HTTPS when packaged.
+const defaultApiBaseUrl = configuredServerUrl(process.env.POS_API_BASE_URL);
+
+function configuredServerUrl(raw: string | undefined): string | null {
+  if (!raw) return app.isPackaged ? null : "http://127.0.0.1:3001/api/v1";
+  try {
+    return normalizeServerUrl(raw, app.isPackaged);
+  } catch {
+    // Refused: setup asks for the address instead of trusting an unsafe one.
+    return null;
+  }
+}
+const readWindowsSession = createWindowsSessionReader();
 
 // DPAPI, via Electron: the blob can only be opened by this Windows user on this machine.
 const protector: SecretProtector = {
@@ -38,6 +66,43 @@ const protector: SecretProtector = {
 
 let mainWindow: BrowserWindow | null = null;
 let store: LocalStore | null = null;
+let terminal: TerminalService | null = null;
+let checkout: CheckoutService | null = null;
+let dispensing: DispensingService | null = null;
+let commands: SignedCommandService | null = null;
+let counterWork: CounterWorkService | null = null;
+// Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
+const recentSales = new Map<string, CompletedSale>();
+
+function currentApiBaseUrl(): string | null {
+  if (!store) return defaultApiBaseUrl;
+  return new DeviceStore(store.db).read()?.apiBaseUrl ?? readServerUrl(store.db) ?? defaultApiBaseUrl;
+}
+
+/** Runs a renderer-requested action; refusals come back as explained data, details go to the log. */
+/** Unconfirmed sales and signed actions, and who has to come back to confirm them. */
+function unconfirmedFacts(): { unconfirmed: number; unconfirmedBy: string[] } {
+  const pending = [...(checkout?.pending() ?? []), ...(commands?.pending() ?? [])];
+  return {
+    unconfirmed: pending.length,
+    unconfirmedBy: [...new Set(pending.map((p) => p.staffName ?? "someone who has signed out"))],
+  };
+}
+
+async function act<T>(
+  logger: ReturnType<typeof createLogger>,
+  name: string,
+  run: (service: TerminalService) => Promise<T> | T,
+): Promise<ActionResult<T>> {
+  if (!terminal) return { ok: false, error: { code: "NOT_READY", message: "The counter is still starting." } };
+  try {
+    return { ok: true, value: await run(terminal) };
+  } catch (error) {
+    const explained = explain(error);
+    logger.warn("terminal.action_refused", { action: name, code: explained.code });
+    return { ok: false, error: explained };
+  }
+}
 
 function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogger>): void {
   registerIpcHandlers(
@@ -55,10 +120,19 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
             schemaVersion,
             latestSchemaVersion: migrations.length,
             credentialStoreAvailable: protector.isAvailable(),
+            enrollmentStatus: store ? (new DeviceStore(store.db).read()?.status ?? null) : null,
+            preparedStaff: store
+              ? (
+                  store.db
+                    .prepare("SELECT count(*) AS n FROM staff_credential WHERE enrollment_id = ?")
+                    .get(new DeviceStore(store.db).read()?.identity.enrollmentId ?? "") as { n: number }
+                ).n
+              : 0,
+            ...unconfirmedFacts(),
           },
           new Date(),
         ),
-      checkApi: () => checkApi(apiBaseUrl, mainFetch),
+      checkApi: () => checkApi(currentApiBaseUrl(), mainFetch),
       listPrinters: async () => {
         const printers = (await mainWindow?.webContents.getPrintersAsync()) ?? [];
         return printers.map((printer) => ({
@@ -67,6 +141,129 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         }));
       },
       printTestReceipt: ({ printerName }) => printTestReceipt(printerName, app.getVersion()),
+      getDeviceState: () => {
+        if (terminal) return terminal.state();
+        const windows = classifyWindowsSession(readWindowsSession());
+        return {
+          serverUrl: currentApiBaseUrl(),
+          serverUrlEditable: false,
+          enrollment: null,
+          operator: null,
+          staffSession: null,
+          pin: null,
+          locked: false,
+          branches: [],
+          windowsSession: { protocol: windows.protocol, remoteSession: windows.remoteSession },
+        };
+      },
+      setServerUrl: ({ url }) =>
+        act(logger, "setServerUrl", (service) => {
+          if (!store) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          if (new DeviceStore(store.db).read())
+            throw new ActionFailure("ALREADY_ENROLLED", "An enrolled counter keeps the server it enrolled with.");
+          writeServerUrl(store.db, normalizeServerUrl(url, app.isPackaged), new Date());
+          return service.state();
+        }),
+      signIn: ({ email, password }) => act(logger, "signIn", (service) => service.signIn(email, password)),
+      signOut: () => act(logger, "signOut", (service) => service.signOut()),
+      refreshEnrollment: () => act(logger, "refreshEnrollment", (service) => service.refreshStatus()),
+      listCounters: ({ branchId }) => act(logger, "listCounters", (service) => service.listCounters(branchId)),
+      createCounter: ({ branchId, label }) =>
+        act(logger, "createCounter", (service) => service.createCounter(branchId, label)),
+      enroll: (input) => act(logger, "enroll", (service) => service.enroll(input)),
+      enrollWithCode: (input) => act(logger, "enrollWithCode", (service) => service.enrollWithCode(input)),
+      catalog: () =>
+        act(logger, "catalog", () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return checkout.catalog();
+        }),
+      submitCheckout: ({ lines, tender, dispensing: details, coSign }) =>
+        act(logger, "submitCheckout", async () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          const sale = await checkout.submit(lines, tender, details, coSign);
+          recentSales.set(sale.saleId, sale);
+          return sale;
+        }),
+      holdCart: ({ lines, label, dispensing: details }) =>
+        act(logger, "holdCart", () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return checkout.hold(lines, label, details);
+        }),
+      listHolds: () =>
+        act(logger, "listHolds", () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return checkout.holds();
+        }),
+      recallHold: ({ holdId }) =>
+        act(logger, "recallHold", async () => {
+          if (!checkout || !dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          const held = await checkout.recall(holdId);
+          // The hold keeps ids only; one that no longer resolves comes back unlinked.
+          const [customer, prescription] = await Promise.all([
+            held.customerId ? dispensing.customer(held.customerId).catch(() => null) : null,
+            held.prescriptionId ? dispensing.prescription(held.prescriptionId).catch(() => null) : null,
+          ]);
+          return { lines: held.lines, customer, prescription };
+        }),
+      pendingCheckouts: () => checkout?.pending() ?? [],
+      retryCheckout: ({ draftId, coSign }) =>
+        act(logger, "retryCheckout", async () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          const sale = await checkout.retry(draftId, coSign);
+          recentSales.set(sale.saleId, sale);
+          return sale;
+        }),
+      searchCustomers: ({ q }) =>
+        act(logger, "searchCustomers", () => {
+          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return dispensing.customers(q);
+        }),
+      searchPrescriptions: (filter) =>
+        act(logger, "searchPrescriptions", () => {
+          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return dispensing.prescriptions(filter);
+        }),
+      recordPrescription: (input) =>
+        act(logger, "recordPrescription", () => {
+          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return dispensing.record(input);
+        }),
+      listApprovers: () =>
+        act(logger, "listApprovers", () => {
+          if (!dispensing) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return dispensing.approvers();
+        }),
+      printSaleReceipt: ({ saleId, printerName }) => {
+        const sale = recentSales.get(saleId);
+        const device = store ? new DeviceStore(store.db).read() : null;
+        if (!sale || !device) return { ok: false, error: "That sale is not available to print here." };
+        return printHtml(printerName, renderSaleReceiptHtml(sale, { branchName: device.branchName, counterLabel: device.counterLabel }));
+      },
+      refundsReady: () =>
+        act(logger, "refundsReady", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.refundsReady();
+        }),
+      executeRefund: ({ refundRequestId }) =>
+        act(logger, "executeRefund", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.executeRefund(refundRequestId);
+        }),
+      pendingCommands: () => commands?.pending() ?? [],
+      retryCommand: ({ commandId }) =>
+        act(logger, "retryCommand", async () => {
+          if (!commands) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return { replayed: (await commands.retry(commandId)).replayed };
+        }),
+      confirmTestReceipt: ({ printerName }) =>
+        act(logger, "confirmTestReceipt", (service) => service.confirmTestReceipt(printerName)),
+      offlineCounter: () => act(logger, "offlineCounter", (service) => service.offlineCounter()),
+      activateOffline: ({ authorizationId }) =>
+        act(logger, "activateOffline", (service) => service.activateOffline(authorizationId)),
+      setPin: ({ pin, password }) => act(logger, "setPin", (service) => service.setPin(pin, password)),
+      preparePin: ({ pin }) => act(logger, "preparePin", (service) => service.preparePin(pin)),
+      lock: () => act(logger, "lock", (service) => service.lock()),
+      unlock: ({ pin }) => act(logger, "unlock", (service) => service.unlock(pin)),
     },
     { isTrustedSender: (url) => isAppUrl(url, devServerOrigin), logger },
   );
@@ -104,6 +301,29 @@ async function start(): Promise<void> {
   }
 
   logger.info("startup.ready", { appVersion: app.getVersion(), schemaVersion: store.schemaVersion });
+  const deviceStore = new DeviceStore(store.db);
+  // Offline PIN lockouts count down in uptime; save their progress so a restart resumes it.
+  const pins = new PinStore(store.db);
+  pins.checkpoint();
+  setInterval(() => pins.checkpoint(), 60_000).unref();
+  app.on("before-quit", () => pins.checkpoint());
+  // No cookie jar: the server must see a Bearer client, never a browser session.
+  const terminalApi = new ApiSession(currentApiBaseUrl, (url, init) => net.fetch(url, { ...init, credentials: "omit" }));
+  terminal = new TerminalService({
+    store: deviceStore,
+    pins,
+    api: terminalApi,
+    serverUrl: currentApiBaseUrl,
+    serverUrlEditable: true,
+    readWindowsSession: () => classifyWindowsSession(readWindowsSession()),
+    listProcesses: listProcessImages,
+    appVersion: app.getVersion(),
+    logger,
+  });
+  checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger });
+  dispensing = new DispensingService({ api: terminalApi, terminal });
+  commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
+  counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);
   mainWindow = createMainWindow({ devServerUrl, show: true });
   mainWindow.on("closed", () => (mainWindow = null));

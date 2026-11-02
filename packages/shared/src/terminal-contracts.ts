@@ -8,7 +8,7 @@ export const MAX_OFFLINE_GRANT_MS = 24 * 60 * 60 * 1000;
 export const MAX_SNAPSHOT_AGE_AT_OUTAGE_MS = 15 * 60 * 1000;
 
 /** Deterministic, integer-only wire encoding; callers UTF-8 encode before signing/hash. */
-export function terminalSigningText(purpose: "grant" | "snapshot" | "command" | "sync_response", payload: unknown): string {
+export function terminalSigningText(purpose: "grant" | "snapshot" | "command" | "sync_response" | "attendance", payload: unknown): string {
   const visiting = new Set<object>();
   function encode(value: unknown): string {
     if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
@@ -39,7 +39,7 @@ export function terminalSigningText(purpose: "grant" | "snapshot" | "command" | 
       }).join(",")}}`;
     } finally { visiting.delete(value); }
   }
-  if (!["grant", "snapshot", "command", "sync_response"].includes(purpose)) throw new Error("Invalid signature purpose");
+  if (!["grant", "snapshot", "command", "sync_response", "attendance"].includes(purpose)) throw new Error("Invalid signature purpose");
   return `PharmaCeylon:terminal:v1:${purpose}\n${encode(payload)}`;
 }
 
@@ -262,6 +262,7 @@ export const TERMINAL_ERROR_CODES = [
   "PAYMENT_NOT_ALLOWED", "PHARMACIST_REQUIRED", "REPLAY_CONFLICT", "SEQUENCE_GAP",
   "RECONCILIATION_REQUIRED", "BUSINESS_HOURS_ACK_REQUIRED", "TEMPORARILY_UNAVAILABLE",
   "CHALLENGE_EXPIRED", "CHALLENGE_INVALID", "CHALLENGE_USED_OR_EXPIRED", "LOCAL_ATTENDANCE_UNAVAILABLE",
+  "ENROLLMENT_CODE_INVALID",
 ] as const;
 export type TerminalErrorCode = typeof TERMINAL_ERROR_CODES[number];
 export type TerminalApiError = Readonly<{

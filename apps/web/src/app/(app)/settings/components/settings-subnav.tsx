@@ -58,6 +58,12 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/settings/main", label: "Counters & receipts", icon: <IconGrid size={16} />, adminOnly: true },
       {
+        href: "/settings/counters",
+        label: "Counters & devices",
+        icon: <IconBox size={16} />,
+        adminOnly: true,
+      },
+      {
         href: "/settings/payments",
         label: "Payments",
         icon: <IconShoppingCart size={16} />,

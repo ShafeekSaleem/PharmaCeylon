@@ -78,6 +78,36 @@ export class OperatingHoursEvidence {
     }
   }
 
+  /**
+   * P2 online counter checkout: mandatory restrictions are hard, routine closing time stays
+   * advisory online (revised D8 governs routine hours offline; online, the web extension is the
+   * remedy and a sale outside routine hours is not refused).
+   *
+   * - outside a mandatory window → `OUTSIDE_OPERATING_HOURS` (nobody can override it);
+   * - hours stored but unreadable, or an unusable timezone → `TEMPORARILY_UNAVAILABLE`, because a
+   *   mandatory limit could be hiding in them;
+   * - no hours set yet → no restriction is known, so the sale goes ahead.
+   */
+  async assertMandatoryForSale(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+    at: Date = this.now(),
+  ): Promise<void> {
+    const branch = await tx.branch.findFirst({
+      where: { id: branchId, tenantId, isActive: true },
+      select: { operatingHours: true, timezone: true },
+    });
+    if (!branch) denied("TEMPORARILY_UNAVAILABLE");
+    const verdict = evaluateOperatingHours(
+      { hours: branch.operatingHours, timeZone: branch.timezone, extensions: [] },
+      at,
+    );
+    if (verdict.kind === "outside_mandatory") denied("OUTSIDE_OPERATING_HOURS");
+    if (verdict.kind === "unknown" && verdict.reason !== "hours_unset")
+      denied("TEMPORARILY_UNAVAILABLE");
+  }
+
   /** Server time; tests substitute a fixed clock. */
   protected now(): Date {
     return new Date();

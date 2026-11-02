@@ -56,6 +56,230 @@ export const printResultSchema = z.object({
 });
 export type PrintResult = z.infer<typeof printResultSchema>;
 
+const uuid = z.string().uuid();
+
+export const branchSchema = z.object({ id: uuid, code: z.string(), name: z.string() });
+export type Branch = z.infer<typeof branchSchema>;
+
+export const counterSchema = z.object({
+  registerId: uuid,
+  tillId: uuid,
+  label: z.string(),
+  isActive: z.boolean(),
+  terminal: z
+    .object({
+      terminalId: uuid,
+      label: z.string(),
+      enrollmentId: uuid.nullable(),
+      enrolledAt: z.number().nullable(),
+    })
+    .nullable(),
+});
+export type Counter = z.infer<typeof counterSchema>;
+
+/** What the renderer may know about this counter. Never keys, tokens, proofs or signatures. */
+export const deviceStateSchema = z.object({
+  serverUrl: z.string().nullable(),
+  serverUrlEditable: z.boolean(),
+  enrollment: z
+    .object({
+      status: z.enum(["pending", "active", "revoked", "retired"]),
+      branchName: z.string(),
+      counterLabel: z.string(),
+      label: z.string(),
+      terminalId: uuid,
+      enrollmentId: uuid,
+      enrolledAt: z.string().nullable(),
+    })
+    .nullable(),
+  operator: z.object({ userId: uuid, fullName: z.string(), email: z.string() }).nullable(),
+  staffSession: z
+    .object({ workSessionId: uuid, staffUserId: uuid, staffName: z.string(), openedAt: z.string() })
+    .nullable(),
+  /** The signed-in person's PIN on this counter; null when nobody is signed in. */
+  pin: z.object({ set: z.boolean(), prepared: z.boolean(), lockedUntil: z.string().nullable() }).nullable(),
+  locked: z.boolean(),
+  branches: z.array(branchSchema),
+  windowsSession: z.object({ protocol: z.enum(["console", "rdp", "unknown"]), remoteSession: z.boolean() }),
+});
+export type DeviceState = z.infer<typeof deviceStateSchema>;
+
+export const offlineCounterSchema = z.object({
+  thisCounterNominated: z.boolean(),
+  otherCounterNominated: z.boolean(),
+  nominationVersion: z.number().int().min(0),
+  authorization: z
+    .object({
+      authorizationId: uuid,
+      expectedNominationVersion: z.number().int().min(0),
+      reason: z.string(),
+      authorizedAt: z.string(),
+    })
+    .nullable(),
+});
+export type OfflineCounterView = z.infer<typeof offlineCounterSchema>;
+
+export const catalogProductSchema = z.object({
+  productId: uuid,
+  name: z.string(),
+  sku: z.string().nullable(),
+  barcode: z.string().nullable(),
+  strength: z.string().nullable(),
+  unit: z.string().nullable(),
+  unitPrice: z.string(),
+  available: z.number().int(),
+  needsPharmacist: z.boolean(),
+  requiresPrescription: z.boolean(),
+  isControlled: z.boolean(),
+});
+export type CatalogProduct = z.infer<typeof catalogProductSchema>;
+
+export const catalogSchema = z.object({
+  products: z.array(catalogProductSchema),
+  vatRatePercent: z.number().min(0).max(100),
+});
+export type CatalogView = z.infer<typeof catalogSchema>;
+
+export const customerSchema = z.object({
+  customerId: uuid,
+  fullName: z.string(),
+  phone: z.string().nullable(),
+});
+export type CustomerView = z.infer<typeof customerSchema>;
+
+export const prescriptionSchema = z.object({
+  prescriptionId: uuid,
+  rxNumber: z.string(),
+  patientName: z.string(),
+  doctorName: z.string(),
+  issuedOn: z.string(),
+  validUntil: z.string().nullable(),
+  expired: z.boolean(),
+  customerId: uuid.nullable(),
+  customerName: z.string().nullable(),
+});
+export type PrescriptionView = z.infer<typeof prescriptionSchema>;
+
+export const approverSchema = z.object({
+  userId: uuid,
+  fullName: z.string(),
+  hasPin: z.boolean(),
+});
+export type ApproverView = z.infer<typeof approverSchema>;
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export const recordPrescriptionSchema = z.object({
+  patientName: z.string().trim().min(2).max(160),
+  doctorName: z.string().trim().min(2).max(160),
+  doctorRegNo: z.string().trim().max(64).optional(),
+  issuedOn: isoDate,
+  validUntil: isoDate.optional(),
+  customerId: uuid.optional(),
+  notes: z.string().trim().max(512).optional(),
+});
+export type RecordPrescription = z.infer<typeof recordPrescriptionSchema>;
+
+/** A pharmacist's co-sign for controlled items: their till PIN, or login password if they have none.
+ * Sent with one checkout and never stored on this computer. */
+export const coSignSchema = z.object({
+  approverUserId: uuid,
+  pin: z.string().min(4).max(128),
+});
+export type CoSign = z.infer<typeof coSignSchema>;
+
+export const dispensingSchema = z.object({
+  customerId: uuid.optional(),
+  prescriptionId: uuid.optional(),
+});
+export type Dispensing = z.infer<typeof dispensingSchema>;
+
+const money = z.string().regex(/^\d{1,9}(\.\d{1,2})?$/);
+export const tenderSchema = z.object({
+  cashAmount: money.optional(),
+  cardAmount: money.optional(),
+  cardReference: z.string().trim().max(128).optional(),
+});
+export type Tender = z.infer<typeof tenderSchema>;
+
+export const completedSaleSchema = z.object({
+  saleId: uuid,
+  invoiceNo: z.string(),
+  soldAt: z.string(),
+  subtotal: z.string(),
+  taxTotal: z.string(),
+  discountTotal: z.string(),
+  grandTotal: z.string(),
+  amountPaid: z.string(),
+  changeDue: z.string(),
+  sellerName: z.string(),
+  lines: z.array(z.object({ name: z.string(), qty: z.number().int(), unitPrice: z.string(), lineTotal: z.string() })),
+  payments: z.array(z.object({ method: z.string(), amount: z.string(), reference: z.string().nullable() })),
+});
+export type CompletedSale = z.infer<typeof completedSaleSchema>;
+
+export const checkoutDraftSchema = z.object({
+  draftId: uuid,
+  staffUserId: uuid,
+  estimatedTotal: z.string(),
+  createdAt: z.string(),
+  lineCount: z.number().int(),
+  /** Who co-signed controlled items, so confirming can ask the same pharmacist again. */
+  coSignerId: uuid.nullable(),
+  /** Who rang it up: only they can confirm it, because the server keys retries to the seller. */
+  staffName: z.string().nullable(),
+});
+export type CheckoutDraftView = z.infer<typeof checkoutDraftSchema>;
+
+export const refundAtCounterSchema = z.object({
+  refundRequestId: uuid,
+  requestNumber: z.string(),
+  invoiceNo: z.string().nullable(),
+  amount: z.string(),
+  refundMethod: z.string().nullable(),
+  reason: z.string(),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+  approvalEvidenceId: uuid.nullable(),
+});
+export type RefundAtCounter = z.infer<typeof refundAtCounterSchema>;
+
+export const refundExecutedSchema = z.object({
+  requestNumber: z.string(),
+  amountMinor: z.number().int(),
+  refundedTo: z.array(z.object({ method: z.string(), amountMinor: z.number().int() })),
+  alreadyApplied: z.boolean(),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+});
+export type RefundExecuted = z.infer<typeof refundExecutedSchema>;
+
+export const heldCartSchema = z.object({
+  holdId: uuid,
+  holdRef: z.string(),
+  label: z.string().nullable(),
+  itemCount: z.number().int(),
+  total: z.string(),
+  createdAt: z.string(),
+  heldBy: z.string(),
+});
+export type HeldCart = z.infer<typeof heldCartSchema>;
+
+export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
+export type ActionError = z.infer<typeof actionErrorSchema>;
+
+/** Actions report refusals as data so the person at the counter sees why, not a generic error. */
+function result<T extends z.ZodTypeAny>(value: T) {
+  return z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), value }),
+    z.object({ ok: z.literal(false), error: actionErrorSchema }),
+  ]);
+}
+export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: ActionError };
+
+const credentials = z.object({ email: z.string().trim().min(3).max(254), password: z.string().min(1).max(256) });
+const label = z.string().trim().min(1).max(120);
+const pin = z.string().regex(/^\d{4,8}$/);
+
 const noInput = z.undefined();
 
 export const ipcContract = {
@@ -67,6 +291,131 @@ export const ipcContract = {
     channel: "pos:printers:test-receipt",
     input: z.object({ printerName: z.string().min(1).max(260) }),
     output: printResultSchema,
+  },
+  getDeviceState: { channel: "pos:device:state", input: noInput, output: deviceStateSchema },
+  setServerUrl: {
+    channel: "pos:device:server-url",
+    input: z.object({ url: z.string().trim().min(1).max(2048) }),
+    output: result(deviceStateSchema),
+  },
+  signIn: { channel: "pos:auth:sign-in", input: credentials, output: result(deviceStateSchema) },
+  signOut: { channel: "pos:auth:sign-out", input: noInput, output: result(deviceStateSchema) },
+  refreshEnrollment: { channel: "pos:device:refresh", input: noInput, output: result(deviceStateSchema) },
+  listCounters: {
+    channel: "pos:enrollment:counters",
+    input: z.object({ branchId: uuid }),
+    output: result(z.array(counterSchema)),
+  },
+  createCounter: {
+    channel: "pos:enrollment:create-counter",
+    input: z.object({ branchId: uuid, label }),
+    output: result(counterSchema),
+  },
+  enrollWithCode: {
+    channel: "pos:enrollment:enroll-with-code",
+    input: z.object({ branchId: uuid, code: z.string().trim().min(4).max(32), label }),
+    output: result(deviceStateSchema),
+  },
+  catalog: { channel: "pos:checkout:catalog", input: noInput, output: result(catalogSchema) },
+  submitCheckout: {
+    channel: "pos:checkout:submit",
+    input: z.object({
+      lines: z.array(z.object({ productId: uuid, qty: z.number().int().min(1).max(9999) })).min(1).max(200),
+      tender: tenderSchema,
+      dispensing: dispensingSchema.optional(),
+      coSign: coSignSchema.optional(),
+    }),
+    output: result(completedSaleSchema),
+  },
+  holdCart: {
+    channel: "pos:checkout:hold",
+    input: z.object({
+      lines: z.array(z.object({ productId: uuid, qty: z.number().int().min(1).max(9999) })).min(1).max(200),
+      label: z.string().trim().max(120).optional(),
+      dispensing: dispensingSchema.optional(),
+    }),
+    output: result(z.object({ holdRef: z.string() })),
+  },
+  listHolds: { channel: "pos:checkout:holds", input: noInput, output: result(z.array(heldCartSchema)) },
+  recallHold: {
+    channel: "pos:checkout:recall",
+    input: z.object({ holdId: uuid }),
+    output: result(
+      z.object({
+        lines: z.array(z.object({ productId: z.string(), qty: z.number().int() })),
+        customer: customerSchema.nullable(),
+        prescription: prescriptionSchema.nullable(),
+      }),
+    ),
+  },
+  pendingCheckouts: { channel: "pos:checkout:pending", input: noInput, output: z.array(checkoutDraftSchema) },
+  retryCheckout: {
+    channel: "pos:checkout:retry",
+    input: z.object({ draftId: uuid, coSign: coSignSchema.optional() }),
+    output: result(completedSaleSchema),
+  },
+  searchCustomers: {
+    channel: "pos:dispensing:customers",
+    input: z.object({ q: z.string().trim().min(1).max(120) }),
+    output: result(z.array(customerSchema)),
+  },
+  searchPrescriptions: {
+    channel: "pos:dispensing:prescriptions",
+    input: z.object({ q: z.string().trim().max(120).optional(), customerId: uuid.optional() }),
+    output: result(z.array(prescriptionSchema)),
+  },
+  recordPrescription: {
+    channel: "pos:dispensing:record-prescription",
+    input: recordPrescriptionSchema,
+    output: result(prescriptionSchema),
+  },
+  listApprovers: { channel: "pos:dispensing:approvers", input: noInput, output: result(z.array(approverSchema)) },
+  printSaleReceipt: {
+    channel: "pos:checkout:print",
+    input: z.object({ saleId: uuid, printerName: z.string().min(1).max(260) }),
+    output: printResultSchema,
+  },
+  refundsReady: { channel: "pos:counter:refunds", input: noInput, output: result(z.array(refundAtCounterSchema)) },
+  executeRefund: {
+    channel: "pos:counter:execute-refund",
+    input: z.object({ refundRequestId: uuid }),
+    output: result(refundExecutedSchema),
+  },
+  pendingCommands: {
+    channel: "pos:counter:pending-commands",
+    input: noInput,
+    output: z.array(
+      z.object({ commandId: uuid, operation: z.string(), createdAt: z.string(), staffName: z.string().nullable() }),
+    ),
+  },
+  retryCommand: {
+    channel: "pos:counter:retry-command",
+    input: z.object({ commandId: uuid }),
+    output: result(z.object({ replayed: z.boolean() })),
+  },
+  confirmTestReceipt: {
+    channel: "pos:printers:confirm-test-receipt",
+    input: z.object({ printerName: z.string().min(1).max(260) }),
+    output: result(z.object({ confirmedAt: z.string() })),
+  },
+  offlineCounter: { channel: "pos:offline:status", input: noInput, output: result(offlineCounterSchema) },
+  activateOffline: {
+    channel: "pos:offline:activate",
+    input: z.object({ authorizationId: uuid }),
+    output: result(offlineCounterSchema),
+  },
+  setPin: {
+    channel: "pos:staff:set-pin",
+    input: z.object({ pin, password: z.string().min(1).max(256) }),
+    output: result(deviceStateSchema),
+  },
+  preparePin: { channel: "pos:staff:prepare-pin", input: z.object({ pin }), output: result(deviceStateSchema) },
+  lock: { channel: "pos:staff:lock", input: noInput, output: result(deviceStateSchema) },
+  unlock: { channel: "pos:staff:unlock", input: z.object({ pin }), output: result(deviceStateSchema) },
+  enroll: {
+    channel: "pos:enrollment:enroll",
+    input: z.object({ branchId: uuid, registerId: uuid, label }),
+    output: result(deviceStateSchema),
   },
 } as const;
 

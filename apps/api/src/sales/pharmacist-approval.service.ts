@@ -117,6 +117,24 @@ export class PharmacistApprovalService {
     return [...byUser.values()].sort((a, b) => a.fullName.localeCompare(b.fullName));
   }
 
+  /**
+   * D-W5: at a branch live on PharmaCeylon POS the PIN is set and changed at the counter, which
+   * also prepares that counter. The web routes stay for branches still on the web POS, and during a
+   * fallback, when the web POS is what the branch is using.
+   */
+  private async assertWebPinBranch(tenantId: string, branchId: string) {
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: branchId, tenantId },
+      select: { desktopPosRollout: true, posFallbackEndsAt: true },
+    });
+    const fallback = Boolean(branch?.posFallbackEndsAt && branch.posFallbackEndsAt > new Date());
+    if (branch?.desktopPosRollout === "live" && !fallback)
+      throw new ForbiddenException({
+        code: "PIN_SET_AT_COUNTER",
+        message: "This branch uses PharmaCeylon POS: set or change your PIN at a counter.",
+      });
+  }
+
   async setPosPin(
     tenantId: string,
     userId: string,
@@ -128,6 +146,7 @@ export class PharmacistApprovalService {
     if (!(await this.hasApproverRole(branchRoles, branchId))) {
       throw new ForbiddenException("Only pharmacist, manager, or owner may set a POS PIN");
     }
+    await this.assertWebPinBranch(tenantId, branchId);
     const user = await this.prisma.appUser.findFirst({
       where: {
         id: userId,
@@ -138,7 +157,7 @@ export class PharmacistApprovalService {
     });
     if (!user) throw new UnauthorizedException("User not found");
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException("Login password is incorrect");
+    if (!ok) throw new ForbiddenException({ code: "PASSWORD_INCORRECT", message: "Login password is incorrect" });
 
     const posPinHash = await bcrypt.hash(pin, 10);
     // tenant-scope: verified-parent — the authenticated caller's membership was verified above.
@@ -148,6 +167,7 @@ export class PharmacistApprovalService {
         posPinHash,
         failedPosPinAttempts: 0,
         posPinLockedUntil: null,
+        posPinVersion: { increment: 1 },
       },
     });
     await this.audit.log({
@@ -171,6 +191,7 @@ export class PharmacistApprovalService {
     if (!(await this.hasApproverRole(branchRoles, branchId))) {
       throw new ForbiddenException("Only pharmacist, manager, or owner may clear a POS PIN");
     }
+    await this.assertWebPinBranch(tenantId, branchId);
     const user = await this.prisma.appUser.findFirst({
       where: {
         id: userId,
@@ -181,7 +202,7 @@ export class PharmacistApprovalService {
     });
     if (!user) throw new UnauthorizedException("User not found");
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException("Login password is incorrect");
+    if (!ok) throw new ForbiddenException({ code: "PASSWORD_INCORRECT", message: "Login password is incorrect" });
 
     // tenant-scope: verified-parent — the authenticated caller's membership was verified above.
     await this.prisma.appUser.update({
@@ -190,6 +211,7 @@ export class PharmacistApprovalService {
         posPinHash: null,
         failedPosPinAttempts: 0,
         posPinLockedUntil: null,
+        posPinVersion: { increment: 1 },
       },
     });
     await this.audit.log({
@@ -239,8 +261,10 @@ export class PharmacistApprovalService {
         },
       },
     });
+    // Refusals about the approver's secret are 403s, never 401: clients treat 401 as an expired
+    // session and refresh and resend, which would count one wrong PIN twice.
     if (!user) {
-      throw new UnauthorizedException("Approver not found");
+      throw new ForbiddenException({ code: "APPROVER_NOT_FOUND", message: "Approver not found" });
     }
 
     const allowed = await this.hasApproverRole(user.userBranchRoles, branchId, permission);
@@ -253,9 +277,11 @@ export class PharmacistApprovalService {
     }
 
     if (user.posPinLockedUntil && user.posPinLockedUntil.getTime() > Date.now()) {
-      throw new UnauthorizedException(
-        "Approver PIN is temporarily locked after too many failed attempts. Try again shortly or use Hold for pharmacist.",
-      );
+      throw new ForbiddenException({
+        code: "APPROVER_PIN_LOCKED",
+        message:
+          "Approver PIN is temporarily locked after too many failed attempts. Try again shortly or use Hold for pharmacist.",
+      });
     }
 
     const secretOk = user.posPinHash
@@ -285,11 +311,12 @@ export class PharmacistApprovalService {
         entityId: user.id,
         payload: { failures, locked: Boolean(locked) },
       });
-      throw new UnauthorizedException(
-        user.posPinHash
+      throw new ForbiddenException({
+        code: "APPROVER_PIN_INCORRECT",
+        message: user.posPinHash
           ? "Incorrect pharmacist PIN"
           : "Incorrect password (this approver has not set a till PIN yet)",
-      );
+      });
     }
 
     if (user.failedPosPinAttempts > 0 || user.posPinLockedUntil) {

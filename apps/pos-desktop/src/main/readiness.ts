@@ -5,6 +5,22 @@ export type ReadinessFacts = {
   schemaVersion: number;
   latestSchemaVersion: number;
   credentialStoreAvailable: boolean;
+  /** This counter's enrollment as last confirmed with the server; null when not enrolled. */
+  enrollmentStatus?: "pending" | "active" | "revoked" | "retired" | null;
+  /** People with a server-confirmed PIN verifier on this counter. */
+  preparedStaff?: number;
+  /** Sales and signed actions sent without a confirmed outcome. */
+  unconfirmed?: number;
+  /** Who has to sign in here to confirm them. */
+  unconfirmedBy?: string[];
+};
+
+const DEVICE_CHECK: Record<"none" | "pending" | "active" | "revoked" | "retired", Pick<ReadinessCheck, "status" | "detail">> = {
+  none: { status: "not_ready", detail: "This device has not been enrolled at a branch." },
+  pending: { status: "warning", detail: "Enrollment did not finish. A manager must sign in here." },
+  active: { status: "ok", detail: "Enrolled as a counter." },
+  revoked: { status: "failed", detail: "This counter was switched off in the back office." },
+  retired: { status: "failed", detail: "This computer was retired in the back office." },
 };
 
 const NEEDS_ACTIVATION = "Available once this device is activated.";
@@ -38,11 +54,28 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
         ? "Database key is protected by Windows."
         : "Windows credential protection is not available.",
     },
+    { id: "device", label: "Device enrollment", ...DEVICE_CHECK[facts.enrollmentStatus ?? "none"] },
     {
-      id: "device",
-      label: "Device activation",
-      status: "not_ready",
-      detail: "This device has not been activated for a branch.",
+      id: "staff",
+      label: "Prepared staff",
+      status: (facts.preparedStaff ?? 0) > 0 ? "ok" : "not_ready",
+      detail:
+        (facts.preparedStaff ?? 0) > 0
+          ? `${facts.preparedStaff} ${facts.preparedStaff === 1 ? "person has" : "people have"} a PIN prepared here.`
+          : "Nobody has prepared their PIN on this counter yet.",
+    },
+    {
+      id: "unconfirmed",
+      label: "Unconfirmed sales and actions",
+      status: (facts.unconfirmed ?? 0) === 0 ? "ok" : "warning",
+      detail:
+        (facts.unconfirmed ?? 0) === 0
+          ? "Every sale and action sent from here has a confirmed outcome."
+          : `${facts.unconfirmed} waiting for confirmation with the server.${
+              facts.unconfirmedBy?.length
+                ? ` Only the person who sent each can confirm it: ${facts.unconfirmedBy.join(", ")}.`
+                : ""
+            }`,
     },
     { id: "grant", label: "Offline permission", status: "not_ready", detail: NEEDS_ACTIVATION },
     { id: "catalogue", label: "Product catalogue", status: "not_ready", detail: NEEDS_ACTIVATION },

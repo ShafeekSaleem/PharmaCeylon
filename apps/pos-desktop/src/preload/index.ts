@@ -9,7 +9,12 @@ const bridge = Object.fromEntries(
     const { channel, input, output } = ipcContract[method];
     return [
       method,
-      async (payload?: unknown) => output.parse(await ipcRenderer.invoke(channel, input.parse(payload))),
+      async (payload?: unknown) => {
+        const parsed = input.safeParse(payload);
+        // The same message main uses, so the renderer can tell bad input from a failure.
+        if (!parsed.success) throw new Error("Invalid request.");
+        return output.parse(await ipcRenderer.invoke(channel, parsed.data));
+      },
     ];
   }),
 ) as unknown as PosBridge;
