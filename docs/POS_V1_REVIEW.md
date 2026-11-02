@@ -5,7 +5,8 @@ Product review completed 2026-10-20: D1–D14 and staff follow-ups D7a/D7b are a
 Decisions 8, 10 and 13 were amended and approved on 2026-10-21; current rules and history are
 recorded below. The same review approved the operational-readiness improvements.
 Web back-office decisions D-W1–D-W7 were decided on 2026-10-27; five were amended and one reworded
-the same day. See "Web back-office decisions" below.
+the same day. See "Web back-office decisions" below. The P2 attendance decision D-P2a was made on
+2026-11-01; see "P2 desktop decisions" below.
 Record an answer only when the user explicitly provides it. Recommendations, code, elapsed time,
 or an unanswered/preselected form choice are not approval. Pending behaviour is provisional in
 the contracts/tests and must be revised when the user chooses differently.
@@ -437,6 +438,32 @@ selection. Each entry keeps the original answer as history. The resulting web ta
 - Alternatives not chosen: waiting for P7's controls, which would delay the per-branch sunset;
   separate web and release flags that could drift apart.
 - Contract record: P7 #53's rollout-controls item should point at the W1 switch.
+
+## P2 desktop decisions — decided 2026-11-01
+
+Shafeek decided this in his review of the P2 pull request
+([#93](https://github.com/ShafeekSaleem/PharmaCeylon/pull/93)), answering the "Decision needed"
+question in [POS_P2_IMPLEMENTATION.md](POS_P2_IMPLEMENTATION.md).
+
+| Decision | Question | Answer | Status |
+| --- | --- | --- | --- |
+| D-P2a | Is the device-signed attendance proof enough for v1? | Yes. The desktop's signed attestation of the physical console session is the v1 attendance control, with its documented limits accepted. No TPM or hardware anchor for v1. | Decided by Shafeek, 2026-11-01 |
+
+### D-P2a — Device-signed console attestation is the v1 attendance control
+
+- Decided 2026-11-01: option 3, "accept the documented limits for v1".
+- Current rule: desktop main reads the Windows session and signs a `LocalAttendanceAttestation`
+  with the counter's own key, bound to a fresh server challenge, used once. Only the physical
+  console session is accepted; Remote Desktop and unknown sessions are refused.
+- Accepted limits: third-party remote-control tools (AnyDesk, TeamViewer, Chrome Remote Desktop
+  and similar) drive the console session and look local to Windows. Someone who controls the
+  counter computer can sign a false claim with its key. Named staff attribution, audit and
+  training are the control. The desktop also refuses while a known remote-control tool is running,
+  which narrows the casual case but is not a boundary (a renamed process passes).
+- Alternatives not chosen: keeping verification closed until a TPM-backed key with attestation
+  exists; treating the one-time enrollment code as the out-of-band binding.
+- Contract record: P2 #48's line "No operational release occurs with client-claimed attendance" is
+  amended on the issue to match.
 
 ## Review completion and remaining engineering work
 

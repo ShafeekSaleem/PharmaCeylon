@@ -225,6 +225,8 @@ export const checkoutDraftSchema = z.object({
   lineCount: z.number().int(),
   /** Who co-signed controlled items, so confirming can ask the same pharmacist again. */
   coSignerId: uuid.nullable(),
+  /** Who rang it up: only they can confirm it, because the server keys retries to the seller. */
+  staffName: z.string().nullable(),
 });
 export type CheckoutDraftView = z.infer<typeof checkoutDraftSchema>;
 
@@ -382,7 +384,9 @@ export const ipcContract = {
   pendingCommands: {
     channel: "pos:counter:pending-commands",
     input: noInput,
-    output: z.array(z.object({ commandId: uuid, operation: z.string(), createdAt: z.string() })),
+    output: z.array(
+      z.object({ commandId: uuid, operation: z.string(), createdAt: z.string(), staffName: z.string().nullable() }),
+    ),
   },
   retryCommand: {
     channel: "pos:counter:retry-command",

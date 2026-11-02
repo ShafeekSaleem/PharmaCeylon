@@ -439,12 +439,17 @@ export class CheckoutService {
     );
   }
 
+  /**
+   * Sales sent without a definite answer. The server scopes idempotency to the seller, so only the
+   * person who rang one up can confirm it; their name is shown so the counter knows who to call back.
+   */
   pending(): CheckoutDraftView[] {
     const rows = this.deps.db
       .prepare(
-        "SELECT * FROM checkout_draft WHERE status IN ('submitted', 'uncertain') ORDER BY created_at",
+        `SELECT d.*, (SELECT staff_name FROM staff_session_log l WHERE l.work_session_id = d.work_session_id) AS staff_name
+         FROM checkout_draft d WHERE d.status IN ('submitted', 'uncertain') ORDER BY d.created_at`,
       )
-      .all() as DraftRow[];
+      .all() as (DraftRow & { staff_name: string | null })[];
     return rows.map((row) => ({
       draftId: row.id,
       staffUserId: row.staff_user_id,
@@ -452,6 +457,7 @@ export class CheckoutService {
       createdAt: row.created_at,
       lineCount: (JSON.parse(row.request_json) as CheckoutRequest).items.length,
       coSignerId: row.co_signer_id,
+      staffName: row.staff_name,
     }));
   }
 

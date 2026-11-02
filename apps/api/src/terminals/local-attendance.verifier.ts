@@ -19,6 +19,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
  * and challenge digest. Consumption shares the caller's transaction, so a failed operation
  * rolls it back. A renderer boolean, HTTP header or device signature alone cannot satisfy this;
  * there is no runtime fixture/configuration bypass.
+ *
+ * This is the accepted v1 attendance control (D-P2a, decided by Shafeek 2026-11-01). Its limits
+ * are accepted, not solved: remote-control tools that drive the console session look local to
+ * Windows, and whoever controls the counter computer can sign with its key. Named staff
+ * attribution, audit and training are the control (docs/API_CONTRACT.md, "Limits").
  */
 @Injectable()
 export class LocalAttendanceVerifier {

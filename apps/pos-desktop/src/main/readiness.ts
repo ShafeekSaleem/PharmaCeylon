@@ -11,6 +11,8 @@ export type ReadinessFacts = {
   preparedStaff?: number;
   /** Sales and signed actions sent without a confirmed outcome. */
   unconfirmed?: number;
+  /** Who has to sign in here to confirm them. */
+  unconfirmedBy?: string[];
 };
 
 const DEVICE_CHECK: Record<"none" | "pending" | "active" | "revoked" | "retired", Pick<ReadinessCheck, "status" | "detail">> = {
@@ -69,7 +71,11 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
       detail:
         (facts.unconfirmed ?? 0) === 0
           ? "Every sale and action sent from here has a confirmed outcome."
-          : `${facts.unconfirmed} waiting for confirmation with the server.`,
+          : `${facts.unconfirmed} waiting for confirmation with the server.${
+              facts.unconfirmedBy?.length
+                ? ` Only the person who sent each can confirm it: ${facts.unconfirmedBy.join(", ")}.`
+                : ""
+            }`,
     },
     { id: "grant", label: "Offline permission", status: "not_ready", detail: NEEDS_ACTIVATION },
     { id: "catalogue", label: "Product catalogue", status: "not_ready", detail: NEEDS_ACTIVATION },

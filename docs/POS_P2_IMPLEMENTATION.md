@@ -9,58 +9,91 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
 
 | Area | API (`apps/api`) | Desktop (`apps/pos-desktop`) |
 | --- | --- | --- |
-| Enrollment | `/terminals` routes over P1's `TerminalTrustService`; manager-at-the-computer or one-time enrollment code (`terminal_enrollment_code`, SHA-256 only, single use, consumed with the enrollment) | Ed25519 key generated in main, PKCS#8 in SQLCipher (`device_identity`), pending row saved before finish so a lost response never strands the key |
-| Local attendance | `terminal_attendance_proof` + `LocalAttendanceVerifier` (see "Decision needed" below); only the physical console session, bound to one challenge, consumed once in the caller's transaction | Windows session read through koffi (`ProcessIdToSessionId`, `WTSGetActiveConsoleSessionId`, `SM_REMOTESESSION`, `WTSClientProtocolType`); signed `LocalAttendanceAttestation` |
-| Staff sessions | Session challenge/finish/end; a new session supersedes an older open binding on the till | Sign in, switch user, sign out, enrollment status refresh, revoked counters stop |
-| PINs (D-W5) | `posPinVersion`, `terminal_staff_preparation`; set/change at the counter with the password, prepare with the co-sign lockout | scrypt verifier per person and version (`staff_credential`), lock/unlock offline with a persisted throttle |
+| Enrollment | `/terminals` routes over P1's `TerminalTrustService`; manager-at-the-computer or one-time enrollment code (`terminal_enrollment_code`, SHA-256 only, single use, consumed with the enrollment); an occupied counter is 409 `COUNTER_OCCUPIED` | Ed25519 key generated in main, PKCS#8 in SQLCipher (`device_identity`), pending row saved before finish so a lost response never strands the key |
+| Local attendance | `terminal_attendance_proof` + `LocalAttendanceVerifier`, the **accepted v1 attendance control** (D-P2a, below); only the physical console session, bound to one challenge, consumed once in the caller's transaction | Windows session read through koffi (`ProcessIdToSessionId`, `WTSGetActiveConsoleSessionId`, `SM_REMOTESESSION`, `WTSClientProtocolType`); signed `LocalAttendanceAttestation`; refuses while a known remote-control tool is running |
+| Staff sessions | Session challenge/finish/end; a new session supersedes an older open binding on the till | Sign in, switch user (the new password is checked first), sign out, enrollment status refresh, revoked counters stop |
+| PINs (D-W5) | `posPinVersion`, `terminal_staff_preparation`; set/change at the counter with the password (login's lockout applies), prepare with the co-sign lockout; the old web PIN routes refuse at live branches | scrypt verifier per person and version (`staff_credential`), lock/unlock offline with an uptime-based, escalating lockout |
 | D13 activation | `terminal.activate_offline`; signed, attended activation on the exact target; `requireCurrent`; D11 clearance port; separate authorizer/activator audit | Offline counter panel shows a waiting authorization and activates it |
 | Go-live evidence (D-W1) | `terminal_test_receipt`; checklist and setup readiness count prepared staff (current PIN version) and confirmed receipts on active counters | "Yes, the receipt came out" after a test print |
-| Online checkout | `x-terminal-session` attribution on `POST /sales/checkout` (`sale.terminal_id/till_id/work_session_id`) | Server-priced cart, cash/card/split tender, crash-safe drafts (`checkout_draft`) confirmed by idempotent resend, receipts, held carts |
+| Online checkout | `x-terminal-session` attribution on `POST /sales/checkout` (`sale.terminal_id/till_id/work_session_id`); mandatory selling windows (W7) enforced on counter sales; overlapping retries of one key replay the original | Server-priced cart with the VAT-inclusive total, a tender covering it, cash/card/split, crash-safe drafts (`checkout_draft`) confirmed by idempotent resend, receipts, held carts |
 | Physical execution | (P1 executor) | `SignedCommandService` with stored envelopes (`signed_command`); remote-approved refunds executed at the counter showing requester, approver and executor |
-| Readiness | — | Device enrollment, prepared staff, unconfirmed sales/actions |
-| Prescriptions and co-sign | Checkout refusals coded `PRESCRIPTION_REQUIRED` / `PHARMACIST_APPROVAL_REQUIRED` | Link a customer and prescription (find or record), pharmacist co-sign by PIN for controlled items; the PIN is sent once and never stored (the draft keeps the co-signer only, migration 0006); holds carry the customer and prescription |
+| Readiness | — | Device enrollment, prepared staff, unconfirmed sales/actions and who must confirm them |
+| Prescriptions and co-sign | Checkout refusals coded `PRESCRIPTION_REQUIRED` / `PHARMACIST_APPROVAL_REQUIRED`; wrong co-sign secrets are 403 | Link a customer and prescription (find or record), pharmacist co-sign by PIN for controlled items; the PIN is sent once and never stored (the draft keeps the co-signer only); holds carry the customer and prescription |
 | Web (W6, W3) | `GET /admin/users/:id/security` adds PIN version and prepared counters | Settings → Counters & devices: counters, enrolled computer, issue and revoke codes, report lost, retire. Users → Manage staff: PIN state, version, prepared and stale counters, reset for every role |
+
+## Decisions
+
+**D-P2a — attendance (decided by Shafeek, 2026-11-01).** Shafeek accepted the documented limits
+for v1 (option 3 of the question this section used to ask). The device-signed attestation of the
+physical console session is the v1 attendance control. Remote Desktop is refused. Third-party
+remote-control tools (AnyDesk, TeamViewer, Chrome Remote Desktop and similar) are a known,
+accepted limit: the desktop refuses while a known one is running, but a renamed process passes.
+Named staff attribution, audit and training remain the control. No TPM or hardware anchor is
+needed for v1. Recorded in [POS_V1_REVIEW.md](POS_V1_REVIEW.md) and in API_CONTRACT.md's "Limits".
+
+**Co-sign attendance (v1 rule).** A controlled-item co-sign at checkout relies on the attendance
+proved when the seller's staff session opened at that counter, not on a fresh proof bound to the
+sale. Binding a `command`-purpose proof to co-signed checkouts is a possible later tightening.
+
+**Mandatory hours (D-W6).** Counter checkout refuses outside the branch's mandatory selling
+windows. Routine closing time stays advisory online; revised D8's acknowledgement is an offline
+matter (P3/P4). A branch with no hours set has no restriction; stored hours that can't be read
+fail closed.
 
 ## Verification
 
-- API: `npm run lint -w api`, unit suite, and PostgreSQL suites
-  `terminal-enrollment.int-spec.ts` and `offline-activation.int-spec.ts`. These run against the
-  real attendance verifier, with nothing stubbed. They cover remote sessions, wrong bindings,
-  replay, rollback, codes, PINs, supersession, D13/D11, go-live evidence and the
-  last-unit race across two counters.
-- Desktop: jest specs for the key, Windows session classification, the API client, enrollment,
-  sessions, PINs, activation, checkout drafts, holds and signed commands. Typecheck and
-  `electron-vite build` also pass. The koffi reader was exercised on a real Windows console
-  session.
+- CI runs `npm run lint` (typechecks every workspace), the API unit suite, the PostgreSQL suites
+  (`terminal-enrollment.int-spec.ts`, `offline-activation.int-spec.ts` and the rest), web
+  component tests and now the desktop suite (`npm test -w pos-desktop`).
+- The PostgreSQL suites run against the real attendance verifier, with nothing stubbed. They cover
+  remote sessions, wrong bindings, replay, rollback, codes, PINs, supersession, D13/D11, go-live
+  evidence, the last-unit race across two counters, overlapping retries of one checkout key,
+  occupied counters and mandatory hours.
+- Desktop specs cover the key, Windows session classification, remote-tool detection, the API
+  client (shared refresh, coded 401s), enrollment, sessions, PINs and the lockout, activation,
+  checkout drafts, tender, holds and signed commands. `electron-vite build` passes. The koffi
+  reader and `tasklist` were exercised on a real Windows console session.
 
-## Decision needed before an operational release
+## Before a branch goes live on this
 
-**The attendance proof is the device's own claim.** The desktop's main process reads the Windows
-session and signs that reading with the counter's own Ed25519 key, bound to a fresh server
-challenge. That stops replays, Remote Desktop and a forged proof from another device. It does not
-stop someone who controls the counter computer, because the same key signs the claim. The epic
-rules out an operational release on client-claimed attendance. The options are:
+- **Windows packaged smoke run (acceptance criterion).** Not done yet. It needs a packaged build
+  on real Windows hardware with a receipt printer, driven by a person:
 
-- Keep verification closed (refusing every proof, as P1 did) until there is a real trust anchor,
-  such as a TPM-backed key with attestation.
-- Treat the one-time enrollment code as the out-of-band binding and accept the documented limits
-  for v1 (API_CONTRACT.md, "Limits").
-- Get explicit product sign-off that the documented limits are acceptable for v1.
+  enroll (manager and code paths) → sign in → set and prepare PIN → lock and unlock → switch user
+  → sale with receipt → restart the app → restart Windows → sign in again → confirm a test receipt
 
-This needs a product owner's decision. Until then the verifier is a candidate, not a release
-control.
+  Record the date, machine, build and result here. `npm install-scripts approve electron` (npm 11)
+  unblocks Electron's binary download; koffi loads without its install script.
+
+## Known limits in this PR
+
+- **Only the original seller can confirm an unconfirmed sale.** The server scopes checkout
+  idempotency to the seller, so a sale left unconfirmed waits for that person to sign in at the
+  counter again. The pending list and readiness name them. Letting a manager confirm it, with the
+  server finding the original by key at the branch, is a follow-up.
+- **Remote-control detection is by process name.** It stops the casual case only (see D-P2a).
 
 ## Not done in P2 yet
 
-- **Clinical verification beyond the existing checkout rules.** The counter links and records
-  prescriptions and takes the pharmacist co-sign the server already enforced for the web POS.
-  Fuller clinical capture (dose checks, dispensing labels) belongs with W5.
-- **D8 acknowledgement and assisted-handover capability preparation.** These need P3 grants and
-  P4 shifts.
-- **D11 replacement clearance evidence.** The first nomination works. Replacing a nominated
-  counter fails closed until P3 grant cutoff and P5 journal review supply evidence.
-- **Windows packaging smoke.** The full enroll, sign-in, restart and print run on packaged
-  hardware is still to do. Electron's binary download is blocked by npm 11's install-script
-  policy on the development machine.
-- **Web D13 authorization screen.** Owners still authorize an offline counter's assignment
-  through the P1 endpoint; W6 has no button for it yet. The installer download link is also W6.
+- **Desktop screens for the other nine signed physical operations** (P6's desktop half, or a P2
+  follow-up). The server already requires a signed counter command for stocktake post, held
+  adjustment post, held delivery post, import stock post and undo (D-W2 opening stock), transfer
+  ship and receive, prepared receipt post and supplier return complete. `SignedCommandService`
+  can drive them all, but only refunds have a screen, so a live branch can't do these at the
+  counter until it lands.
+- **D8 after-hours acknowledgement and assisted-handover preparation.** Need P3 grants and P4
+  shifts.
+- **D11 replacement clearance evidence.** The first nomination works. `recoveryEvidence` returns
+  false, so replacing a nominated counter fails closed until P3 grant cutoff and P5 journal review
+  supply evidence.
+- **Offline sign-in evidence and local shift IDs (P3/P4 hand-off).** `terminal_staff_preparation`
+  with PIN versions is the base, but the offline sign-in evidence a P3 grant will carry, and P4
+  creating shift IDs locally, aren't defined yet.
+- **Pre-outage readiness (P3/P4).** Shown today: enrollment, prepared staff, unconfirmed work.
+  Still to come: stock sync age, grant expiry, storage and clock health, unresolved collected
+  money.
+- **Discounted-cart review before offline tender (P4).** The crash-safe draft is done.
+- **Web D13 authorization screen and installer download link (W6).** Owners still authorize an
+  offline counter's assignment through the P1 endpoint.
+- **Fuller clinical capture (W5).** The counter links and records prescriptions and takes the
+  pharmacist co-sign; dose checks and dispensing labels belong with W5.

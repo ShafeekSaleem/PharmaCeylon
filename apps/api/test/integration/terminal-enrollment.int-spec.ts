@@ -20,6 +20,7 @@ import { StockService } from "../../src/inventory/stock/stock.service";
 import { TaxService } from "../../src/pricing/tax.service";
 import { SalesService } from "../../src/sales/sales.service";
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
+import { OperatingHoursEvidence } from "../../src/terminals/operating-hours.evidence";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
@@ -892,6 +893,7 @@ describe("online checkout attributed to the counter, till and staff session", ()
     { assertCanSell: async () => undefined } as never,
     stock,
     trust,
+    new OperatingHoursEvidence(),
   );
   const sell = (
     actor: RequestUser,
@@ -956,6 +958,43 @@ describe("online checkout attributed to the counter, till and staff session", ()
     expect(
       await prisma.sale.count({ where: { tenantId: fx.tenantId, soldBy: clerk.userId, workSessionId: session.workSessionId } }),
     ).toBe(1);
+  });
+
+  it("refuses a counter sale outside the branch's mandatory selling windows", async () => {
+    await createStockedBatch(prisma, stock, fx, { qty: 5 });
+    const a = await enroll();
+    const session = await openSession(a.device, a.identity, clerk);
+    const before = await prisma.branch.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, id: fx.mainBranchId },
+      select: { operatingHours: true },
+    });
+    // `mandatory: []` means no selling at all, whatever the clock says.
+    await prisma.branch.updateMany({
+      where: { tenantId: fx.tenantId, id: fx.mainBranchId },
+      data: {
+        operatingHours: {
+          schemaVersion: 1,
+          weekly: Object.fromEntries(
+            ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => [d, { mode: "open_24h" }]),
+          ),
+          exceptions: [],
+          mandatory: [],
+        },
+      },
+    });
+    try {
+      await expect(sell(clerk, session.workSessionId, randomUUID())).rejects.toMatchObject({
+        response: { code: "OUTSIDE_OPERATING_HOURS" },
+      });
+      expect(
+        await prisma.sale.count({ where: { tenantId: fx.tenantId, workSessionId: session.workSessionId } }),
+      ).toBe(0);
+    } finally {
+      await prisma.branch.updateMany({
+        where: { tenantId: fx.tenantId, id: fx.mainBranchId },
+        data: { operatingHours: before.operatingHours ?? Prisma.DbNull },
+      });
+    }
   });
 
   it("refuses someone else's or a closed session, and sells nothing", async () => {

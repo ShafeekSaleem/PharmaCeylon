@@ -46,6 +46,7 @@ import {
 import { SALE_INCLUDE } from "./sale-read.service";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
 import { TerminalTrustService } from "../terminals/terminal-trust.service";
 
 function d(s: string): Prisma.Decimal {
@@ -156,6 +157,7 @@ export class SalesService {
     private readonly setupReadiness: SetupReadinessService,
     private readonly stock: StockService,
     private readonly terminalTrust?: TerminalTrustService,
+    private readonly operatingHours?: OperatingHoursEvidence,
   ) {}
 
   private branchEffectiveRoles(
@@ -473,6 +475,10 @@ export class SalesService {
             counter.workSessionId,
           );
           attribution = { terminalId: identity.terminalId, tillId: session.tillId, workSessionId: session.id };
+          // P2 / D-W6: a counter sale respects the branch's mandatory selling restrictions.
+          // Routine closing time stays advisory online.
+          if (!this.operatingHours) throw new Error("Counter checkout needs the operating-hours provider");
+          await this.operatingHours.assertMandatoryForSale(tx, tenantId, branchId);
         }
         const lines: Array<{
           productId: string;

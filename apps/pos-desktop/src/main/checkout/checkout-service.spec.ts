@@ -365,6 +365,25 @@ describe("checkout safety", () => {
     expect(checkout.pending()).toEqual([]);
   });
 
+  it("names who rang up an unconfirmed sale, since only they can confirm it", async () => {
+    local.db
+      .prepare(
+        "INSERT INTO staff_session_log (work_session_id, staff_user_id, staff_name, enrollment_id, opened_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(workSessionId, staffUserId, "Nimal Perera", identity.enrollmentId, new Date().toISOString());
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 1 }], { cashAmount: "5" }),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    expect(checkout.pending()).toEqual([
+      expect.objectContaining({ staffUserId, staffName: "Nimal Perera" }),
+    ]);
+  });
+
   it("won't resend a sale from a counter re-enrolled since it was rung up", async () => {
     const checkout = service();
     await checkout.catalog();

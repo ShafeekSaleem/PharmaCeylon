@@ -22,6 +22,7 @@ import type {
 } from "../../shared/ipc-contract";
 import { ApiError, type ApiSession, type AuthUser } from "../api/api-client";
 import { buildAttestation } from "../attendance/attestation";
+import { detectRemoteTools } from "../attendance/remote-tools";
 import { DeviceKey } from "../device/device-key";
 import type { DeviceStore } from "../device/device-store";
 import type { Logger } from "../logging/logger";
@@ -35,6 +36,8 @@ export type TerminalServiceDeps = {
   serverUrl: () => string | null;
   serverUrlEditable: boolean;
   readWindowsSession: () => WindowsSessionEvidence;
+  /** Running process image names, checked for remote-control tools before any attendance proof. */
+  listProcesses?: () => Promise<string[]>;
   appVersion: string;
   logger: Logger;
   now?: () => Date;
@@ -796,6 +799,31 @@ export class TerminalService {
     }
   }
 
+  /**
+   * Remote-control tools drive the console session, so Windows can't tell them from someone at the
+   * counter. Refusing while a known one runs stops the casual remote approval; it is not a security
+   * boundary (a renamed process passes), which the accepted v1 limits record. If the process list
+   * can't be read, this proceeds: the check narrows a risk, it doesn't decide attendance.
+   */
+  private async refuseRemoteTools(): Promise<void> {
+    if (!this.deps.listProcesses) return;
+    let images: string[];
+    try {
+      images = await this.deps.listProcesses();
+    } catch (error) {
+      this.deps.logger.warn("attendance.process_list_failed", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return;
+    }
+    const tools = detectRemoteTools(images);
+    if (tools.length)
+      throw new ActionFailure(
+        "REMOTE_TOOL_RUNNING",
+        `${tools.join(" and ")} ${tools.length === 1 ? "is" : "are"} running on this computer. Close ${tools.length === 1 ? "it" : "them"} and try again at the counter.`,
+      );
+  }
+
   private async recordAttendance(
     key: DeviceKey,
     challenge:
@@ -812,6 +840,7 @@ export class TerminalService {
         "REMOTE_SESSION_DENIED",
         MESSAGES.REMOTE_SESSION_DENIED!,
       );
+    await this.refuseRemoteTools();
     const attestation = buildAttestation({
       challenge,
       purpose,

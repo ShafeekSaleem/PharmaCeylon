@@ -356,6 +356,7 @@ class FakeServer {
 }
 
 let server: FakeServer;
+let processes: string[];
 let dir: string;
 let local: LocalStore;
 let windowsSession: WindowsSessionEvidence;
@@ -368,6 +369,7 @@ function service() {
     serverUrl: () => "https://pos.example.test/api/v1",
     serverUrlEditable: true,
     readWindowsSession: () => windowsSession,
+    listProcesses: async () => processes,
     appVersion: "0.0.1",
     logger,
   });
@@ -381,6 +383,7 @@ async function enrolled(terminal = service()) {
 beforeEach(() => {
   server = new FakeServer();
   windowsSession = CONSOLE;
+  processes = ["explorer.exe", "Curalio POS.exe"];
   dir = mkdtempSync(join(tmpdir(), "pos-terminal-spec-"));
   local = openLocalStore(dir, fakeProtector, migrations);
 });
@@ -415,6 +418,23 @@ describe("TerminalService enrollment", () => {
     });
     expect(server.calls).not.toContain("POST /terminals/attendance-proofs");
     expect(new DeviceStore(local.db).read()).toBeNull();
+  });
+
+  it("refuses an attended action while a remote-control tool is running, before any proof", async () => {
+    const terminal = service();
+    await terminal.signIn(manager.email, "password");
+    processes = [...processes, "AnyDesk.exe"];
+    await expect(
+      terminal.enroll({ branchId, registerId, label: "PC" }),
+    ).rejects.toMatchObject({
+      code: "REMOTE_TOOL_RUNNING",
+      message: expect.stringContaining("AnyDesk"),
+    });
+    expect(server.calls).not.toContain("POST /terminals/attendance-proofs");
+    processes = ["explorer.exe"];
+    await expect(
+      terminal.enroll({ branchId, registerId, label: "PC" }),
+    ).resolves.toBeTruthy();
   });
 
   it("discards the saved key when the server definitely refused, keeps it when the outcome is unknown", async () => {

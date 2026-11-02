@@ -160,6 +160,7 @@ function PendingCheckouts({
             <span>
               {d.lineCount} item{d.lineCount === 1 ? "" : "s"}, about{" "}
               {d.estimatedTotal}, {new Date(d.createdAt).toLocaleTimeString()}
+              {d.staffName ? ` · rung up by ${d.staffName}, who must confirm it` : ""}
             </span>
             {d.coSignerId && (
               <input

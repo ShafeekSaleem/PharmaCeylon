@@ -24,6 +24,7 @@ import { normalizeServerUrl, readServerUrl, writeServerUrl } from "./server-url"
 import { runSmokeTest } from "./smoke";
 import { DeviceStore } from "./device/device-store";
 import { PinStore } from "./staff/pin-store";
+import { listProcessImages } from "./attendance/remote-tools";
 import { ActionFailure, explain, TerminalService } from "./terminal/terminal-service";
 import { createMainWindow } from "./window";
 
@@ -79,6 +80,15 @@ function currentApiBaseUrl(): string | null {
 }
 
 /** Runs a renderer-requested action; refusals come back as explained data, details go to the log. */
+/** Unconfirmed sales and signed actions, and who has to come back to confirm them. */
+function unconfirmedFacts(): { unconfirmed: number; unconfirmedBy: string[] } {
+  const pending = [...(checkout?.pending() ?? []), ...(commands?.pending() ?? [])];
+  return {
+    unconfirmed: pending.length,
+    unconfirmedBy: [...new Set(pending.map((p) => p.staffName ?? "someone who has signed out"))],
+  };
+}
+
 async function act<T>(
   logger: ReturnType<typeof createLogger>,
   name: string,
@@ -118,7 +128,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
                     .get(new DeviceStore(store.db).read()?.identity.enrollmentId ?? "") as { n: number }
                 ).n
               : 0,
-            unconfirmed: (checkout?.pending().length ?? 0) + (commands?.pending().length ?? 0),
+            ...unconfirmedFacts(),
           },
           new Date(),
         ),
@@ -306,6 +316,7 @@ async function start(): Promise<void> {
     serverUrl: currentApiBaseUrl,
     serverUrlEditable: true,
     readWindowsSession: () => classifyWindowsSession(readWindowsSession()),
+    listProcesses: listProcessImages,
     appVersion: app.getVersion(),
     logger,
   });

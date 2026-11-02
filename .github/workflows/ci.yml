@@ -73,6 +73,11 @@ jobs:
       - name: Web component tests
         run: npm test -w web -- --runInBand
 
+      # The desktop counter's key, PIN store, API client, checkout drafts and signed commands.
+      # Lint only type-checks pos-desktop; these specs are what guard its behaviour.
+      - name: Desktop counter tests
+        run: npm test -w pos-desktop -- --runInBand
+
       - name: PostgreSQL RLS proof
         run: npm run test:rls-poc -w api
 

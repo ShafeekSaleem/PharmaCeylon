@@ -12,7 +12,12 @@ const amount = (minor: number) => (minor / 100).toFixed(2);
 export function CounterWork({ onActivity }: { onActivity?: () => void } = {}) {
   const [refunds, setRefunds] = useState<RefundAtCounter[] | null>(null);
   const [pending, setPending] = useState<
-    { commandId: string; operation: string; createdAt: string }[]
+    {
+      commandId: string;
+      operation: string;
+      createdAt: string;
+      staffName: string | null;
+    }[]
   >([]);
   const [done, setDone] = useState<RefundExecuted | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +80,7 @@ export function CounterWork({ onActivity }: { onActivity?: () => void } = {}) {
               onClick={() => void confirm(p.commandId)}
             >
               Confirm action from {new Date(p.createdAt).toLocaleTimeString()}
+              {p.staffName ? ` (sent by ${p.staffName})` : ""}
             </button>
           ))}
         </div>

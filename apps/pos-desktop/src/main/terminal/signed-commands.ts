@@ -106,16 +106,30 @@ export class SignedCommandService {
   }
 
   /** Commands sent without a definite answer, to be resent identically. */
-  pending(): { commandId: string; operation: string; createdAt: string }[] {
+  pending(): {
+    commandId: string;
+    operation: string;
+    createdAt: string;
+    staffName: string | null;
+  }[] {
     const rows = this.deps.db
       .prepare(
-        "SELECT command_id, operation, created_at FROM signed_command WHERE status IN ('sent', 'uncertain') ORDER BY created_at",
+        `SELECT c.command_id, c.operation, c.created_at,
+           (SELECT staff_name FROM staff_session_log l WHERE l.staff_user_id = c.staff_user_id
+            ORDER BY l.opened_at DESC LIMIT 1) AS staff_name
+         FROM signed_command c WHERE c.status IN ('sent', 'uncertain') ORDER BY c.created_at`,
       )
-      .all() as { command_id: string; operation: string; created_at: string }[];
+      .all() as {
+      command_id: string;
+      operation: string;
+      created_at: string;
+      staff_name: string | null;
+    }[];
     return rows.map((r) => ({
       commandId: r.command_id,
       operation: r.operation,
       createdAt: r.created_at,
+      staffName: r.staff_name,
     }));
   }
 

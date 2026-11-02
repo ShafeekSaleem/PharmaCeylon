@@ -522,11 +522,29 @@ current }` for active, unretired counters. `current` is true only while `pinVers
 person's PIN version and a PIN is set. `POST /admin/users/:userId/reset-pin` clears the PIN and
 bumps the version, which makes every preparation stale.
 
-**Limits.** This is evidence that the trusted process ran in the physical console session, not
-proof that a person inspected goods. Remote Desktop is refused. Third-party remote-control tools
-(AnyDesk, TeamViewer, Chrome Remote Desktop and similar) drive the console session and are not
-detected; named staff confirmation, training and audit remain the control. A hostile local
-administrator is out of scope.
+**Limits (accepted for v1, D-P2a).** This is evidence that the trusted process ran in the
+physical console session, not proof that a person inspected goods. Remote Desktop is refused.
+Third-party remote-control tools (AnyDesk, TeamViewer, Chrome Remote Desktop and similar) drive the
+console session; the desktop refuses to record a proof while a known one is running, but a renamed
+process passes, so named staff attribution, training and audit remain the control. A hostile local
+administrator is out of scope. Shafeek accepted these limits for v1 on 2026-11-01
+([POS_V1_REVIEW.md](POS_V1_REVIEW.md), D-P2a).
+
+**Co-sign attendance.** A controlled-item co-sign at checkout relies on the attendance proved when
+the seller's session opened at that counter, not a proof bound to the sale; that is the v1 rule.
+
+**Mandatory hours on counter sales.** A checkout carrying `x-terminal-session` is refused with
+403 `OUTSIDE_OPERATING_HOURS` outside the branch's mandatory selling windows (W7), and with
+`TEMPORARILY_UNAVAILABLE` if the stored hours or timezone can't be read. Routine closing time
+stays advisory online, and a branch with no hours set has no restriction.
+
+**Unconfirmed sales.** The checkout idempotency key is scoped to the seller, so only the person
+who rang up an unconfirmed sale can confirm it from the counter; the desktop names them in its
+pending list and readiness.
+
+**Web PIN routes.** `POST /sales/pos/me/pos-pin` and `/clear` are refused with 403
+`PIN_SET_AT_COUNTER` at a branch live on PharmaCeylon POS (outside a fallback), because there the
+PIN is set at the counter (D-W5). A wrong password there is 403 `PASSWORD_INCORRECT`.
 
 ## Sales lifecycle (pilot)
 
