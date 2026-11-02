@@ -40,7 +40,8 @@ export function PosPharmacistPinModal({
   title = "Pharmacist approval",
   description = "Enter the approver PIN to dispense controlled medicines.",
   confirmLabel = "Approve & complete",
-  emptyText = "No pharmacist is assigned to this branch. Hold the sale and ask a supervisor.",
+  // Controlled co-signers are only those with a current SLMC registration here (P1 #47).
+  emptyText = "No pharmacist at this branch has a current SLMC registration, so nobody can co-sign. Hold the sale for a pharmacist, or ask the owner to record or renew registrations.",
   loadApprovers = listPosApprovers,
 }: Props) {
   const listboxId = useId();

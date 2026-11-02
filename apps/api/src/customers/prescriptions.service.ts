@@ -1,8 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { nextDocumentNumber } from "../common/document-sequence.util";
 import { PrismaService } from "../prisma/prisma.service";
+import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { CreatePrescriptionDto } from "./dto/create-prescription.dto";
 
@@ -147,15 +153,30 @@ export class PrescriptionsService {
     return rx;
   }
 
+  /**
+   * The browser route. It checks no SLMC registration, so at a branch live on PharmaCeylon POS it
+   * refuses: prescriptions are recorded at a counter there, through the signed command that does
+   * (P1 #47). During an owner's fallback the web POS is what the branch is using, so it works.
+   */
   async create(
     tenantId: string,
     branchId: string,
     userId: string,
     dto: CreatePrescriptionDto,
   ) {
-    return this.prisma.$transaction((tx) =>
-      this.createInTransaction(tx, tenantId, branchId, userId, dto),
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const branch = await tx.branch.findFirst({
+        where: { id: branchId, tenantId },
+        select: POS_ROLLOUT_SELECT,
+      });
+      if (branch && resolvePosRollout(branch).state === "live")
+        throw new ForbiddenException({
+          code: "PRESCRIPTION_AT_COUNTER",
+          message:
+            "This branch uses PharmaCeylon POS: record the prescription at a counter, where the pharmacist's registration is checked.",
+        });
+      return this.createInTransaction(tx, tenantId, branchId, userId, dto);
+    });
   }
 
   /**

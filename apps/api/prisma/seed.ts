@@ -36,6 +36,7 @@ import {
   demoPricingForProduct,
   demoStockLineForIndex,
 } from "../src/nmra/nmra-normalize";
+import { businessToday, safeTimeZone } from "../src/common/business-date.util";
 import { AUTO_QUARANTINE_EXPIRED_REASON } from "../src/inventory/quarantine.constants";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -415,6 +416,26 @@ async function main() {
     ].map((userId) => ({ tenantId: tenant.id, userId })),
     skipDuplicates: true,
   });
+
+  // P1 #47: a controlled co-sign needs a current SLMC registration, so the demo pharmacist has
+  // one. Registrations are kept by trigger: reuse a current one, revoke and replace one that lapsed.
+  // "Current" is judged as checkout judges it, on the branch's own date, not the server's.
+  const registrationToday = businessToday(safeTimeZone(mainBranch.timezone));
+  const demoRegistration = await prisma.pharmacistRegistration.findFirst({
+    where: { tenantId: tenant.id, userId: pharmacist.id, revokedAt: null },
+  });
+  if (!demoRegistration || demoRegistration.expiresOn < registrationToday) {
+    if (demoRegistration)
+      await prisma.pharmacistRegistration.updateMany({
+        where: { id: demoRegistration.id, tenantId: tenant.id, revokedAt: null },
+        data: { revokedAt: new Date(), revokedByUserId: owner.id, revocationReason: "Demo seed renewal" },
+      });
+    const expiresOn = new Date(registrationToday);
+    expiresOn.setUTCFullYear(expiresOn.getUTCFullYear() + 1);
+    await prisma.pharmacistRegistration.create({
+      data: { tenantId: tenant.id, userId: pharmacist.id, slmcNumber: "SLMC-PH-10021", expiresOn, recordedByUserId: owner.id },
+    });
+  }
 
   console.log("Seeding NMRA product catalog…");
   const nmra = await seedNmraCatalog(prisma, tenant.id);
@@ -2877,7 +2898,7 @@ async function main() {
   console.log("  owner@pharmaceylon.demo      — owner");
   console.log("  manager@pharmaceylon.demo    — manager (MAIN + BRANCH2)");
   console.log("  manager2@pharmaceylon.demo   — manager (GALLE + NEGOMBO)");
-  console.log("  pharmacist@pharmaceylon.demo — pharmacist (till PIN from SEED_PHARMACIST_POS_PIN or 1234)");
+  console.log("  pharmacist@pharmaceylon.demo — pharmacist (till PIN from SEED_PHARMACIST_POS_PIN or 1234; SLMC registration recorded, so they can co-sign controlled items)");
   console.log("  cashier@pharmaceylon.demo    — cashier");
   console.log("  clerk@pharmaceylon.demo      — inventory_clerk");
   console.log("\nDefaults: Owner123! / Manager123! / Pharmacist123! / Cashier123! / Clerk123!");

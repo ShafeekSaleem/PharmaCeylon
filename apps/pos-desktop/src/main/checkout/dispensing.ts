@@ -4,7 +4,8 @@ import type {
   PrescriptionView,
   RecordPrescription,
 } from "../../shared/ipc-contract";
-import type { ApiSession } from "../api/api-client";
+import { ApiError, type ApiSession } from "../api/api-client";
+import type { SignedCommandService } from "../terminal/signed-commands";
 import {
   ActionFailure,
   type TerminalService,
@@ -49,17 +50,36 @@ export const toCustomer = (raw: RawCustomer): CustomerView => ({
   phone: raw.phone,
 });
 
+/** The signed command's refusals, said for a prescription at the counter. */
+function recordRefusal(error: unknown): unknown {
+  // The server's own message is the generic "Terminal authorization failed".
+  if (error instanceof ApiError && error.code === "PHARMACIST_REQUIRED")
+    return new ActionFailure(
+      "PHARMACIST_REQUIRED",
+      "Recording a prescription needs a pharmacist with a current SLMC registration at this branch. Ask them to switch in at this counter and record it.",
+    );
+  if (error instanceof ActionFailure && error.code === "COMMAND_UNCERTAIN")
+    return new ActionFailure(
+      "COMMAND_UNCERTAIN",
+      "The server did not answer, so the prescription may have been saved. Confirm the unconfirmed action, then search for the prescription instead of recording it again.",
+    );
+  return error;
+}
+
 /**
  * Prescription capture and co-sign lookups for checkout at the counter. Everything goes to the
- * server as the signed-in person: recording a prescription needs `prescriptions.create`, and the
- * checkout itself decides who may dispense controlled items and verifies the co-signer's PIN.
- * Nothing here is cached on disk; patient details stay on the server.
+ * server as the signed-in person. Recording a prescription is a signed clinical command: the
+ * signed-in person needs `prescriptions.create` and a current SLMC registration at the branch.
+ * The checkout itself decides who may dispense controlled items and verifies the co-signer's PIN
+ * and registration. Nothing here is cached on disk; patient details stay on the server (the
+ * signed envelope kept until its receipt arrives is the exception).
  */
 export class DispensingService {
   constructor(
     private readonly deps: {
       api: ApiSession;
       terminal: TerminalService;
+      commands: SignedCommandService;
       now?: () => Date;
     },
   ) {}
@@ -128,14 +148,39 @@ export class DispensingService {
     );
   }
 
+  /** Signed, so the server checks the signed-in person's SLMC registration (P1 #47). */
   async record(input: RecordPrescription): Promise<PrescriptionView> {
-    const branchId = this.branchId();
-    const raw = await this.deps.api.request<RawPrescription>(
-      "POST",
-      "/prescriptions",
-      { branchId, body: input },
+    // The adapter takes every key, trimmed text, and null rather than blank.
+    const text = (value: string | undefined) => value?.trim() || null;
+    const body = {
+      rxNumber: null,
+      patientName: input.patientName.trim(),
+      doctorName: input.doctorName.trim(),
+      doctorRegNo: text(input.doctorRegNo),
+      issuedOn: input.issuedOn,
+      validUntil: input.validUntil ?? null,
+      customerId: input.customerId ?? null,
+      notes: text(input.notes),
+    };
+    const { result } = await this.deps.commands
+      .execute("POST /api/v1/prescriptions", body, null)
+      .catch((error: unknown) => {
+        throw recordRefusal(error);
+      });
+    // The receipt carries ids only; the rest is what was signed.
+    return toPrescription(
+      {
+        id: result.prescriptionId,
+        rxNumber: result.rxNumber,
+        patientName: body.patientName,
+        doctorName: body.doctorName,
+        issuedOn: body.issuedOn,
+        validUntil: body.validUntil,
+        customerId: body.customerId,
+        customer: null,
+      },
+      this.now(),
     );
-    return toPrescription(raw, this.now());
   }
 
   async approvers(): Promise<ApproverView[]> {

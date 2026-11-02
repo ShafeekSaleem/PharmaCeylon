@@ -8,6 +8,7 @@ import { migrations } from "../db/migrations";
 import { DeviceKey } from "../device/device-key";
 import { openLocalStore, type LocalStore } from "../local-store";
 import type { Logger } from "../logging/logger";
+import { DispensingService } from "../checkout/dispensing";
 import { CounterWorkService } from "./counter-work";
 import { SignedCommandService } from "./signed-commands";
 import type { TerminalService } from "./terminal-service";
@@ -120,6 +121,12 @@ function services() {
       terminal: terminal as unknown as TerminalService,
       commands,
     }),
+    dispensing: new DispensingService({
+      api: api as unknown as ApiSession,
+      terminal: terminal as unknown as TerminalService,
+      commands,
+      now: () => new Date("2026-11-03T08:00:00.000Z"),
+    }),
   };
 }
 
@@ -220,5 +227,85 @@ describe("signed counter commands", () => {
     };
     await expect(commands.retry(pending!.commandId)).rejects.toBeInstanceOf(ApiError);
     expect(commands.pending()).toHaveLength(1);
+  });
+});
+
+describe("prescriptions recorded at the counter", () => {
+  const prescriptionId = randomUUID();
+  const pharmacistRegistrationId = randomUUID();
+  const input = {
+    patientName: "Nimal Perera",
+    doctorName: "Silva",
+    issuedOn: "2026-11-02",
+    notes: "Repeat x2",
+  };
+  const status = () =>
+    local.db.prepare("SELECT operation, status, error_code FROM signed_command").all();
+
+  it("sends a signed clinical command, with no approval or co-sign evidence, and keeps its receipt", async () => {
+    const { dispensing } = services();
+    executeReply = () => ({
+      ...receipt(),
+      operation: "POST /api/v1/prescriptions",
+      result: { type: "prescription.recorded", prescriptionId, rxNumber: "RX-00040", pharmacistRegistrationId },
+    });
+    await expect(dispensing.record(input)).resolves.toMatchObject({
+      prescriptionId,
+      rxNumber: "RX-00040",
+      patientName: "Nimal Perera",
+      validUntil: null,
+      expired: false,
+    });
+    const prepare = sent.find((s) => s.path === "/terminal-commands/prepare")!;
+    expect(prepare.body).toEqual({
+      workSessionId: staff.workSessionId,
+      operation: "POST /api/v1/prescriptions",
+      body: {
+        rxNumber: null,
+        patientName: "Nimal Perera",
+        doctorName: "Silva",
+        doctorRegNo: null,
+        issuedOn: "2026-11-02",
+        validUntil: null,
+        customerId: null,
+        notes: "Repeat x2",
+      },
+      approvalEvidenceId: null,
+      pharmacistEvidenceId: null,
+      operatingHoursExceptionId: null,
+    });
+    const execute = sent.find((s) => s.path === "/terminal-commands/execute")!;
+    expect(execute.body.command.signature).toMatch(/^[A-Za-z0-9_-]{86}$/);
+    expect(sent.some((s) => s.path === "/prescriptions")).toBe(false);
+    expect(status()).toEqual([
+      { operation: "POST /api/v1/prescriptions", status: "receipted", error_code: null },
+    ]);
+  });
+
+  it("treats a missing SLMC registration as a final refusal the counter can explain", async () => {
+    const { dispensing, commands } = services();
+    executeReply = () => {
+      throw new ApiError(403, "PHARMACIST_REQUIRED", "Terminal authorization failed");
+    };
+    await expect(dispensing.record(input)).rejects.toMatchObject({
+      code: "PHARMACIST_REQUIRED",
+      message: expect.stringContaining("switch in at this counter"),
+    });
+    expect(commands.pending()).toEqual([]);
+    expect(status()).toEqual([
+      { operation: "POST /api/v1/prescriptions", status: "refused", error_code: "PHARMACIST_REQUIRED" },
+    ]);
+  });
+
+  it("keeps an unanswered one to confirm, and says the prescription may exist", async () => {
+    const { dispensing, commands } = services();
+    executeReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(dispensing.record(input)).rejects.toMatchObject({
+      code: "COMMAND_UNCERTAIN",
+      message: expect.stringContaining("may have been saved"),
+    });
+    expect(commands.pending()).toMatchObject([{ operation: "POST /api/v1/prescriptions" }]);
   });
 });

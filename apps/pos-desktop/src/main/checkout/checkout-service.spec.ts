@@ -315,6 +315,36 @@ describe("CheckoutService", () => {
     const [first, second] = calls.filter((c) => c.path === "/sales/checkout");
     expect(second!.opts.body).toEqual(first!.opts.body);
   });
+
+  it("clears an unanswered co-signed sale once its co-signer's SLMC registration is refused", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      checkout.submit(
+        [{ productId: morphine, qty: 1 }],
+        { cashAmount: "40" },
+        { prescriptionId },
+        { approverUserId: pharmacistId, pin: "4321" },
+      ),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const [pending] = checkout.pending();
+    // The server refuses this only after finding no earlier attempt with the key: the sale never
+    // happened, and only this co-signer could ever confirm it, so it must not stay pending.
+    const refusal = new ApiError(403, "APPROVER_NOT_QUALIFIED", "Their registration has lapsed");
+    checkoutReply = () => {
+      throw refusal;
+    };
+    await expect(
+      checkout.retry(pending!.draftId, { approverUserId: pharmacistId, pin: "4321" }),
+    ).rejects.toBe(refusal);
+    expect(checkout.pending()).toEqual([]);
+    expect(
+      local.db.prepare("SELECT status, error_code FROM checkout_draft").get(),
+    ).toEqual({ status: "refused", error_code: "APPROVER_NOT_QUALIFIED" });
+  });
 });
 
 describe("checkout safety", () => {

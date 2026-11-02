@@ -530,15 +530,23 @@ columns null. Every online counter, including a nominated offline one, sells the
 available stock.
 
 **Prescription and controlled items at the counter.** The desktop links a customer
-(`GET /customers`) and a prescription (`GET /prescriptions`, or `POST /prescriptions` with
-`prescriptions.create`), and for controlled items sends `pharmacistApproval: { approverUserId,
-pin }`, the co-signer's online PIN or, without one, their login password (approvers come from
-`GET /sales/pos/approvers`). Checkout refusals carry `code: "PRESCRIPTION_REQUIRED"` (no
-prescription linked) and `code: "PHARMACIST_APPROVAL_REQUIRED"` (controlled items, a seller who
-cannot dispense them, no co-sign). A wrong or locked co-signer secret is **403** with
-`APPROVER_PIN_INCORRECT`, `APPROVER_PIN_LOCKED` or `APPROVER_NOT_FOUND`, as are the counter's own
-`PASSWORD_INCORRECT` and `PIN_INCORRECT`: a 401 means only that the access token lapsed, and
-clients refresh and resend on it, which would count one wrong secret twice. Overlapping retries
+(`GET /customers`) and a prescription: it finds one with `GET /prescriptions`, or records one with
+the signed `POST /api/v1/prescriptions` command ("Signed terminal commands"), so the signed-in
+person must hold a current SLMC registration (`PHARMACIST_REQUIRED` otherwise; a cashier asks the
+pharmacist to switch in and record it). For controlled items it sends `pharmacistApproval: {
+approverUserId, pin }`, the co-signer's online PIN or, without one, their login password. The
+co-signer must also hold a current SLMC registration at the branch ("Pharmacist registrations",
+"Controlled checkout"), and `GET /sales/pos/approvers` lists only people who do. Checkout refusals
+carry `code: "PRESCRIPTION_REQUIRED"` (no prescription linked), `code:
+"PHARMACIST_APPROVAL_REQUIRED"` (controlled items, a seller who cannot dispense them, no co-sign),
+`code: "APPROVER_NOT_QUALIFIED"` (403: the co-signer has no current registration here) and `code:
+"SELLER_NOT_QUALIFIED"` (403: a seller dispensing alone has none). Those last two are given only
+after the transaction has looked up the key, so the desktop takes them as final on a resend: a
+sale whose co-signer's registration lapsed before it was confirmed is cleared, not left pending. A
+wrong or locked co-signer secret is **403** with `APPROVER_PIN_INCORRECT`, `APPROVER_PIN_LOCKED`
+or `APPROVER_NOT_FOUND`, as are the counter's own `PASSWORD_INCORRECT` and `PIN_INCORRECT`: a
+401 means only that the access token lapsed, and clients refresh and resend on it, which would
+count one wrong secret twice. Overlapping retries
 of one `Idempotency-Key` serialize inside the checkout transaction, so a resend sent while the
 first attempt still runs replays that sale. The desktop never stores the PIN: its draft keeps only who
 co-signed. An idempotent replay returns the original sale without re-verifying it, so a resent
@@ -573,6 +581,13 @@ pending list and readiness.
 **Web PIN routes.** `POST /sales/pos/me/pos-pin` and `/clear` are refused with 403
 `PIN_SET_AT_COUNTER` at a branch live on PharmaCeylon POS (outside a fallback), because there the
 PIN is set at the counter (D-W5). A wrong password there is 403 `PASSWORD_INCORRECT`.
+
+**Unsigned prescription recording (decided 2026-11-03).** The unsigned `POST /prescriptions`
+checks no SLMC registration, so at a branch live on PharmaCeylon POS (outside a fallback) it is
+refused with 403 `PRESCRIPTION_AT_COUNTER`, whoever calls it: there prescriptions are recorded at a
+counter through the signed command, which does check. During an owner's fallback the web POS is
+what the branch is using, so the route works there, and at branches not live yet, as before. Both
+are unchecked until the web can carry clinical evidence (W5).
 
 ## Offline support records (P1, sync intake)
 
@@ -637,9 +652,37 @@ revocation that commits first is seen, and a later one waits for the clinical tr
 renewal that commits during the wait is found by one fresh read, so it is not refused. The
 registration relied on is returned and copied into the command provenance
 (`pharmacistRegistrationId`) for the operation's success audit. A
-co-signing pharmacist (`pharmacistEvidenceId`) is not accepted online yet (`INVALID_COMMAND`); it
-arrives with the desktop dispensing flow. The check is `PharmacistRegistrationService.assertQualified`,
-which the pharmacist PIN co-sign will call too.
+co-signing pharmacist (`pharmacistEvidenceId`) is still not accepted on a signed command
+(`INVALID_COMMAND`), so a prescription is recorded by a registered pharmacist signed in at the
+counter. The check is `PharmacistRegistrationService.assertQualified`; checkout calls it too.
+
+**Controlled checkout.** `POST /sales/checkout` with controlled lines checks the dispenser's
+registration with the same `assertQualified`, on the checkout's own transaction before any batch
+is locked, so a revocation that commits first refuses the sale and a later one waits for it.
+
+- **A PIN co-sign** (`pharmacistApproval`) names the dispenser, whoever is selling. The PIN is
+  verified first, outside the transaction, so a wrong one counts towards the lockout; then the
+  co-signer's registration. Without a current one the sale is refused with 403
+  `APPROVER_NOT_QUALIFIED`, and the message names the co-signer. `sales.approve_controlled` is
+  still needed as well.
+- **A seller dispensing alone** (no co-sign) needs `sales.approve_controlled` at the branch, the
+  permission a co-signer needs, resolved from the tenant's grants (owner, manager and pharmacist by
+  default); without it the refusal is 403 `PHARMACIST_APPROVAL_REQUIRED`. They also need their own
+  current registration **at a counter** (`x-terminal-session`), and on any checkout at a branch
+  live on PharmaCeylon POS outside a fallback, so leaving the header out skips nothing. Without one
+  the sale is refused with 403 `SELLER_NOT_QUALIFIED`, telling them to get a co-sign. Before
+  go-live and during a fallback, when the web POS is what the branch uses, the permission alone
+  still dispenses there: the web has no way yet to ask for a co-sign when the seller isn't
+  registered (still open, see POS_P1_IMPLEMENTATION.md MR 10).
+- **Provenance.** The registration relied on is stored with the sale as
+  `sale.dispenser_registration_id` (`dispenserRegistrationId` in sale responses), in the same
+  transaction; a composite foreign key pins it to `dispensed_by` in the tenant. `sale.posted` and
+  `sale.pharmacist_approved` audits carry `pharmacistRegistrationId` and `slmcNumber`.
+- **Who is offered.** `GET /sales/pos/approvers` lists only approvers the check would accept now:
+  current registration, active account and membership, a role at the branch, from the same rules
+  as `assertQualified` (`PharmacistRegistrationService.qualifiedAt`). The read takes no lock;
+  checkout checks again. Refund approvers (`GET /sales/pos/refund-approvers`) are not
+  filtered: a refund is not clinical.
 
 ## Sales lifecycle (pilot)
 
@@ -862,7 +905,7 @@ Two read paths per entity, deliberately different, because a counter picker and 
 | `PATCH /customers/:id` | Partial update; `customers.manage`. |
 | `GET /prescriptions?q=` | POS picker, branch-scoped, capped at 50. |
 | `GET /prescriptions/register` | Prescriptions page. `q`, `validity` (`all`/`valid`/`expired`), `page`, `pageSize`. |
-| `POST /prescriptions` | Record one presented at the counter; `prescriptions.create`. Classified `clinical`. Also a signed terminal command, which additionally needs the session's pharmacist to hold a current SLMC registration (see "Signed terminal commands"). Both paths write a `prescription.recorded` audit. A number already used at the branch is 400. |
+| `POST /prescriptions` | Record one presented at the counter; `prescriptions.create`. Classified `clinical`. Also a signed terminal command, which additionally needs the session's pharmacist to hold a current SLMC registration (see "Signed terminal commands"); the desktop uses only that. Unsigned, it is refused with 403 `PRESCRIPTION_AT_COUNTER` at a branch live on PharmaCeylon POS outside a fallback ("Unsigned prescription recording"). Both paths write a `prescription.recorded` audit. A number already used at the branch is 400. |
 
 **Semantics**
 

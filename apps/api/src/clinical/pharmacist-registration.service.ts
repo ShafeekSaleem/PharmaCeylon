@@ -37,6 +37,13 @@ type Row = Prisma.PharmacistRegistrationGetPayload<{
 const ROW_INCLUDE = {
   membership: { select: { isActive: true, user: { select: { fullName: true, email: true, isActive: true } } } },
 } as const;
+/** The account side of a clinical check: active, an active member of the tenant, assigned at the
+ * branch. `assertQualified` and `qualifiedAt` both use it, so the picker and the check agree. */
+const qualifiedAccount = (tenantId: string, branchId: string): Prisma.AppUserWhereInput => ({
+  isActive: true,
+  tenantMemberships: { some: { tenantId, isActive: true } },
+  userBranchRoles: { some: { tenantId, branchId } },
+});
 /** Revocation time never precedes recording, even across API instances with skewed clocks. */
 const revocationTime = (recordedAt: Date) => new Date(Math.max(Date.now(), recordedAt.getTime()));
 
@@ -197,21 +204,35 @@ export class PharmacistRegistrationService {
     const registration = (await current())[0] ?? (await current())[0];
     if (!registration) denied("PHARMACIST_REQUIRED");
     // Read after the lock: account, membership and branch assignment as they are now.
-    const branch = await tx.branch.findFirst({
-      where: { id: staff.branchId, tenantId: staff.tenantId, isActive: true },
-      select: { timezone: true },
+    const today = await this.branchToday(tx, staff.tenantId, staff.branchId, at);
+    const assigned = await tx.appUser.count({
+      where: { id: staff.userId, ...qualifiedAccount(staff.tenantId, staff.branchId) },
     });
-    const assigned = await tx.userBranchRole.count({
-      where: {
-        tenantId: staff.tenantId,
-        userId: staff.userId,
-        branchId: staff.branchId,
-        user: { isActive: true, tenantMemberships: { some: { tenantId: staff.tenantId, isActive: true } } },
-      },
-    });
-    if (!branch || assigned === 0) denied("PHARMACIST_REQUIRED");
-    if (registration.expires_on < businessToday(safeTimeZone(branch.timezone), at)) denied("PHARMACIST_REQUIRED");
+    if (!today || assigned === 0) denied("PHARMACIST_REQUIRED");
+    if (registration.expires_on < today) denied("PHARMACIST_REQUIRED");
     return { registrationId: registration.id, slmcNumber: registration.slmc_number };
+  }
+
+  /**
+   * Which of `userIds` `assertQualified` would accept at the branch now, from the same rules
+   * (`branchToday`, `qualifiedAccount`). For pickers, so the counter doesn't offer someone who
+   * will be refused; it takes no lock, and the clinical operation still runs the check.
+   */
+  async qualifiedAt(tenantId: string, branchId: string, userIds: readonly string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const today = await this.branchToday(this.prisma, tenantId, branchId);
+    if (!today) return new Set();
+    const rows = await this.prisma.pharmacistRegistration.findMany({
+      where: {
+        tenantId,
+        userId: { in: [...userIds] },
+        revokedAt: null,
+        expiresOn: { gte: today },
+        membership: { user: qualifiedAccount(tenantId, branchId) },
+      },
+      select: { userId: true },
+    });
+    return new Set(rows.map((row) => row.userId));
   }
 
   /** The `MandatoryOperationEvidence.clinical` provider: the signed session's own staff member
@@ -233,6 +254,16 @@ export class PharmacistRegistrationService {
         code: PHARMACIST_REGISTRATION_ERRORS.ownerOnly,
         message: "Only an owner can record or revoke a pharmacist's registration.",
       });
+  }
+
+  /** The branch's business date, or null when it isn't an active branch of the tenant: nobody is
+   * qualified there. A registration is current through its expiry date in this timezone. */
+  private async branchToday(tx: Tx, tenantId: string, branchId: string, at: Date = new Date()) {
+    const branch = await tx.branch.findFirst({
+      where: { id: branchId, tenantId, isActive: true },
+      select: { timezone: true },
+    });
+    return branch ? businessToday(safeTimeZone(branch.timezone), at) : null;
   }
 
   private async tenantToday(tx: Tx, tenantId: string) {

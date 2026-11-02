@@ -41,6 +41,7 @@ import { PermissionsService } from "../src/security/permissions.service";
 import { AccessService, type ActorAccess } from "../src/security/access.service";
 import { ManagementApprovalsService } from "../src/security/management-approvals.service";
 import { NotificationsService } from "../src/notifications/notifications.service";
+import { PharmacistRegistrationService } from "../src/clinical/pharmacist-registration.service";
 import { PharmacistApprovalService } from "../src/sales/pharmacist-approval.service";
 import { SalesService } from "../src/sales/sales.service";
 import { HeldSalesService } from "../src/sales/held-sales.service";
@@ -134,14 +135,19 @@ const stockRead = new StockReadService(prisma);
 const permissions = new PermissionsService(prisma, config);
 const access = new AccessService(prisma, permissions);
 const notifications = new NotificationsService(prisma, permissions);
+// Controlled checkouts check the dispenser's SLMC registration, and so do co-signer lists.
+const registrations = new PharmacistRegistrationService(prisma, access, audit);
 const sales = new SalesService(
   prisma,
   audit,
   new TaxService(config),
-  new PharmacistApprovalService(prisma, audit, permissions),
+  new PharmacistApprovalService(prisma, audit, permissions, registrations),
   // The demo tenant is set up; the readiness gate is for brand-new pharmacies.
   { assertCanSell: async () => undefined } as never,
   stock,
+  undefined,
+  undefined,
+  registrations,
 );
 const purchasing = new PurchasingService(prisma, audit, stock, stockRead);
 const heldDeliveries = new HeldDeliveryService(prisma, purchasing, notifications, audit);

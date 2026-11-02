@@ -59,7 +59,8 @@ export class SalesController {
   }
 
   @ApiOperation({
-    summary: "Branch pharmacists/managers/owners available for till PIN co-sign",
+    summary:
+      "Who can co-sign controlled items with a till PIN: approvers at this branch with a current SLMC registration",
   })
   @RequirePermission("sales.pos_use")
   @Get("pos/approvers")

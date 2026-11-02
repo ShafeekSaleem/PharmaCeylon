@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { RoleName } from "@prisma/client";
 import * as bcrypt from "bcrypt";
 import { AuditService } from "../audit/audit.service";
+import type { PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
 import { PermissionsService } from "../security/permissions.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 
@@ -18,9 +19,11 @@ describe("PharmacistApprovalService", () => {
   let prisma: {
     appUser: { findFirst: jest.Mock; update: jest.Mock };
     userBranchRole: { findMany: jest.Mock };
+    role: { findMany: jest.Mock };
     branch: { findFirst: jest.Mock };
   };
   let audit: AuditService;
+  let registrations: { qualifiedAt: jest.Mock };
   let service: PharmacistApprovalService;
 
   beforeEach(() => {
@@ -30,6 +33,7 @@ describe("PharmacistApprovalService", () => {
         update: jest.fn().mockResolvedValue({}),
       },
       userBranchRole: { findMany: jest.fn() },
+      role: { findMany: jest.fn().mockResolvedValue([]) },
       branch: {
         findFirst: jest.fn().mockResolvedValue({ desktopPosRollout: "not_live", posFallbackEndsAt: null }),
       },
@@ -39,8 +43,42 @@ describe("PharmacistApprovalService", () => {
       prisma as never,
       { get: () => 30 } as unknown as ConfigService,
     );
-    service = new PharmacistApprovalService(prisma as never, audit, permissions);
+    registrations = { qualifiedAt: jest.fn().mockResolvedValue(new Set()) };
+    service = new PharmacistApprovalService(
+      prisma as never,
+      audit,
+      permissions,
+      registrations as unknown as PharmacistRegistrationService,
+    );
     mockedBcrypt.compare.mockReset();
+  });
+
+  describe("approver lists", () => {
+    const row = (id: string, fullName: string, role: RoleName) => ({
+      role,
+      user: { id, fullName, email: `${id}@x.test`, posPinHash: "pin" },
+    });
+    beforeEach(() => {
+      prisma.userBranchRole.findMany.mockResolvedValue([
+        row("owner-1", "Owner", RoleName.owner),
+        row("pharm-1", "Registered Pharmacist", RoleName.pharmacist),
+        row("pharm-2", "Lapsed Pharmacist", RoleName.pharmacist),
+      ]);
+    });
+
+    it("offers only approvers with a current SLMC registration here for a controlled co-sign", async () => {
+      registrations.qualifiedAt.mockResolvedValue(new Set(["pharm-1"]));
+      await expect(service.listApprovers(tenantId, branchId)).resolves.toEqual([
+        expect.objectContaining({ id: "pharm-1", hasPosPin: true }),
+      ]);
+      expect(registrations.qualifiedAt).toHaveBeenCalledWith(tenantId, branchId, ["owner-1", "pharm-1", "pharm-2"]);
+    });
+
+    it("leaves refund approvers alone: a refund is not clinical", async () => {
+      const listed = await service.listApprovers(tenantId, branchId, "returns.approve");
+      expect(listed.map((a) => a.fullName)).toEqual(["Lapsed Pharmacist", "Owner", "Registered Pharmacist"]);
+      expect(registrations.qualifiedAt).not.toHaveBeenCalled();
+    });
   });
 
   it("accepts till PIN for branch pharmacist", async () => {
