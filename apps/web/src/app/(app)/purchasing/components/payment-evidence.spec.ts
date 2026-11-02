@@ -1,4 +1,5 @@
 import {
+  isPaymentAmount,
   paymentAllocations,
   paymentCents,
   evidenceFileProblem,
@@ -34,4 +35,11 @@ it("refuses unsafe or empty attachments", () => {
   expect(
     evidenceFileProblem(new File([], "x.pdf", { type: "application/pdf" })),
   ).toBeTruthy();
+});
+it("reads leading zeros as the number they are", () => {
+  expect(paymentCents("050")).toBe(5000);
+  expect(paymentCents("007.5")).toBe(750);
+  expect(isPaymentAmount("050")).toBe(true);
+  expect(isPaymentAmount("0")).toBe(false);
+  expect(isPaymentAmount("1234567890123")).toBe(false);
 });

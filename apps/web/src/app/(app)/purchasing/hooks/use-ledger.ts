@@ -22,8 +22,11 @@ function qs(params: Record<string, string | undefined>) {
 
 /**
  * One loader shape for every ledger list: re-fetches when its path changes, clears when there
- * is no branch, and never throws into the page. A changed user, branch or filter clears the
- * old rows immediately; a refresh of the same scope keeps its rows while revalidating.
+ * is no branch, and never throws into the page. A changed user or branch clears the old rows
+ * at once, and a late answer from an earlier request is ignored. A search or filter change keeps
+ * the rows on screen until the new ones arrive, so the table never blinks; `fresh` says whether
+ * the rows answer the current path, for callers that act on them (a payment allocating against
+ * one supplier's invoices must not see the previous supplier's).
  */
 function useLedgerList<T>(
   path: string | null,
@@ -31,40 +34,39 @@ function useLedgerList<T>(
   enabled = true,
 ) {
   const { branchId, user } = useAuth();
+  const identity = `${user?.tenantId}:${user?.id}:${branchId}`;
+  const key = `${identity}:${path}:${enabled}`;
+  const active = !!branchId && !!path && enabled;
   const [rows, setRows] = useState<T[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const loaded = useRef(false);
-  const scope = `${user?.tenantId}:${user?.id}:${branchId}:${path}:${enabled}`;
-  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  // What the rows on hand answer: whose they are, which request, and whether it was a real fetch.
+  const [loaded, setLoaded] = useState<{
+    identity: string;
+    key: string;
+    fetched: boolean;
+  } | null>(null);
   const generation = useRef(0);
 
   const reload = useCallback(async () => {
     const mine = ++generation.current;
-    if (!branchId || !path || !enabled) {
-      loaded.current = false;
+    if (!active) {
       setRows([]);
-      setLoading(false);
       setError(null);
+      setLoaded({ identity, key, fetched: false });
       return;
     }
-    if (!loaded.current) setLoading(true);
     setError(null);
     try {
-      const next = await apiJson<T[]>(path);
+      const next = await apiJson<T[]>(path!);
       if (mine !== generation.current) return;
       setRows(next);
-      setLoadedScope(scope);
-      loaded.current = true;
     } catch (err) {
       if (mine !== generation.current) return;
-      setLoadedScope(scope);
       setError(err instanceof Error ? err.message : fallbackError);
       setRows([]);
-    } finally {
-      if (mine === generation.current) setLoading(false);
     }
-  }, [branchId, path, fallbackError, enabled, scope]);
+    setLoaded({ identity, key, fetched: true });
+  }, [active, path, fallbackError, identity, key]);
 
   useEffect(() => {
     void reload();
@@ -73,10 +75,13 @@ function useLedgerList<T>(
     };
   }, [reload]);
 
+  const mineRows = loaded?.identity === identity;
   return {
-    rows: loadedScope === scope ? rows : [],
-    loading: loading || (!!branchId && enabled && loadedScope !== scope),
-    error: loadedScope === scope ? error : null,
+    rows: mineRows ? rows : [],
+    // Only a first load for this user and branch shows as loading.
+    loading: active && !(mineRows && loaded.fetched),
+    fresh: loaded?.key === key,
+    error: mineRows ? error : null,
     reload,
     hasBranch: !!branchId,
   };

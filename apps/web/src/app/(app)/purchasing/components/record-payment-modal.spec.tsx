@@ -23,7 +23,12 @@ jest.mock("@/lib/branch-rollout", () => ({
   useBranchRollout: () => ({ rollout: rollout ? { state: rollout } : null }),
 }));
 jest.mock("../hooks/use-ledger", () => ({
-  useInvoices: () => ({ rows: [invoice], loading: false, error: null }),
+  useInvoices: () => ({
+    rows: [invoice],
+    loading: false,
+    fresh: true,
+    error: null,
+  }),
 }));
 jest.mock("../hooks/use-suppliers", () => ({
   useSuppliers: () => ({
@@ -165,7 +170,7 @@ it("allows revocation and editing after a definite refusal", async () => {
     "/purchasing/payment-evidence/evidence-a/revoke",
   );
 });
-it.each(["live", "fallback", null])(
+it.each(["live", null])(
   "blocks cash when rollout is %s",
   (state) => {
     rollout = state;
@@ -176,8 +181,8 @@ it.each(["live", "fallback", null])(
     expect(screen.getByText("Record payment")).toBeDisabled();
   },
 );
-it("preserves legacy cash at known not-live branches", async () => {
-  rollout = "not_live";
+it.each(["not_live", "fallback"])("records cash on the web at a %s branch", async (state) => {
+  rollout = state;
   mockApi.mockResolvedValue({ id: "payment-a" });
   setup();
   fireEvent.change(screen.getByLabelText("Paid by"), {
@@ -229,4 +234,57 @@ it("does not record or replace UI state after switching branch during upload", a
   );
   expect(mockApi).toHaveBeenCalledTimes(1);
   expect(view.recorded).not.toHaveBeenCalled();
+});
+
+it("does not record when the second click of a double-click lands on the review", async () => {
+  setup();
+  const button = screen.getByText("Review payment");
+  fireEvent.click(button, { detail: 1 });
+  fireEvent.click(screen.getByText("Record payment"), { detail: 2 });
+  expect(mockApi).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Reviewed invoice allocations")).toBeInTheDocument();
+});
+
+it("tells the user to discard and correct after a definite refusal, not to retry", async () => {
+  mockApi
+    .mockResolvedValueOnce({})
+    .mockRejectedValueOnce(new ApiError("An invoice balance changed.", 409, {}));
+  setup();
+  fireEvent.click(screen.getByText("Review payment"));
+  fireEvent.click(screen.getByText("Record payment"));
+  const alert = await screen.findByText(/An invoice balance changed/);
+  expect(alert).toHaveTextContent("This payment was not recorded");
+  expect(alert).not.toHaveTextContent("Retry this payment");
+  expect(screen.getByText("Discard unused evidence and edit")).toBeInTheDocument();
+});
+
+it("still records when the browser refuses recovery storage", async () => {
+  const setItem = jest
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+  try {
+    mockApi.mockResolvedValueOnce({}).mockResolvedValueOnce({ id: "payment-a" });
+    const { recorded } = setup();
+    fireEvent.click(screen.getByText("Review payment"));
+    fireEvent.click(screen.getByText("Record payment"));
+    await waitFor(() => expect(recorded).toHaveBeenCalledWith({ id: "payment-a" }));
+  } finally {
+    setItem.mockRestore();
+  }
+});
+
+it("accepts an amount typed with a leading zero and sends it canonically", async () => {
+  mockApi.mockResolvedValueOnce({}).mockResolvedValueOnce({ id: "payment-a" });
+  const { recorded } = setup();
+  fireEvent.change(screen.getByLabelText("Amount paid"), {
+    target: { value: "050" },
+  });
+  fireEvent.click(screen.getByText("Review payment"));
+  fireEvent.click(screen.getByText("Record payment"));
+  await waitFor(() => expect(recorded).toHaveBeenCalled());
+  const sent = JSON.parse(mockApi.mock.calls[1][1].body).payment;
+  expect(sent.amount).toBe("50.00");
+  expect(sent.allocations).toEqual([{ invoiceId: "invoice-a", amount: "50.00" }]);
 });

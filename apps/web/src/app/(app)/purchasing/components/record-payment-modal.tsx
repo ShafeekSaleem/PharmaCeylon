@@ -15,10 +15,11 @@ import { useAuth } from "@/lib/use-auth";
 import { useBranchRollout } from "@/lib/branch-rollout";
 import {
   evidenceFileProblem,
+  isPaymentAmount,
   paymentAllocations,
   EVIDENCE_TYPES,
 } from "./payment-evidence";
-import { createIdempotencyKey } from "@/lib/idempotency";
+import { createIdempotencyKey, randomUuid } from "@/lib/idempotency";
 import { useInvoices } from "../hooks/use-ledger";
 import { useSuppliers } from "../hooks/use-suppliers";
 import {
@@ -97,13 +98,21 @@ export function RecordPaymentModal({
   const [error, setError] = useState<string | null>(null);
   const idempotency = useRef<string | null>(null);
   const evidenceRequired = ["bank_transfer", "cheque", "card"].includes(method);
-  const counterOnly = !evidenceRequired && rollout?.state !== "not_live";
+  // Cash and other payouts stay on the web while the web is in charge: before go-live and during
+  // an owner's fallback. At a live branch (or while the state is unknown) they are refused here.
+  const counterOnly =
+    !evidenceRequired &&
+    rollout?.state !== "not_live" &&
+    rollout?.state !== "fallback";
   const disabled = saving || locked || review;
 
   const invoices = useInvoices(
     { supplierId: supplierId || undefined, status: "outstanding" },
     open && !!supplierId,
   );
+  // Rows from another supplier stay on screen while a new supplier's load is in flight, so the
+  // form waits for rows that answer the current supplier before it allocates anything.
+  const invoicesReady = !invoices.loading && invoices.fresh;
 
   useEffect(() => {
     if (!open) return;
@@ -180,7 +189,7 @@ export function RecordPaymentModal({
       locked ||
       review ||
       !preset?.invoiceId ||
-      invoices.loading
+      !invoicesReady
     )
       return;
     const invoice = invoices.rows.find((row) => row.id === preset.invoiceId);
@@ -189,7 +198,7 @@ export function RecordPaymentModal({
       setAmount(invoice.balance);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preset?.invoiceId, invoices.loading, invoices.rows]);
+  }, [preset?.invoiceId, invoicesReady, invoices.rows]);
 
   const owed = useMemo(
     () => invoices.rows.reduce((sum, row) => sum + Number(row.balance), 0),
@@ -218,11 +227,10 @@ export function RecordPaymentModal({
 
   const valid =
     !!supplierId &&
-    amountNumber > 0 &&
-    /^\d+(\.\d{1,2})?$/.test(amount) &&
+    isPaymentAmount(amount) &&
     !!paidOn &&
     !allocationProblem &&
-    !invoices.loading &&
+    invoicesReady &&
     !invoices.error &&
     !!branchId &&
     !counterOnly &&
@@ -266,6 +274,7 @@ export function RecordPaymentModal({
               invoices.rows.map((row) => [row.id, row.invoiceNumber]),
             ),
           };
+          setError(null);
           setReview(true);
         } catch (err) {
           setError(
@@ -280,7 +289,7 @@ export function RecordPaymentModal({
         if (!attempt.current) {
           const payment = reviewed.current!.payment;
           attempt.current = {
-            evidenceId: crypto.randomUUID(),
+            evidenceId: randomUuid(),
             key: createIdempotencyKey("supplier-evidenced-payment", supplierId),
             payment,
             file: file!,
@@ -296,17 +305,24 @@ export function RecordPaymentModal({
             );
           current.file = file;
         }
-        const persist = () =>
-          sessionStorage.setItem(
-            recoveryKey,
-            JSON.stringify({
-              ...current,
-              file: null,
-              labels: reviewed.current?.labels,
-            }),
-          );
-        persist();
+        // Recovery is best effort: a browser that refuses storage still records the payment, it
+        // just can't offer recovery after a reload.
+        const persist = () => {
+          try {
+            sessionStorage.setItem(
+              recoveryKey,
+              JSON.stringify({
+                ...current,
+                file: null,
+                labels: reviewed.current?.labels,
+              }),
+            );
+          } catch {
+            // Retrying from this open modal still reuses the same evidence and key.
+          }
+        };
         setLocked(true);
+        persist();
         const headers = { "x-branch-id": current.branchId };
         if (!current.uploaded) {
           const form = new FormData();
@@ -343,16 +359,19 @@ export function RecordPaymentModal({
         onRecorded(payment);
       } catch (err) {
         if (context.current !== recoveryKey) return;
-        setCanDiscard(
-          !attempt.current?.uploaded ||
-            (err instanceof ApiError &&
-              err.status >= 400 &&
-              err.status < 500 &&
-              ![408, 429].includes(err.status)),
-        );
+        // A 4xx other than a timeout or rate limit is the server's answer: retrying the same
+        // binding gets the same refusal. Anything else may have landed, so only a retry can tell.
+        const refused =
+          err instanceof ApiError &&
+          err.status >= 400 &&
+          err.status < 500 &&
+          ![408, 429].includes(err.status);
+        setCanDiscard(!attempt.current?.uploaded || refused);
         setError(
           (err instanceof Error ? err.message : "Unable to record payment") +
-            " Your payment details are retained. Retry this payment to check the original result; do not create another payment.",
+            (refused
+              ? " This payment was not recorded. Discard the unused evidence, correct the payment and review it again."
+              : " Your payment details are retained. Retry this payment to check the original result; do not create another payment."),
         );
       } finally {
         if (context.current === recoveryKey) setSaving(false);
@@ -453,7 +472,12 @@ export function RecordPaymentModal({
           </ModalButton>
           <ModalButton
             variant="primary"
-            onClick={() => void submit()}
+            onClick={(event) => {
+              // The same button turns into "Record payment" once the review shows, so the second
+              // click of a double-click on "Review payment" must not record unseen allocations.
+              if (review && event.detail > 1) return;
+              void submit();
+            }}
             loading={saving}
             disabled={
               saving || (!valid && !attempt.current && !reviewed.current)
@@ -477,9 +501,9 @@ export function RecordPaymentModal({
       )}
       {counterOnly && (
         <Alert variant="warning">
-          Cash and other supplier payouts cannot be recorded from the web at
-          this branch. They require a supported local counter workflow; contact
-          your manager if that workflow is not available.
+          {rollout
+            ? "This branch sells on PharmaCeylon POS, so cash and other supplier payouts are not recorded from the web here, and the counter can't record them yet. Pay by bank transfer, cheque or card with its document."
+            : "This branch's PharmaCeylon POS state isn't confirmed yet, so cash and other supplier payouts are held back. Reload the page if this doesn't clear."}
         </Alert>
       )}
       {invoices.error && <Alert variant="error">{invoices.error}</Alert>}
@@ -519,7 +543,7 @@ export function RecordPaymentModal({
             }}
             disabled={disabled}
           />
-          {supplierId && !invoices.loading ? (
+          {supplierId && invoicesReady ? (
             <span className={css.fieldHint}>
               {formatMoney(owed)} owed across {invoices.rows.length} invoice
               {invoices.rows.length === 1 ? "" : "s"}

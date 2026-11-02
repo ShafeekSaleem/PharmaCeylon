@@ -1,23 +1,28 @@
 "use client";
 
-import { PaymentEvidenceDownload } from "../../purchasing/components/payment-evidence-download";
-
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DataTable, StatusBadge, type Column } from "@/components/ui";
 import { apiJson } from "@/lib/auth-client";
+import { useAuth } from "@/lib/use-auth";
+import { PaymentEvidenceDownload } from "../../purchasing/components/payment-evidence-download";
 import type { DeliveryRow, PurchaseOrderListItem } from "../../purchasing/types";
 import { paymentMethodLabel, type DebitNoteRow, type InvoiceRow, type PaymentRow } from "../../purchasing/ledger-types";
 import { formatDate, formatMoney, purchasingPoHref } from "../utils";
 import scss from "../suppliers.module.css";
 
-/** Load a list for a tab once it opens; a failed list reads as empty rather than breaking the window. */
+/**
+ * Load a list for a tab once it opens; a failed list reads as empty rather than breaking the window.
+ * The paths carry no branch, so the branch is part of what the rows answer: switching branch
+ * reloads and drops the old branch's rows at once (their evidence downloads would miss there).
+ */
 function useList<T>(path: string | null, refreshKey = 0): { rows: T[]; loading: boolean } {
-  const [rows, setRows] = useState<T[]>([]);
+  const { branchId } = useAuth();
+  const [loaded, setLoaded] = useState<{ branchId: string | null; rows: T[] }>({ branchId, rows: [] });
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (!path) {
-      setRows([]);
+      setLoaded({ branchId, rows: [] });
       return;
     }
     let live = true;
@@ -25,15 +30,15 @@ function useList<T>(path: string | null, refreshKey = 0): { rows: T[]; loading: 
     apiJson<T[] | { data?: T[]; rows?: T[]; items?: T[] }>(path)
       .then((body) => {
         if (!live) return;
-        setRows(Array.isArray(body) ? body : (body.data ?? body.rows ?? body.items ?? []));
+        setLoaded({ branchId, rows: Array.isArray(body) ? body : (body.data ?? body.rows ?? body.items ?? []) });
       })
-      .catch(() => live && setRows([]))
+      .catch(() => live && setLoaded({ branchId, rows: [] }))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [path, refreshKey]);
-  return { rows, loading };
+  }, [path, refreshKey, branchId]);
+  return { rows: loaded.branchId === branchId ? loaded.rows : [], loading };
 }
 
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {

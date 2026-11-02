@@ -376,11 +376,13 @@ export class SupplierPaymentEvidenceService {
     checkBalance: boolean,
   ) {
     const ids = payment.allocations.map((part) => part.invoiceId).sort();
-    await tx.$queryRaw`SELECT id FROM supplier_invoice WHERE tenant_id = ${tenantId}::uuid AND branch_id = ${branchId}::uuid AND id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
+    // A branch pays its own invoices and those raised for the business as a whole (no branch),
+    // the same set `listInvoices` shows it.
+    await tx.$queryRaw`SELECT id FROM supplier_invoice WHERE tenant_id = ${tenantId}::uuid AND (branch_id = ${branchId}::uuid OR branch_id IS NULL) AND id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
     const rows = await tx.supplierInvoice.findMany({
       where: {
         tenantId,
-        branchId,
+        OR: [{ branchId }, { branchId: null }],
         supplierId: payment.supplierId,
         id: { in: ids },
       },

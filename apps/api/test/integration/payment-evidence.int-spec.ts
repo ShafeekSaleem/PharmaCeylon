@@ -336,6 +336,46 @@ it("scopes documents, invoice allocations and evidence downloads to the tenant a
   ).rejects.toMatchObject({ response: { code: "PAYMENT_EVIDENCE_REQUIRED" } });
 });
 
+it("pays an invoice raised for the business as a whole, which every branch lists", async () => {
+  const { payment } = await material();
+  const invoice = await prisma.supplierInvoice.create({
+    data: {
+      tenantId: fx.tenantId,
+      branchId: null,
+      supplierId: fx.supplierId,
+      invoiceNumber: randomUUID(),
+      source: "supplier",
+      invoiceDate: new Date(`${payment.paidOn}T00:00:00Z`),
+      dueDate: new Date(`${payment.paidOn}T00:00:00Z`),
+      subtotalAmount: 40,
+      totalAmount: 40,
+      createdBy: fx.ownerId,
+    },
+  });
+  expect(
+    (await ledger.listInvoices(fx.tenantId, branch(), { status: "outstanding" })).some(
+      (row) => row.id === invoice.id,
+    ),
+  ).toBe(true);
+  const wide = {
+    ...payment,
+    allocations: [{ invoiceId: invoice.id, amount: payment.amount }],
+  };
+  const saved = await evidence.upload(user(), branch(), randomUUID(), wide, file());
+  const result = await recording.record(
+    user(),
+    branch(),
+    { evidenceId: saved.evidenceId, payment: saved.payment },
+    randomUUID(),
+  );
+  expect(result.allocations).toEqual([
+    expect.objectContaining({ invoiceId: invoice.id, amount: "25.00" }),
+  ]);
+  expect(
+    (await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).paidAmount.toFixed(2),
+  ).toBe("25.00");
+});
+
 it("invalidates the binding when the original invoice material changes", async () => {
   const item = await uploaded();
   await prisma.supplierInvoice.update({

@@ -14,11 +14,21 @@ export function evidenceFileProblem(file: File): string | null {
     return "Choose a non-empty document up to 5 MB.";
   return null;
 }
+/** Leading zeros are harmless here: what is sent is always re-formatted with `toFixed(2)`. */
 export function paymentCents(value: string): number {
-  if (!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(value))
-    throw new Error("Use an amount with at most two decimal places.");
-  const [whole, fraction = ""] = value.split(".");
-  return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  const match = /^0*(\d{1,12})(?:\.(\d{1,2}))?$/.exec(value);
+  if (!match)
+    throw new Error(
+      "Use an amount of at most 12 digits and two decimal places.",
+    );
+  return Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0"));
+}
+export function isPaymentAmount(value: string): boolean {
+  try {
+    return paymentCents(value) > 0;
+  } catch {
+    return false;
+  }
 }
 export function paymentAllocations(
   rows: InvoiceRow[],
