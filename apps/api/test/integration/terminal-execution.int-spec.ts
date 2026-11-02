@@ -110,8 +110,8 @@ const imports = new ProductImportService(proxy as never, audit, new CategoryTaxo
   { start: (_j: string, _t: string, id: string, work: (ctx: unknown) => Promise<void>) => {
     runImport = () => work({ jobId: id, importId: id, progress: () => {} });
   } } as never, { refresh: async () => {} } as never, stock, new WorkerAuthority(access));
-const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
-  new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
+const operations = new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions);
+const executor = new TerminalCommandExecutor(proxy as never, trust, authorization, operations, audit, access);
 
 let fx: TenantFixture;
 let foreign: TenantFixture;
@@ -158,7 +158,7 @@ const run = (counter: Counter, request: unknown, who = counter.staff, branchId =
   executor.execute(who, branchId, request);
 
 // ── domain fixtures ─────────────────────────────────────────────────────────────
-async function approvedStocktake(countedQty = 47, stocked = 50) {
+async function approvedStocktake(countedQty = 47, stocked = 50, approverId = fx.ownerId) {
   const batchId = await createStockedBatch(prisma, stock, fx, { qty: stocked });
   const counter = actor(fx.clerkId, ["stocktakes.use"]);
   const reviewer = actor(fx.managerId, "all", { canSelfApprove: true });
@@ -173,7 +173,7 @@ async function approvedStocktake(countedQty = 47, stocked = 50) {
   await stocktakes.reviewLines(fx.tenantId, branch(), fx.managerId, created.id,
     { lines: [{ lineId: detail.lines[0]!.id, reviewReason: "counting_error" }] }, reviewer);
   const fresh = await stocktakes.getOne(fx.tenantId, branch(), created.id, reviewer);
-  const approved = await stocktakes.approve(user(fx.ownerId), branch(), created.id,
+  const approved = await stocktakes.approve(user(approverId), branch(), created.id,
     { approvalId: randomUUID(), ...fresh.approvalReview! });
   return { id: created.id, batchId, approvalId: approved.executionApprovalId as string };
 }
@@ -649,6 +649,109 @@ describe("direct adjustments through signed commands", () => {
     expect((await batchTotals(prisma, batchId)).onHand).toBe(5);
     expect(await receiptsFor(payload.commandId)).toBe(0);
     expect(await executionAudits(payload.commandId)).toBe(0);
+  });
+});
+
+describe("remote callers, stale commands and stale authority (P1 #47 acceptance)", () => {
+  const POST = "POST /api/v1/stocktakes/:id/post" as const;
+  const setRole = (userId: string, data: Prisma.UserBranchRoleUncheckedUpdateManyInput) =>
+    prisma.userBranchRole.updateMany({ where: { tenantId: fx.tenantId, branchId: branch(), userId }, data });
+  const setTokenVersion = (userId: string, tokenVersion: number) =>
+    prisma.appUser.update({ where: { id: userId }, data: { tokenVersion } });
+  async function expectUnposted(st: { id: string; batchId: string }, commandId: string) {
+    expect((await batchTotals(prisma, st.batchId)).onHand).toBe(50);
+    expect((await prisma.stocktake.findFirstOrThrow({ where: { id: st.id } })).status).toBe("approved");
+    expect(await receiptsFor(commandId)).toBe(0);
+    expect(await auditsFor("stocktake.posted", st.id)).toBe(0);
+  }
+  afterEach(async () => {
+    await setRole(fx.managerId, { role: "manager", roleId: null });
+    await setTokenVersion(fx.managerId, 0);
+  });
+
+  it("an owner's browser session cannot post stock: no terminal proof, no borrowed session, no unenrolled key", async () => {
+    const st = await approvedStocktake(30, 50);
+    const owner = user(fx.ownerId);
+    const body = { stocktakeId: st.id };
+    await expect(tx(c => authorization.authorize(c, owner, branch(), operations.get(POST).descriptor, { body })))
+      .rejects.toMatchObject({ response: { code: "TERMINAL_REQUIRED" } });
+    // Another person's counter session is not the owner's to sign with.
+    const managers = await counterFor(fx.managerId);
+    await expect(executor.prepare(owner, branch(), { workSessionId: managers.session.workSessionId, operation: POST,
+      body, approvalEvidenceId: st.approvalId, pharmacistEvidenceId: null, operatingHoursExceptionId: null }))
+      .rejects.toMatchObject({ response: { code: "SESSION_INVALID" } });
+    // Nor is the manager's prepared command, re-signed by a key the owner made up.
+    const { payload } = await signedCommand(managers, POST, body, st.approvalId);
+    const ownKey = terminalDevice();
+    await expect(run(managers, { command: ownKey.sign(payload, managers.identity.keyId),
+      attendanceProofId: attendance.allow(payload, "command") }, owner)).rejects.toMatchObject({
+      response: { code: "SESSION_INVALID" } });
+    const invented = { ...payload, identity: { ...payload.identity, keyId: randomUUID() },
+      session: { ...payload.session, staffUserId: fx.ownerId } };
+    await expect(run(managers, { command: ownKey.sign(invented, invented.identity.keyId),
+      attendanceProofId: attendance.allow(invented, "command") }, owner)).rejects.toMatchObject({
+      response: { code: "IDENTITY_MISMATCH" } });
+    await expectUnposted(st, payload.commandId);
+    expect(await challengeConsumed(payload.serverNonce)).toBe(false);
+  });
+
+  it("refuses an expired command without spending its nonce; the same command still runs once in time", async () => {
+    const counter = await counterFor(fx.managerId);
+    const st = await approvedStocktake(31, 50);
+    const { payload, request } = await signedCommand(counter, POST, { stocktakeId: st.id }, st.approvalId);
+    jest.spyOn(Date, "now").mockReturnValue(payload.expiresAt + 1);
+    await expect(run(counter, request)).rejects.toMatchObject({ response: { code: "CHALLENGE_EXPIRED" } });
+    jest.restoreAllMocks();
+    await expectUnposted(st, payload.commandId);
+    expect(await challengeConsumed(payload.serverNonce)).toBe(false);
+    expect((await run(counter, request)).replayed).toBe(false);
+    expect((await batchTotals(prisma, st.batchId)).onHand).toBe(31);
+  });
+
+  it("a spent nonce cannot carry a new command ID", async () => {
+    const counter = await counterFor(fx.managerId);
+    const st = await approvedStocktake(32, 50);
+    const { payload, request } = await signedCommand(counter, POST, { stocktakeId: st.id }, st.approvalId);
+    await run(counter, request);
+    const reused = { ...payload, commandId: randomUUID() };
+    await expect(run(counter, { command: counter.device.sign(reused, counter.identity.keyId),
+      attendanceProofId: attendance.allow(reused, "command") })).rejects.toMatchObject({
+      response: { code: "CHALLENGE_INVALID" } });
+    expect((await batchTotals(prisma, st.batchId)).onHand).toBe(32);
+    expect(await receiptsFor(reused.commandId)).toBe(0);
+    expect(await auditsFor("stocktake.posted", st.id)).toBe(1);
+  });
+
+  it("refuses a command signed before the executor's sign-in changed, and its replay", async () => {
+    const counter = await counterFor(fx.managerId);
+    const done = await approvedStocktake(33, 50);
+    const committed = await signedCommand(counter, POST, { stocktakeId: done.id }, done.approvalId);
+    await run(counter, committed.request);
+    const pendingSt = await approvedStocktake(34, 50);
+    const pending = await signedCommand(counter, POST, { stocktakeId: pendingSt.id }, pendingSt.approvalId);
+    await setTokenVersion(fx.managerId, 1); // password change, logout-all or role edit
+    await expect(run(counter, pending.request)).rejects.toThrow("Live branch authentication required");
+    await expect(run(counter, committed.request)).rejects.toThrow("Live branch authentication required");
+    await expectUnposted(pendingSt, pending.payload.commandId);
+    expect(await challengeConsumed(pending.payload.serverNonce)).toBe(false);
+  });
+
+  it("refuses an approval whose approver has since lost the right to approve; a sign-in change alone does not void it", async () => {
+    const counter = await counterFor(fx.ownerId);
+    const st = await approvedStocktake(29, 50, fx.managerId);
+    const { payload, request } = await signedCommand(counter, POST, { stocktakeId: st.id }, st.approvalId);
+    await setRole(fx.managerId, { role: "cashier" });
+    await expect(run(counter, request)).rejects.toMatchObject({ response: { code: "APPROVAL_INVALID" } });
+    await expectUnposted(st, payload.commandId);
+    expect(await challengeConsumed(payload.serverNonce)).toBe(false);
+    // Approval evidence is held to the approver's current rights, not to their old access token.
+    await setRole(fx.managerId, { role: "manager" });
+    await setTokenVersion(fx.managerId, 5);
+    const receipt = await run(counter, request);
+    expect(receipt.result).toMatchObject({ type: "stocktake.posted", approvalId: st.approvalId, effect: "applied" });
+    expect((await batchTotals(prisma, st.batchId)).onHand).toBe(29);
+    const posted = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId, eventName: "stocktake.posted", entityId: st.id } });
+    expect(posted.payload).toMatchObject({ approvedByUserId: fx.managerId, executedByUserId: fx.ownerId });
   });
 });
 
