@@ -165,6 +165,11 @@ it.each(["bank_transfer", "cheque", "card"] as const)(
       where: { id: saved.evidenceId },
     });
     expect(proof.consumedPaymentId).toBe(result.id);
+    expect(result.evidence).toEqual({ id: saved.evidenceId, mediaType: "application/pdf" });
+    const listed = (await ledger.listPayments(fx.tenantId, branch())).find(row => row.id === result.id);
+    expect(listed?.evidence).toEqual({ id: saved.evidenceId, mediaType: "application/pdf" });
+    expect(JSON.stringify(listed)).not.toContain("Supporting payment document");
+    expect((await ledger.listPayments(fx.tenantId, fx.otherBranchId)).some(row => row.id === result.id)).toBe(false);
     expect(
       (
         await prisma.supplierInvoice.findUniqueOrThrow({

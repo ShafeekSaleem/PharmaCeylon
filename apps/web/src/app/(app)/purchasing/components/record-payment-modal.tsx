@@ -174,7 +174,15 @@ export function RecordPaymentModal({
 
   // A preset invoice starts with its whole balance allocated and the amount to match.
   useEffect(() => {
-    if (locked || review || !preset?.invoiceId || invoices.loading) return;
+    if (
+      attempt.current ||
+      reviewed.current ||
+      locked ||
+      review ||
+      !preset?.invoiceId ||
+      invoices.loading
+    )
+      return;
     const invoice = invoices.rows.find((row) => row.id === preset.invoiceId);
     if (invoice && !(invoice.id in allocations)) {
       setAllocations({ [invoice.id]: invoice.balance });
@@ -433,15 +441,15 @@ export function RecordPaymentModal({
   return (
     <Modal
       open={open}
-      onClose={() => !saving && !locked && onClose()}
+      onClose={() => !saving && onClose()}
       title="Record supplier payment"
       description="Money sent to a supplier, set against the invoices it settles."
       size="lg"
-      canDismiss={!saving && !locked}
+      canDismiss={!saving}
       footer={
         <ModalFooter>
-          <ModalButton onClick={onClose} disabled={saving || locked}>
-            Cancel
+          <ModalButton onClick={onClose} disabled={saving}>
+            {locked ? "Close and keep recovery" : "Cancel"}
           </ModalButton>
           <ModalButton
             variant="primary"

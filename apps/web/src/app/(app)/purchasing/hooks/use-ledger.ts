@@ -22,20 +22,20 @@ function qs(params: Record<string, string | undefined>) {
 
 /**
  * One loader shape for every ledger list: re-fetches when its path changes, clears when there
- * is no branch, and never throws into the page. Only the first load shows as loading — a search
- * or filter change keeps the rows on screen until the new ones arrive, so the table never blinks.
+ * is no branch, and never throws into the page. A changed user, branch or filter clears the
+ * old rows immediately; a refresh of the same scope keeps its rows while revalidating.
  */
 function useLedgerList<T>(
   path: string | null,
   fallbackError: string,
   enabled = true,
 ) {
-  const { branchId } = useAuth();
+  const { branchId, user } = useAuth();
   const [rows, setRows] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const loaded = useRef(false);
-  const scope = `${branchId}:${path}:${enabled}`;
+  const scope = `${user?.tenantId}:${user?.id}:${branchId}:${path}:${enabled}`;
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const generation = useRef(0);
 

@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useAuth } from "@/lib/use-auth";
 import { apiFetch } from "@/lib/auth-client";
 import { parseApiError } from "@/lib/api-error";
 import { ModalButton } from "@/components/ui";
@@ -9,6 +10,10 @@ export function PaymentEvidenceDownload({
 }: {
   evidence: { id: string; mediaType: string };
 }) {
+  const { branchId, user } = useAuth();
+  const identity = `${user?.tenantId}:${user?.id}:${branchId}`;
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function download() {
@@ -26,7 +31,9 @@ export function PaymentEvidenceDownload({
             "Unable to download the supporting document",
           ),
         );
-      const url = URL.createObjectURL(await response.blob());
+      const blob = await response.blob();
+      if (currentIdentity.current !== identity) return;
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       const extension =
@@ -42,6 +49,7 @@ export function PaymentEvidenceDownload({
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
+      if (currentIdentity.current !== identity) return;
       setError(
         err instanceof Error ? err.message : "Unable to download document",
       );
