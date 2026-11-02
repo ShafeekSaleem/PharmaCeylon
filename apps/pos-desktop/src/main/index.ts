@@ -321,8 +321,8 @@ async function start(): Promise<void> {
     logger,
   });
   checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger });
-  dispensing = new DispensingService({ api: terminalApi, terminal });
   commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
+  dispensing = new DispensingService({ api: terminalApi, terminal, commands });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);
   mainWindow = createMainWindow({ devServerUrl, show: true });

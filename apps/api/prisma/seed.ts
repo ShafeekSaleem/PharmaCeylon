@@ -416,6 +416,25 @@ async function main() {
     skipDuplicates: true,
   });
 
+  // P1 #47: a controlled co-sign needs a current SLMC registration, so the demo pharmacist has
+  // one. Registrations are kept by trigger: reuse a current one, revoke and replace one that lapsed.
+  const registrationToday = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+  const demoRegistration = await prisma.pharmacistRegistration.findFirst({
+    where: { tenantId: tenant.id, userId: pharmacist.id, revokedAt: null },
+  });
+  if (!demoRegistration || demoRegistration.expiresOn < registrationToday) {
+    if (demoRegistration)
+      await prisma.pharmacistRegistration.updateMany({
+        where: { id: demoRegistration.id, tenantId: tenant.id, revokedAt: null },
+        data: { revokedAt: new Date(), revokedByUserId: owner.id, revocationReason: "Demo seed renewal" },
+      });
+    const expiresOn = new Date(registrationToday);
+    expiresOn.setUTCFullYear(expiresOn.getUTCFullYear() + 1);
+    await prisma.pharmacistRegistration.create({
+      data: { tenantId: tenant.id, userId: pharmacist.id, slmcNumber: "SLMC-PH-10021", expiresOn, recordedByUserId: owner.id },
+    });
+  }
+
   console.log("Seeding NMRA product catalog…");
   const nmra = await seedNmraCatalog(prisma, tenant.id);
   const productBySku = nmra.productBySku;
@@ -2877,7 +2896,7 @@ async function main() {
   console.log("  owner@pharmaceylon.demo      — owner");
   console.log("  manager@pharmaceylon.demo    — manager (MAIN + BRANCH2)");
   console.log("  manager2@pharmaceylon.demo   — manager (GALLE + NEGOMBO)");
-  console.log("  pharmacist@pharmaceylon.demo — pharmacist (till PIN from SEED_PHARMACIST_POS_PIN or 1234)");
+  console.log("  pharmacist@pharmaceylon.demo — pharmacist (till PIN from SEED_PHARMACIST_POS_PIN or 1234; SLMC registration recorded, so they can co-sign controlled items)");
   console.log("  cashier@pharmaceylon.demo    — cashier");
   console.log("  clerk@pharmaceylon.demo      — inventory_clerk");
   console.log("\nDefaults: Owner123! / Manager123! / Pharmacist123! / Cashier123! / Clerk123!");

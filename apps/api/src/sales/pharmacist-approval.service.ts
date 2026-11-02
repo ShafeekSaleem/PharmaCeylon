@@ -9,6 +9,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { PERMISSION_CATALOG } from "../security/permission-catalog";
 import { PermissionsService } from "../security/permissions.service";
+import { PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
 
 /** Static fallback — mirrors `sales.approve_controlled`'s default grant in permission-catalog.ts. */
 const APPROVER_ROLES: RoleName[] = [
@@ -30,6 +31,7 @@ export class PharmacistApprovalService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly permissions: PermissionsService,
+    private readonly registrations: PharmacistRegistrationService,
   ) {}
 
   /**
@@ -51,7 +53,11 @@ export class PharmacistApprovalService {
     return this.permissions.hasAnyPermission(atBranch, [permission]);
   }
 
-  /** Pharmacists / managers / owners active at this branch (for PIN picker), plus any custom role granted approval. */
+  /**
+   * Pharmacists / managers / owners active at this branch (for PIN picker), plus any custom role
+   * granted approval. A controlled co-sign also needs a current SLMC registration at the branch
+   * (P1 #47), so that list holds only people the checkout will accept.
+   */
   async listApprovers(
     tenantId: string,
     branchId: string,
@@ -114,7 +120,16 @@ export class PharmacistApprovalService {
         roles: [row.role],
       });
     }
-    return [...byUser.values()].sort((a, b) => a.fullName.localeCompare(b.fullName));
+    let approvers = [...byUser.values()];
+    if (permission === APPROVE_CONTROLLED_PERMISSION) {
+      const qualified = await this.registrations.qualifiedAt(
+        tenantId,
+        branchId,
+        approvers.map((a) => a.id),
+      );
+      approvers = approvers.filter((a) => qualified.has(a.id));
+    }
+    return approvers.sort((a, b) => a.fullName.localeCompare(b.fullName));
   }
 
   /**

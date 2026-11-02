@@ -48,6 +48,10 @@ import type { CommandProvenance } from "../terminals/command-provenance";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
 import { TerminalTrustService } from "../terminals/terminal-trust.service";
+import {
+  type ClinicalEvidence,
+  PharmacistRegistrationService,
+} from "../clinical/pharmacist-registration.service";
 
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
@@ -95,6 +99,9 @@ async function nextInvoiceNo(
 }
 
 type BranchRoleEntry = { branchId: string; role: RoleName };
+
+/** Whose SLMC registration the checkout's transaction checks for its controlled lines. */
+type ClinicalCheck = { userId: string; coSignerName: string | null };
 
 export const REFUND_SALE_INCLUDE = {
   items: {
@@ -158,6 +165,7 @@ export class SalesService {
     private readonly stock: StockService,
     private readonly terminalTrust?: TerminalTrustService,
     private readonly operatingHours?: OperatingHoursEvidence,
+    private readonly registrations?: PharmacistRegistrationService,
   ) {}
 
   private branchEffectiveRoles(
@@ -176,8 +184,9 @@ export class SalesService {
 
   /**
    * Prescription-required lines need a linked Rx.
-   * Controlled (schedule) lines also need dispense authority: elevated session OR PIN co-sign.
-   * Returns dispensedBy user id when authority is resolved (self or approver).
+   * Controlled (schedule) lines also need dispense authority: a PIN co-sign, or the seller's own
+   * role. Returns who dispenses, and whose SLMC registration the checkout's transaction must then
+   * check (P1 #47): a co-signer's always, and at a counter the seller's own.
    */
   private async resolveDispenseAuthority(input: {
     tenantId: string;
@@ -192,7 +201,8 @@ export class SalesService {
     }>;
     prescriptionId: string | undefined;
     pharmacistApproval: CheckoutDto["pharmacistApproval"];
-  }): Promise<string | null> {
+    atCounter: boolean;
+  }): Promise<{ dispensedBy: string | null; clinical: ClinicalCheck | null }> {
     const needsRx = input.products.filter(
       (p) => p.requiresPrescription || p.isControlled,
     );
@@ -208,34 +218,88 @@ export class SalesService {
 
     if (controlled.length === 0) {
       // Rx-required only — cashier may complete once Rx is linked.
-      return input.prescriptionId ? input.userId : null;
+      return {
+        dispensedBy: input.prescriptionId ? input.userId : null,
+        clinical: null,
+      };
+    }
+
+    // A named co-signer dispenses, whoever is selling: their PIN is checked here, before the
+    // transaction, so a wrong one still counts towards the lockout; their registration inside it.
+    if (input.pharmacistApproval?.approverUserId && input.pharmacistApproval.pin) {
+      const verified = await this.pharmacistApproval.verifyApproverPin(
+        input.tenantId,
+        input.branchId,
+        input.pharmacistApproval.approverUserId,
+        input.pharmacistApproval.pin,
+        input.userId,
+      );
+      return {
+        dispensedBy: verified.approverUserId,
+        clinical: {
+          userId: verified.approverUserId,
+          coSignerName: verified.approverName,
+        },
+      };
     }
 
     const roles = this.branchEffectiveRoles(input.branchRoles, input.branchId);
     const selfCanDispense = roles.some((r) =>
       SalesService.CONTROLLED_SALE_ROLES.includes(r),
     );
-    if (selfCanDispense) return input.userId;
-
-    if (
-      !input.pharmacistApproval?.approverUserId ||
-      !input.pharmacistApproval.pin
-    ) {
+    if (!selfCanDispense) {
       throw new ForbiddenException({
         code: "PHARMACIST_APPROVAL_REQUIRED",
         message:
           "Controlled medicines need pharmacist approval. Ask a pharmacist to enter their till PIN, or park this sale for handoff.",
       });
     }
+    // At a counter the seller's own registration is checked as well. The web POS still trusts
+    // the role here until it can ask for a co-sign when the seller isn't registered (MR 10).
+    return {
+      dispensedBy: input.userId,
+      clinical: input.atCounter ? { userId: input.userId, coSignerName: null } : null,
+    };
+  }
 
-    const verified = await this.pharmacistApproval.verifyApproverPin(
-      input.tenantId,
-      input.branchId,
-      input.pharmacistApproval.approverUserId,
-      input.pharmacistApproval.pin,
-      input.userId,
-    );
-    return verified.approverUserId;
+  /**
+   * P1 #47: the dispenser's current SLMC registration, on the checkout's transaction. It is
+   * share-locked until the sale commits, so a revocation either commits first and refuses this
+   * sale, or waits for it. The refusal names who isn't registered and what the counter can do.
+   */
+  private async assertDispenserQualified(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+    check: ClinicalCheck,
+  ): Promise<ClinicalEvidence> {
+    if (!this.registrations)
+      throw new Error("Controlled dispensing needs the pharmacist registration service");
+    try {
+      return await this.registrations.assertQualified(tx, {
+        tenantId,
+        branchId,
+        userId: check.userId,
+      });
+    } catch (error) {
+      const code =
+        error instanceof ForbiddenException
+          ? (error.getResponse() as { code?: unknown }).code
+          : undefined;
+      if (code !== "PHARMACIST_REQUIRED") throw error;
+      throw new ForbiddenException(
+        check.coSignerName !== null
+          ? {
+              code: "APPROVER_NOT_QUALIFIED",
+              message: `${check.coSignerName} has no current SLMC registration at this branch, so they can't co-sign controlled medicines. Choose another pharmacist, or ask the owner to record or renew the registration.`,
+            }
+          : {
+              code: "PHARMACIST_APPROVAL_REQUIRED",
+              message:
+                "You have no current SLMC registration at this branch. Ask a registered pharmacist to co-sign these controlled medicines, or park this sale for them.",
+            },
+      );
+    }
   }
 
   /** Tender validation: never post a sale that is short-paid. */
@@ -430,7 +494,7 @@ export class SalesService {
       });
     }
 
-    const dispensedBy = await this.resolveDispenseAuthority({
+    const dispense = await this.resolveDispenseAuthority({
       tenantId,
       branchId,
       userId,
@@ -438,8 +502,12 @@ export class SalesService {
       products,
       prescriptionId: dto.prescriptionId,
       pharmacistApproval: dto.pharmacistApproval,
+      atCounter: counter !== undefined,
     });
+    const dispensedBy = dispense.dispensedBy;
     const productNames = new Map(products.map((p) => [p.id, p.name]));
+    // Set inside the transaction; `as` keeps TypeScript from narrowing it to null out here.
+    let registration = null as ClinicalEvidence | null;
 
     try {
       const sale = await this.prisma.$transaction(async (tx) => {
@@ -480,6 +548,9 @@ export class SalesService {
           if (!this.operatingHours) throw new Error("Counter checkout needs the operating-hours provider");
           await this.operatingHours.assertMandatoryForSale(tx, tenantId, branchId);
         }
+        registration = dispense.clinical
+          ? await this.assertDispenserQualified(tx, tenantId, branchId, dispense.clinical)
+          : null;
         const lines: Array<{
           productId: string;
           batchId: string;
@@ -656,6 +727,7 @@ export class SalesService {
                 notes: dto.notes?.trim() || null,
                 soldBy: userId,
                 dispensedBy: dispensedBy,
+                dispenserRegistrationId: registration?.registrationId ?? null,
                 terminalId: attribution?.terminalId ?? null,
                 tillId: attribution?.tillId ?? null,
                 workSessionId: attribution?.workSessionId ?? null,
@@ -750,6 +822,8 @@ export class SalesService {
           pharmacistCosign: Boolean(
             dispensedBy && dispensedBy !== userId && dto.pharmacistApproval,
           ),
+          pharmacistRegistrationId: registration?.registrationId ?? null,
+          slmcNumber: registration?.slmcNumber ?? null,
         },
       });
 
@@ -765,6 +839,8 @@ export class SalesService {
             invoiceNo: sale.invoiceNo,
             soldBy: userId,
             prescriptionId: sale.prescriptionId,
+            pharmacistRegistrationId: registration?.registrationId ?? null,
+            slmcNumber: registration?.slmcNumber ?? null,
           },
         });
       }

@@ -84,3 +84,51 @@ describe("PrescriptionsService.list", () => {
     });
   });
 });
+
+describe("PrescriptionsService.create (the unsigned browser route)", () => {
+  const dto = { patientName: "Nimal Perera", doctorName: "Silva", issuedOn: "2026-11-02" };
+  const rollout = (desktopPosRollout: "not_live" | "live", fallbackEndsAt: Date | null = null) => ({
+    desktopPosRollout,
+    desktopPosLiveAt: desktopPosRollout === "live" ? new Date("2026-10-01T00:00:00Z") : null,
+    posFallbackStartedAt: fallbackEndsAt ? new Date() : null,
+    posFallbackEndsAt: fallbackEndsAt,
+  });
+  let tx: { branch: { findFirst: jest.Mock } };
+  let service: PrescriptionsService;
+  let core: jest.SpyInstance;
+
+  beforeEach(() => {
+    tx = { branch: { findFirst: jest.fn() } };
+    const prisma = { $transaction: jest.fn(async (run: (c: unknown) => unknown) => run(tx)) };
+    service = new PrescriptionsService(prisma as never, { log: jest.fn() } as never);
+    core = jest.spyOn(service, "createInTransaction").mockResolvedValue({ id: "rx-1" } as never);
+  });
+
+  it("refuses at a branch live on PharmaCeylon POS: the counter checks the pharmacist's registration", async () => {
+    tx.branch.findFirst.mockResolvedValue(rollout("live"));
+    await expect(service.create("t1", "b1", "u1", dto)).rejects.toMatchObject({
+      status: 403,
+      response: { code: "PRESCRIPTION_AT_COUNTER" },
+    });
+    expect(tx.branch.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "b1", tenantId: "t1" } }),
+    );
+    expect(core).not.toHaveBeenCalled();
+  });
+
+  it("still records before go-live and during an owner's fallback to the web POS", async () => {
+    tx.branch.findFirst.mockResolvedValue(rollout("not_live"));
+    await expect(service.create("t1", "b1", "u1", dto)).resolves.toEqual({ id: "rx-1" });
+    tx.branch.findFirst.mockResolvedValue(rollout("live", new Date(Date.now() + 3_600_000)));
+    await expect(service.create("t1", "b1", "u1", dto)).resolves.toEqual({ id: "rx-1" });
+    expect(core).toHaveBeenCalledTimes(2);
+    expect(core).toHaveBeenCalledWith(tx, "t1", "b1", "u1", dto);
+  });
+
+  it("refuses again once the fallback has ended", async () => {
+    tx.branch.findFirst.mockResolvedValue(rollout("live", new Date(Date.now() - 1_000)));
+    await expect(service.create("t1", "b1", "u1", dto)).rejects.toMatchObject({
+      response: { code: "PRESCRIPTION_AT_COUNTER" },
+    });
+  });
+});

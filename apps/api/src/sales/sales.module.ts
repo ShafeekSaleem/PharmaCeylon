@@ -11,9 +11,10 @@ import { SalesController } from "./sales.controller";
 import { SalesService } from "./sales.service";
 import { SetupModule } from "../setup/setup.module";
 import { OperationalAuthorizationModule } from "../security/operational-authorization.module";
+import { ClinicalModule } from "../clinical/clinical.module";
 
 @Module({
-  imports: [CatalogModule, SetupModule, OperationalAuthorizationModule, TerminalsModule],
+  imports: [CatalogModule, SetupModule, OperationalAuthorizationModule, TerminalsModule, ClinicalModule],
   // Refund requests first: `/sales/refund-requests` must not reach `GET /sales/:id`.
   controllers: [RefundRequestsController, SalesController],
   providers: [

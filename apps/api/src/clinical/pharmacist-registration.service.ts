@@ -214,6 +214,34 @@ export class PharmacistRegistrationService {
     return { registrationId: registration.id, slmcNumber: registration.slmc_number };
   }
 
+  /**
+   * Which of `userIds` `assertQualified` would accept at the branch now: current registration,
+   * active account and membership, a role at the branch. For pickers, so the counter doesn't offer
+   * someone who will be refused; it takes no lock, and the clinical operation still runs the check.
+   */
+  async qualifiedAt(tenantId: string, branchId: string, userIds: readonly string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: branchId, tenantId, isActive: true },
+      select: { timezone: true },
+    });
+    if (!branch) return new Set();
+    const rows = await this.prisma.pharmacistRegistration.findMany({
+      where: {
+        tenantId,
+        userId: { in: [...userIds] },
+        revokedAt: null,
+        expiresOn: { gte: businessToday(safeTimeZone(branch.timezone)) },
+        membership: {
+          isActive: true,
+          user: { isActive: true, userBranchRoles: { some: { tenantId, branchId } } },
+        },
+      },
+      select: { userId: true },
+    });
+    return new Set(rows.map((row) => row.userId));
+  }
+
   /** The `MandatoryOperationEvidence.clinical` provider: the signed session's own staff member
    * must be qualified. A co-signing pharmacist (`pharmacistEvidenceId`) is not accepted online
    * yet; that evidence arrives with the desktop dispensing flow. */

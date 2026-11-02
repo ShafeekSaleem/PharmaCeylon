@@ -2,7 +2,10 @@ import { StockService } from "../inventory/stock/stock.service";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
+import type { PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
 import { TaxService } from "../pricing/tax.service";
+import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { denied } from "../terminals/terminal-wire";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { SalesService } from "./sales.service";
 
@@ -16,11 +19,31 @@ describe("SalesService controlled checkout authority", () => {
 
   let prisma: Record<string, unknown>;
   let pharmacistApproval: { verifyApproverPin: jest.Mock };
+  let registrations: { assertQualified: jest.Mock };
   let service: SalesService;
   let txnEntered: boolean;
+  let audit: AuditService;
+  let tax: TaxService;
+  // Past the clinical check, the next thing checkout reads on its transaction is the tenant.
+  const tx = {
+    tenant: {
+      findUnique: jest.fn(async () => {
+        throw new Error("stop-after-clinical");
+      }),
+    },
+  };
+  const runTransaction = () =>
+    (prisma.$transaction as jest.Mock).mockImplementation(async (run: (c: unknown) => unknown) => {
+      txnEntered = true;
+      return run(tx);
+    });
 
   beforeEach(() => {
     txnEntered = false;
+    tx.tenant.findUnique.mockClear();
+    registrations = {
+      assertQualified: jest.fn().mockResolvedValue({ registrationId: "reg-1", slmcNumber: "PH/1234" }),
+    };
     pharmacistApproval = {
       verifyApproverPin: jest.fn().mockResolvedValue({
         approverUserId: pharmacistId,
@@ -56,8 +79,8 @@ describe("SalesService controlled checkout authority", () => {
       }),
     };
 
-    const audit = { log: jest.fn() } as unknown as AuditService;
-    const tax = { computeLineVatExclusive: jest.fn(), getVatRatePercent: () => 0 } as unknown as TaxService;
+    audit = { log: jest.fn() } as unknown as AuditService;
+    tax = { computeLineVatExclusive: jest.fn(), getVatRatePercent: () => 0 } as unknown as TaxService;
 
     service = new SalesService(
       prisma as never,
@@ -66,6 +89,9 @@ describe("SalesService controlled checkout authority", () => {
       pharmacistApproval as unknown as PharmacistApprovalService,
       { assertCanSell: jest.fn().mockResolvedValue(undefined) } as never,
       new StockService(),
+      undefined,
+      undefined,
+      registrations as unknown as PharmacistRegistrationService,
     );
   });
 
@@ -187,5 +213,135 @@ describe("SalesService controlled checkout authority", () => {
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(txnEntered).toBe(false);
+  });
+
+  describe("SLMC registration of whoever dispenses (P1 #47)", () => {
+    const coSign = { approverUserId: pharmacistId, pin: "1234" };
+    const sell = (
+      sellerId: string,
+      role: RoleName,
+      extra: { pharmacistApproval?: typeof coSign } = {},
+      counter?: { user: RequestUser; workSessionId: string },
+    ) =>
+      service.checkout(
+        tenantId,
+        branchId,
+        sellerId,
+        [{ branchId, role }],
+        { items: [line], prescriptionId: "rx-1", ...extra },
+        undefined,
+        counter,
+      );
+    beforeEach(runTransaction);
+
+    it("checks the co-signer's registration on the checkout's own transaction, after their PIN", async () => {
+      await expect(sell(cashierId, RoleName.cashier, { pharmacistApproval: coSign })).rejects.toThrow(
+        "stop-after-clinical",
+      );
+      expect(registrations.assertQualified).toHaveBeenCalledWith(tx, { tenantId, branchId, userId: pharmacistId });
+      expect(pharmacistApproval.verifyApproverPin.mock.invocationCallOrder[0]).toBeLessThan(
+        registrations.assertQualified.mock.invocationCallOrder[0]!,
+      );
+    });
+
+    it("refuses an unregistered, expired or revoked co-signer with a coded 403 that names them", async () => {
+      // The port's refusal for all three: the registration rules live in assertQualified.
+      registrations.assertQualified.mockImplementation(async () => denied("PHARMACIST_REQUIRED"));
+      const refusal = sell(cashierId, RoleName.cashier, { pharmacistApproval: coSign });
+      await expect(refusal).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(refusal).rejects.toMatchObject({
+        status: 403,
+        response: {
+          code: "APPROVER_NOT_QUALIFIED",
+          message: expect.stringContaining("Dr. Anjali has no current SLMC registration"),
+        },
+      });
+      // Nothing after the check ran: no batches, no sale.
+      expect(tx.tenant.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("lets other failures through unchanged", async () => {
+      registrations.assertQualified.mockRejectedValue(new Error("connection reset"));
+      await expect(sell(cashierId, RoleName.cashier, { pharmacistApproval: coSign })).rejects.toThrow(
+        "connection reset",
+      );
+    });
+
+    it("makes a named co-signer the dispenser even when the seller could dispense alone", async () => {
+      const managerId = "manager-1";
+      await expect(sell(managerId, RoleName.manager, { pharmacistApproval: coSign })).rejects.toThrow(
+        "stop-after-clinical",
+      );
+      expect(pharmacistApproval.verifyApproverPin).toHaveBeenCalledWith(tenantId, branchId, pharmacistId, "1234", managerId);
+      expect(registrations.assertQualified).toHaveBeenCalledWith(tx, { tenantId, branchId, userId: pharmacistId });
+    });
+
+    describe("a seller dispensing alone by role", () => {
+      const counterUser = { userId: pharmacistId, tenantId } as RequestUser;
+      const counterService = () =>
+        new SalesService(
+          prisma as never,
+          audit,
+          tax,
+          pharmacistApproval as unknown as PharmacistApprovalService,
+          { assertCanSell: jest.fn().mockResolvedValue(undefined) } as never,
+          new StockService(),
+          {
+            requireOpenSession: jest.fn().mockResolvedValue({
+              session: { id: "ws-1", tillId: "till-1" },
+              identity: { terminalId: "term-1" },
+            }),
+          } as never,
+          { assertMandatoryForSale: jest.fn().mockResolvedValue(undefined) } as never,
+          registrations as unknown as PharmacistRegistrationService,
+        );
+
+      it("needs their own registration at a counter, and is told to get a co-sign without one", async () => {
+        service = counterService();
+        await expect(
+          sell(pharmacistId, RoleName.pharmacist, {}, { user: counterUser, workSessionId: "ws-1" }),
+        ).rejects.toThrow("stop-after-clinical");
+        expect(registrations.assertQualified).toHaveBeenCalledWith(tx, { tenantId, branchId, userId: pharmacistId });
+
+        registrations.assertQualified.mockImplementation(async () => denied("PHARMACIST_REQUIRED"));
+        await expect(
+          sell(pharmacistId, RoleName.pharmacist, {}, { user: counterUser, workSessionId: "ws-1" }),
+        ).rejects.toMatchObject({
+          status: 403,
+          response: {
+            code: "PHARMACIST_APPROVAL_REQUIRED",
+            message: expect.stringContaining("no current SLMC registration"),
+          },
+        });
+        expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
+      });
+
+      it("is still trusted by role on the web POS (still open, MR 10)", async () => {
+        await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toThrow("stop-after-clinical");
+        expect(registrations.assertQualified).not.toHaveBeenCalled();
+      });
+    });
+
+    it("checks no registration when nothing in the cart is controlled", async () => {
+      (prisma.product as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { id: productId, name: "Amoxicillin", isControlled: false, requiresPrescription: true },
+      ]);
+      await expect(sell(cashierId, RoleName.cashier)).rejects.toThrow("stop-after-clinical");
+      expect(registrations.assertQualified).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when the registration service is missing", async () => {
+      service = new SalesService(
+        prisma as never,
+        audit,
+        tax,
+        pharmacistApproval as unknown as PharmacistApprovalService,
+        { assertCanSell: jest.fn().mockResolvedValue(undefined) } as never,
+        new StockService(),
+      );
+      await expect(sell(cashierId, RoleName.cashier, { pharmacistApproval: coSign })).rejects.toThrow(
+        "pharmacist registration service",
+      );
+    });
   });
 });

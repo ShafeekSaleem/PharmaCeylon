@@ -978,7 +978,10 @@ model PharmacistRegistration {
   revokedByUserId  String?          @map("revoked_by_user_id") @db.Uuid
   revocationReason String?          @map("revocation_reason") @db.VarChar(500)
   membership       TenantMembership @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+  /// Sales whose controlled lines this registration qualified the dispenser for.
+  dispensedSales   Sale[]
 
+  @@unique([tenantId, userId, id], map: "pharmacist_registration_tenant_id_user_id_id_key")
   @@index([tenantId, userId])
   @@map("pharmacist_registration")
 }
@@ -2584,6 +2587,10 @@ model Sale {
   soldBy         String     @map("sold_by") @db.Uuid
   /// Pharmacist/manager/owner who authorised controlled dispense (self or PIN co-sign).
   dispensedBy    String?    @map("dispensed_by") @db.Uuid
+  /// P1 #47: the dispenser's SLMC registration that the checkout's own transaction checked and
+  /// share-locked (a PIN co-signer, or the seller at a counter). The foreign key pins it to
+  /// `dispensedBy` in this tenant. Null when no registration was checked.
+  dispenserRegistrationId String? @map("dispenser_registration_id") @db.Uuid
   /// P2 attribution: the enrolled counter, till and staff session the sale was rung up on, from
   /// the seller's own verified open session there. Null for web POS sales.
   terminalId     String?    @map("terminal_id") @db.Uuid
@@ -2594,6 +2601,7 @@ model Sale {
   branch       Branch        @relation(fields: [branchId], references: [id])
   seller       AppUser       @relation("SaleSeller", fields: [soldBy], references: [id])
   dispenser    AppUser?      @relation("SaleDispenser", fields: [dispensedBy], references: [id])
+  dispenserRegistration PharmacistRegistration? @relation(fields: [tenantId, dispensedBy, dispenserRegistrationId], references: [tenantId, userId, id], onDelete: Restrict, onUpdate: Restrict)
   customer     Customer?     @relation(fields: [customerId], references: [id])
   prescription Prescription? @relation(fields: [prescriptionId], references: [id])
 

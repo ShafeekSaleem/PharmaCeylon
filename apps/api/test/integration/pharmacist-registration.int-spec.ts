@@ -1,17 +1,23 @@
 import { randomUUID } from "node:crypto";
+import * as bcrypt from "bcrypt";
 import type { Prisma } from "@prisma/client";
 import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-registration.service";
 import { businessDateKey } from "../../src/common/business-date.util";
+import { StockService } from "../../src/inventory/stock/stock.service";
+import { TaxService } from "../../src/pricing/tax.service";
 import { createTenantAwarePrismaProxy } from "../../src/prisma/tenant-aware-prisma.proxy";
+import { PharmacistApprovalService } from "../../src/sales/pharmacist-approval.service";
+import { SalesService } from "../../src/sales/sales.service";
 import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { MandatoryOperationEvidence } from "../../src/security/mandatory-operation-evidence";
 import { OperationAuthorizationService } from "../../src/security/operation-authorization.service";
 import { PERMISSION_KEYS } from "../../src/security/permission-catalog";
+import { PermissionsService } from "../../src/security/permissions.service";
 import { object } from "../../src/terminals/terminal-wire";
-import { createPrisma, createTenant, TenantFixture } from "./fixtures";
+import { createPrisma, createStockedBatch, createTenant, TenantFixture } from "./fixtures";
 
 /** P1 #47: owner-recorded SLMC registrations are the only clinical qualification. */
 const prisma = createPrisma();
@@ -395,5 +401,154 @@ describe("no clinical bypass through ownership or role administration", () => {
     await expect(code(authorize())).resolves.toBe("PHARMACIST_REQUIRED");
     const row = await record(fx.ownerId, "OWN-CLIN-1");
     await expect(authorize()).resolves.toMatchObject({ clinical: { registrationId: row.id, slmcNumber: "OWN-CLIN-1" } });
+  });
+});
+
+describe("controlled checkout co-sign (P1 #47 with P2 #93)", () => {
+  const PIN = "4321";
+  const stock = new StockService();
+  const approval = new PharmacistApprovalService(
+    proxy as never,
+    audit,
+    new PermissionsService(proxy as never, { get: () => 30 } as never),
+    registrations,
+  );
+  const sales = new SalesService(
+    proxy as never,
+    audit,
+    new TaxService({ get: () => "0" } as never),
+    approval,
+    { assertCanSell: async () => undefined } as never,
+    stock,
+    undefined,
+    undefined,
+    registrations,
+  );
+  let prescriptionId: string;
+  let batchId: string;
+
+  beforeAll(async () => {
+    await prisma.product.update({ where: { id: fx.productId }, data: { isControlled: true, requiresPrescription: true } });
+    await prisma.userBranchRole.create({
+      data: { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.clerkId, role: "cashier" },
+    });
+    const posPinHash = await bcrypt.hash(PIN, 4);
+    await prisma.appUser.updateMany({ where: { id: { in: [pharmacistId, secondPharmacistId] } }, data: { posPinHash } });
+    prescriptionId = (
+      await prisma.prescription.create({
+        data: {
+          tenantId: fx.tenantId,
+          branchId: fx.mainBranchId,
+          rxNumber: `RX-IT-${randomUUID().slice(0, 6)}`,
+          patientName: "Kamal Silva",
+          doctorName: "Perera",
+          issuedOn: new Date(`${dayKey(-1)}T00:00:00Z`),
+          createdBy: fx.ownerId,
+        },
+      })
+    ).id;
+    batchId = await createStockedBatch(prisma, stock, fx, { qty: 50 });
+  });
+
+  const sell = (approverUserId = pharmacistId) =>
+    sales.checkout(
+      fx.tenantId,
+      fx.mainBranchId,
+      fx.clerkId,
+      [{ branchId: fx.mainBranchId, role: "cashier" }],
+      {
+        items: [{ productId: fx.productId, batchId, qty: 1, unitPrice: "15.00" }],
+        prescriptionId,
+        pharmacistApproval: { approverUserId, pin: PIN },
+      },
+      randomUUID(),
+    );
+  const soldByClerk = () => prisma.sale.count({ where: { tenantId: fx.tenantId, soldBy: fx.clerkId } });
+  const onHand = async () => (await prisma.batchStock.findUniqueOrThrow({ where: { batchId } })).onHandQty;
+  const listed = async () => (await approval.listApprovers(fx.tenantId, fx.mainBranchId)).map((a) => a.id);
+
+  it("refuses a co-signer with no registration, an expired one or a revoked one, and sells nothing", async () => {
+    const [salesBefore, stockBefore] = [await soldByClerk(), await onHand()];
+    // A correct PIN and the approval permission are not enough on their own.
+    await expect(code(sell())).resolves.toBe("APPROVER_NOT_QUALIFIED");
+    await expect(listed()).resolves.toEqual([]);
+
+    await prisma.pharmacistRegistration.create({
+      data: { tenantId: fx.tenantId, userId: pharmacistId, slmcNumber: "OLD-CS-1", expiresOn: new Date(`${dayKey(-1)}T00:00:00Z`),
+        recordedByUserId: fx.ownerId, recordedAt: new Date(Date.now() - 86_400_000 * 30) },
+    });
+    await expect(code(sell())).resolves.toBe("APPROVER_NOT_QUALIFIED");
+    await expect(listed()).resolves.toEqual([]);
+
+    await clear();
+    const row = await record(pharmacistId, "PH-CS-2");
+    await registrations.revoke(user(fx.ownerId), fx.mainBranchId, row.id, "Suspended");
+    await expect(sell()).rejects.toMatchObject({
+      status: 403,
+      response: { code: "APPROVER_NOT_QUALIFIED", message: expect.stringContaining("pharmacist has no current SLMC registration") },
+    });
+    await expect(listed()).resolves.toEqual([]);
+
+    expect(await soldByClerk()).toBe(salesBefore);
+    expect(await onHand()).toBe(stockBefore);
+  });
+
+  it("accepts a registered co-signer and keeps the registration it relied on with the sale", async () => {
+    const row = await record(pharmacistId, "PH-CS-3");
+    // Only the registered pharmacist is offered: not the unregistered one, not the owner.
+    await expect(listed()).resolves.toEqual([pharmacistId]);
+    await expect(code(sell(secondPharmacistId))).resolves.toBe("APPROVER_NOT_QUALIFIED");
+
+    const sale = await sell();
+    const stored = await prisma.sale.findUniqueOrThrow({ where: { id: sale!.id } });
+    expect(stored).toMatchObject({ soldBy: fx.clerkId, dispensedBy: pharmacistId, dispenserRegistrationId: row.id });
+    const approved = await prisma.auditEvent.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, eventName: "sale.pharmacist_approved", entityId: sale!.id },
+    });
+    expect(approved.actorUserId).toBe(pharmacistId);
+    expect(approved.payload).toMatchObject({ pharmacistRegistrationId: row.id, slmcNumber: "PH-CS-3" });
+  });
+
+  it("waits for a revocation in progress and is refused once it commits", async () => {
+    const row = await record(pharmacistId, "PH-CS-4");
+    const salesBefore = await soldByClerk();
+    let release!: () => void;
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    const revoking = tx(async (c) => {
+      await c.pharmacistRegistration.updateMany({
+        where: { id: row.id, revokedAt: null },
+        data: { revokedAt: new Date(), revokedByUserId: fx.ownerId, revocationReason: "Struck off" },
+      });
+      locked();
+      await new Promise<void>((resolve) => (release = resolve));
+    });
+    await isLocked;
+    const outcome = code(sell());
+    let waiting = false;
+    for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+      const rows = await prisma.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%pharmacist_registration%'`;
+      waiting = Number(rows[0]?.count) > 0;
+      if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    release();
+    await revoking;
+    expect(waiting).toBe(true);
+    await expect(outcome).resolves.toBe("APPROVER_NOT_QUALIFIED");
+    expect(await soldByClerk()).toBe(salesBefore);
+  });
+
+  it("pins a sale's registration to its dispenser in the database", async () => {
+    const mine = await record(pharmacistId, "PH-CS-5");
+    const theirs = await record(secondPharmacistId, "PH-CS-6");
+    const sale = await sell();
+    await expect(
+      prisma.$executeRaw`UPDATE sale SET dispenser_registration_id = ${theirs.id}::uuid WHERE id = ${sale!.id}::uuid`,
+    ).rejects.toThrow(/sale_tenant_id_dispensed_by_dispenser_registration_id_fkey/);
+    await expect(
+      prisma.$executeRaw`UPDATE sale SET dispensed_by = NULL WHERE id = ${sale!.id}::uuid`,
+    ).rejects.toThrow(/sale_dispenser_registration_check/);
+    expect((await prisma.sale.findUniqueOrThrow({ where: { id: sale!.id } })).dispenserRegistrationId).toBe(mine.id);
   });
 });
