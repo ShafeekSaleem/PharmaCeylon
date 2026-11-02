@@ -789,6 +789,7 @@ export class SupplierLedgerService {
       include: {
         supplier: { select: { id: true, code: true, name: true } },
         creator: { select: { id: true, fullName: true } },
+        evidence: { select: { id: true, mediaType: true } },
         allocations: {
           include: { invoice: { select: { id: true, invoiceNumber: true } } },
         },
@@ -804,6 +805,7 @@ export class SupplierLedgerService {
       reference: payment.reference,
       notes: payment.notes,
       recordedBy: payment.creator,
+      evidence: payment.evidence,
       voided: payment.voidedAt !== null,
       allocations: payment.allocations.map((part) => ({
         invoiceId: part.invoice.id,
@@ -1089,6 +1091,7 @@ export class SupplierLedgerService {
       include: {
         supplier: { select: { id: true, code: true, name: true } },
         creator: { select: { id: true, fullName: true } },
+        evidence: { select: { id: true, mediaType: true } },
         allocations: {
           include: { invoice: { select: { id: true, invoiceNumber: true } } },
         },
@@ -1104,6 +1107,7 @@ export class SupplierLedgerService {
       reference: payment.reference,
       notes: payment.notes,
       recordedBy: payment.creator,
+      evidence: payment.evidence,
       voided: payment.voidedAt !== null,
       allocations: payment.allocations.map((part) => ({
         invoiceId: part.invoice.id,

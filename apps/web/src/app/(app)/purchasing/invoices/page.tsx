@@ -1,5 +1,7 @@
 "use client";
 
+import { PaymentEvidenceDownload } from "../components/payment-evidence-download";
+
 import { Suspense, useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import {
@@ -230,6 +232,7 @@ function InvoicesContent() {
       render: (row) => (
         <>
           <div className={css.cellStrong}>{row.paymentNo}</div>
+          {access.canPay && row.evidence && <PaymentEvidenceDownload evidence={row.evidence} />}
           {row.voided ? <StatusBadge status="voided" /> : null}
         </>
       ),

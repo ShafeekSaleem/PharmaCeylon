@@ -69,6 +69,8 @@ export function RecordInvoiceModal({
   const deliveries = useUnbilledDeliveries(
     open && supplierId ? supplierId : null,
   );
+  // A changed supplier keeps the previous one's deliveries on hand until its own arrive.
+  const deliveriesReady = !deliveries.loading && deliveries.fresh;
 
   useEffect(() => {
     if (!open) return;
@@ -98,11 +100,11 @@ export function RecordInvoiceModal({
 
   // A preset delivery is ticked as soon as the supplier's deliveries have loaded.
   useEffect(() => {
-    if (!preset?.receiptId || deliveries.loading) return;
+    if (!preset?.receiptId || !deliveriesReady) return;
     const found = deliveries.rows.find((d) => d.id === preset.receiptId);
     if (found && !receiptIds.has(found.id)) toggleDelivery(found.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preset?.receiptId, deliveries.loading, deliveries.rows]);
+  }, [preset?.receiptId, deliveriesReady, deliveries.rows]);
 
   // Both updates say where the delivery should end up rather than flipping it, so React running
   // an updater twice (it does in development) cannot tick it twice or add its lines twice.
@@ -321,7 +323,7 @@ export function RecordInvoiceModal({
               </p>
             </div>
           </header>
-          {deliveries.loading ? (
+          {!deliveriesReady ? (
             <p className={css.muted} style={{ padding: "0.75rem 0.9rem" }}>
               Loading deliveries…
             </p>
