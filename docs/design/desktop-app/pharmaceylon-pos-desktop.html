@@ -200,9 +200,13 @@ kbd {
 [data-screen="returns"] .screen.returns { display: grid; }
 [data-screen="stock"] .screen.stk { display: grid; }
 [data-screen="cash"] .screen.cash { display: grid; }
+[data-screen="counter"] .screen.counter { display: grid; }
+[data-screen="setup"] .frame { display: none; }
+[data-screen="setup"] .screen.setup { display: flex; }
+[data-screen="setup"] .statusbar { display: none; }
 /* Variants: data-only shows an element on one screen only, data-not hides it there. */
-html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [data-only="rxq"] { display: none !important; }
-[data-screen="rxa"] [data-not~="rxa"], [data-screen="rxq"] [data-not~="rxq"] { display: none !important; }
+html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [data-only="rxq"], html:not([data-screen="setup"]) [data-only="setup"] { display: none !important; }
+[data-screen="rxa"] [data-not~="rxa"], [data-screen="rxq"] [data-not~="rxq"], [data-screen="setup"] [data-not~="setup"] { display: none !important; }
 
 /* ---------- shared bits ---------- */
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
@@ -732,8 +736,8 @@ html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [
 .bag small { display: block; font-size: 12px; color: var(--text-3); }
 
 /* ---------- LOCK ---------- */
-.lock { flex: 1; min-height: 0; align-items: center; justify-content: center; position: relative; overflow: hidden; }
-.lock::before {
+.lock, .setup { flex: 1; min-height: 0; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+.lock::before, .setup::before {
   content: ""; position: absolute; inset: 0;
   background:
     radial-gradient(900px 520px at 12% 8%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 60%),
@@ -775,6 +779,85 @@ html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [
 .lock-chips { display: flex; gap: 8px; }
 .lock-chips .pill { height: 28px; padding: 0 12px; font-size: 12px; background: var(--surface); }
 .lock-chips .pill .ic { width: 14px; height: 14px; }
+
+/* ---------- FIRST-RUN SETUP ---------- */
+.su-wrap { position: relative; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.su-head { text-align: center; }
+.su-head h1 { font: 650 30px/1.15 var(--font-display); letter-spacing: -0.02em; }
+.su-head p { font-size: 14.5px; color: var(--text-2); margin-top: 8px; }
+.su-card { width: 1120px; display: grid; grid-template-columns: 364px minmax(0, 1fr); background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-lg); overflow: hidden; }
+.su-steps { padding: 24px; background: var(--surface-2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.su-list { list-style: none; display: flex; flex-direction: column; margin-top: 16px; }
+.su-list li { display: flex; align-items: flex-start; gap: 12px; position: relative; padding-bottom: 24px; }
+.su-list li:last-child { padding-bottom: 0; }
+.su-list li::before { content: ""; position: absolute; left: 13px; top: 32px; bottom: 4px; width: 1.5px; background: var(--line-strong); }
+.su-list li:last-child::before { display: none; }
+.su-list li.done::before { background: var(--ok); }
+.su-list i { width: 28px; height: 28px; border-radius: 50%; flex: none; display: grid; place-items: center; font: 700 12px/1 var(--font); font-style: normal; background: var(--surface); border: 1.5px solid var(--line-strong); color: var(--text-3); }
+.su-list i .ic { width: 14px; height: 14px; stroke-width: 2.8; }
+.su-list .done i { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.su-list .now i { background: var(--primary); border-color: var(--primary); color: var(--on-primary); box-shadow: var(--focus); }
+.su-list li > div { min-width: 0; }
+.su-list b { display: block; font-size: 13.5px; margin-top: 4px; }
+.su-list small { display: block; font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.su-list li:not(.done):not(.now) b { color: var(--text-2); }
+.su-list .btn { margin-left: auto; }
+.su-note { display: flex; gap: 10px; margin-top: auto; padding: 11px 13px; border-radius: 10px; background: var(--info-soft); border: 1px solid var(--info-line); font-size: 12.5px; color: var(--text-2); }
+.su-note .ic { color: var(--info); width: 17px; height: 17px; margin-top: 1px; }
+.su-note b { color: var(--text); }
+.su-form { display: flex; flex-direction: column; gap: 16px; padding: 24px 28px 0; min-width: 0; }
+.su-form h2 { font: 650 20px/1.2 var(--font-display); letter-spacing: -0.015em; margin-top: 3px; }
+.su-form .su-h p { font-size: 13px; color: var(--text-2); margin-top: 4px; }
+.su-form .seg { margin-left: 0; align-self: flex-start; }
+.su-form .seg .ic { width: 15px; height: 15px; }
+.su-hint { font-size: 12px; color: var(--text-3); margin-top: -8px; }
+.ctrs { display: flex; flex-direction: column; gap: 6px; }
+.ctr { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); }
+.ctr b { font-size: 13.5px; font-weight: 600; }
+.ctr small { font-size: 12px; color: var(--text-3); }
+.ctr .pill { margin-left: auto; }
+.ctr .ro { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-strong); background: var(--surface); flex: none; }
+.ctr.sel { border: 1.5px solid var(--primary); background: var(--primary-soft); box-shadow: var(--focus); }
+.ctr.sel .ro { border: 5px solid var(--primary); }
+.ctr.off { opacity: 0.6; }
+.ctr.add { border-style: dashed; border-color: var(--line-strong); color: var(--text-2); font-size: 13px; font-weight: 600; }
+.ctr.add .ic { width: 16px; height: 16px; color: var(--primary); }
+.su-form .dfoot { margin: 4px -28px 0; padding: 14px 28px; }
+
+/* ---------- THIS COUNTER ---------- */
+.counter { grid-template-rows: auto auto minmax(0, 1fr); gap: 14px; }
+.ctr-card .tiles { margin: 0 18px 18px; }
+.ctr-card .kind { width: 42px; height: 42px; border-radius: 11px; }
+.ctr-card .kind .ic { width: 21px; height: 21px; }
+.ctr-body { display: grid; grid-template-columns: minmax(0, 1fr) 520px; gap: 14px; min-height: 0; }
+.ctr-side { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.ph .ph-note { font-size: 12px; color: var(--text-3); }
+.counter .ph .pill { margin-left: auto; }
+.counter .ph .pill + .btn { margin-left: 0; }
+.rd-g { padding: 0 18px; }
+.rd { display: grid; grid-template-columns: 64px 232px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 38px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.rd:last-child { border-bottom: 0; }
+.rd b { font-weight: 600; }
+.rd .d { color: var(--text-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rd .pill { justify-self: start; }
+.rd-foot { margin: auto 18px 0; padding: 12px 0 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-3); }
+.pr-b { display: flex; flex-direction: column; gap: 12px; padding: 0 18px 18px; }
+.pr-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-3); }
+.ask { display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 10px; background: var(--primary-soft); border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent); }
+.ask > .ic { width: 18px; height: 18px; color: var(--primary); }
+.ask b { display: block; font-size: 13px; }
+.ask small { display: block; font-size: 12px; color: var(--text-2); }
+.ask .btns { margin-left: auto; display: flex; gap: 6px; }
+.pr-b .foot-n, .ob .foot-n { font-size: 11.5px; color: var(--text-3); }
+.ob { display: flex; flex-direction: column; gap: 12px; padding: 0 18px 18px; flex: 1; }
+.ob-hero { display: flex; align-items: center; gap: 12px; }
+.ob-hero b { display: block; font-size: 13.5px; }
+.ob-hero small { display: block; font-size: 12px; color: var(--text-3); }
+.kvs { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; padding: 4px 14px; }
+.kvs .kv { min-height: 36px; border-bottom: 1px solid var(--line); color: var(--text-2); }
+.kvs .kv:last-child { border-bottom: 0; }
+.kvs .kv b { color: var(--text); }
+.ob .offl { margin: 0; }
 
 /* viewer switcher (hidden in screenshots) */
 .switcher { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 6px; padding: 6px; border-radius: 12px; background: #0f172a; box-shadow: 0 10px 30px rgba(0,0,0,.35); font: 600 12px/1 "Segoe UI", system-ui, sans-serif; z-index: 10; }
@@ -889,11 +972,13 @@ html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [
       PharmaCeylon <span class="tag-pos">POS</span>
     </div>
     <span class="tb-sep"></span>
-    <div class="tb-where" data-not="rxq"><svg class="ic"><use href="#i-map-pin"/></svg><b>Kollupitiya</b> · Counter 2</div>
+    <div class="tb-where" data-not="rxq setup"><svg class="ic"><use href="#i-map-pin"/></svg><b>Kollupitiya</b> · Counter 2</div>
     <div class="tb-where" data-only="rxq"><svg class="ic"><use href="#i-map-pin"/></svg><b>Kollupitiya</b> · Dispensary</div>
+    <div class="tb-where" data-only="setup"><svg class="ic"><use href="#i-map-pin"/></svg>Not set up yet</div>
     <div class="grow"></div>
-    <div class="conn"><span class="dot"></span>Online <em>· synced 8 s ago</em></div>
-    <span class="tb-icon"><svg class="ic"><use href="#i-bell"/></svg><span class="pip"></span></span>
+    <div class="conn" data-not="setup"><span class="dot"></span>Online <em>· synced 8 s ago</em></div>
+    <div class="conn" data-only="setup"><span class="dot"></span>Server reachable</div>
+    <span class="tb-icon" data-not="setup"><svg class="ic"><use href="#i-bell"/></svg><span class="pip"></span></span>
     <div class="tb-clock">Sun 1 Nov · 14:32</div>
     <div class="winctl">
       <span><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></span>
@@ -1719,6 +1804,96 @@ html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [
         </div>
       </section>
 
+      <!-- ================= THIS COUNTER ================= -->
+      <section class="screen counter">
+        <div class="page-h">
+          <div>
+            <h1>This counter</h1>
+            <p>This computer's details, readiness checks, receipt printer and offline backup.</p>
+          </div>
+        </div>
+
+        <div class="panel ctr-card">
+          <div class="shift-h">
+            <span class="kind" style="--c: var(--t-teal)"><svg class="ic"><use href="#i-monitor"/></svg></span>
+            <div><b>Counter 2 · Kollupitiya</b><small>This computer is "Back counter PC" · enrolled 14 Oct 2026 by Dilini Fernando</small></div>
+            <div class="right">
+              <span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Enrolled</span>
+              <span class="pill ok"><svg class="ic"><use href="#i-monitor"/></svg>At the counter · console session</span>
+            </div>
+          </div>
+          <div class="tiles">
+            <div class="tile"><small>Branch</small><b>Kollupitiya</b><span>Branch code KOL</span></div>
+            <div class="tile"><small>Counter and till</small><b>Counter 2</b><span>Till 2 · one open shift at a time</span></div>
+            <div class="tile"><small>Enrolled</small><b>14 Oct 2026</b><span>By Dilini Fernando, branch manager</span></div>
+            <div class="tile"><small>App version</small><b>1.0.0</b><span>Server pos.pharmaceylon.lk</span></div>
+          </div>
+        </div>
+
+        <div class="ctr-body">
+          <div class="panel">
+            <div class="ph"><h2>Readiness</h2><span class="ph-note">Checked 14:32</span><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Ready to sell during an outage</span><span class="btn sm outline"><svg class="ic"><use href="#i-refresh"/></svg>Check again</span></div>
+            <div class="pm-sub">This computer</div>
+            <div class="rd-g">
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Local database</b><span class="d">Encrypted database is open.</span></div>
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Database version</b><span class="d">Schema version 14.</span></div>
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Windows credential protection</b><span class="d">Database key is protected by Windows.</span></div>
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Device enrollment</b><span class="d">Enrolled as a counter.</span></div>
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Receipt printer</b><span class="d">EPSON TM-T82III · test receipt confirmed.</span></div>
+            </div>
+            <div class="pm-sub">Staff and records</div>
+            <div class="rd-g">
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Prepared staff</b><span class="d">5 people have a PIN prepared here.</span></div>
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Unconfirmed sales and actions</b><span class="d">Every sale and action sent from here has a confirmed outcome.</span></div>
+            </div>
+            <div class="pm-sub">Offline backup</div>
+            <div class="rd-g">
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Offline permission</b><span class="d">Valid until 22:00 today.</span></div>
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Product catalogue</b><span class="d">Downloaded 14:30 today.</span></div>
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Receipt numbering</b><span class="d">Offline receipt numbers are reserved for this counter.</span></div>
+              <div class="rd"><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>OK</span><b>Synchronisation</b><span class="d">Last sync 14:32:08.</span></div>
+            </div>
+            <div class="rd-foot">Each check shows OK, Check, Failed or Not set up. The counter is ready for an outage only when every check is OK.</div>
+          </div>
+
+          <div class="ctr-side">
+            <div class="panel">
+              <div class="ph"><h2>Receipt printer</h2><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Ready</span></div>
+              <div class="pr-b">
+                <div class="f">
+                  <label>Printer <span>Installed in Windows</span></label>
+                  <div class="in">EPSON TM-T82III Receipt<svg class="ic"><use href="#i-chevron-down"/></svg></div>
+                </div>
+                <div class="pr-row"><span class="btn outline"><svg class="ic"><use href="#i-printer"/></svg>Print test receipt</span><span>Sent to the printer at 14:31</span></div>
+                <div class="ask">
+                  <svg class="ic"><use href="#i-receipt"/></svg>
+                  <div><b>Did the test receipt come out?</b><small>Recorded for the go-live checklist.</small></div>
+                  <div class="btns"><span class="btn sm ghost">Print again</span><span class="btn sm primary"><svg class="ic"><use href="#i-check"/></svg>Yes, it came out</span></div>
+                </div>
+                <div class="foot-n">Last confirmed 14 Oct 2026 by Dilini Fernando.</div>
+              </div>
+            </div>
+
+            <div class="panel" style="flex: 1">
+              <div class="ph"><h2>Offline backup counter</h2><span class="pill info"><svg class="ic"><use href="#i-shield-check"/></svg>Ready until 22:00</span></div>
+              <div class="ob">
+                <div class="ob-hero">
+                  <span class="kind" style="--c: var(--t-cyan)"><svg class="ic"><use href="#i-shield-check"/></svg></span>
+                  <div><b>This is Kollupitiya's offline backup counter</b><small>It keeps selling if the internet goes down. A branch has one.</small></div>
+                </div>
+                <div class="kvs">
+                  <div class="kv">Authorized<b>On the web by the owner · 13 Oct</b></div>
+                  <div class="kv">Activated<b>Here by Dilini Fernando · 14 Oct</b></div>
+                  <div class="kv">Offline permission<b>Until 22:00 today</b></div>
+                </div>
+                <div class="offl"><svg class="ic"><use href="#i-info"/></svg><span>Offline, it sells non-prescription items only. Prescriptions, refunds and discounts wait until it's back online.</span></div>
+                <div class="foot-n" style="margin-top: auto">To move the backup to another counter, the owner or a delegated manager authorizes it on the web. Someone allowed to activate then confirms it at that counter while online. Only they see the Activate button.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ================= A: PRESCRIPTION SHEET OVER SELL ================= -->
       <div class="rx-scrim" data-only="rxa"></div>
       <aside class="rx-sheet" data-only="rxa">
@@ -2014,6 +2189,69 @@ html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [
     </div>
   </section>
 
+  <!-- ================= FIRST-RUN SETUP (device not enrolled) ================= -->
+  <section class="screen setup">
+    <div class="su-wrap">
+      <div class="su-head">
+        <h1>Set up this counter</h1>
+        <p>This computer isn't a counter yet. A branch manager, or someone with a one-time code, sets it up once.</p>
+      </div>
+      <div class="su-card">
+        <div class="su-steps">
+          <div class="eyebrow">Setup steps</div>
+          <ol class="su-list">
+            <li class="done"><i><svg class="ic"><use href="#i-check"/></svg></i><div><b>Server address</b><small class="mono">https://pos.pharmaceylon.lk/api/v1</small></div><span class="btn sm ghost">Change</span></li>
+            <li class="done"><i><svg class="ic"><use href="#i-check"/></svg></i><div><b>Sign in</b><small>Dilini Fernando · Branch manager</small></div></li>
+            <li class="now"><i>3</i><div><b>Enroll this computer</b><small>Choose the branch and the counter</small></div></li>
+            <li><i>4</i><div><b>Staff sign in</b><small>Each person signs in here once while online to set or prepare their PIN</small></div></li>
+          </ol>
+          <div class="su-note"><svg class="ic"><use href="#i-info"/></svg><div><b>Afterwards</b>, test the receipt printer on the This counter page. The offline backup is chosen by the owner on the web.</div></div>
+        </div>
+
+        <div class="su-form">
+          <div class="su-h">
+            <div class="eyebrow">Step 3 of 4</div>
+            <h2>Enroll this computer</h2>
+            <p>Signed in as Dilini Fernando. Enrolling ties this computer to one counter at one branch. It only works at the computer itself, not over a remote connection.</p>
+          </div>
+          <div class="seg">
+            <span class="on"><svg class="ic"><use href="#i-users"/></svg>I'm a manager</span>
+            <span><svg class="ic"><use href="#i-lock"/></svg>I have an enrollment code</span>
+          </div>
+          <div class="su-hint">A manager picks the counter here. Anyone else signs in with their own account and enters a one-time code that a manager creates on the web, in Settings → Counters &amp; devices.</div>
+          <div class="f">
+            <label>Branch</label>
+            <div class="in">Kollupitiya (KOL)<svg class="ic"><use href="#i-chevron-down"/></svg></div>
+          </div>
+          <div class="f">
+            <label>Counter <span>3 at Kollupitiya</span></label>
+            <div class="ctrs">
+              <div class="ctr off"><span class="ro"></span><div><b>Counter 1</b></div><span class="pill neutral">In use by Front desk PC</span></div>
+              <div class="ctr sel"><span class="ro"></span><div><b>Counter 2</b></div><span class="pill ok"><svg class="ic"><use href="#i-check"/></svg>Free</span></div>
+              <div class="ctr off"><span class="ro"></span><div><b>Counter 3</b></div><span class="pill neutral">Switched off</span></div>
+              <div class="ctr add"><svg class="ic"><use href="#i-plus"/></svg>Add a counter at this branch</div>
+            </div>
+          </div>
+          <div class="f">
+            <label>Name for this computer <span>Shown on the web, in Counters &amp; devices</span></label>
+            <div class="in" style="border: 1.5px solid var(--primary); box-shadow: var(--focus); justify-content: flex-start">Back counter PC<span class="caret"></span></div>
+          </div>
+          <div class="dfoot">
+            <span class="btn ghost lg"><svg class="ic"><use href="#i-log-out"/></svg>Cancel and sign out</span>
+            <span class="grow"></span>
+            <span class="btn primary lg"><svg class="ic"><use href="#i-monitor"/></svg>Enroll this computer <kbd>Ctrl ↵</kbd></span>
+          </div>
+        </div>
+      </div>
+      <div class="lock-chips">
+        <span class="pill ok"><svg class="ic"><use href="#i-cloud"/></svg>Server reachable</span>
+        <span class="pill ok"><svg class="ic"><use href="#i-monitor"/></svg>At the computer · console session</span>
+        <span class="pill ok"><svg class="ic"><use href="#i-shield-check"/></svg>Windows credential protection ready</span>
+        <span class="pill neutral">v1.0.0</span>
+      </div>
+    </div>
+  </section>
+
   <!-- Status bar: the counter's health at a glance -->
   <footer class="statusbar">
     <span class="sb okc"><span class="d"></span><b>Online</b> · last sync 14:32:08</span>
@@ -2046,7 +2284,8 @@ html:not([data-screen="rxa"]) [data-only="rxa"], html:not([data-screen="rxq"]) [
   const link = (s, t, label) => `<a href="?screen=${s}&theme=${t}" class="${s === screen && t === theme ? "on" : ""}">${label}</a>`;
   sw.innerHTML = [
     link("sell", theme, "Sell"), link("returns", theme, "Returns"), link("work", theme, "Counter work"),
-    link("stock", theme, "Stock"), link("cash", theme, "Cash & shift"), link("lock", theme, "Sign in"),
+    link("stock", theme, "Stock"), link("cash", theme, "Cash & shift"), link("counter", theme, "This counter"),
+    link("lock", theme, "Sign in"), link("setup", theme, "First-run setup"),
     "<i></i>", link("rxa", theme, "Rx in the sale"), link("rxq", theme, "Pharmacist queue (later)"),
     "<i></i>", link(screen, "light", "Light"), link(screen, "dark", "Dark"),
   ].join("");

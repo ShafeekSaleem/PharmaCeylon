@@ -12,10 +12,12 @@ Open `pharmaceylon-pos-desktop.html` in a browser and use the switcher at the bo
 | Counter work | `work` | `pos-desktop-work-{light,dark}.png` |
 | Stock | `stock` | `pos-desktop-stock-{light,dark}.png` |
 | Cash & shift | `cash` | `pos-desktop-cash-{light,dark}.png` |
+| This counter | `counter` | `pos-desktop-counter-{light,dark}.png` |
 | Sign in | `lock` | `pos-desktop-lock-{light,dark}.png` |
+| First-run setup | `setup` | `pos-desktop-setup-{light,dark}.png` |
 | Pharmacist queue (later, not v1) | `rxq` | `pos-desktop-rxq-{light,dark}.png` |
 
-`pos-desktop-overview.png` shows the v1 screens on one board. `pos-desktop-rx-approaches.png` compares the two ways to handle prescriptions.
+`pos-desktop-overview.png` shows the v1 screens on one board. It was made before This counter and First-run setup were added, so it doesn't show them. `pos-desktop-rx-approaches.png` compares the two ways to handle prescriptions.
 
 ## Decision: prescriptions are handled inside the sale (1 Nov 2026)
 
@@ -84,6 +86,27 @@ The Rs 5,000.00 refund limit and the Rs 10,000.00 write-off limit are only examp
 - Supplier cash payouts are approved on the web and paid out at the counter, per revised D10.
 - A card payment that was approved but whose sale didn't finish is kept apart from sales until it's resolved online.
 
+## First-run setup and This counter follow today's counter panels (3 Nov 2026)
+
+These two screens were added for decision 2 of [Epic P2b #103](https://github.com/ShafeekSaleem/PharmaCeylon/issues/103). They move the panels that `CounterAccess.tsx` and `App.tsx` show today into the mockup layout, without changing what they do.
+
+**First-run setup** is a full screen, like Sign in, shown while the computer isn't enrolled. There's no menu yet, because nobody can sign in. It follows `ServerSetup`, `SignInForm` and `EnrollPanel`:
+
+- The server address, which can only be changed when the build allows it (`serverUrlEditable`).
+- An email and password sign-in.
+- Enrolling: a manager picks the branch and a free counter, or adds one. Anyone else enters a one-time code that a manager made on the web. Both name the computer.
+- The last step is staff signing in once while online to set or prepare their PIN.
+- Enrolling and signing in are refused over a remote connection, so the screen shows "At the computer · console session".
+
+The mockup shows a manager on the enroll step. The same screen also covers the other states that `CounterAccess` handles: an enrollment that didn't finish, a revoked or retired computer, and the code path.
+
+**This counter** is a page in the menu. It holds:
+
+- The counter's details: branch, counter and till, computer name, enrollment date and app version.
+- The readiness checks from `readiness.ts`, grouped. The counter is ready for an outage only when every check is OK.
+- The receipt printer: the printer, a test receipt and "Yes, it came out", which records the test for the go-live checklist.
+- The offline backup counter (D13). Everyone sees its status. The Activate button appears only to people allowed to activate, and only after the owner or a delegated manager authorizes this counter on the web. The mockup shows the usual state, with this counter already active.
+
 ## Mockup ideas not in the codebase yet
 
 These are proposals, not existing features:
@@ -105,4 +128,7 @@ These are proposals, not existing features:
   - The "Print X report" button.
   - The "By hour" takings view.
   - The "End of day" close without a handover.
+- **This counter:**
+  - Who authorized and activated the offline backup, and when.
+  - Who last confirmed the test receipt.
 - **Pharmacist queue (B):** all of it, including the bag label, the checklist, owed items and the controlled-register balance.
