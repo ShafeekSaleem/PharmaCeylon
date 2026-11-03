@@ -29,7 +29,7 @@ import { detectRemoteTools } from "../attendance/remote-tools";
 import { DeviceKey } from "../device/device-key";
 import type { DeviceStore } from "../device/device-store";
 import type { Logger } from "../logging/logger";
-import { PIN_LOCK_MS, type PinStore } from "../staff/pin-store";
+import type { PinStore } from "../staff/pin-store";
 
 export type TerminalServiceDeps = {
   store: DeviceStore;
@@ -274,14 +274,18 @@ export class TerminalService {
       );
     } catch (error) {
       if (error instanceof ApiError) {
-        // A PIN changed or reset elsewhere: this counter's verifier is no use any more.
-        if (error.code === "PIN_NOT_PREPARED" || error.code === "PIN_NOT_SET")
+        // A PIN changed or reset elsewhere, or the person may no longer work here: this counter's
+        // verifier is no use any more, so they stop being offered.
+        if (
+          error.code === "PIN_NOT_PREPARED" ||
+          error.code === "PIN_NOT_SET" ||
+          error.code === "PERMISSION_DENIED"
+        )
           this.deps.pins.forget(staffUserId);
-        if (error.code === "PIN_LOCKED")
-          this.serverPinLocks.set(
-            staffUserId,
-            this.now().getTime() + PIN_LOCK_MS,
-          );
+        // The server says when its lock ends; it may have started at another counter.
+        const lockedUntil = Date.parse(String(error.body.lockedUntil));
+        if (error.code === "PIN_LOCKED" && lockedUntil > this.now().getTime())
+          this.serverPinLocks.set(staffUserId, lockedUntil);
       }
       throw error;
     }
@@ -313,16 +317,14 @@ export class TerminalService {
     return this.deps.pins.prepared(enrollmentId).map((person) => {
       const serverLock = this.serverPinLocks.get(person.staffUserId) ?? 0;
       const signedIn = this.staff?.staffUserId === person.staffUserId;
-      const locked = person.lockRemainingMs > 0 || serverLock > now;
+      const lockEnds = Math.max(now + person.lockRemainingMs, serverLock);
+      const locked = lockEnds > now;
       return {
         staffUserId: person.staffUserId,
         staffName: person.staffName,
         role: person.role,
         state: signedIn ? "signed_in" : locked ? "locked" : "ready",
-        lockedUntil:
-          person.lockRemainingMs > 0
-            ? new Date(now + person.lockRemainingMs).toISOString()
-            : null,
+        lockedUntil: locked ? new Date(lockEnds).toISOString() : null,
       };
     });
   }

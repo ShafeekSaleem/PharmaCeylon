@@ -97,7 +97,10 @@ class FakeServer {
   enrolledIdentity: { enrollmentId: string } | null = null;
   pinVersion = 0;
   preparedVersion: number | null = null;
-  pinLocked = false;
+  /** When the server's PIN lock ends; null while the PIN isn't locked. */
+  pinLockedUntil: string | null = null;
+  /** The person lost their role at the branch. */
+  pinDenied = false;
   enrolledKey: string | null = null;
   readonly proofs = new Map<string, LocalAttendanceAttestation>();
   readonly calls: string[] = [];
@@ -276,6 +279,7 @@ class FakeServer {
       const envelope = body as Signed<TerminalPinSessionRequest>;
       if (!verifies(envelope, this.enrolledKey!, "command"))
         throw new ApiError(403, "INVALID_SIGNATURE", "x");
+      if (this.pinDenied) throw new ApiError(403, "PERMISSION_DENIED", "x");
       if (this.pin === null || this.preparedVersion !== this.pinVersion)
         throw new ApiError(403, "PIN_NOT_PREPARED", "x");
       this.challenge = {
@@ -310,7 +314,11 @@ class FakeServer {
         attendance.payload.payloadDigest !== challengeDigest(challenge)
       )
         throw new ApiError(403, "LOCAL_ATTENDANCE_UNAVAILABLE", "x");
-      if (this.pinLocked) throw new ApiError(403, "PIN_LOCKED", "x");
+      if (this.pinLockedUntil)
+        throw new ApiError(403, "PIN_LOCKED", "x", {
+          code: "PIN_LOCKED",
+          lockedUntil: this.pinLockedUntil,
+        });
       if (body.pin !== this.pin) throw new ApiError(403, "PIN_INCORRECT", "x");
       return {
         accessToken: "pin-access",
@@ -907,17 +915,31 @@ describe("TerminalService PIN sign-in (D-W5)", () => {
 
   it("forgets a verifier the server says is stale, and shows a server lock on the list", async () => {
     const terminal = await preparedForCashier();
-    server.pinLocked = true;
+    // Locked a while ago at another counter: the list shows the server's end, not a fresh 15 minutes.
+    const lockedUntil = new Date(Date.now() + 60_000).toISOString();
+    server.pinLockedUntil = lockedUntil;
     await expect(
       terminal.signInWithPin(cashier.id, "4821"),
     ).rejects.toMatchObject({ code: "PIN_LOCKED" });
-    expect(terminal.state().counterStaff[0]?.state).toBe("locked");
+    expect(terminal.state().counterStaff[0]).toMatchObject({
+      state: "locked",
+      lockedUntil,
+    });
 
-    server.pinLocked = false;
+    server.pinLockedUntil = null;
     server.pinVersion += 1; // changed on another counter
     await expect(
       terminal.signInWithPin(cashier.id, "4821"),
     ).rejects.toMatchObject({ code: "PIN_NOT_PREPARED" });
+    expect(terminal.state().counterStaff).toEqual([]);
+  });
+
+  it("stops offering someone who may no longer work at this branch", async () => {
+    const terminal = await preparedForCashier();
+    server.pinDenied = true;
+    await expect(
+      terminal.signInWithPin(cashier.id, "4821"),
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     expect(terminal.state().counterStaff).toEqual([]);
   });
 

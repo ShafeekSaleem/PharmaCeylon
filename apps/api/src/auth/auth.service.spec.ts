@@ -214,6 +214,15 @@ describe("AuthService", () => {
   });
 
   describe("issueCounterSession (D-W5 PIN sign-in)", () => {
+    // The caller's transaction: the PIN sign-in binds the till in it, so both commit or neither.
+    const callerTx = () => ({
+      appUser: {
+        findUnique: prisma.appUser.findUnique,
+        update: prisma.appUser.update,
+      },
+      session: { create: prisma.session.create, update: prisma.session.update },
+    });
+
     it("marks the login with its counter session and gives it a working day, not two weeks", async () => {
       prisma.appUser.findUnique.mockResolvedValue(baseUser);
       mockedBcrypt.hash.mockResolvedValue("hashed" as never);
@@ -226,12 +235,14 @@ describe("AuthService", () => {
         .mockResolvedValueOnce("access-token");
 
       const result = await service.issueCounterSession(
+        callerTx() as never,
         "user-id",
         "tenant-id",
         "work-session-1",
       );
 
       expect(result.accessToken).toBe("access-token");
+      expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(result.refreshTtlSeconds).toBe(43200);
       const created = prisma.session.create.mock.calls[0][0].data;
       expect(created.counterSessionId).toBe("work-session-1");

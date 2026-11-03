@@ -340,15 +340,17 @@ export class AuthService {
   /**
    * D-W5: the login a correct PIN opens at an enrolled counter. The caller has just bound the
    * counter staff session; these tokens work only on counter routes, at its branch, while it
-   * stays open (`JwtAuthGuard`, `TenantBranchGuard` and `refresh` above).
+   * stays open (`JwtAuthGuard`, `TenantBranchGuard` and `refresh` above). Issued in the caller's
+   * transaction, so a failure here also undoes the binding and whoever it replaced stays signed in.
    */
   async issueCounterSession(
+    tx: Prisma.TransactionClient,
     userId: string,
     tenantId: string,
     counterSessionId: string,
     meta: RequestMeta = {},
   ): Promise<LoginResult> {
-    const user = await this.prisma.appUser.findUnique({
+    const user = await tx.appUser.findUnique({
       where: { id: userId },
       include: {
         tenantMemberships: {
@@ -373,6 +375,7 @@ export class AuthService {
       previousSession: null,
       meta,
       counterSessionId,
+      tx,
     });
   }
 
@@ -724,6 +727,8 @@ export class AuthService {
     meta: RequestMeta;
     /** The counter staff session a PIN opened; rotations keep it. */
     counterSessionId?: string | null;
+    /** The caller's transaction, when the login must commit or fail with its other writes. */
+    tx?: Prisma.TransactionClient;
   }): Promise<LoginResult> {
     const counterSessionId = args.counterSessionId ?? null;
     const refreshTtl = counterSessionId
@@ -735,7 +740,7 @@ export class AuthService {
     // We must know the session id *before* signing because it's in the payload.
     // Strategy: create session first with a temporary hash, then sign the real
     // refresh token, then update the row with the real hash — all in one tx.
-    const result = await this.prisma.$transaction(async (tx) => {
+    const persist = async (tx: Prisma.TransactionClient) => {
       const familyId = args.previousSession?.familyId;
       const placeholder = randomBytes(32).toString("hex");
       const tempHash = await bcrypt.hash(placeholder, 4); // low cost — replaced immediately
@@ -805,7 +810,10 @@ export class AuthService {
       });
 
       return { accessToken, refreshToken };
-    });
+    };
+    const result = args.tx
+      ? await persist(args.tx)
+      : await this.prisma.$transaction(persist);
 
     // Invalidate the in-process user-context cache so the next request sees
     // the freshly-loaded user (e.g. in case roles were just changed).

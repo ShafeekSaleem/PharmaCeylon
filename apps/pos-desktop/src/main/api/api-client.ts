@@ -21,12 +21,14 @@ export type AuthUser = {
 type Tokens = { accessToken: string; refreshToken: string; user: AuthUser };
 export type PendingLogin = Readonly<Tokens>;
 
-/** Server refusals keep their code so callers can explain them; transport failures are `network`. */
+/** Server refusals keep their code so callers can explain them; transport failures are `network`.
+ * `body` is the refusal as the server sent it, for detail beyond the code (a PIN lock's end). */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly body: Readonly<Record<string, unknown>> = {},
   ) {
     super(message);
     this.name = "ApiError";
@@ -51,8 +53,10 @@ function hasRefusalCode(text: string): boolean {
 function parseError(status: number, text: string): ApiError {
   let code = `HTTP_${status}`;
   let message = "The server refused the request.";
+  let details: Record<string, unknown> = {};
   try {
     const body = JSON.parse(text) as { code?: unknown; message?: unknown };
+    if (body && typeof body === "object" && !Array.isArray(body)) details = body;
     if (typeof body.code === "string") code = body.code;
     if (typeof body.message === "string") message = body.message;
     else if (Array.isArray(body.message) && typeof body.message[0] === "string")
@@ -60,7 +64,7 @@ function parseError(status: number, text: string): ApiError {
   } catch {
     // Not JSON: keep the generic message.
   }
-  return new ApiError(status, code, message);
+  return new ApiError(status, code, message, details);
 }
 
 /**

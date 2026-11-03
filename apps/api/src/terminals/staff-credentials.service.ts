@@ -184,7 +184,7 @@ export class StaffCredentialsService {
         pin,
         new Date(),
       );
-      if (checked !== "ok") return checked;
+      if (checked !== "ok") return { checked, lockedUntil: account.posPinLockedUntil };
       await this.markPrepared(
         tx,
         user,
@@ -194,7 +194,7 @@ export class StaffCredentialsService {
       );
       return "prepared" as const;
     });
-    if (outcome !== "prepared") pinRefusal(outcome);
+    if (outcome !== "prepared") pinRefusal(outcome.checked, outcome.lockedUntil);
     return this.credential(user, branchId, workSessionId);
   }
 

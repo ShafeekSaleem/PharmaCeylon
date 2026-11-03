@@ -60,7 +60,12 @@ const enrollmentService = new TerminalEnrollmentService(
 );
 // Token issuing is AuthService's (unit-tested there); these tests cover what a PIN must prove.
 const issueCounterSession = jest.fn(
-  async (userId: string, tenantId: string, workSessionId: string) => ({
+  async (
+    _tx: Prisma.TransactionClient,
+    userId: string,
+    tenantId: string,
+    workSessionId: string,
+  ) => ({
     accessToken: `access:${workSessionId}`,
     refreshToken: "refresh",
     user: { id: userId, tenantId, email: "", fullName: "", roles: [], branchRoles: [] },
@@ -740,6 +745,7 @@ describe("D-W5 PIN sign-in at a counter", () => {
 
     expect(result.session).toEqual(challenge.session);
     expect(issueCounterSession).toHaveBeenLastCalledWith(
+      expect.anything(),
       clerk.userId,
       fx.tenantId,
       challenge.session.workSessionId,
@@ -785,12 +791,41 @@ describe("D-W5 PIN sign-in at a counter", () => {
     ).toBe(5);
 
     const challenge = await askFor(device, identity, clerk.userId);
+    const { posPinLockedUntil } = await prisma.appUser.findUniqueOrThrow({
+      where: { id: clerk.userId },
+    });
+    // The counter is told when the lock ends rather than guessing at the server's policy.
     await expect(answer(device, challenge, PIN)).rejects.toMatchObject({
-      response: { code: "PIN_LOCKED" },
+      response: {
+        code: "PIN_LOCKED",
+        lockedUntil: posPinLockedUntil!.toISOString(),
+      },
     });
     await expect(answer(device, challenge, PIN)).rejects.toMatchObject({
       response: { code: "CHALLENGE_INVALID" },
     });
+  });
+
+  it("keeps whoever was signed in when the login can't be issued", async () => {
+    const { device, identity, session: earlier } = await preparedCounter();
+    const challenge = await askFor(device, identity, clerk.userId);
+    issueCounterSession.mockRejectedValueOnce(new Error("token store down"));
+
+    await expect(answer(device, challenge, PIN)).rejects.toThrow(
+      "token store down",
+    );
+
+    // The binding rolled back with the login: the earlier session is still open and the new one
+    // never existed.
+    const sessions = await prisma.terminalStaffSession.findMany({
+      where: { tenantId: fx.tenantId, enrollmentId: identity.enrollmentId },
+    });
+    expect(
+      sessions.find((s) => s.id === earlier.workSessionId)?.closedAt,
+    ).toBeNull();
+    expect(
+      sessions.find((s) => s.id === challenge.session.workSessionId),
+    ).toBeUndefined();
   });
 
   it("refuses people who aren't prepared here, or are prepared at an older PIN", async () => {
@@ -873,9 +908,10 @@ describe("D-W5 PIN sign-in at a counter", () => {
       where: { tenantId: fx.tenantId, id: { in: roles.map((r) => r.id) } },
     });
     try {
+      // The counter gets one code for every way of losing access, so it can stop offering them.
       await expect(
         askFor(device, identity, clerk.userId),
-      ).rejects.toBeInstanceOf(Error);
+      ).rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
     } finally {
       await prisma.userBranchRole.createMany({
         data: roles.map(({ id: _id, ...role }) => role),

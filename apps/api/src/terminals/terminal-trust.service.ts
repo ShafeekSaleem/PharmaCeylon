@@ -731,7 +731,12 @@ export class TerminalTrustService {
    */
   private async pinStaff(tx: Tx, identity: TerminalIdentity, staffUserId: string) {
     const actor = { tenantId: identity.tenantId, userId: staffUserId };
-    const access = await this.access.resolveApprovalAuthority(actor, identity.branchId, tx);
+    // Any access refusal (no branch assignment, a removed role) is the same answer to the counter:
+    // this person may not work here, so it should stop offering them.
+    const access = await this.access.resolveApprovalAuthority(actor, identity.branchId, tx).catch((error: unknown) => {
+      if (error instanceof ForbiddenException) denied("PERMISSION_DENIED");
+      throw error;
+    });
     if (!access.has("terminal.execute")) denied("PERMISSION_DENIED");
     // tenant-scope: verified-parent — the membership filter scopes the account to this tenant.
     const account = await tx.appUser.findFirst({
@@ -805,7 +810,7 @@ export class TerminalTrustService {
     recordAttendance: (challenge: TerminalChallenge, publicKeyHex: string) => Promise<string>,
   ): Promise<
     | { outcome: "signed_in"; tenantId: string; session: TerminalPinSessionCommand["session"] }
-    | { outcome: Exclude<PinCheck, "ok"> }
+    | { outcome: Exclude<PinCheck, "ok">; lockedUntil: Date | null }
   > {
     const envelope = parseEnvelope(raw);
     const p = object(envelope.payload, [
@@ -869,7 +874,7 @@ export class TerminalTrustService {
         },
         tx,
       );
-      return { outcome: checked };
+      return { outcome: checked, lockedUntil: account.posPinLockedUntil };
     }
     await this.bind(tx, actor, identity, session, account.tokenVersion, {
       enrollmentId: identity.enrollmentId,

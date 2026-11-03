@@ -251,6 +251,8 @@ export function SignInScreen({
   const [pin, setPin] = useState("");
   const [switching, setSwitching] = useState(false);
   const [chosen, setChosen] = useState<string | null>(null);
+  /** Whose PIN the last attempt was, so its refusal stays with them if the list changes. */
+  const [tried, setTried] = useState<CounterPerson | null>(null);
   const { busy, error, run, clear } = useAction();
   const session = state.staffSession;
   const enrollment = state.enrollment;
@@ -271,6 +273,7 @@ export function SignInScreen({
     if (!selected || !PIN_OK.test(pin)) return;
     const entered = pin;
     setPin("");
+    setTried(selected);
     void run(async () => {
       const result = unlocking
         ? await window.pos.unlock({ pin: entered })
@@ -278,11 +281,23 @@ export function SignInScreen({
             staffUserId: selected.staffUserId,
             pin: entered,
           });
-      // A refusal can change the list: a locked PIN, or one changed on another counter.
-      if (!result.ok) onState(await window.pos.getDeviceState());
+      // A refusal can change the list: a locked PIN, or one changed on another counter. If the
+      // list can't be read, the refusal is still the thing to show.
+      if (!result.ok)
+        await window.pos
+          .getDeviceState()
+          .then(onState)
+          .catch(() => undefined);
       return result;
     }, onState);
   }
+
+  // A refusal that took its person off the pad (a locked or stale PIN) is shown with their name,
+  // not under whoever the pad moved on to.
+  const strayError =
+    error && tried && tried.staffUserId !== selected?.staffUserId
+      ? `${tried.staffName}: ${error}`
+      : null;
 
   return (
     <section className={full.screen} aria-label={locked ? "Locked" : "Sign in"}>
@@ -362,6 +377,15 @@ export function SignInScreen({
                   </div>
                 )
               )}
+              {strayError && (
+                <div
+                  role="alert"
+                  className={cx(ui.note, ui.noteBad, styles.note)}
+                >
+                  <Icon name="alert-triangle" />
+                  <div>{strayError}</div>
+                </div>
+              )}
               <div className={styles.foot}>
                 Not on the list? Sign in with your email and password, then
                 prepare your PIN on this counter.
@@ -382,7 +406,7 @@ export function SignInScreen({
                 submitLabel={unlocking ? "Unlock" : "Sign in"}
                 busy={busy}
               />
-              <ErrorLine error={error} />
+              <ErrorLine error={strayError ? null : error} />
               <div className={styles.forgot}>
                 Forgot your PIN? Ask a manager to reset it on the web.
               </div>

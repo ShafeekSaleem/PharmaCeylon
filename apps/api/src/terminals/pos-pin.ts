@@ -55,8 +55,14 @@ export async function checkPosPin(
   return "ok";
 }
 
-/** 403, not 401: a 401 makes clients refresh and resend, counting the attempt twice. */
-export function pinRefusal(outcome: Exclude<PinCheck, "ok">): never {
+/**
+ * 403, not 401: a 401 makes clients refresh and resend, counting the attempt twice. A locked PIN
+ * says until when, so a counter shows the server's lock instead of guessing at it.
+ */
+export function pinRefusal(
+  outcome: Exclude<PinCheck, "ok">,
+  lockedUntil: Date | null = null,
+): never {
   if (outcome === "not_set")
     throw new ForbiddenException({
       code: "PIN_NOT_SET",
@@ -66,6 +72,7 @@ export function pinRefusal(outcome: Exclude<PinCheck, "ok">): never {
     throw new ForbiddenException({
       code: "PIN_LOCKED",
       message: "Too many wrong PINs. Try again later.",
+      ...(lockedUntil ? { lockedUntil: lockedUntil.toISOString() } : {}),
     });
   throw new ForbiddenException({
     code: "PIN_INCORRECT",

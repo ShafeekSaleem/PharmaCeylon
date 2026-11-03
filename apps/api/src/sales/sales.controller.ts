@@ -155,6 +155,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "List parked carts at this branch" })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Get("holds")
   listHolds(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.held.list(user.tenantId, branchId);

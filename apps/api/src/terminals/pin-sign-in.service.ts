@@ -41,42 +41,33 @@ export class PinSignInService {
         code: "PIN_FORMAT",
         message: "A PIN is 4 to 8 digits.",
       });
-    // A wrong PIN commits (the guess is counted, the challenge spent) and is refused after.
-    const result = await this.prisma.$transaction((tx) =>
-      this.trust.finishPinSession(tx, body.envelope, pin, (challenge, key) =>
+    // A wrong PIN commits (the guess is counted, the challenge spent) and is refused after. A right
+    // one binds the till and issues the login in the same transaction: if issuing fails, the
+    // binding never happened and whoever was signed in there still is.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const finished = await this.trust.finishPinSession(tx, body.envelope, pin, (challenge, key) =>
         this.proofs.recordForPinSession(tx, body.attendance, challenge, key),
-      ),
-    );
-    if (result.outcome !== "signed_in") pinRefusal(result.outcome);
-    const { session, tenantId } = result;
-    try {
-      const login = await this.auth.issueCounterSession(
-        session.staffUserId,
-        tenantId,
-        session.workSessionId,
-        meta,
       );
-      const { user } = login;
-      return {
-        accessToken: login.accessToken,
-        refreshToken: login.refreshToken,
-        user: {
-          id: user.id,
-          tenantId: user.tenantId,
-          email: user.email,
-          fullName: user.fullName,
-          roles: user.roles,
-          branchRoles: user.branchRoles,
-        },
-        session,
-      };
-    } catch (error) {
-      // No login, so no one is signed in there: don't leave the till bound to this person.
-      await this.prisma.terminalStaffSession.updateMany({
-        where: { tenantId, id: session.workSessionId, closedAt: null },
-        data: { closedAt: new Date() },
-      });
-      throw error;
-    }
+      if (finished.outcome !== "signed_in") return finished;
+      const { session, tenantId } = finished;
+      const login = await this.auth.issueCounterSession(tx, session.staffUserId, tenantId, session.workSessionId, meta);
+      return { outcome: finished.outcome, session, login };
+    });
+    if (result.outcome !== "signed_in") pinRefusal(result.outcome, result.lockedUntil);
+    const { session, login } = result;
+    const { user } = login;
+    return {
+      accessToken: login.accessToken,
+      refreshToken: login.refreshToken,
+      user: {
+        id: user.id,
+        tenantId: user.tenantId,
+        email: user.email,
+        fullName: user.fullName,
+        roles: user.roles,
+        branchRoles: user.branchRoles,
+      },
+      session,
+    };
   }
 }
