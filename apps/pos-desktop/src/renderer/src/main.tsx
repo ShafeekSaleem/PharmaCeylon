@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 // itself so the two cannot drift. Becomes a packages/design-tokens import once
 // the tokens are extracted.
 import "../../../../web/src/app/globals.css";
+// The counter app's own tokens (docs/design/desktop-app), which point at the web's brand colours.
+import "./tokens.css";
 import "./shell.css";
 import { App } from "./App";
 

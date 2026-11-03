@@ -1,0 +1,439 @@
+/* The window frame from the mockups: title bar, navigation rail, content area and status bar. */
+
+.win {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--pos-canvas);
+}
+
+/* ---------- title bar ---------- */
+.titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding-left: 14px;
+  /* Room for the Windows buttons drawn over the right end, plus the mockup's 16px before them. */
+  padding-right: calc(
+    100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 16px
+  );
+  background: var(--pos-chrome);
+  border-bottom: 1px solid var(--pos-chrome-line);
+  -webkit-app-region: drag;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.logo {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--pos-grad);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.logo svg {
+  width: 14px;
+  height: 14px;
+  fill: #fff;
+}
+
+.tag {
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--pos-primary-ink);
+  background: var(--pos-primary-soft-2);
+}
+
+.sep {
+  width: 1px;
+  height: 18px;
+  background: var(--pos-line-strong);
+}
+
+.where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--pos-text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.where :global(.pos-ic) {
+  width: 14px;
+  height: 14px;
+  color: var(--pos-text-3);
+}
+
+.where b {
+  color: var(--pos-text);
+  font-weight: 600;
+}
+
+.conn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--pos-ok-line);
+  background: var(--pos-ok-soft);
+  color: var(--pos-ok-ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  --dot: var(--pos-ok);
+}
+
+.connBad {
+  border-color: var(--pos-bad-line);
+  background: var(--pos-bad-soft);
+  color: var(--pos-bad-ink);
+  --dot: var(--pos-bad);
+}
+
+.connWait {
+  border-color: var(--pos-line);
+  background: var(--pos-surface-3);
+  color: var(--pos-text-2);
+  --dot: var(--pos-text-3);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dot);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent);
+}
+
+.clock {
+  padding: 0 2px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--pos-text-2);
+  white-space: nowrap;
+}
+
+/* ---------- frame ---------- */
+.frame {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 84px;
+  padding: 10px 0 12px;
+  background: var(--pos-chrome);
+  border-right: 1px solid var(--pos-chrome-line);
+}
+
+.ri {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 70px;
+  height: 60px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--pos-text-2);
+  font: 500 11.5px/1.15 var(--pos-font);
+  letter-spacing: -0.005em;
+  text-align: center;
+  cursor: pointer;
+}
+
+.ri:hover:not(.active) {
+  background: var(--pos-surface-3);
+}
+
+.ri:focus-visible,
+.me:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.ri :global(.pos-ic) {
+  width: 21px;
+  height: 21px;
+  stroke-width: 1.8;
+}
+
+.active {
+  background: var(--pos-primary-soft-2);
+  color: var(--pos-primary-ink);
+  font-weight: 600;
+}
+
+.active::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 17px;
+  bottom: 17px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--pos-primary);
+}
+
+.badge {
+  position: absolute;
+  top: 5px;
+  right: 11px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  border: 2px solid var(--pos-chrome);
+  background: var(--pos-badge);
+  color: var(--pos-on-badge);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.railSep {
+  width: 36px;
+  height: 1px;
+  margin: 7px 0;
+  background: var(--pos-line);
+}
+
+.railBottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.me {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.me .av {
+  width: 40px;
+  height: 40px;
+  font-size: 13.5px;
+}
+
+.me i {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2.5px solid var(--pos-chrome);
+  background: var(--pos-ok);
+}
+
+.content {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+}
+
+/* ---------- avatar ---------- */
+.av {
+  --c: var(--pos-t-teal);
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--c) 28%, transparent);
+  background: color-mix(in srgb, var(--c) 15%, var(--pos-surface));
+  color: var(--c);
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.teal {
+  --c: var(--pos-t-teal);
+}
+
+.violet {
+  --c: var(--pos-t-violet);
+}
+
+.blue {
+  --c: var(--pos-t-blue);
+}
+
+.amber {
+  --c: var(--pos-t-amber);
+}
+
+.emerald {
+  --c: var(--pos-t-emerald);
+}
+
+.rose {
+  --c: var(--pos-t-rose);
+}
+
+/* ---------- status bar ---------- */
+.statusbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 6px;
+  overflow: hidden;
+  background: var(--pos-chrome);
+  border-top: 1px solid var(--pos-chrome-line);
+  font-size: 11.5px;
+  color: var(--pos-text-2);
+}
+
+.sb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  padding: 0 12px;
+  border-right: 1px solid var(--pos-line);
+  white-space: nowrap;
+  --d: var(--pos-text-3);
+}
+
+.sb:last-child {
+  border-right: 0;
+}
+
+.sb :global(.pos-ic) {
+  width: 13px;
+  height: 13px;
+  color: var(--pos-text-3);
+}
+
+.sb b {
+  color: var(--pos-text);
+  font-weight: 600;
+}
+
+.d {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--d);
+}
+
+.sbOk {
+  --d: var(--pos-ok);
+}
+
+.sbOk :global(.pos-ic) {
+  color: var(--pos-ok);
+}
+
+.sbBad {
+  --d: var(--pos-bad);
+}
+
+.sbBad :global(.pos-ic) {
+  color: var(--pos-bad);
+}
+
+/* ---------- pages ---------- */
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.page[hidden] {
+  display: none;
+}
+
+.page .empty {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  color: var(--pos-text-2);
+}
+
+/* ---------- server unreachable ---------- */
+.block {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--pos-canvas) 82%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.blockCard {
+  align-items: center;
+  gap: 10px;
+  max-width: 460px;
+  padding: 28px;
+  text-align: center;
+}
+
+.blockCard h2 {
+  margin: 4px 0 0;
+  font: 650 18px/1.2 var(--pos-font-display);
+  letter-spacing: -0.01em;
+}
+
+.blockCard p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--pos-text-2);
+}
+
+.blockCard .blockIcon {
+  color: var(--pos-bad);
+  background: var(--pos-bad-soft);
+}

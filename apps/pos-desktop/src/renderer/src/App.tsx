@@ -2,130 +2,34 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   ApiReachability,
   AppInfo,
-  CheckStatus,
   DeviceState,
   Printer,
   ReadinessReport,
 } from "../../shared/ipc-contract";
-import styles from "./App.module.css";
 import { Checkout } from "./Checkout";
 import { CounterWork } from "./CounterWork";
-import { CounterAccess } from "./CounterAccess";
+import { Icon } from "./Icon";
+import { PersonPanel } from "./Person";
+import { SetupScreen } from "./Setup";
+import { Rail, ServerBlock, StatusBar, TitleBar, type Page } from "./Shell";
+import shell from "./Shell.module.css";
+import { SignInScreen } from "./SignIn";
+import { ThisCounterPage } from "./ThisCounter";
+import ui from "./ui.module.css";
+import { cx } from "./useAction";
 
 const API_POLL_MS = 15_000;
-
-const STATUS_LABEL: Record<CheckStatus, string> = {
-  ok: "OK",
-  warning: "Check",
-  failed: "Failed",
-  not_ready: "Not set up",
-};
-
-function PrinterTest({ signedIn }: { signedIn: boolean }) {
-  const [printers, setPrinters] = useState<Printer[] | null>(null);
-  const [selected, setSelected] = useState("");
-  const [printing, setPrinting] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const [printed, setPrinted] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState<string | null>(null);
-
-  async function confirm() {
-    if (!printed) return;
-    const result = await window.pos.confirmTestReceipt({ printerName: printed }).catch(() => null);
-    if (result?.ok) {
-      setConfirmed(result.value.confirmedAt);
-      setPrinted(null);
-    } else setMessage({ ok: false, text: result && !result.ok ? result.error.message : "Could not record it." });
-  }
-
-  useEffect(() => {
-    window.pos
-      .listPrinters()
-      .then((list) => {
-        setPrinters(list);
-        setSelected(list[0]?.name ?? "");
-      })
-      .catch(() => setPrinters([]));
-  }, []);
-
-  async function print() {
-    setPrinting(true);
-    setMessage(null);
-    try {
-      const result = await window.pos.printTestReceipt({ printerName: selected });
-      setMessage(
-        result.ok
-          ? { ok: true, text: "Sent to the printer. Check that the receipt came out." }
-          : { ok: false, text: result.error ?? "The test receipt did not print." },
-      );
-      setPrinted(result.ok ? selected : null);
-    } catch {
-      setMessage({ ok: false, text: "The test receipt did not print." });
-    } finally {
-      setPrinting(false);
-    }
-  }
-
-  return (
-    <section className={styles.panel} aria-labelledby="printer-heading">
-      <h2 id="printer-heading" className={styles.panelTitle}>
-        Receipt printer test
-      </h2>
-      {printers === null ? (
-        <p className="pc-muted">Looking for printers…</p>
-      ) : printers.length === 0 ? (
-        <p className="pc-muted">No printers are installed in Windows on this computer.</p>
-      ) : (
-        <>
-          <label className={styles.field}>
-            <span>Printer</span>
-            <select value={selected} onChange={(event) => setSelected(event.target.value)} disabled={printing}>
-              {printers.map((printer) => (
-                <option key={printer.name} value={printer.name}>
-                  {printer.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="pc-btn-primary-sm" onClick={print} disabled={printing || !selected}>
-            {printing ? "Printing…" : "Print test receipt"}
-          </button>
-        </>
-      )}
-      {message && (
-        <p role="status" className={message.ok ? styles.resultOk : styles.resultFailed}>
-          {message.text}
-        </p>
-      )}
-      {printed && signedIn && (
-        <button type="button" className="pc-btn-outline" onClick={() => void confirm()}>
-          Yes, the receipt came out
-        </button>
-      )}
-      {printed && !signedIn && <p className="pc-muted">Sign in to record that the test receipt printed.</p>}
-      {confirmed && <p className={styles.resultOk}>Recorded for the branch go-live checklist.</p>}
-    </section>
-  );
-}
-
-function DevicePill({ device }: { device: DeviceState | null }) {
-  const status = device?.enrollment?.status;
-  if (status === "active")
-    return (
-      <span className={`${styles.pill} ${styles.pillOk}`}>
-        {device!.enrollment!.counterLabel} · {device!.enrollment!.branchName}
-      </span>
-    );
-  if (status === "revoked" || status === "retired")
-    return <span className={`${styles.pill} ${styles.pillDanger}`}>Counter switched off</span>;
-  return <span className={`${styles.pill} ${styles.pillWarning}`}>Device not enrolled</span>;
-}
 
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [api, setApi] = useState<ApiReachability | null>(null);
   const [device, setDevice] = useState<DeviceState | null>(null);
+  /** The printer checkout prints to: Windows' first. Undefined until the list arrives. */
+  const [printer, setPrinter] = useState<Printer | null | undefined>(undefined);
+  const [page, setPage] = useState<Page>("sell");
+  const [personOpen, setPersonOpen] = useState(false);
+  const [workCount, setWorkCount] = useState(0);
 
   const refreshApi = useCallback(() => {
     window.pos
@@ -147,6 +51,10 @@ export function App() {
       .getDeviceState()
       .then(setDevice)
       .catch(() => undefined);
+    window.pos
+      .listPrinters()
+      .then((list) => setPrinter(list[0] ?? null))
+      .catch(() => setPrinter(null));
     refreshApi();
     const timer = window.setInterval(refreshApi, API_POLL_MS);
     return () => window.clearInterval(timer);
@@ -168,51 +76,139 @@ export function App() {
     if (device) refreshReadiness();
   }, [device, refreshReadiness]);
 
+  const session = device?.staffSession ?? null;
+  const sessionId = session?.workSessionId;
+  const pinReady = Boolean(device?.pin?.prepared);
+
+  // Each sign-in opens on Sell. Someone whose PIN isn't set or prepared here gets their panel
+  // straight away, since they can't lock the counter without it.
+  useEffect(() => {
+    setPage("sell");
+    setPersonOpen(Boolean(sessionId) && !pinReady);
+    // Only a new sign-in does this, not every PIN change.
+  }, [sessionId]);
+
+  // Locking from the person's panel leaves it closed for the unlock.
+  useEffect(() => {
+    if (device?.locked) setPersonOpen(false);
+  }, [device?.locked]);
+
+  const lock = useCallback(() => {
+    if (!pinReady) {
+      setPersonOpen(true);
+      return;
+    }
+    window.pos
+      .lock()
+      .then((result) =>
+        result.ok ? setDevice(result.value) : setPersonOpen(true),
+      )
+      .catch(() => undefined);
+  }, [pinReady]);
+
+  if (!device)
+    return (
+      <div className={shell.win}>
+        <TitleBar state={null} api={api} />
+      </div>
+    );
+
+  const active = device.enrollment?.status === "active";
+  let body;
+  if (!active)
+    body = (
+      <SetupScreen
+        state={device}
+        onState={setDevice}
+        api={api}
+        info={info}
+        readiness={readiness}
+      />
+    );
+  else if (!session || device.locked)
+    body = (
+      <SignInScreen
+        key={sessionId ?? "signed-out"}
+        state={device}
+        onState={setDevice}
+        api={api}
+        printer={printer}
+      />
+    );
+  else
+    body = (
+      <>
+        <div className={shell.frame}>
+          <Rail
+            page={page}
+            onPage={setPage}
+            workCount={workCount}
+            showWork={workCount > 0 || page === "work"}
+            session={session}
+            personOpen={personOpen}
+            onPerson={() => setPersonOpen((open) => !open)}
+            onLock={lock}
+          />
+          {/* Pages stay mounted while hidden, so moving between them never loses a sale in progress. */}
+          <main className={shell.content}>
+            <div className={shell.page} hidden={page !== "sell"}>
+              <Checkout
+                key={sessionId}
+                onActivity={refreshReadiness}
+                onCommandSent={onCommandSent}
+              />
+            </div>
+            <div className={shell.page} hidden={page !== "work"}>
+              <div className={ui.pageH}>
+                <div>
+                  <h1>Counter work</h1>
+                  <p>
+                    Refunds approved on the web, and actions sent from here that
+                    still need confirming.
+                  </p>
+                </div>
+              </div>
+              {workCount === 0 && (
+                <div className={cx(ui.panel, shell.empty)}>
+                  <Icon name="inbox" />
+                  Nothing is waiting at this counter.
+                </div>
+              )}
+              <CounterWork
+                key={`work-${sessionId}`}
+                onActivity={refreshReadiness}
+                onCount={setWorkCount}
+                reloadKey={commandsSent}
+              />
+            </div>
+            <div className={shell.page} hidden={page !== "counter"}>
+              <ThisCounterPage
+                state={device}
+                info={info}
+                readiness={readiness}
+                onCheck={refreshReadiness}
+              />
+            </div>
+            {api && !api.reachable && page !== "counter" && (
+              <ServerBlock onRetry={refreshApi} />
+            )}
+          </main>
+        </div>
+        <StatusBar state={device} api={api} printer={printer} info={info} />
+        {personOpen && (
+          <PersonPanel
+            state={device}
+            onState={setDevice}
+            onClose={() => setPersonOpen(false)}
+          />
+        )}
+      </>
+    );
+
   return (
-    <div className={styles.shell}>
-      <header className={styles.topBar}>
-        <span className={styles.brand}>Curalio POS</span>
-        <DevicePill device={device} />
-        <span className={styles.spacer} />
-        <span
-          className={`${styles.pill} ${api === null ? "" : api.reachable ? styles.pillOk : styles.pillDanger}`}
-          role="status"
-        >
-          {api === null ? "Checking server…" : api.reachable ? "Server reachable" : "Server not reachable"}
-        </span>
-        {info && <span className={styles.version}>v{info.appVersion}</span>}
-      </header>
-
-      <main className={styles.content}>
-        {device && <CounterAccess state={device} onState={setDevice} />}
-        {device?.staffSession && !device.locked && <Checkout key={device.staffSession.workSessionId} onActivity={refreshReadiness} onCommandSent={onCommandSent} />}
-        {device?.staffSession && !device.locked && <CounterWork key={`work-${device.staffSession.workSessionId}`} onActivity={refreshReadiness} reloadKey={commandsSent} />}
-        <section className={styles.panel} aria-labelledby="readiness-heading">
-          <h2 id="readiness-heading" className={styles.panelTitle}>
-            Offline readiness
-          </h2>
-          <p className={readiness?.ready ? styles.resultOk : styles.resultFailed}>
-            {readiness === null
-              ? "Checking…"
-              : readiness.ready
-                ? "This terminal is ready to sell during an outage."
-                : "This terminal is not ready to sell during an outage."}
-          </p>
-          <ul className={styles.checks}>
-            {readiness?.checks.map((check) => (
-              <li key={check.id} className={styles.check}>
-                <span className={`${styles.badge} ${styles[`badge_${check.status}`]}`}>
-                  {STATUS_LABEL[check.status]}
-                </span>
-                <span className={styles.checkLabel}>{check.label}</span>
-                <span className={styles.checkDetail}>{check.detail}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <PrinterTest signedIn={Boolean(device?.staffSession) && !device?.locked} />
-      </main>
+    <div className={shell.win}>
+      <TitleBar state={device} api={api} />
+      {body}
     </div>
   );
 }

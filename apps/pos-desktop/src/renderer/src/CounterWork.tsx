@@ -11,8 +11,14 @@ const amount = (minor: number) => (minor / 100).toFixed(2);
 /** Remote-prepared work only the counter may execute. Hidden for people without the permission. */
 export function CounterWork({
   onActivity,
+  onCount,
   reloadKey = 0,
-}: { onActivity?: () => void; reloadKey?: number } = {}) {
+}: {
+  onActivity?: () => void;
+  /** How many items are waiting, for the rail's badge. */
+  onCount?: (count: number) => void;
+  reloadKey?: number;
+} = {}) {
   const [refunds, setRefunds] = useState<RefundAtCounter[] | null>(null);
   const [pending, setPending] = useState<
     {
@@ -41,6 +47,9 @@ export function CounterWork({
   // Reloaded when a signed command is sent elsewhere (a prescription), so one left unconfirmed
   // shows here with its confirm button.
   useEffect(load, [load, reloadKey]);
+  useEffect(() => {
+    onCount?.((refunds?.length ?? 0) + pending.length);
+  }, [refunds, pending, onCount]);
 
   async function execute(id: string) {
     setBusy(true);

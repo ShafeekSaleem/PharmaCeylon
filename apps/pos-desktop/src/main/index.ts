@@ -292,7 +292,7 @@ async function start(): Promise<void> {
     logger.error("startup.local_store_failed", { error });
     await logger.flush();
     dialog.showErrorBox(
-      "Curalio POS cannot start",
+      "PharmaCeylon POS cannot start",
       `${error instanceof Error ? error.message : "The local database could not be opened."}\n\n` +
         "Do not delete or move any files. Contact support.",
     );

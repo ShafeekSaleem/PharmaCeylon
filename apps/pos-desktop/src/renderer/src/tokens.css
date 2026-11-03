@@ -1,0 +1,178 @@
+/*
+ * The counter app's design tokens, taken from the mockups (docs/design/desktop-app). Epic P2b
+ * #103: the pages must match the mockups, so every value here is the mockup's. The brand colours
+ * equal the web tokens in both themes and point at them; the rest (window chrome, surfaces, status
+ * colours) differ from the web's and are defined once, here. Components never hard-code colours.
+ *
+ * The theme follows Windows (prefers-color-scheme) and an explicit data-theme wins, the same three
+ * states as apps/web/src/app/globals.css.
+ */
+:root {
+  --pos-font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --pos-font-display:
+    "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --pos-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  --pos-chrome: #ffffff;
+  --pos-chrome-line: #e4e9f0;
+  --pos-canvas: #f2f5f9;
+  --pos-surface: #ffffff;
+  --pos-surface-2: #f8fafc;
+  --pos-surface-3: #f1f5f9;
+  --pos-line: #e2e8f0;
+  --pos-line-strong: #cbd5e1;
+  --pos-text: #0f172a;
+  --pos-text-2: #475569;
+  --pos-text-3: #8391a7;
+
+  --pos-primary: var(--pc-primary);
+  --pos-primary-ink: #0f766e;
+  --pos-primary-soft: rgba(13, 148, 136, 0.07);
+  --pos-primary-soft-2: rgba(13, 148, 136, 0.13);
+  --pos-on-primary: #ffffff;
+  --pos-grad: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+  --pos-cyan: var(--pc-secondary-cyan);
+
+  --pos-ok: #16a34a;
+  --pos-ok-ink: #166534;
+  --pos-ok-soft: #effcf3;
+  --pos-ok-line: #bbf7d0;
+  --pos-warn: #d97706;
+  --pos-warn-ink: #92400e;
+  --pos-warn-soft: #fffaeb;
+  --pos-warn-line: #fde68a;
+  --pos-bad: #dc2626;
+  --pos-bad-ink: #991b1b;
+  --pos-bad-soft: #fef2f2;
+  --pos-bad-line: #fecaca;
+  --pos-info: #0891b2;
+  --pos-info-ink: #155e75;
+  --pos-info-soft: #ecfeff;
+  --pos-info-line: #a5f3fc;
+  --pos-rx: #7c3aed;
+  --pos-rx-ink: #6d28d9;
+  --pos-rx-soft: #f5f3ff;
+  --pos-rx-line: #ddd6fe;
+  --pos-badge: #dc2626;
+  --pos-on-badge: #ffffff;
+
+  --pos-t-teal: #0d9488;
+  --pos-t-cyan: #0891b2;
+  --pos-t-indigo: #4f46e5;
+  --pos-t-rose: #e11d48;
+  --pos-t-amber: #d97706;
+  --pos-t-violet: #7c3aed;
+  --pos-t-emerald: #059669;
+  --pos-t-blue: #2563eb;
+
+  --pos-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --pos-shadow-lg: 0 24px 60px -24px rgba(15, 23, 42, 0.28);
+  --pos-focus: 0 0 0 3px rgba(13, 148, 136, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pos-chrome: #0d1524;
+    --pos-chrome-line: rgba(255, 255, 255, 0.07);
+    --pos-canvas: #0a101b;
+    --pos-surface: #121b2c;
+    --pos-surface-2: #162133;
+    --pos-surface-3: #1b2639;
+    --pos-line: rgba(255, 255, 255, 0.08);
+    --pos-line-strong: rgba(255, 255, 255, 0.15);
+    --pos-text: #e6edf7;
+    --pos-text-2: #a3b1c6;
+    --pos-text-3: #6b7a93;
+    --pos-primary-ink: #5eead4;
+    --pos-primary-soft: rgba(45, 212, 191, 0.08);
+    --pos-primary-soft-2: rgba(45, 212, 191, 0.15);
+    --pos-on-primary: #04201c;
+    --pos-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
+    --pos-ok: #34d399;
+    --pos-ok-ink: #6ee7b7;
+    --pos-ok-soft: rgba(52, 211, 153, 0.09);
+    --pos-ok-line: rgba(52, 211, 153, 0.26);
+    --pos-warn: #fbbf24;
+    --pos-warn-ink: #fcd34d;
+    --pos-warn-soft: rgba(251, 191, 36, 0.09);
+    --pos-warn-line: rgba(251, 191, 36, 0.28);
+    --pos-bad: #f87171;
+    --pos-bad-ink: #fca5a5;
+    --pos-bad-soft: rgba(248, 113, 113, 0.09);
+    --pos-bad-line: rgba(248, 113, 113, 0.28);
+    --pos-info: #22d3ee;
+    --pos-info-ink: #7dd3fc;
+    --pos-info-soft: rgba(34, 211, 238, 0.08);
+    --pos-info-line: rgba(34, 211, 238, 0.24);
+    --pos-rx: #a78bfa;
+    --pos-rx-ink: #c4b5fd;
+    --pos-rx-soft: rgba(167, 139, 250, 0.11);
+    --pos-rx-line: rgba(167, 139, 250, 0.3);
+    --pos-badge: #f87171;
+    --pos-on-badge: #2a0a0a;
+    --pos-t-teal: #2dd4bf;
+    --pos-t-cyan: #22d3ee;
+    --pos-t-indigo: #818cf8;
+    --pos-t-rose: #fb7185;
+    --pos-t-amber: #fbbf24;
+    --pos-t-violet: #a78bfa;
+    --pos-t-emerald: #34d399;
+    --pos-t-blue: #60a5fa;
+    --pos-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --pos-shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
+    --pos-focus: 0 0 0 3px rgba(45, 212, 191, 0.2);
+  }
+}
+
+:root[data-theme="dark"] {
+  --pos-chrome: #0d1524;
+  --pos-chrome-line: rgba(255, 255, 255, 0.07);
+  --pos-canvas: #0a101b;
+  --pos-surface: #121b2c;
+  --pos-surface-2: #162133;
+  --pos-surface-3: #1b2639;
+  --pos-line: rgba(255, 255, 255, 0.08);
+  --pos-line-strong: rgba(255, 255, 255, 0.15);
+  --pos-text: #e6edf7;
+  --pos-text-2: #a3b1c6;
+  --pos-text-3: #6b7a93;
+  --pos-primary-ink: #5eead4;
+  --pos-primary-soft: rgba(45, 212, 191, 0.08);
+  --pos-primary-soft-2: rgba(45, 212, 191, 0.15);
+  --pos-on-primary: #04201c;
+  --pos-grad: linear-gradient(135deg, #2dd4bf 0%, #22d3ee 100%);
+  --pos-ok: #34d399;
+  --pos-ok-ink: #6ee7b7;
+  --pos-ok-soft: rgba(52, 211, 153, 0.09);
+  --pos-ok-line: rgba(52, 211, 153, 0.26);
+  --pos-warn: #fbbf24;
+  --pos-warn-ink: #fcd34d;
+  --pos-warn-soft: rgba(251, 191, 36, 0.09);
+  --pos-warn-line: rgba(251, 191, 36, 0.28);
+  --pos-bad: #f87171;
+  --pos-bad-ink: #fca5a5;
+  --pos-bad-soft: rgba(248, 113, 113, 0.09);
+  --pos-bad-line: rgba(248, 113, 113, 0.28);
+  --pos-info: #22d3ee;
+  --pos-info-ink: #7dd3fc;
+  --pos-info-soft: rgba(34, 211, 238, 0.08);
+  --pos-info-line: rgba(34, 211, 238, 0.24);
+  --pos-rx: #a78bfa;
+  --pos-rx-ink: #c4b5fd;
+  --pos-rx-soft: rgba(167, 139, 250, 0.11);
+  --pos-rx-line: rgba(167, 139, 250, 0.3);
+  --pos-badge: #f87171;
+  --pos-on-badge: #2a0a0a;
+  --pos-t-teal: #2dd4bf;
+  --pos-t-cyan: #22d3ee;
+  --pos-t-indigo: #818cf8;
+  --pos-t-rose: #fb7185;
+  --pos-t-amber: #fbbf24;
+  --pos-t-violet: #a78bfa;
+  --pos-t-emerald: #34d399;
+  --pos-t-blue: #60a5fa;
+  --pos-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --pos-shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
+  --pos-focus: 0 0 0 3px rgba(45, 212, 191, 0.2);
+}
