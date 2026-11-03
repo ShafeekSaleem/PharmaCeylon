@@ -61,6 +61,14 @@ button.st:focus-visible {
   box-shadow: var(--pos-focus);
 }
 
+button.st:disabled {
+  cursor: default;
+}
+
+.off {
+  opacity: 0.62;
+}
+
 .st > :first-child {
   width: 42px;
   height: 42px;

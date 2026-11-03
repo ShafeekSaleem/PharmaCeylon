@@ -23,11 +23,13 @@ function PinPad({
   value,
   onChange,
   onSubmit,
+  submitLabel,
   busy,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  submitLabel: string;
   busy: boolean;
 }) {
   const ready = PIN_OK.test(value);
@@ -89,7 +91,7 @@ function PinPad({
         <button
           type="button"
           className={styles.go}
-          aria-label="Unlock"
+          aria-label={submitLabel}
           onClick={onSubmit}
           disabled={busy || !ready}
         >
@@ -139,10 +141,97 @@ function Chips({
   );
 }
 
+type CounterPerson = DeviceState["counterStaff"][number];
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: "Owner",
+  manager: "Branch manager",
+  pharmacist: "Pharmacist",
+  cashier: "Cashier",
+  inventory_clerk: "Inventory clerk",
+  custom: "Custom role",
+};
+
+const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
+
+/** Everyone who can sign in here with a PIN, whoever is signed in first. */
+function counterPeople(state: DeviceState): CounterPerson[] {
+  const session = state.staffSession;
+  const others = state.counterStaff.filter(
+    (person) => person.staffUserId !== session?.staffUserId,
+  );
+  if (!session) return others;
+  const me = state.counterStaff.find(
+    (person) => person.staffUserId === session.staffUserId,
+  );
+  return [
+    me ?? {
+      staffUserId: session.staffUserId,
+      staffName: session.staffName,
+      role: null,
+      state: "signed_in",
+      lockedUntil: null,
+    },
+    ...others,
+  ];
+}
+
+function StaffCard({
+  person,
+  openedAt,
+  selected,
+  busy,
+  onSelect,
+}: {
+  person: CounterPerson;
+  openedAt: string | undefined;
+  selected: boolean;
+  busy: boolean;
+  onSelect: () => void;
+}) {
+  const locked = person.state === "locked";
+  const role = person.role ? (ROLE_LABELS[person.role] ?? person.role) : null;
+  return (
+    <button
+      type="button"
+      className={cx(styles.st, selected && styles.sel, locked && styles.off)}
+      aria-pressed={selected}
+      onClick={onSelect}
+      disabled={busy || locked}
+    >
+      <Avatar id={person.staffUserId} name={person.staffName} />
+      <div>
+        <b>{person.staffName}</b>
+        {(role || person.state === "signed_in") && (
+          <small>{role ?? "Locked this counter"}</small>
+        )}
+        {person.state === "signed_in" ? (
+          <span className={cx(ui.pill, ui.brand)}>
+            {openedAt
+              ? `Signed in since ${time(new Date(openedAt))}`
+              : "Signed in"}
+          </span>
+        ) : locked ? (
+          <span className={cx(ui.pill, ui.bad)}>
+            <Icon name="lock" />
+            PIN locked · ask a manager
+          </span>
+        ) : (
+          <span className={cx(ui.pill, ui.ok)}>
+            <Icon name="check" />
+            Ready on this counter
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
 /**
- * Full screen while nobody is signed in, and the lock screen while someone is. Unlocking takes the
- * signed-in person's own PIN; anyone else signs in with their email and password, which signs the
- * locked person out of this counter.
+ * Full screen while nobody is signed in, and the lock screen while someone is. Everyone prepared on
+ * this counter is listed: the signed-in person's own PIN unlocks, locally; anyone else's PIN is
+ * checked by the server and signs them in in place of whoever was here. Anyone not on the list
+ * signs in with their email and password.
  */
 export function SignInScreen({
   state,
@@ -156,16 +245,38 @@ export function SignInScreen({
   const now = useNow();
   const [pin, setPin] = useState("");
   const [switching, setSwitching] = useState(false);
-  const { busy, error, run } = useAction();
+  const [chosen, setChosen] = useState<string | null>(null);
+  const { busy, error, run, clear } = useAction();
   const session = state.staffSession;
   const enrollment = state.enrollment;
   const locked = Boolean(session && state.locked);
+  const people = counterPeople(state);
+  const ready = people.filter((person) => person.state !== "locked");
+  const selected =
+    ready.find((person) => person.staffUserId === chosen) ?? ready[0] ?? null;
+  const unlocking = selected?.staffUserId === session?.staffUserId;
 
-  function unlock() {
-    if (!PIN_OK.test(pin)) return;
+  function choose(person: CounterPerson) {
+    setChosen(person.staffUserId);
+    setPin("");
+    clear();
+  }
+
+  function submit() {
+    if (!selected || !PIN_OK.test(pin)) return;
     const entered = pin;
     setPin("");
-    void run(() => window.pos.unlock({ pin: entered }), onState);
+    void run(async () => {
+      const result = unlocking
+        ? await window.pos.unlock({ pin: entered })
+        : await window.pos.pinSignIn({
+            staffUserId: selected.staffUserId,
+            pin: entered,
+          });
+      // A refusal can change the list: a locked PIN, or one changed on another counter.
+      if (!result.ok) onState(await window.pos.getDeviceState());
+      return result;
+    }, onState);
   }
 
   return (
@@ -180,29 +291,36 @@ export function SignInScreen({
           </div>
         </div>
 
-        {locked && session && !switching ? (
+        {selected && !switching ? (
           <div className={cx(full.card, styles.card)}>
             <div className={styles.who}>
               <h2>Who&apos;s at the counter?</h2>
               <p>
-                Enter your personal PIN to carry on. Everything you do here is
-                recorded in your name.
+                Pick your name and enter your personal PIN. Everything you do
+                here is recorded in your name.
               </p>
               <div className={styles.staff}>
-                <div className={cx(styles.st, styles.sel)}>
-                  <Avatar id={session.staffUserId} name={session.staffName} />
-                  <div>
-                    <b>{session.staffName}</b>
-                    <small>Locked this counter</small>
-                    <span className={cx(ui.pill, ui.brand)}>
-                      Signed in since {time(new Date(session.openedAt))}
-                    </span>
-                  </div>
-                </div>
+                {people.map((person) => (
+                  <StaffCard
+                    key={person.staffUserId}
+                    person={person}
+                    openedAt={
+                      person.staffUserId === session?.staffUserId
+                        ? session.openedAt
+                        : undefined
+                    }
+                    selected={person.staffUserId === selected.staffUserId}
+                    busy={busy}
+                    onSelect={() => choose(person)}
+                  />
+                ))}
                 <button
                   type="button"
                   className={styles.st}
-                  onClick={() => setSwitching(true)}
+                  onClick={() => {
+                    clear();
+                    setSwitching(true);
+                  }}
                   disabled={busy}
                 >
                   <span className={styles.someone}>
@@ -214,7 +332,7 @@ export function SignInScreen({
                   </div>
                 </button>
               </div>
-              {state.pin?.lockedUntil && (
+              {unlocking && state.pin?.lockedUntil ? (
                 <div
                   role="alert"
                   className={cx(ui.note, ui.noteBad, styles.note)}
@@ -226,24 +344,37 @@ export function SignInScreen({
                     and password instead.
                   </div>
                 </div>
+              ) : (
+                session &&
+                !unlocking && (
+                  <div className={cx(ui.note, styles.note)}>
+                    <Icon name="info" />
+                    <div>
+                      <b>{session.staffName} is signed in here.</b> Signing in
+                      as {firstName(selected.staffName)} signs{" "}
+                      {firstName(session.staffName)} out of this counter first.
+                    </div>
+                  </div>
+                )
               )}
               <div className={styles.foot}>
-                Signing in as someone else signs {session.staffName} out of this
-                counter.
+                Not on the list? Sign in with your email and password, then
+                prepare your PIN on this counter.
               </div>
             </div>
             <div className={styles.pin}>
               <Avatar
-                id={session.staffUserId}
-                name={session.staffName}
+                id={selected.staffUserId}
+                name={selected.staffName}
                 className={styles.big}
               />
-              <h3>{session.staffName}</h3>
+              <h3>{selected.staffName}</h3>
               <p>Enter your PIN</p>
               <PinPad
                 value={pin}
                 onChange={setPin}
-                onSubmit={unlock}
+                onSubmit={submit}
+                submitLabel={unlocking ? "Unlock" : "Sign in"}
                 busy={busy}
               />
               <ErrorLine error={error} />
@@ -272,7 +403,7 @@ export function SignInScreen({
               <div className={styles.form}>
                 <SignInForm state={state} onState={onState} />
               </div>
-              {locked ? (
+              {selected ? (
                 <button
                   type="button"
                   className={cx(ui.btn, ui.ghost, styles.back)}
