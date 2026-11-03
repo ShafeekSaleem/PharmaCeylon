@@ -14,6 +14,7 @@ import {
   Req,
 } from "@nestjs/common";
 import { ApiBody, ApiHeader, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { AccessService } from "../security/access.service";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -50,6 +51,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "Sellable products with FEFO batches for the POS screen" })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Get("pos/catalog")
   async posCatalog(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     const access = await this.access.resolve(user, branchId);
@@ -63,6 +65,7 @@ export class SalesController {
       "Who can co-sign controlled items with a till PIN: approvers at this branch with a current SLMC registration",
   })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Get("pos/approvers")
   listApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.pharmacistApproval.listApprovers(user.tenantId, branchId);
@@ -173,6 +176,7 @@ export class SalesController {
   })
   @RequirePermission("sales.pos_use")
   @HttpCode(HttpStatus.OK)
+  @CounterRoute()
   @Post("holds/:id/recall")
   recallHold(
     @CurrentUser() user: RequestUser,
@@ -184,6 +188,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "Park the current cart (no stock is reserved)" })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Post("holds")
   hold(
     @CurrentUser() user: RequestUser,
@@ -207,6 +212,7 @@ export class SalesController {
   @ApiHeader({ name: "Idempotency-Key", required: false, description: "Replay-safe checkout for same key" })
   @ApiBody({ type: CheckoutDto })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Post("checkout")
   checkout(
     @CurrentUser() user: RequestUser,

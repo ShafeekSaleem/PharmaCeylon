@@ -1,7 +1,12 @@
 import type { TerminalIdentity } from "./terminal-contracts";
 
-/** What a local-attendance proof is for; matches the server challenge it binds. */
-export type LocalAttendancePurpose = "enrollment" | "session" | "command";
+/** What a local-attendance proof is for; matches the server challenge it binds. `pin_session`
+ * proofs travel inside the PIN sign-in itself, never through `/terminals/attendance-proofs`. */
+export type LocalAttendancePurpose =
+  | "enrollment"
+  | "session"
+  | "command"
+  | "pin_session";
 
 /** How the desktop's trusted main process saw the current Windows session.
  * `console` is the physical console session; `rdp` is a Remote Desktop session; anything the

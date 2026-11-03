@@ -1,10 +1,11 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { randomBytes, randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, type TerminalChallenge } from "@prisma/client";
 import type {
   OnlineTerminalCommand,
   TerminalEnrollmentCommand,
   TerminalIdentity,
+  TerminalPinSessionCommand,
   TerminalSessionCommand,
 } from "@pharmaceylon/shared";
 import { AuditService } from "../audit/audit.service";
@@ -12,6 +13,7 @@ import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { MUTATION_ACTIONS } from "../security/mutation-actions";
 import { LocalAttendanceVerifier } from "./local-attendance.verifier";
+import { checkPosPin, type PinCheck } from "./pos-pin";
 import {
   boundedCanonical,
   CHALLENGE_LIFETIME_MS,
@@ -32,6 +34,8 @@ import {
 } from "./terminal-wire";
 
 type Tx = Prisma.TransactionClient;
+/** Whose challenge it is: the signed-in caller, or the person a PIN sign-in names. */
+type Actor = Pick<RequestUser, "tenantId" | "userId">;
 
 /** Crockford base32 without I, L, O, U: easy to read aloud and type at a counter. */
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -43,7 +47,7 @@ export function newEnrollmentCode(): { code: string; display: string } {
   const code = Array.from(bytes, (b) => CODE_ALPHABET[b & 31]).join("");
   return { code, display: `${code.slice(0, 5)}-${code.slice(5)}` };
 }
-type Purpose = "enrollment" | "session" | "command";
+type Purpose = "enrollment" | "session" | "command" | "pin_session";
 type EvidenceIds = Pick<
   OnlineTerminalCommand<unknown>,
   "approvalEvidenceId" | "pharmacistEvidenceId" | "operatingHoursExceptionId"
@@ -149,7 +153,7 @@ export class TerminalTrustService {
 
   private async challenge<T extends { serverNonce: string; expiresAt: number }>(
     tx: Tx,
-    user: RequestUser,
+    user: Actor,
     branchId: string,
     purpose: Purpose,
     payload: T,
@@ -305,7 +309,7 @@ export class TerminalTrustService {
 
   private async checkChallenge(
     tx: Tx,
-    user: RequestUser,
+    user: Actor,
     branchId: string,
     purpose: Purpose,
     payload: { serverNonce: string; expiresAt: number; issuedAt: number },
@@ -332,7 +336,7 @@ export class TerminalTrustService {
 
   private async consume(
     tx: Tx,
-    user: RequestUser,
+    user: Actor,
     branchId: string,
     challengeId: string,
   ) {
@@ -473,7 +477,7 @@ export class TerminalTrustService {
 
   private async enrollment(
     tx: Tx,
-    user: RequestUser,
+    user: Pick<RequestUser, "tenantId">,
     branchId: string,
     identity: TerminalIdentity,
   ) {
@@ -591,24 +595,42 @@ export class TerminalTrustService {
     });
     text(attendanceId);
     await this.consume(tx, user, branchId, challenge.id);
-    // One open binding per till. A colleague signing in at the counter (or the same person after
-    // a crash) replaces the previous binding; the enrollment lock serializes this per terminal.
-    // Deauthorization only: shift/cash state is separate and unaffected.
+    await this.bind(tx, user, identity, session, user.tokenVersion!, {
+      enrollmentId: identity.enrollmentId,
+      attendanceId,
+    });
+    return session;
+  }
+
+  /**
+   * One open binding per till. A colleague signing in at the counter (or the same person after a
+   * crash) replaces the previous binding; the enrollment lock serializes this per terminal.
+   * Deauthorization only: shift/cash state is separate and unaffected.
+   */
+  private async bind(
+    tx: Tx,
+    actor: Actor,
+    identity: TerminalIdentity,
+    session: TerminalSessionCommand["session"],
+    tokenVersion: number,
+    evidence: Record<string, string>,
+  ) {
+    const { branchId } = identity;
     const superseded = await tx.terminalStaffSession.findMany({
-      where: { tenantId: user.tenantId, branchId, tillId: session.tillId, closedAt: null },
+      where: { tenantId: actor.tenantId, branchId, tillId: session.tillId, closedAt: null },
       select: { id: true, staffUserId: true },
     });
     if (superseded.length) {
       await tx.terminalStaffSession.updateMany({
-        where: { tenantId: user.tenantId, branchId, id: { in: superseded.map((s) => s.id) }, closedAt: null },
+        where: { tenantId: actor.tenantId, branchId, id: { in: superseded.map((s) => s.id) }, closedAt: null },
         data: { closedAt: new Date() },
       });
       for (const previous of superseded)
         await this.audit.log(
           {
-            tenantId: user.tenantId,
+            tenantId: actor.tenantId,
             branchId,
-            actorUserId: user.userId,
+            actorUserId: actor.userId,
             eventName: "terminal.session_superseded",
             entityName: "terminal_staff_session",
             entityId: previous.id,
@@ -624,30 +646,29 @@ export class TerminalTrustService {
     const bound = await tx.terminalStaffSession.create({
       data: {
         id: session.workSessionId,
-        tenantId: user.tenantId,
+        tenantId: actor.tenantId,
         branchId,
         terminalId: identity.terminalId,
         enrollmentId: identity.enrollmentId,
         keyId: identity.keyId,
         registerId: session.registerId,
         tillId: session.tillId,
-        staffUserId: user.userId,
-        tokenVersion: user.tokenVersion!,
+        staffUserId: actor.userId,
+        tokenVersion,
       },
     });
     await this.audit.log(
       {
-        tenantId: user.tenantId,
+        tenantId: actor.tenantId,
         branchId,
-        actorUserId: user.userId,
+        actorUserId: actor.userId,
         eventName: "terminal.session_authorized",
         entityName: "terminal_staff_session",
         entityId: bound.id,
-        payload: { enrollmentId: identity.enrollmentId, attendanceId },
+        payload: evidence,
       },
       tx,
     );
-    return session;
   }
 
   private async session(
@@ -701,6 +722,161 @@ export class TerminalTrustService {
     const found = await this.session(tx, user, branchId, workSessionId);
     await this.actor(tx, user, branchId);
     return found;
+  }
+
+  /**
+   * The person a PIN sign-in names, as they are now: a counter user at this branch, with a PIN
+   * whose current version this enrollment was prepared at. Telling the counter which of these
+   * failed is safe, because only the enrolled key gets this far.
+   */
+  private async pinStaff(tx: Tx, identity: TerminalIdentity, staffUserId: string) {
+    const actor = { tenantId: identity.tenantId, userId: staffUserId };
+    const access = await this.access.resolveApprovalAuthority(actor, identity.branchId, tx);
+    if (!access.has("terminal.execute")) denied("PERMISSION_DENIED");
+    // tenant-scope: verified-parent — the membership filter scopes the account to this tenant.
+    const account = await tx.appUser.findFirst({
+      where: {
+        id: staffUserId,
+        isActive: true,
+        tenantMemberships: { some: { tenantId: identity.tenantId, isActive: true } },
+      },
+      select: {
+        id: true,
+        tokenVersion: true,
+        posPinHash: true,
+        posPinVersion: true,
+        posPinLockedUntil: true,
+      },
+    });
+    if (!account) denied("PERMISSION_DENIED");
+    const preparation = await tx.terminalStaffPreparation.findFirst({
+      where: { tenantId: identity.tenantId, enrollmentId: identity.enrollmentId, staffUserId },
+      select: { pinVersion: true },
+    });
+    if (!account.posPinHash || preparation?.pinVersion !== account.posPinVersion)
+      throw new ForbiddenException({
+        code: "PIN_NOT_PREPARED",
+        message: "This counter is not prepared for that person's current PIN.",
+      });
+    return { actor, account };
+  }
+
+  /**
+   * D-W5 PIN sign-in, step 1. Nobody is signed in, so the enrolled key alone asks for a challenge
+   * for one prepared person. A replayed request only yields another challenge, which cannot be
+   * finished without the key and the person's PIN.
+   */
+  async beginPinSession(tx: Tx, raw: unknown): Promise<TerminalPinSessionCommand> {
+    const envelope = parseEnvelope(raw);
+    const p = object(envelope.payload, ["contractVersion", "kind", "identity", "staffUserId"]);
+    if (p.contractVersion !== 1 || p.kind !== "terminal_pin_session_request") invalid();
+    const identity = parseIdentity(p.identity);
+    const staffUserId = uuid(p.staffUserId);
+    if (envelope.keyId !== identity.keyId) denied("IDENTITY_MISMATCH");
+    const enrollment = await this.enrollment(tx, identity, identity.branchId, identity);
+    verifySignature(envelope, enrollment.publicKeyHex);
+    const { actor, account } = await this.pinStaff(tx, identity, staffUserId);
+    return this.challenge(tx, actor, identity.branchId, "pin_session", {
+      contractVersion: 1,
+      kind: "terminal_pin_session",
+      identity,
+      session: {
+        workSessionId: randomUUID(),
+        staffUserId,
+        registerId: enrollment.terminal.registerId!,
+        tillId: enrollment.terminal.tillId!,
+      },
+      pinVersion: account.posPinVersion,
+      tokenVersion: account.tokenVersion,
+      ...this.timing(),
+    });
+  }
+
+  /**
+   * D-W5 PIN sign-in, step 2: the signed challenge, an attendance attestation for it and the PIN.
+   * The challenge and the proof are spent whatever the PIN, so each challenge buys one guess, and
+   * a refusal is returned (not thrown) so the caller commits the failure count before refusing.
+   * `recordAttendance` stores the proof in this transaction; the verifier then consumes it.
+   */
+  async finishPinSession(
+    tx: Tx,
+    raw: unknown,
+    pin: string,
+    recordAttendance: (challenge: TerminalChallenge, publicKeyHex: string) => Promise<string>,
+  ): Promise<
+    | { outcome: "signed_in"; tenantId: string; session: TerminalPinSessionCommand["session"] }
+    | { outcome: Exclude<PinCheck, "ok"> }
+  > {
+    const envelope = parseEnvelope(raw);
+    const p = object(envelope.payload, [
+      "contractVersion",
+      "kind",
+      "identity",
+      "session",
+      "pinVersion",
+      "tokenVersion",
+      "issuedAt",
+      "expiresAt",
+      "serverNonce",
+    ]);
+    if (
+      p.contractVersion !== 1 ||
+      p.kind !== "terminal_pin_session" ||
+      !Number.isSafeInteger(p.pinVersion) ||
+      !Number.isSafeInteger(p.tokenVersion)
+    )
+      invalid();
+    const identity = parseIdentity(p.identity);
+    const session = parseSession(p.session);
+    const { branchId } = identity;
+    const enrollment = await this.enrollment(tx, identity, branchId, identity);
+    if (
+      envelope.keyId !== identity.keyId ||
+      session.registerId !== enrollment.terminal.registerId ||
+      session.tillId !== enrollment.terminal.tillId
+    )
+      denied("SESSION_INVALID");
+    const payload = p as unknown as TerminalPinSessionCommand;
+    const digest = sha256(boundedCanonical(payload));
+    const actor = { tenantId: identity.tenantId, userId: session.staffUserId };
+    const challenge = await this.checkChallenge(tx, actor, branchId, "pin_session", payload, digest);
+    verifySignature(envelope, enrollment.publicKeyHex);
+    const proofId = await recordAttendance(challenge, enrollment.publicKeyHex);
+    const attendanceId = await this.attendance.verify(tx, text(proofId), {
+      purpose: "pin_session",
+      identity,
+      actorUserId: actor.userId,
+      registerId: session.registerId,
+      tillId: session.tillId,
+      payloadDigest: digest,
+    });
+    // Rechecked now: a role, PIN or token change since the challenge makes it stale.
+    const { account } = await this.pinStaff(tx, identity, actor.userId);
+    if (payload.pinVersion !== account.posPinVersion || payload.tokenVersion !== account.tokenVersion)
+      denied("SESSION_INVALID");
+    await this.consume(tx, actor, branchId, challenge.id);
+    const checked = await checkPosPin(tx, account, pin, new Date());
+    if (checked !== "ok") {
+      await this.audit.log(
+        {
+          tenantId: actor.tenantId,
+          branchId,
+          actorUserId: actor.userId,
+          eventName: "terminal.pin_sign_in_refused",
+          entityName: "terminal_enrollment",
+          entityId: identity.enrollmentId,
+          payload: { outcome: checked, attendanceId },
+        },
+        tx,
+      );
+      return { outcome: checked };
+    }
+    await this.bind(tx, actor, identity, session, account.tokenVersion, {
+      enrollmentId: identity.enrollmentId,
+      attendanceId,
+      via: "pin",
+    });
+    return { outcome: "signed_in", tenantId: actor.tenantId, session };
   }
 
   /** Service-only command descriptor: parseBody must be a strict domain DTO parser,

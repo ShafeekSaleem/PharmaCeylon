@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -10,8 +11,12 @@ import { Reflector } from "@nestjs/core";
 import { ACCESS_COOKIE } from "../../auth/cookies";
 import { AccessTokenPayload } from "../../auth/types/auth-token-payload.type";
 import { UserContextService } from "../../auth/user-context.service";
+import { COUNTER_ROUTE_KEY } from "../decorators/counter-route.decorator";
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
-import { AuthenticatedRequest } from "../interfaces/authenticated-request.interface";
+import {
+  AuthenticatedRequest,
+  RequestUser,
+} from "../interfaces/authenticated-request.interface";
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -68,6 +73,35 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException("Tenant mismatch");
     }
 
+    // A PIN opened this login at a counter: it is good for that counter's routes only, and only
+    // while its staff session is open. 403 for the route, so the client does not refresh; 401
+    // once the session has ended, so its refresh fails too and the counter signs out.
+    let counter: RequestUser["counter"];
+    if (payload.counterSessionId !== undefined) {
+      const counterRoute = this.reflector.getAllAndOverride<boolean>(
+        COUNTER_ROUTE_KEY,
+        [context.getHandler(), context.getClass()],
+      );
+      if (!counterRoute) {
+        throw new ForbiddenException({
+          code: "COUNTER_SESSION_ONLY",
+          message: "Sign in with your email and password to do this.",
+        });
+      }
+      const open = await this.userContext.openCounterSession(
+        payload.counterSessionId,
+        ctx.userId,
+        ctx.tenantId,
+      );
+      if (!open) {
+        throw new UnauthorizedException("Counter session ended");
+      }
+      counter = {
+        workSessionId: payload.counterSessionId,
+        branchId: open.branchId,
+      };
+    }
+
     request.user = {
       userId: ctx.userId,
       tenantId: ctx.tenantId,
@@ -76,6 +110,7 @@ export class JwtAuthGuard implements CanActivate {
       branchRoles: ctx.branchRoles,
       authMethod: extracted.method,
       tokenVersion: payload.tokenVersion,
+      ...(counter ? { counter } : {}),
     };
 
     return true;

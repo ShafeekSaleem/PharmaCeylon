@@ -31,3 +31,27 @@ export type TerminalSessionCommand = Readonly<{
   expiresAt: number;
   serverNonce: string;
 }>;
+
+/** D-W5 PIN sign-in, step 1: nobody is signed in, so the enrolled key alone asks for a challenge
+ * for one person prepared on this counter. `requestedAt` is the device clock, only bounded. */
+export type TerminalPinSessionRequest = Readonly<{
+  contractVersion: 1;
+  kind: "terminal_pin_session_request";
+  identity: TerminalIdentity;
+  staffUserId: string;
+  requestedAt: number;
+}>;
+
+/** D-W5 PIN sign-in, step 2: the challenge the device signs back with that person's PIN. One
+ * challenge allows one PIN attempt, right or wrong. */
+export type TerminalPinSessionCommand = Readonly<{
+  contractVersion: 1;
+  kind: "terminal_pin_session";
+  identity: TerminalIdentity;
+  session: WorkSessionIdentity;
+  pinVersion: number;
+  tokenVersion: number;
+  issuedAt: number;
+  expiresAt: number;
+  serverNonce: string;
+}>;

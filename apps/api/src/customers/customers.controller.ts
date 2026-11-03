@@ -9,6 +9,7 @@ import {
   Query,
 } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -23,6 +24,7 @@ export class CustomersController {
 
   @ApiOperation({ summary: "Search customers by name, phone, or email" })
   @RequirePermission("customers.view")
+  @CounterRoute()
   @Get()
   search(
     @CurrentUser() user: RequestUser,
@@ -67,6 +69,7 @@ export class CustomersController {
   }
 
   @RequirePermission("customers.view")
+  @CounterRoute()
   @Get(":id")
   getOne(@CurrentUser() user: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.customers.getOne(user.tenantId, id);

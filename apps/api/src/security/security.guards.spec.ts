@@ -13,7 +13,7 @@ import { PrismaService } from "../prisma/prisma.service";
 describe("Security Guards", () => {
   let app: INestApplication;
   let jwtService: JwtService;
-  let userContext: { load: jest.Mock };
+  let userContext: { load: jest.Mock; openCounterSession: jest.Mock };
   let rolePermissionFindMany: jest.Mock;
 
   const baseCtx = {
@@ -31,7 +31,7 @@ describe("Security Guards", () => {
     process.env.COOKIE_SAMESITE = "lax";
     process.env.COOKIE_SECURE = "false";
 
-    userContext = { load: jest.fn() };
+    userContext = { load: jest.fn(), openCounterSession: jest.fn() };
     rolePermissionFindMany = jest.fn().mockResolvedValue([]);
 
     const moduleRef = await Test.createTestingModule({
@@ -72,11 +72,17 @@ describe("Security Guards", () => {
 
   beforeEach(() => {
     userContext.load.mockReset();
+    userContext.openCounterSession.mockReset();
     rolePermissionFindMany.mockReset().mockResolvedValue([]);
   });
 
   const signAccessToken = (
-    overrides: Partial<{ sub: string; tenantId: string; tokenVersion: number }> = {},
+    overrides: Partial<{
+      sub: string;
+      tenantId: string;
+      tokenVersion: number;
+      counterSessionId: string;
+    }> = {},
   ) =>
     jwtService.sign(
       {
@@ -84,6 +90,9 @@ describe("Security Guards", () => {
         tenantId: overrides.tenantId ?? "tenant-1",
         tokenVersion: overrides.tokenVersion ?? 0,
         type: "access",
+        ...(overrides.counterSessionId
+          ? { counterSessionId: overrides.counterSessionId }
+          : {}),
       },
       { secret: "change-me-access" },
     );
@@ -228,5 +237,84 @@ describe("Security Guards", () => {
       .set("Authorization", `Bearer ${token}`)
       .set("x-branch-id", "b1")
       .expect(200);
+  });
+
+  describe("a login opened by a PIN at a counter", () => {
+    const counterToken = () =>
+      signAccessToken({ counterSessionId: "work-session-1" });
+
+    it("reaches a counter route while its staff session is open", async () => {
+      userContext.load.mockResolvedValue(baseCtx);
+      userContext.openCounterSession.mockResolvedValue({ branchId: "b1" });
+      await request(app.getHttpServer())
+        .post("/api/v1/auth/logout")
+        .set("Authorization", `Bearer ${counterToken()}`)
+        .expect(204);
+      expect(userContext.openCounterSession).toHaveBeenCalledWith(
+        "work-session-1",
+        "user-1",
+        "tenant-1",
+      );
+    });
+
+    it("is refused on any route not marked for the counter, without a refresh-provoking 401", async () => {
+      userContext.load.mockResolvedValue({
+        ...baseCtx,
+        branchRoles: [{ branchId: "b1", role: RoleName.manager }],
+      });
+      userContext.openCounterSession.mockResolvedValue({ branchId: "b1" });
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/tenant/management")
+        .set("Authorization", `Bearer ${counterToken()}`)
+        .set("x-branch-id", "b1")
+        .expect(403);
+      expect(res.body.code).toBe("COUNTER_SESSION_ONLY");
+    });
+
+    it("stops working once the counter staff session is closed", async () => {
+      userContext.load.mockResolvedValue(baseCtx);
+      userContext.openCounterSession.mockResolvedValue(null);
+      await request(app.getHttpServer())
+        .post("/api/v1/auth/logout")
+        .set("Authorization", `Bearer ${counterToken()}`)
+        .expect(401);
+    });
+
+    it("is held to the counter's branch, whatever branch header is sent", async () => {
+      userContext.load.mockResolvedValue({
+        ...baseCtx,
+        branchRoles: [
+          { branchId: "b1", role: RoleName.cashier },
+          { branchId: "b2", role: RoleName.cashier },
+        ],
+      });
+      userContext.openCounterSession.mockResolvedValue({ branchId: "b1" });
+      await request(app.getHttpServer())
+        .post("/api/v1/auth/logout")
+        .set("Authorization", `Bearer ${counterToken()}`)
+        .set("x-branch-id", "b2")
+        .expect(403);
+    });
+
+    it("is scoped to the counter's branch even without a header, so losing that role ends it", async () => {
+      userContext.load.mockResolvedValue({
+        ...baseCtx,
+        branchRoles: [{ branchId: "b2", role: RoleName.cashier }],
+      });
+      userContext.openCounterSession.mockResolvedValue({ branchId: "b1" });
+      await request(app.getHttpServer())
+        .post("/api/v1/auth/logout")
+        .set("Authorization", `Bearer ${counterToken()}`)
+        .expect(403);
+    });
+
+    it("leaves password logins untouched by the counter checks", async () => {
+      userContext.load.mockResolvedValue(baseCtx);
+      await request(app.getHttpServer())
+        .get("/api/v1/tenant/context")
+        .set("Authorization", `Bearer ${signAccessToken()}`)
+        .expect(200);
+      expect(userContext.openCounterSession).not.toHaveBeenCalled();
+    });
   });
 });

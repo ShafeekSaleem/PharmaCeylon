@@ -1,11 +1,12 @@
 import { ConflictException, Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, type TerminalChallenge } from "@prisma/client";
 import {
   isLocalConsoleSession,
   terminalSigningText,
   type LocalAttendanceAttestation,
   type LocalAttendanceProofReceipt,
   type LocalAttendancePurpose,
+  type Signed,
   type WindowsSessionEvidence,
 } from "@pharmaceylon/shared";
 import { PrismaService } from "../prisma/prisma.service";
@@ -37,7 +38,10 @@ const PROTOCOLS: readonly WindowsSessionEvidence["protocol"][] = [
   "unknown",
 ];
 
-function parseAttestation(raw: unknown) {
+function parseAttestation(
+  raw: unknown,
+  purposes: readonly LocalAttendancePurpose[] = PURPOSES,
+) {
   const envelope = parseEnvelope(raw);
   const p = object(envelope.payload, [
     "contractVersion",
@@ -55,7 +59,7 @@ function parseAttestation(raw: unknown) {
   ]);
   if (p.contractVersion !== 1 || p.kind !== "local_attendance") invalid();
   uuid(p.proofId);
-  if (!PURPOSES.includes(p.purpose as LocalAttendancePurpose)) invalid();
+  if (!purposes.includes(p.purpose as LocalAttendancePurpose)) invalid();
   parseIdentity(p.identity);
   uuid(p.actorUserId);
   uuid(p.registerId);
@@ -170,15 +174,85 @@ export class AttendanceProofsService {
 
     // Concurrent identical uploads: the loser waits on the primary key, inserts nothing and
     // then reads the winner's row, so both return the same proof.
-    const inserted = await tx.terminalAttendanceProof.createMany({
+    const inserted = await this.insert(tx, challenge, envelope, payload, attestationDigest, now);
+    if (inserted.count === 1)
+      return {
+        proofId: payload.proofId,
+        purpose: payload.purpose,
+        expiresAt: challenge.expiresAt.getTime(),
+      };
+    const raced = await this.existing(
+      tx,
+      user,
+      payload.proofId,
+      attestationDigest,
+    );
+    if (!raced) this.conflict();
+    return raced;
+  }
+
+  /**
+   * D-W5 PIN sign-in. Nobody is signed in yet, so this is called only by
+   * `TerminalTrustService.finishPinSession`, inside its transaction, after it has checked the
+   * challenge and the enrolled key; never from a route. The attestation must name exactly what
+   * that challenge names, including the person signing in.
+   */
+  async recordForPinSession(
+    tx: Tx,
+    raw: unknown,
+    challenge: TerminalChallenge,
+    publicKeyHex: string,
+  ): Promise<string> {
+    const { envelope, payload } = parseAttestation(raw, ["pin_session"]);
+    const c = challenge.payload as Record<string, unknown>;
+    const session = c.session as Record<string, unknown> | undefined;
+    if (
+      payload.identity.tenantId !== challenge.tenantId ||
+      payload.identity.branchId !== challenge.branchId ||
+      payload.actorUserId !== challenge.actorUserId ||
+      payload.payloadDigest !== challenge.payloadDigest ||
+      envelope.keyId !== payload.identity.keyId ||
+      !same(c.identity, payload.identity) ||
+      session?.registerId !== payload.registerId ||
+      session?.tillId !== payload.tillId
+    )
+      denied("IDENTITY_MISMATCH");
+    verifySignature(envelope, publicKeyHex, "attendance");
+    if (!isLocalConsoleSession(payload.windowsSession))
+      denied("REMOTE_SESSION_DENIED");
+    const attestationDigest = sha256(
+      terminalSigningText("attendance", payload),
+    );
+    const inserted = await this.insert(
+      tx,
+      challenge,
+      envelope,
+      payload,
+      attestationDigest,
+      new Date(),
+    );
+    if (inserted.count !== 1) this.conflict();
+    return payload.proofId;
+  }
+
+  private insert(
+    tx: Tx,
+    challenge: TerminalChallenge,
+    envelope: Signed<unknown>,
+    payload: LocalAttendanceAttestation,
+    attestationDigest: string,
+    now: Date,
+  ) {
+    const { identity } = payload;
+    return tx.terminalAttendanceProof.createMany({
       data: [
         {
           id: payload.proofId,
-          tenantId: user.tenantId,
-          branchId,
+          tenantId: challenge.tenantId,
+          branchId: challenge.branchId,
           challengeId: challenge.id,
           purpose: payload.purpose,
-          actorUserId: user.userId,
+          actorUserId: payload.actorUserId,
           terminalId: identity.terminalId,
           enrollmentId: identity.enrollmentId,
           keyId: identity.keyId,
@@ -199,20 +273,6 @@ export class AttendanceProofsService {
       ],
       skipDuplicates: true,
     });
-    if (inserted.count === 1)
-      return {
-        proofId: payload.proofId,
-        purpose: payload.purpose,
-        expiresAt: challenge.expiresAt.getTime(),
-      };
-    const raced = await this.existing(
-      tx,
-      user,
-      payload.proofId,
-      attestationDigest,
-    );
-    if (!raced) this.conflict();
-    return raced;
   }
 
   /** Same signed attestation → the original proof (consumed or not); anything else → 409. */

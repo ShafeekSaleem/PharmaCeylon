@@ -445,7 +445,7 @@ cutoff plus journal recovery evidence, which P3/P5 provide — until then replac
 
 ## Desktop enrollment and staff sessions (P2)
 
-Routes under `/api/v1/terminals`, all with `x-branch-id`. Bearer auth from the desktop's main
+Routes under `/api/v1/terminals`, all with `x-branch-id` except the PIN sign-in below. Bearer auth from the desktop's main
 process (no cookie, so no CSRF). Shared types: `packages/shared/src/terminal-enrollment.ts` and
 `terminal-attendance.ts`. The route permission is a gate only: `TerminalTrustService` rechecks
 live authority, the server challenge, the device signature and the attendance proof inside one
@@ -505,6 +505,53 @@ verifier for that version. A PIN change elsewhere leaves other counters stale un
 in there again. Wrong PINs share the co-sign lockout (5 attempts, 15 minutes): `PIN_INCORRECT`,
 `PIN_LOCKED`, `PIN_NOT_SET`, `PASSWORD_INCORRECT`. Superseding: a new staff session at a till closes
 any older open binding there (`terminal.session_superseded`); shift and cash state are separate.
+
+**PIN sign-in at a counter (D-W5, P2b #103).** People prepared on a counter can sign in there
+with their PIN instead of their email and password. Nobody is signed in yet, so both routes are
+public (throttled 20/min) and carry no `x-branch-id`; the enrolled key, a console attendance proof
+and the server's own PIN verifier and lockout stand in for the password.
+
+| Route | Auth | Body / result |
+| --- | --- | --- |
+| `POST /terminals/pin-sessions/challenge` | public; signed by the enrolled key | `Signed<TerminalPinSessionRequest>` (`{ identity, staffUserId }`) → `TerminalPinSessionCommand` |
+| `POST /terminals/pin-sessions` | public; signed by the enrolled key | `TerminalPinSignInRequest` (`{ envelope, attendance, pin }`) → `TerminalPinSignInResult` |
+
+1. The desktop signs `{ contractVersion: 1, kind: "terminal_pin_session_request", identity,
+   staffUserId }` with `terminalSigningText("command", …)`. The server locks the enrollment,
+   checks the signature and that the person holds `terminal.execute` at the branch, has a PIN and
+   is prepared on this enrollment at their current `posPinVersion`, and returns a two-minute
+   challenge (purpose `pin_session`, actor = that person) carrying a new `workSessionId`, the
+   `pinVersion` and the `tokenVersion`. Refusals: `INVALID_SIGNATURE`, `IDENTITY_MISMATCH`,
+   `TERMINAL_REVOKED`, `PERMISSION_DENIED`, `PIN_NOT_PREPARED`. A replayed request only yields
+   another challenge, which cannot be finished without the key and the PIN.
+2. The desktop signs the challenge verbatim, builds a `LocalAttendanceAttestation` for it with
+   purpose `pin_session` and the person as actor (signed with `"attendance"`), and sends both with
+   the PIN. In one transaction the server checks the challenge and signature, records and consumes
+   the proof (`pin_session` proofs are accepted only here, never by
+   `POST /terminals/attendance-proofs`), rechecks the person (a role, PIN or token change since the
+   challenge is `SESSION_INVALID`), **spends the challenge**, then checks the PIN against the
+   shared co-sign lockout (5 wrong, 15 minutes). A wrong or locked PIN commits — the guess is
+   counted and audited as `terminal.pin_sign_in_refused` — and is then refused with 403
+   `PIN_INCORRECT` or `PIN_LOCKED`, so each challenge buys exactly one guess. A refusal before the
+   PIN check (`REMOTE_SESSION_DENIED`, `IDENTITY_MISMATCH`, …) rolls back and counts nothing.
+3. A correct PIN opens the staff session exactly as a password sign-in would (superseding any open
+   binding at the till; `terminal.session_authorized` with `via: "pin"`) and returns
+   `{ accessToken, refreshToken, user, session }`.
+
+**What a PIN login can do.** The tokens it returns are a *counter login*: the refresh session
+records `counter_session_id` and the access token carries `counterSessionId`. Such a login:
+
+- reaches only routes marked `@CounterRoute()` — the ones the desktop counter calls (sell, holds,
+  approvers, refund requests list, customer and prescription look-ups, signed terminal commands,
+  its own staff-session routes, the offline-assignment view and logout). Anything else, including
+  opening another staff session, offline activation and every back-office, account and admin
+  route, is 403 `COUNTER_SESSION_ONLY` (not 401, so clients don't refresh and retry);
+- is held to the counter's branch: a different `x-branch-id` is 403, and without one the
+  counter's branch is applied;
+- lives only while its staff session is open: once signed out, superseded, revoked or ended, its
+  access token is 401 and its refresh is refused (`counter_session_closed`);
+- refreshes for up to `JWT_COUNTER_REFRESH_TTL_SECONDS` (default 12 hours) without use, not the
+  two weeks of a password login. Permissions still apply on top of all of this.
 
 **Attendance proofs.** Desktop main builds a `LocalAttendanceAttestation` naming the purpose,
 identity, actor, register/till and the challenge's `payloadDigest` (sha256 of the challenge's

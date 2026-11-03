@@ -95,6 +95,26 @@ export class UserContextService {
     return value;
   }
 
+  /**
+   * The counter staff session a PIN-opened login belongs to, while it is open. Never cached: a
+   * colleague signing in at that counter must end the login at once.
+   */
+  openCounterSession(
+    counterSessionId: string,
+    userId: string,
+    tenantId: string,
+  ): Promise<{ branchId: string } | null> {
+    return this.prisma.terminalStaffSession.findFirst({
+      where: {
+        id: counterSessionId,
+        tenantId,
+        staffUserId: userId,
+        closedAt: null,
+      },
+      select: { branchId: true },
+    });
+  }
+
   invalidate(userId: string): void {
     for (const key of this.cache.keys()) {
       if (key.endsWith(`:${userId}`)) this.cache.delete(key);

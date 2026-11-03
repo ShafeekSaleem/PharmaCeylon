@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -17,6 +18,7 @@ export class TerminalCommandsController {
   constructor(private readonly executor: TerminalCommandExecutor) {}
 
   @RequirePermission(TERMINAL_EXECUTE)
+  @CounterRoute()
   @Post("prepare")
   @HttpCode(200)
   prepare(
@@ -28,6 +30,7 @@ export class TerminalCommandsController {
   }
 
   @RequirePermission(TERMINAL_EXECUTE)
+  @CounterRoute()
   @Post("execute")
   @HttpCode(200)
   execute(

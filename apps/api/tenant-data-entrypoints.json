@@ -25,6 +25,11 @@
       "path": "src/health/health.controller.ts",
       "mode": "database-readiness",
       "reason": "Liveness is database-free; readiness executes SELECT 1 without reading tenant data."
+    },
+    {
+      "path": "src/terminals/terminal-enrollment.controller.ts",
+      "mode": "device-signed-pin-sign-in",
+      "reason": "Only the two PIN sign-in routes are public. The tenant, branch and counter come from an enrollment whose key must sign the request; the person must hold terminal.execute there and be prepared at their current PIN version."
     }
   ],
   "preContextServices": [

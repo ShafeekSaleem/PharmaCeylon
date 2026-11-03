@@ -98,6 +98,7 @@ describe("AuthService", () => {
       invalidate: jest.fn(),
       load: jest.fn(),
       clearAll: jest.fn(),
+      openCounterSession: jest.fn(),
     } as unknown as jest.Mocked<UserContextService>;
 
     auditService = {
@@ -212,6 +213,62 @@ describe("AuthService", () => {
     });
   });
 
+  describe("issueCounterSession (D-W5 PIN sign-in)", () => {
+    it("marks the login with its counter session and gives it a working day, not two weeks", async () => {
+      prisma.appUser.findUnique.mockResolvedValue(baseUser);
+      mockedBcrypt.hash.mockResolvedValue("hashed" as never);
+      prisma.session.create.mockResolvedValue({
+        id: "session-1",
+        familyId: "family-1",
+      });
+      (jwtService.signAsync as jest.Mock)
+        .mockResolvedValueOnce("refresh-token")
+        .mockResolvedValueOnce("access-token");
+
+      const result = await service.issueCounterSession(
+        "user-id",
+        "tenant-id",
+        "work-session-1",
+      );
+
+      expect(result.accessToken).toBe("access-token");
+      expect(result.refreshTtlSeconds).toBe(43200);
+      const created = prisma.session.create.mock.calls[0][0].data;
+      expect(created.counterSessionId).toBe("work-session-1");
+      expect(created.expiresAt.getTime()).toBeLessThanOrEqual(
+        Date.now() + 43200 * 1000,
+      );
+      expect(jwtService.signAsync).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          sub: "user-id",
+          type: "access",
+          counterSessionId: "work-session-1",
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("leaves password logins without a counter session", async () => {
+      prisma.appUser.findUnique.mockResolvedValue(baseUser);
+      mockedBcrypt.compare.mockResolvedValue(true as never);
+      mockedBcrypt.hash.mockResolvedValue("hashed" as never);
+      prisma.session.create.mockResolvedValue({
+        id: "session-1",
+        familyId: "family-1",
+      });
+      (jwtService.signAsync as jest.Mock)
+        .mockResolvedValueOnce("refresh-token")
+        .mockResolvedValueOnce("access-token");
+
+      await service.login({ email: "demo@pharma.com", password: "pw" });
+
+      expect(prisma.session.create.mock.calls[0][0].data.counterSessionId).toBeNull();
+      expect(
+        (jwtService.signAsync as jest.Mock).mock.calls[1][0],
+      ).not.toHaveProperty("counterSessionId");
+    });
+  });
+
   describe("refresh", () => {
     const session = {
       id: "session-1",
@@ -273,6 +330,63 @@ describe("AuthService", () => {
           }),
         }),
       );
+    });
+
+    it("keeps a PIN-opened counter login tied to its counter session while it is open", async () => {
+      mockRefreshVerify();
+      sessionStore.findActiveById.mockResolvedValue({
+        ...session,
+        counterSessionId: "work-session-1",
+      } as any);
+      sessionStore.matchToken.mockResolvedValue(true);
+      userContext.openCounterSession.mockResolvedValue({ branchId: "branch-1" });
+      prisma.appUser.findUnique.mockResolvedValue(baseUser);
+      mockedBcrypt.hash.mockResolvedValue("hashed" as never);
+      prisma.session.create.mockResolvedValue({
+        id: "session-2",
+        familyId: "family-1",
+      });
+      (jwtService.signAsync as jest.Mock)
+        .mockResolvedValueOnce("rotated-refresh")
+        .mockResolvedValueOnce("rotated-access");
+
+      const result = await service.refresh("presented-token");
+
+      expect(userContext.openCounterSession).toHaveBeenCalledWith(
+        "work-session-1",
+        "user-id",
+        "tenant-id",
+      );
+      expect(prisma.session.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ counterSessionId: "work-session-1" }),
+        }),
+      );
+      expect(jwtService.signAsync).toHaveBeenLastCalledWith(
+        expect.objectContaining({ counterSessionId: "work-session-1" }),
+        expect.anything(),
+      );
+      expect(result.refreshTtlSeconds).toBe(43200);
+    });
+
+    it("ends a PIN-opened counter login once its counter session has closed", async () => {
+      mockRefreshVerify();
+      sessionStore.findActiveById.mockResolvedValue({
+        ...session,
+        counterSessionId: "work-session-1",
+      } as any);
+      sessionStore.matchToken.mockResolvedValue(true);
+      userContext.openCounterSession.mockResolvedValue(null);
+      prisma.appUser.findUnique.mockResolvedValue(baseUser);
+
+      await expect(service.refresh("presented-token")).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(sessionStore.revokeById).toHaveBeenCalledWith(
+        "session-1",
+        SESSION_REVOKED_REASONS.counterSessionClosed,
+      );
+      expect(prisma.session.create).not.toHaveBeenCalled();
     });
 
     it("detects refresh-token reuse, revokes the family, and bumps tokenVersion", async () => {

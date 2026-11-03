@@ -310,6 +310,22 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
+    // A PIN-opened login ends with its counter session: signed out, superseded or ended.
+    if (
+      session.counterSessionId &&
+      !(await this.userContext.openCounterSession(
+        session.counterSessionId,
+        session.userId,
+        session.tenantId,
+      ))
+    ) {
+      await this.sessions.revokeById(
+        session.id,
+        SESSION_REVOKED_REASONS.counterSessionClosed,
+      );
+      throw new UnauthorizedException("Counter session ended");
+    }
+
     return this.issueAndPersist({
       user,
       tenantId: session.tenantId,
@@ -317,6 +333,46 @@ export class AuthService {
       branchRoles: user.userBranchRoles,
       previousSession: session,
       meta,
+      counterSessionId: session.counterSessionId,
+    });
+  }
+
+  /**
+   * D-W5: the login a correct PIN opens at an enrolled counter. The caller has just bound the
+   * counter staff session; these tokens work only on counter routes, at its branch, while it
+   * stays open (`JwtAuthGuard`, `TenantBranchGuard` and `refresh` above).
+   */
+  async issueCounterSession(
+    userId: string,
+    tenantId: string,
+    counterSessionId: string,
+    meta: RequestMeta = {},
+  ): Promise<LoginResult> {
+    const user = await this.prisma.appUser.findUnique({
+      where: { id: userId },
+      include: {
+        tenantMemberships: {
+          where: { tenantId, isActive: true },
+          include: { tenant: { select: { code: true, isActive: true } } },
+        },
+        userBranchRoles: {
+          where: { tenantId },
+          select: { branchId: true, role: true },
+        },
+      },
+    });
+    const membership = user?.tenantMemberships[0];
+    if (!user || !user.isActive || !membership?.tenant.isActive) {
+      throw new UnauthorizedException("Unable to start counter session");
+    }
+    return this.issueAndPersist({
+      user,
+      tenantId,
+      tenantCode: membership.tenant.code,
+      branchRoles: user.userBranchRoles,
+      previousSession: null,
+      meta,
+      counterSessionId,
     });
   }
 
@@ -648,6 +704,13 @@ export class AuthService {
     return Number(this.configService.get("JWT_REFRESH_TTL_SECONDS", 1209600));
   }
 
+  /** A PIN-opened counter login lasts a working day without use, not the two weeks a password buys. */
+  getCounterRefreshTtlSeconds(): number {
+    return Number(
+      this.configService.get("JWT_COUNTER_REFRESH_TTL_SECONDS", 43200),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
@@ -659,8 +722,13 @@ export class AuthService {
     branchRoles: Array<{ branchId: string; role: RoleName }>;
     previousSession: Session | null;
     meta: RequestMeta;
+    /** The counter staff session a PIN opened; rotations keep it. */
+    counterSessionId?: string | null;
   }): Promise<LoginResult> {
-    const refreshTtl = this.getRefreshTtlSeconds();
+    const counterSessionId = args.counterSessionId ?? null;
+    const refreshTtl = counterSessionId
+      ? this.getCounterRefreshTtlSeconds()
+      : this.getRefreshTtlSeconds();
     const accessTtl = this.getAccessTtlSeconds();
 
     // Pre-sign a placeholder refresh token using the eventual session id.
@@ -681,6 +749,7 @@ export class AuthService {
           expiresAt: new Date(Date.now() + refreshTtl * 1000),
           userAgent: args.meta.userAgent ?? null,
           ipAddress: args.meta.ipAddress ?? null,
+          counterSessionId,
         },
       });
 
@@ -722,6 +791,7 @@ export class AuthService {
         tenantId: args.tenantId,
         tokenVersion: args.user.tokenVersion,
         type: "access",
+        ...(counterSessionId ? { counterSessionId } : {}),
       };
       const accessToken = await this.jwtService.signAsync(accessPayload, {
         secret: this.configService.getOrThrow<string>("JWT_ACCESS_SECRET"),

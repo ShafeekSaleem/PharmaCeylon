@@ -5,6 +5,7 @@ import type {
   LocalAttendanceAttestation,
   TerminalEnrollmentCommand,
   TerminalIdentity,
+  TerminalPinSessionCommand,
   TerminalSessionCommand,
   WindowsSessionEvidence,
 } from "@pharmaceylon/shared";
@@ -13,7 +14,9 @@ import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-reg
 import { businessDateKey } from "../../src/common/business-date.util";
 import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
+import type { AuthService } from "../../src/auth/auth.service";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
+import { PinSignInService } from "../../src/terminals/pin-sign-in.service";
 import { StaffCredentialsService } from "../../src/terminals/staff-credentials.service";
 import { EnrollmentCodesService } from "../../src/terminals/enrollment-codes.service";
 import { counterEvidence } from "../../src/terminals/counter-evidence";
@@ -55,6 +58,17 @@ const enrollmentService = new TerminalEnrollmentService(
   proofs,
   audit,
 );
+// Token issuing is AuthService's (unit-tested there); these tests cover what a PIN must prove.
+const issueCounterSession = jest.fn(
+  async (userId: string, tenantId: string, workSessionId: string) => ({
+    accessToken: `access:${workSessionId}`,
+    refreshToken: "refresh",
+    user: { id: userId, tenantId, email: "", fullName: "", roles: [], branchRoles: [] },
+  }),
+);
+const pinSignIn = new PinSignInService(prisma as never, trust, proofs, {
+  issueCounterSession,
+} as unknown as AuthService);
 const PASSWORD = "correct horse battery";
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) =>
   prisma.$transaction(run, { timeout: 15_000 });
@@ -81,11 +95,14 @@ function user(userId: string): RequestUser {
 }
 
 type Device = ReturnType<typeof terminalDevice>;
-type Challenge = TerminalEnrollmentCommand | TerminalSessionCommand;
+type Challenge =
+  | TerminalEnrollmentCommand
+  | TerminalSessionCommand
+  | TerminalPinSessionCommand;
 
 function attestation(
   challenge: Challenge,
-  purpose: "enrollment" | "session",
+  purpose: "enrollment" | "session" | "pin_session",
   actor: RequestUser,
   overrides: Partial<LocalAttendanceAttestation> = {},
 ): LocalAttendanceAttestation {
@@ -638,6 +655,244 @@ describe("D-W5 personal PINs prepared per counter", () => {
     ).rejects.toMatchObject({
       response: { code: "SESSION_INVALID" },
     });
+  });
+});
+
+describe("D-W5 PIN sign-in at a counter", () => {
+  const PIN = "2468";
+
+  /** A counter the cashier has set (and so prepared) their PIN on. */
+  async function preparedCounter() {
+    const { device, identity } = await enroll();
+    const session = await openSession(device, identity, clerk);
+    await credentials.setPin(clerk, fx.mainBranchId, session.workSessionId, {
+      pin: PIN,
+      password: PASSWORD,
+    });
+    return { device, identity, session };
+  }
+
+  const askFor = (device: Device, identity: TerminalIdentity, staffUserId: string) =>
+    pinSignIn.begin(
+      device.sign(
+        {
+          contractVersion: 1,
+          kind: "terminal_pin_session_request",
+          identity,
+          staffUserId,
+        },
+        identity.keyId,
+      ),
+    );
+
+  const answer = (
+    device: Device,
+    challenge: TerminalPinSessionCommand,
+    pin: string,
+    overrides: Partial<LocalAttendanceAttestation> = {},
+  ) =>
+    pinSignIn.finish(
+      {
+        envelope: device.sign(challenge, challenge.identity.keyId),
+        attendance: device.sign(
+          attestation(
+            challenge,
+            "pin_session",
+            user(challenge.session.staffUserId),
+            overrides,
+          ),
+          challenge.identity.keyId,
+          "attendance",
+        ),
+        pin,
+      },
+      {},
+    );
+
+  const openPinChallenges = (enrollmentId: string) =>
+    prisma.terminalChallenge.count({
+      where: {
+        tenantId: fx.tenantId,
+        purpose: "pin_session",
+        consumedAt: null,
+        payload: { path: ["identity", "enrollmentId"], equals: enrollmentId },
+      },
+    });
+
+  afterEach(async () => {
+    // tenant-scope: test fixture — each test starts with the cashier's PIN unlocked.
+    await prisma.appUser.update({
+      where: { id: clerk.userId },
+      data: { posPinLockedUntil: null, failedPosPinAttempts: 0 },
+    });
+  });
+
+  it("signs a prepared person in with their PIN and supersedes whoever was signed in", async () => {
+    const { device, identity, session: earlier } = await preparedCounter();
+    const challenge = await askFor(device, identity, clerk.userId);
+    expect(challenge).toMatchObject({
+      kind: "terminal_pin_session",
+      identity,
+      session: { staffUserId: clerk.userId },
+    });
+
+    const result = await answer(device, challenge, PIN);
+
+    expect(result.session).toEqual(challenge.session);
+    expect(issueCounterSession).toHaveBeenLastCalledWith(
+      clerk.userId,
+      fx.tenantId,
+      challenge.session.workSessionId,
+      {},
+    );
+    const sessions = await prisma.terminalStaffSession.findMany({
+      where: { tenantId: fx.tenantId, enrollmentId: identity.enrollmentId },
+    });
+    expect(
+      sessions.find((s) => s.id === earlier.workSessionId)?.closedAt,
+    ).not.toBeNull();
+    expect(
+      sessions.find((s) => s.id === challenge.session.workSessionId),
+    ).toMatchObject({ staffUserId: clerk.userId, closedAt: null });
+    const authorized = await prisma.auditEvent.findFirst({
+      where: {
+        tenantId: fx.tenantId,
+        eventName: "terminal.session_authorized",
+        entityId: challenge.session.workSessionId,
+      },
+    });
+    expect(authorized?.payload).toMatchObject({ via: "pin" });
+  });
+
+  it("spends one challenge per guess and locks the PIN after five wrong ones", async () => {
+    const { device, identity } = await preparedCounter();
+    for (let i = 0; i < 5; i++) {
+      const challenge = await askFor(device, identity, clerk.userId);
+      await expect(answer(device, challenge, "1357")).rejects.toMatchObject({
+        response: { code: "PIN_INCORRECT" },
+      });
+    }
+    // The refusals committed: every challenge is spent and each failure is on record.
+    expect(await openPinChallenges(identity.enrollmentId)).toBe(0);
+    expect(
+      await prisma.auditEvent.count({
+        where: {
+          tenantId: fx.tenantId,
+          eventName: "terminal.pin_sign_in_refused",
+          entityId: identity.enrollmentId,
+        },
+      }),
+    ).toBe(5);
+
+    const challenge = await askFor(device, identity, clerk.userId);
+    await expect(answer(device, challenge, PIN)).rejects.toMatchObject({
+      response: { code: "PIN_LOCKED" },
+    });
+    await expect(answer(device, challenge, PIN)).rejects.toMatchObject({
+      response: { code: "CHALLENGE_INVALID" },
+    });
+  });
+
+  it("refuses people who aren't prepared here, or are prepared at an older PIN", async () => {
+    const a = await preparedCounter();
+    await expect(
+      askFor(a.device, a.identity, owner.userId),
+    ).rejects.toMatchObject({ response: { code: "PIN_NOT_PREPARED" } });
+
+    // Setting the PIN again on another counter makes this counter's preparation stale.
+    const b = await preparedCounter();
+    await expect(
+      askFor(a.device, a.identity, clerk.userId),
+    ).rejects.toMatchObject({ response: { code: "PIN_NOT_PREPARED" } });
+    const challenge = await askFor(b.device, b.identity, clerk.userId);
+    await expect(answer(b.device, challenge, PIN)).resolves.toMatchObject({
+      session: { staffUserId: clerk.userId },
+    });
+  });
+
+  it("refuses a PIN that changed after the challenge was issued", async () => {
+    const { device, identity, session } = await preparedCounter();
+    const challenge = await askFor(device, identity, clerk.userId);
+    await credentials.setPin(clerk, fx.mainBranchId, session.workSessionId, {
+      pin: PIN,
+      password: PASSWORD,
+    });
+    await expect(answer(device, challenge, PIN)).rejects.toMatchObject({
+      response: { code: "SESSION_INVALID" },
+    });
+  });
+
+  it("needs this counter's key and a console proof, and counts no guess without them", async () => {
+    const { device, identity } = await preparedCounter();
+    const stranger = terminalDevice();
+    await expect(
+      pinSignIn.begin(
+        stranger.sign(
+          {
+            contractVersion: 1,
+            kind: "terminal_pin_session_request",
+            identity,
+            staffUserId: clerk.userId,
+          },
+          identity.keyId,
+        ),
+      ),
+    ).rejects.toMatchObject({ response: { code: "INVALID_SIGNATURE" } });
+
+    const challenge = await askFor(device, identity, clerk.userId);
+    await expect(
+      answer(device, challenge, "1357", {
+        windowsSession: { sessionId: 3, protocol: "rdp", remoteSession: true },
+      }),
+    ).rejects.toMatchObject({ response: { code: "REMOTE_SESSION_DENIED" } });
+    await expect(
+      answer(device, challenge, "1357", { actorUserId: owner.userId }),
+    ).rejects.toMatchObject({ response: { code: "IDENTITY_MISMATCH" } });
+    // Neither attempt reached the PIN: the challenge is still open and nothing was counted.
+    expect(await openPinChallenges(identity.enrollmentId)).toBe(1);
+    // tenant-scope: test fixture — reading the failure count.
+    const account = await prisma.appUser.findUniqueOrThrow({
+      where: { id: clerk.userId },
+    });
+    expect(account.failedPosPinAttempts).toBe(0);
+    await expect(answer(device, challenge, PIN)).resolves.toMatchObject({
+      session: { staffUserId: clerk.userId },
+    });
+  });
+
+  it("refuses someone who lost their role at the branch, and a switched-off counter", async () => {
+    const { device, identity } = await preparedCounter();
+    const roles = await prisma.userBranchRole.findMany({
+      where: {
+        tenantId: fx.tenantId,
+        userId: clerk.userId,
+        branchId: fx.mainBranchId,
+      },
+    });
+    await prisma.userBranchRole.deleteMany({
+      where: { tenantId: fx.tenantId, id: { in: roles.map((r) => r.id) } },
+    });
+    try {
+      await expect(
+        askFor(device, identity, clerk.userId),
+      ).rejects.toBeInstanceOf(Error);
+    } finally {
+      await prisma.userBranchRole.createMany({
+        data: roles.map(({ id: _id, ...role }) => role),
+      });
+    }
+    await tx((c) =>
+      trust.revokeEnrollment(
+        c,
+        owner,
+        fx.mainBranchId,
+        identity.enrollmentId,
+        "Lost",
+      ),
+    );
+    await expect(
+      askFor(device, identity, clerk.userId),
+    ).rejects.toMatchObject({ response: { code: "TERMINAL_REVOKED" } });
   });
 });
 
