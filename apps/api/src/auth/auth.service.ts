@@ -171,11 +171,24 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
 
-    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+    // The password also ends any lock on their PIN, a switch-off included (`terminals/pos-pin.ts`):
+    // every timed lock counts towards `posPinLockouts`, so a PIN that was ever locked shows there.
+    const pinLocked = user.posPinLockouts > 0;
+    if (user.failedLoginAttempts > 0 || user.lockedUntil || pinLocked) {
       // tenant-scope: system-auth — the globally unique login identity was verified by password.
       await this.prisma.appUser.update({
         where: { id: user.id },
-        data: { failedLoginAttempts: 0, lockedUntil: null },
+        data: {
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          ...(pinLocked
+            ? {
+                posPinLockouts: 0,
+                failedPosPinAttempts: 0,
+                posPinLockedUntil: null,
+              }
+            : {}),
+        },
       });
     }
   }

@@ -14,8 +14,9 @@ import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-reg
 import { businessDateKey } from "../../src/common/business-date.util";
 import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
-import type { AuthService } from "../../src/auth/auth.service";
+import { AuthService } from "../../src/auth/auth.service";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
+import type { PinAlerts } from "../../src/terminals/pin-alerts.service";
 import { PinSignInService } from "../../src/terminals/pin-sign-in.service";
 import { StaffCredentialsService } from "../../src/terminals/staff-credentials.service";
 import { EnrollmentCodesService } from "../../src/terminals/enrollment-codes.service";
@@ -49,7 +50,14 @@ const trust = new TerminalTrustService(
   new LocalAttendanceVerifier(),
 );
 const proofs = new AttendanceProofsService(prisma as never, access);
-const credentials = new StaffCredentialsService(prisma as never, trust, audit);
+// The branch alert is NotificationsService's (unit-tested there); these tests cover when it fires.
+const pinAlerts = { switchedOff: jest.fn(async () => undefined) };
+const credentials = new StaffCredentialsService(
+  prisma as never,
+  trust,
+  audit,
+  pinAlerts as unknown as PinAlerts,
+);
 const codes = new EnrollmentCodesService(prisma as never, access, trust, audit);
 const enrollmentService = new TerminalEnrollmentService(
   prisma as never,
@@ -71,9 +79,23 @@ const issueCounterSession = jest.fn(
     user: { id: userId, tenantId, email: "", fullName: "", roles: [], branchRoles: [] },
   }),
 );
-const pinSignIn = new PinSignInService(prisma as never, trust, proofs, {
-  issueCounterSession,
-} as unknown as AuthService);
+const pinSignIn = new PinSignInService(
+  prisma as never,
+  trust,
+  proofs,
+  { issueCounterSession } as unknown as AuthService,
+  pinAlerts as unknown as PinAlerts,
+);
+// Only its password check is used here, which needs nothing but the database and the audit log.
+const passwords = new AuthService(
+  prisma as never,
+  {} as never,
+  {} as never,
+  {} as never,
+  {} as never,
+  audit,
+  {} as never,
+);
 const PASSWORD = "correct horse battery";
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) =>
   prisma.$transaction(run, { timeout: 15_000 });
@@ -629,7 +651,11 @@ describe("D-W5 personal PINs prepared per counter", () => {
     // tenant-scope: test fixture — unlock for the following tests.
     await prisma.appUser.update({
       where: { id: clerk.userId },
-      data: { posPinLockedUntil: null, failedPosPinAttempts: 0 },
+      data: {
+        posPinLockedUntil: null,
+        failedPosPinAttempts: 0,
+        posPinLockouts: 0,
+      },
     });
   });
 
@@ -724,11 +750,24 @@ describe("D-W5 PIN sign-in at a counter", () => {
       },
     });
 
+  const request = (identity: TerminalIdentity, staffUserId: string) => ({
+    contractVersion: 1 as const,
+    kind: "terminal_pin_session_request" as const,
+    identity,
+    staffUserId,
+  });
+
+  beforeEach(() => pinAlerts.switchedOff.mockClear());
+
   afterEach(async () => {
     // tenant-scope: test fixture — each test starts with the cashier's PIN unlocked.
     await prisma.appUser.update({
       where: { id: clerk.userId },
-      data: { posPinLockedUntil: null, failedPosPinAttempts: 0 },
+      data: {
+        posPinLockedUntil: null,
+        failedPosPinAttempts: 0,
+        posPinLockouts: 0,
+      },
     });
   });
 
@@ -790,20 +829,148 @@ describe("D-W5 PIN sign-in at a counter", () => {
       }),
     ).toBe(5);
 
-    const challenge = await askFor(device, identity, clerk.userId);
-    const { posPinLockedUntil } = await prisma.appUser.findUniqueOrThrow({
-      where: { id: clerk.userId },
-    });
-    // The counter is told when the lock ends rather than guessing at the server's policy.
-    await expect(answer(device, challenge, PIN)).rejects.toMatchObject({
+    // tenant-scope: test fixture — reading the lock.
+    const { posPinLockedUntil, posPinLockouts } =
+      await prisma.appUser.findUniqueOrThrow({ where: { id: clerk.userId } });
+    expect(posPinLockouts).toBe(1);
+    // A locked PIN gets no challenge to spend, and the counter is told when the lock ends rather
+    // than guessing at the server's policy.
+    await expect(
+      askFor(device, identity, clerk.userId),
+    ).rejects.toMatchObject({
       response: {
         code: "PIN_LOCKED",
         lockedUntil: posPinLockedUntil!.toISOString(),
       },
     });
+    expect(await openPinChallenges(identity.enrollmentId)).toBe(0);
+    expect(pinAlerts.switchedOff).not.toHaveBeenCalled();
+  });
+
+  it("refuses a challenge issued before a lock that started elsewhere, and spends it", async () => {
+    const { device, identity } = await preparedCounter();
+    const challenge = await askFor(device, identity, clerk.userId);
+    const lockedUntil = new Date(Date.now() + 10 * 60_000);
+    // tenant-scope: test fixture — wrong PINs at another counter locked it meanwhile.
+    await prisma.appUser.update({
+      where: { id: clerk.userId },
+      data: { posPinLockedUntil: lockedUntil },
+    });
+    await expect(answer(device, challenge, PIN)).rejects.toMatchObject({
+      response: { code: "PIN_LOCKED", lockedUntil: lockedUntil.toISOString() },
+    });
     await expect(answer(device, challenge, PIN)).rejects.toMatchObject({
       response: { code: "CHALLENGE_INVALID" },
     });
+  });
+
+  it("switches the PIN off at the third lock until a password sign-in, and alerts the branch once", async () => {
+    const { device, identity } = await preparedCounter();
+    // tenant-scope: test fixture — two timed locks already, the last one over.
+    await prisma.appUser.update({
+      where: { id: clerk.userId },
+      data: { posPinLockouts: 2 },
+    });
+    for (let i = 0; i < 5; i++) {
+      const challenge = await askFor(device, identity, clerk.userId);
+      await expect(answer(device, challenge, "1357")).rejects.toMatchObject({
+        response: { code: "PIN_INCORRECT" },
+      });
+    }
+    expect(pinAlerts.switchedOff).toHaveBeenCalledTimes(1);
+    expect(pinAlerts.switchedOff).toHaveBeenCalledWith(
+      fx.tenantId,
+      fx.mainBranchId,
+      clerk.userId,
+    );
+
+    // Its timed lock running out doesn't turn it back on.
+    // tenant-scope: test fixture — the fifteen minutes have passed.
+    await prisma.appUser.update({
+      where: { id: clerk.userId },
+      data: { posPinLockedUntil: null },
+    });
+    await expect(
+      askFor(device, identity, clerk.userId),
+    ).rejects.toMatchObject({ response: { code: "PIN_SWITCHED_OFF" } });
+    expect(await openPinChallenges(identity.enrollmentId)).toBe(0);
+
+    // tenant-scope: test fixture — the account the login form would have found.
+    const account = await prisma.appUser.findUniqueOrThrow({
+      where: { id: clerk.userId },
+    });
+    await passwords.verifyAccountPassword(account, PASSWORD, fx.tenantId);
+    const challenge = await askFor(device, identity, clerk.userId);
+    await expect(answer(device, challenge, PIN)).resolves.toMatchObject({
+      session: { staffUserId: clerk.userId },
+    });
+    expect(pinAlerts.switchedOff).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers a replayed request with the challenge it already issued, until too little of it is left", async () => {
+    const { device, identity } = await preparedCounter();
+    const signed = device.sign(request(identity, clerk.userId), identity.keyId);
+    const first = await pinSignIn.begin(signed);
+    for (let i = 0; i < 3; i++)
+      await expect(pinSignIn.begin(signed)).resolves.toEqual(first);
+    expect(await openPinChallenges(identity.enrollmentId)).toBe(1);
+
+    // tenant-scope: test fixture — the first challenge is near its end, too close to finish.
+    await prisma.terminalChallenge.updateMany({
+      where: {
+        tenantId: fx.tenantId,
+        purpose: "pin_session",
+        consumedAt: null,
+        payload: { path: ["identity", "enrollmentId"], equals: identity.enrollmentId },
+      },
+      data: { expiresAt: new Date(Date.now() + 20_000) },
+    });
+    const second = await pinSignIn.begin(signed);
+    expect(second.serverNonce).not.toBe(first.serverNonce);
+    await expect(pinSignIn.begin(signed)).resolves.toEqual(second);
+    expect(await openPinChallenges(identity.enrollmentId)).toBe(2);
+
+    // Spent, it is never handed out again.
+    await expect(answer(device, second, PIN)).resolves.toMatchObject({
+      session: { staffUserId: clerk.userId },
+    });
+    const third = await pinSignIn.begin(signed);
+    expect([first.serverNonce, second.serverNonce]).not.toContain(
+      third.serverNonce,
+    );
+  });
+
+  it("checks the device signature before waiting on the counter's lock", async () => {
+    const { identity } = await preparedCounter();
+    const stranger = terminalDevice();
+    let locked!: () => void;
+    let release!: () => void;
+    const lockTaken = new Promise<void>((resolve) => (locked = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    // Something legitimate holds the counter's row: a revocation, say, or a command in flight.
+    const holder = tx(async (c) => {
+      await c.$queryRaw`SELECT id FROM terminal_enrollment WHERE id = ${identity.enrollmentId}::uuid FOR UPDATE`;
+      locked();
+      await released;
+    });
+    await lockTaken;
+    try {
+      const unsigned = (): Promise<unknown> =>
+        Promise.race([
+          pinSignIn.begin(
+            stranger.sign(request(identity, clerk.userId), identity.keyId),
+          ),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("waited on the counter's lock")), 3_000),
+          ),
+        ]);
+      await expect(unsigned()).rejects.toMatchObject({
+        response: { code: "INVALID_SIGNATURE" },
+      });
+    } finally {
+      release();
+      await holder;
+    }
   });
 
   it("keeps whoever was signed in when the login can't be issued", async () => {
@@ -1340,6 +1507,7 @@ describe("a controlled sale dispensed by the seller alone at a counter (P1 #47)"
       audit,
       new PermissionsService(prisma as never, { get: () => 30 } as never),
       registrations,
+      pinAlerts as unknown as PinAlerts,
     ),
     { assertCanSell: async () => undefined } as never,
     stock,

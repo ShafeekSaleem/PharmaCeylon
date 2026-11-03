@@ -1218,6 +1218,9 @@ model AppUser {
   posPinHash           String?   @map("pos_pin_hash")
   failedPosPinAttempts Int       @default(0) @map("failed_pos_pin_attempts")
   posPinLockedUntil    DateTime? @map("pos_pin_locked_until")
+  /// Timed PIN locks since the person last proved their password. The third switches the PIN off
+  /// until they sign in with it or set a new PIN; a correct PIN doesn't reset it.
+  posPinLockouts       Int       @default(0) @map("pos_pin_lockouts")
   /// Bumped whenever the PIN is set, changed, cleared or reset. Counters prepare against a version,
   /// so an old local verifier stops working after a change (D-W5).
   posPinVersion        Int       @default(0) @map("pos_pin_version")

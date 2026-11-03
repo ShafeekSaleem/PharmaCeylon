@@ -17,6 +17,7 @@ import {
  */
 export const EMITTED_COUNTER_ALERT_TYPES: readonly CounterAlertType[] = [
   "fallback_changed",
+  "pin_switched_off",
 ];
 
 /** A stored policy that fails to parse is treated as the default rather than silencing alerts. */

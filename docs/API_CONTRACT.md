@@ -503,7 +503,11 @@ keeps the bcrypt verifier for online co-sign; every set, change, clear or admin 
 `terminal_staff_preparation(enrollment, staff, pinVersion)` and the desktop stores its own scrypt
 verifier for that version. A PIN change elsewhere leaves other counters stale until the person signs
 in there again. Wrong PINs share the co-sign lockout (5 attempts, 15 minutes): `PIN_INCORRECT`,
-`PIN_LOCKED`, `PIN_NOT_SET`, `PASSWORD_INCORRECT`. Superseding: a new staff session at a till closes
+`PIN_LOCKED`, `PIN_SWITCHED_OFF`, `PIN_NOT_SET`, `PASSWORD_INCORRECT`. The lockout escalates: the
+third timed lock since the person last proved their password (`posPinLockouts`) switches the PIN
+off, and a right PIN doesn't reset the count. A password sign-in, setting a PIN, or a manager's
+reset turns it back on; the switch-off raises the `pin_switched_off` counter alert at the branch
+once. Superseding: a new staff session at a till closes
 any older open binding there (`terminal.session_superseded`); shift and cash state are separate.
 
 **PIN sign-in at a counter (D-W5, P2b #103).** People prepared on a counter can sign in there
@@ -517,22 +521,27 @@ and the server's own PIN verifier and lockout stand in for the password.
 | `POST /terminals/pin-sessions` | public; signed by the enrolled key | `TerminalPinSignInRequest` (`{ envelope, attendance, pin }`) → `TerminalPinSignInResult` |
 
 1. The desktop signs `{ contractVersion: 1, kind: "terminal_pin_session_request", identity,
-   staffUserId }` with `terminalSigningText("command", …)`. The server locks the enrollment,
-   checks the signature and that the person holds `terminal.execute` at the branch, has a PIN and
-   is prepared on this enrollment at their current `posPinVersion`, and returns a two-minute
-   challenge (purpose `pin_session`, actor = that person) carrying a new `workSessionId`, the
-   `pinVersion` and the `tokenVersion`. Refusals: `INVALID_SIGNATURE`, `IDENTITY_MISMATCH`,
-   `TERMINAL_REVOKED`, `PERMISSION_DENIED`, `PIN_NOT_PREPARED`. A replayed request only yields
-   another challenge, which cannot be finished without the key and the PIN.
+   staffUserId }` with `terminalSigningText("command", …)`. The server checks the signature
+   against a plain read of the enrollment *before* locking it (so an unsigned request can't hold
+   up the counter), then locks it, checks again, and checks that the person holds
+   `terminal.execute` at the branch, has a PIN, is prepared on this enrollment at their current
+   `posPinVersion`, and that their PIN can be tried now. It returns a two-minute challenge
+   (purpose `pin_session`, actor = that person) carrying a new `workSessionId`, the `pinVersion`
+   and the `tokenVersion`. Refusals: `INVALID_SIGNATURE`, `IDENTITY_MISMATCH`, `TERMINAL_REVOKED`,
+   `PERMISSION_DENIED`, `PIN_NOT_PREPARED`, `PIN_LOCKED` (with `lockedUntil`), `PIN_SWITCHED_OFF`.
+   While this counter holds an open challenge for that person with more than a minute left, and
+   their PIN and tokens haven't changed, the same challenge is returned again: a replayed request
+   adds no rows, and what it gets back cannot be finished without the key and the PIN.
 2. The desktop signs the challenge verbatim, builds a `LocalAttendanceAttestation` for it with
    purpose `pin_session` and the person as actor (signed with `"attendance"`), and sends both with
    the PIN. In one transaction the server checks the challenge and signature, records and consumes
    the proof (`pin_session` proofs are accepted only here, never by
    `POST /terminals/attendance-proofs`), rechecks the person (a role, PIN or token change since the
    challenge is `SESSION_INVALID`), **spends the challenge**, then checks the PIN against the
-   shared co-sign lockout (5 wrong, 15 minutes). A wrong or locked PIN commits — the guess is
-   counted and audited as `terminal.pin_sign_in_refused` — and is then refused with 403
-   `PIN_INCORRECT` or `PIN_LOCKED`, so each challenge buys exactly one guess. A refusal before the
+   shared co-sign lockout (5 wrong, 15 minutes, switched off at the third lock). A wrong or
+   locked PIN commits — the guess is counted and audited as `terminal.pin_sign_in_refused` — and
+   is then refused with 403 `PIN_INCORRECT`, `PIN_LOCKED` or `PIN_SWITCHED_OFF`, so each challenge
+   buys exactly one guess. A refusal before the
    PIN check (`REMOTE_SESSION_DENIED`, `IDENTITY_MISMATCH`, …) rolls back and counts nothing.
 3. A correct PIN opens the staff session exactly as a password sign-in would (superseding any open
    binding at the till; `terminal.session_authorized` with `via: "pin"`) and returns
@@ -590,8 +599,9 @@ carry `code: "PRESCRIPTION_REQUIRED"` (no prescription linked), `code:
 "SELLER_NOT_QUALIFIED"` (403: a seller dispensing alone has none). Those last two are given only
 after the transaction has looked up the key, so the desktop takes them as final on a resend: a
 sale whose co-signer's registration lapsed before it was confirmed is cleared, not left pending. A
-wrong or locked co-signer secret is **403** with `APPROVER_PIN_INCORRECT`, `APPROVER_PIN_LOCKED`
-or `APPROVER_NOT_FOUND`, as are the counter's own `PASSWORD_INCORRECT` and `PIN_INCORRECT`: a
+wrong or locked co-signer secret is **403** with `APPROVER_PIN_INCORRECT`, `APPROVER_PIN_LOCKED`,
+`APPROVER_PIN_SWITCHED_OFF` (the escalated lockout above; the co-signer signs in with their
+password to end it) or `APPROVER_NOT_FOUND`, as are the counter's own `PASSWORD_INCORRECT` and `PIN_INCORRECT`: a
 401 means only that the access token lapsed, and clients refresh and resend on it, which would
 count one wrong secret twice. Overlapping retries
 of one `Idempotency-Key` serialize inside the checkout transaction, so a resend sent while the

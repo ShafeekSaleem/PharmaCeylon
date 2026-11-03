@@ -22,7 +22,7 @@ import { DeviceStore } from "../device/device-store";
 import { openLocalStore, type LocalStore } from "../local-store";
 import type { Logger } from "../logging/logger";
 import { PinStore } from "../staff/pin-store";
-import { TerminalService } from "./terminal-service";
+import { TerminalService, explain } from "./terminal-service";
 
 const fakeProtector: SecretProtector = {
   isAvailable: () => true,
@@ -99,6 +99,8 @@ class FakeServer {
   preparedVersion: number | null = null;
   /** When the server's PIN lock ends; null while the PIN isn't locked. */
   pinLockedUntil: string | null = null;
+  /** Switched off after repeated locks, until the person signs in with their password. */
+  pinOff = false;
   /** The person lost their role at the branch. */
   pinDenied = false;
   enrolledKey: string | null = null;
@@ -282,6 +284,8 @@ class FakeServer {
       if (this.pinDenied) throw new ApiError(403, "PERMISSION_DENIED", "x");
       if (this.pin === null || this.preparedVersion !== this.pinVersion)
         throw new ApiError(403, "PIN_NOT_PREPARED", "x");
+      // The server refuses a PIN it won't try before spending a challenge on it.
+      if (this.pinOff) throw new ApiError(403, "PIN_SWITCHED_OFF", "x");
       this.challenge = {
         contractVersion: 1,
         kind: "terminal_pin_session",
@@ -932,6 +936,28 @@ describe("TerminalService PIN sign-in (D-W5)", () => {
       terminal.signInWithPin(cashier.id, "4821"),
     ).rejects.toMatchObject({ code: "PIN_NOT_PREPARED" });
     expect(terminal.state().counterStaff).toEqual([]);
+  });
+
+  it("shows a PIN the server switched off until that person signs in with their password", async () => {
+    const terminal = await preparedForCashier();
+    server.pinOff = true;
+    const refusal = await terminal
+      .signInWithPin(cashier.id, "4821")
+      .catch((error: unknown) => explain(error));
+    expect(refusal).toMatchObject({
+      code: "PIN_SWITCHED_OFF",
+      message: expect.stringContaining("Sign in with your email and password"),
+    });
+    expect(terminal.state().counterStaff[0]).toMatchObject({
+      state: "pin_off",
+      lockedUntil: null,
+    });
+
+    // A right password is what the server takes to switch the PIN back on.
+    server.pinOff = false;
+    await terminal.signIn(cashier.email, "password");
+    await terminal.signIn(manager.email, "password");
+    expect(terminal.state().counterStaff[0]).toMatchObject({ state: "ready" });
   });
 
   it("stops offering someone who may no longer work at this branch", async () => {

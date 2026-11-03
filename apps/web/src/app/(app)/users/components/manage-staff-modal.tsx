@@ -28,11 +28,13 @@ import css from "../users.module.css";
  */
 export function PinStatus({ security }: { security: SecurityInfo }) {
   const { pin, preparedCounters } = security;
-  const state = pin.isLocked
-    ? `Locked until ${new Date(pin.lockedUntil!).toLocaleTimeString()}`
-    : pin.isSet
-      ? "Set"
-      : "Not set";
+  const state = pin.switchedOff
+    ? "Switched off after too many wrong PINs"
+    : pin.isLocked
+      ? `Locked until ${new Date(pin.lockedUntil!).toLocaleTimeString()}`
+      : pin.isSet
+        ? "Set"
+        : "Not set";
   const stale = preparedCounters.filter((c) => !c.current);
   return (
     <div style={{ marginBottom: "0.75rem" }} aria-label="PIN status">
@@ -40,6 +42,12 @@ export function PinStatus({ security }: { security: SecurityInfo }) {
         PIN: <strong>{state}</strong>
         {pin.isSet ? <span className={css.mutedText}> · version {pin.version}</span> : null}
       </p>
+      {pin.switchedOff ? (
+        <p className={css.mutedText} style={{ margin: "0 0 0.35rem" }}>
+          It works again once they sign in with their password. If they didn&apos;t make these
+          attempts, check who has had access to the counters.
+        </p>
+      ) : null}
       {preparedCounters.length === 0 ? (
         <p className={css.mutedText} style={{ margin: 0 }}>
           {pin.isSet
@@ -405,9 +413,11 @@ export function ManageStaffModal({
             <ModalButton
               variant="secondary"
               onClick={() => setPendingAction("resetPin")}
-              disabled={!security.pin.isSet && !security.pin.isLocked}
+              disabled={!security.pin.isSet && !security.pin.isLocked && !security.pin.switchedOff}
               data-tooltip={
-                security.pin.isLocked
+                security.pin.switchedOff
+                  ? "Till PIN is switched off after too many wrong PINs — clear it so they set a new one"
+                  : security.pin.isLocked
                   ? `Till PIN is locked (${security.pin.failedAttempts} failed attempt${security.pin.failedAttempts === 1 ? "" : "s"}) — clear it so they can set a new one`
                   : security.pin.isSet
                     ? "PIN is set — clear it so they set a new one at the counter"

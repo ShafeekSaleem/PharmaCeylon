@@ -32,13 +32,16 @@ describe("PinSignInService.finish", () => {
       ),
     };
     const trust = { finishPinSession: jest.fn().mockResolvedValue(finished) };
+    const alerts = { switchedOff: jest.fn().mockResolvedValue(undefined) };
     return {
       prisma,
+      alerts,
       pinSignIn: new PinSignInService(
         prisma as never,
         trust as never,
         { recordForPinSession: jest.fn() } as never,
         { issueCounterSession } as never,
+        alerts as never,
       ),
     };
   }
@@ -79,23 +82,53 @@ describe("PinSignInService.finish", () => {
   it("refuses after the transaction, saying until when a locked PIN is locked", async () => {
     const lockedUntil = new Date("2026-11-03T10:15:00.000Z");
     const issue = jest.fn();
-    const { pinSignIn, prisma } = service(
-      { outcome: "locked", lockedUntil },
-      issue,
-    );
+    const refused = {
+      outcome: "locked",
+      lockedUntil,
+      switchedOff: false,
+      tenantId: "tenant-1",
+      branchId: "branch-1",
+      staffUserId: "user-1",
+    };
+    const { pinSignIn, prisma, alerts } = service(refused, issue);
 
     const error = await pinSignIn.finish(body, {}).catch((e: unknown) => e);
 
     // The refusal is thrown after the callback resolved, so the guess it counted is committed.
-    await expect(prisma.$transaction.mock.results[0].value).resolves.toEqual({
-      outcome: "locked",
-      lockedUntil,
-    });
+    await expect(prisma.$transaction.mock.results[0].value).resolves.toEqual(
+      refused,
+    );
     expect(error).toBeInstanceOf(ForbiddenException);
     expect((error as ForbiddenException).getResponse()).toMatchObject({
       code: "PIN_LOCKED",
       lockedUntil: "2026-11-03T10:15:00.000Z",
     });
     expect(issue).not.toHaveBeenCalled();
+    expect(alerts.switchedOff).not.toHaveBeenCalled();
+  });
+
+  it("alerts the branch once the wrong PIN that switched the PIN off has committed", async () => {
+    const { pinSignIn, alerts } = service(
+      {
+        outcome: "wrong",
+        lockedUntil: null,
+        switchedOff: true,
+        tenantId: "tenant-1",
+        branchId: "branch-1",
+        staffUserId: "user-1",
+      },
+      jest.fn(),
+    );
+
+    const error = await pinSignIn.finish(body, {}).catch((e: unknown) => e);
+
+    expect((error as ForbiddenException).getResponse()).toMatchObject({
+      code: "PIN_INCORRECT",
+    });
+    expect(alerts.switchedOff).toHaveBeenCalledWith(
+      "tenant-1",
+      "branch-1",
+      "user-1",
+    );
   });
 });

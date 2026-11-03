@@ -194,7 +194,7 @@ function StaffCard({
   busy: boolean;
   onSelect: () => void;
 }) {
-  const locked = person.state === "locked";
+  const locked = person.state === "locked" || person.state === "pin_off";
   const role = person.role ? (ROLE_LABELS[person.role] ?? person.role) : null;
   return (
     <button
@@ -215,6 +215,11 @@ function StaffCard({
             {openedAt
               ? `Signed in since ${time(new Date(openedAt))}`
               : "Signed in"}
+          </span>
+        ) : person.state === "pin_off" ? (
+          <span className={cx(ui.pill, ui.bad)}>
+            <Icon name="lock" />
+            PIN off · sign in with password
           </span>
         ) : locked ? (
           <span className={cx(ui.pill, ui.bad)}>
@@ -258,7 +263,9 @@ export function SignInScreen({
   const enrollment = state.enrollment;
   const locked = Boolean(session && state.locked);
   const people = counterPeople(state);
-  const ready = people.filter((person) => person.state !== "locked");
+  const ready = people.filter(
+    (person) => person.state === "ready" || person.state === "signed_in",
+  );
   const selected =
     ready.find((person) => person.staffUserId === chosen) ?? ready[0] ?? null;
   const unlocking = selected?.staffUserId === session?.staffUserId;

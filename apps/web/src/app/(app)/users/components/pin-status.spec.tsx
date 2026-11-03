@@ -5,7 +5,14 @@ import { PinStatus } from "./manage-staff-modal";
 jest.mock("@/lib/auth-client", () => ({ apiJson: jest.fn() }));
 
 const security = (overrides: Partial<SecurityInfo> = {}): SecurityInfo => ({
-  pin: { isSet: true, isLocked: false, lockedUntil: null, failedAttempts: 0, version: 3 },
+  pin: {
+    isSet: true,
+    isLocked: false,
+    lockedUntil: null,
+    switchedOff: false,
+    failedAttempts: 0,
+    version: 3,
+  },
   preparedCounters: [],
   sessions: [],
   ...overrides,
@@ -40,10 +47,36 @@ it("explains that the PIN is set at the counter when there isn't one", () => {
   render(
     <PinStatus
       security={security({
-        pin: { isSet: false, isLocked: false, lockedUntil: null, failedAttempts: 0, version: 1 },
+        pin: {
+          isSet: false,
+          isLocked: false,
+          lockedUntil: null,
+          switchedOff: false,
+          failedAttempts: 0,
+          version: 1,
+        },
       })}
     />,
   );
   expect(screen.getByText("Not set")).toBeInTheDocument();
   expect(screen.getByText(/when they first sign in at a counter/)).toBeInTheDocument();
+});
+
+it("says a switched-off PIN needs their password, before any timed lock", () => {
+  render(
+    <PinStatus
+      security={security({
+        pin: {
+          isSet: true,
+          isLocked: true,
+          lockedUntil: "2026-11-03T10:15:00.000Z",
+          switchedOff: true,
+          failedAttempts: 0,
+          version: 3,
+        },
+      })}
+    />,
+  );
+  expect(screen.getByText("Switched off after too many wrong PINs")).toBeInTheDocument();
+  expect(screen.getByText(/once they sign in with their password/)).toBeInTheDocument();
 });

@@ -8,6 +8,7 @@ import type { TerminalStaffCredentialView } from "@pharmaceylon/shared";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { PinAlerts } from "./pin-alerts.service";
 import { checkPosPin, PIN, pinRefusal } from "./pos-pin";
 import { TerminalTrustService } from "./terminal-trust.service";
 
@@ -32,6 +33,7 @@ export class StaffCredentialsService {
     private readonly prisma: PrismaService,
     private readonly trust: TerminalTrustService,
     private readonly audit: AuditService,
+    private readonly alerts: PinAlerts,
   ) {}
 
   credential(
@@ -114,6 +116,8 @@ export class StaffCredentialsService {
           posPinHash,
           failedPosPinAttempts: 0,
           posPinLockedUntil: null,
+          // Setting a PIN takes the password, so it also ends a switch-off.
+          posPinLockouts: 0,
           posPinVersion: { increment: 1 },
         },
         select: { posPinVersion: true },
@@ -184,7 +188,7 @@ export class StaffCredentialsService {
         pin,
         new Date(),
       );
-      if (checked !== "ok") return { checked, lockedUntil: account.posPinLockedUntil };
+      if (checked.outcome !== "ok") return checked;
       await this.markPrepared(
         tx,
         user,
@@ -194,7 +198,10 @@ export class StaffCredentialsService {
       );
       return "prepared" as const;
     });
-    if (outcome !== "prepared") pinRefusal(outcome.checked, outcome.lockedUntil);
+    if (outcome !== "prepared") {
+      if (outcome.switchedOff) await this.alerts.switchedOff(user.tenantId, branchId, user.userId);
+      pinRefusal(outcome.outcome, outcome.lockedUntil);
+    }
     return this.credential(user, branchId, workSessionId);
   }
 
@@ -214,6 +221,7 @@ export class StaffCredentialsService {
         posPinVersion: true,
         failedPosPinAttempts: true,
         posPinLockedUntil: true,
+        posPinLockouts: true,
         failedLoginAttempts: true,
         lockedUntil: true,
       },

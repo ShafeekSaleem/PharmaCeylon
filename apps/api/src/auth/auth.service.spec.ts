@@ -150,6 +150,23 @@ describe("AuthService", () => {
         }),
       );
     });
+    it("turns a switched-off PIN back on once the password is right", async () => {
+      mockedBcrypt.compare.mockResolvedValue(true as never);
+      await service.verifyAccountPassword(
+        { ...baseUser, posPinLockouts: 3 } as never,
+        "correct",
+        "tenant-id",
+      );
+      expect(prisma.appUser.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            posPinLockouts: 0,
+            failedPosPinAttempts: 0,
+            posPinLockedUntil: null,
+          }),
+        }),
+      );
+    });
   });
 
   describe("login", () => {

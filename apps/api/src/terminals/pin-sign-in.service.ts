@@ -6,6 +6,7 @@ import type {
 import { AuthService, type RequestMeta } from "../auth/auth.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AttendanceProofsService } from "./attendance-proofs.service";
+import { PinAlerts } from "./pin-alerts.service";
 import { PIN, pinRefusal } from "./pos-pin";
 import { TerminalTrustService } from "./terminal-trust.service";
 import { object } from "./terminal-wire";
@@ -24,6 +25,7 @@ export class PinSignInService {
     private readonly trust: TerminalTrustService,
     private readonly proofs: AttendanceProofsService,
     private readonly auth: AuthService,
+    private readonly alerts: PinAlerts,
   ) {}
 
   begin(raw: unknown): Promise<TerminalPinSessionCommand> {
@@ -53,7 +55,11 @@ export class PinSignInService {
       const login = await this.auth.issueCounterSession(tx, session.staffUserId, tenantId, session.workSessionId, meta);
       return { outcome: finished.outcome, session, login };
     });
-    if (result.outcome !== "signed_in") pinRefusal(result.outcome, result.lockedUntil);
+    if (result.outcome !== "signed_in") {
+      if (result.switchedOff)
+        await this.alerts.switchedOff(result.tenantId, result.branchId, result.staffUserId);
+      pinRefusal(result.outcome, result.lockedUntil);
+    }
     const { session, login } = result;
     const { user } = login;
     return {

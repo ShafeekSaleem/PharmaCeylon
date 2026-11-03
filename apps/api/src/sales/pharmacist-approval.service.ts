@@ -10,6 +10,8 @@ import { AuditService } from "../audit/audit.service";
 import { PERMISSION_CATALOG } from "../security/permission-catalog";
 import { PermissionsService } from "../security/permissions.service";
 import { PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
+import { PinAlerts } from "../terminals/pin-alerts.service";
+import { MAX_PIN_LOCKOUTS, recordWrongPin } from "../terminals/pos-pin";
 
 /** Static fallback — mirrors `sales.approve_controlled`'s default grant in permission-catalog.ts. */
 const APPROVER_ROLES: RoleName[] = [
@@ -20,9 +22,6 @@ const APPROVER_ROLES: RoleName[] = [
 
 const APPROVE_CONTROLLED_PERMISSION = "sales.approve_controlled";
 
-const MAX_PIN_FAILURES = 5;
-const PIN_LOCK_MINUTES = 15;
-
 type BranchRoleEntry = { branchId: string; role: RoleName; roleId?: string | null };
 
 @Injectable()
@@ -32,6 +31,7 @@ export class PharmacistApprovalService {
     private readonly audit: AuditService,
     private readonly permissions: PermissionsService,
     private readonly registrations: PharmacistRegistrationService,
+    private readonly alerts: PinAlerts,
   ) {}
 
   /**
@@ -182,6 +182,8 @@ export class PharmacistApprovalService {
         posPinHash,
         failedPosPinAttempts: 0,
         posPinLockedUntil: null,
+        // Setting a PIN takes the password, so it also ends a switch-off.
+        posPinLockouts: 0,
         posPinVersion: { increment: 1 },
       },
     });
@@ -226,6 +228,7 @@ export class PharmacistApprovalService {
         posPinHash: null,
         failedPosPinAttempts: 0,
         posPinLockedUntil: null,
+        posPinLockouts: 0,
         posPinVersion: { increment: 1 },
       },
     });
@@ -242,7 +245,9 @@ export class PharmacistApprovalService {
 
   /**
    * Verify pharmacist co-sign. Prefers POS PIN when set; otherwise login password.
-   * Failures use a separate lockout counter so till mistakes don't lock the login account.
+   * Failures use the PIN's lockout (`terminals/pos-pin.ts`), not the login account's, so till
+   * mistakes don't lock anyone out of signing in; and that lockout escalates, so a signed-in
+   * counter can't guess at a co-signer's PIN indefinitely either.
    */
   async verifyApproverPin(
     tenantId: string,
@@ -267,6 +272,7 @@ export class PharmacistApprovalService {
         posPinHash: true,
         failedPosPinAttempts: true,
         posPinLockedUntil: true,
+        posPinLockouts: true,
         userBranchRoles: {
           where: {
             tenantId,
@@ -291,6 +297,14 @@ export class PharmacistApprovalService {
       );
     }
 
+    // Also when no PIN is set: the password stands in for it here, and is guessed at the same way.
+    if (user.posPinLockouts >= MAX_PIN_LOCKOUTS) {
+      throw new ForbiddenException({
+        code: "APPROVER_PIN_SWITCHED_OFF",
+        message:
+          "Too many wrong attempts for this approver. They need to sign in with their password before they can co-sign again. Use Hold for pharmacist meanwhile.",
+      });
+    }
     if (user.posPinLockedUntil && user.posPinLockedUntil.getTime() > Date.now()) {
       throw new ForbiddenException({
         code: "APPROVER_PIN_LOCKED",
@@ -304,19 +318,9 @@ export class PharmacistApprovalService {
       : await bcrypt.compare(pin, user.passwordHash);
 
     if (!secretOk) {
-      const failures = user.failedPosPinAttempts + 1;
-      const locked =
-        failures >= MAX_PIN_FAILURES
-          ? new Date(Date.now() + PIN_LOCK_MINUTES * 60_000)
-          : null;
-      // tenant-scope: verified-parent — the approver's tenant membership was verified above.
-      await this.prisma.appUser.update({
-        where: { id: user.id },
-        data: {
-          failedPosPinAttempts: failures,
-          posPinLockedUntil: locked,
-        },
-      });
+      const { failures, lockedUntil, switchedOff } = await this.prisma.$transaction((tx) =>
+        recordWrongPin(tx, user.id, new Date()),
+      );
       await this.audit.log({
         tenantId,
         branchId,
@@ -324,8 +328,9 @@ export class PharmacistApprovalService {
         eventName: "sale.pharmacist_pin_failed",
         entityName: "app_user",
         entityId: user.id,
-        payload: { failures, locked: Boolean(locked) },
+        payload: { failures, locked: Boolean(lockedUntil), switchedOff },
       });
+      if (switchedOff) await this.alerts.switchedOff(tenantId, branchId, user.id);
       throw new ForbiddenException({
         code: "APPROVER_PIN_INCORRECT",
         message: user.posPinHash

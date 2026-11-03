@@ -76,6 +76,8 @@ const MESSAGES: Record<string, string> = {
   PIN_INCORRECT: "That PIN is not right.",
   PIN_LOCKED:
     "Too many wrong PINs. Wait 15 minutes or sign in with your password.",
+  PIN_SWITCHED_OFF:
+    "Too many wrong PINs. Sign in with your email and password to use your PIN again.",
   PIN_NOT_SET: "Set your PIN first.",
   PIN_NOT_PREPARED:
     "This counter isn't ready for that PIN. Sign in with your email and password, then prepare your PIN here.",
@@ -128,6 +130,8 @@ export class TerminalService {
   private branches: Branch[] = [];
   /** People the server refused for a locked PIN here, until about when the lock ends. */
   private readonly serverPinLocks = new Map<string, number>();
+  /** People whose PIN the server has switched off, until they sign in here with their password. */
+  private readonly serverPinsOff = new Set<string>();
   private readonly now: () => Date;
 
   constructor(private readonly deps: TerminalServiceDeps) {
@@ -194,6 +198,9 @@ export class TerminalService {
     if (this.staff) await this.signOut("switch_user");
     else if (this.deps.api.user) await this.deps.api.logout();
     const user = this.deps.api.adopt(login);
+    // The server takes a right password as the end of any lock on their PIN.
+    this.serverPinLocks.delete(user.id);
+    this.serverPinsOff.delete(user.id);
     try {
       let device = this.deps.store.read();
       if (device?.status === "pending") {
@@ -286,10 +293,13 @@ export class TerminalService {
         const lockedUntil = Date.parse(String(error.body.lockedUntil));
         if (error.code === "PIN_LOCKED" && lockedUntil > this.now().getTime())
           this.serverPinLocks.set(staffUserId, lockedUntil);
+        if (error.code === "PIN_SWITCHED_OFF")
+          this.serverPinsOff.add(staffUserId);
       }
       throw error;
     }
     this.serverPinLocks.delete(staffUserId);
+    this.serverPinsOff.delete(staffUserId);
     // The new person is confirmed, and the server has already superseded whoever was here.
     if (this.staff)
       this.deps.store.recordSessionClosed(
@@ -318,12 +328,19 @@ export class TerminalService {
       const serverLock = this.serverPinLocks.get(person.staffUserId) ?? 0;
       const signedIn = this.staff?.staffUserId === person.staffUserId;
       const lockEnds = Math.max(now + person.lockRemainingMs, serverLock);
-      const locked = lockEnds > now;
+      const pinOff = this.serverPinsOff.has(person.staffUserId);
+      const locked = !pinOff && lockEnds > now;
       return {
         staffUserId: person.staffUserId,
         staffName: person.staffName,
         role: person.role,
-        state: signedIn ? "signed_in" : locked ? "locked" : "ready",
+        state: signedIn
+          ? "signed_in"
+          : pinOff
+            ? "pin_off"
+            : locked
+              ? "locked"
+              : "ready",
         lockedUntil: locked ? new Date(lockEnds).toISOString() : null,
       };
     });

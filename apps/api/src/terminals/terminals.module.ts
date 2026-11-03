@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { AttendanceProofsService } from "./attendance-proofs.service";
 import { BusinessHoursAcknowledgements } from "./business-hours-acknowledgements.service";
 import { EnrollmentCodesController } from "./enrollment-codes.controller";
@@ -11,6 +12,7 @@ import { OfflineAssignmentController } from "./offline-assignment.controller";
 import { OfflineAssignmentService } from "./offline-assignment.service";
 import { OfflineSupportRecords } from "./offline-support-records.service";
 import { OperatingHoursEvidence } from "./operating-hours.evidence";
+import { PinAlerts } from "./pin-alerts.service";
 import { PinSignInService } from "./pin-sign-in.service";
 import { StaffCredentialsService } from "./staff-credentials.service";
 import { TerminalEnrollmentController } from "./terminal-enrollment.controller";
@@ -18,7 +20,7 @@ import { TerminalEnrollmentService } from "./terminal-enrollment.service";
 import { TerminalTrustService } from "./terminal-trust.service";
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, NotificationsModule],
   controllers: [
     OfflineAssignmentController,
     OfflineActivationController,
@@ -36,6 +38,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     TerminalEnrollmentService,
     StaffCredentialsService,
     PinSignInService,
+    PinAlerts,
     EnrollmentCodesService,
     OfflineActivationClearance,
     OfflineActivationService,
@@ -47,6 +50,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     BusinessHoursAcknowledgements,
     OfflineSupportRecords,
     OfflineAssignmentService,
+    PinAlerts,
   ],
 })
 export class TerminalsModule {}

@@ -41,6 +41,7 @@ import { PermissionsService } from "../src/security/permissions.service";
 import { AccessService, type ActorAccess } from "../src/security/access.service";
 import { ManagementApprovalsService } from "../src/security/management-approvals.service";
 import { NotificationsService } from "../src/notifications/notifications.service";
+import { PinAlerts } from "../src/terminals/pin-alerts.service";
 import { PharmacistRegistrationService } from "../src/clinical/pharmacist-registration.service";
 import { PharmacistApprovalService } from "../src/sales/pharmacist-approval.service";
 import { SalesService } from "../src/sales/sales.service";
@@ -141,7 +142,7 @@ const sales = new SalesService(
   prisma,
   audit,
   new TaxService(config),
-  new PharmacistApprovalService(prisma, audit, permissions, registrations),
+  new PharmacistApprovalService(prisma, audit, permissions, registrations, new PinAlerts(prisma, notifications)),
   // The demo tenant is set up; the readiness gate is for brand-new pharmacies.
   { assertCanSell: async () => undefined } as never,
   stock,

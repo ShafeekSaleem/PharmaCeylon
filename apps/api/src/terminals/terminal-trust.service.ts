@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Prisma, type TerminalChallenge } from "@prisma/client";
 import type {
   OnlineTerminalCommand,
+  Signed,
   TerminalEnrollmentCommand,
   TerminalIdentity,
   TerminalPinSessionCommand,
@@ -13,7 +14,7 @@ import { AccessService } from "../security/access.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { MUTATION_ACTIONS } from "../security/mutation-actions";
 import { LocalAttendanceVerifier } from "./local-attendance.verifier";
-import { checkPosPin, type PinCheck } from "./pos-pin";
+import { checkPosPin, pinRefusal, pinUnavailable, type PinCheck } from "./pos-pin";
 import {
   boundedCanonical,
   CHALLENGE_LIFETIME_MS,
@@ -36,6 +37,9 @@ import {
 type Tx = Prisma.TransactionClient;
 /** Whose challenge it is: the signed-in caller, or the person a PIN sign-in names. */
 type Actor = Pick<RequestUser, "tenantId" | "userId">;
+/** An open PIN challenge is handed out again while at least this much of its life is left, so the
+ * counter always has time to finish it. */
+const PIN_CHALLENGE_REUSE_MIN_MS = CHALLENGE_LIFETIME_MS / 2;
 
 /** Crockford base32 without I, L, O, U: easy to read aloud and type at a counter. */
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -751,6 +755,7 @@ export class TerminalTrustService {
         posPinHash: true,
         posPinVersion: true,
         posPinLockedUntil: true,
+        posPinLockouts: true,
       },
     });
     if (!account) denied("PERMISSION_DENIED");
@@ -767,9 +772,67 @@ export class TerminalTrustService {
   }
 
   /**
+   * The public PIN routes check the device signature against a plain read before `enrollment()`
+   * takes the counter's row lock, so a request nobody signed can't hold up the real counter's
+   * sign-ins, commands or revocation. The locked read is checked again after.
+   */
+  private async signedByEnrolledKey(tx: Tx, identity: TerminalIdentity, envelope: Signed<unknown>) {
+    const enrollment = await tx.terminalEnrollment.findFirst({
+      where: {
+        tenantId: identity.tenantId,
+        branchId: identity.branchId,
+        id: identity.enrollmentId,
+        terminalId: identity.terminalId,
+        keyId: identity.keyId,
+      },
+      select: { publicKeyHex: true },
+    });
+    if (!enrollment) denied("TERMINAL_REVOKED");
+    verifySignature(envelope, enrollment.publicKeyHex);
+  }
+
+  /**
+   * A challenge this counter was already given for this person, with enough life left to finish
+   * and the person's PIN and tokens unchanged since. Handing it out again means replaying a
+   * captured request adds no rows: the counter can still finish it, and a replayer can't without
+   * the key and the PIN.
+   */
+  private async openPinChallenge(
+    tx: Tx,
+    actor: Actor,
+    identity: TerminalIdentity,
+    enrollment: { terminal: { registerId: string | null; tillId: string | null } },
+    account: { posPinVersion: number; tokenVersion: number },
+  ): Promise<TerminalPinSessionCommand | null> {
+    const open = await tx.terminalChallenge.findFirst({
+      where: {
+        tenantId: actor.tenantId,
+        branchId: identity.branchId,
+        actorUserId: actor.userId,
+        purpose: "pin_session",
+        consumedAt: null,
+        expiresAt: { gt: new Date(Date.now() + PIN_CHALLENGE_REUSE_MIN_MS) },
+        payload: { path: ["identity", "enrollmentId"], equals: identity.enrollmentId },
+      },
+      orderBy: { expiresAt: "desc" },
+    });
+    if (!open) return null;
+    const payload = open.payload as unknown as TerminalPinSessionCommand;
+    if (
+      boundedCanonical(payload.identity) !== boundedCanonical(identity) ||
+      payload.session.registerId !== enrollment.terminal.registerId ||
+      payload.session.tillId !== enrollment.terminal.tillId ||
+      payload.pinVersion !== account.posPinVersion ||
+      payload.tokenVersion !== account.tokenVersion
+    )
+      return null;
+    return payload;
+  }
+
+  /**
    * D-W5 PIN sign-in, step 1. Nobody is signed in, so the enrolled key alone asks for a challenge
-   * for one prepared person. A replayed request only yields another challenge, which cannot be
-   * finished without the key and the person's PIN.
+   * for one prepared person whose PIN can be tried now. A replayed request gets the same open
+   * challenge back, which cannot be finished without the key and the person's PIN.
    */
   async beginPinSession(tx: Tx, raw: unknown): Promise<TerminalPinSessionCommand> {
     const envelope = parseEnvelope(raw);
@@ -778,9 +841,15 @@ export class TerminalTrustService {
     const identity = parseIdentity(p.identity);
     const staffUserId = uuid(p.staffUserId);
     if (envelope.keyId !== identity.keyId) denied("IDENTITY_MISMATCH");
+    await this.signedByEnrolledKey(tx, identity, envelope);
     const enrollment = await this.enrollment(tx, identity, identity.branchId, identity);
     verifySignature(envelope, enrollment.publicKeyHex);
     const { actor, account } = await this.pinStaff(tx, identity, staffUserId);
+    // A locked or switched-off PIN can't be tried, so it gets no challenge to spend.
+    const unavailable = pinUnavailable(account, new Date());
+    if (unavailable) pinRefusal(unavailable.outcome, unavailable.lockedUntil);
+    const open = await this.openPinChallenge(tx, actor, identity, enrollment, account);
+    if (open) return open;
     return this.challenge(tx, actor, identity.branchId, "pin_session", {
       contractVersion: 1,
       kind: "terminal_pin_session",
@@ -810,7 +879,15 @@ export class TerminalTrustService {
     recordAttendance: (challenge: TerminalChallenge, publicKeyHex: string) => Promise<string>,
   ): Promise<
     | { outcome: "signed_in"; tenantId: string; session: TerminalPinSessionCommand["session"] }
-    | { outcome: Exclude<PinCheck, "ok">; lockedUntil: Date | null }
+    | {
+        outcome: Exclude<PinCheck, "ok">;
+        lockedUntil: Date | null;
+        /** This guess switched the PIN off: the caller alerts once the refusal has committed. */
+        switchedOff: boolean;
+        tenantId: string;
+        branchId: string;
+        staffUserId: string;
+      }
   > {
     const envelope = parseEnvelope(raw);
     const p = object(envelope.payload, [
@@ -834,9 +911,10 @@ export class TerminalTrustService {
     const identity = parseIdentity(p.identity);
     const session = parseSession(p.session);
     const { branchId } = identity;
+    if (envelope.keyId !== identity.keyId) denied("SESSION_INVALID");
+    await this.signedByEnrolledKey(tx, identity, envelope);
     const enrollment = await this.enrollment(tx, identity, branchId, identity);
     if (
-      envelope.keyId !== identity.keyId ||
       session.registerId !== enrollment.terminal.registerId ||
       session.tillId !== enrollment.terminal.tillId
     )
@@ -861,7 +939,7 @@ export class TerminalTrustService {
       denied("SESSION_INVALID");
     await this.consume(tx, actor, branchId, challenge.id);
     const checked = await checkPosPin(tx, account, pin, new Date());
-    if (checked !== "ok") {
+    if (checked.outcome !== "ok") {
       await this.audit.log(
         {
           tenantId: actor.tenantId,
@@ -870,11 +948,18 @@ export class TerminalTrustService {
           eventName: "terminal.pin_sign_in_refused",
           entityName: "terminal_enrollment",
           entityId: identity.enrollmentId,
-          payload: { outcome: checked, attendanceId },
+          payload: { outcome: checked.outcome, switchedOff: checked.switchedOff, attendanceId },
         },
         tx,
       );
-      return { outcome: checked, lockedUntil: account.posPinLockedUntil };
+      return {
+        outcome: checked.outcome,
+        lockedUntil: checked.lockedUntil,
+        switchedOff: checked.switchedOff,
+        tenantId: actor.tenantId,
+        branchId,
+        staffUserId: actor.userId,
+      };
     }
     await this.bind(tx, actor, identity, session, account.tokenVersion, {
       enrollmentId: identity.enrollmentId,
