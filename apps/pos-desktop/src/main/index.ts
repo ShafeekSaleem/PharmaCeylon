@@ -152,6 +152,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           staffSession: null,
           pin: null,
           locked: false,
+          counterStaff: [],
           branches: [],
           windowsSession: { protocol: windows.protocol, remoteSession: windows.remoteSession },
         };
@@ -264,6 +265,8 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       preparePin: ({ pin }) => act(logger, "preparePin", (service) => service.preparePin(pin)),
       lock: () => act(logger, "lock", (service) => service.lock()),
       unlock: ({ pin }) => act(logger, "unlock", (service) => service.unlock(pin)),
+      pinSignIn: ({ staffUserId, pin }) =>
+        act(logger, "pinSignIn", (service) => service.signInWithPin(staffUserId, pin)),
     },
     { isTrustedSender: (url) => isAppUrl(url, devServerOrigin), logger },
   );

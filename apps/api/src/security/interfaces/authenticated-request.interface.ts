@@ -18,6 +18,11 @@ export type RequestUser = {
   authMethod: "cookie" | "bearer";
   /** Validated access-token version; mandatory for fresh terminal authorization. */
   tokenVersion?: number;
+  /**
+   * D-W5: set when a PIN at an enrolled counter opened this login. It then reaches only
+   * `@CounterRoute()` handlers, at this branch, while this counter staff session is open.
+   */
+  counter?: { workSessionId: string; branchId: string };
 };
 
 /** Omit `cookies` so we can keep it optional before `cookie-parser` runs. */

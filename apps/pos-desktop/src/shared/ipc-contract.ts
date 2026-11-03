@@ -99,6 +99,22 @@ export const deviceStateSchema = z.object({
   /** The signed-in person's PIN on this counter; null when nobody is signed in. */
   pin: z.object({ set: z.boolean(), prepared: z.boolean(), lockedUntil: z.string().nullable() }).nullable(),
   locked: z.boolean(),
+  /**
+   * The people this counter can sign in with a PIN (D-W5): everyone prepared here, the signed-in
+   * person included. `role` is their branch role when they prepared; `lockedUntil` is set while
+   * wrong PINs have locked them out (null with `locked` when the server's lock time isn't known).
+   * `pin_off` is the server switching their PIN off after repeated locks: it has no end, and works
+   * again once they sign in with their password.
+   */
+  counterStaff: z.array(
+    z.object({
+      staffUserId: uuid,
+      staffName: z.string(),
+      role: z.string().nullable(),
+      state: z.enum(["signed_in", "ready", "locked", "pin_off"]),
+      lockedUntil: z.string().nullable(),
+    }),
+  ),
   branches: z.array(branchSchema),
   windowsSession: z.object({ protocol: z.enum(["console", "rdp", "unknown"]), remoteSession: z.boolean() }),
 });
@@ -412,6 +428,12 @@ export const ipcContract = {
   preparePin: { channel: "pos:staff:prepare-pin", input: z.object({ pin }), output: result(deviceStateSchema) },
   lock: { channel: "pos:staff:lock", input: noInput, output: result(deviceStateSchema) },
   unlock: { channel: "pos:staff:unlock", input: z.object({ pin }), output: result(deviceStateSchema) },
+  /** Signs a prepared person in with their PIN, checked by the server; it ends the current session. */
+  pinSignIn: {
+    channel: "pos:staff:pin-sign-in",
+    input: z.object({ staffUserId: uuid, pin }),
+    output: result(deviceStateSchema),
+  },
   enroll: {
     channel: "pos:enrollment:enroll",
     input: z.object({ branchId: uuid, registerId: uuid, label }),

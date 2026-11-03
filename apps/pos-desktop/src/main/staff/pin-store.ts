@@ -19,6 +19,7 @@ export type PinCheck = "ok" | "wrong" | "locked" | "not_prepared";
 type Row = {
   staff_user_id: string;
   staff_name: string;
+  role: string | null;
   enrollment_id: string;
   pin_version: number;
   salt: Buffer;
@@ -99,9 +100,31 @@ export class PinStore {
     return row && row.enrollment_id === enrollmentId ? row.pin_version : null;
   }
 
+  /** Everyone this counter holds a current verifier for, for the lock screen's staff list. */
+  prepared(enrollmentId: string): Array<{
+    staffUserId: string;
+    staffName: string;
+    role: string | null;
+    lockRemainingMs: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM staff_credential WHERE enrollment_id = ? ORDER BY staff_name COLLATE NOCASE",
+      )
+      .all(enrollmentId) as Row[];
+    return rows.map((row) => ({
+      staffUserId: row.staff_user_id,
+      staffName: row.staff_name,
+      role: row.role,
+      lockRemainingMs: this.remainingLock(row),
+    }));
+  }
+
   save(input: {
     staffUserId: string;
     staffName: string;
+    /** Their role at this branch when they prepared, shown on the lock screen. */
+    role: string | null;
     enrollmentId: string;
     pinVersion: number;
     pin: string;
@@ -111,9 +134,9 @@ export class PinStore {
     const salt = randomBytes(16);
     this.db
       .prepare(
-        `INSERT INTO staff_credential (staff_user_id, staff_name, enrollment_id, pin_version, salt, verifier, prepared_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(staff_user_id) DO UPDATE SET staff_name = excluded.staff_name, enrollment_id = excluded.enrollment_id,
+        `INSERT INTO staff_credential (staff_user_id, staff_name, role, enrollment_id, pin_version, salt, verifier, prepared_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(staff_user_id) DO UPDATE SET staff_name = excluded.staff_name, role = excluded.role, enrollment_id = excluded.enrollment_id,
            pin_version = excluded.pin_version, salt = excluded.salt, verifier = excluded.verifier,
            prepared_at = excluded.prepared_at, failed_attempts = 0, locked_until = NULL,
            lock_remaining_ms = 0, lockouts = 0`,
@@ -121,6 +144,7 @@ export class PinStore {
       .run(
         input.staffUserId,
         input.staffName,
+        input.role,
         input.enrollmentId,
         input.pinVersion,
         salt,

@@ -20,6 +20,8 @@ export type AccessTokenPayload = {
   /** Bumped on logout-all / role change / refresh-reuse ⇒ invalidates outstanding access tokens. */
   tokenVersion: number;
   type: "access";
+  /** D-W5: a PIN at an enrolled counter opened this login; see `RequestUser.counter`. */
+  counterSessionId?: string;
   iat?: number;
   exp?: number;
 };

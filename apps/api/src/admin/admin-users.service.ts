@@ -12,6 +12,7 @@ import { AuditService } from "../audit/audit.service";
 import { AuthService } from "../auth/auth.service";
 import { UserContextService } from "../auth/user-context.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { MAX_PIN_LOCKOUTS } from "../terminals/pos-pin";
 import { AssignBranchRoleDto } from "./dto/assign-branch-role.dto";
 import { CreateTenantUserDto } from "./dto/create-tenant-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
@@ -450,6 +451,7 @@ export class AdminUsersService {
         posPinHash: true,
         failedPosPinAttempts: true,
         posPinLockedUntil: true,
+        posPinLockouts: true,
         posPinVersion: true,
       },
     });
@@ -490,6 +492,8 @@ export class AdminUsersService {
         isSet: pinSet,
         isLocked: Boolean(target.posPinLockedUntil && target.posPinLockedUntil.getTime() > now.getTime()),
         lockedUntil: target.posPinLockedUntil,
+        // Off until they sign in with their password; a reset here also ends it.
+        switchedOff: target.posPinLockouts >= MAX_PIN_LOCKOUTS,
         failedAttempts: target.failedPosPinAttempts,
         version: target.posPinVersion,
       },
@@ -531,7 +535,13 @@ export class AdminUsersService {
     // tenant-scope: verified-parent — target was resolved through this tenant membership.
     await this.prisma.appUser.update({
       where: { id: targetUserId },
-      data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null, posPinVersion: { increment: 1 } },
+      data: {
+        posPinHash: null,
+        failedPosPinAttempts: 0,
+        posPinLockedUntil: null,
+        posPinLockouts: 0,
+        posPinVersion: { increment: 1 },
+      },
     });
 
     await this.audit.log({

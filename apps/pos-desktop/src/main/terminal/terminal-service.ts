@@ -9,6 +9,9 @@ import type {
   TerminalEnrollmentCommand,
   TerminalEnrollmentStatusView,
   TerminalIdentity,
+  TerminalPinSessionCommand,
+  TerminalPinSessionRequest,
+  TerminalPinSignInResult,
   TerminalSessionCommand,
   TerminalStaffCredentialView,
   WindowsSessionEvidence,
@@ -73,7 +76,13 @@ const MESSAGES: Record<string, string> = {
   PIN_INCORRECT: "That PIN is not right.",
   PIN_LOCKED:
     "Too many wrong PINs. Wait 15 minutes or sign in with your password.",
+  PIN_SWITCHED_OFF:
+    "Too many wrong PINs. Sign in with your email and password to use your PIN again.",
   PIN_NOT_SET: "Set your PIN first.",
+  PIN_NOT_PREPARED:
+    "This counter isn't ready for that PIN. Sign in with your email and password, then prepare your PIN here.",
+  COUNTER_SESSION_ONLY:
+    "A PIN sign-in only works for selling here. Sign in with your email and password to do this.",
   PASSWORD_INCORRECT: "Your login password is not right.",
   LOCKED: "The counter is locked. Unlock it first.",
   OFFLINE_AUTHORIZATION_NOT_CURRENT:
@@ -119,6 +128,10 @@ export class TerminalService {
   private credential: TerminalStaffCredentialView | null = null;
   private locked = false;
   private branches: Branch[] = [];
+  /** People the server refused for a locked PIN here, until about when the lock ends. */
+  private readonly serverPinLocks = new Map<string, number>();
+  /** People whose PIN the server has switched off, until they sign in here with their password. */
+  private readonly serverPinsOff = new Set<string>();
   private readonly now: () => Date;
 
   constructor(private readonly deps: TerminalServiceDeps) {
@@ -156,6 +169,10 @@ export class TerminalService {
           ? this.pinState(device.identity.enrollmentId)
           : null,
       locked: this.locked,
+      counterStaff:
+        device?.status === "active"
+          ? this.counterStaff(device.identity.enrollmentId)
+          : [],
       branches:
         operator && (!device || device.status !== "active")
           ? this.branches
@@ -181,6 +198,9 @@ export class TerminalService {
     if (this.staff) await this.signOut("switch_user");
     else if (this.deps.api.user) await this.deps.api.logout();
     const user = this.deps.api.adopt(login);
+    // The server takes a right password as the end of any lock on their PIN.
+    this.serverPinLocks.delete(user.id);
+    this.serverPinsOff.delete(user.id);
     try {
       let device = this.deps.store.read();
       if (device?.status === "pending") {
@@ -203,6 +223,127 @@ export class TerminalService {
       throw error;
     }
     return this.state();
+  }
+
+  /**
+   * D-W5: signs a person prepared on this counter in with their PIN. The server checks the PIN
+   * (and its lockout) against its own verifier; the device key and a console attendance proof
+   * stand in for the password. The login it returns works only at this counter. The signed-in
+   * person's own PIN just unlocks, locally, so that keeps working offline.
+   */
+  async signInWithPin(staffUserId: string, pin: string): Promise<DeviceState> {
+    if (this.staff?.staffUserId === staffUserId) return this.unlock(pin);
+    const device = this.requireActive();
+    const key = this.requireKey();
+    const { enrollmentId } = device.identity;
+    if (this.deps.pins.preparedVersion(staffUserId, enrollmentId) === null)
+      throw new ActionFailure("PIN_NOT_PREPARED", MESSAGES.PIN_NOT_PREPARED!);
+    const windowsSession = this.requireConsole();
+    await this.refuseRemoteTools();
+    const request: TerminalPinSessionRequest = {
+      contractVersion: 1,
+      kind: "terminal_pin_session_request",
+      identity: device.identity,
+      staffUserId,
+    };
+    let result: TerminalPinSignInResult;
+    try {
+      const challenge =
+        await this.deps.api.requestWithoutToken<TerminalPinSessionCommand>(
+          "POST",
+          "/terminals/pin-sessions/challenge",
+          key.sign(request, "command"),
+        );
+      if (
+        !this.sameIdentity(challenge.identity, device.identity) ||
+        challenge.session.staffUserId !== staffUserId
+      )
+        throw new ActionFailure(
+          "CHALLENGE_INVALID",
+          "The server returned a challenge for a different counter.",
+        );
+      const attestation = buildAttestation({
+        challenge,
+        purpose: "pin_session",
+        actorUserId: staffUserId,
+        windowsSession,
+        appVersion: this.deps.appVersion,
+        now: this.now().getTime(),
+      });
+      result = await this.deps.api.requestWithoutToken<TerminalPinSignInResult>(
+        "POST",
+        "/terminals/pin-sessions",
+        {
+          envelope: key.sign(challenge, "command"),
+          attendance: key.sign(attestation, "attendance"),
+          pin,
+        },
+      );
+    } catch (error) {
+      if (error instanceof ApiError) {
+        // A PIN changed or reset elsewhere, or the person may no longer work here: this counter's
+        // verifier is no use any more, so they stop being offered.
+        if (
+          error.code === "PIN_NOT_PREPARED" ||
+          error.code === "PIN_NOT_SET" ||
+          error.code === "PERMISSION_DENIED"
+        )
+          this.deps.pins.forget(staffUserId);
+        // The server says when its lock ends; it may have started at another counter.
+        const lockedUntil = Date.parse(String(error.body.lockedUntil));
+        if (error.code === "PIN_LOCKED" && lockedUntil > this.now().getTime())
+          this.serverPinLocks.set(staffUserId, lockedUntil);
+        if (error.code === "PIN_SWITCHED_OFF")
+          this.serverPinsOff.add(staffUserId);
+      }
+      throw error;
+    }
+    this.serverPinLocks.delete(staffUserId);
+    this.serverPinsOff.delete(staffUserId);
+    // The new person is confirmed, and the server has already superseded whoever was here.
+    if (this.staff)
+      this.deps.store.recordSessionClosed(
+        this.staff.workSessionId,
+        "switch_user",
+        this.now(),
+      );
+    if (this.deps.api.user) await this.deps.api.logout();
+    this.staff = null;
+    this.credential = null;
+    const user = this.deps.api.adopt({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    });
+    await this.adoptSession(user, result.session.workSessionId);
+    // The server just confirmed this PIN at its current version here: refresh the verifier,
+    // which also clears any local lockout.
+    this.keepVerifier(this.staff!, enrollmentId, this.credential!, pin);
+    return this.state();
+  }
+
+  private counterStaff(enrollmentId: string): DeviceState["counterStaff"] {
+    const now = this.now().getTime();
+    return this.deps.pins.prepared(enrollmentId).map((person) => {
+      const serverLock = this.serverPinLocks.get(person.staffUserId) ?? 0;
+      const signedIn = this.staff?.staffUserId === person.staffUserId;
+      const lockEnds = Math.max(now + person.lockRemainingMs, serverLock);
+      const pinOff = this.serverPinsOff.has(person.staffUserId);
+      const locked = !pinOff && lockEnds > now;
+      return {
+        staffUserId: person.staffUserId,
+        staffName: person.staffName,
+        role: person.role,
+        state: signedIn
+          ? "signed_in"
+          : pinOff
+            ? "pin_off"
+            : locked
+              ? "locked"
+              : "ready",
+        lockedUntil: locked ? new Date(lockEnds).toISOString() : null,
+      };
+    });
   }
 
   async signOut(reason = "sign_out"): Promise<DeviceState> {
@@ -312,11 +453,21 @@ export class TerminalService {
       this.deps.pins.save({
         staffUserId: staff.staffUserId,
         staffName: staff.staffName,
+        role: this.roleHere(),
         enrollmentId,
         pinVersion: credential.pinVersion,
         pin,
         now: this.now(),
       });
+  }
+
+  /** The signed-in person's role at this counter's branch, for the lock screen. */
+  private roleHere(): string | null {
+    const branchId = this.deps.store.read()?.identity.branchId;
+    return (
+      this.deps.api.user?.branchRoles.find((r) => r.branchId === branchId)
+        ?.role ?? null
+    );
   }
 
   private pinState(enrollmentId: string): DeviceState["pin"] {
@@ -706,18 +857,7 @@ export class TerminalService {
         body: { identity: device.identity },
       },
     );
-    const fields = [
-      "tenantId",
-      "branchId",
-      "terminalId",
-      "enrollmentId",
-      "keyId",
-    ] as const;
-    if (
-      fields.some(
-        (field) => challenge.identity[field] !== device.identity[field],
-      )
-    )
+    if (!this.sameIdentity(challenge.identity, device.identity))
       throw new ActionFailure(
         "CHALLENGE_INVALID",
         "The server returned a challenge for a different counter.",
@@ -740,6 +880,15 @@ export class TerminalService {
         },
       },
     );
+    await this.adoptSession(user, session.workSessionId);
+  }
+
+  /** Makes a session the server just opened this counter's own: recorded, unlocked, PIN known. */
+  private async adoptSession(
+    user: AuthUser,
+    workSessionId: string,
+  ): Promise<void> {
+    const device = this.requireActive();
     const stale = this.deps.store.openSession();
     if (stale)
       this.deps.store.recordSessionClosed(
@@ -749,14 +898,14 @@ export class TerminalService {
       );
     const openedAt = this.now();
     this.deps.store.recordSessionOpened({
-      workSessionId: session.workSessionId,
+      workSessionId,
       staffUserId: user.id,
       staffName: user.fullName,
       enrollmentId: device.identity.enrollmentId,
       now: openedAt,
     });
     this.staff = {
-      workSessionId: session.workSessionId,
+      workSessionId,
       staffUserId: user.id,
       staffName: user.fullName,
       openedAt: openedAt.toISOString(),
@@ -764,7 +913,7 @@ export class TerminalService {
     this.locked = false;
     this.credential = await this.deps.api.request<TerminalStaffCredentialView>(
       "GET",
-      `/terminals/sessions/${session.workSessionId}/credential`,
+      `/terminals/sessions/${workSessionId}/credential`,
       { branchId: device.identity.branchId },
     );
     // A PIN changed or reset elsewhere makes this counter's verifier useless; drop it now.
@@ -777,6 +926,28 @@ export class TerminalService {
       (!this.credential.pinSet || local !== this.credential.pinVersion)
     )
       this.deps.pins.forget(user.id);
+  }
+
+  private sameIdentity(a: TerminalIdentity, b: TerminalIdentity): boolean {
+    const fields = [
+      "tenantId",
+      "branchId",
+      "terminalId",
+      "enrollmentId",
+      "keyId",
+    ] as const;
+    return fields.every((field) => a[field] === b[field]);
+  }
+
+  /** Attendance needs the computer's own screen; say so before asking the server. */
+  private requireConsole(): WindowsSessionEvidence {
+    const windowsSession = this.deps.readWindowsSession();
+    if (windowsSession.protocol !== "console" || windowsSession.remoteSession)
+      throw new ActionFailure(
+        "REMOTE_SESSION_DENIED",
+        MESSAGES.REMOTE_SESSION_DENIED!,
+      );
+    return windowsSession;
   }
 
   /** A pending enrollment is promoted if the server accepted it, and discarded if it did not. */
@@ -834,12 +1005,7 @@ export class TerminalService {
     user: AuthUser,
     branchId: string,
   ): Promise<LocalAttendanceProofReceipt> {
-    const windowsSession = this.deps.readWindowsSession();
-    if (windowsSession.protocol !== "console" || windowsSession.remoteSession)
-      throw new ActionFailure(
-        "REMOTE_SESSION_DENIED",
-        MESSAGES.REMOTE_SESSION_DENIED!,
-      );
+    const windowsSession = this.requireConsole();
     await this.refuseRemoteTools();
     const attestation = buildAttestation({
       challenge,

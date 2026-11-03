@@ -51,14 +51,14 @@ describe("ApiSession", () => {
     expect(fetchImpl.mock.calls[3]![1].headers.Authorization).toBe("Bearer a2");
   });
 
-  it("keeps the server's refusal code and marks transport failures uncertain", async () => {
+  it("keeps the server's refusal and marks transport failures uncertain", async () => {
     const fetchImpl = jest
       .fn<ReturnType<FetchLike>, Parameters<FetchLike>>()
       .mockResolvedValueOnce(
         reply(200, { accessToken: "a1", refreshToken: "r1", user }),
       )
       .mockResolvedValueOnce(
-        reply(403, { code: "REMOTE_SESSION_DENIED", message: "no" }),
+        reply(403, { code: "PIN_LOCKED", message: "no", lockedUntil: "2026-11-03T10:15:00.000Z" }),
       )
       .mockRejectedValueOnce(new Error("socket hang up"));
     const api = new ApiSession(() => "https://pos.test/api/v1", fetchImpl);
@@ -66,8 +66,10 @@ describe("ApiSession", () => {
     const refused = await api.request("POST", "/x").catch((e: ApiError) => e);
     expect(refused).toMatchObject({
       status: 403,
-      code: "REMOTE_SESSION_DENIED",
+      code: "PIN_LOCKED",
       uncertain: false,
+      // Detail beyond the code stays readable.
+      body: { lockedUntil: "2026-11-03T10:15:00.000Z" },
     });
     const lost = await api.request("POST", "/x").catch((e: ApiError) => e);
     expect(lost).toMatchObject({ code: "NETWORK", uncertain: true });

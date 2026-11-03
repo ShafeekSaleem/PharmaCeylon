@@ -24,6 +24,7 @@ beforeEach(() => {
   pins().save({
     staffUserId: "u1",
     staffName: "Cashier",
+    role: "cashier",
     enrollmentId: "e1",
     pinVersion: 1,
     pin: "4821",

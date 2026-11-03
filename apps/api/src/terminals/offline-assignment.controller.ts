@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -23,6 +24,7 @@ export class OfflineAssignmentController {
   constructor(private readonly assignments: OfflineAssignmentService) {}
 
   @RequirePermission(OFFLINE_ASSIGNMENT_MANAGER_PERMISSION)
+  @CounterRoute()
   @Get()
   view(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.assignments.view(user, branchId);

@@ -10,6 +10,7 @@ export const SESSION_REVOKED_REASONS = {
   reuseDetected: "reuse_detected",
   adminInvalidated: "admin_invalidated",
   passwordChanged: "password_changed",
+  counterSessionClosed: "counter_session_closed",
 } as const;
 
 export type SessionRevokeReason =

@@ -171,11 +171,24 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
 
-    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+    // The password also ends any lock on their PIN, a switch-off included (`terminals/pos-pin.ts`):
+    // every timed lock counts towards `posPinLockouts`, so a PIN that was ever locked shows there.
+    const pinLocked = user.posPinLockouts > 0;
+    if (user.failedLoginAttempts > 0 || user.lockedUntil || pinLocked) {
       // tenant-scope: system-auth — the globally unique login identity was verified by password.
       await this.prisma.appUser.update({
         where: { id: user.id },
-        data: { failedLoginAttempts: 0, lockedUntil: null },
+        data: {
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          ...(pinLocked
+            ? {
+                posPinLockouts: 0,
+                failedPosPinAttempts: 0,
+                posPinLockedUntil: null,
+              }
+            : {}),
+        },
       });
     }
   }
@@ -310,6 +323,22 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
+    // A PIN-opened login ends with its counter session: signed out, superseded or ended.
+    if (
+      session.counterSessionId &&
+      !(await this.userContext.openCounterSession(
+        session.counterSessionId,
+        session.userId,
+        session.tenantId,
+      ))
+    ) {
+      await this.sessions.revokeById(
+        session.id,
+        SESSION_REVOKED_REASONS.counterSessionClosed,
+      );
+      throw new UnauthorizedException("Counter session ended");
+    }
+
     return this.issueAndPersist({
       user,
       tenantId: session.tenantId,
@@ -317,6 +346,49 @@ export class AuthService {
       branchRoles: user.userBranchRoles,
       previousSession: session,
       meta,
+      counterSessionId: session.counterSessionId,
+    });
+  }
+
+  /**
+   * D-W5: the login a correct PIN opens at an enrolled counter. The caller has just bound the
+   * counter staff session; these tokens work only on counter routes, at its branch, while it
+   * stays open (`JwtAuthGuard`, `TenantBranchGuard` and `refresh` above). Issued in the caller's
+   * transaction, so a failure here also undoes the binding and whoever it replaced stays signed in.
+   */
+  async issueCounterSession(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    tenantId: string,
+    counterSessionId: string,
+    meta: RequestMeta = {},
+  ): Promise<LoginResult> {
+    const user = await tx.appUser.findUnique({
+      where: { id: userId },
+      include: {
+        tenantMemberships: {
+          where: { tenantId, isActive: true },
+          include: { tenant: { select: { code: true, isActive: true } } },
+        },
+        userBranchRoles: {
+          where: { tenantId },
+          select: { branchId: true, role: true },
+        },
+      },
+    });
+    const membership = user?.tenantMemberships[0];
+    if (!user || !user.isActive || !membership?.tenant.isActive) {
+      throw new UnauthorizedException("Unable to start counter session");
+    }
+    return this.issueAndPersist({
+      user,
+      tenantId,
+      tenantCode: membership.tenant.code,
+      branchRoles: user.userBranchRoles,
+      previousSession: null,
+      meta,
+      counterSessionId,
+      tx,
     });
   }
 
@@ -648,6 +720,13 @@ export class AuthService {
     return Number(this.configService.get("JWT_REFRESH_TTL_SECONDS", 1209600));
   }
 
+  /** A PIN-opened counter login lasts a working day without use, not the two weeks a password buys. */
+  getCounterRefreshTtlSeconds(): number {
+    return Number(
+      this.configService.get("JWT_COUNTER_REFRESH_TTL_SECONDS", 43200),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
@@ -659,15 +738,22 @@ export class AuthService {
     branchRoles: Array<{ branchId: string; role: RoleName }>;
     previousSession: Session | null;
     meta: RequestMeta;
+    /** The counter staff session a PIN opened; rotations keep it. */
+    counterSessionId?: string | null;
+    /** The caller's transaction, when the login must commit or fail with its other writes. */
+    tx?: Prisma.TransactionClient;
   }): Promise<LoginResult> {
-    const refreshTtl = this.getRefreshTtlSeconds();
+    const counterSessionId = args.counterSessionId ?? null;
+    const refreshTtl = counterSessionId
+      ? this.getCounterRefreshTtlSeconds()
+      : this.getRefreshTtlSeconds();
     const accessTtl = this.getAccessTtlSeconds();
 
     // Pre-sign a placeholder refresh token using the eventual session id.
     // We must know the session id *before* signing because it's in the payload.
     // Strategy: create session first with a temporary hash, then sign the real
     // refresh token, then update the row with the real hash — all in one tx.
-    const result = await this.prisma.$transaction(async (tx) => {
+    const persist = async (tx: Prisma.TransactionClient) => {
       const familyId = args.previousSession?.familyId;
       const placeholder = randomBytes(32).toString("hex");
       const tempHash = await bcrypt.hash(placeholder, 4); // low cost — replaced immediately
@@ -681,6 +767,7 @@ export class AuthService {
           expiresAt: new Date(Date.now() + refreshTtl * 1000),
           userAgent: args.meta.userAgent ?? null,
           ipAddress: args.meta.ipAddress ?? null,
+          counterSessionId,
         },
       });
 
@@ -722,6 +809,7 @@ export class AuthService {
         tenantId: args.tenantId,
         tokenVersion: args.user.tokenVersion,
         type: "access",
+        ...(counterSessionId ? { counterSessionId } : {}),
       };
       const accessToken = await this.jwtService.signAsync(accessPayload, {
         secret: this.configService.getOrThrow<string>("JWT_ACCESS_SECRET"),
@@ -735,7 +823,10 @@ export class AuthService {
       });
 
       return { accessToken, refreshToken };
-    });
+    };
+    const result = args.tx
+      ? await persist(args.tx)
+      : await this.prisma.$transaction(persist);
 
     // Invalidate the in-process user-context cache so the next request sees
     // the freshly-loaded user (e.g. in case roles were just changed).

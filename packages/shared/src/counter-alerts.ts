@@ -9,6 +9,7 @@ export const COUNTER_ALERT_TYPES = [
   "incident_note",
   "device_lost",
   "fallback_changed",
+  "pin_switched_off",
 ] as const;
 export type CounterAlertType = (typeof COUNTER_ALERT_TYPES)[number];
 
@@ -32,6 +33,10 @@ export const COUNTER_ALERT_LABELS: Readonly<Record<CounterAlertType, { label: st
   fallback_changed: {
     label: "Fallback started or ending",
     hint: "Web checkout fallback started at a branch, or is about to end.",
+  },
+  pin_switched_off: {
+    label: "PIN switched off",
+    hint: "Someone's PIN was switched off after repeated wrong PINs at a counter or co-sign.",
   },
 };
 

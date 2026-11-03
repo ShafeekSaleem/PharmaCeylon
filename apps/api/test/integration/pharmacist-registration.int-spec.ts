@@ -10,6 +10,7 @@ import { TaxService } from "../../src/pricing/tax.service";
 import { PrescriptionsService } from "../../src/customers/prescriptions.service";
 import { createTenantAwarePrismaProxy } from "../../src/prisma/tenant-aware-prisma.proxy";
 import { PharmacistApprovalService } from "../../src/sales/pharmacist-approval.service";
+import type { PinAlerts } from "../../src/terminals/pin-alerts.service";
 import { SalesService } from "../../src/sales/sales.service";
 import { AccessService } from "../../src/security/access.service";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
@@ -424,6 +425,7 @@ describe("controlled checkout co-sign (P1 #47 with P2 #93)", () => {
     audit,
     new PermissionsService(proxy as never, { get: () => 30 } as never),
     registrations,
+    { switchedOff: async () => undefined } as unknown as PinAlerts,
   );
   const sales = new SalesService(
     proxy as never,

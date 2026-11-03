@@ -11,6 +11,7 @@ import {
   Query,
 } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -34,6 +35,7 @@ export class RefundRequestsController {
 
   @ApiOperation({ summary: "Refunds prepared at this branch (filter by sale or status)" })
   @RequirePermission("sales.refund")
+  @CounterRoute()
   @Get("refund-requests")
   list(
     @CurrentUser() user: RequestUser,

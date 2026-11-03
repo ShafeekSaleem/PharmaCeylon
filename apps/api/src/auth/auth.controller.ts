@@ -22,6 +22,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { Public } from "../security/decorators/public.decorator";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { AuthService } from "./auth.service";
 import {
@@ -127,6 +128,7 @@ export class AuthController {
    * refresh token from cookie or body.
    */
   @HttpCode(HttpStatus.NO_CONTENT)
+  @CounterRoute()
   @Post("logout")
   async logout(
     @CurrentUser() _user: RequestUser,

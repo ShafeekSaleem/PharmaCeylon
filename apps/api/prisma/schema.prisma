@@ -1218,6 +1218,9 @@ model AppUser {
   posPinHash           String?   @map("pos_pin_hash")
   failedPosPinAttempts Int       @default(0) @map("failed_pos_pin_attempts")
   posPinLockedUntil    DateTime? @map("pos_pin_locked_until")
+  /// Timed PIN locks since the person last proved their password. The third switches the PIN off
+  /// until they sign in with it or set a new PIN; a correct PIN doesn't reset it.
+  posPinLockouts       Int       @default(0) @map("pos_pin_lockouts")
   /// Bumped whenever the PIN is set, changed, cleared or reset. Counters prepare against a version,
   /// so an old local verifier stops working after a change (D-W5).
   posPinVersion        Int       @default(0) @map("pos_pin_version")
@@ -1424,6 +1427,9 @@ model Session {
   revokedAt        DateTime? @map("revoked_at")
   revokedReason    String?   @map("revoked_reason")
   replacedById     String?   @unique @map("replaced_by_id") @db.Uuid
+  /// D-W5: set when a PIN at an enrolled counter opened this login. Its tokens then work only on
+  /// counter routes, at that counter's branch, while this terminal_staff_session stays open.
+  counterSessionId String?   @map("counter_session_id") @db.Uuid
 
   user       AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
   replacedBy Session? @relation("SessionRotation", fields: [replacedById], references: [id])

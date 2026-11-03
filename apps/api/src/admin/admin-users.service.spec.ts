@@ -444,6 +444,7 @@ describe("AdminUsersService", () => {
         posPinHash: "hash",
         failedPosPinAttempts: 2,
         posPinLockedUntil: future,
+        posPinLockouts: 1,
         posPinVersion: 3,
       });
       prisma.session.findMany.mockResolvedValue([
@@ -456,6 +457,7 @@ describe("AdminUsersService", () => {
         isSet: true,
         isLocked: true,
         lockedUntil: future,
+        switchedOff: false,
         failedAttempts: 2,
         version: 3,
       });
@@ -513,6 +515,21 @@ describe("AdminUsersService", () => {
       expect(result.pin.isLocked).toBe(false);
     });
 
+    it("reports a PIN switched off after its third timed lock", async () => {
+      prisma.appUser.findFirst.mockResolvedValue({
+        posPinHash: "hash",
+        failedPosPinAttempts: 0,
+        posPinLockedUntil: null,
+        posPinLockouts: 3,
+        posPinVersion: 2,
+      });
+      prisma.session.findMany.mockResolvedValue([]);
+
+      const result = await service.getSecurity(tenantId, targetId);
+
+      expect(result.pin.switchedOff).toBe(true);
+    });
+
     it("404s when the target user does not belong to the tenant", async () => {
       prisma.appUser.findFirst.mockResolvedValue(null);
 
@@ -535,7 +552,13 @@ describe("AdminUsersService", () => {
       expect(result).toEqual({ reset: true });
       expect(prisma.appUser.update).toHaveBeenCalledWith({
         where: { id: targetId },
-        data: { posPinHash: null, failedPosPinAttempts: 0, posPinLockedUntil: null, posPinVersion: { increment: 1 } },
+        data: {
+          posPinHash: null,
+          failedPosPinAttempts: 0,
+          posPinLockedUntil: null,
+          posPinLockouts: 0,
+          posPinVersion: { increment: 1 },
+        },
       });
       expect(audit.log).toHaveBeenCalledWith(
         expect.objectContaining({ eventName: "user.pos_pin.admin_reset" }),

@@ -1,10 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import type { TerminalIdentity } from "@pharmaceylon/shared";
+import type { LocalAttendancePurpose, TerminalIdentity } from "@pharmaceylon/shared";
 import { denied } from "./terminal-wire";
 
 export type AttendanceExpectation = Readonly<{
-  purpose: "enrollment" | "session" | "command";
+  purpose: LocalAttendancePurpose;
   identity: TerminalIdentity;
   actorUserId: string;
   registerId: string;

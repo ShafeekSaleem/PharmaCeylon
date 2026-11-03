@@ -78,6 +78,8 @@ export type SecurityInfo = {
     isSet: boolean;
     isLocked: boolean;
     lockedUntil: string | null;
+    /** Too many wrong PINs: off until they sign in with their password, or it is reset. */
+    switchedOff: boolean;
     failedAttempts: number;
     version: number;
   };

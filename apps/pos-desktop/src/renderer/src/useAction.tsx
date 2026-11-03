@@ -22,7 +22,7 @@ export function useAction() {
       setBusy(false);
     }
   }
-  return { busy, error, run };
+  return { busy, error, run, clear: () => setError(null) };
 }
 
 export function ErrorLine({ error }: { error: string | null }) {

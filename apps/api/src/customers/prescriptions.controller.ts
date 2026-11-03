@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
@@ -14,6 +15,7 @@ export class PrescriptionsController {
 
   @ApiOperation({ summary: "Search prescriptions at the active branch" })
   @RequirePermission("prescriptions.view")
+  @CounterRoute()
   @Get()
   search(
     @CurrentUser() user: RequestUser,
@@ -53,6 +55,7 @@ export class PrescriptionsController {
   }
 
   @RequirePermission("prescriptions.view")
+  @CounterRoute()
   @Get(":id")
   getOne(
     @CurrentUser() user: RequestUser,

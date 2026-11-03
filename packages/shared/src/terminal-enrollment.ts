@@ -1,5 +1,13 @@
-import type { Signed, TerminalIdentity } from "./terminal-contracts";
-import type { TerminalEnrollmentCommand } from "./terminal-online-protocol";
+import type { LocalAttendanceAttestation } from "./terminal-attendance";
+import type {
+  Signed,
+  TerminalIdentity,
+  WorkSessionIdentity,
+} from "./terminal-contracts";
+import type {
+  TerminalEnrollmentCommand,
+  TerminalPinSessionCommand,
+} from "./terminal-online-protocol";
 
 /** P2: GET/POST `/terminals/counters`. A counter is a branch register with its own till. */
 export type TerminalCounterView = Readonly<{
@@ -36,6 +44,30 @@ export type TerminalSignedWithProof<T> = Readonly<{
 /** POST `/terminals/sessions/challenge`. */
 export type TerminalSessionChallengeRequest = Readonly<{
   identity: TerminalIdentity;
+}>;
+
+/** POST `/terminals/pin-sessions`: the signed challenge, the signed attendance attestation for
+ * it (purpose `pin_session`, actor = the person signing in) and their PIN. */
+export type TerminalPinSignInRequest = Readonly<{
+  envelope: Signed<TerminalPinSessionCommand>;
+  attendance: Signed<LocalAttendanceAttestation>;
+  pin: string;
+}>;
+
+/** The `/terminals/pin-sessions` result: a sign-in that works only at this counter, at its
+ * branch, and only while the staff session it opened stays open. */
+export type TerminalPinSignInResult = Readonly<{
+  accessToken: string;
+  refreshToken: string;
+  user: Readonly<{
+    id: string;
+    tenantId: string;
+    email: string;
+    fullName: string;
+    roles: string[];
+    branchRoles: Array<Readonly<{ branchId: string; role: string }>>;
+  }>;
+  session: WorkSessionIdentity;
 }>;
 
 /** GET `/terminals/enrollments/:enrollmentId`. */

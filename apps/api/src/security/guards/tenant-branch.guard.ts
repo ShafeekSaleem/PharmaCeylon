@@ -29,12 +29,20 @@ export class TenantBranchGuard implements CanActivate {
     }
 
     const branchHeader = request.headers["x-branch-id"];
-    const branchId =
+    let branchId =
       typeof branchHeader === "string"
         ? branchHeader
         : Array.isArray(branchHeader)
           ? branchHeader[0]
           : undefined;
+
+    // A PIN-opened counter login is always scoped to its counter's branch, header or not.
+    if (user.counter) {
+      if (branchId && branchId !== user.counter.branchId) {
+        throw new ForbiddenException("This counter sign-in is for another branch");
+      }
+      branchId = user.counter.branchId;
+    }
 
     if (!branchId) {
       return true;

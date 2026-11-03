@@ -6,11 +6,15 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Req,
   UseGuards,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import type { Request } from "express";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
+import { Public } from "../security/decorators/public.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
@@ -22,6 +26,7 @@ import {
   SetCounterPinDto,
   TerminalReasonDto,
 } from "./dto/terminal-enrollment.dto";
+import { PinSignInService } from "./pin-sign-in.service";
 import { StaffCredentialsService } from "./staff-credentials.service";
 import { TerminalEnrollmentService } from "./terminal-enrollment.service";
 
@@ -29,7 +34,7 @@ const MANAGE = "tenant.management";
 const COUNTER = "terminal.execute";
 
 /** P2 desktop enrollment and staff sessions (contract: docs/API_CONTRACT.md "Desktop enrollment
- * and staff sessions"). Permissions here are route gates; `TerminalTrustService` rechecks live
+ * and staff sessions"). `@CounterRoute()` marks what a PIN-opened counter login may call. Permissions here are route gates; `TerminalTrustService` rechecks live
  * authority, the server challenge, the device signature and a recorded local-attendance proof.
  * Signed bodies are typed `unknown` and parsed strictly by the terminal wire helpers.
  */
@@ -39,6 +44,7 @@ export class TerminalEnrollmentController {
   constructor(
     private readonly enrollment: TerminalEnrollmentService,
     private readonly credentials: StaffCredentialsService,
+    private readonly pinSignIn: PinSignInService,
   ) {}
 
   @RequirePermission(MANAGE)
@@ -88,6 +94,7 @@ export class TerminalEnrollmentController {
     return this.enrollment.finishEnrollment(user, branchId, body);
   }
 
+  @CounterRoute()
   @RequirePermission(COUNTER)
   @Get("enrollments/:enrollmentId")
   enrollmentStatus(
@@ -132,6 +139,7 @@ export class TerminalEnrollmentController {
     );
   }
 
+  @CounterRoute()
   @RequirePermission(COUNTER)
   @Post("attendance-proofs")
   recordAttendance(
@@ -163,6 +171,7 @@ export class TerminalEnrollmentController {
     return this.enrollment.finishSession(user, branchId, body);
   }
 
+  @CounterRoute()
   @RequirePermission(COUNTER)
   @Post("sessions/:workSessionId/end")
   @HttpCode(204)
@@ -174,6 +183,7 @@ export class TerminalEnrollmentController {
     return this.enrollment.endSession(user, branchId, workSessionId);
   }
 
+  @CounterRoute()
   @RequirePermission(COUNTER)
   @Post("sessions/:workSessionId/test-receipt")
   testReceipt(
@@ -190,6 +200,7 @@ export class TerminalEnrollmentController {
     );
   }
 
+  @CounterRoute()
   @RequirePermission(COUNTER)
   @Get("sessions/:workSessionId/credential")
   credential(
@@ -201,6 +212,7 @@ export class TerminalEnrollmentController {
   }
 
   // Both check a secret; the per-account lockouts are the real limit, this caps the rate.
+  @CounterRoute()
   @RequirePermission(COUNTER)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -218,6 +230,7 @@ export class TerminalEnrollmentController {
     });
   }
 
+  @CounterRoute()
   @RequirePermission(COUNTER)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -230,5 +243,29 @@ export class TerminalEnrollmentController {
     @Body() dto: PrepareCounterPinDto,
   ) {
     return this.credentials.prepare(user, branchId, workSessionId, dto.pin);
+  }
+
+  // D-W5 PIN sign-in. Public: nobody is signed in. The enrolled device key, a console attendance
+  // proof and the person's PIN (with its lockout) are the checks; the throttle caps the rate.
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post("pin-sessions/challenge")
+  @HttpCode(200)
+  beginPinSession(@Body() body: unknown) {
+    return this.pinSignIn.begin(body);
+  }
+
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post("pin-sessions")
+  @HttpCode(200)
+  finishPinSession(@Body() body: unknown, @Req() req: Request) {
+    const ua = req.headers["user-agent"];
+    return this.pinSignIn.finish(body, {
+      userAgent: typeof ua === "string" ? ua : null,
+      ipAddress: req.ip ?? null,
+    });
   }
 }

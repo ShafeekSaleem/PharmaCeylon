@@ -5,6 +5,7 @@ import * as bcrypt from "bcrypt";
 import { AuditService } from "../audit/audit.service";
 import type { PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
 import { PermissionsService } from "../security/permissions.service";
+import type { PinAlerts } from "../terminals/pin-alerts.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 
 jest.mock("bcrypt");
@@ -17,6 +18,7 @@ describe("PharmacistApprovalService", () => {
   const approverId = "pharm-1";
 
   let prisma: {
+    $transaction: jest.Mock;
     appUser: { findFirst: jest.Mock; update: jest.Mock };
     userBranchRole: { findMany: jest.Mock };
     role: { findMany: jest.Mock };
@@ -24,10 +26,12 @@ describe("PharmacistApprovalService", () => {
   };
   let audit: AuditService;
   let registrations: { qualifiedAt: jest.Mock };
+  let alerts: { switchedOff: jest.Mock };
   let service: PharmacistApprovalService;
 
   beforeEach(() => {
     prisma = {
+      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
       appUser: {
         findFirst: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
@@ -44,11 +48,13 @@ describe("PharmacistApprovalService", () => {
       { get: () => 30 } as unknown as ConfigService,
     );
     registrations = { qualifiedAt: jest.fn().mockResolvedValue(new Set()) };
+    alerts = { switchedOff: jest.fn().mockResolvedValue(undefined) };
     service = new PharmacistApprovalService(
       prisma as never,
       audit,
       permissions,
       registrations as unknown as PharmacistRegistrationService,
+      alerts as unknown as PinAlerts,
     );
     mockedBcrypt.compare.mockReset();
   });
@@ -112,8 +118,10 @@ describe("PharmacistApprovalService", () => {
       posPinHash: "pinhash",
       failedPosPinAttempts: 0,
       posPinLockedUntil: null,
+      posPinLockouts: 0,
       userBranchRoles: [{ role: RoleName.pharmacist, branchId }],
     });
+    prisma.appUser.update.mockResolvedValueOnce({ failedPosPinAttempts: 1 });
     mockedBcrypt.compare.mockImplementation(async () => false);
 
     await expect(
@@ -125,9 +133,56 @@ describe("PharmacistApprovalService", () => {
     expect(prisma.appUser.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: approverId },
-        data: expect.objectContaining({ failedPosPinAttempts: 1 }),
+        data: { failedPosPinAttempts: { increment: 1 } },
       }),
     );
+    expect(alerts.switchedOff).not.toHaveBeenCalled();
+  });
+
+  it("alerts the branch on the wrong PIN that switches the PIN off", async () => {
+    prisma.appUser.findFirst.mockResolvedValue({
+      id: approverId,
+      fullName: "Dr. Anjali",
+      passwordHash: "pwd",
+      posPinHash: "pinhash",
+      failedPosPinAttempts: 4,
+      posPinLockedUntil: null,
+      posPinLockouts: 2,
+      userBranchRoles: [{ role: RoleName.pharmacist, branchId }],
+    });
+    prisma.appUser.update
+      .mockResolvedValueOnce({ failedPosPinAttempts: 5 })
+      .mockResolvedValueOnce({ posPinLockouts: 3 });
+    mockedBcrypt.compare.mockImplementation(async () => false);
+
+    await expect(
+      service.verifyApproverPin(tenantId, branchId, approverId, "0000", actorUserId),
+    ).rejects.toMatchObject({ response: { code: "APPROVER_PIN_INCORRECT" } });
+    expect(prisma.appUser.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ failedPosPinAttempts: 0, posPinLockouts: { increment: 1 } }),
+      }),
+    );
+    expect(alerts.switchedOff).toHaveBeenCalledWith(tenantId, branchId, approverId);
+  });
+
+  it("refuses a switched-off approver without trying the PIN or the password", async () => {
+    prisma.appUser.findFirst.mockResolvedValue({
+      id: approverId,
+      fullName: "Dr. Anjali",
+      passwordHash: "pwd",
+      posPinHash: null,
+      failedPosPinAttempts: 0,
+      posPinLockedUntil: null,
+      posPinLockouts: 3,
+      userBranchRoles: [{ role: RoleName.pharmacist, branchId }],
+    });
+
+    await expect(
+      service.verifyApproverPin(tenantId, branchId, approverId, "password", actorUserId),
+    ).rejects.toMatchObject({ status: 403, response: { code: "APPROVER_PIN_SWITCHED_OFF" } });
+    expect(mockedBcrypt.compare).not.toHaveBeenCalled();
+    expect(prisma.appUser.update).not.toHaveBeenCalled();
   });
 
   it("rejects cashier as approver", async () => {
