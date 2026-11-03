@@ -1036,6 +1036,16 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/pin-sessions",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/pin-sessions/challenge",
+    "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminals/sessions",
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
   },

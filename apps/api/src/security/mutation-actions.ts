@@ -217,6 +217,10 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/terminals/enrollments/code-challenge": "identity",
   "POST /api/v1/terminals/enrollment-codes": "identity",
   "POST /api/v1/terminals/enrollment-codes/:codeId/revoke": "identity",
+  // D-W5 PIN sign-in for staff prepared on the counter: a challenge, then the same staff-session
+  // binding a password sign-in makes.
+  "POST /api/v1/terminals/pin-sessions": "identity",
+  "POST /api/v1/terminals/pin-sessions/challenge": "identity",
   "POST /api/v1/terminals/sessions": "identity",
   "POST /api/v1/terminals/sessions/:workSessionId/end": "identity",
   "POST /api/v1/terminals/sessions/:workSessionId/pin": "identity",
