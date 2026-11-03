@@ -248,7 +248,7 @@ export function SignInScreen({
               />
               <ErrorLine error={error} />
               <div className={styles.forgot}>
-                Forgot your PIN? Sign in with email and password.
+                Forgot your PIN? Ask a manager to reset it on the web.
               </div>
             </div>
           </div>
