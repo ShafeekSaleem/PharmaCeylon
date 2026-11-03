@@ -1,0 +1,234 @@
+/* Sign-in and lock (mockup screen=lock). */
+
+.card {
+  width: 1060px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+}
+
+.single {
+  width: 520px;
+}
+
+/* ---------- who ---------- */
+.who {
+  display: flex;
+  flex-direction: column;
+  padding: 24px 26px;
+}
+
+.who h2 {
+  margin: 0;
+  font: 650 18px/1.2 var(--pos-font-display);
+  letter-spacing: -0.01em;
+}
+
+.who > p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--pos-text-2);
+}
+
+.staff {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.st {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface);
+  color: var(--pos-text);
+  font: inherit;
+  text-align: left;
+}
+
+button.st {
+  cursor: pointer;
+}
+
+button.st:hover:not(:disabled) {
+  background: var(--pos-surface-2);
+}
+
+button.st:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.st > :first-child {
+  width: 42px;
+  height: 42px;
+  font-size: 14px;
+}
+
+.st b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.st small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.st > div > span {
+  margin-top: 5px;
+  height: 20px;
+  font-size: 11px;
+}
+
+.sel {
+  border: 1.5px solid var(--pos-primary);
+  background: var(--pos-primary-soft);
+  box-shadow: var(--pos-focus);
+}
+
+.someone {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px dashed var(--pos-line-strong);
+  color: var(--pos-text-3);
+}
+
+.note {
+  margin-top: 16px;
+}
+
+.foot {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.form {
+  margin-top: 18px;
+}
+
+.back {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+
+/* ---------- PIN ---------- */
+.pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 28px;
+  background: var(--pos-surface-2);
+  border-left: 1px solid var(--pos-line);
+}
+
+.pin .big {
+  width: 64px;
+  height: 64px;
+  font-size: 21px;
+}
+
+.pin h3 {
+  margin: 10px 0 0;
+  font: 650 17px/1.2 var(--pos-font-display);
+}
+
+.pin > p {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--pos-text-3);
+}
+
+.dots {
+  display: flex;
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--pos-line-strong);
+}
+
+.dots i.filled {
+  background: var(--pos-primary);
+  border-color: var(--pos-primary);
+}
+
+.pad {
+  display: grid;
+  grid-template-columns: repeat(3, 84px);
+  gap: 10px;
+}
+
+.pad button {
+  display: grid;
+  place-items: center;
+  height: 54px;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface);
+  box-shadow: var(--pos-shadow);
+  color: var(--pos-text);
+  font: 600 21px/1 var(--pos-font-display);
+  cursor: pointer;
+}
+
+.pad button:hover:not(:disabled) {
+  background: var(--pos-surface-3);
+}
+
+.pad button:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.pad button:disabled {
+  cursor: default;
+}
+
+.pad button :global(.pos-ic) {
+  width: 20px;
+  height: 20px;
+  color: var(--pos-text-2);
+}
+
+.pad .go {
+  border: 0;
+  background: var(--pos-grad);
+  color: var(--pos-on-primary);
+}
+
+.pad .go:hover:not(:disabled) {
+  background: var(--pos-grad);
+}
+
+.pad .go:disabled {
+  opacity: 0.55;
+}
+
+.pad .go :global(.pos-ic) {
+  color: var(--pos-on-primary);
+  stroke-width: 2.6;
+}
+
+.pin [role="alert"] {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.forgot {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+  text-align: center;
+}

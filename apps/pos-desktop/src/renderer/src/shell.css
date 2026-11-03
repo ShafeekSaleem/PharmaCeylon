@@ -6,6 +6,45 @@ body,
   overflow: hidden;
 }
 
+/* The web's globals.css reserves a scrollbar gutter on html; the counter's window has none. */
+html {
+  scrollbar-gutter: auto;
+  background: var(--pos-canvas);
+}
+
+small {
+  font-size: inherit;
+}
+
 body {
   user-select: none;
+  margin: 0;
+  background: var(--pos-canvas);
+  color: var(--pos-text);
+  font: 13.5px/1.4 var(--pos-font);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Icons from Icon.tsx: stroked, sized by the component that places them. */
+.pos-ic {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+kbd {
+  font: 600 10.5px/1 var(--pos-font);
+  padding: 3px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--pos-line-strong);
+  border-bottom-width: 2px;
+  color: var(--pos-text-3);
+  background: var(--pos-surface);
+  letter-spacing: 0.02em;
 }

@@ -1,0 +1,526 @@
+import { useEffect, useState } from "react";
+import type {
+  AppInfo,
+  CheckStatus,
+  DeviceState,
+  OfflineCounterView,
+  Printer,
+  ReadinessCheck,
+  ReadinessReport,
+} from "../../shared/ipc-contract";
+import { dayMonthYear, time } from "./format";
+import { Icon } from "./Icon";
+import { atTheComputer } from "./Shell";
+import styles from "./ThisCounter.module.css";
+import ui from "./ui.module.css";
+import { cx, ErrorLine, useAction } from "./useAction";
+
+const STATUS_LABEL: Record<CheckStatus, string> = {
+  ok: "OK",
+  warning: "Check",
+  failed: "Failed",
+  not_ready: "Not set up",
+};
+
+const STATUS_PILL: Record<CheckStatus, string | undefined> = {
+  ok: ui.ok,
+  warning: ui.warn,
+  failed: ui.bad,
+  not_ready: ui.neutral,
+};
+
+/** The readiness checks in the mockup's three groups; any check not listed lands in the first. */
+const GROUPS: { title: string; ids: string[] }[] = [
+  {
+    title: "This computer",
+    ids: ["database", "schema", "credential-store", "device", "printer"],
+  },
+  { title: "Staff and records", ids: ["staff", "unconfirmed"] },
+  {
+    title: "Offline backup",
+    ids: ["grant", "catalogue", "receipt-numbers", "sync"],
+  },
+];
+
+function grouped(checks: ReadinessCheck[]) {
+  const known = new Set(GROUPS.flatMap((g) => g.ids));
+  return GROUPS.map((group, index) => ({
+    title: group.title,
+    checks: checks.filter(
+      (c) => group.ids.includes(c.id) || (index === 0 && !known.has(c.id)),
+    ),
+  })).filter((group) => group.checks.length > 0);
+}
+
+function Readiness({
+  readiness,
+  onCheck,
+}: {
+  readiness: ReadinessReport | null;
+  onCheck: () => void;
+}) {
+  return (
+    <div className={cx(ui.panel, styles.readiness)}>
+      <div className={cx(ui.ph, styles.ph)}>
+        <h2>Readiness</h2>
+        {readiness && (
+          <span className={styles.phNote}>
+            Checked {time(new Date(readiness.checkedAt))}
+          </span>
+        )}
+        {readiness && (
+          <span
+            className={cx(
+              ui.pill,
+              readiness.ready ? ui.ok : ui.warn,
+              styles.right,
+            )}
+          >
+            <Icon name={readiness.ready ? "check" : "alert-triangle"} />
+            {readiness.ready
+              ? "Ready to sell during an outage"
+              : "Not ready for an outage"}
+          </span>
+        )}
+        <button
+          type="button"
+          className={cx(ui.btn, ui.sm, ui.outline, !readiness && styles.right)}
+          onClick={onCheck}
+        >
+          <Icon name="refresh" />
+          Check again
+        </button>
+      </div>
+      <div className={styles.scroll}>
+        {readiness === null ? (
+          <p className={cx(ui.muted, styles.loading)}>Checking…</p>
+        ) : (
+          grouped(readiness.checks).map((group) => (
+            <div key={group.title}>
+              <div className={ui.subH}>{group.title}</div>
+              <div className={styles.rdG}>
+                {group.checks.map((check) => (
+                  <div key={check.id} className={styles.rd}>
+                    <span className={cx(ui.pill, STATUS_PILL[check.status])}>
+                      {check.status === "ok" && <Icon name="check" />}
+                      {STATUS_LABEL[check.status]}
+                    </span>
+                    <b>{check.label}</b>
+                    <span className={styles.d} title={check.detail}>
+                      {check.detail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+      <div className={styles.rdFoot}>
+        Each check shows OK, Check, Failed or Not set up. The counter is ready
+        for an outage only when every check is OK.
+      </div>
+    </div>
+  );
+}
+
+function PrinterTest() {
+  const [printers, setPrinters] = useState<Printer[] | null>(null);
+  const [selected, setSelected] = useState("");
+  const [printing, setPrinting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+  const [printed, setPrinted] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<string | null>(null);
+
+  useEffect(() => {
+    window.pos
+      .listPrinters()
+      .then((list) => {
+        setPrinters(list);
+        setSelected(list[0]?.name ?? "");
+      })
+      .catch(() => setPrinters([]));
+  }, []);
+
+  async function print() {
+    setPrinting(true);
+    setMessage(null);
+    setConfirmed(null);
+    try {
+      const result = await window.pos.printTestReceipt({
+        printerName: selected,
+      });
+      setMessage(
+        result.ok
+          ? { ok: true, text: `Sent to the printer at ${time(new Date())}` }
+          : {
+              ok: false,
+              text: result.error ?? "The test receipt did not print.",
+            },
+      );
+      setPrinted(result.ok ? selected : null);
+    } catch {
+      setMessage({ ok: false, text: "The test receipt did not print." });
+    } finally {
+      setPrinting(false);
+    }
+  }
+
+  async function confirm() {
+    if (!printed || printing || confirming) return;
+    setConfirming(true);
+    try {
+      const result = await window.pos
+        .confirmTestReceipt({ printerName: printed })
+        .catch(() => null);
+      if (result?.ok) {
+        setConfirmed(result.value.confirmedAt);
+        setPrinted(null);
+        setMessage(null);
+      } else
+        setMessage({
+          ok: false,
+          text:
+            result && !result.ok
+              ? result.error.message
+              : "Could not record it.",
+        });
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  const pill = confirmed ? (
+    <span className={cx(ui.pill, ui.ok, styles.right)}>
+      <Icon name="check" />
+      Ready
+    </span>
+  ) : printers?.length === 0 ? (
+    <span className={cx(ui.pill, ui.warn, styles.right)}>No printer</span>
+  ) : (
+    <span className={cx(ui.pill, ui.neutral, styles.right)}>
+      Test receipt not confirmed
+    </span>
+  );
+
+  return (
+    <div className={ui.panel}>
+      <div className={cx(ui.ph, styles.ph)}>
+        <h2>Receipt printer</h2>
+        {printers !== null && pill}
+      </div>
+      <div className={styles.prB}>
+        {printers === null ? (
+          <p className={ui.muted}>Looking for printers…</p>
+        ) : printers.length === 0 ? (
+          <div className={cx(ui.note, ui.noteWarn)}>
+            <Icon name="alert-triangle" />
+            <div>No printers are installed in Windows on this computer.</div>
+          </div>
+        ) : (
+          <>
+            <div className={ui.f}>
+              <label htmlFor="printer" className={ui.label}>
+                Printer <span>Installed in Windows</span>
+              </label>
+              <div className={ui.select}>
+                <select
+                  id="printer"
+                  className={ui.in}
+                  value={selected}
+                  onChange={(event) => setSelected(event.target.value)}
+                  disabled={printing}
+                >
+                  {printers.map((printer) => (
+                    <option key={printer.name} value={printer.name}>
+                      {printer.displayName}
+                    </option>
+                  ))}
+                </select>
+                <Icon name="chevron-down" />
+              </div>
+            </div>
+            <div className={styles.prRow}>
+              <button
+                type="button"
+                className={cx(ui.btn, ui.outline)}
+                onClick={() => void print()}
+                disabled={printing || confirming || !selected}
+              >
+                <Icon name="printer" />
+                {printing ? "Printing…" : "Print test receipt"}
+              </button>
+              {message && (
+                <span
+                  role="status"
+                  className={message.ok ? undefined : ui.badText}
+                >
+                  {message.text}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+        {printed && (
+          <div className={styles.ask}>
+            <Icon name="receipt" />
+            <div>
+              <b>Did the test receipt come out?</b>
+              <small>Recorded for the go-live checklist.</small>
+            </div>
+            <div className={styles.btns}>
+              <button
+                type="button"
+                className={cx(ui.btn, ui.sm, ui.ghost)}
+                onClick={() => void print()}
+                disabled={printing || confirming}
+              >
+                Print again
+              </button>
+              <button
+                type="button"
+                className={cx(ui.btn, ui.sm, ui.primary)}
+                onClick={() => void confirm()}
+                disabled={printing || confirming}
+              >
+                <Icon name="check" />
+                Yes, it came out
+              </button>
+            </div>
+          </div>
+        )}
+        {confirmed && (
+          <div className={styles.footN}>
+            Confirmed at {time(new Date(confirmed))}. Recorded for the branch
+            go-live checklist.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Shown to people who can manage the branch; others get a refusal and see nothing. */
+function OfflineCounterPanel({ branchName }: { branchName: string }) {
+  const [view, setView] = useState<OfflineCounterView | null>(null);
+  const [hidden, setHidden] = useState(false);
+  const { busy, error, run } = useAction();
+  useEffect(() => {
+    void window.pos
+      .offlineCounter()
+      .then((result) => (result.ok ? setView(result.value) : setHidden(true)))
+      .catch(() => setHidden(true));
+  }, []);
+  if (hidden || !view) return null;
+
+  const authorization = view.authorization;
+  const [title, tone, status] = view.thisCounterNominated
+    ? [
+        `This is ${branchName}'s offline backup counter`,
+        ui.info,
+        "This counter",
+      ]
+    : authorization
+      ? [
+          "The owner chose this counter as the offline backup",
+          ui.warn,
+          "Waiting for activation",
+        ]
+      : view.otherCounterNominated
+        ? [
+            "Another counter is the offline backup",
+            ui.neutral,
+            "Not this counter",
+          ]
+        : ["No offline backup counter yet", ui.neutral, "Not chosen"];
+
+  return (
+    <div className={cx(ui.panel, styles.grow)}>
+      <div className={cx(ui.ph, styles.ph)}>
+        <h2>Offline backup counter</h2>
+        <span className={cx(ui.pill, tone, styles.right)}>
+          {view.thisCounterNominated && <Icon name="shield-check" />}
+          {status}
+        </span>
+      </div>
+      <div className={styles.ob}>
+        <div className={styles.obHero}>
+          <span className={cx(ui.kind, ui.kindCyan)}>
+            <Icon name="shield-check" />
+          </span>
+          <div>
+            <b>{title}</b>
+            <small>
+              It keeps selling if the internet goes down. A branch has one.
+            </small>
+          </div>
+        </div>
+        {authorization && !view.thisCounterNominated && (
+          <>
+            <div className={ui.kvs}>
+              <div className={ui.kv}>
+                Authorized
+                <b>
+                  On the web by the owner ·{" "}
+                  {dayMonthYear(new Date(authorization.authorizedAt))}
+                </b>
+              </div>
+              <div className={ui.kv}>
+                Reason<b>{authorization.reason}</b>
+              </div>
+            </div>
+            <p className={styles.text}>
+              The owner authorized this counter to keep selling during internet
+              outages. Confirm here to activate it.
+              {view.otherCounterNominated &&
+                " The current offline counter must already be disabled and its sales recovered."}
+            </p>
+            <div>
+              <button
+                type="button"
+                className={cx(ui.btn, ui.primary)}
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    () =>
+                      window.pos.activateOffline({
+                        authorizationId: authorization.authorizationId,
+                      }),
+                    setView,
+                  )
+                }
+              >
+                <Icon name="shield-check" />
+                Activate as the offline backup
+              </button>
+            </div>
+          </>
+        )}
+        {!authorization && !view.thisCounterNominated && (
+          <p className={styles.text}>
+            The owner authorizes one from the back office.
+          </p>
+        )}
+        <ErrorLine error={error} />
+        <div className={styles.offl}>
+          <Icon name="info" />
+          <span>
+            Offline, it sells non-prescription items only. Prescriptions,
+            refunds and discounts wait until it&apos;s back online.
+          </span>
+        </div>
+        <div className={cx(styles.footN, styles.bottom)}>
+          To move the backup to another counter, the owner or a delegated
+          manager authorizes it on the web. Someone allowed to activate then
+          confirms it at that counter while online. Only they see the Activate
+          button.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function host(url: string | null) {
+  if (!url) return null;
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+export function ThisCounterPage({
+  state,
+  info,
+  readiness,
+  onCheck,
+}: {
+  state: DeviceState;
+  info: AppInfo | null;
+  readiness: ReadinessReport | null;
+  onCheck: () => void;
+}) {
+  const enrollment = state.enrollment!;
+  const enrolledAt = enrollment.enrolledAt
+    ? dayMonthYear(new Date(enrollment.enrolledAt))
+    : null;
+  const local = atTheComputer(state);
+  const server = host(state.serverUrl);
+  return (
+    <div className={styles.page}>
+      <div className={ui.pageH}>
+        <div>
+          <h1>This counter</h1>
+          <p>
+            This computer&apos;s details, readiness checks, receipt printer and
+            offline backup.
+          </p>
+        </div>
+      </div>
+
+      <div className={ui.panel}>
+        <div className={styles.head}>
+          <span className={cx(ui.kind, styles.kind)}>
+            <Icon name="monitor" />
+          </span>
+          <div>
+            <b>
+              {enrollment.counterLabel} · {enrollment.branchName}
+            </b>
+            <small>
+              This computer is &quot;{enrollment.label}&quot;
+              {enrolledAt && ` · enrolled ${enrolledAt}`}
+            </small>
+          </div>
+          <div className={styles.headRight}>
+            <span className={cx(ui.pill, ui.ok)}>
+              <Icon name="check" />
+              Enrolled
+            </span>
+            <span className={cx(ui.pill, local ? ui.ok : ui.bad)}>
+              <Icon name="monitor" />
+              {local ? "At the counter · console session" : "Remote session"}
+            </span>
+          </div>
+        </div>
+        <div className={cx(ui.tiles, styles.tiles)}>
+          <div className={ui.tile}>
+            <small>Branch</small>
+            <b>{enrollment.branchName}</b>
+            <span>Set when this computer was enrolled</span>
+          </div>
+          <div className={ui.tile}>
+            <small>Counter</small>
+            <b>{enrollment.counterLabel}</b>
+            <span>This computer is &quot;{enrollment.label}&quot;</span>
+          </div>
+          <div className={ui.tile}>
+            <small>Enrolled</small>
+            <b>{enrolledAt ?? "—"}</b>
+            <span>
+              {enrollment.enrolledAt
+                ? `At ${time(new Date(enrollment.enrolledAt))}`
+                : "Date not recorded"}
+            </span>
+          </div>
+          <div className={ui.tile}>
+            <small>App version</small>
+            <b>{info?.appVersion ?? "—"}</b>
+            <span>{server ? `Server ${server}` : "No server address"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.body}>
+        <Readiness readiness={readiness} onCheck={onCheck} />
+        <div className={styles.side}>
+          <PrinterTest />
+          <OfflineCounterPanel branchName={enrollment.branchName} />
+        </div>
+      </div>
+    </div>
+  );
+}

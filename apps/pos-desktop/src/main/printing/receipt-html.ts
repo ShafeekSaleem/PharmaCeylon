@@ -86,7 +86,7 @@ export function renderTestReceiptHtml(input: { printerName: string; printedAt: D
 </style>
 </head>
 <body>
-<h1>Curalio POS</h1>
+<h1>PharmaCeylon POS</h1>
 <p>TEST RECEIPT — NOT A SALE</p>
 <hr>
 <table>

@@ -1,0 +1,267 @@
+/* This counter (mockup screen=counter). */
+
+.page {
+  flex: 1;
+  display: grid;
+  /* In a short window the page scrolls rather than squeezing the readiness list below this. */
+  grid-template-rows: max-content max-content minmax(320px, 1fr);
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px 14px;
+}
+
+.head .kind {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+}
+
+.head .kind :global(.pos-ic) {
+  width: 21px;
+  height: 21px;
+}
+
+.head b {
+  display: block;
+  font-size: 14.5px;
+}
+
+.head small {
+  display: block;
+  margin-top: 1px;
+  font-size: 12.5px;
+  color: var(--pos-text-3);
+}
+
+.headRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+div.tiles {
+  margin: 0 18px 18px;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 520px;
+  gap: 14px;
+  min-height: 0;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Panels keep their height here; the column scrolls instead. */
+.side > * {
+  flex-shrink: 0;
+}
+
+.side > .grow {
+  flex: 1 0 auto;
+}
+
+/* ---------- panel headers ---------- */
+.ph h2 {
+  white-space: nowrap;
+}
+
+.phNote {
+  font-size: 12px;
+  color: var(--pos-text-3);
+  white-space: nowrap;
+}
+
+.right {
+  margin-left: auto;
+}
+
+/* ---------- readiness ---------- */
+.readiness {
+  min-height: 0;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.loading {
+  margin: 0 18px;
+}
+
+.rdG {
+  padding: 0 18px;
+}
+
+.rd {
+  display: grid;
+  grid-template-columns: 84px 232px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--pos-line);
+  font-size: 13px;
+}
+
+.rd:last-child {
+  border-bottom: 0;
+}
+
+.rd > span:first-child {
+  justify-self: start;
+}
+
+.rd b {
+  font-weight: 600;
+}
+
+.d {
+  overflow: hidden;
+  color: var(--pos-text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rdFoot {
+  margin: auto 18px 0;
+  padding: 12px 0 14px;
+  border-top: 1px solid var(--pos-line);
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+/* ---------- printer ---------- */
+.prB {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
+.prRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.ask {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--pos-primary) 30%, transparent);
+  background: var(--pos-primary-soft);
+}
+
+.ask > :global(.pos-ic) {
+  width: 18px;
+  height: 18px;
+  color: var(--pos-primary);
+}
+
+.ask b {
+  display: block;
+  font-size: 13px;
+}
+
+.ask small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.btns {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.footN {
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+}
+
+/* ---------- offline backup ---------- */
+.ob {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
+.obHero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.obHero b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.obHero small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.text {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+}
+
+.offl {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.offl :global(.pos-ic) {
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  color: var(--pos-info);
+}
+
+.bottom {
+  margin-top: auto;
+}
+
+/* The mockup is drawn at 1600 wide; narrower windows give the side column less room. */
+@media (max-width: 1279px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr) 400px;
+  }
+
+  .rd {
+    grid-template-columns: 84px 170px minmax(0, 1fr);
+  }
+
+  .headRight > :last-child {
+    display: none;
+  }
+}
