@@ -351,6 +351,12 @@ function EnrollPanel({ state, onState }: Props) {
                     placeholder="Counter name, for example Counter 4"
                     aria-label="New counter name"
                     autoFocus
+                    onKeyDown={(event) => {
+                      // Enter here adds the counter; only Ctrl+Enter sends the whole form.
+                      if (event.key !== "Enter" || event.ctrlKey) return;
+                      event.preventDefault();
+                      if (newCounter.trim()) addCounter();
+                    }}
                   />
                   <button
                     type="button"

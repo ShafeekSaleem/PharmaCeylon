@@ -180,7 +180,12 @@ export function PersonPanel({
   state,
   onState,
   onClose,
-}: Props & { onClose: () => void }) {
+  notice,
+}: Props & {
+  onClose: () => void;
+  /** Why the rail's Lock button didn't lock. */
+  notice?: string | null;
+}) {
   const { busy, error, run } = useAction();
   const [changing, setChanging] = useState(false);
   const session = state.staffSession!;
@@ -254,7 +259,7 @@ export function PersonPanel({
           {pin?.set && !pin.prepared && !changing && (
             <PinPrepare state={state} onState={onState} />
           )}
-          <ErrorLine error={error} />
+          <ErrorLine error={error ?? notice ?? null} />
         </div>
         <div className={ui.dfoot}>
           <button

@@ -4,20 +4,28 @@ import type {
   RefundExecuted,
 } from "../../shared/ipc-contract";
 import styles from "./App.module.css";
+import { Icon } from "./Icon";
 import { invoke } from "./invoke";
+import shell from "./Shell.module.css";
+import ui from "./ui.module.css";
+import { cx } from "./useAction";
 
 const amount = (minor: number) => (minor / 100).toFixed(2);
+const POLL_MS = 30_000;
 
-/** Remote-prepared work only the counter may execute. Hidden for people without the permission. */
+/** Remote-prepared work only the counter may execute. People without the permission see nothing waiting. */
 export function CounterWork({
   onActivity,
   onCount,
   reloadKey = 0,
+  poll = false,
 }: {
   onActivity?: () => void;
   /** How many items are waiting, for the rail's badge. */
   onCount?: (count: number) => void;
   reloadKey?: number;
+  /** Check again every so often, so a refund approved on the web turns up without a new sign-in. */
+  poll?: boolean;
 } = {}) {
   const [refunds, setRefunds] = useState<RefundAtCounter[] | null>(null);
   const [pending, setPending] = useState<
@@ -32,21 +40,30 @@ export function CounterWork({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(() => {
-    void invoke(() => window.pos.refundsReady()).then((result) =>
-      setRefunds(result.ok ? result.value : []),
-    );
-    void window.pos
-      .pendingCommands()
-      .then((list) => {
-        setPending(list);
-        onActivity?.();
-      })
-      .catch(() => undefined);
-  }, [onActivity]);
+  const load = useCallback(
+    (quiet = false) => {
+      // A failed check keeps the list it had: a network blip shouldn't empty the page or the badge.
+      void invoke(() => window.pos.refundsReady()).then((result) =>
+        setRefunds((list) => (result.ok ? result.value : (list ?? []))),
+      );
+      void window.pos
+        .pendingCommands()
+        .then((list) => {
+          setPending(list);
+          if (!quiet) onActivity?.();
+        })
+        .catch(() => undefined);
+    },
+    [onActivity],
+  );
   // Reloaded when a signed command is sent elsewhere (a prescription), so one left unconfirmed
   // shows here with its confirm button.
-  useEffect(load, [load, reloadKey]);
+  useEffect(() => load(), [load, reloadKey]);
+  useEffect(() => {
+    if (!poll) return;
+    const timer = window.setInterval(() => load(true), POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [poll, load]);
   useEffect(() => {
     onCount?.((refunds?.length ?? 0) + pending.length);
   }, [refunds, pending, onCount]);
@@ -73,7 +90,13 @@ export function CounterWork({
     load();
   }
 
-  if (!refunds?.length && !pending.length && !done) return null;
+  if (!refunds?.length && !pending.length && !done)
+    return refunds === null ? null : (
+      <div className={cx(ui.panel, shell.empty)}>
+        <Icon name="inbox" />
+        Nothing is waiting at this counter.
+      </div>
+    );
   return (
     <section
       className={`${styles.panel} ${styles.wide}`}

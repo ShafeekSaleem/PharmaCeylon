@@ -8,6 +8,7 @@ import type {
 } from "../../shared/ipc-contract";
 import { Checkout } from "./Checkout";
 import { CounterWork } from "./CounterWork";
+import full from "./Fullscreen.module.css";
 import { Icon } from "./Icon";
 import { PersonPanel } from "./Person";
 import { SetupScreen } from "./Setup";
@@ -25,17 +26,27 @@ export function App() {
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [api, setApi] = useState<ApiReachability | null>(null);
   const [device, setDevice] = useState<DeviceState | null>(null);
+  const [deviceFailed, setDeviceFailed] = useState(false);
   /** The printer checkout prints to: Windows' first. Undefined until the list arrives. */
   const [printer, setPrinter] = useState<Printer | null | undefined>(undefined);
   const [page, setPage] = useState<Page>("sell");
   const [personOpen, setPersonOpen] = useState(false);
   const [workCount, setWorkCount] = useState(0);
+  const [lockError, setLockError] = useState<string | null>(null);
 
   const refreshApi = useCallback(() => {
     window.pos
       .checkApi()
       .then(setApi)
       .catch(() => undefined);
+  }, []);
+
+  const loadDevice = useCallback(() => {
+    setDeviceFailed(false);
+    window.pos
+      .getDeviceState()
+      .then(setDevice)
+      .catch(() => setDeviceFailed(true));
   }, []);
 
   useEffect(() => {
@@ -47,10 +58,7 @@ export function App() {
       .getReadiness()
       .then(setReadiness)
       .catch(() => undefined);
-    window.pos
-      .getDeviceState()
-      .then(setDevice)
-      .catch(() => undefined);
+    loadDevice();
     window.pos
       .listPrinters()
       .then((list) => setPrinter(list[0] ?? null))
@@ -58,7 +66,7 @@ export function App() {
     refreshApi();
     const timer = window.setInterval(refreshApi, API_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [refreshApi]);
+  }, [refreshApi, loadDevice]);
 
   const [commandsSent, setCommandsSent] = useState(0);
   const onCommandSent = useCallback(() => setCommandsSent((n) => n + 1), []);
@@ -93,27 +101,72 @@ export function App() {
     if (device?.locked) setPersonOpen(false);
   }, [device?.locked]);
 
+  // A refused lock opens the panel with the reason, so nobody walks away thinking it locked.
   const lock = useCallback(() => {
+    setLockError(null);
     if (!pinReady) {
       setPersonOpen(true);
       return;
     }
+    const refused = (message: string) => {
+      setLockError(message);
+      setPersonOpen(true);
+    };
     window.pos
       .lock()
       .then((result) =>
-        result.ok ? setDevice(result.value) : setPersonOpen(true),
+        result.ok ? setDevice(result.value) : refused(result.error.message),
       )
-      .catch(() => undefined);
+      .catch(() => refused("The counter did not lock. Please try again."));
   }, [pinReady]);
+
+  const closePerson = useCallback(() => {
+    setPersonOpen(false);
+    setLockError(null);
+  }, []);
 
   if (!device)
     return (
       <div className={shell.win}>
         <TitleBar state={null} api={api} />
+        {deviceFailed && (
+          <section className={full.screen} aria-label="Not started">
+            <div className={full.wrap}>
+              <div role="alert" className={cx(ui.panel, shell.blockCard)}>
+                <span className={cx(ui.kind, shell.blockIcon)}>
+                  <Icon name="alert-triangle" />
+                </span>
+                <h2>This counter couldn&apos;t start</h2>
+                <p>
+                  It could not read its own settings on this computer. Try
+                  again. If it keeps happening, restart the app or call support
+                  {info ? ` and give them version ${info.appVersion}` : ""}.
+                </p>
+                <button
+                  type="button"
+                  className={cx(ui.btn, ui.outline, ui.lg)}
+                  onClick={loadDevice}
+                >
+                  <Icon name="refresh" />
+                  Try again
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     );
 
   const active = device.enrollment?.status === "active";
+  const signIn = (
+    <SignInScreen
+      key={sessionId ?? "signed-out"}
+      state={device}
+      onState={setDevice}
+      api={api}
+      printer={printer}
+    />
+  );
   let body;
   if (!active)
     body = (
@@ -125,81 +178,75 @@ export function App() {
         readiness={readiness}
       />
     );
-  else if (!session || device.locked)
-    body = (
-      <SignInScreen
-        key={sessionId ?? "signed-out"}
-        state={device}
-        onState={setDevice}
-        api={api}
-        printer={printer}
-      />
-    );
+  else if (!session) body = signIn;
   else
     body = (
       <>
-        <div className={shell.frame}>
-          <Rail
-            page={page}
-            onPage={setPage}
-            workCount={workCount}
-            showWork={workCount > 0 || page === "work"}
-            session={session}
-            personOpen={personOpen}
-            onPerson={() => setPersonOpen((open) => !open)}
-            onLock={lock}
-          />
-          {/* Pages stay mounted while hidden, so moving between them never loses a sale in progress. */}
-          <main className={shell.content}>
-            <div className={shell.page} hidden={page !== "sell"}>
-              <Checkout
-                key={sessionId}
-                onActivity={refreshReadiness}
-                onCommandSent={onCommandSent}
-              />
-            </div>
-            <div className={shell.page} hidden={page !== "work"}>
-              <div className={ui.pageH}>
-                <div>
-                  <h1>Counter work</h1>
-                  <p>
-                    Refunds approved on the web, and actions sent from here that
-                    still need confirming.
-                  </p>
-                </div>
+        {device.locked && signIn}
+        {/* Locking hides the frame rather than closing it, so the sale on screen is still there
+            after the unlock. */}
+        <div className={shell.work} hidden={device.locked}>
+          <div className={shell.frame}>
+            <Rail
+              page={page}
+              onPage={setPage}
+              workCount={workCount}
+              showWork={workCount > 0 || page === "work"}
+              session={session}
+              personOpen={personOpen}
+              onPerson={() =>
+                personOpen ? closePerson() : setPersonOpen(true)
+              }
+              onLock={lock}
+            />
+            {/* Pages stay mounted while hidden, so moving between them never loses a sale in progress. */}
+            <main className={shell.content}>
+              <div className={shell.page} hidden={page !== "sell"}>
+                <Checkout
+                  key={sessionId}
+                  onActivity={refreshReadiness}
+                  onCommandSent={onCommandSent}
+                />
               </div>
-              {workCount === 0 && (
-                <div className={cx(ui.panel, shell.empty)}>
-                  <Icon name="inbox" />
-                  Nothing is waiting at this counter.
+              <div className={shell.page} hidden={page !== "work"}>
+                <div className={ui.pageH}>
+                  <div>
+                    <h1>Counter work</h1>
+                    <p>
+                      Refunds approved on the web, and actions sent from here
+                      that still need confirming.
+                    </p>
+                  </div>
                 </div>
+                <CounterWork
+                  key={`work-${sessionId}`}
+                  onActivity={refreshReadiness}
+                  onCount={setWorkCount}
+                  reloadKey={commandsSent}
+                  poll={!device.locked}
+                />
+              </div>
+              <div className={shell.page} hidden={page !== "counter"}>
+                <ThisCounterPage
+                  state={device}
+                  info={info}
+                  readiness={readiness}
+                  onCheck={refreshReadiness}
+                />
+              </div>
+              {api && !api.reachable && page !== "counter" && (
+                <ServerBlock onRetry={refreshApi} />
               )}
-              <CounterWork
-                key={`work-${sessionId}`}
-                onActivity={refreshReadiness}
-                onCount={setWorkCount}
-                reloadKey={commandsSent}
-              />
-            </div>
-            <div className={shell.page} hidden={page !== "counter"}>
-              <ThisCounterPage
-                state={device}
-                info={info}
-                readiness={readiness}
-                onCheck={refreshReadiness}
-              />
-            </div>
-            {api && !api.reachable && page !== "counter" && (
-              <ServerBlock onRetry={refreshApi} />
-            )}
-          </main>
+            </main>
+          </div>
+          <StatusBar state={device} api={api} printer={printer} info={info} />
         </div>
-        <StatusBar state={device} api={api} printer={printer} info={info} />
-        {personOpen && (
+        {personOpen && !device.locked && (
           <PersonPanel
             state={device}
             onState={setDevice}
-            onClose={() => setPersonOpen(false)}
+            onClose={closePerson}
+            notice={lockError}
           />
         )}
       </>
