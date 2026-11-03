@@ -128,6 +128,7 @@ function PrinterTest() {
   const [printers, setPrinters] = useState<Printer[] | null>(null);
   const [selected, setSelected] = useState("");
   const [printing, setPrinting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
@@ -169,20 +170,27 @@ function PrinterTest() {
   }
 
   async function confirm() {
-    if (!printed) return;
-    const result = await window.pos
-      .confirmTestReceipt({ printerName: printed })
-      .catch(() => null);
-    if (result?.ok) {
-      setConfirmed(result.value.confirmedAt);
-      setPrinted(null);
-      setMessage(null);
-    } else
-      setMessage({
-        ok: false,
-        text:
-          result && !result.ok ? result.error.message : "Could not record it.",
-      });
+    if (!printed || printing || confirming) return;
+    setConfirming(true);
+    try {
+      const result = await window.pos
+        .confirmTestReceipt({ printerName: printed })
+        .catch(() => null);
+      if (result?.ok) {
+        setConfirmed(result.value.confirmedAt);
+        setPrinted(null);
+        setMessage(null);
+      } else
+        setMessage({
+          ok: false,
+          text:
+            result && !result.ok
+              ? result.error.message
+              : "Could not record it.",
+        });
+    } finally {
+      setConfirming(false);
+    }
   }
 
   const pill = confirmed ? (
@@ -240,7 +248,7 @@ function PrinterTest() {
                 type="button"
                 className={cx(ui.btn, ui.outline)}
                 onClick={() => void print()}
-                disabled={printing || !selected}
+                disabled={printing || confirming || !selected}
               >
                 <Icon name="printer" />
                 {printing ? "Printing…" : "Print test receipt"}
@@ -268,7 +276,7 @@ function PrinterTest() {
                 type="button"
                 className={cx(ui.btn, ui.sm, ui.ghost)}
                 onClick={() => void print()}
-                disabled={printing}
+                disabled={printing || confirming}
               >
                 Print again
               </button>
@@ -276,6 +284,7 @@ function PrinterTest() {
                 type="button"
                 className={cx(ui.btn, ui.sm, ui.primary)}
                 onClick={() => void confirm()}
+                disabled={printing || confirming}
               >
                 <Icon name="check" />
                 Yes, it came out

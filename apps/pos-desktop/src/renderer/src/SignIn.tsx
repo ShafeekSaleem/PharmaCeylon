@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ApiReachability,
   DeviceState,
@@ -31,6 +31,7 @@ function PinPad({
   busy: boolean;
 }) {
   const ready = PIN_OK.test(value);
+  const pad = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -40,8 +41,12 @@ function PinPad({
       if (/^\d$/.test(event.key)) {
         if (value.length < PIN_MAX) onChange(value + event.key);
       } else if (event.key === "Backspace") onChange(value.slice(0, -1));
-      else if (event.key === "Enter" && ready) onSubmit();
-      else return;
+      else if (event.key === "Enter") {
+        // A focused button outside the pad ("Someone else") does its own thing with Enter.
+        if (target?.closest("button, a") && !pad.current?.contains(target))
+          return;
+        if (ready) onSubmit();
+      } else return;
       event.preventDefault();
     }
     window.addEventListener("keydown", onKey);
@@ -60,7 +65,7 @@ function PinPad({
           <i key={i} className={i < value.length ? styles.filled : undefined} />
         ))}
       </div>
-      <div className={styles.pad}>
+      <div className={styles.pad} ref={pad}>
         {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
           <button
             key={digit}
