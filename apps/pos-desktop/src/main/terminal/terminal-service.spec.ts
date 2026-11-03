@@ -7,6 +7,8 @@ import {
   type LocalAttendanceAttestation,
   type Signed,
   type TerminalEnrollmentCommand,
+  type TerminalPinSessionCommand,
+  type TerminalPinSessionRequest,
   type TerminalSessionCommand,
   type WindowsSessionEvidence,
 } from "@pharmaceylon/shared";
@@ -57,6 +59,7 @@ const cashier: AuthUser = {
   email: "cashier@example.test",
   fullName: "Cashier",
   roles: ["cashier"],
+  branchRoles: [{ branchId, role: "cashier" }],
 };
 
 function verifies(
@@ -94,11 +97,15 @@ class FakeServer {
   enrolledIdentity: { enrollmentId: string } | null = null;
   pinVersion = 0;
   preparedVersion: number | null = null;
+  pinLocked = false;
   enrolledKey: string | null = null;
   readonly proofs = new Map<string, LocalAttendanceAttestation>();
   readonly calls: string[] = [];
-  private challenge: TerminalEnrollmentCommand | TerminalSessionCommand | null =
-    null;
+  private challenge:
+    | TerminalEnrollmentCommand
+    | TerminalSessionCommand
+    | TerminalPinSessionCommand
+    | null = null;
   private occupied = false;
 
   readonly api = {
@@ -132,6 +139,10 @@ class FakeServer {
     ) => {
       this.calls.push(`${method} ${path}`);
       return this.handle(method, path, opts.body);
+    },
+    requestWithoutToken: async (method: string, path: string, body: any) => {
+      this.calls.push(`${method} ${path} (no token)`);
+      return this.handle(method, path, body);
     },
   };
 
@@ -260,6 +271,55 @@ class FakeServer {
       if (this.proofs.get(body.attendanceProofId)?.purpose !== "session")
         throw new ApiError(403, "LOCAL_ATTENDANCE_UNAVAILABLE", "x");
       return challenge.session;
+    }
+    if (path === "/terminals/pin-sessions/challenge") {
+      const envelope = body as Signed<TerminalPinSessionRequest>;
+      if (!verifies(envelope, this.enrolledKey!, "command"))
+        throw new ApiError(403, "INVALID_SIGNATURE", "x");
+      if (this.pin === null || this.preparedVersion !== this.pinVersion)
+        throw new ApiError(403, "PIN_NOT_PREPARED", "x");
+      this.challenge = {
+        contractVersion: 1,
+        kind: "terminal_pin_session",
+        identity: envelope.payload.identity,
+        session: {
+          workSessionId: randomUUID(),
+          staffUserId: envelope.payload.staffUserId,
+          registerId,
+          tillId,
+        },
+        pinVersion: this.pinVersion,
+        tokenVersion: 0,
+        issuedAt: now,
+        expiresAt: now + 120_000,
+        serverNonce: "e".repeat(64),
+      };
+      return this.challenge;
+    }
+    if (path === "/terminals/pin-sessions") {
+      const challenge = this.challenge as TerminalPinSessionCommand;
+      const attendance = body.attendance as Signed<LocalAttendanceAttestation>;
+      if (
+        !verifies(body.envelope, this.enrolledKey!, "command") ||
+        !verifies(attendance, this.enrolledKey!, "attendance")
+      )
+        throw new ApiError(403, "INVALID_SIGNATURE", "x");
+      if (
+        attendance.payload.purpose !== "pin_session" ||
+        attendance.payload.actorUserId !== challenge.session.staffUserId ||
+        attendance.payload.payloadDigest !== challengeDigest(challenge)
+      )
+        throw new ApiError(403, "LOCAL_ATTENDANCE_UNAVAILABLE", "x");
+      if (this.pinLocked) throw new ApiError(403, "PIN_LOCKED", "x");
+      if (body.pin !== this.pin) throw new ApiError(403, "PIN_INCORRECT", "x");
+      return {
+        accessToken: "pin-access",
+        refreshToken: "pin-refresh",
+        user: [cashier, manager].find(
+          (u) => u.id === challenge.session.staffUserId,
+        ),
+        session: challenge.session,
+      };
     }
     if (path.endsWith("/end")) return undefined;
     if (path === "/terminals/offline-assignment")
@@ -772,6 +832,105 @@ describe("TerminalService PINs and locking", () => {
     expect(
       local.db.prepare("SELECT count(*) AS n FROM staff_credential").get(),
     ).toEqual({ n: 0 });
+  });
+});
+
+describe("TerminalService PIN sign-in (D-W5)", () => {
+  /** An enrolled counter the cashier has prepared a PIN on, with the manager signed in. */
+  async function preparedForCashier(terminal = service()) {
+    await enrolled(terminal);
+    await terminal.signIn(cashier.email, "password");
+    await terminal.setPin("4821", "password");
+    await terminal.signIn(manager.email, "password");
+    return terminal;
+  }
+  const pinCalls = () =>
+    server.calls.filter((call) => call.includes("/pin-sessions"));
+
+  it("lists the people prepared here, with their role and whether they're signed in", async () => {
+    const terminal = await preparedForCashier();
+    expect(terminal.state().counterStaff).toEqual([
+      {
+        staffUserId: cashier.id,
+        staffName: "Cashier",
+        role: "cashier",
+        state: "ready",
+        lockedUntil: null,
+      },
+    ]);
+  });
+
+  it("signs a prepared colleague in with their PIN, in place of whoever was signed in", async () => {
+    const terminal = await preparedForCashier();
+    const before = terminal.state().staffSession!;
+
+    const state = await terminal.signInWithPin(cashier.id, "4821");
+
+    expect(state.staffSession).toMatchObject({ staffUserId: cashier.id });
+    expect(state.staffSession!.workSessionId).not.toBe(before.workSessionId);
+    expect(state.locked).toBe(false);
+    expect(state.pin).toMatchObject({ set: true, prepared: true });
+    expect(state.counterStaff[0]?.state).toBe("signed_in");
+    expect(server.user?.id).toBe(cashier.id);
+    expect(new DeviceStore(local.db).openSession()?.staffUserId).toBe(
+      cashier.id,
+    );
+    // Both steps go without a token: the device key and the attendance proof vouch for them.
+    expect(pinCalls()).toEqual([
+      "POST /terminals/pin-sessions/challenge (no token)",
+      "POST /terminals/pin-sessions (no token)",
+    ]);
+  });
+
+  it("leaves whoever is signed in signed in when the PIN is wrong", async () => {
+    const terminal = await preparedForCashier();
+    const before = terminal.state().staffSession!;
+    await expect(
+      terminal.signInWithPin(cashier.id, "0000"),
+    ).rejects.toMatchObject({ code: "PIN_INCORRECT" });
+    expect(terminal.state().staffSession?.workSessionId).toBe(
+      before.workSessionId,
+    );
+    expect(server.user?.id).toBe(manager.id);
+  });
+
+  it("unlocks locally for the signed-in person's own PIN, without the server", async () => {
+    const terminal = service();
+    await enrolled(terminal);
+    await terminal.signIn(cashier.email, "password");
+    await terminal.setPin("4821", "password");
+    terminal.lock();
+    const state = await terminal.signInWithPin(cashier.id, "4821");
+    expect(state.locked).toBe(false);
+    expect(pinCalls()).toEqual([]);
+  });
+
+  it("forgets a verifier the server says is stale, and shows a server lock on the list", async () => {
+    const terminal = await preparedForCashier();
+    server.pinLocked = true;
+    await expect(
+      terminal.signInWithPin(cashier.id, "4821"),
+    ).rejects.toMatchObject({ code: "PIN_LOCKED" });
+    expect(terminal.state().counterStaff[0]?.state).toBe("locked");
+
+    server.pinLocked = false;
+    server.pinVersion += 1; // changed on another counter
+    await expect(
+      terminal.signInWithPin(cashier.id, "4821"),
+    ).rejects.toMatchObject({ code: "PIN_NOT_PREPARED" });
+    expect(terminal.state().counterStaff).toEqual([]);
+  });
+
+  it("asks nothing of the server for someone not prepared here, or from a remote session", async () => {
+    const terminal = await preparedForCashier();
+    await expect(
+      terminal.signInWithPin(randomUUID(), "4821"),
+    ).rejects.toMatchObject({ code: "PIN_NOT_PREPARED" });
+    windowsSession = { sessionId: 3, protocol: "rdp", remoteSession: true };
+    await expect(
+      terminal.signInWithPin(cashier.id, "4821"),
+    ).rejects.toMatchObject({ code: "REMOTE_SESSION_DENIED" });
+    expect(pinCalls()).toEqual([]);
   });
 });
 

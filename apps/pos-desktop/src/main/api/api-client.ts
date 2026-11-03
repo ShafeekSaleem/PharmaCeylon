@@ -106,6 +106,14 @@ export class ApiSession {
     };
   }
 
+  /**
+   * A request that goes without anyone's token: the PIN sign-in, where the device key vouches
+   * for the counter instead. Whoever is signed in stays signed in until `adopt`.
+   */
+  requestWithoutToken<T>(method: string, path: string, body: unknown): Promise<T> {
+    return this.send<T>(method, path, { body, auth: false });
+  }
+
   adopt(login: PendingLogin): AuthUser {
     this.tokens = { ...login };
     return login.user;

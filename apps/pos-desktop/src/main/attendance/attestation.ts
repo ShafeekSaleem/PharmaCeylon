@@ -5,6 +5,7 @@ import {
   type LocalAttendancePurpose,
   type OnlineTerminalCommand,
   type TerminalEnrollmentCommand,
+  type TerminalPinSessionCommand,
   type TerminalSessionCommand,
   type WindowsSessionEvidence,
 } from "@pharmaceylon/shared";
@@ -12,6 +13,7 @@ import {
 type Challenge =
   | TerminalEnrollmentCommand
   | TerminalSessionCommand
+  | TerminalPinSessionCommand
   | OnlineTerminalCommand<unknown>;
 
 /** The server's challenge digest: sha256 of the challenge's canonical command text. */
