@@ -2269,19 +2269,19 @@ async function main() {
         })
       )._sum.qtyDelta ?? 0;
     const counted = sysQty; // zero variance demo line
+    // Lines go in while the count is still open: each one revises the parent's approval
+    // version, which the stocktake_approval_revision trigger refuses once it is completed.
     const stCompleted = await prisma.stocktake.create({
       data: {
         tenantId: tenant.id,
         branchId: mainBranch.id,
         stocktakeNumber: "ST-SEED-003",
-        status: StocktakeStatus.completed,
+        status: StocktakeStatus.counting,
         scope: StocktakeScope.full,
         blindCount: false,
         frozenAt: daysAgo(12),
         notes: "Completed full count — matched",
         countedBy: inventoryClerk.id,
-        completedBy: manager.id,
-        completedAt: daysAgo(12),
         createdAt: daysAgo(13),
         lines: {
           create: [
@@ -2299,7 +2299,14 @@ async function main() {
         },
       },
     });
-    void stCompleted;
+    await prisma.stocktake.update({
+      where: { id: stCompleted.id },
+      data: {
+        status: StocktakeStatus.completed,
+        completedBy: manager.id,
+        completedAt: daysAgo(12),
+      },
+    });
   }
 
   // Document sequences — keep runtime next numbers above seed + ops PO-/GRN-/TR-/ST- values
