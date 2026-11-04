@@ -169,6 +169,11 @@
       "reason": "Locks one branch row by the caller's tenant and branch id to serialize offline-counter delegation, assignment authorization, revocation and activation-time revalidation; no data is written by raw SQL."
     },
     {
+      "path": "src/terminals/offline-authority-issuance.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Holds the authenticated counter's own nomination, enrollment and terminal rows (FOR SHARE, by tenant, branch and identity) while offline authority is issued, so a replaced, revoked or retired counter is never issued to; no data is written by raw SQL."
+    },
+    {
       "path": "scripts/test-rls-canary-activation.mjs",
       "mode": "ephemeral-test",
       "reason": "CI-only scoped transaction setup in a self-cleaning database proof."
