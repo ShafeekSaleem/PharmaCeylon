@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { ManagementApprovalsService } from "../security/management-approvals.service";
@@ -19,6 +20,8 @@ import {
 } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { businessToday, safeTimeZone } from "../common/business-date.util";
+import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
+import { isPrismaUniqueFieldError, normalizeIdempotencyKey } from "../common/idempotency.util";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AccessService, type ActorAccess } from "../security/access.service";
@@ -39,6 +42,14 @@ const HELD_INCLUDE = {
 } satisfies Prisma.HeldAdjustmentInclude;
 
 type HeldRow = Prisma.HeldAdjustmentGetPayload<{ include: typeof HELD_INCLUDE }>;
+
+/** Thrown inside the request transaction when its key committed while this one waited. */
+class HeldRequestReplay extends Error {}
+
+/** Same fields and values, whatever the key order (jsonb reorders keys). */
+function sameRequest(stored: Prisma.JsonValue, entered: Prisma.InputJsonObject): boolean {
+  return isDeepStrictEqual(stored, entered);
+}
 
 /**
  * Stock adjustments, with a second pair of eyes on write-offs.
@@ -88,46 +99,81 @@ export class AdjustmentService {
     return this.inventory.adjustment(user.tenantId, branchId, actor, dto, { tx, authorize: allowed, command });
   }
 
-  async request(user: RequestUser, branchId: string, dto: StockAdjustmentDto) {
+  /**
+   * Records a write-off for approval. With an `Idempotency-Key` (scope `held_adjustment_request`)
+   * a resend of the same request at the same branch returns the held adjustment the first one
+   * created, and the key reused for any other write-off is refused (400). Identical requests sent
+   * together wait on one lock inside the transaction, so exactly one is held.
+   */
+  async request(user: RequestUser, branchId: string, dto: StockAdjustmentDto, idempotencyKeyRaw?: string) {
     if (adjustmentDirection(dto) !== "out") throw new BadRequestException("Only a write-off can be sent for approval");
     if (dto.newBatch) throw new BadRequestException("New batches can only be created with stock increases");
     const note = dto.reason?.trim() || null;
     if (dto.kind === "correction" && !note) throw new BadRequestException("Say what the correction is for");
     if (!dto.kind && !note) throw new BadRequestException("Enter a reason for the write-off");
     const kind: AdjustmentKind = dto.kind ?? "correction";
-    const { row, actor } = await this.prisma.$transaction(async tx => {
-      const actor = await this.access.resolveLive(user, branchId, tx);
-      if (!actor.has("inventory.write_off") && !actor.has("inventory.manage")) {
-        throw new ForbiddenException("Your role can't adjust stock");
-      }
-      const batch = await this.writeOffBatch(tx, user.tenantId, branchId, dto);
-      const value = batch.costPrice.mul(dto.qty);
-      const row = await tx.heldAdjustment.create({
-        data: {
+    // Kept exactly as entered; also what a resend under the same key must match.
+    const payload = JSON.parse(JSON.stringify({ ...dto, movementType: "adjustment_out" })) as Prisma.InputJsonObject;
+    const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
+    if (idemKey) {
+      const replay = await this.replayRequest(user, branchId, idemKey, payload);
+      if (replay) return replay;
+    }
+    let created: { row: HeldRow; actor: ActorAccess };
+    try {
+      created = await this.prisma.$transaction(async tx => {
+        if (idemKey) {
+          // A resend that overlaps its first attempt waits here, then finds the committed key.
+          // Hash collisions only over-serialize.
+          const lockKey = `${IDEMPOTENCY_SCOPE.heldAdjustmentRequest}:${user.tenantId}:${user.userId}:${idemKey}`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+          if (await tx.idempotencyRecord.findUnique({ where: this.requestKeyWhere(user, idemKey) }))
+            throw new HeldRequestReplay();
+        }
+        const actor = await this.access.resolveLive(user, branchId, tx);
+        if (!actor.has("inventory.write_off") && !actor.has("inventory.manage")) {
+          throw new ForbiddenException("Your role can't adjust stock");
+        }
+        const batch = await this.writeOffBatch(tx, user.tenantId, branchId, dto);
+        const value = batch.costPrice.mul(dto.qty);
+        const row = await tx.heldAdjustment.create({
+          data: {
+            tenantId: user.tenantId,
+            branchId,
+            productId: dto.productId,
+            batchId: batch.id,
+            kind,
+            qty: dto.qty,
+            value,
+            note,
+            payload,
+            requestedBy: user.userId,
+          },
+          include: HELD_INCLUDE,
+        });
+        if (idemKey)
+          await tx.idempotencyRecord.create({
+            data: { ...this.requestKeyWhere(user, idemKey).tenantId_userId_scope_idempotencyKey, resourceId: row.id },
+          });
+        await this.audit.log({
           tenantId: user.tenantId,
           branchId,
-          productId: dto.productId,
-          batchId: batch.id,
-          kind,
-          qty: dto.qty,
-          value,
-          note,
-          payload: { ...dto, movementType: "adjustment_out" } as unknown as Prisma.InputJsonValue,
-          requestedBy: user.userId,
-        },
-        include: HELD_INCLUDE,
+          actorUserId: user.userId,
+          eventName: "inventory.write_off_held",
+          entityName: "product",
+          entityId: dto.productId,
+          payload: { heldAdjustmentId: row.id, kind, qty: dto.qty, value: value.toFixed(2), stockPosted: false },
+        }, tx);
+        return { row, actor };
       });
-      await this.audit.log({
-        tenantId: user.tenantId,
-        branchId,
-        actorUserId: user.userId,
-        eventName: "inventory.write_off_held",
-        entityName: "product",
-        entityId: dto.productId,
-        payload: { heldAdjustmentId: row.id, kind, qty: dto.qty, value: value.toFixed(2), stockPosted: false },
-      }, tx);
-      return { row, actor };
-    });
+    } catch (error) {
+      if (idemKey && (error instanceof HeldRequestReplay || isPrismaUniqueFieldError(error, "idempotency"))) {
+        const replay = await this.replayRequest(user, branchId, idemKey, payload);
+        if (replay) return replay;
+      }
+      throw error;
+    }
+    const { row, actor } = created;
 
     // After commit: the approvers learn there is something to decide.
     const notified = await this.notifications.notifyByPermission(
@@ -148,6 +194,34 @@ export class AdjustmentService {
       { branchId },
     );
     return { held: true as const, heldAdjustment: this.map(row, actor.has("costs.view")), notified };
+  }
+
+  private requestKeyWhere(user: RequestUser, idempotencyKey: string) {
+    return {
+      tenantId_userId_scope_idempotencyKey: {
+        tenantId: user.tenantId,
+        userId: user.userId,
+        scope: IDEMPOTENCY_SCOPE.heldAdjustmentRequest,
+        idempotencyKey,
+      },
+    } satisfies Prisma.IdempotencyRecordWhereUniqueInput;
+  }
+
+  /** The held adjustment this key already created, or null for a new key. Nobody is notified
+   * again (`notified: 0`); the approvers heard about it the first time. */
+  private async replayRequest(user: RequestUser, branchId: string, idempotencyKey: string,
+    payload: Prisma.InputJsonObject) {
+    const record = await this.prisma.idempotencyRecord.findUnique({ where: this.requestKeyWhere(user, idempotencyKey) });
+    if (!record) return null;
+    const row = await this.prisma.heldAdjustment.findFirst({
+      where: { id: record.resourceId, tenantId: user.tenantId },
+      include: HELD_INCLUDE,
+    });
+    if (!row || row.branchId !== branchId || !sameRequest(row.payload, payload))
+      throw new BadRequestException("Idempotency-Key already used for a different write-off request");
+    // Read-only: whether the value may be shown, read live like the request itself.
+    const actor = await this.access.resolveLive(user, branchId, this.prisma);
+    return { held: true as const, heldAdjustment: this.map(row, actor.has("costs.view")), notified: 0 };
   }
 
   /** A write-off this person may post without anyone else, or WRITE_OFF_APPROVAL_REQUIRED. */

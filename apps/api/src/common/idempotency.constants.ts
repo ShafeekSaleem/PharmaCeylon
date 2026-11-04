@@ -9,6 +9,7 @@ export const IDEMPOTENCY_SCOPE = {
   supplierPayment: "supplier_payment",
   supplierEvidencedPayment: "supplier_evidenced_payment",
   productImport: "product_import",
+  heldAdjustmentRequest: "held_adjustment_request",
 } as const;
 
 export type IdempotencyScope =
