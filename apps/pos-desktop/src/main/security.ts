@@ -1,6 +1,7 @@
 import { app, net, protocol, type Session } from "electron";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
+import { blockedInPackagedBuild } from "./keyboard";
 import { APP_SCHEME, isAppUrl, resolveRendererFile } from "./renderer-path";
 
 /**
@@ -97,6 +98,13 @@ export function hardenWebContents(devServerOrigin: string | null): void {
     // webPreferences.devTools is already off in a packaged build; this covers
     // any other route to opening them.
     if (app.isPackaged) contents.on("devtools-opened", () => contents.closeDevTools());
+
+    // A reload would drop the sale on screen. Development keeps Electron's menu and its
+    // reload and developer-tools keys; the counter's own keys are never blocked (keyboard.ts).
+    if (app.isPackaged)
+      contents.on("before-input-event", (event, input) => {
+        if (blockedInPackagedBuild(input)) event.preventDefault();
+      });
   });
 }
 

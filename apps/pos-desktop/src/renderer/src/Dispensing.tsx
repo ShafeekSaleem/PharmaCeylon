@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import type {
   ApproverView,
   CustomerView,
@@ -7,6 +7,8 @@ import type {
 import d from "./Dispensing.module.css";
 import { dayMonthYear } from "./format";
 import { Icon } from "./Icon";
+import { KeyHint } from "./KeyHint";
+import { inField, useKeyBinding } from "./keymap";
 import { invoke } from "./invoke";
 import { issuedAgo, slmcRefusal, type SlmcRefusal } from "./sell-model";
 import { Avatar } from "./Shell";
@@ -406,7 +408,7 @@ function Pharmacist({
             <div className={d.pinMini}>
               <span>
                 {a.hasPin ? "Pharmacist's PIN" : "Their login password"}
-                <kbd className={d.key}>F10</kbd>
+                <KeyHint keys="F10" small />
               </span>
               {a.hasPin ? (
                 <div className={d.dots}>
@@ -518,6 +520,42 @@ export function PrescriptionSheet({
   const current = !detailsDone ? 1 : !checkDone ? 2 : 3;
   const who = customer?.fullName ?? prescription?.patientName ?? null;
 
+  // The sheet takes the cursor when it opens, so the keyboard works in it: its first field, or the
+  // main button. (Sell then moves it to the PIN when a pharmacist is already chosen.)
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const continueRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const field = bodyRef.current?.querySelector<HTMLElement>(
+      "input:not([disabled]), select:not([disabled]), textarea:not([disabled])",
+    );
+    (field ?? continueRef.current)?.focus();
+  }, []);
+
+  // Keys (keymap.ts; this sheet is a layer, so Sell's own keys are quiet while it's open).
+  useKeyBinding("Escape", () => onClose());
+  // F10 puts the cursor in the chosen pharmacist's PIN, as the label beside it says.
+  useKeyBinding("F10", () => {
+    if (!pinRef.current) return false;
+    pinRef.current.focus();
+  });
+  // ↵ continues, from the PIN or with nothing focused: anywhere else Enter keeps its own job
+  // (a button presses, a form submits). Ctrl+Enter continues from anywhere.
+  useKeyBinding(
+    ["Enter", "Ctrl+Enter"],
+    (event) => {
+      if (!ready) return false;
+      const target = event.target as Element | null;
+      if (
+        !event.ctrlKey &&
+        target !== pinRef.current &&
+        (inField(target) || target?.closest?.("button, a, [role='button']"))
+      )
+        return false;
+      onContinue();
+    },
+    { inFields: true },
+  );
+
   const step = (n: number, label: string) => (
     <span
       className={cx(d.ms, n < current && d.isDone, n === current && d.isNow)}
@@ -567,7 +605,7 @@ export function PrescriptionSheet({
           <span className={d.msLine} />
           {step(3, "Payment")}
         </div>
-        <div className={d.body}>
+        <div className={d.body} ref={bodyRef}>
           {refusal && (
             <RefusalNote
               refusal={refusal}
@@ -693,9 +731,10 @@ export function PrescriptionSheet({
             className={cx(ui.btn, ui.outline, ui.lg)}
             onClick={onClose}
           >
-            Back to sale <kbd className={d.key}>Esc</kbd>
+            Back to sale <KeyHint keys="Escape" small />
           </button>
           <button
+            ref={continueRef}
             type="button"
             className={cx(ui.btn, ui.primary, ui.lg)}
             onClick={onContinue}
@@ -705,7 +744,7 @@ export function PrescriptionSheet({
             {hasControlled && approverId
               ? "Co-sign and pay"
               : "Continue to payment"}
-            <kbd className={d.key}>↵</kbd>
+            <KeyHint keys="Enter" small onPrimary />
           </button>
         </div>
       </aside>

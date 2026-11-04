@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type MutableRefObject,
   type RefObject,
 } from "react";
 import type {
@@ -23,6 +22,8 @@ import { PrescriptionSheet, type RxLine } from "./Dispensing";
 import { time } from "./format";
 import { Icon } from "./Icon";
 import { invoke, moneyInput } from "./invoke";
+import { KeyHint } from "./KeyHint";
+import { inField, KeyScope, SCAN_GAP_MS, useKeyBinding } from "./keymap";
 import s from "./Sell.module.css";
 import {
   FIND_FILTERS,
@@ -166,6 +167,13 @@ function CustomerStrip({
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<CustomerView[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Closed from outside too (Esc on Sell): start the next search empty.
+  useEffect(() => {
+    if (searching) return;
+    setFound([]);
+    setQuery("");
+    setError(null);
+  }, [searching]);
 
   async function search(event: FormEvent) {
     event.preventDefault();
@@ -265,45 +273,27 @@ function CustomerStrip({
         onClick={onOpen}
       >
         {customer ? "Change customer" : "Add customer"}
-        <kbd className={s.key}>F7</kbd>
+        <KeyHint keys="F7" small />
       </button>
     </div>
   );
 }
 
-/** Sell's counter actions, for the keyboard map (P2b PR 4) to call. */
-export type SellActions = {
-  focusSearch: () => void;
-  moveResult: (delta: number) => void;
-  openCustomer: () => void;
-  changeQty: (delta: number) => void;
-  removeLine: () => void;
-  hold: () => void;
-  openPharmacist: () => void;
-  closeSheet: () => void;
-  complete: () => void;
-  /** The fields a key puts the cursor in: search (F6) and cash received (number keys). */
-  searchField: RefObject<HTMLInputElement>;
-  cashField: RefObject<HTMLInputElement>;
-};
-
 /**
  * Sell (screen=sell): find, the ticket and pay. Online checkout at this counter: prices and totals
  * are the server's; this only collects choices. Prescriptions are taken in the sheet over it.
  *
- * Each counter action is a named handler below (focusSearch, openCustomer, hold, openPharmacist,
- * closeSheet, complete, moveResult, changeQty, removeLine) and the search and cash fields have
- * refs, handed out through `actions`, so the keyboard map (P2b PR 4) can call them. Sell itself
- * adds no key listeners.
+ * Keys (keymap.ts; the page's `<KeyScope>` is in App): F6 search, F7 customer, F8 hold, F10 the
+ * prescription sheet, F12 or Ctrl+Enter complete, Esc closes what's open, ↑/↓ move through the
+ * results, + / − / Del change the selected line, and number keys type into cash received. Focus
+ * stays in the search field, so a barcode scan always lands there.
  */
 export function Sell({
   onActivity,
   onCommandSent,
-  actions,
 }: {
   onActivity?: () => void;
   onCommandSent?: () => void;
-  actions?: MutableRefObject<SellActions | null>;
 } = {}) {
   const [catalog, setCatalog] = useState<CatalogProduct[] | null>(null);
   const [vatRatePercent, setVatRatePercent] = useState(0);
@@ -440,6 +430,7 @@ export function Sell({
     setSale(null);
     setPrintMessage(null);
     refresh();
+    searchRef.current?.focus();
   }
 
   function add(product: CatalogProduct) {
@@ -459,6 +450,8 @@ export function Sell({
     });
     setSelectedId(product.productId);
     setQuery("");
+    // Back to search for the next scan; a sheet that opens takes focus from there.
+    searchRef.current?.focus();
     if (product.needsPharmacist && !prescription && !sheetOffered) {
       setSheetOffered(true);
       setSheetOpen(true);
@@ -480,7 +473,7 @@ export function Sell({
     if (qty <= 0 && selectedId === productId) setSelectedId(null);
   }
 
-  // ---- counter actions (the keyboard map wires these) ----
+  // ---- counter actions (bound to keys below) ----
 
   function focusSearch() {
     searchRef.current?.focus();
@@ -521,13 +514,31 @@ export function Sell({
     if (sheetOpen && approverId) pinRef.current?.focus();
   }, [sheetOpen, approverId]);
 
-  // Leaving the sheet for payment puts the cursor in cash received, once the sheet has gone.
+  // Leaving the sheet for payment puts the cursor in cash received, once the sheet has gone; closing
+  // it any other way puts it back in search.
   const focusCashNext = useRef(false);
+  const sheetWasOpen = useRef(false);
   useEffect(() => {
-    if (sheetOpen || !focusCashNext.current) return;
+    if (sheetOpen) {
+      sheetWasOpen.current = true;
+      return;
+    }
+    if (!sheetWasOpen.current) return;
+    sheetWasOpen.current = false;
+    if (focusCashNext.current) cashRef.current?.focus();
+    else searchRef.current?.focus();
     focusCashNext.current = false;
-    cashRef.current?.focus();
   }, [sheetOpen]);
+
+  // Closing the customer search puts the cursor back in search.
+  const customerWasSearching = useRef(false);
+  useEffect(() => {
+    if (customerSearching) customerWasSearching.current = true;
+    else if (customerWasSearching.current) {
+      customerWasSearching.current = false;
+      searchRef.current?.focus();
+    }
+  }, [customerSearching]);
 
   function continueToPayment() {
     focusCashNext.current = true;
@@ -551,6 +562,7 @@ export function Sell({
       resetSale();
       setNotice(`Held as ${result.value.holdRef}.`);
       loadHolds();
+      searchRef.current?.focus();
     } else setError(result.error.message);
   }
 
@@ -579,6 +591,7 @@ export function Sell({
     });
     setLines(restored);
     setSelectedId(restored[0]?.product.productId ?? null);
+    searchRef.current?.focus();
     const short = held.lines.length - restored.length;
     setNotice(
       short > 0
@@ -667,20 +680,69 @@ export function Sell({
     );
   }
 
-  if (actions)
-    actions.current = {
-      focusSearch,
-      moveResult,
-      openCustomer,
-      changeQty,
-      removeLine,
-      hold: () => void hold(),
-      openPharmacist,
-      closeSheet,
-      complete: () => void complete(),
-      searchField: searchRef,
-      cashField: cashRef,
-    };
+  // ---- keys (keymap.ts) ----
+  const canHold = !busy && !awaiting && lines.length > 0;
+  const canComplete = canHold && !tenderShort;
+  useKeyBinding("F6", () => focusSearch());
+  useKeyBinding("F7", () => openCustomer());
+  useKeyBinding("F8", () => void hold(), { enabled: canHold });
+  useKeyBinding("F10", () => openPharmacist(), { enabled: needsPrescription });
+  useKeyBinding(["F12", "Ctrl+Enter"], () => void complete(), {
+    enabled: canComplete,
+  });
+  useKeyBinding("Escape", () => {
+    if (menu) return void setMenu(null);
+    if (customerSearching) return void setCustomerSearching(false);
+    if (query) return void setQuery("");
+    return false;
+  });
+  // ↑/↓ move through the results from the search field (or with nothing focused), not from others.
+  useKeyBinding(
+    ["ArrowUp", "ArrowDown"],
+    (event) => {
+      if (inField(event.target) && event.target !== searchRef.current)
+        return false;
+      moveResult(event.key === "ArrowUp" ? -1 : 1);
+    },
+    { inFields: true, repeat: true },
+  );
+  // + / − / Del change the selected line. In a field they type, except in an empty search field,
+  // which is where the cursor sits between scans.
+  useKeyBinding(
+    ["Plus", "Minus", "Delete"],
+    (event) => {
+      if (!selectedId) return false;
+      if (
+        inField(event.target) &&
+        !(event.target === searchRef.current && query === "")
+      )
+        return false;
+      if (event.key === "Delete") removeLine();
+      else changeQty(event.key === "+" ? 1 : -1);
+    },
+    { inFields: true, repeat: true },
+  );
+  // A number key with no field focused. It goes into search first, because it may be the first
+  // character of a barcode scan; if no scan follows it, it was a person keying the cash received,
+  // and it moves there. A scan therefore never lands in cash.
+  const digitToCash = useRef<number | null>(null);
+  useEffect(() => () => window.clearTimeout(digitToCash.current ?? undefined), []);
+  useKeyBinding("Digit", (event) => {
+    const digit = event.key;
+    const before = searchRef.current?.value ?? query;
+    searchRef.current?.focus();
+    setQuery(before + digit);
+    if (sale || !lines.length || method === "card") return;
+    window.clearTimeout(digitToCash.current ?? undefined);
+    digitToCash.current = window.setTimeout(() => {
+      digitToCash.current = null;
+      const field = searchRef.current;
+      if (!field || field.value !== before + digit) return; // a scan followed: leave it in search
+      setQuery(before);
+      setCash((current) => moneyInput(current + digit));
+      cashRef.current?.focus();
+    }, SCAN_GAP_MS * 3);
+  });
 
   const onPendingCount = useCallback(
     (count: number) => {
@@ -744,7 +806,7 @@ export function Sell({
   const cashBox = (
     <div>
       <label className={s.fldL} htmlFor="sell-cash">
-        Cash received <kbd className={s.key}>Num</kbd>
+        Cash received <KeyHint keys="Digit" small />
       </label>
       <div className={s.moneyIn}>
         <small>Rs</small>
@@ -802,7 +864,7 @@ export function Sell({
                 autoFocus
                 autoComplete="off"
               />
-              <kbd className={s.key}>F6</kbd>
+              <KeyHint keys="F6" small />
             </form>
             <div className={s.chips} role="group" aria-label="Show">
               {FIND_FILTERS.map((f) => (
@@ -919,7 +981,7 @@ export function Sell({
               disabled={busy || awaiting || !lines.length}
             >
               <Icon name="pause" />
-              Hold <kbd className={s.key}>F8</kbd>
+              Hold <KeyHint keys="F8" small />
             </button>
             <button
               type="button"
@@ -1244,7 +1306,7 @@ export function Sell({
                     <b>{rxBox.title}</b>
                     <small>{rxBox.detail}</small>
                   </div>
-                  <kbd className={s.key}>F10</kbd>
+                  <KeyHint keys="F10" small />
                 </button>
               )}
               <div
@@ -1370,7 +1432,7 @@ export function Sell({
                 >
                   <Icon name="check-circle" />
                   {busy ? "Completing…" : "Complete sale"}
-                  <kbd className={s.key}>F12</kbd>
+                  <KeyHint keys="F12" small onPrimary />
                 </button>
               </div>
             </>
@@ -1382,6 +1444,7 @@ export function Sell({
         <div className={s.menuCatch} onClick={() => setMenu(null)} />
       )}
       {sheetOpen && needsPrescription && (
+        <KeyScope layer>
         <PrescriptionSheet
           rxLines={rxLines}
           hasControlled={hasControlled}
@@ -1405,6 +1468,7 @@ export function Sell({
           onClose={closeSheet}
           onContinue={continueToPayment}
         />
+        </KeyScope>
       )}
     </div>
   );

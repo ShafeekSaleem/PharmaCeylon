@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type {
   ApiReachability,
   DeviceState,
@@ -7,6 +7,8 @@ import type {
 import { longDay, time, useNow } from "./format";
 import { Icon } from "./Icon";
 import full from "./Fullscreen.module.css";
+import { KeyHint } from "./KeyHint";
+import { useKeyBinding } from "./keymap";
 import { SignInForm } from "./Setup";
 import { atTheComputer, Avatar } from "./Shell";
 import styles from "./SignIn.module.css";
@@ -35,25 +37,32 @@ function PinPad({
   const ready = PIN_OK.test(value);
   const pad = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (busy || event.ctrlKey || event.altKey || event.metaKey) return;
+  // The keyboard's own keys, from anywhere but a field (the keymap's default for these keys).
+  // Held keys repeat, as they always have here.
+  const keys = { enabled: !busy, repeat: true };
+  useKeyBinding(
+    "Digit",
+    (event) => {
+      if (value.length < PIN_MAX) onChange(value + event.key);
+    },
+    keys,
+  );
+  useKeyBinding("Backspace", () => onChange(value.slice(0, -1)), keys);
+  useKeyBinding(
+    ["Enter", "Ctrl+Enter"],
+    (event) => {
+      // A focused button outside the pad ("Someone else") does its own thing with Enter.
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select")) return;
-      if (/^\d$/.test(event.key)) {
-        if (value.length < PIN_MAX) onChange(value + event.key);
-      } else if (event.key === "Backspace") onChange(value.slice(0, -1));
-      else if (event.key === "Enter") {
-        // A focused button outside the pad ("Someone else") does its own thing with Enter.
-        if (target?.closest("button, a") && !pad.current?.contains(target))
-          return;
-        if (ready) onSubmit();
-      } else return;
-      event.preventDefault();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [busy, value, ready, onChange, onSubmit]);
+      if (
+        !event.ctrlKey &&
+        target?.closest("button, a") &&
+        !pad.current?.contains(target)
+      )
+        return false;
+      if (ready) onSubmit();
+    },
+    keys,
+  );
 
   const dots = Math.max(4, value.length);
   return (
@@ -301,6 +310,10 @@ export function SignInScreen({
 
   // A refusal that took its person off the pad (a locked or stale PIN) is shown with their name,
   // not under whoever the pad moved on to.
+  useKeyBinding("Escape", () => setSwitching(false), {
+    enabled: Boolean(selected) && switching,
+  });
+
   const strayError =
     error && tried && tried.staffUserId !== selected?.staffUserId
       ? `${tried.staffName}: ${error}`
@@ -446,6 +459,7 @@ export function SignInScreen({
                   onClick={() => setSwitching(false)}
                 >
                   Back to the PIN pad
+                  <KeyHint keys="Escape" />
                 </button>
               ) : (
                 <div className={styles.foot}>
