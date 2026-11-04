@@ -39,6 +39,13 @@ export async function isNominated(tx: Prisma.TransactionClient, identity: Termin
   return nomination !== null;
 }
 
+/** The nomination share lock surfaces a concurrent activation as a raw-query 40001 (P2010). */
+function rawWriteConflict(error: Prisma.PrismaClientKnownRequestError): boolean {
+  const cause = (error.meta as { driverAdapterError?: { cause?: { originalCode?: unknown } } } | undefined)
+    ?.driverAdapterError?.cause;
+  return error.code === "P2010" && cause?.originalCode === "40001";
+}
+
 /** The authenticator verifies device, actor and command ID on every attempt, including replay.
  * readState establishes a safe journal baseline before any new grant is minted.
  */
@@ -89,7 +96,7 @@ export async function issueOfflineAuthority(
   } catch (error) {
     // Retry an overlapping issuance from a fresh view so a committed command can be replayed.
     if (error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === "P2002" || error.code === "P2034")) return issue();
+        (error.code === "P2002" || error.code === "P2034" || rawWriteConflict(error))) return issue();
     throw error;
   }
 }
