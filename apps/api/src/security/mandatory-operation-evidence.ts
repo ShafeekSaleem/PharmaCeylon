@@ -13,7 +13,9 @@ import { type ClinicalEvidence, PharmacistRegistrationService } from "../clinica
 @Injectable()
 export class MandatoryOperationEvidence {
   /** The application module installs the real branch-hours (P1 MR 7) and pharmacist-registration
-   * providers. Without one — a bare instance in a test or script — that port keeps failing closed. */
+   * providers. Without one — a bare instance in a test or script — that port keeps failing closed.
+   * A missing hours provider is how the instance was built, not a passing fault, so it refuses
+   * with `BRANCH_HOURS_NOT_CONFIGURED`, which is never retryable. */
   constructor(
     @Optional() private readonly hoursProvider?: OperatingHoursEvidence,
     @Optional()
@@ -36,7 +38,7 @@ export class MandatoryOperationEvidence {
     tx: Prisma.TransactionClient,
     command: OnlineTerminalCommand<unknown>,
   ): Promise<void> {
-    if (!this.hoursProvider) denied("TEMPORARILY_UNAVAILABLE");
+    if (!this.hoursProvider) denied("BRANCH_HOURS_NOT_CONFIGURED");
     await this.hoursProvider.assertForCommand(tx, command);
   }
   async bankPayment(

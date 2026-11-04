@@ -1,8 +1,25 @@
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type { OnlineTerminalCommand, SignedPhysicalOperation } from "@pharmaceylon/shared";
-import { evaluateOperatingHours } from "./operating-hours";
+import { evaluateOperatingHours, type OperatingHoursVerdict } from "./operating-hours";
 import { denied, invalid } from "./terminal-wire";
+
+type UnknownReason = Extract<OperatingHoursVerdict, { kind: "unknown" }>["reason"];
+
+/**
+ * Why the hours are unknown decides whether a resend can help.
+ *
+ * - Hours never set, or a timezone the server cannot use, is the branch's own setup: a manager
+ *   sets the hours, the owner fixes the timezone (saved as free text). Until then every resend
+ *   gets the same answer, so `BRANCH_HOURS_NOT_CONFIGURED` (not retryable).
+ * - Stored hours that fail validation are not a setting anyone chose: the hours editor and
+ *   workspace provisioning validate what they save. Such a row is a server-side fault (hours
+ *   written by a newer release mid-deploy, or a backfill bug), so `TEMPORARILY_UNAVAILABLE`
+ *   (retryable). The hours editor logs the same row as an error.
+ */
+function refuseUnknownHours(reason: UnknownReason): never {
+  denied(reason === "hours_invalid" ? "TEMPORARILY_UNAVAILABLE" : "BRANCH_HOURS_NOT_CONFIGURED");
+}
 
 /**
  * Revised D8 limits *new sales and shift opening* to selling hours; counting cash and closing an
@@ -35,7 +52,9 @@ export const OPERATIONS_WITHOUT_SELLING_HOURS: ReadonlySet<string> = new Set<Sig
  * person accepted), mandatory limits and unrevoked business extensions on the caller's
  * transaction, at the time the command is authorized:
  *
- * - unset/unreadable hours, an unusable timezone or an inactive branch → `TEMPORARILY_UNAVAILABLE`;
+ * - unset hours, an unusable timezone or an inactive branch → `BRANCH_HOURS_NOT_CONFIGURED`
+ *   (setup has to change first);
+ * - stored hours that fail validation → `TEMPORARILY_UNAVAILABLE` (a server fault);
  * - outside a mandatory limit → `OUTSIDE_OPERATING_HOURS` (nobody can override it);
  * - outside routine hours with no extension → `BUSINESS_HOURS_ACK_REQUIRED`: online, the remedy
  *   is a business extension approved on the web (W7). The device-signed D8 acknowledgement is an
@@ -57,7 +76,7 @@ export class OperatingHoursEvidence {
       where: { id: branchId, tenantId, isActive: true },
       select: { operatingHours: true, timezone: true },
     });
-    if (!branch) denied("TEMPORARILY_UNAVAILABLE");
+    if (!branch) denied("BRANCH_HOURS_NOT_CONFIGURED");
     const extensions = await tx.branchHoursExtension.findMany({
       where: { tenantId, branchId, revokedAt: null, startsAt: { lte: at }, endsAt: { gt: at } },
       select: { startsAt: true, endsAt: true },
@@ -70,7 +89,7 @@ export class OperatingHoursEvidence {
       case "open":
         return;
       case "unknown":
-        denied("TEMPORARILY_UNAVAILABLE");
+        refuseUnknownHours(verdict.reason);
       case "outside_mandatory":
         denied("OUTSIDE_OPERATING_HOURS");
       case "closed":
@@ -84,8 +103,9 @@ export class OperatingHoursEvidence {
    * remedy and a sale outside routine hours is not refused).
    *
    * - outside a mandatory window → `OUTSIDE_OPERATING_HOURS` (nobody can override it);
-   * - hours stored but unreadable, or an unusable timezone → `TEMPORARILY_UNAVAILABLE`, because a
-   *   mandatory limit could be hiding in them;
+   * - an unusable timezone or an inactive branch → `BRANCH_HOURS_NOT_CONFIGURED`, and hours stored
+   *   but unreadable → `TEMPORARILY_UNAVAILABLE`, because a mandatory limit could be hiding in
+   *   them (see `refuseUnknownHours`);
    * - no hours set yet → no restriction is known, so the sale goes ahead.
    */
   async assertMandatoryForSale(
@@ -98,14 +118,14 @@ export class OperatingHoursEvidence {
       where: { id: branchId, tenantId, isActive: true },
       select: { operatingHours: true, timezone: true },
     });
-    if (!branch) denied("TEMPORARILY_UNAVAILABLE");
+    if (!branch) denied("BRANCH_HOURS_NOT_CONFIGURED");
     const verdict = evaluateOperatingHours(
       { hours: branch.operatingHours, timeZone: branch.timezone, extensions: [] },
       at,
     );
     if (verdict.kind === "outside_mandatory") denied("OUTSIDE_OPERATING_HOURS");
     if (verdict.kind === "unknown" && verdict.reason !== "hours_unset")
-      denied("TEMPORARILY_UNAVAILABLE");
+      refuseUnknownHours(verdict.reason);
   }
 
   /** Server time; tests substitute a fixed clock. */

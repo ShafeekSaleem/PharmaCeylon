@@ -263,7 +263,7 @@ export const TERMINAL_ERROR_CODES = [
   "PAYMENT_NOT_ALLOWED", "PHARMACIST_REQUIRED", "REPLAY_CONFLICT", "SEQUENCE_GAP",
   "RECONCILIATION_REQUIRED", "BUSINESS_HOURS_ACK_REQUIRED", "TEMPORARILY_UNAVAILABLE",
   "CHALLENGE_EXPIRED", "CHALLENGE_INVALID", "CHALLENGE_USED_OR_EXPIRED", "LOCAL_ATTENDANCE_UNAVAILABLE",
-  "ENROLLMENT_CODE_INVALID",
+  "ENROLLMENT_CODE_INVALID", "BRANCH_HOURS_NOT_CONFIGURED",
 ] as const;
 export type TerminalErrorCode = typeof TERMINAL_ERROR_CODES[number];
 
@@ -304,6 +304,9 @@ export const TERMINAL_ERROR_RETRYABLE = {
   CHALLENGE_USED_OR_EXPIRED: false,
   LOCAL_ATTENDANCE_UNAVAILABLE: false,
   ENROLLMENT_CODE_INVALID: false,
+  // The branch's hours are unset, its timezone is unusable or it is inactive (or the server has
+  // no hours provider): setup has to change first, so a resend gets the same answer.
+  BRANCH_HOURS_NOT_CONFIGURED: false,
   // Operation policy (OperationPolicyErrorCode) not already listed
   AUTHENTICATION_REQUIRED: false,
   PERMISSION_DENIED: false,

@@ -1051,3 +1051,22 @@ describe("TerminalService offline counter activation", () => {
     expect(server.nominatedEnrollment).toBeNull();
   });
 });
+
+describe("explain", () => {
+  it("tells staff a manager has to set the branch's hours", () => {
+    expect(
+      explain(
+        new ApiError(
+          403,
+          "BRANCH_HOURS_NOT_CONFIGURED",
+          "Terminal authorization failed",
+        ),
+      ),
+    ).toEqual({
+      code: "BRANCH_HOURS_NOT_CONFIGURED",
+      message: expect.stringContaining(
+        "A manager has to set the branch's hours",
+      ),
+    });
+  });
+});

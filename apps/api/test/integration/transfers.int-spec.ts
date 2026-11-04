@@ -68,7 +68,7 @@ class FixtureAttendance extends LocalAttendanceVerifier {
     return proofId;
   }
 }
-/** Test-only hours provider; production still fails closed with TEMPORARILY_UNAVAILABLE. */
+/** Test-only hours provider; production still fails closed with BRANCH_HOURS_NOT_CONFIGURED. */
 class OpenHours extends MandatoryOperationEvidence {
   override async hours() {}
 }
