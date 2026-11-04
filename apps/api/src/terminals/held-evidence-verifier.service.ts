@@ -85,7 +85,7 @@ export class HeldEvidenceVerifier {
     const refusal = hoursAcknowledgementRefusal(grant, ack, managerSignIn, outage);
     const status = refusal ? "rejected" : "accepted";
     const moved = await tx.businessHoursAcknowledgement.updateMany({
-      where: { id: row.id, status: "held" },
+      where: { id: row.id, tenantId: user.tenantId, status: "held" },
       data: { status, heldReason: refusal, verifiedAt: new Date(now) },
     });
     if (moved.count !== 1) throw new Error("Held acknowledgement changed under its record lock");
@@ -148,7 +148,7 @@ export class HeldEvidenceVerifier {
       return { recordId: input.recordId, status: "held", reason: row.heldReason, decided: false };
 
     const moved = await tx.offlineSupportRecord.updateMany({
-      where: { id: row.id, status: "held" },
+      where: { id: row.id, tenantId: user.tenantId, status: "held" },
       data: { status: "rejected", heldReason: refusal, verifiedAt: new Date(now) },
     });
     if (moved.count !== 1) throw new Error("Held support record changed under its record lock");
