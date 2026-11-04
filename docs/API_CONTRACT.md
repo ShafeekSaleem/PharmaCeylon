@@ -758,12 +758,9 @@ is locked, so a revocation that commits first refuses the sale and a later one w
 - **A seller dispensing alone** (no co-sign) needs `sales.approve_controlled` at the branch, the
   permission a co-signer needs, resolved from the tenant's grants (owner, manager and pharmacist by
   default); without it the refusal is 403 `PHARMACIST_APPROVAL_REQUIRED`. They also need their own
-  current registration **at a counter** (`x-terminal-session`), and on any checkout at a branch
-  live on PharmaCeylon POS outside a fallback, so leaving the header out skips nothing. Without one
-  the sale is refused with 403 `SELLER_NOT_QUALIFIED`, telling them to get a co-sign. Before
-  go-live and during a fallback, when the web POS is what the branch uses, the permission alone
-  still dispenses there: the web has no way yet to ask for a co-sign when the seller isn't
-  registered (still open, see POS_P1_IMPLEMENTATION.md MR 10).
+  current registration on **every** checkout, at a counter or on the web POS, whatever the
+  branch's desktop POS state. Without one the sale is refused with 403 `SELLER_NOT_QUALIFIED`,
+  telling them to get a co-sign; the web POS opens its pharmacist PIN dialog on it.
 - **Provenance.** The registration relied on is stored with the sale as
   `sale.dispenser_registration_id` (`dispenserRegistrationId` in sale responses), in the same
   transaction; a composite foreign key pins it to `dispensed_by` in the tenant. `sale.posted` and

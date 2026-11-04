@@ -41,6 +41,7 @@ import { usePosToasts } from "./hooks/use-pos-toasts";
 import { useScanBeep } from "./hooks/use-scan-beep";
 import { fetchTenantSettings } from "../settings/lib/tenant-settings";
 import { apiJson, fetchTenantBranches } from "@/lib/auth-client";
+import { ApiError } from "@/lib/api-error";
 import { checkout, createHold, findSaleByInvoice, getCustomer, getPrescription } from "./services/pos-api";
 import type {
   CartLine,
@@ -206,6 +207,8 @@ function PosWorkspace() {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [posting, setPosting] = useState(false);
   const [pinOpen, setPinOpen] = useState(false);
+  /** The PIN dialog opened because the seller has no current SLMC registration here. */
+  const [sellerUnregistered, setSellerUnregistered] = useState(false);
   const [tillPinSettingsOpen, setTillPinSettingsOpen] = useState(false);
   /** Set while the cart holds an un-modified recall; cleared on any new hold/sale/reset. */
   const [recalledHold, setRecalledHold] = useState<{ id: string; holdRef: string } | null>(null);
@@ -426,6 +429,7 @@ function PosWorkspace() {
           forPharmacist ? `Held as ${created.holdRef} for the pharmacist.` : `Held as ${created.holdRef}.`,
         );
         setPinOpen(false);
+        setSellerUnregistered(false);
         resetSale();
         void holds.reload();
       } catch (e) {
@@ -603,6 +607,7 @@ function PosWorkspace() {
           idempotencyKey.current,
         );
         setPinOpen(false);
+        setSellerUnregistered(false);
         setLastReceipt(sale);
         setCompletedSale(sale);
         setCompletedPrinted(posPrefs.posAutoPrintReceipt);
@@ -618,6 +623,14 @@ function PosWorkspace() {
         void holds.reload();
         void todaySales.reload();
       } catch (e) {
+        // P1 #47: the seller may dispense controlled medicines but has no current SLMC registration
+        // at this branch, so a registered pharmacist co-signs instead of the sale dead-ending. That
+        // is the next step, not a failure, so it gets no error beep.
+        if (!pharmacistApproval && e instanceof ApiError && e.code === "SELLER_NOT_QUALIFIED") {
+          setSellerUnregistered(true);
+          setPinOpen(true);
+          throw e;
+        }
         beep("error");
         toasts.error(e instanceof Error ? e.message : "Checkout failed");
         throw e;
@@ -1059,7 +1072,15 @@ function PosWorkspace() {
       <PosPharmacistPinModal
         open={pinOpen}
         warnings={softRxWarnings}
-        onClose={() => setPinOpen(false)}
+        description={
+          sellerUnregistered
+            ? "You have no current SLMC registration at this branch. A registered pharmacist enters their PIN to dispense these controlled medicines."
+            : undefined
+        }
+        onClose={() => {
+          setPinOpen(false);
+          setSellerUnregistered(false);
+        }}
         onHoldInstead={() => void holdSale({ forPharmacist: true })}
         onError={toasts.error}
         onApprove={(approval) => postCheckout(approval)}
