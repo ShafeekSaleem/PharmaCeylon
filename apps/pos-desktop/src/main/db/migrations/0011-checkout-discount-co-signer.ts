@@ -6,7 +6,7 @@ import type { Migration } from "../migrator";
  * server can ask the same manager again.
  */
 export const checkoutDiscountCoSigner: Migration = {
-  version: 10,
+  version: 11,
   name: "checkout-discount-co-signer",
   up(db) {
     db.exec("ALTER TABLE checkout_draft ADD COLUMN discount_co_signer_id TEXT");

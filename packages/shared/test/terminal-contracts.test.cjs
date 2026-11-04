@@ -4,6 +4,22 @@ const c = require('../dist/terminal-contracts.js');
 const fixtures = require('./terminal-fixtures.cjs');
 const fresh = () => structuredClone(fixtures);
 const check = (f, state = 'offline') => c.offlineSalePolicyError(f.grant, f.snapshot, f.sale, f.usage, f.sale.occurredAt, state, f.staffSignIn, f.openShift);
+
+test('offline checkout refuses snapshots with missing or malformed stock review state', () => {
+  for (const state of [undefined, null, 0, 'false']) {
+    const f = fresh();
+    f.snapshot.lines[0].stockReviewRequired = state;
+    assert.equal(check(f), 'SNAPSHOT_INVALID');
+  }
+});
+
+test('a nonzero snapshot watermark requires a string hash', () => {
+  const { snapshot } = fresh();
+  snapshot.includedThroughSequence = 1;
+  snapshot.includedThroughHash = ['a'.repeat(64)];
+  assert.throws(() => c.assertStockSnapshotBounds(snapshot), /Invalid snapshot watermark/);
+});
+
 function shiftCommand(f, kind, fields = {}) {
   return {
     contractVersion: 1, kind, commandId: `command-${kind}`, identity: f.sale.identity,

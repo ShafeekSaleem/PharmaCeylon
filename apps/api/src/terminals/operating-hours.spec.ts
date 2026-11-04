@@ -1,5 +1,5 @@
 import { terminalErrorRetryable, type BranchHours, type DayHours } from "@pharmaceylon/shared";
-import { evaluateOperatingHours } from "./operating-hours";
+import { compileOfflineHours, evaluateOperatingHours } from "./operating-hours";
 import { OperatingHoursEvidence, OPERATIONS_WITHOUT_SELLING_HOURS } from "./operating-hours.evidence";
 import { MandatoryOperationEvidence } from "../security/mandatory-operation-evidence";
 
@@ -19,6 +19,25 @@ function hours(overrides: Partial<BranchHours> = {}): BranchHours {
 const at = (local: string) => new Date(`${local}:00+05:30`);
 const verdict = (h: unknown, when: string, extensions: { startsAt: Date; endsAt: Date }[] = [], tz = COLOMBO) =>
   evaluateOperatingHours({ hours: h, timeZone: tz, extensions }, at(when));
+
+it("compiles clipped routine and mandatory grant windows independently", () => {
+  const startsAt = +at("2026-10-26T17:00");
+  const endsAt = +at("2026-10-26T20:00");
+  const extensionEnd = +at("2026-10-26T19:00") + 500;
+  const input = {
+    hours: hours({ mandatory: [{ day: "mon", opens: "17:30", closes: "18:30" }] }),
+    timeZone: COLOMBO,
+    extensions: [{ startsAt: at("2026-10-26T18:00"), endsAt: new Date(extensionEnd) }],
+  };
+  expect(compileOfflineHours(input, startsAt, endsAt)).toEqual({
+    operatingWindows: [{ startsAt, endsAt: extensionEnd }],
+    mandatoryOperatingWindows: [{ startsAt: +at("2026-10-26T17:30"), endsAt: +at("2026-10-26T18:30") }],
+  });
+  for (const mandatory of [null, []]) {
+    expect(compileOfflineHours({ ...input, hours: hours({ mandatory }) }, startsAt, endsAt)
+      .mandatoryOperatingWindows).toEqual(mandatory);
+  }
+});
 
 describe("evaluateOperatingHours", () => {
   it("is open inside the routine weekly range and closed outside it", () => {
