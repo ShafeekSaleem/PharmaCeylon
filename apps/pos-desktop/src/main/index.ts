@@ -1,3 +1,5 @@
+import { createPublicKey } from "node:crypto";
+import { startOfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { app, BrowserWindow, dialog, Menu, net, safeStorage, session } from "electron";
 import { join } from "node:path";
 import type { ActionResult } from "../shared/ipc-contract";
@@ -323,6 +325,21 @@ async function start(): Promise<void> {
     appVersion: app.getVersion(),
     logger,
   });
+  const authorityKeyId = process.env.POS_OFFLINE_AUTHORITY_KEY_ID;
+  const authorityPublicKey = process.env.POS_OFFLINE_AUTHORITY_PUBLIC_KEY;
+  if (authorityKeyId && authorityPublicKey) {
+    try {
+      const publicKey = createPublicKey(authorityPublicKey);
+      if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("Expected Ed25519 public key");
+      const stopRefresh = startOfflineAuthorityRefresh(
+        store.db, terminalApi, terminal, () => deviceStore.read(), { keyId: authorityKeyId, publicKey },
+        () => logger.info("offline_authority.refresh_failed", {}),
+      );
+      app.once("before-quit", stopRefresh);
+    } catch {
+      logger.info("offline_authority.invalid_public_key", {});
+    }
+  }
   checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger });
   commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });

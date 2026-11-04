@@ -1124,3 +1124,19 @@ edited. Saving is not offline activation or grant renewal.
 read-only grant settings source: every value settings contribute to an offline grant, with the
 counter-policy and operating-hours versions P3 re-issues on. See [W7_COUNTER_POLICY.md](W7_COUNTER_POLICY.md)
 for validation, atomic audit, live authority, examples and downstream integration boundaries.
+
+## Offline authority issuance (P3)
+
+A signed-in counter requests a command with
+`POST /api/v1/terminals/offline-authority/challenge` and
+`{ workSessionId, requestId }`. The counter signs the returned command and submits
+`{ envelope, attendanceProofId }` to `POST /api/v1/terminals/offline-authority`.
+The response contains the signed `grant` and `snapshot`. The API commits both
+before returning them. After a lost response, request a fresh challenge and
+attendance proof using the same `requestId` to recover the original pair.
+
+Issuance requires `OFFLINE_AUTHORITY_KEY_ID` and an Ed25519 PKCS#8 PEM in
+`OFFLINE_AUTHORITY_PRIVATE_KEY`. The desktop must verify responses against an
+independently provisioned server public key. Until reconciliation supplies a
+production watermark and stock-review state, a new request after the first
+issuance returns `RECONCILIATION_REQUIRED`.

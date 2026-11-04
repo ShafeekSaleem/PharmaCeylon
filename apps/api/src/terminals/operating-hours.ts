@@ -28,10 +28,10 @@ const MINUTES_PER_DAY = 24 * 60;
 
 type LocalClock = { dateKey: string; weekday: Weekday; minute: number };
 
-function localClock(timeZone: string, at: Date): LocalClock | null {
+function localClock(timeZone: string, at: Date, formatter?: Intl.DateTimeFormat): LocalClock | null {
   let parts: Intl.DateTimeFormatPart[];
   try {
-    parts = new Intl.DateTimeFormat("en-US", {
+    parts = (formatter ?? new Intl.DateTimeFormat("en-US", {
       timeZone,
       hourCycle: "h23",
       weekday: "short",
@@ -40,7 +40,7 @@ function localClock(timeZone: string, at: Date): LocalClock | null {
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-    }).formatToParts(at);
+    })).formatToParts(at);
   } catch {
     return null;
   }
@@ -88,7 +88,10 @@ export function evaluateOperatingHours(input: OperatingHoursInput, at: Date): Op
   const hours: BranchHours = parsed.value;
   const clock = localClock(input.timeZone, at);
   if (!clock) return { kind: "unknown", reason: "timezone_invalid" };
+  return evaluateLocalHours(hours, clock, input.extensions, at);
+}
 
+function evaluateLocalHours(hours: BranchHours, clock: LocalClock, extensions: OperatingHoursInput["extensions"], at: Date): OperatingHoursVerdict {
   const previousWeekday = WEEKDAYS[(WEEKDAYS.indexOf(clock.weekday) + 6) % 7]!;
   const previousDateKey = addDays(dateKeyToUtc(clock.dateKey), -1).toISOString().slice(0, 10);
 
@@ -114,7 +117,47 @@ export function evaluateOperatingHours(input: OperatingHoursInput, at: Date): Op
     return { kind: "open", via: "routine" };
 
   const instant = at.getTime();
-  if (input.extensions.some((e) => e.startsAt.getTime() <= instant && instant < e.endsAt.getTime()))
+  if (extensions.some((e) => e.startsAt.getTime() <= instant && instant < e.endsAt.getTime()))
     return { kind: "open", via: "extension" };
   return { kind: "closed" };
+}
+
+/** Compile local wall-clock policy into clipped UTC windows for a single grant. */
+export function compileOfflineHours(input: OperatingHoursInput, startsAt: number, endsAt: number) {
+  const parsed = validateBranchHours(input.hours);
+  if (!parsed.ok) throw new Error("Invalid offline operating hours");
+  const hours = parsed.value;
+  const routineHours = { ...hours, mandatory: null };
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: input.timeZone, hourCycle: "h23", weekday: "short",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+  type Window = { startsAt: number; endsAt: number };
+  const operatingWindows: Window[] = [];
+  const mandatoryOperatingWindows: Window[] | null = hours.mandatory === null ? null : [];
+  function append(windows: Window[], start: number, end: number) {
+    const last = windows.at(-1);
+    if (last?.endsAt === start) last.endsAt = end;
+    else windows.push({ startsAt: start, endsAt: end });
+  }
+  // The schedule is minute-granular. Also split at exact online-extension boundaries.
+  const extensionBoundaries = input.extensions.flatMap((extension) =>
+    [extension.startsAt.getTime(), extension.endsAt.getTime()],
+  ).filter((instant) => startsAt < instant && instant < endsAt).sort((a, b) => a - b);
+  let boundaryIndex = 0;
+  for (let start = startsAt; start < endsAt;) {
+    while (extensionBoundaries[boundaryIndex] <= start) boundaryIndex++;
+    const end = Math.min(endsAt, (Math.floor(start / 60_000) + 1) * 60_000,
+      extensionBoundaries[boundaryIndex] ?? endsAt);
+    const instant = new Date(start);
+    const clock = localClock(input.timeZone, instant, formatter);
+    if (!clock) throw new Error("Invalid offline operating timezone");
+    const verdict = evaluateLocalHours(hours, clock, input.extensions, instant);
+    if (mandatoryOperatingWindows && verdict.kind !== "outside_mandatory")
+      append(mandatoryOperatingWindows, start, end);
+    if (evaluateLocalHours(routineHours, clock, input.extensions, instant).kind === "open")
+      append(operatingWindows, start, end);
+    start = end;
+  }
+  return { operatingWindows, mandatoryOperatingWindows };
 }

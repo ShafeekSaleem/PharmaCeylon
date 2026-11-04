@@ -1058,6 +1058,33 @@ model OfflineTerminalNomination {
   @@map("offline_terminal_nomination")
 }
 
+/// Immutable signed stock evidence retained for offline reconciliation.
+model OfflineStockSnapshot {
+  id            String   @id @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  branchId      String   @map("branch_id") @db.Uuid
+  enrollmentId  String   @map("enrollment_id") @db.Uuid
+  version       Int
+  generatedAt   DateTime @map("generated_at")
+  envelope      Json
+
+  @@unique([tenantId, branchId, enrollmentId, version], map: "offline_stock_snapshot_enrollment_version_key")
+  @@map("offline_stock_snapshot")
+}
+
+/// One committed response per authenticated offline refresh command.
+model OfflineAuthorityIssuance {
+  tenantId     String @map("tenant_id") @db.Uuid
+  branchId     String @map("branch_id") @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+  commandId    String @map("command_id") @db.Uuid
+  snapshotId   String @unique @map("snapshot_id") @db.Uuid
+  grant        Json
+
+  @@id([tenantId, branchId, enrollmentId, commandId], map: "offline_authority_issuance_pkey")
+  @@map("offline_authority_issuance")
+}
+
 /// Owner-set monthly sales target for a branch; optional manager accountable for achievement.
 model BranchMonthlyTarget {
   id            String   @id @default(uuid()) @db.Uuid
