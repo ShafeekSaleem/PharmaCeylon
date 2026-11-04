@@ -9,6 +9,13 @@ const ICONS = {
       <path d="M12 17h.01" />
     </>
   ),
+  archive: (
+    <>
+      <rect width="20" height="5" x="2" y="3" rx="1" />
+      <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+      <path d="M10 12h4" />
+    </>
+  ),
   "arrow-right": (
     <>
       <path d="M5 12h14" />
@@ -22,7 +29,47 @@ const ICONS = {
       <line x1="12" x2="18" y1="9" y2="15" />
     </>
   ),
+  banknote: (
+    <>
+      <rect width="20" height="12" x="2" y="6" rx="2" />
+      <circle cx="12" cy="12" r="2" />
+      <path d="M6 12h.01M18 12h.01" />
+    </>
+  ),
+  "barcode-scan": (
+    <>
+      <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+      <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+      <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+      <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M7 8v8" />
+      <path d="M10 8v8" />
+      <path d="M13 8v5" />
+      <path d="M16 8v8" />
+      <path d="M4 12h16" strokeDasharray="2 2" />
+    </>
+  ),
+  calendar: (
+    <>
+      <path d="M8 2v4" />
+      <path d="M16 2v4" />
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M3 10h18" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </>
+  ),
   check: <path d="M20 6 9 17l-5-5" />,
+  "check-circle": (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
   "chevron-down": <path d="m6 9 6 6 6-6" />,
   clock: (
     <>
@@ -31,6 +78,21 @@ const ICONS = {
     </>
   ),
   cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
+  "corner-down-left": (
+    <>
+      <path d="m9 10-5 5 5 5" />
+      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+    </>
+  ),
+  "credit-card": (
+    <>
+      <rect width="20" height="14" x="2" y="5" rx="2" />
+      <path d="M2 10h20" />
+    </>
+  ),
+  edit: (
+    <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  ),
   inbox: (
     <>
       <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
@@ -63,11 +125,31 @@ const ICONS = {
       <circle cx="12" cy="10" r="3" />
     </>
   ),
+  minus: <path d="M5 12h14" />,
   monitor: (
     <>
       <rect width="20" height="14" x="2" y="3" rx="2" />
       <line x1="8" x2="16" y1="21" y2="21" />
       <line x1="12" x2="12" y1="17" y2="21" />
+    </>
+  ),
+  "more-horizontal": (
+    <>
+      <circle cx="5" cy="12" r="1" fill="currentColor" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
+      <circle cx="19" cy="12" r="1" fill="currentColor" />
+    </>
+  ),
+  pause: (
+    <>
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+      <rect x="14" y="4" width="4" height="16" rx="1" />
+    </>
+  ),
+  pill: (
+    <>
+      <path d="m10.5 20.5-7-7a4.95 4.95 0 0 1 7-7l7 7a4.95 4.95 0 0 1-7 7Z" />
+      <path d="m8.5 8.5 7 7" />
     </>
   ),
   plus: (
@@ -97,6 +179,12 @@ const ICONS = {
       <path d="M8 16H3v5" />
     </>
   ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </>
+  ),
   "shield-check": (
     <>
       <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
@@ -108,6 +196,34 @@ const ICONS = {
       <circle cx="8" cy="21" r="1" />
       <circle cx="19" cy="21" r="1" />
       <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+    </>
+  ),
+  split: (
+    <>
+      <path d="M16 3h5v5" />
+      <path d="M8 3H3v5" />
+      <path d="M21 3 3 21" />
+      <path d="m14 15 7 6" />
+      <path d="M16 21h5v-5" />
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
+      <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+    </>
+  ),
+  user: (
+    <>
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
     </>
   ),
   users: (
@@ -127,6 +243,12 @@ const ICONS = {
       <path d="M16.85 11.25a10 10 0 0 1 2.22 1.68" />
       <path d="M5 12.86a10 10 0 0 1 5.17-2.69" />
       <path d="m2 2 20 20" />
+    </>
+  ),
+  x: (
+    <>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </>
   ),
 } satisfies Record<string, ReactNode>;

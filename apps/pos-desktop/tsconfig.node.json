@@ -4,5 +4,11 @@
     "lib": ["ES2022"],
     "types": ["node", "jest"]
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "electron.vite.config.ts"]
+  "include": [
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*",
+    "src/renderer/**/*.spec.ts",
+    "electron.vite.config.ts"
+  ]
 }

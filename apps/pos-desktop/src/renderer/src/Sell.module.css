@@ -1,0 +1,1194 @@
+/* Sell (docs/design/desktop-app, screen=sell): find, ticket and pay. Colours come from tokens.css. */
+
+.sell {
+  container: sell / inline-size;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 388px minmax(0, 1fr) 364px;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Key labels drawn on buttons, as the mockup draws them. PR 4 swaps these for its KeyHint. */
+.key {
+  font-size: 9.5px;
+  padding: 2px 4px;
+}
+
+/* ---------- find ---------- */
+.findTop {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--pos-line);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 50px;
+  padding: 0 12px 0 14px;
+  border-radius: 10px;
+  background: var(--pos-surface);
+  border: 1.5px solid var(--pos-line-strong);
+}
+
+.search:focus-within {
+  border-color: var(--pos-primary);
+  box-shadow: var(--pos-focus);
+}
+
+.search > :global(.pos-ic) {
+  width: 22px;
+  height: 22px;
+  color: var(--pos-text-3);
+}
+
+.search:focus-within > :global(.pos-ic) {
+  color: var(--pos-primary);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--pos-text);
+  font: 500 16px/1 var(--pos-font);
+  user-select: text;
+}
+
+.search input::placeholder {
+  color: var(--pos-text-3);
+  font-weight: 400;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--pos-surface-3);
+  color: var(--pos-text-2);
+  font: 600 12px/1 var(--pos-font);
+  cursor: pointer;
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--pos-primary-soft-2);
+  color: var(--pos-primary-ink);
+  border-color: color-mix(in srgb, var(--pos-primary) 30%, transparent);
+}
+
+.chip:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.resHead,
+.subH {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.resHead {
+  padding: 10px 16px 6px;
+}
+
+.hint {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.res {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--pos-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.res:hover:not(:disabled) {
+  background: var(--pos-surface-2);
+}
+
+.res.sel {
+  background: var(--pos-primary-soft);
+  border-color: color-mix(in srgb, var(--pos-primary) 35%, transparent);
+}
+
+.res:disabled {
+  cursor: default;
+}
+
+.res:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.resMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.resName {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.resName > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.res mark {
+  background: color-mix(in srgb, var(--pos-primary) 22%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.resMeta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resSide {
+  flex: none;
+  text-align: right;
+}
+
+.price {
+  font-weight: 700;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.price small {
+  margin-left: 1px;
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+}
+
+.stock {
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stockOk {
+  color: var(--pos-ok);
+}
+
+.stockWarn {
+  color: var(--pos-warn);
+}
+
+.stockNone {
+  color: var(--pos-text-3);
+}
+
+.res:disabled .resName,
+.res:disabled .price {
+  color: var(--pos-text-3);
+}
+
+.enter {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--pos-primary);
+  color: var(--pos-on-primary);
+}
+
+.enter :global(.pos-ic) {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
+}
+
+.findEmpty {
+  padding: 18px 16px;
+  color: var(--pos-text-3);
+  font-size: 12.5px;
+}
+
+/* Rx tag, as on the mockup's results and lines. */
+.rx {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--pos-rx-line);
+  background: var(--pos-rx-soft);
+  color: var(--pos-rx-ink);
+  font: 700 10.5px/1 var(--pos-font);
+  letter-spacing: 0.04em;
+}
+
+.rxPill {
+  color: var(--pos-rx-ink);
+  background: var(--pos-rx-soft);
+  border-color: var(--pos-rx-line);
+}
+
+/* ---------- ticket ---------- */
+.ticketH {
+  position: relative;
+}
+
+.count {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--pos-surface-3);
+  color: var(--pos-text);
+  font-size: 11px;
+}
+
+.iconBtn {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.menuCatch {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+}
+
+.menu {
+  position: absolute;
+  top: 48px;
+  right: 16px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  max-width: 420px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+  box-shadow: var(--pos-shadow-lg);
+}
+
+.menu > button {
+  justify-content: flex-start;
+}
+
+.menuEmpty {
+  padding: 8px 10px;
+  color: var(--pos-text-3);
+  font-size: 12.5px;
+}
+
+.held {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.held:hover {
+  background: var(--pos-surface-2);
+}
+
+.held b {
+  display: block;
+  font-size: 13px;
+}
+
+.held small {
+  display: block;
+  color: var(--pos-text-3);
+  font-size: 12px;
+}
+
+.cust {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--pos-surface-2);
+  border: 1px solid var(--pos-line);
+}
+
+.cust b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.cust small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.walkIn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--pos-surface-3);
+  color: var(--pos-text-3);
+  border: 1px solid var(--pos-line);
+}
+
+.walkIn :global(.pos-ic) {
+  width: 17px;
+  height: 17px;
+}
+
+.custSearch {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.custSearch input {
+  flex: 1;
+  height: 34px;
+}
+
+.custFound {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 4;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+  box-shadow: var(--pos-shadow-lg);
+}
+
+.custFound button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--pos-text);
+  font: 600 13px/1.3 var(--pos-font);
+  text-align: left;
+  cursor: pointer;
+}
+
+.custFound button:hover,
+.custFound button:focus-visible {
+  outline: none;
+  background: var(--pos-surface-2);
+}
+
+.custFound button span {
+  color: var(--pos-text-3);
+  font-weight: 500;
+}
+
+.thead,
+.ln {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 112px 76px 96px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 0 16px;
+}
+
+.thead {
+  flex: none;
+  height: 32px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--pos-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-top: 1px solid var(--pos-line);
+  border-bottom: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+}
+
+.r {
+  text-align: right;
+}
+
+.c {
+  text-align: center;
+}
+
+.lines {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ln {
+  position: relative;
+  min-height: 62px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pos-line);
+  cursor: pointer;
+}
+
+.ln.sel {
+  background: var(--pos-primary-soft);
+  cursor: default;
+}
+
+.ln.sel::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--pos-primary);
+}
+
+.n {
+  color: var(--pos-text-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.nm {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mt > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.linePill {
+  height: 19px !important;
+  font-size: 11px !important;
+  padding: 0 7px !important;
+}
+
+.qty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.qty small {
+  font-size: 12px;
+  color: var(--pos-text-3);
+  font-weight: 500;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  border: 1.5px solid var(--pos-primary);
+  border-radius: 8px;
+  background: var(--pos-surface);
+  box-shadow: var(--pos-focus);
+}
+
+.stepper button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pos-text-2);
+  cursor: pointer;
+}
+
+.stepper button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.stepper :global(.pos-ic) {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
+}
+
+.stepper input {
+  width: 34px;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--pos-text);
+  font: 700 14px/1 var(--pos-font);
+  text-align: center;
+  user-select: text;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.stepper input::-webkit-inner-spin-button,
+.stepper input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.pr {
+  color: var(--pos-text-2);
+}
+
+.am {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.ticketEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 160px;
+  padding: 24px;
+  color: var(--pos-text-3);
+  text-align: center;
+}
+
+.ticketEmpty :global(.pos-ic) {
+  width: 28px;
+  height: 28px;
+  stroke-width: 1.6;
+}
+
+.ticketEmpty b {
+  color: var(--pos-text-2);
+  font-size: 13.5px;
+}
+
+.ticketFoot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+  font-size: 12px;
+  color: var(--pos-text-3);
+  white-space: nowrap;
+}
+
+.ticketFoot b {
+  color: var(--pos-text);
+  font-weight: 600;
+}
+
+.keys {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  overflow: hidden;
+}
+
+.keys > span {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.ticketNote {
+  margin: 0 16px 12px;
+}
+
+.ticketNote ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticketNote li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ticketNote li > span {
+  flex: 1 1 200px;
+}
+
+.ticketNote input {
+  width: 180px;
+  height: 32px;
+}
+
+/* ---------- pay ---------- */
+.pay {
+  gap: 14px;
+  padding: 18px;
+  overflow-y: auto;
+}
+
+.dueL {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pos-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.dueV {
+  margin-top: 6px;
+  font: 700 44px/1.05 var(--pos-font-display);
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+}
+
+.dueV small {
+  margin-right: 6px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--pos-text-3);
+  letter-spacing: 0;
+}
+
+.brk {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 5px;
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px dashed var(--pos-line-strong);
+  font-size: 13px;
+}
+
+.brk dt {
+  color: var(--pos-text-2);
+}
+
+.brk dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+.cosign {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--pos-ok-soft);
+  border: 1px solid var(--pos-ok-line);
+  color: var(--pos-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cosign:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.cosign > :global(.pos-ic) {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--pos-ok);
+}
+
+.cosign b {
+  display: block;
+  font-size: 12.5px;
+  color: var(--pos-ok-ink);
+}
+
+.cosign small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.cosign > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.cosignTodo {
+  background: var(--pos-rx-soft);
+  border-color: var(--pos-rx-line);
+}
+
+.cosignTodo > :global(.pos-ic) {
+  color: var(--pos-rx);
+}
+
+.cosignTodo b {
+  color: var(--pos-rx-ink);
+}
+
+.methods {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.m {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 72px;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+  color: var(--pos-text-2);
+  font: 600 12.5px/1 var(--pos-font);
+  cursor: pointer;
+}
+
+.m :global(.pos-ic) {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
+}
+
+.m[aria-pressed="true"] {
+  border: 1.5px solid var(--pos-primary);
+  background: var(--pos-primary-soft);
+  color: var(--pos-primary-ink);
+  box-shadow: var(--pos-focus);
+}
+
+.m:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.fldL {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pos-text-2);
+}
+
+.fldL > span {
+  font-weight: 500;
+  color: var(--pos-text-3);
+}
+
+.moneyIn {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+}
+
+.moneyIn:focus-within {
+  border-color: var(--pos-primary);
+  box-shadow: var(--pos-focus);
+}
+
+.moneyIn small {
+  margin-right: 8px;
+  font-size: 14px;
+  color: var(--pos-text-3);
+  font-weight: 600;
+}
+
+.moneyIn input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--pos-text);
+  font: 700 22px/1 var(--pos-font-display);
+  user-select: text;
+}
+
+.moneyIn.readOnly {
+  background: var(--pos-surface-2);
+  border-style: dashed;
+}
+
+.moneyIn b {
+  font: 700 22px/1 var(--pos-font-display);
+}
+
+.ref {
+  margin-top: 8px;
+}
+
+.tender {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tender button {
+  height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pos-surface-3);
+  color: var(--pos-text-2);
+  font: 600 12.5px/1 var(--pos-font);
+  cursor: pointer;
+}
+
+.tender button[aria-pressed="true"] {
+  background: var(--pos-primary-soft-2);
+  color: var(--pos-primary-ink);
+}
+
+.tender button:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.change {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--pos-surface-2);
+  border: 1px solid var(--pos-line);
+}
+
+.change span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pos-text-2);
+}
+
+.change b {
+  font: 700 26px/1 var(--pos-font-display);
+  color: var(--pos-ok);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.change.short b {
+  color: var(--pos-warn);
+}
+
+.extras {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.extras button {
+  justify-content: center;
+  height: 40px;
+  border-radius: 9px;
+  border: 1px solid var(--pos-line);
+  font-size: 12px;
+}
+
+.payActions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.rcpt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.rcpt > :global(.pos-ic) {
+  width: 18px;
+  height: 18px;
+  color: var(--pos-text-3);
+}
+
+.rcpt > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.rcpt small {
+  display: block;
+  font-weight: 500;
+  color: var(--pos-text-3);
+  font-size: 11.5px;
+}
+
+.rcpt select {
+  height: 34px;
+}
+
+.xl {
+  justify-content: center;
+  gap: 12px;
+  height: 56px;
+  font-size: 16px;
+  border-radius: 11px;
+}
+
+.xl > :global(.pos-ic) {
+  width: 20px;
+  height: 20px;
+}
+
+.payMsg {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.payMsg p {
+  margin: 0;
+}
+
+.done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pos-ok-ink);
+}
+
+.done :global(.pos-ic) {
+  width: 18px;
+  height: 18px;
+  color: var(--pos-ok);
+}
+
+/* ---------- smaller windows ---------- */
+
+/* 1366 × 768 (the default window): the columns narrow a little. */
+@container sell (max-width: 1280px) {
+  .grid {
+    grid-template-columns: 340px minmax(0, 1fr) 340px;
+  }
+
+  .thead,
+  .ln {
+    grid-template-columns: 22px minmax(0, 1fr) 104px 68px 84px;
+  }
+}
+
+/* 1024 × 640 (the minimum): find sits above the ticket, and pay keeps its own column. */
+@container sell (max-width: 1060px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) 312px;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  /* Find takes only the room it needs: the search bar while idle, a capped list while searching. */
+  .find {
+    grid-column: 1;
+    grid-row: 1;
+    max-height: calc(48vh - 40px);
+  }
+
+  .ticket {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .payPanel {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .findTop {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .search {
+    flex: 1 1 260px;
+    height: 44px;
+  }
+
+  .thead,
+  .ln {
+    grid-template-columns: 20px minmax(0, 1fr) 104px 64px 80px;
+  }
+
+  .ln {
+    min-height: 52px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  .keys > span:first-child {
+    display: none;
+  }
+}
+
+@media (max-height: 820px) {
+  .pay {
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .dueV {
+    font-size: 36px;
+  }
+
+  .dueV small {
+    font-size: 18px;
+  }
+
+  .brk {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  .m {
+    flex-direction: row;
+    height: 46px;
+  }
+
+  .moneyIn {
+    height: 48px;
+  }
+
+  .tender button {
+    height: 36px;
+  }
+
+  .change {
+    padding: 11px 14px;
+  }
+
+  .change b {
+    font-size: 22px;
+  }
+
+  .xl {
+    height: 50px;
+  }
+
+  .ln {
+    min-height: 54px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+}
