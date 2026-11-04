@@ -43,13 +43,20 @@ const HELD_INCLUDE = {
 
 type HeldRow = Prisma.HeldAdjustmentGetPayload<{ include: typeof HELD_INCLUDE }>;
 
-/** Thrown inside the request transaction when its key committed while this one waited. */
-class HeldRequestReplay extends Error {}
+/** Thrown inside a keyed transaction when its key committed while this one waited. */
+class KeyCommitted extends Error {}
 
 /** Same fields and values, whatever the key order (jsonb reorders keys). */
-function sameRequest(stored: Prisma.JsonValue, entered: Prisma.InputJsonObject): boolean {
+function sameRequest(stored: Prisma.JsonValue | null, entered: Prisma.InputJsonObject): boolean {
   return isDeepStrictEqual(stored, entered);
 }
+
+/** The body as JSON keeps it: a plain object, with no class instances or undefined fields. */
+function asEntered(value: object): Prisma.InputJsonObject {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
+}
+
+type ScopeKey = typeof IDEMPOTENCY_SCOPE.heldAdjustmentRequest | typeof IDEMPOTENCY_SCOPE.stockAdjustment;
 
 /**
  * Stock adjustments, with a second pair of eyes on write-offs.
@@ -74,9 +81,71 @@ export class AdjustmentService {
     private readonly approvals: ManagementApprovalsService,
   ) {}
 
-  async postDirect(user: RequestUser, branchId: string, dto: StockAdjustmentDto) {
-    const posted = await this.prisma.$transaction(tx => this.postDirectInTransaction(tx, user, branchId, dto));
-    return { held: false as const, ...posted };
+  /**
+   * The browser route. With an `Idempotency-Key` (scope `stock_adjustment`) a resend of the same
+   * body at the same branch returns the first result and moves nothing, and the key with any other
+   * body is refused (400). Identical requests sent together wait on one lock inside the
+   * transaction, so stock moves once. The key, the movement and its audit commit together, so a
+   * refused or failed attempt leaves the key unused.
+   */
+  async postDirect(user: RequestUser, branchId: string, dto: StockAdjustmentDto, idempotencyKeyRaw?: string) {
+    const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
+    if (!idemKey) {
+      const posted = await this.prisma.$transaction(tx => this.postDirectInTransaction(tx, user, branchId, dto));
+      return { held: false as const, ...posted };
+    }
+    // Kept with the key; what a resend under the same key must match.
+    const requestBody = asEntered(dto);
+    const replay = await this.replayDirect(user, branchId, idemKey, requestBody);
+    if (replay) return replay;
+    try {
+      const posted = await this.prisma.$transaction(async tx => {
+        await this.lockKey(tx, user, IDEMPOTENCY_SCOPE.stockAdjustment, idemKey);
+        const posted = await this.postDirectInTransaction(tx, user, branchId, dto);
+        await tx.idempotencyRecord.create({
+          data: {
+            ...this.keyWhere(user, IDEMPOTENCY_SCOPE.stockAdjustment, idemKey).tenantId_userId_scope_idempotencyKey,
+            resourceId: posted.referenceId,
+            requestBody,
+          },
+        });
+        return posted;
+      });
+      return { held: false as const, ...posted };
+    } catch (error) {
+      if (error instanceof KeyCommitted || isPrismaUniqueFieldError(error, "idempotency")) {
+        const replay = await this.replayDirect(user, branchId, idemKey, requestBody);
+        if (replay) return replay;
+      }
+      throw error;
+    }
+  }
+
+  /** The adjustment this key already posted, as it was first returned, or null for a new key. */
+  private async replayDirect(user: RequestUser, branchId: string, idempotencyKey: string,
+    requestBody: Prisma.InputJsonObject) {
+    const record = await this.prisma.idempotencyRecord.findUnique({
+      where: this.keyWhere(user, IDEMPOTENCY_SCOPE.stockAdjustment, idempotencyKey),
+    });
+    if (!record) return null;
+    const moved = await this.prisma.stockLedger.findFirst({
+      where: { tenantId: user.tenantId, referenceType: "adjustment", referenceId: record.resourceId },
+      select: { branchId: true, batchId: true },
+    });
+    if (!moved?.batchId || moved.branchId !== branchId || !sameRequest(record.requestBody, requestBody))
+      throw new BadRequestException("Idempotency-Key already used for a different stock adjustment");
+    return { held: false as const, ok: true, referenceId: record.resourceId, batchId: moved.batchId };
+  }
+
+  /**
+   * Inside a keyed transaction: a resend that overlaps its first attempt waits here, then finds
+   * the committed key and replays it (`KeyCommitted`). Hash collisions only over-serialize.
+   */
+  private async lockKey(tx: Prisma.TransactionClient, user: RequestUser, scope: ScopeKey, idempotencyKey: string) {
+    const lockKey = `${scope}:${user.tenantId}:${user.userId}:${idempotencyKey}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+    if (await tx.idempotencyRecord.findUnique({ where: this.keyWhere(user, scope, idempotencyKey) }))
+      throw new KeyCommitted();
   }
 
   /** Direct posting core shared by the browser route and the signed terminal adapter, in the
@@ -113,7 +182,7 @@ export class AdjustmentService {
     if (!dto.kind && !note) throw new BadRequestException("Enter a reason for the write-off");
     const kind: AdjustmentKind = dto.kind ?? "correction";
     // Kept exactly as entered; also what a resend under the same key must match.
-    const payload = JSON.parse(JSON.stringify({ ...dto, movementType: "adjustment_out" })) as Prisma.InputJsonObject;
+    const payload = asEntered({ ...dto, movementType: "adjustment_out" });
     const idemKey = normalizeIdempotencyKey(idempotencyKeyRaw);
     if (idemKey) {
       const replay = await this.replayRequest(user, branchId, idemKey, payload);
@@ -122,14 +191,7 @@ export class AdjustmentService {
     let created: { row: HeldRow; actor: ActorAccess };
     try {
       created = await this.prisma.$transaction(async tx => {
-        if (idemKey) {
-          // A resend that overlaps its first attempt waits here, then finds the committed key.
-          // Hash collisions only over-serialize.
-          const lockKey = `${IDEMPOTENCY_SCOPE.heldAdjustmentRequest}:${user.tenantId}:${user.userId}:${idemKey}`;
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
-          if (await tx.idempotencyRecord.findUnique({ where: this.requestKeyWhere(user, idemKey) }))
-            throw new HeldRequestReplay();
-        }
+        if (idemKey) await this.lockKey(tx, user, IDEMPOTENCY_SCOPE.heldAdjustmentRequest, idemKey);
         const actor = await this.access.resolveLive(user, branchId, tx);
         if (!actor.has("inventory.write_off") && !actor.has("inventory.manage")) {
           throw new ForbiddenException("Your role can't adjust stock");
@@ -153,7 +215,10 @@ export class AdjustmentService {
         });
         if (idemKey)
           await tx.idempotencyRecord.create({
-            data: { ...this.requestKeyWhere(user, idemKey).tenantId_userId_scope_idempotencyKey, resourceId: row.id },
+            data: {
+              ...this.keyWhere(user, IDEMPOTENCY_SCOPE.heldAdjustmentRequest, idemKey).tenantId_userId_scope_idempotencyKey,
+              resourceId: row.id,
+            },
           });
         await this.audit.log({
           tenantId: user.tenantId,
@@ -167,7 +232,7 @@ export class AdjustmentService {
         return { row, actor };
       });
     } catch (error) {
-      if (idemKey && (error instanceof HeldRequestReplay || isPrismaUniqueFieldError(error, "idempotency"))) {
+      if (idemKey && (error instanceof KeyCommitted || isPrismaUniqueFieldError(error, "idempotency"))) {
         const replay = await this.replayRequest(user, branchId, idemKey, payload);
         if (replay) return replay;
       }
@@ -196,14 +261,9 @@ export class AdjustmentService {
     return { held: true as const, heldAdjustment: this.map(row, actor.has("costs.view")), notified };
   }
 
-  private requestKeyWhere(user: RequestUser, idempotencyKey: string) {
+  private keyWhere(user: RequestUser, scope: ScopeKey, idempotencyKey: string) {
     return {
-      tenantId_userId_scope_idempotencyKey: {
-        tenantId: user.tenantId,
-        userId: user.userId,
-        scope: IDEMPOTENCY_SCOPE.heldAdjustmentRequest,
-        idempotencyKey,
-      },
+      tenantId_userId_scope_idempotencyKey: { tenantId: user.tenantId, userId: user.userId, scope, idempotencyKey },
     } satisfies Prisma.IdempotencyRecordWhereUniqueInput;
   }
 
@@ -211,7 +271,9 @@ export class AdjustmentService {
    * again (`notified: 0`); the approvers heard about it the first time. */
   private async replayRequest(user: RequestUser, branchId: string, idempotencyKey: string,
     payload: Prisma.InputJsonObject) {
-    const record = await this.prisma.idempotencyRecord.findUnique({ where: this.requestKeyWhere(user, idempotencyKey) });
+    const record = await this.prisma.idempotencyRecord.findUnique({
+      where: this.keyWhere(user, IDEMPOTENCY_SCOPE.heldAdjustmentRequest, idempotencyKey),
+    });
     if (!record) return null;
     const row = await this.prisma.heldAdjustment.findFirst({
       where: { id: record.resourceId, tenantId: user.tenantId },
