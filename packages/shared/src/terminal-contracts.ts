@@ -342,7 +342,7 @@ export const TERMINAL_ERROR_RETRYABLE = {
   CONFLICT: false, // 409
   REQUEST_REFUSED: false, // any other 4xx
   RATE_LIMITED: true, // 429: wait, then resend
-  SERVER_ERROR: true, // 5xx: outcome uncertain, resend the identical request
+  SERVER_ERROR: true, // 5xx: outcome uncertain; resend only where the route replays (signed commands do)
 } as const satisfies Readonly<Record<TerminalErrorCode | OperationPolicyErrorCode, boolean> & Record<string, boolean>>;
 export type TerminalRouteErrorCode = keyof typeof TERMINAL_ERROR_RETRYABLE;
 

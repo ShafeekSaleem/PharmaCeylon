@@ -399,6 +399,11 @@ TerminalApiError = { contractVersion: 1, code, message, correlationId, retryable
   the identical request may succeed. Every other code, and any code not in the table, is a
   decision about the request as sent. The client may still fix the cause and send a new
   request, such as a freshly prepared command.
+- `retryable` says the server decided nothing, not that a resend is harmless. After a 5xx the
+  first attempt may still have committed. A signed command (`/terminal-commands/execute`) is
+  safe to resend because it replays from its receipt. Any other terminal route is resent only
+  where its own contract says a repeat replays; otherwise read the current state first (for
+  example, list the enrollment codes before issuing another).
 
 Errors raised before routing (malformed JSON, an unknown path) keep the platform body
 `{ statusCode, message, error }`. So does every route outside the terminal modules.
