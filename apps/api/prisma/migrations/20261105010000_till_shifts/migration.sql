@@ -30,6 +30,7 @@ CREATE TABLE "till_shift" (
     "closed_staff_session_id" UUID,
     "close_kind" "TillShiftCloseKind",
     "assistance_reason" VARCHAR(500),
+    "variance_note" VARCHAR(500),
     "close_command_id" UUID,
 
     CONSTRAINT "till_shift_pkey" PRIMARY KEY ("id")
@@ -84,7 +85,8 @@ ALTER TABLE "till_shift" ADD CONSTRAINT "till_shift_shape" CHECK (
     ("closed_at" IS NULL AND "closing_cash_count_minor" IS NULL AND "closing_count" IS NULL
       AND "expected_cash_minor" IS NULL AND "counter_expected_cash_minor" IS NULL
       AND "variance_minor" IS NULL AND "closed_by_user_id" IS NULL AND "closed_staff_session_id" IS NULL
-      AND "close_kind" IS NULL AND "assistance_reason" IS NULL AND "close_command_id" IS NULL)
+      AND "close_kind" IS NULL AND "assistance_reason" IS NULL AND "variance_note" IS NULL
+      AND "close_command_id" IS NULL)
     OR
     ("closed_at" IS NOT NULL AND "closed_at" >= "opened_at"
       AND "closing_cash_count_minor" >= 0 AND jsonb_typeof("closing_count") = 'array'
@@ -107,7 +109,7 @@ ALTER TABLE "till_cash_movement" ADD CONSTRAINT "till_cash_movement_shape" CHECK
 CREATE FUNCTION pc_preserve_till_shift() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE closing text[] := ARRAY['closed_at', 'closing_cash_count_minor', 'closing_count',
   'expected_cash_minor', 'counter_expected_cash_minor', 'variance_minor', 'closed_by_user_id',
-  'closed_staff_session_id', 'close_kind', 'assistance_reason', 'close_command_id'];
+  'closed_staff_session_id', 'close_kind', 'assistance_reason', 'variance_note', 'close_command_id'];
 BEGIN
   IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'Till shifts must be retained'; END IF;
   IF OLD.closed_at IS NOT NULL THEN RAISE EXCEPTION 'A closed till shift is immutable'; END IF;

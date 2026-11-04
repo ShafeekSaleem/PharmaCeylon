@@ -708,21 +708,23 @@ session at an active enrollment, so the till is the session's, never a client cl
 | `GET /terminals/sessions/:workSessionId/shifts` | The till's shifts, newest first (30) |
 | `GET /terminals/sessions/:workSessionId/shifts/:shiftId` | `{ shift, summary }` for one shift on this till (past shifts, the X report) |
 | `POST /terminals/sessions/:workSessionId/shifts` | Open: `{ shiftId, pin, openingCount, previousClosedWorkSessionId? }` |
-| `POST /terminals/sessions/:workSessionId/shifts/:shiftId/close` | Close: `{ commandId, closingCount, counterExpectedCashMinor?, assistance?: { pin, reason } }` |
+| `POST /terminals/sessions/:workSessionId/shifts/:shiftId/close` | Close: `{ commandId, closingCount, counterExpectedCashMinor?, varianceNote?, assistance?: { pin, reason } }` |
 
 **Shift fields** (D7b names): `workSessionId`, `registerId`, `tillId`, `terminalId`,
 `staffUserId`, `staff`, `currency` (`LKR`), `status` (`open` / `closed`), `openedAt`,
 `openingCashMinor`, `openingCount`, `previousClosedWorkSessionId`, `closedAt`,
 `closingCashCountMinor`, `closingCount`, `expectedCashMinor` (server), `counterExpectedCashMinor`
 (the counter's own running figure, kept beside it), `varianceMinor` (count − expected),
-`closedBy`, `closeKind` (`self` / `assisted`), `assistanceReason`.
+`closedBy`, `closeKind` (`self` / `assisted`), `assistanceReason`, `varianceNote` (what the person
+counting said about a difference).
 
 **Summary:** `openingCashMinor`, `cashTakenMinor` (cash tendered), `changeGivenMinor`,
 `cashRefundsMinor`, `cashPaidOutMinor`, `cashPaidInMinor`, `expectedCashMinor` (live while open,
-the recorded figure once closed), `saleCount`, `salesTotalMinor`, `takingsByMethod[]`
-(`{ method, takenMinor, refundedMinor }`, cash net of change), `takingsByHour[]` (`{ hour:
-"YYYY-MM-DDTHH" in the branch's timezone, saleCount, totalMinor }`), `refunds[]` and
-`cashMovements[]`.
+the recorded figure once closed), `saleCount`, `salesTotalMinor`, `firstSaleAt`, `lastSaleAt`, `takingsByMethod[]`
+(`{ method, saleCount, takenMinor, refundedMinor }`, cash net of change), `takingsByHour[]`
+(`{ hour: "YYYY-MM-DDTHH" in the branch's timezone, saleCount, totalMinor }`), `refunds[]`
+(`{ goodsReturnId, returnNumber, invoiceNo, amountMinor, paidBack: [{ method, amountMinor }],
+items: [{ name, qty, disposition }], processedBy, at }`) and `cashMovements[]`.
 
 **Expected cash** = opening count + cash taken − change given − cash refunds − cash paid out
 (+ cash paid in, which nothing writes yet). Voided sales are left out.

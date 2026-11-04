@@ -79,6 +79,8 @@ export type TillShiftView = Readonly<{
   closedBy: Person;
   closeKind: "self" | "assisted" | null;
   assistanceReason: string | null;
+  /** What the person who counted said about a difference. */
+  varianceNote: string | null;
 }>;
 
 export type TillShiftSummary = ExpectedCashParts & Readonly<{
@@ -87,7 +89,10 @@ export type TillShiftSummary = ExpectedCashParts & Readonly<{
   saleCount: number;
   salesTotalMinor: number;
   /** Takings by how they were paid. Cash is net of change; refunds paid back that way beside it. */
-  takingsByMethod: ReadonlyArray<Readonly<{ method: PaymentMethod; takenMinor: number; refundedMinor: number }>>;
+  takingsByMethod: ReadonlyArray<Readonly<{ method: PaymentMethod; saleCount: number; takenMinor: number; refundedMinor: number }>>;
+  /** When the shift's first and last sales were rung up; null with none. */
+  firstSaleAt: string | null;
+  lastSaleAt: string | null;
   /** Sales by the branch's own clock hour, `YYYY-MM-DDTHH`, earliest first. */
   takingsByHour: ReadonlyArray<Readonly<{ hour: string; saleCount: number; totalMinor: number }>>;
   refunds: ReadonlyArray<Readonly<{
@@ -95,6 +100,11 @@ export type TillShiftSummary = ExpectedCashParts & Readonly<{
     returnNumber: string;
     invoiceNo: string | null;
     amountMinor: number;
+    /** How the money went back, e.g. all cash, or card first then cash. */
+    paidBack: ReadonlyArray<Readonly<{ method: PaymentMethod; amountMinor: number }>>;
+    /** What came back, for the counter's list ("Panadol, 2 strips"). */
+    items: ReadonlyArray<Readonly<{ name: string; qty: number; disposition: "restock" | "quarantine" }>>;
+    processedBy: Person;
     at: string;
   }>>;
   cashMovements: ReadonlyArray<Readonly<{
@@ -339,6 +349,7 @@ export class TillShiftsService {
             closedStaffSessionId: session.id,
             closeKind: assisted ? TillShiftCloseKind.assisted : TillShiftCloseKind.self,
             assistanceReason: reason,
+            varianceNote: dto.varianceNote?.trim() || null,
             closeCommandId: dto.commandId,
           },
         });
@@ -361,6 +372,7 @@ export class TillShiftsService {
             closedByUserId: user.userId,
             closeKind: assisted ? "assisted" : "self",
             assistanceReason: reason,
+            varianceNote: dto.varianceNote?.trim() || null,
             expectedCashMinor: expected,
             counterExpectedCashMinor: dto.counterExpectedCashMinor ?? null,
             closingCashCountMinor: closing.totalMinor,
@@ -528,7 +540,7 @@ export class TillShiftsService {
       this.parts(client, shift),
       client.salePayment.findMany({
         where: { tenantId, shiftId, sale: { status: { not: SaleStatus.voided } } },
-        select: { method: true, amount: true },
+        select: { method: true, amount: true, saleId: true, reference: true },
       }),
       client.sale.findMany({
         where: { tenantId, shiftId, status: { not: SaleStatus.voided } },
@@ -537,19 +549,36 @@ export class TillShiftsService {
       }),
       client.goodsReturn.findMany({
         where: { tenantId, shiftId },
-        select: { id: true, returnNumber: true, amount: true, createdAt: true, sale: { select: { invoiceNo: true } } },
+        select: {
+          id: true,
+          returnNumber: true,
+          amount: true,
+          createdAt: true,
+          processedBy: true,
+          sale: { select: { invoiceNo: true } },
+          items: { select: { qty: true, disposition: true, product: { select: { name: true } } } },
+        },
         orderBy: { createdAt: "asc" },
       }),
       client.tillCashMovement.findMany({ where: { tenantId, shiftId }, orderBy: { recordedAt: "asc" } }),
       client.branch.findFirst({ where: { tenantId, id: shift.branchId }, select: { timezone: true } }),
     ]);
 
-    const byMethod = new Map<PaymentMethod, { takenMinor: number; refundedMinor: number }>();
+    const byMethod = new Map<PaymentMethod, { sales: Set<string>; takenMinor: number; refundedMinor: number }>();
+    // A refund's money back is its negative payments, which applyRefund references by return number.
+    const paidBack = new Map<string, Array<{ method: PaymentMethod; amountMinor: number }>>();
     for (const payment of payments) {
-      const entry = byMethod.get(payment.method) ?? { takenMinor: 0, refundedMinor: 0 };
+      const entry = byMethod.get(payment.method) ?? { sales: new Set<string>(), takenMinor: 0, refundedMinor: 0 };
       const minor = toMinor(payment.amount);
-      if (minor >= 0) entry.takenMinor += minor;
-      else entry.refundedMinor -= minor;
+      if (minor >= 0) {
+        entry.takenMinor += minor;
+        entry.sales.add(payment.saleId);
+      } else {
+        entry.refundedMinor -= minor;
+        const back = paidBack.get(payment.reference ?? "") ?? [];
+        back.push({ method: payment.method, amountMinor: -minor });
+        paidBack.set(payment.reference ?? "", back);
+      }
       byMethod.set(payment.method, entry);
     }
     const cash = byMethod.get(PaymentMethod.cash);
@@ -565,7 +594,10 @@ export class TillShiftsService {
       byHour.set(key, entry);
     }
 
-    const recorders = await this.names(tenantId, movements.map((m) => m.recordedBy));
+    const people = await this.names(tenantId, [
+      ...movements.map((m) => m.recordedBy),
+      ...refunds.map((r) => r.processedBy).filter((id): id is string => !!id),
+    ]);
     const methodOrder = Object.values(PaymentMethod);
     return {
       ...parts,
@@ -574,7 +606,14 @@ export class TillShiftsService {
       salesTotalMinor: sales.reduce((sum, sale) => sum + toMinor(sale.grandTotal), 0),
       takingsByMethod: [...byMethod.entries()]
         .sort(([a], [b]) => methodOrder.indexOf(a) - methodOrder.indexOf(b))
-        .map(([method, entry]) => ({ method, ...entry })),
+        .map(([method, entry]) => ({
+          method,
+          saleCount: entry.sales.size,
+          takenMinor: entry.takenMinor,
+          refundedMinor: entry.refundedMinor,
+        })),
+      firstSaleAt: sales[0]?.soldAt.toISOString() ?? null,
+      lastSaleAt: sales.at(-1)?.soldAt.toISOString() ?? null,
       takingsByHour: [...byHour.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([hour, entry]) => ({ hour, ...entry })),
@@ -583,6 +622,9 @@ export class TillShiftsService {
         returnNumber: r.returnNumber,
         invoiceNo: r.sale?.invoiceNo ?? null,
         amountMinor: toMinor(r.amount),
+        paidBack: paidBack.get(`POS refund ${r.returnNumber}`) ?? [],
+        items: r.items.map((item) => ({ name: item.product.name, qty: item.qty, disposition: item.disposition })),
+        processedBy: r.processedBy ? people.get(r.processedBy) ?? null : null,
         at: r.createdAt.toISOString(),
       })),
       cashMovements: movements.map((m) => ({
@@ -592,7 +634,7 @@ export class TillShiftsService {
         reason: m.reason,
         referenceType: m.referenceType,
         at: m.recordedAt.toISOString(),
-        recordedBy: recorders.get(m.recordedBy) ?? null,
+        recordedBy: people.get(m.recordedBy) ?? null,
       })),
     };
   }
@@ -627,6 +669,7 @@ export class TillShiftsService {
           closedBy: row.closedByUserId ? people.get(row.closedByUserId) ?? null : null,
           closeKind: row.closeKind,
           assistanceReason: row.assistanceReason,
+          varianceNote: row.varianceNote,
         },
       ]),
     );

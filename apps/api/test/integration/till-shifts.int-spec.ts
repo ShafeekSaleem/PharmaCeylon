@@ -140,12 +140,18 @@ const close = (
   sessionId: string,
   shiftId: string,
   count: { totalMinor: number; lines: Array<{ denominationMinor: number; count: number }> },
-  extra: { commandId?: string; assistance?: { pin: string; reason: string }; counterExpectedCashMinor?: number } = {},
+  extra: {
+    commandId?: string;
+    assistance?: { pin: string; reason: string };
+    counterExpectedCashMinor?: number;
+    varianceNote?: string;
+  } = {},
 ) =>
   shifts.close(who, fx.mainBranchId, sessionId, shiftId, {
     commandId: extra.commandId ?? randomUUID(),
     closingCount: count,
     counterExpectedCashMinor: extra.counterExpectedCashMinor,
+    varianceNote: extra.varianceNote,
     assistance: extra.assistance,
   });
 
@@ -413,10 +419,15 @@ describe("expected cash", () => {
       saleCount: 4,
     });
     expect(live.summary.takingsByMethod).toEqual([
-      { method: "cash", takenMinor: 2_000, refundedMinor: 1_500 },
-      { method: "card", takenMinor: 4_000, refundedMinor: 1_500 },
+      { method: "cash", saleCount: 2, takenMinor: 2_000, refundedMinor: 1_500 },
+      { method: "card", saleCount: 3, takenMinor: 4_000, refundedMinor: 1_500 },
     ]);
-    expect(live.summary.refunds).toHaveLength(2);
+    expect(live.summary.refunds).toMatchObject([
+      { amountMinor: 1_500, paidBack: [{ method: "cash", amountMinor: 1_500 }], processedBy: { id: clerk.userId },
+        items: [{ qty: 1, disposition: "restock" }] },
+      { amountMinor: 1_500, paidBack: [{ method: "card", amountMinor: 1_500 }] },
+    ]);
+    expect(live.summary.firstSaleAt).not.toBeNull();
     expect(live.summary.cashMovements).toMatchObject([{ direction: "out", amountMinor: 700, reason: "Supplier cash payout" }]);
     expect(live.summary.takingsByHour.reduce((n, h) => n + h.saleCount, 0)).toBe(4);
 
@@ -432,7 +443,7 @@ describe("expected cash", () => {
         { denominationMinor: 2_000, count: 2 },
         { denominationMinor: 100, count: 5 },
       ],
-    }, { counterExpectedCashMinor: 499_800 });
+    }, { counterExpectedCashMinor: 499_800, varianceNote: "Too much change around 12:10" });
     expect(closed.shift).toMatchObject({
       status: "closed",
       expectedCashMinor: 499_800,
@@ -441,6 +452,7 @@ describe("expected cash", () => {
       varianceMinor: -300,
       closeKind: "self",
       closedBy: { id: clerk.userId },
+      varianceNote: "Too much change around 12:10",
     });
 
     // Nothing more lands on a closed shift: a sale or cash refund now needs a new shift.

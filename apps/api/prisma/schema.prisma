@@ -737,6 +737,8 @@ model TillShift {
   closedStaffSessionId        String?             @map("closed_staff_session_id") @db.Uuid
   closeKind                   TillShiftCloseKind? @map("close_kind")
   assistanceReason            String?             @map("assistance_reason") @db.VarChar(500)
+  /// What the person who counted said about a difference.
+  varianceNote                String?             @map("variance_note") @db.VarChar(500)
   /// The counter's command ID for the close, so a resend after a lost response replays it.
   closeCommandId              String?             @unique @map("close_command_id") @db.Uuid
 

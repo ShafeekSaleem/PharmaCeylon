@@ -86,6 +86,12 @@ export class CloseTillShiftDto {
   @Max(2_000_000_000)
   counterExpectedCashMinor?: number | null;
 
+  /** What the person counting says about a difference, if anything. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  varianceNote?: string | null;
+
   /** Present only for a manager closing someone else's shift. */
   @IsOptional()
   @ValidateNested()
