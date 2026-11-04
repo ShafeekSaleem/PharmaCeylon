@@ -42,9 +42,13 @@ export class ApiError extends Error {
 
 const TIMEOUT_MS = 15_000;
 
+/** A 401 that refuses something the person sent (a wrong PIN), not the access token. The
+ * terminal routes give a token refusal the code `AUTHENTICATION_REQUIRED`; other routes give it
+ * no code at all. Both mean refresh. */
 function hasRefusalCode(text: string): boolean {
   try {
-    return typeof (JSON.parse(text) as { code?: unknown }).code === "string";
+    const code = (JSON.parse(text) as { code?: unknown }).code;
+    return typeof code === "string" && code !== "AUTHENTICATION_REQUIRED";
   } catch {
     return false;
   }

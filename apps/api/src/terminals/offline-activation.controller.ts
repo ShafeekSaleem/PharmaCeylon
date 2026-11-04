@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, Post, UseFilters } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
@@ -9,11 +9,13 @@ import {
   OFFLINE_ACTIVATION_PERMISSION,
   OfflineActivationService,
 } from "./offline-activation.service";
+import { TerminalErrorFilter } from "./terminal-error.filter";
 
 /** Revised D13 local activation (contract: docs/API_CONTRACT.md "Offline-counter assignment").
  * Signed command from the exact authorized target with verified local attendance; the remote
  * authorization is revalidated, D11 clearance applied and the nomination advanced atomically. */
 @ApiTags("terminals")
+@UseFilters(TerminalErrorFilter)
 @Controller("terminals/offline-assignment")
 export class OfflineActivationController {
   constructor(private readonly activation: OfflineActivationService) {}

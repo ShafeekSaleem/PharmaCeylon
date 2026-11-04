@@ -66,6 +66,8 @@ async function bootstrap() {
           path: req.originalUrl ?? req.url,
           statusCode: res.statusCode,
           durationMs: Date.now() - start,
+          // Set by TerminalErrorFilter: the ID a terminal error body carries.
+          correlationId: res.locals.correlationId,
         });
         process.stdout.write(`${line}\n`);
       });

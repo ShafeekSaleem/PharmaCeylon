@@ -1,4 +1,4 @@
-import { INestApplication } from "@nestjs/common";
+import { INestApplication, Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { JwtService } from "@nestjs/jwt";
 import { RoleName } from "@prisma/client";
@@ -315,6 +315,89 @@ describe("Security Guards", () => {
         .set("Authorization", `Bearer ${signAccessToken()}`)
         .expect(200);
       expect(userContext.openCounterSession).not.toHaveBeenCalled();
+    });
+  });
+
+  /** Guard refusals happen before any terminal code runs; the terminal routes' filter still
+   * shapes them, so the desktop reads one body for every refusal. */
+  describe("terminal routes answer guard refusals with the shared TerminalApiError", () => {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    let warn: jest.SpyInstance;
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    });
+    afterEach(() => warn.mockRestore());
+
+    it("gives a missing token AUTHENTICATION_REQUIRED, logging the same correlation ID", async () => {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/terminal-commands/execute")
+        .send({})
+        .expect(401);
+      expect(res.body).toEqual({
+        statusCode: 401,
+        error: "Unauthorized",
+        contractVersion: 1,
+        code: "AUTHENTICATION_REQUIRED",
+        message: "Missing access token",
+        correlationId: expect.stringMatching(UUID),
+        retryable: false,
+      });
+      const lines = warn.mock.calls.map(([line]) => String(line));
+      expect(lines).toEqual([
+        `terminal.error ${JSON.stringify({
+          correlationId: res.body.correlationId,
+          status: 401,
+          code: "AUTHENTICATION_REQUIRED",
+          method: "POST",
+          route: "/api/v1/terminal-commands/execute",
+        })}`,
+      ]);
+    });
+
+    it("leaves the platform body on routes outside the terminal modules", async () => {
+      const res = await request(app.getHttpServer()).get("/api/v1/tenant/context").expect(401);
+      expect(res.body).toEqual({
+        statusCode: 401,
+        error: "Unauthorized",
+        message: "Missing access token",
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("gives a permission refusal with no code of its own FORBIDDEN", async () => {
+      userContext.load.mockResolvedValue(baseCtx);
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/terminals/counters")
+        .set("Authorization", `Bearer ${signAccessToken()}`)
+        .set("x-branch-id", "b1")
+        .expect(403);
+      expect(res.body).toMatchObject({
+        contractVersion: 1,
+        code: "FORBIDDEN",
+        message: "Insufficient permissions",
+        retryable: false,
+      });
+    });
+
+    it("keeps a coded refusal's code and message", async () => {
+      userContext.load.mockResolvedValue({
+        ...baseCtx,
+        branchRoles: [{ branchId: "b1", role: RoleName.manager }],
+      });
+      userContext.openCounterSession.mockResolvedValue({ branchId: "b1" });
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/terminals/counters")
+        .set("Authorization", `Bearer ${signAccessToken({ counterSessionId: "work-session-1" })}`)
+        .set("x-branch-id", "b1")
+        .expect(403);
+      expect(res.body).toEqual({
+        statusCode: 403,
+        contractVersion: 1,
+        code: "COUNTER_SESSION_ONLY",
+        message: "Sign in with your email and password to do this.",
+        correlationId: expect.stringMatching(UUID),
+        retryable: false,
+      });
     });
   });
 });

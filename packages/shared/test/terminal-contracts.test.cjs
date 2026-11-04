@@ -444,3 +444,14 @@ test('restart cannot bypass paused sync, expired permission or revocation', () =
   assert.equal(c.offlineRestartDecision({ ...evidence, stateBeforeRestart: 'revoked' }).reason, 'TERMINAL_REVOKED');
   assert.equal(c.offlineRestartDecision({ ...evidence, stateBeforeRestart: 'nominated' }).action, 'offline_not_permitted');
 });
+
+test('every terminal error code has one retryable row; only undecided failures are retryable', () => {
+  for (const code of c.TERMINAL_ERROR_CODES) assert.equal(typeof c.TERMINAL_ERROR_RETRYABLE[code], 'boolean', code);
+  const retryable = Object.keys(c.TERMINAL_ERROR_RETRYABLE).filter(code => c.TERMINAL_ERROR_RETRYABLE[code]);
+  assert.deepEqual(retryable.sort(), ['RATE_LIMITED', 'SERVER_ERROR', 'TEMPORARILY_UNAVAILABLE']);
+  for (const code of Object.keys(c.TERMINAL_ERROR_RETRYABLE)) assert.equal(c.terminalErrorRetryable(code), c.TERMINAL_ERROR_RETRYABLE[code]);
+});
+test('a domain refusal code, or anything else unlisted, is never retryable', () => {
+  for (const code of ['COST_CONFLICT', 'APPROVER_NOT_QUALIFIED', '', 'constructor', '__proto__', 'toString', 'hasOwnProperty'])
+    assert.equal(c.terminalErrorRetryable(code), false, code);
+});
