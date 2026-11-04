@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/alert";
 import { RoleAccessDenied } from "@/components/role-access";
 import { DatePicker, Modal, ModalButton, ModalFooter } from "@/components/ui";
@@ -12,7 +12,7 @@ import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
 import { InventoryFilterSelect } from "./inventory-filter-select";
-import { submitAdjustment } from "./submit-adjustment";
+import { submitAdjustment, writeOffRequestKeys } from "./submit-adjustment";
 
 /** What happened to the stock — each sets the direction and is recorded as the reason. */
 type Kind = "found" | "damaged" | "expired" | "lost" | "opening" | "correction";
@@ -71,6 +71,8 @@ function AdjustmentModalContent({
   const access = useInventoryAccess();
   const { canSelfApprove } = usePermissions();
   const canAdd = access.canAdjustIn;
+  // Saving the same entry again (a double click, a lost reply) holds the write-off once.
+  const requestKeyFor = useRef(writeOffRequestKeys()).current;
   const [writeOffLimit, setWriteOffLimit] = useState<number | null>(null);
   useEffect(() => {
     apiJson<{ threshold: string | null }>("/inventory/write-offs/policy")
@@ -212,7 +214,7 @@ function AdjustmentModalContent({
             }
           : { batchId }),
       };
-      const result = await submitAdjustment(body);
+      const result = await submitAdjustment(body, requestKeyFor(body));
       const units = `${qty} unit${qty === 1 ? "" : "s"}`;
       onSuccess?.(
         result.held

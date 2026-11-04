@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Post,
@@ -287,15 +288,17 @@ export class InventoryController {
     return this.adjustments.postDirect(user, branchId, dto);
   }
 
-  /** Remote: records a write-off for approval (`{ held: true }`). Moves no stock. */
+  /** Remote: records a write-off for approval (`{ held: true }`). Moves no stock. A resend with
+   * the same `Idempotency-Key` returns the first request's held adjustment. */
   @RequirePermission("inventory.manage", "inventory.write_off")
   @Post("adjustment-requests")
   requestAdjustment(
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Body() dto: StockAdjustmentDto,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
   ) {
-    return this.adjustments.request(user, branchId, dto);
+    return this.adjustments.request(user, branchId, dto, idempotencyKey);
   }
 
   @RequirePermission("inventory.view")
