@@ -1,3 +1,4 @@
+import { describe, expect, it } from "@jest/globals";
 import type { CatalogProduct } from "../../shared/ipc-contract";
 import {
   findProducts,

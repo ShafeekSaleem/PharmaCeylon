@@ -10,6 +10,8 @@ const LABELS: Record<string, string> = {
   ArrowDown: "↓",
   Delete: "Del",
   Digit: "Num",
+  Plus: "+",
+  Minus: "−",
   " ": "Space",
 };
 

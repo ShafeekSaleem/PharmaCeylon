@@ -25,8 +25,9 @@
  *
  * ## Keys
  *
- * `"F6"`, `"Escape"` (or `"Esc"`), `"Enter"`, `"Ctrl+Enter"`, `"Backspace"`, and `"Digit"` for any
- * of 0–9 (the handler reads `event.key`). Ctrl, Alt and Shift must match the spec exactly for
+ * `"F6"`, `"Escape"` (or `"Esc"`), `"Enter"`, `"Ctrl+Enter"`, `"Backspace"`, `"Delete"`,
+ * `"ArrowUp"`/`"ArrowDown"`, `"Plus"` and `"Minus"` (the + and − keys, since `+` joins a spec's
+ * parts), and `"Digit"` for any of 0–9 (the handler reads `event.key`). Ctrl, Alt and Shift must match the spec exactly for
  * F-keys; for other keys Shift is ignored, since it is part of typing.
  *
  * ## Focus rules
@@ -106,6 +107,8 @@ export function parseKey(spec: string): Combo {
   const parts = spec.split("+").map((part) => part.trim());
   let key = parts.pop() ?? "";
   if (key === "Esc") key = "Escape";
+  else if (key === "Plus") key = "+";
+  else if (key === "Minus") key = "-";
   const mods = new Set(parts.map((part) => part.toLowerCase()));
   return {
     key,

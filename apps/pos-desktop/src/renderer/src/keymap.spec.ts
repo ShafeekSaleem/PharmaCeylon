@@ -343,3 +343,14 @@ describe("reserved keys", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 });
+
+describe("key names", () => {
+  it("binds the + and − keys as Plus and Minus, with Shift ignored as part of typing", () => {
+    const plus = bind(scope(map.root), "Plus");
+    const minus = bind(scope(map.root), "Minus");
+    press("+", { shiftKey: true });
+    press("-");
+    expect(plus).toHaveBeenCalledTimes(1);
+    expect(minus).toHaveBeenCalledTimes(1);
+  });
+});
