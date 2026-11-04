@@ -8,7 +8,6 @@ import { checkoutCoSigner } from "./0006-checkout-co-signer";
 import { checkoutDraftCounter } from "./0007-checkout-draft-counter";
 import { pinLockUptime } from "./0008-pin-lock-uptime";
 import { staffCredentialRole } from "./0009-staff-credential-role";
-
 import { offlineAuthority } from "./0010-offline-authority";
 
 /** Append only. A released migration is never edited or reordered. */

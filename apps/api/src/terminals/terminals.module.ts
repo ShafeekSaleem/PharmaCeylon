@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
-import { PricingModule } from "../pricing/pricing.module";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { PricingModule } from "../pricing/pricing.module";
 import { AttendanceProofsService } from "./attendance-proofs.service";
 import { BusinessHoursAcknowledgements } from "./business-hours-acknowledgements.service";
 import { EnrollmentCodesController } from "./enrollment-codes.controller";
@@ -9,8 +9,8 @@ import { EnrollmentCodesService } from "./enrollment-codes.service";
 import { LocalAttendanceVerifier } from "./local-attendance.verifier";
 import { OfflineActivationController } from "./offline-activation.controller";
 import { OfflineActivationClearance, OfflineActivationService } from "./offline-activation.service";
-import { OfflineAuthorityController } from './offline-authority.controller';
 import { OfflineAssignmentController } from "./offline-assignment.controller";
+import { OfflineAuthorityController } from "./offline-authority.controller";
 import { OfflineAssignmentService } from "./offline-assignment.service";
 import { OfflineSupportRecords } from "./offline-support-records.service";
 import { OperatingHoursEvidence } from "./operating-hours.evidence";

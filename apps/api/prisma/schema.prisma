@@ -639,9 +639,13 @@ model TerminalEnrollment {
   supportConflicts      OfflineSupportConflict[]
   offlineAssignmentAuthorizations OfflineTerminalAssignmentAuthorization[]
   offlineNominations              OfflineTerminalNomination[]
+  offlineStockSnapshots           OfflineStockSnapshot[]
+  offlineAuthorityIssuances       OfflineAuthorityIssuance[]
 
   @@unique([tenantId, keyId])
   @@unique([tenantId, branchId, terminalId, id, keyId])
+  /// Lets P3's offline authority evidence point at the enrollment it was issued to.
+  @@unique([tenantId, branchId, id], map: "terminal_enrollment_tenant_branch_id_key")
   @@index([tenantId, branchId, terminalId])
   @@map("terminal_enrollment")
 }
@@ -1061,7 +1065,8 @@ model OfflineTerminalNomination {
   @@map("offline_terminal_nomination")
 }
 
-/// Immutable signed stock evidence retained for offline reconciliation.
+/// Immutable signed stock evidence retained for offline reconciliation (rows are never updated or
+/// deleted; a trigger enforces it).
 model OfflineStockSnapshot {
   id            String   @id @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -1070,12 +1075,16 @@ model OfflineStockSnapshot {
   version       Int
   generatedAt   DateTime @map("generated_at")
   envelope      Json
+  enrollment    TerminalEnrollment @relation(fields: [tenantId, branchId, enrollmentId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_stock_snapshot_enrollment_fkey")
+  issuances     OfflineAuthorityIssuance[]
 
   @@unique([tenantId, branchId, enrollmentId, version], map: "offline_stock_snapshot_enrollment_version_key")
+  @@unique([tenantId, branchId, enrollmentId, id], map: "offline_stock_snapshot_enrollment_id_key")
   @@map("offline_stock_snapshot")
 }
 
-/// One committed response per authenticated offline refresh command.
+/// One committed response per authenticated offline refresh command (immutable, like the
+/// snapshot it pairs with).
 model OfflineAuthorityIssuance {
   tenantId     String @map("tenant_id") @db.Uuid
   branchId     String @map("branch_id") @db.Uuid
@@ -1083,6 +1092,8 @@ model OfflineAuthorityIssuance {
   commandId    String @map("command_id") @db.Uuid
   snapshotId   String @unique @map("snapshot_id") @db.Uuid
   grant        Json
+  enrollment   TerminalEnrollment   @relation(fields: [tenantId, branchId, enrollmentId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_authority_issuance_enrollment_fkey")
+  snapshot     OfflineStockSnapshot @relation(fields: [tenantId, branchId, enrollmentId, snapshotId], references: [tenantId, branchId, enrollmentId, id], onDelete: Restrict, onUpdate: Restrict, map: "offline_authority_issuance_snapshot_fkey")
 
   @@id([tenantId, branchId, enrollmentId, commandId], map: "offline_authority_issuance_pkey")
   @@map("offline_authority_issuance")

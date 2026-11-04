@@ -7,6 +7,32 @@ import { signOfflineGrant } from "./offline-grant";
 import { recordSignedStockSnapshot, type SnapshotState } from "./stock-snapshot";
 import { denied } from "./terminal-wire";
 
+/**
+ * The journal baseline for a new issuance. Until P5 reconciliation supplies the accepted journal
+ * watermark and stock-review blocks, only an enrollment's first issuance has a proven empty
+ * baseline; any later new request is refused rather than rebased on a guess.
+ */
+export async function firstIssuanceState(
+  tx: Prisma.TransactionClient,
+  identity: TerminalIdentity,
+): Promise<SnapshotState> {
+  const previous = await tx.offlineAuthorityIssuance.findFirst({
+    where: { tenantId: identity.tenantId, branchId: identity.branchId, enrollmentId: identity.enrollmentId },
+    select: { commandId: true },
+  });
+  if (previous) denied("RECONCILIATION_REQUIRED");
+  return { includedThroughSequence: 0, includedThroughHash: null, reviewRequiredBatchIds: new Set() };
+}
+
+/** Whether this exact enrollment is the branch's current, unrevoked offline counter. */
+export async function isNominated(tx: Prisma.TransactionClient, identity: TerminalIdentity): Promise<boolean> {
+  const nomination = await tx.offlineTerminalNomination.findFirst({
+    where: { ...identity, enrollment: { revokedAt: null, terminal: { retiredAt: null } } },
+    select: { id: true },
+  });
+  return nomination !== null;
+}
+
 /** The authenticator verifies device, actor and command ID on every attempt, including replay.
  * readState establishes a safe journal baseline before any new grant is minted.
  */
@@ -24,11 +50,7 @@ export async function issueOfflineAuthority(
     const { identity, commandId } = await options.authenticate(tx);
     const { tenantId, branchId, enrollmentId } = identity;
     const scope = { tenantId, branchId, enrollmentId };
-    const nomination = await tx.offlineTerminalNomination.findFirst({
-      where: { ...identity, enrollment: { revokedAt: null, terminal: { retiredAt: null } } },
-      select: { id: true },
-    });
-    if (!nomination) denied("IDENTITY_MISMATCH");
+    if (!(await isNominated(tx, identity))) denied("IDENTITY_MISMATCH");
 
     const previous = await tx.offlineAuthorityIssuance.findUnique({
       where: { tenantId_branchId_enrollmentId_commandId: { ...scope, commandId } },

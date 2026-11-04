@@ -9,7 +9,7 @@ import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
-import { issueOfflineAuthority } from "./offline-authority-issuance";
+import { firstIssuanceState, isNominated, issueOfflineAuthority } from "./offline-authority-issuance";
 import { TerminalErrorFilter } from "./terminal-error.filter";
 import { TerminalTrustService } from "./terminal-trust.service";
 import { denied, object, text, uuid } from "./terminal-wire";
@@ -43,9 +43,13 @@ export class OfflineAuthorityController {
     const body = object(raw, ["workSessionId", "requestId"]);
     const workSessionId = uuid(body.workSessionId);
     const requestId = uuid(body.requestId);
-    return this.prisma.$transaction((tx) =>
-      this.trust.prepareCommand(tx, user, branchId, workSessionId, descriptor, { requestId }),
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const command = await this.trust.prepareCommand(tx, user, branchId, workSessionId, descriptor, { requestId });
+      // Only the branch's offline counter gets authority. Refusing here, before the counter spends
+      // an attendance proof, rolls the challenge back with the transaction.
+      if (!(await isNominated(tx, command.identity))) denied("IDENTITY_MISMATCH");
+      return command;
+    });
   }
 
   @CounterRoute()
@@ -59,21 +63,14 @@ export class OfflineAuthorityController {
     const keyPem = this.config.get<string>("OFFLINE_AUTHORITY_PRIVATE_KEY");
     if (!keyId || !keyPem) denied("TEMPORARILY_UNAVAILABLE");
     return issueOfflineAuthority(this.prisma, this.access, {
-      signer: { keyId, privateKey: createPrivateKey(keyPem) },
+      // A PEM in a .env file is often one line with literal "\n" escapes.
+      signer: { keyId, privateKey: createPrivateKey(keyPem.replace(/\\n/g, "\n")) },
       defaultVatRatePercent: this.tax.getVatRatePercent(),
       authenticate: async (tx) => {
         const { command } = await this.trust.verifyCommand(tx, user, branchId, descriptor, body.envelope, proofId);
         return { identity: command.identity, commandId: command.body.requestId };
       },
-      readState: async (tx, identity) => {
-        const previous = await tx.offlineAuthorityIssuance.findFirst({
-          where: { tenantId: identity.tenantId, branchId: identity.branchId, enrollmentId: identity.enrollmentId },
-          select: { commandId: true },
-        });
-        // Until reconciliation is connected, only a first issuance has a proven empty baseline.
-        if (previous) denied("RECONCILIATION_REQUIRED");
-        return { includedThroughSequence: 0, includedThroughHash: null, reviewRequiredBatchIds: new Set() };
-      },
+      readState: firstIssuanceState,
     });
   }
 }

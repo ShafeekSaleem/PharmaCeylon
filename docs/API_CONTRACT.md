@@ -1139,8 +1139,19 @@ The response contains the signed `grant` and `snapshot`. The API commits both
 before returning them. After a lost response, request a fresh challenge and
 attendance proof using the same `requestId` to recover the original pair.
 
+- Only the branch's current offline counter (the D13 nomination) may ask: the challenge itself
+  is refused with 403 `IDENTITY_MISMATCH` for any other enrollment, before an attendance proof is
+  spent or anything is stored. The desktop then waits 15 minutes before asking again, and backs
+  off from 1 to 30 minutes after any other failure.
+- The grant needs the branch's selling hours: unset hours or an unusable timezone are 403
+  `BRANCH_HOURS_NOT_CONFIGURED`; stored hours that fail validation are `TEMPORARILY_UNAVAILABLE`.
+  Offline selling off, or nobody prepared on the counter with `sales.pos_use`, is `GRANT_INVALID`.
+- Snapshots and issued pairs are immutable evidence (a trigger refuses update and delete), tied
+  to the enrollment they were issued to.
+
 Issuance requires `OFFLINE_AUTHORITY_KEY_ID` and an Ed25519 PKCS#8 PEM in
-`OFFLINE_AUTHORITY_PRIVATE_KEY`. The desktop must verify responses against an
-independently provisioned server public key. Until reconciliation supplies a
-production watermark and stock-review state, a new request after the first
-issuance returns `RECONCILIATION_REQUIRED`.
+`OFFLINE_AUTHORITY_PRIVATE_KEY` (a `\n`-escaped single line is accepted; see
+`apps/api/.env.example`). The desktop verifies responses against an independently provisioned
+server public key (`POS_OFFLINE_AUTHORITY_KEY_ID`, `POS_OFFLINE_AUTHORITY_PUBLIC_KEY`). Until
+reconciliation supplies a production watermark and stock-review state, a new request after the
+first issuance returns `RECONCILIATION_REQUIRED`.

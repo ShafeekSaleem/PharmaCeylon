@@ -12,7 +12,7 @@ import type { Prisma } from "@prisma/client";
 import type { AccessService } from "../security/access.service";
 import { storedPolicy } from "../tenant/counter-policy.service";
 import { readOfflineGrantStaff } from "./offline-grant-staff";
-import { compileOfflineHours } from "./operating-hours";
+import { compileOfflineHours, evaluateOperatingHours } from "./operating-hours";
 import { denied } from "./terminal-wire";
 
 /** Called inside authenticated issuance, which owns grant versioning and durable replay. */
@@ -41,6 +41,13 @@ export async function signOfflineGrant(
   if (!branch) denied("GRANT_INVALID");
   const policy = storedPolicy(branch.counterPolicy);
   if (!policy.offlineEnabled) denied("GRANT_INVALID");
+  // Selling hours are signed into the grant, so they must be known (the #114 split): unset hours
+  // or an unusable timezone are the branch's setup; stored hours that fail validation are a fault.
+  const hoursNow = evaluateOperatingHours(
+    { hours: branch.operatingHours, timeZone: branch.timezone, extensions: [] }, now,
+  );
+  if (hoursNow.kind === "unknown")
+    denied(hoursNow.reason === "hours_invalid" ? "TEMPORARILY_UNAVAILABLE" : "BRANCH_HOURS_NOT_CONFIGURED");
   const authorizedStaff = await readOfflineGrantStaff(tx, access, identity, now);
   if (!authorizedStaff.length) denied("GRANT_INVALID");
   const issuedAt = now.getTime();
