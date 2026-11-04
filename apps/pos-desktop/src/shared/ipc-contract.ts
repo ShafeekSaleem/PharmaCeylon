@@ -18,10 +18,26 @@ export const readinessCheckSchema = z.object({
 });
 export type ReadinessCheck = z.infer<typeof readinessCheckSchema>;
 
+/** This counter's installed offline authority, for the This counter page (P3 #49). */
+export const offlineBackupSchema = z.object({
+  /** The grant's expiry and the saved stock's time, ISO; null when nothing is installed. */
+  grantExpiresAt: z.string().nullable(),
+  snapshotGeneratedAt: z.string().nullable(),
+  /** People the installed grant lets sign in offline. */
+  authorizedStaff: z.number().int().min(0),
+  /** True while the saved stock is young enough for an outage to start on it. */
+  usable: z.boolean(),
+  /** Consecutive failed renewals, and what the last one needs, in plain words. */
+  failures: z.number().int().min(0),
+  failure: z.string().nullable(),
+});
+export type OfflineBackup = z.infer<typeof offlineBackupSchema>;
+
 export const readinessReportSchema = z.object({
   ready: z.boolean(),
   checkedAt: z.string(),
   checks: z.array(readinessCheckSchema),
+  offlineBackup: offlineBackupSchema.nullable().optional(),
 });
 export type ReadinessReport = z.infer<typeof readinessReportSchema>;
 
