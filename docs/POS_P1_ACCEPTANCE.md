@@ -3,7 +3,9 @@
 Audited against `develop` at `e1f0de1` (2026-11-02), and re-checked at `e82aa7a` (2026-11-04),
 after P2 [#93](https://github.com/ShafeekSaleem/PharmaCeylon/pull/93), MR 10a
 [#100](https://github.com/ShafeekSaleem/PharmaCeylon/pull/100) and MR 10b
-[#102](https://github.com/ShafeekSaleem/PharmaCeylon/pull/102) merged. Each acceptance criterion in
+[#102](https://github.com/ShafeekSaleem/PharmaCeylon/pull/102) merged. The AC3 row for a seller
+dispensing alone was added once [#109](https://github.com/ShafeekSaleem/PharmaCeylon/pull/109)
+merged. Each acceptance criterion in
 [#47](https://github.com/ShafeekSaleem/PharmaCeylon/issues/47) is split into the claims it
 makes. Each claim is mapped to the tests that prove it.
 
@@ -75,7 +77,8 @@ by the 2026-11-04 re-check. `desktop:` means `apps/pos-desktop/src/main/**/*.spe
 | Permission administration grants no pharmacist bypass | PROVEN | int `pharmacist-registration`: "a custom role holding every permission key is still not qualified, and cannot record its own registration" **(new)**, "refuses managers, whatever their permissions" |
 | Permission administration grants no device bypass | PROVEN | int `terminal-execution`: "refuses execution and replay to a custom role without terminal.execute"; the owner case in AC1 |
 | Ordinary role administration still works | PROVEN | int `back-office-access`: "edits a custom role's web scope independently, keeps tenant boundaries and refuses owner lockout" |
-| Pharmacist PIN co-sign checks the SLMC registration | PROVEN | MR 10b (#102) checks the co-signer on the checkout's own transaction, after their PIN, through `clinical/pharmacist-registration.service.ts`. int `pharmacist-registration` "controlled checkout co-sign (P1 #47 with P2 #93)": "refuses a co-signer with no registration, an expired one or a revoked one, and sells nothing", "accepts a registered co-signer and keeps the registration it relied on with the sale", "waits for a revocation in progress and is refused once it commits", "pins a sale's registration to its dispenser in the database"; unit `sales/sales.checkout-controlled.spec.ts`: "checks the co-signer's registration on the checkout's own transaction, after their PIN", "refuses an unregistered, expired or revoked co-signer with a coded 403 that names them", "lets other failures through unchanged", "makes a named co-signer the dispenser even when the seller could dispense alone". Not this row: a seller who dispenses alone with no co-sign. On the web POS before go-live and during a fallback, that seller is still trusted by role. Open PR [#109](https://github.com/ShafeekSaleem/PharmaCeylon/pull/109) checks their registration at every branch, and replaces the "trusted by role … (still open, MR 10)" tests in both files. |
+| Pharmacist PIN co-sign checks the SLMC registration | PROVEN | MR 10b (#102) checks the co-signer on the checkout's own transaction, after their PIN, through `clinical/pharmacist-registration.service.ts`. int `pharmacist-registration` "controlled checkout co-sign (P1 #47 with P2 #93)": "refuses a co-signer with no registration, an expired one or a revoked one, and sells nothing", "accepts a registered co-signer and keeps the registration it relied on with the sale", "waits for a revocation in progress and is refused once it commits", "pins a sale's registration to its dispenser in the database"; unit `sales/sales.checkout-controlled.spec.ts`: "checks the co-signer's registration on the checkout's own transaction, after their PIN", "refuses an unregistered, expired or revoked co-signer with a coded 403 that names them", "lets other failures through unchanged", "makes a named co-signer the dispenser even when the seller could dispense alone". A seller who dispenses alone is the next row. |
+| A seller dispensing alone needs their own SLMC registration, on the web POS too | PROVEN | #109 checks every controlled checkout, at a counter or on the web POS, whatever the branch's desktop POS state; before it the web POS trusted the seller's role before go-live and during a fallback. int `pharmacist-registration` "a seller dispensing alone on the web, with no co-sign or counter session": "is checked at every branch, whatever its desktop POS state, and sells nothing without one", "keeps the registration it relied on with the sale, in every desktop POS state"; int `terminal-enrollment`: "needs the seller's own SLMC registration, checked on the counter's checkout transaction"; unit `sales/sales.checkout-controlled.spec.ts`: "needs their own registration at a counter, and is told to get a co-sign without one", "needs their own registration on the web POS too, at every branch, and is told to get a co-sign". Not tested: the web POS opening its pharmacist PIN dialog on `SELLER_NOT_QUALIFIED` (`apps/web/src/app/(app)/pos/page.tsx`) has no automated test. |
 | Clinical work through the signed executor | PARTIAL | Prescriptions are a signed clinical operation (MR 10a, #100). int `terminal-execution` "prescriptions through signed commands (clinical)": "records once for a registered pharmacist, replays the original result and audits the registration", "refuses an owner or manager with no registration: no prescription, receipt or spent nonce", "refuses a command prepared before the registration was revoked"; int `pharmacist-registration` "the unsigned prescription route at a branch live on PharmaCeylon POS": "refuses outside a fallback, whoever calls it, and records nothing"; desktop `terminal/signed-commands.spec.ts`: "sends a signed clinical command, with no approval or co-sign evidence, and keeps its receipt", "treats a missing SLMC registration as a final refusal the counter can explain". Open: co-sign evidence on a signed prescription command waits on the desktop Sell work. Checkout is not a signed operation; its clinical check is the co-sign row above. |
 
 ## AC4: concurrent retry and lost response
@@ -129,9 +132,10 @@ by the 2026-11-04 re-check. `desktop:` means `apps/pos-desktop/src/main/**/*.spe
 
 ## Still unproven, and why
 
-Re-checked 2026-11-04. Real local attendance (AC1), the PIN co-sign SLMC check (AC3) and clinical
-work through a signed operation (AC3) were open in the first audit. They are now proven by the
-tests above.
+Re-checked 2026-11-04. Real local attendance (AC1) and the PIN co-sign SLMC check (AC3) were
+open in the first audit. They are now proven by the tests above, and so is the seller's own
+registration on the web POS (AC3, #109). Clinical work through a signed operation (AC3), also
+open then, is now partly proven: what remains is item 3.
 
 1. **Browser physical routes are not refused yet.** Coordinated enforcement waits on W1 rollout
    (branches going live) and the P6 #52 counter screens (AC1, AC2).
@@ -140,6 +144,3 @@ tests above.
 3. **Co-sign evidence on signed prescription commands.** Waits on the desktop Sell work (AC3).
 4. **Offline sequence receipts.** P5 #51 (AC4).
 5. **Acknowledgement, grant and manager verification of held records.** P3 #49 / P5 #51 (readiness).
-
-Out of scope here: the seller's own SLMC registration on the web POS. That is open PR #109 (see
-AC3).
