@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  UseFilters,
   UseGuards,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
@@ -19,12 +20,14 @@ import {
   RedeemEnrollmentCodeDto,
 } from "./dto/terminal-enrollment.dto";
 import { EnrollmentCodesService } from "./enrollment-codes.service";
+import { TerminalErrorFilter } from "./terminal-error.filter";
 
 /** P2 one-time enrollment codes (contract: docs/API_CONTRACT.md "Desktop enrollment and staff
  * sessions"). Issuing, listing and revoking need branch management; redeeming needs only counter
  * access, because the code carries the manager's authorization for one counter. */
 @ApiTags("terminals")
 @UseGuards(ThrottlerGuard)
+@UseFilters(TerminalErrorFilter)
 @Controller("terminals")
 export class EnrollmentCodesController {
   constructor(private readonly codes: EnrollmentCodesService) {}

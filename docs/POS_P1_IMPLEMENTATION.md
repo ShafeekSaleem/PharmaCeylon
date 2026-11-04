@@ -1025,7 +1025,8 @@ tenant/stock scanners and the 166-route inventory.
    - further adapters as more handlers are split (sales/refunds, cash); transfers, prepared
      receipts, supplier returns (P6 slices above) and direct adjustments (MR 4d) are done;
    - ~~persisted provenance for import/background workers and maintenance writers~~ (MR 6);
-   - aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`);
+   - ~~aligning the error body with the shared `TerminalApiError` (`correlationId`/`retryable`)~~
+     (`TerminalErrorFilter` on every terminal controller; API_CONTRACT.md "Errors");
    - restricting browser routes to terminals once W1 rollout and P2 are ready.
 3. **Readiness evidence and integration:** hours acknowledgements (intake and persistence done in
    MR 7; grant/sign-in verification needs P3/P2), assisted handover, incident

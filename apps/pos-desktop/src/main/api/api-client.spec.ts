@@ -51,6 +51,32 @@ describe("ApiSession", () => {
     expect(fetchImpl.mock.calls[3]![1].headers.Authorization).toBe("Bearer a2");
   });
 
+  it("refreshes on a terminal route's AUTHENTICATION_REQUIRED, the token refusal's code there", async () => {
+    const fetchImpl = jest
+      .fn<ReturnType<FetchLike>, Parameters<FetchLike>>()
+      .mockResolvedValueOnce(
+        reply(200, { accessToken: "a1", refreshToken: "r1", user }),
+      )
+      .mockResolvedValueOnce(
+        reply(401, {
+          statusCode: 401,
+          contractVersion: 1,
+          code: "AUTHENTICATION_REQUIRED",
+          message: "Invalid access token",
+          correlationId: "6f1c1f43-2f0e-4b8e-9d55-0d8f0f8c1a10",
+          retryable: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        reply(200, { accessToken: "a2", refreshToken: "r2", user }),
+      )
+      .mockResolvedValueOnce(reply(200, { ok: true }));
+    const api = new ApiSession(() => "https://pos.test/api/v1", fetchImpl);
+    await api.login("a@b.c", "secret");
+    await expect(api.request("POST", "/terminal-commands/prepare")).resolves.toEqual({ ok: true });
+    expect(fetchImpl.mock.calls[3]![1].headers.Authorization).toBe("Bearer a2");
+  });
+
   it("keeps the server's refusal and marks transport failures uncertain", async () => {
     const fetchImpl = jest
       .fn<ReturnType<FetchLike>, Parameters<FetchLike>>()

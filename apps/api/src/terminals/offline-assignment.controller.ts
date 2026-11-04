@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseFilters,
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
@@ -11,6 +20,7 @@ import {
   RevokeOfflineAssignmentDto,
 } from "./dto/offline-assignment.dto";
 import { OFFLINE_ASSIGNMENT_MANAGER_PERMISSION, OfflineAssignmentService } from "./offline-assignment.service";
+import { TerminalErrorFilter } from "./terminal-error.filter";
 
 /** Revised D13 remote management (contract: docs/API_CONTRACT.md "Offline-counter assignment").
  * `tenant.management` is only the route gate: the service additionally requires the owner
@@ -19,6 +29,7 @@ import { OFFLINE_ASSIGNMENT_MANAGER_PERMISSION, OfflineAssignmentService } from 
  * signed step on the exact target (P2/P3).
  */
 @ApiTags("terminals")
+@UseFilters(TerminalErrorFilter)
 @Controller("terminals/offline-assignment")
 export class OfflineAssignmentController {
   constructor(private readonly assignments: OfflineAssignmentService) {}

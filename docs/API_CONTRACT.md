@@ -374,8 +374,34 @@ unique per tenant + enrollment, strictly increasing and never reset.
 
 ### Errors
 
-Bodies are `{ statusCode, code, message }`. The shared `TerminalApiError` shape with
-`correlationId`/`retryable` is not used yet.
+Every error from a terminal route (`/terminals/*`, `/terminal-commands/*`) is the shared
+`TerminalApiError`, guard refusals included (`TerminalErrorFilter`):
+
+```text
+TerminalApiError = { contractVersion: 1, code, message, correlationId, retryable }
+  + statusCode (the HTTP status) + any fields of the refusal's own (PIN_LOCKED: lockedUntil)
+```
+
+- `code` and `message` are what the refusal always sent. A refusal with no code of its own
+  gets one by status: 400 `BAD_REQUEST`, 401 `AUTHENTICATION_REQUIRED` (the access token was
+  refused: refresh it, then send again), 403 `FORBIDDEN`, 404 `NOT_FOUND`, 409 `CONFLICT`,
+  429 `RATE_LIMITED`, other 4xx `REQUEST_REFUSED`, 5xx `SERVER_ERROR`. A DTO's list of problems
+  becomes one message joined with `; `. A fault that is not an HTTP refusal is 500
+  `SERVER_ERROR` with the message `Internal server error`.
+- A domain refusal from the core a signed command runs keeps that core's code (for example
+  `COST_CONFLICT`).
+- `correlationId` is a UUID minted for this error (the API has no request ID). The server logs
+  one `terminal.error` line with the same ID, status, code, method and route pattern, never
+  the message; with `STRUCTURED_HTTP_LOG=true` the access-log line carries it too. Quote it
+  when reporting a problem.
+- `retryable` comes from `TERMINAL_ERROR_RETRYABLE` in `@pharmaceylon/shared`, one row per code.
+  It is true only for `TEMPORARILY_UNAVAILABLE`, `RATE_LIMITED` and `SERVER_ERROR`: resending
+  the identical request may succeed. Every other code, and any code not in the table, is a
+  decision about the request as sent. The client may still fix the cause and send a new
+  request, such as a freshly prepared command.
+
+Errors raised before routing (malformed JSON, an unknown path) keep the platform body
+`{ statusCode, message, error }`. So does every route outside the terminal modules.
 
 | HTTP | `code` | Meaning |
 | --- | --- | --- |
@@ -391,8 +417,9 @@ Bodies are `{ statusCode, code, message }`. The shared `TerminalApiError` shape 
 | 403 | `OUTSIDE_OPERATING_HOURS` | Outside the owner's mandatory limit. Nobody can override it. Not executed. |
 | 403 | `BUSINESS_HOURS_ACK_REQUIRED` | Outside routine hours with no business extension. A manager can approve an extension on the web. Not executed. |
 | 409 | `REPLAY_CONFLICT` | This `commandId` already committed with different content. Definitive. |
-| 400/404/409 | Domain message, e.g. "Approval changed; refresh and review before posting" | Not executed. |
-| 5xx / network | — | **Uncertain.** Resend the identical envelope. |
+| 400/404/409 | The domain core's own code, or `BAD_REQUEST`/`NOT_FOUND`/`CONFLICT`, with its message, e.g. "Approval changed; refresh and review before posting" | Not executed. |
+| 5xx | `SERVER_ERROR` (`retryable: true`) | **Uncertain.** Resend the identical envelope. |
+| network | — | **Uncertain.** Resend the identical envelope. |
 
 Receipts are not server-signed in v1; the client trusts them over TLS. A signed `sync_response`
 is reserved for P5 offline sync.

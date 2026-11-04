@@ -1,10 +1,11 @@
-import { Body, Controller, HttpCode, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, Post, UseFilters } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { TerminalErrorFilter } from "../terminals/terminal-error.filter";
 import { TERMINAL_EXECUTE, TerminalCommandExecutor } from "./terminal-command.executor";
 
 /** Signed physical execution for enrolled desktop counters (contract: docs/API_CONTRACT.md).
@@ -13,6 +14,7 @@ import { TERMINAL_EXECUTE, TerminalCommandExecutor } from "./terminal-command.ex
  * attendance/hours providers still fail closed.
  */
 @ApiTags("terminal-commands")
+@UseFilters(TerminalErrorFilter)
 @Controller("terminal-commands")
 export class TerminalCommandsController {
   constructor(private readonly executor: TerminalCommandExecutor) {}

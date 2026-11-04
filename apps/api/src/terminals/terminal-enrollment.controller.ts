@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  UseFilters,
   UseGuards,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
@@ -29,6 +30,7 @@ import {
 import { PinSignInService } from "./pin-sign-in.service";
 import { StaffCredentialsService } from "./staff-credentials.service";
 import { TerminalEnrollmentService } from "./terminal-enrollment.service";
+import { TerminalErrorFilter } from "./terminal-error.filter";
 
 const MANAGE = "tenant.management";
 const COUNTER = "terminal.execute";
@@ -39,6 +41,7 @@ const COUNTER = "terminal.execute";
  * Signed bodies are typed `unknown` and parsed strictly by the terminal wire helpers.
  */
 @ApiTags("terminals")
+@UseFilters(TerminalErrorFilter)
 @Controller("terminals")
 export class TerminalEnrollmentController {
   constructor(

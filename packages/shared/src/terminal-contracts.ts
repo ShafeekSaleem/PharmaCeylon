@@ -1,3 +1,4 @@
+import type { OperationPolicyErrorCode } from "./operation-policy";
 import type { OfflineSupportRecord } from "./pos-resilience-contracts";
 
 /** P0 wire contract v1. See docs/POS_V1_CONTRACT.md for trust and persistence rules. */
@@ -265,9 +266,101 @@ export const TERMINAL_ERROR_CODES = [
   "ENROLLMENT_CODE_INVALID",
 ] as const;
 export type TerminalErrorCode = typeof TERMINAL_ERROR_CODES[number];
+
+/** Whether resending the identical request may succeed. True only where the server has not
+ * decided anything: a fault, throttling or a dependency that is briefly unavailable. Every other
+ * code is a decision about the request as sent, so repeating it unchanged gets the same answer
+ * (a client may still fix the cause and send a new request, e.g. prepare a fresh command).
+ * One row per code a terminal route (`/terminals/*`, `/terminal-commands/*`) sends itself.
+ */
+export const TERMINAL_ERROR_RETRYABLE = {
+  // P0 terminal codes (TERMINAL_ERROR_CODES)
+  INVALID_COMMAND: false,
+  UNSUPPORTED_CONTRACT: false,
+  INVALID_SIGNATURE: false,
+  IDENTITY_MISMATCH: false,
+  TERMINAL_REQUIRED: false,
+  REMOTE_SESSION_DENIED: false,
+  TERMINAL_REVOKED: false,
+  SESSION_INVALID: false,
+  ONLINE_REQUIRED: false,
+  GRANT_INVALID: false,
+  GRANT_EXPIRED: false,
+  SNAPSHOT_INVALID: false,
+  SNAPSHOT_MISMATCH: false,
+  SNAPSHOT_STALE: false,
+  LOCAL_STOCK_EXHAUSTED: false,
+  OUTSIDE_OPERATING_HOURS: false,
+  CLOCK_UNTRUSTED: false,
+  PAYMENT_NOT_ALLOWED: false,
+  PHARMACIST_REQUIRED: false,
+  REPLAY_CONFLICT: false,
+  SEQUENCE_GAP: false,
+  RECONCILIATION_REQUIRED: false,
+  BUSINESS_HOURS_ACK_REQUIRED: false,
+  TEMPORARILY_UNAVAILABLE: true,
+  CHALLENGE_EXPIRED: false,
+  CHALLENGE_INVALID: false,
+  CHALLENGE_USED_OR_EXPIRED: false,
+  LOCAL_ATTENDANCE_UNAVAILABLE: false,
+  ENROLLMENT_CODE_INVALID: false,
+  // Operation policy (OperationPolicyErrorCode) not already listed
+  AUTHENTICATION_REQUIRED: false,
+  PERMISSION_DENIED: false,
+  PAYMENT_EVIDENCE_REQUIRED: false,
+  APPROVAL_REQUIRED: false,
+  APPROVAL_INVALID: false,
+  APPROVAL_STALE: false,
+  APPROVAL_EXPIRED: false,
+  SELF_APPROVAL_DENIED: false,
+  // Counter sign-in, enrollment and PINs
+  COUNTER_SESSION_ONLY: false,
+  COUNTER_OCCUPIED: false,
+  ACCOUNT_LOCKED: false,
+  PASSWORD_INCORRECT: false,
+  PIN_FORMAT: false,
+  PIN_INCORRECT: false,
+  PIN_LOCKED: false,
+  PIN_NOT_PREPARED: false,
+  PIN_NOT_SET: false,
+  PIN_SWITCHED_OFF: false,
+  // Offline-counter assignment (D13) and activation (D11)
+  OFFLINE_ASSIGNMENT_OWNER_ONLY: false,
+  OFFLINE_ASSIGNMENT_NOT_DELEGATED: false,
+  OFFLINE_DELEGATE_INELIGIBLE: false,
+  OFFLINE_TARGET_INVALID: false,
+  OFFLINE_TARGET_ALREADY_NOMINATED: false,
+  NOMINATION_VERSION_CHANGED: false,
+  AUTHORIZATION_ID_CONFLICT: false,
+  OFFLINE_AUTHORIZATION_NOT_CURRENT: false,
+  D11_CLEARANCE_REQUIRED: false,
+  // The API gives these, by HTTP status, to a refusal that carries no code of its own.
+  // 401 is AUTHENTICATION_REQUIRED above: refresh the access token, then send again.
+  BAD_REQUEST: false, // 400
+  FORBIDDEN: false, // 403
+  NOT_FOUND: false, // 404
+  CONFLICT: false, // 409
+  REQUEST_REFUSED: false, // any other 4xx
+  RATE_LIMITED: true, // 429: wait, then resend
+  SERVER_ERROR: true, // 5xx: outcome uncertain, resend the identical request
+} as const satisfies Readonly<Record<TerminalErrorCode | OperationPolicyErrorCode, boolean> & Record<string, boolean>>;
+export type TerminalRouteErrorCode = keyof typeof TERMINAL_ERROR_RETRYABLE;
+
+/** A terminal route's own code, or the unchanged code of a domain refusal raised by the core a
+ * signed command runs (e.g. `COST_CONFLICT`). Domain refusals are never retryable. */
+export type TerminalApiErrorCode = TerminalRouteErrorCode | (string & {});
+
+export function terminalErrorRetryable(code: string): boolean {
+  return Object.prototype.hasOwnProperty.call(TERMINAL_ERROR_RETRYABLE, code)
+    ? TERMINAL_ERROR_RETRYABLE[code as TerminalRouteErrorCode]
+    : false;
+}
+
+/** Every error body a terminal route sends. A refusal may carry extra fields of its own
+ * (`PIN_LOCKED` adds `lockedUntil`); `statusCode` repeats the HTTP status. */
 export type TerminalApiError = Readonly<{
   contractVersion: 1;
-  code: TerminalErrorCode;
+  code: TerminalApiErrorCode;
   message: string;
   correlationId: string;
   retryable: boolean;
