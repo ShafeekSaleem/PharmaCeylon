@@ -263,7 +263,7 @@ export const TERMINAL_ERROR_CODES = [
   "PAYMENT_NOT_ALLOWED", "PHARMACIST_REQUIRED", "REPLAY_CONFLICT", "SEQUENCE_GAP",
   "RECONCILIATION_REQUIRED", "BUSINESS_HOURS_ACK_REQUIRED", "TEMPORARILY_UNAVAILABLE",
   "CHALLENGE_EXPIRED", "CHALLENGE_INVALID", "CHALLENGE_USED_OR_EXPIRED", "LOCAL_ATTENDANCE_UNAVAILABLE",
-  "ENROLLMENT_CODE_INVALID", "BRANCH_HOURS_NOT_CONFIGURED",
+  "ENROLLMENT_CODE_INVALID", "BRANCH_HOURS_NOT_CONFIGURED", "COSIGN_INVALID", "APPROVER_NOT_QUALIFIED",
 ] as const;
 export type TerminalErrorCode = typeof TERMINAL_ERROR_CODES[number];
 
@@ -307,6 +307,11 @@ export const TERMINAL_ERROR_RETRYABLE = {
   // The branch's hours are unset, its timezone is unusable or it is inactive (or the server has
   // no hours provider): setup has to change first, so a resend gets the same answer.
   BRANCH_HOURS_NOT_CONFIGURED: false,
+  // A pharmacist's co-sign on a signed clinical command: missing, spent, expired or bound to other
+  // work, so the PIN is asked for again (a new co-sign); or the co-signer has no current SLMC
+  // registration at the branch.
+  COSIGN_INVALID: false,
+  APPROVER_NOT_QUALIFIED: false,
   // Operation policy (OperationPolicyErrorCode) not already listed
   AUTHENTICATION_REQUIRED: false,
   PERMISSION_DENIED: false,
@@ -327,6 +332,12 @@ export const TERMINAL_ERROR_RETRYABLE = {
   PIN_NOT_PREPARED: false,
   PIN_NOT_SET: false,
   PIN_SWITCHED_OFF: false,
+  // A co-signing pharmacist's PIN (POST /terminal-commands/pharmacist-cosigns), counted towards
+  // their own lockout as at checkout.
+  APPROVER_NOT_FOUND: false,
+  APPROVER_PIN_INCORRECT: false,
+  APPROVER_PIN_LOCKED: false,
+  APPROVER_PIN_SWITCHED_OFF: false,
   // Offline-counter assignment (D13) and activation (D11)
   OFFLINE_ASSIGNMENT_OWNER_ONLY: false,
   OFFLINE_ASSIGNMENT_NOT_DELEGATED: false,

@@ -29,7 +29,7 @@ describe("routes a PIN-opened counter login may call", () => {
     [RefundRequestsController, ["list"]],
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],
-    [TerminalCommandsController, ["prepare", "execute"]],
+    [TerminalCommandsController, ["prepare", "execute", "cosign"]],
     [OfflineAssignmentController, ["view"]],
     [
       TerminalEnrollmentController,

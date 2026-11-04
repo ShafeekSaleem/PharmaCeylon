@@ -206,6 +206,9 @@ export const MUTATION_ACTIONS = Object.freeze({
   // whose v1 operations are all physical stock; each is reclassified by its own route profile.
   "POST /api/v1/terminal-commands/prepare": "identity",
   "POST /api/v1/terminal-commands/execute": "stock",
+  // A pharmacist's PIN co-sign: binds their identity to one clinical command at this counter, and
+  // moves nothing itself. The command that spends it is classified by its own route profile.
+  "POST /api/v1/terminal-commands/pharmacist-cosigns": "identity",
   // P2 desktop enrollment and staff sessions. Counters are branch management; the rest bind or
   // remove a device/staff identity and move no stock, cash or grant.
   "POST /api/v1/terminals/attendance-proofs": "identity",

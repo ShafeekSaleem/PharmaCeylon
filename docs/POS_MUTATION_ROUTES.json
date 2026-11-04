@@ -956,6 +956,11 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminal-commands/pharmacist-cosigns",
+    "source": "apps/api/src/terminal-commands/terminal-commands.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminal-commands/prepare",
     "source": "apps/api/src/terminal-commands/terminal-commands.controller.ts"
   },
