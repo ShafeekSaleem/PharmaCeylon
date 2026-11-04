@@ -12,7 +12,7 @@ import { useInventoryBatches } from "../hooks/use-inventory-batches";
 import { useInventoryStock } from "../hooks/use-inventory-stock";
 import css from "../inventory.module.css";
 import { InventoryFilterSelect } from "./inventory-filter-select";
-import { submitAdjustment, writeOffRequestKeys } from "./submit-adjustment";
+import { adjustmentKeys, submitAdjustment } from "./submit-adjustment";
 
 /** What happened to the stock — each sets the direction and is recorded as the reason. */
 type Kind = "found" | "damaged" | "expired" | "lost" | "opening" | "correction";
@@ -71,8 +71,9 @@ function AdjustmentModalContent({
   const access = useInventoryAccess();
   const { canSelfApprove } = usePermissions();
   const canAdd = access.canAdjustIn;
-  // Saving the same entry again (a double click, a lost reply) holds the write-off once.
-  const requestKeyFor = useRef(writeOffRequestKeys()).current;
+  // Saving the same entry again (a double click, a lost reply) posts it, or holds the write-off,
+  // once.
+  const keysFor = useRef(adjustmentKeys()).current;
   const [writeOffLimit, setWriteOffLimit] = useState<number | null>(null);
   useEffect(() => {
     apiJson<{ threshold: string | null }>("/inventory/write-offs/policy")
@@ -214,7 +215,7 @@ function AdjustmentModalContent({
             }
           : { batchId }),
       };
-      const result = await submitAdjustment(body, requestKeyFor(body));
+      const result = await submitAdjustment(body, keysFor(body));
       const units = `${qty} unit${qty === 1 ? "" : "s"}`;
       onSuccess?.(
         result.held

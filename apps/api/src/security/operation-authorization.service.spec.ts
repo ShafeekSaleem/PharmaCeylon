@@ -197,7 +197,7 @@ describe("Transactional operation authorization independently of owner permissio
     const f = fixture();
     await expect(
       f.service.authorize({} as never, user, branchId, stock, localInput),
-    ).rejects.toMatchObject({ response: { code: "TEMPORARILY_UNAVAILABLE" } });
+    ).rejects.toMatchObject({ response: { code: "BRANCH_HOURS_NOT_CONFIGURED" } });
     f.terminal.command.body.quantity = 2;
     await expect(
       f.service.authorize({} as never, user, branchId, stock, localInput),

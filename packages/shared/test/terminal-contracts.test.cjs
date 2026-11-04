@@ -467,6 +467,11 @@ test('every terminal error code has one retryable row; only undecided failures a
   assert.deepEqual(retryable.sort(), ['RATE_LIMITED', 'SERVER_ERROR', 'TEMPORARILY_UNAVAILABLE']);
   for (const code of Object.keys(c.TERMINAL_ERROR_RETRYABLE)) assert.equal(c.terminalErrorRetryable(code), c.TERMINAL_ERROR_RETRYABLE[code]);
 });
+test('branch hours nobody has set up are a refusal, not a fault to resend', () => {
+  assert.ok(c.TERMINAL_ERROR_CODES.includes('BRANCH_HOURS_NOT_CONFIGURED'));
+  assert.equal(c.terminalErrorRetryable('BRANCH_HOURS_NOT_CONFIGURED'), false);
+  assert.equal(c.terminalErrorRetryable('TEMPORARILY_UNAVAILABLE'), true);
+});
 test('a domain refusal code, or anything else unlisted, is never retryable', () => {
   for (const code of ['COST_CONFLICT', 'APPROVER_NOT_QUALIFIED', '', 'constructor', '__proto__', 'toString', 'hasOwnProperty'])
     assert.equal(c.terminalErrorRetryable(code), false, code);

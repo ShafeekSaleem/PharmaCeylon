@@ -6,6 +6,8 @@ import type {
 import styles from "./App.module.css";
 import { Icon } from "./Icon";
 import { invoke } from "./invoke";
+import { KeyHint } from "./KeyHint";
+import { useKeyBinding } from "./keymap";
 import shell from "./Shell.module.css";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
@@ -90,6 +92,20 @@ export function CounterWork({
     load();
   }
 
+  // The page's main action only when there is exactly one thing to do: an action to confirm
+  // (which comes first, so nothing is done twice), or else a refund to execute.
+  const onlyPending = pending.length === 1 ? pending[0] : null;
+  const onlyRefund =
+    !pending.length && refunds?.length === 1 && !busy ? refunds[0] : null;
+  useKeyBinding("Ctrl+Enter", () => void confirm(onlyPending!.commandId), {
+    enabled: Boolean(onlyPending),
+  });
+  useKeyBinding(
+    ["F12", "Ctrl+Enter"],
+    () => void execute(onlyRefund!.refundRequestId),
+    { enabled: Boolean(onlyRefund) },
+  );
+
   if (!refunds?.length && !pending.length && !done)
     return refunds === null ? null : (
       <div className={cx(ui.panel, shell.empty)}>
@@ -118,6 +134,7 @@ export function CounterWork({
             >
               Confirm action from {new Date(p.createdAt).toLocaleTimeString()}
               {p.staffName ? ` (sent by ${p.staffName})` : ""}
+              {onlyPending && <KeyHint keys="Ctrl+Enter" spaced />}
             </button>
           ))}
         </div>
@@ -152,6 +169,7 @@ export function CounterWork({
               disabled={busy}
             >
               Refund now
+              {onlyRefund && <KeyHint keys="F12" onPrimary small spaced />}
             </button>
           </li>
         ))}

@@ -495,8 +495,9 @@ start/stop audit and per-batch revalidation.
 `OperatingHoursEvidence` (`terminals/operating-hours.evidence.ts`) replaces the always-deny hours
 port. `MandatoryOperationEvidence.hours` delegates to it when the application module installs it
 (Nest `@Optional`); a bare instance without a provider still fails closed with
-`TEMPORARILY_UNAVAILABLE`, so tests and scripts cannot silently open hours. The pure evaluator
-(`terminals/operating-hours.ts`) reads, on the caller's transaction and at authorization time:
+`BRANCH_HOURS_NOT_CONFIGURED` (not retryable), so tests and scripts cannot silently open hours.
+The pure evaluator (`terminals/operating-hours.ts`) reads, on the caller's transaction and at
+authorization time:
 
 - the branch's structured hours (`Branch.operatingHours`, validated with `validateBranchHours`)
   in the branch's own timezone; ranges belong to the day they open on, so overnight ranges run
@@ -508,9 +509,13 @@ port. `MandatoryOperationEvidence.hours` delegates to it when the application mo
 - unrevoked online business extensions, which add routine time only.
 
 Unset or unreadable hours, an unusable timezone or an inactive/foreign branch is **unknown** and
-fails closed (`TEMPORARILY_UNAVAILABLE`); outside a mandatory limit is `OUTSIDE_OPERATING_HOURS`;
-outside routine time without an extension is `BUSINESS_HOURS_ACK_REQUIRED`. Online commands never
-carry a per-command hours exception (`operatingHoursExceptionId` must be null).
+fails closed. Unset hours, an unusable timezone (the branch form saves it as free text) or an
+inactive/foreign branch is setup someone has to fix: `BRANCH_HOURS_NOT_CONFIGURED`, not
+retryable. Every save validates the hours, so stored hours that fail validation are a server
+fault: `TEMPORARILY_UNAVAILABLE`, retryable. Outside a mandatory limit is
+`OUTSIDE_OPERATING_HOURS`; outside routine time without an extension is
+`BUSINESS_HOURS_ACK_REQUIRED`. Online commands never carry a per-command hours exception
+(`operatingHoursExceptionId` must be null).
 
 Revised D8 limits new sales and shift opening; it puts no hours limit on back-room stock work. The
 five v1 signed operations (stocktake post, held write-off/delivery post, import stock post/undo)

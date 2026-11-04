@@ -89,6 +89,8 @@ const MESSAGES: Record<string, string> = {
     "That authorization is no longer current. Ask the owner to authorize this counter again.",
   D11_CLEARANCE_REQUIRED:
     "The branch's current offline counter must be disabled and its sales recovered first.",
+  BRANCH_HOURS_NOT_CONFIGURED:
+    "This branch's opening hours are not set up. A manager has to set the branch's hours and time zone on the web (Settings → Branches) before this can be done here.",
 };
 
 export function explain(error: unknown): ActionError {

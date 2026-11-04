@@ -69,6 +69,12 @@
     0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
   --pos-shadow-lg: 0 24px 60px -24px rgba(15, 23, 42, 0.28);
   --pos-focus: 0 0 0 3px rgba(13, 148, 136, 0.18);
+
+  /* A sheet over a page (Sell's prescription sheet): the dimmed page and the sheet's shadow. */
+  --pos-scrim: rgba(15, 23, 42, 0.26);
+  --pos-sheet-shadow:
+    var(--pos-shadow-lg), -20px 0 60px -30px rgba(0, 0, 0, 0.35);
+  --pos-on-rx: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -122,6 +128,7 @@
     --pos-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
     --pos-shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
     --pos-focus: 0 0 0 3px rgba(45, 212, 191, 0.2);
+    --pos-scrim: rgba(2, 6, 14, 0.55);
   }
 }
 
@@ -175,4 +182,5 @@
   --pos-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --pos-shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
   --pos-focus: 0 0 0 3px rgba(45, 212, 191, 0.2);
+  --pos-scrim: rgba(2, 6, 14, 0.55);
 }

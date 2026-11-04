@@ -1,7 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import type { DeviceState } from "../../shared/ipc-contract";
 import { time } from "./format";
 import { Icon } from "./Icon";
+import { KeyHint } from "./KeyHint";
+import { clickSubmit, KeyScope, useKeyBinding } from "./keymap";
 import styles from "./Person.module.css";
 import { atTheComputer, Avatar } from "./Shell";
 import { PIN_OK } from "./SignIn";
@@ -54,6 +56,8 @@ function PinSetup({
   const [password, setPassword] = useState("");
   const { busy, error, run } = useAction();
   const mismatch = confirm.length > 0 && confirm !== pin;
+  const form = useRef<HTMLFormElement>(null);
+  useKeyBinding("Ctrl+Enter", () => clickSubmit(form.current));
   function submit(event: FormEvent) {
     event.preventDefault();
     void run(
@@ -67,7 +71,7 @@ function PinSetup({
     );
   }
   return (
-    <form className={styles.section} onSubmit={submit}>
+    <form className={styles.section} onSubmit={submit} ref={form}>
       <div>
         <h3>{change ? "Change your PIN" : "Set your PIN"}</h3>
         <p>
@@ -124,6 +128,7 @@ function PinSetup({
         >
           <Icon name="check" />
           Save PIN
+          <KeyHint keys="Ctrl+Enter" onPrimary />
         </button>
       </div>
     </form>
@@ -133,6 +138,8 @@ function PinSetup({
 function PinPrepare({ onState }: Props) {
   const [pin, setPin] = useState("");
   const { busy, error, run } = useAction();
+  const form = useRef<HTMLFormElement>(null);
+  useKeyBinding("Ctrl+Enter", () => clickSubmit(form.current));
   function submit(event: FormEvent) {
     event.preventDefault();
     void run(
@@ -144,7 +151,7 @@ function PinPrepare({ onState }: Props) {
     );
   }
   return (
-    <form className={styles.section} onSubmit={submit}>
+    <form className={styles.section} onSubmit={submit} ref={form}>
       <div>
         <h3>Prepare this counter for your PIN</h3>
         <p>
@@ -169,33 +176,42 @@ function PinPrepare({ onState }: Props) {
         >
           <Icon name="check" />
           Prepare
+          <KeyHint keys="Ctrl+Enter" onPrimary />
         </button>
       </div>
     </form>
   );
 }
 
-/** The signed-in person's PIN, lock and sign-out, opened from their initials at the foot of the rail. */
-export function PersonPanel({
-  state,
-  onState,
-  onClose,
-  notice,
-}: Props & {
+type PanelProps = Props & {
   onClose: () => void;
   /** Why the rail's Lock button didn't lock. */
   notice?: string | null;
-}) {
+};
+
+/**
+ * The signed-in person's PIN, lock and sign-out, opened from their initials at the foot of the rail.
+ * A key layer: while it is open the page underneath takes no keys, and Esc closes it.
+ */
+export function PersonPanel(props: PanelProps) {
+  return (
+    <KeyScope layer>
+      <Panel {...props} />
+    </KeyScope>
+  );
+}
+
+function Panel({ state, onState, onClose, notice }: PanelProps) {
   const { busy, error, run } = useAction();
   const [changing, setChanging] = useState(false);
   const session = state.staffSession!;
   const pin = state.pin;
+  const lock = () => void run(() => window.pos.lock(), onState);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useKeyBinding("Escape", () => onClose(), { repeat: true });
+  // With no PIN form open, the panel's main action is Lock. (A form open takes Ctrl+Enter itself.)
+  const lockKey = Boolean(pin?.prepared) && !changing;
+  useKeyBinding("Ctrl+Enter", lock, { enabled: lockKey && !busy });
 
   const pinStatus = !pin?.set
     ? "Not set"
@@ -286,11 +302,12 @@ export function PersonPanel({
             <button
               type="button"
               className={cx(ui.btn, ui.primary)}
-              onClick={() => void run(() => window.pos.lock(), onState)}
+              onClick={lock}
               disabled={busy}
             >
               <Icon name="lock" />
               Lock
+              {lockKey && <KeyHint keys="Ctrl+Enter" onPrimary />}
             </button>
           )}
         </div>

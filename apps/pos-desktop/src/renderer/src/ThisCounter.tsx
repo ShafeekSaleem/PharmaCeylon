@@ -10,6 +10,8 @@ import type {
 } from "../../shared/ipc-contract";
 import { dayMonthYear, time } from "./format";
 import { Icon } from "./Icon";
+import { KeyHint } from "./KeyHint";
+import { useKeyBinding } from "./keymap";
 import { atTheComputer } from "./Shell";
 import styles from "./ThisCounter.module.css";
 import ui from "./ui.module.css";
@@ -193,6 +195,10 @@ function PrinterTest() {
     }
   }
 
+  // While the page asks whether the test receipt came out, answering yes is its main action.
+  const asking = Boolean(printed) && !printing && !confirming;
+  useKeyBinding("Ctrl+Enter", () => void confirm(), { enabled: asking });
+
   const pill = confirmed ? (
     <span className={cx(ui.pill, ui.ok, styles.right)}>
       <Icon name="check" />
@@ -288,6 +294,9 @@ function PrinterTest() {
               >
                 <Icon name="check" />
                 Yes, it came out
+                {asking && (
+                  <KeyHint keys="Ctrl+Enter" onPrimary small wideOnly />
+                )}
               </button>
             </div>
           </div>

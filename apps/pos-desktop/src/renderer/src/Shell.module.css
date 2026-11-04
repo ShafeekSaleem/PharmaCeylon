@@ -277,13 +277,14 @@
   background: var(--pos-ok);
 }
 
+/* The page carries the 14px gutter rather than the content area, so a sheet's scrim over a page
+   (Sell's prescription sheet) covers the gutter too, as the mockup draws it. */
 .content {
   position: relative;
   flex: 1;
   display: flex;
   min-width: 0;
   min-height: 0;
-  padding: 14px;
 }
 
 /* ---------- avatar ---------- */
@@ -391,12 +392,14 @@
 
 /* ---------- pages ---------- */
 .page {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
   min-height: 0;
+  padding: 14px;
   overflow: auto;
 }
 

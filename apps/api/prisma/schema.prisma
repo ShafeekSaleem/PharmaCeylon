@@ -420,6 +420,9 @@ model IdempotencyRecord {
   scope          String   @db.VarChar(64)
   idempotencyKey String   @map("idempotency_key") @db.VarChar(128)
   resourceId     String   @map("resource_id") @db.Uuid
+  /// The first request's body, for scopes that refuse the key with any other body
+  /// (`stock_adjustment`). Null where the resource itself is compared instead.
+  requestBody    Json?    @map("request_body")
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@unique([tenantId, userId, scope, idempotencyKey])

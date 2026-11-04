@@ -1,4 +1,4 @@
-import type { BranchHours, DayHours } from "@pharmaceylon/shared";
+import { terminalErrorRetryable, type BranchHours, type DayHours } from "@pharmaceylon/shared";
 import { compileOfflineHours, evaluateOperatingHours } from "./operating-hours";
 import { OperatingHoursEvidence, OPERATIONS_WITHOUT_SELLING_HOURS } from "./operating-hours.evidence";
 import { MandatoryOperationEvidence } from "../security/mandatory-operation-evidence";
@@ -130,8 +130,24 @@ describe("OperatingHoursEvidence", () => {
     const run = (h: unknown, when: string) => code(provider.assertForCommand(tx({ operatingHours: h, timezone: COLOMBO }), command(), at(when)));
     await expect(run(hours(), "2026-10-26T20:00")).resolves.toBe("BUSINESS_HOURS_ACK_REQUIRED");
     await expect(run(hours({ mandatory: [] }), "2026-10-26T10:00")).resolves.toBe("OUTSIDE_OPERATING_HOURS");
-    await expect(run(null, "2026-10-26T10:00")).resolves.toBe("TEMPORARILY_UNAVAILABLE");
-    await expect(code(provider.assertForCommand(tx(null), command(), at("2026-10-26T10:00")))).resolves.toBe("TEMPORARILY_UNAVAILABLE");
+    await expect(run(null, "2026-10-26T10:00")).resolves.toBe("BRANCH_HOURS_NOT_CONFIGURED");
+    await expect(code(provider.assertForCommand(tx(null), command(), at("2026-10-26T10:00")))).resolves.toBe("BRANCH_HOURS_NOT_CONFIGURED");
+  });
+
+  it("refuses setup gaps as not retryable and keeps only unreadable stored hours retryable", async () => {
+    const run = (branch: { operatingHours: unknown; timezone: string } | null) =>
+      code(provider.assertForCommand(tx(branch), command(), at("2026-10-26T10:00")));
+    const setupGaps = [
+      await run({ operatingHours: null, timezone: COLOMBO }), // hours never set
+      await run({ operatingHours: hours(), timezone: "Not/AZone" }), // timezone saved as free text
+      await run(null), // inactive (or another tenant's) branch
+    ];
+    expect(setupGaps).toEqual(Array(3).fill("BRANCH_HOURS_NOT_CONFIGURED"));
+    expect(terminalErrorRetryable("BRANCH_HOURS_NOT_CONFIGURED")).toBe(false);
+    // No validated write path stores these: a server fault, so a resend may succeed.
+    const fault = await run({ operatingHours: { schemaVersion: 1, weekly: {} }, timezone: COLOMBO });
+    expect(fault).toBe("TEMPORARILY_UNAVAILABLE");
+    expect(terminalErrorRetryable(fault!)).toBe(true);
   });
 
   it("never accepts a per-command hours exception online", async () => {
@@ -154,7 +170,7 @@ describe("OperatingHoursEvidence", () => {
       code(provider.assertForCommand(tx({ operatingHours: h, timezone: COLOMBO }), command({ operation }), at(when)));
     await expect(run("2026-10-26T10:00")).resolves.toBe("allowed");
     await expect(run("2026-10-26T20:00")).resolves.toBe("BUSINESS_HOURS_ACK_REQUIRED");
-    await expect(run("2026-10-26T10:00", null)).resolves.toBe("TEMPORARILY_UNAVAILABLE");
+    await expect(run("2026-10-26T10:00", null)).resolves.toBe("BRANCH_HOURS_NOT_CONFIGURED");
   });
 
   it("treats prepared-delivery receiving and supplier-return dispatch as back-room stock work", async () => {
@@ -180,9 +196,9 @@ describe("OperatingHoursEvidence", () => {
 });
 
 describe("MandatoryOperationEvidence.hours", () => {
-  it("still fails closed when no provider is installed", async () => {
+  it("still fails closed when no provider is installed, and says a resend will not help", async () => {
     await expect(new MandatoryOperationEvidence().hours({} as never, {} as never)).rejects.toMatchObject({
-      response: { code: "TEMPORARILY_UNAVAILABLE" },
+      response: { code: "BRANCH_HOURS_NOT_CONFIGURED" },
     });
   });
 
@@ -223,9 +239,9 @@ describe("OperatingHoursEvidence.assertMandatoryForSale (P2 online counter check
       response: { code: "TEMPORARILY_UNAVAILABLE" },
     });
     await expect(sale({ operatingHours: hours(), timezone: "Not/AZone" })).rejects.toMatchObject({
-      response: { code: "TEMPORARILY_UNAVAILABLE" },
+      response: { code: "BRANCH_HOURS_NOT_CONFIGURED" },
     });
     await expect(sale({ operatingHours: null, timezone: COLOMBO })).resolves.toBeUndefined();
-    await expect(sale(null)).rejects.toMatchObject({ response: { code: "TEMPORARILY_UNAVAILABLE" } });
+    await expect(sale(null)).rejects.toMatchObject({ response: { code: "BRANCH_HOURS_NOT_CONFIGURED" } });
   });
 });

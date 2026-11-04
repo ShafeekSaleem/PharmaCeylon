@@ -103,12 +103,14 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 | Product import   | `product_import`   | `POST /api/v1/products/import/confirm`            |
 | Supplier payment | `supplier_payment` | `POST /api/v1/purchasing/payments`                |
 | Write-off request | `held_adjustment_request` | `POST /api/v1/inventory/adjustment-requests` |
+| Stock adjustment | `stock_adjustment` | `POST /api/v1/inventory/adjustments`              |
 
 **Semantics**
 
 - First request with a key performs the mutation and records the key → resource id.
 - Retries with the **same** key return the **same** resource (replay).
 - Reusing a key for a **different** logical operation (e.g. different PO on receive, different transfer id on ship/receive) returns **400** with a clear message—do not silently post twice.
+- `stock_adjustment` keeps the first request's body with the key (`idempotency_record.request_body`) and replays only an identical body at the same branch; any other body is the 400. `held_adjustment_request` compares against the held adjustment's saved payload.
 
 ## Private supplier-payment evidence (P1)
 
@@ -419,7 +421,8 @@ Errors raised before routing (malformed JSON, an unknown path) keep the platform
 | 403 | `CHALLENGE_EXPIRED`, `CHALLENGE_INVALID`, `CHALLENGE_USED_OR_EXPIRED` | Not executed. Prepare again. |
 | 403 | `LOCAL_ATTENDANCE_UNAVAILABLE` | Attendance not proven. Not executed. |
 | 403 | `PERMISSION_DENIED`, `APPROVAL_REQUIRED`, `APPROVAL_INVALID` | Not executed. |
-| 403 | `TEMPORARILY_UNAVAILABLE` | Selling-hours operation at a branch whose hours are unset, unreadable or in an unusable timezone (or no hours provider installed). Not executed; set the branch hours. |
+| 403 | `BRANCH_HOURS_NOT_CONFIGURED` | Selling-hours operation at a branch whose hours are unset, whose timezone is unusable or that is inactive (or no hours provider installed). Not executed and not retryable: a manager sets the branch hours (the owner fixes the timezone), then the counter prepares a new command. |
+| 403 | `TEMPORARILY_UNAVAILABLE` (`retryable: true`) | Selling-hours operation at a branch whose stored hours the server cannot read. Every save validates the hours, so this is a server fault (for example hours a newer release saved, read during a rolling deploy), not setup. Not executed; resend the identical envelope with backoff. |
 | 403 | `OUTSIDE_OPERATING_HOURS` | Outside the owner's mandatory limit. Nobody can override it. Not executed. |
 | 403 | `BUSINESS_HOURS_ACK_REQUIRED` | Outside routine hours with no business extension. A manager can approve an extension on the web. Not executed. |
 | 409 | `REPLAY_CONFLICT` | This `commandId` already committed with different content. Definitive. |
@@ -660,9 +663,10 @@ administrator is out of scope. Shafeek accepted these limits for v1 on 2026-11-0
 the seller's session opened at that counter, not a proof bound to the sale; that is the v1 rule.
 
 **Mandatory hours on counter sales.** A checkout carrying `x-terminal-session` is refused with
-403 `OUTSIDE_OPERATING_HOURS` outside the branch's mandatory selling windows (W7), and with
-`TEMPORARILY_UNAVAILABLE` if the stored hours or timezone can't be read. Routine closing time
-stays advisory online, and a branch with no hours set has no restriction.
+403 `OUTSIDE_OPERATING_HOURS` outside the branch's mandatory selling windows (W7), with
+`BRANCH_HOURS_NOT_CONFIGURED` if the branch's timezone is unusable or the branch is inactive, and
+with `TEMPORARILY_UNAVAILABLE` if the stored hours can't be read. Routine closing time stays
+advisory online, and a branch with no hours set has no restriction.
 
 **Unconfirmed sales.** The checkout idempotency key is scoped to the seller, so only the person
 who rang up an unconfirmed sale can confirm it from the counter; the desktop names them in its
@@ -882,7 +886,7 @@ Stock status (`ok` / `low` / `out`) is computed from **available**.
 | `POST /inventory/batches/:id/quarantine` | `inventory.quarantine` | Body `{ qty?, reasonCode: expired\|damaged\|recall\|inspection\|other, reason? }`. `qty` defaults to everything not already held or reserved; `reason` required for `other`. |
 | `POST /inventory/batches/:id/release-quarantine` | `inventory.release_quarantine` | Body `{ qty?, reason? }`. Refused for expired batches. |
 | `POST /inventory/quarantine-expired` | `inventory.manage_bulk` | Holds every sellable unit on expired batches. Returns `{ quarantined, units, batchIds }`. |
-| `POST /inventory/adjustments` | `inventory.manage` (increase) or `inventory.write_off` (decrease) | Counter work (`stock`): posts now or not at all, returning `{ held: false, ok, referenceId, batchId }`. Body `{ kind, productId, batchId \| newBatch, qty, reason? }`. `kind` says what happened: `found`, `opening` (in), `damaged`, `expired`, `lost` (out), `correction` (either way — send `movementType`, and a `reason`). Damaged and expired units come out of quarantine first. A decrease that needs approval — the caller lacks `inventory.write_off`, or its value reaches `TenantSettings.approvalRequiredWriteOffThreshold` and the caller's role may not approve its own requests — is refused with **409 `WRITE_OFF_APPROVAL_REQUIRED`** before anything moves; nothing is held. Send it to `adjustment-requests`. Authority and the policy are read live, and again after the batch lock. Callers without `kind` keep the old shape (`movementType`, `reason` for decreases, `fromQuarantine`). Also a signed terminal command (below). |
+| `POST /inventory/adjustments` | `inventory.manage` (increase) or `inventory.write_off` (decrease) | Counter work (`stock`): posts now or not at all, returning `{ held: false, ok, referenceId, batchId }`. Body `{ kind, productId, batchId \| newBatch, qty, reason? }`. `kind` says what happened: `found`, `opening` (in), `damaged`, `expired`, `lost` (out), `correction` (either way — send `movementType`, and a `reason`). Damaged and expired units come out of quarantine first. A decrease that needs approval — the caller lacks `inventory.write_off`, or its value reaches `TenantSettings.approvalRequiredWriteOffThreshold` and the caller's role may not approve its own requests — is refused with **409 `WRITE_OFF_APPROVAL_REQUIRED`** before anything moves; nothing is held. Send it to `adjustment-requests`. Authority and the policy are read live, and again after the batch lock. Callers without `kind` keep the old shape (`movementType`, `reason` for decreases, `fromQuarantine`). Accepts `Idempotency-Key` (scope `stock_adjustment`): the key, the movement and its `inventory.adjustment` audit commit together, and a resend of the same body at the same branch returns the first `{ held: false, ok, referenceId, batchId }` and moves nothing. The key with any other body, or at another branch, is **400** "Idempotency-Key already used for a different stock adjustment". Identical requests sent together serialize on the key, so stock moves once. A refused or failed attempt (including the 409) leaves the key unused. The web sends one key per adjustment as entered, distinct from the key it sends the same entry to `adjustment-requests` under. Also a signed terminal command (below), which replays through its command receipt instead. |
 | `POST /inventory/adjustment-requests` | `inventory.manage` or `inventory.write_off` | Remote (`management`). The same body, for a decrease only (`newBatch` and increases are refused). Records a held write-off and moves no stock, whoever sends it: `{ held: true, heldAdjustment, notified }`. Accepts `Idempotency-Key` (scope `held_adjustment_request`): a resend of the same body at the same branch returns the first request's `heldAdjustment` with `notified: 0` (nobody is told twice), and the key with any other body is **400** "Idempotency-Key already used for a different write-off request". Identical requests sent together serialize on the key, so one is held. The web sends one key per write-off as entered. The request and its `inventory.write_off_held` audit commit together; people with `inventory.write_off` are notified after commit. Accept and post it through `held-adjustments/:id/*`. |
 | `GET /inventory/held-adjustments` | `inventory.view` | Awaiting/approved write-offs at the branch: kind, qty, `value` (**null** without `costs.view`), note, product, batch, requester, `approvalReview: { expectedVersion, expectedDigest }`, `executionApprovalId` and execution stamps. |
 | `POST /inventory/held-adjustments/:id/accept` | `inventory.write_off` | Requires `{ approvalId, expectedVersion, expectedDigest }` from the displayed preview. Records exact approval only, sets `approved`, and leaves stock unchanged. Existing self-approval rules apply. The stable approval UUID makes identical retries safe; a fresh UUID explicitly replaces unusable evidence. |

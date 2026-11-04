@@ -85,7 +85,7 @@ class FixtureAttendance extends LocalAttendanceVerifier {
     return proofId;
   }
 }
-/** Test-only hours provider; production still fails closed with TEMPORARILY_UNAVAILABLE. */
+/** Test-only hours provider; production still fails closed with BRANCH_HOURS_NOT_CONFIGURED. */
 class OpenHours extends MandatoryOperationEvidence {
   override async hours() {}
 }
@@ -863,7 +863,7 @@ describe("production providers stay fail-closed", () => {
       new OperationAuthorizationService(access, trust, new MandatoryOperationEvidence(), approvals),
       new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions), audit, access);
     await expect(hoursOnly.execute(counter.staff, branch(), request)).rejects.toMatchObject({
-      response: { code: "TEMPORARILY_UNAVAILABLE" } });
+      response: { code: "BRANCH_HOURS_NOT_CONFIGURED" } });
     expect((await batchTotals(prisma, st.batchId)).onHand).toBe(50);
     expect(await receiptsFor(payload.commandId)).toBe(0);
   });
