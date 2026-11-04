@@ -87,7 +87,8 @@ function recordRefusal(error: unknown): unknown {
 /**
  * Prescription capture and co-sign lookups for checkout at the counter. Everything goes to the
  * server as the signed-in person. Recording a prescription is a signed clinical command: the
- * signed-in person needs `prescriptions.create` and a current SLMC registration at the branch.
+ * signed-in person needs `prescriptions.create` and a current SLMC registration at the branch, or
+ * `sales.pos_use` and a registered pharmacist's PIN co-sign.
  * The checkout itself decides who may dispense controlled items and verifies the co-signer's PIN
  * and registration. Nothing here is cached on disk; patient details stay on the server (the
  * signed envelope kept until its receipt arrives is the exception).

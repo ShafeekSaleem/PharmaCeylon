@@ -215,6 +215,10 @@ transaction.
 - `POST /terminal-commands/execute` — body `{ command: Signed<OnlineTerminalCommand>,
   attendanceProofId }` (exactly these keys). Returns an `OnlineCommandReceipt`, for the first
   execution and for every replay.
+- `POST /terminal-commands/pharmacist-cosigns` — body `{ workSessionId, operation, body,
+  pharmacistUserId, pin }` (exactly these keys). A registered pharmacist co-signs one clinical
+  command for the person signed in at this counter. Returns `{ pharmacistEvidenceId,
+  pharmacistUserId, pharmacistRegistrationId, expiresAt }` (below, "Pharmacist co-sign").
 
 ### v1 operations
 
@@ -231,7 +235,7 @@ transaction.
 | `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
 | `POST /api/v1/inventory/adjustments` | `{ kind, movementType, productId, batchId, newBatch, qty, reason, fromQuarantine }` | `null` | `inventory.manage` to add stock, `inventory.write_off` to write it off |
-| `POST /api/v1/prescriptions` | `{ rxNumber, patientName, doctorName, doctorRegNo, issuedOn, validUntil, customerId, notes }` | `null` | `prescriptions.create`, plus a current SLMC registration (below) |
+| `POST /api/v1/prescriptions` | `{ rxNumber, patientName, doctorName, doctorRegNo, issuedOn, validUntil, customerId, notes }` | `null` | `prescriptions.create`, plus a current SLMC registration; with a pharmacist's co-sign, `sales.pos_use` and the co-signer's registration (below) |
 
 Direct adjustments: every key is present. `movementType` is `adjustment_in`/`adjustment_out` for
 a `correction` (which also needs a `reason`) and `null` otherwise. `batchId` is `null` only with
@@ -244,18 +248,54 @@ retry of the same command replays the original result (`stock_adjustment.posted`
 `movementType`, `qty`, `stockReferenceId`), and a distinct command adjusts again. The
 `inventory.adjustment` audit carries the command provenance.
 
-Prescriptions (clinical): the signed session's staff member must hold a current SLMC
-registration recorded by an owner (`admin/pharmacist-registrations`) at the branch, with an active
-account and a role there. No role, permission or ownership substitutes for it: an owner or
-manager without one is refused with `PHARMACIST_REQUIRED`, with no effect, receipt or spent
+Prescriptions (clinical): a current SLMC registration recorded by an owner
+(`admin/pharmacist-registrations`) at the branch, with an active account and a role there, is
+needed. It is either the signed session's staff member's own (`pharmacistEvidenceId: null`), or a
+registered pharmacist's who co-signed with their PIN (`pharmacistEvidenceId` set; "Pharmacist
+co-sign" below). No role, permission or ownership substitutes for it: an owner or manager with no
+registration and no co-sign is refused with `PHARMACIST_REQUIRED`, with no effect, receipt or spent
 nonce, and so is a command prepared before the registration was revoked. Every key is present:
 `rxNumber`, `doctorRegNo`, `validUntil`, `customerId` and `notes` may be `null` (a `null`
 `rxNumber` is allocated `RX-#####` from the branch sequence). Text is exact and trimmed with the
 browser route's limits, dates are `YYYY-MM-DD`, and `validUntil` may not precede `issuedOn`.
-Result: `{ type: "prescription.recorded", prescriptionId, rxNumber, pharmacistRegistrationId }`.
+Result: `{ type: "prescription.recorded", prescriptionId, rxNumber, pharmacistRegistrationId }`,
+the registration relied on (the co-signer's when co-signed).
 Each command is its own prescription, and a retry replays the original result. The
-`prescription.recorded` audit carries the command provenance, including
-`pharmacistRegistrationId`. Recording a prescription is counter work, so it is hours-checked.
+`prescription.recorded` and `terminal.command_executed` audits carry the command provenance:
+`pharmacistRegistrationId`, `pharmacistUserId` (whose registration that is) and
+`pharmacistEvidenceId` (the co-sign spent, or `null`), separately from the actor, who is the
+session's staff member. Recording a prescription is counter work, so it is hours-checked.
+
+**Pharmacist co-sign** (P1 #47). A cashier records a prescription with a registered pharmacist's
+PIN, without the pharmacist switching in:
+
+1. `POST /terminal-commands/pharmacist-cosigns` with the exact body the command will carry, the
+   pharmacist (from `GET /sales/pos/approvers`, which lists only registered pharmacists) and their
+   PIN. The caller's open counter session (`workSessionId`), `terminal.execute` and `sales.pos_use`
+   are checked first (`SESSION_INVALID`, `PERMISSION_DENIED`). The PIN is then checked as at
+   checkout: the co-signer needs `prescriptions.create` at the branch, and a wrong PIN counts towards
+   their own lockout and is **403** `APPROVER_PIN_INCORRECT`, `APPROVER_PIN_LOCKED` or
+   `APPROVER_PIN_SWITCHED_OFF` (no PIN set: their login password, as at checkout). Last, the
+   co-signer needs a current registration at the branch, or **403** `APPROVER_NOT_QUALIFIED`. The
+   co-sign issued is bound to the tenant, branch, counter session, the person signed in there,
+   the operation and a SHA-256 of `canonicalJson({ operation, body })`. It expires after 5 minutes
+   and is audited (`pharmacist_cosign.issued`, with the co-signer and registration).
+2. `prepare` and `execute` the command with `pharmacistEvidenceId` set to it. A co-signed command
+   needs `sales.pos_use` from the signed-in person instead of `prescriptions.create`; everything
+   else (terminal proof, attendance, hours, live authority) is unchanged. Inside the execution
+   transaction the co-sign is locked and must match the command's session, staff member, operation
+   and body and be unspent and unexpired, or **403** `COSIGN_INVALID`. The co-signer's registration
+   is checked again with the same share lock as any clinical check (`APPROVER_NOT_QUALIFIED`), and
+   the co-sign is marked spent by this command with the registration relied on. A refusal rolls all
+   of it back, so only a command that succeeds spends a co-sign; a second command cannot use it.
+3. A lost response is resent identically and replays the original receipt; the receipt is looked up
+   before any clinical check, so the spent co-sign is not needed again. `COSIGN_INVALID` and
+   `APPROVER_NOT_QUALIFIED` on a resend prove the command never ran.
+
+The PIN is used only by step 1. It is not stored, and not part of the co-sign, the signed body, the
+request digest, the receipt or any audit. Co-signs are retained: they are spent once, otherwise
+immutable, and never deleted (database trigger). The unsigned browser `POST /prescriptions` is
+unchanged and takes no co-sign.
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
@@ -282,7 +322,8 @@ otherwise `approvalEvidenceId` must be `null`. Cash movement is resolved from th
 refundedTo: [{ method, amountMinor }], effect }` (LKR minor units). A request executes once: a
 later distinct command gets `effect: "already_applied"` with an empty `refundedTo`.
 `pharmacistEvidenceId`
-and `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
+must be `null` for every v1 operation except prescriptions (a pharmacist's co-sign, above), and
+`operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
 key, type or coercion is `INVALID_COMMAND`.
 
 ### Envelope, canonical bytes and digest
@@ -745,10 +786,11 @@ Otherwise the command is refused with `PHARMACIST_REQUIRED`. The registration is
 revocation that commits first is seen, and a later one waits for the clinical transaction; a
 renewal that commits during the wait is found by one fresh read, so it is not refused. The
 registration relied on is returned and copied into the command provenance
-(`pharmacistRegistrationId`) for the operation's success audit. A
-co-signing pharmacist (`pharmacistEvidenceId`) is still not accepted on a signed command
-(`INVALID_COMMAND`), so a prescription is recorded by a registered pharmacist signed in at the
-counter. The check is `PharmacistRegistrationService.assertQualified`; checkout calls it too.
+(`pharmacistRegistrationId`) for the operation's success audit. A signed prescription may instead
+carry a registered pharmacist's PIN co-sign (`pharmacistEvidenceId`, "Pharmacist co-sign" above);
+then the co-signer's registration is the one checked and recorded, and the co-signer is recorded
+as `pharmacistUserId`. A co-sign on any other operation is `INVALID_COMMAND`. The check is
+`PharmacistRegistrationService.assertQualified`; checkout calls it too.
 
 **Controlled checkout.** `POST /sales/checkout` with controlled lines checks the dispenser's
 registration with the same `assertQualified`, on the checkout's own transaction before any batch
