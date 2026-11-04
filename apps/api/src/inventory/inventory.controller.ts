@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import { RoleName } from "@prisma/client";
 import { AccessService } from "../security/access.service";
+import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
@@ -142,7 +143,9 @@ export class InventoryController {
     return this.inventory.quarantineExpired(user.tenantId, branchId, user.userId);
   }
 
+  /** Also the desktop counter's Stock page: its lookup and its Needs attention list. */
   @RequirePermission("inventory.view")
+  @CounterRoute()
   @Get("stock-by-product")
   stockByProduct(
     @CurrentUser() user: RequestUser,
@@ -153,6 +156,7 @@ export class InventoryController {
     @Query("take") take?: string,
     @Query("productId") productId?: string,
     @Query("controlled") controlled?: "all" | "controlled" | "regular",
+    @Query("prescription") prescription?: string,
     @Query("batchFilter")
     batchFilter?: "all" | "expiring" | "with_batches" | "no_batches",
     @Query("attention") attention?: string,
@@ -177,6 +181,7 @@ export class InventoryController {
       take: take ? Number(take) : undefined,
       productId,
       controlled: controlled ?? "all",
+      prescription: prescription === "true",
       batchFilter: batchFilter ?? "all",
       attention: ATTENTION.has(attention as StockAttention)
         ? (attention as StockAttention)
@@ -192,7 +197,9 @@ export class InventoryController {
     });
   }
 
+  /** Also the desktop counter's Stock page: one product's batches, movements and other branches. */
   @RequirePermission("inventory.view")
+  @CounterRoute()
   @Get("products/:productId/stock")
   async productStock(
     @CurrentUser() user: RequestUser,
@@ -342,6 +349,7 @@ export class InventoryController {
 
   /** The write-off limit, so the form can say before posting that it will wait for approval. */
   @RequirePermission("inventory.view")
+  @CounterRoute()
   @Get("write-offs/policy")
   async writeOffPolicy(@CurrentUser() user: RequestUser) {
     return this.adjustments.writeOffPolicy(user.tenantId);

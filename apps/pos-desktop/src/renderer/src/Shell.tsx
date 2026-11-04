@@ -10,7 +10,7 @@ import styles from "./Shell.module.css";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
 
-export type Page = "sell" | "work" | "counter";
+export type Page = "sell" | "work" | "stock" | "counter";
 
 const TONES = [
   styles.teal,
@@ -158,18 +158,22 @@ export function Rail({
         active={page === "sell"}
         onClick={() => onPage("sell")}
       />
+      <div className={styles.railSep} />
       {showWork && (
-        <>
-          <div className={styles.railSep} />
-          <RailItem
-            icon="inbox"
-            label="Counter work"
-            active={page === "work"}
-            badge={workCount}
-            onClick={() => onPage("work")}
-          />
-        </>
+        <RailItem
+          icon="inbox"
+          label="Counter work"
+          active={page === "work"}
+          badge={workCount}
+          onClick={() => onPage("work")}
+        />
       )}
+      <RailItem
+        icon="clipboard-list"
+        label="Stock"
+        active={page === "stock"}
+        onClick={() => onPage("stock")}
+      />
       <div className={styles.railBottom}>
         <RailItem
           icon="monitor"

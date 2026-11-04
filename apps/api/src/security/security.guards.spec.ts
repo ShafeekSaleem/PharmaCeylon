@@ -8,7 +8,9 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { ACCESS_COOKIE, CSRF_COOKIE } from "../auth/cookies";
 import { UserContextService } from "../auth/user-context.service";
+import { InventoryService } from "../inventory/inventory.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { AccessService } from "./access.service";
 
 describe("Security Guards", () => {
   let app: INestApplication;
@@ -306,6 +308,80 @@ describe("Security Guards", () => {
         .post("/api/v1/auth/logout")
         .set("Authorization", `Bearer ${counterToken()}`)
         .expect(403);
+    });
+
+    /** The desktop Stock page (#103): its reads are counter routes, every stock write is not. */
+    describe("on the Stock page's inventory routes", () => {
+      const PRODUCT = "6f1c2d3e-4a5b-4c6d-8e7f-901234567890";
+      let inventory: InventoryService;
+      let access: AccessService;
+      const spies: jest.SpyInstance[] = [];
+      beforeEach(() => {
+        inventory = app.get(InventoryService);
+        access = app.get(AccessService);
+        userContext.load.mockResolvedValue({
+          ...baseCtx,
+          branchRoles: [
+            { branchId: "b1", role: RoleName.cashier },
+            { branchId: "b2", role: RoleName.cashier },
+          ],
+        });
+        userContext.openCounterSession.mockResolvedValue({ branchId: "b1" });
+        spies.push(
+          jest
+            .spyOn(inventory, "stockByProduct")
+            .mockResolvedValue({ items: [], total: 0, skip: 0, take: 50 } as never),
+          jest.spyOn(inventory, "productStock").mockResolvedValue({ ok: true } as never),
+          jest
+            .spyOn(access, "resolve")
+            .mockResolvedValue({ has: () => false } as never),
+        );
+      });
+      afterEach(() => spies.splice(0).forEach((spy) => spy.mockRestore()));
+
+      it("reaches the lookup and the Needs attention list at the counter's branch", async () => {
+        await request(app.getHttpServer())
+          .get("/api/v1/inventory/stock-by-product?q=augm&attention=quarantined")
+          .set("Authorization", `Bearer ${counterToken()}`)
+          .set("x-branch-id", "b1")
+          .expect(200);
+        expect(inventory.stockByProduct).toHaveBeenCalledWith(
+          "tenant-1",
+          "b1",
+          expect.objectContaining({ q: "augm", attention: "quarantined" }),
+        );
+      });
+
+      it("reaches one product's stock, with the other branches the person works at", async () => {
+        await request(app.getHttpServer())
+          .get(`/api/v1/inventory/products/${PRODUCT}/stock`)
+          .set("Authorization", `Bearer ${counterToken()}`)
+          .set("x-branch-id", "b1")
+          .expect(200);
+        expect(inventory.productStock).toHaveBeenCalledWith("tenant-1", "b1", PRODUCT, {
+          canViewCost: false,
+          accessibleBranchIds: ["b1", "b2"],
+        });
+      });
+
+      it("is still refused every route that changes stock, and the full movement history", async () => {
+        const refused: Array<["get" | "post", string]> = [
+          ["post", `/api/v1/inventory/batches/${PRODUCT}/quarantine`],
+          ["post", `/api/v1/inventory/batches/${PRODUCT}/release-quarantine`],
+          ["post", "/api/v1/inventory/adjustments"],
+          ["post", "/api/v1/inventory/adjustment-requests"],
+          ["get", "/api/v1/inventory/movements"],
+        ];
+        for (const [method, path] of refused) {
+          const res = await request(app.getHttpServer())
+            [method](path)
+            .set("Authorization", `Bearer ${counterToken()}`)
+            .set("x-branch-id", "b1")
+            .send({})
+            .expect(403);
+          expect(res.body.code).toBe("COUNTER_SESSION_ONLY");
+        }
+      });
     });
 
     it("leaves password logins untouched by the counter checks", async () => {

@@ -49,6 +49,13 @@ const ICONS = {
       <path d="M4 12h16" strokeDasharray="2 2" />
     </>
   ),
+  box: (
+    <>
+      <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+      <path d="m3.3 7 8.7 5 8.7-5" />
+      <path d="M12 22V12" />
+    </>
+  ),
   calendar: (
     <>
       <path d="M8 2v4" />
@@ -71,6 +78,17 @@ const ICONS = {
     </>
   ),
   "chevron-down": <path d="m6 9 6 6 6-6" />,
+  "chevron-right": <path d="m9 18 6-6-6-6" />,
+  "clipboard-list": (
+    <>
+      <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <path d="M12 11h4" />
+      <path d="M12 16h4" />
+      <path d="M8 11h.01" />
+      <path d="M8 16h.01" />
+    </>
+  ),
   clock: (
     <>
       <circle cx="12" cy="12" r="10" />
@@ -138,6 +156,14 @@ const ICONS = {
       <circle cx="5" cy="12" r="1" fill="currentColor" />
       <circle cx="12" cy="12" r="1" fill="currentColor" />
       <circle cx="19" cy="12" r="1" fill="currentColor" />
+    </>
+  ),
+  package: (
+    <>
+      <path d="M16.5 9.4 7.55 4.24" />
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.29 7 12 12 20.71 7" />
+      <line x1="12" x2="12" y1="22" y2="12" />
     </>
   ),
   pause: (

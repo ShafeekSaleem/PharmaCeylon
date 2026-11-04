@@ -44,6 +44,8 @@ export type StockListQuery = {
   take?: number;
   productId?: string;
   controlled?: "all" | "controlled" | "regular";
+  /** Only prescription-only products (the desktop Stock page's Prescription chip). */
+  prescription?: boolean;
   batchFilter?: "all" | "expiring" | "with_batches" | "no_batches";
   /** One of the "needs attention" buckets the overview links to. */
   attention?: StockAttention;
@@ -653,12 +655,13 @@ export class InventoryService {
       productWhere.id = query.productId;
     } else if (query.ledgerOnly) {
       const stockedIds = [...totals.keys()];
-      if (stockedIds.length === 0) return { items: [], total: 0, skip, take };
+      if (stockedIds.length === 0) return { items: [], total: 0, skip, take, expiryWarningDays };
       productWhere.id = { in: stockedIds };
     }
 
     if (query.controlled === "controlled") productWhere.isControlled = true;
     if (query.controlled === "regular") productWhere.isControlled = false;
+    if (query.prescription) productWhere.requiresPrescription = true;
     if (query.brands?.length) productWhere.brandName = { in: query.brands };
     if (query.dosageForms?.length) productWhere.dosageForm = { in: query.dosageForms };
     if (query.categoryIds?.length) {
@@ -698,11 +701,15 @@ export class InventoryService {
         brandName: true,
         reorderLevel: true,
         isControlled: true,
+        requiresPrescription: true,
         isActive: true,
         unit: true,
         imageUrl: true,
         dosageForm: true,
         strength: true,
+        manufacturer: true,
+        unitsPerPack: true,
+        packLabel: true,
       },
       orderBy: { name: "asc" },
     });
@@ -746,7 +753,7 @@ export class InventoryService {
     const page = matched.slice(skip, skip + take);
     const pageIds = page.map((row) => row.product.id);
 
-    const [lastMoves, pageRelations] = await Promise.all([
+    const [lastMoves, pageRelations, nextExpiries] = await Promise.all([
       pageIds.length === 0
         ? Promise.resolve([])
         : this.prisma.stockLedger.findMany({
@@ -775,7 +782,27 @@ export class InventoryService {
               tagMaps: { select: { tag: { select: { id: true, name: true } } } },
             },
           }),
+      // The earliest in-date expiry with stock: the counter's "nearest expiry".
+      pageIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.batch.groupBy({
+            by: ["productId"],
+            where: {
+              tenantId,
+              branchId,
+              productId: { in: pageIds },
+              expiryDate: { gte: today },
+              stock: { is: { onHandQty: { gt: 0 } } },
+            },
+            _min: { expiryDate: true },
+          }),
     ]);
+    const nextExpiryByProduct = new Map(
+      nextExpiries.map((row) => [
+        row.productId,
+        row._min.expiryDate?.toISOString().slice(0, 10) ?? null,
+      ]),
+    );
 
     const lastMoveByProduct = new Map(
       lastMoves.map((m) => [m.productId, { at: m.occurredAt.toISOString(), type: m.movementType }]),
@@ -808,11 +835,13 @@ export class InventoryService {
         expiryReviewBatchCount: row.totals.expiryReviewBatchCount,
         lastMovementAt: last?.at ?? null,
         lastMovementType: last?.type ?? null,
+        nextExpiry: nextExpiryByProduct.get(row.product.id) ?? null,
         product: { ...row.product, ...relations },
       };
     });
 
-    return { items, total, skip, take };
+    // The window "near expiry" was counted against, so a list can say "within 30 days".
+    return { items, total, skip, take, expiryWarningDays };
   }
 
   async summary(
@@ -982,8 +1011,12 @@ export class InventoryService {
         imageUrl: true,
         reorderLevel: true,
         isControlled: true,
+        requiresPrescription: true,
         isActive: true,
         rangeStatus: true,
+        manufacturer: true,
+        unitsPerPack: true,
+        packLabel: true,
       },
     });
     if (!product) throw new NotFoundException("Product not found");

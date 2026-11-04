@@ -280,6 +280,136 @@ export const heldCartSchema = z.object({
 });
 export type HeldCart = z.infer<typeof heldCartSchema>;
 
+/** The Stock page (screen=stock). Units are the product's selling unit; nothing here is in packs. */
+export const stockStatusSchema = z.enum(["ok", "low", "out"]);
+export const stockRowSchema = z.object({
+  productId: uuid,
+  name: z.string(),
+  strength: z.string().nullable(),
+  unit: z.string().nullable(),
+  manufacturer: z.string().nullable(),
+  unitsPerPack: z.number().int(),
+  packLabel: z.string().nullable(),
+  requiresPrescription: z.boolean(),
+  isControlled: z.boolean(),
+  reorderLevel: z.number().int(),
+  stockStatus: stockStatusSchema,
+  available: z.number().int(),
+  onHand: z.number().int(),
+  quarantined: z.number().int(),
+  reserved: z.number().int(),
+  batchCount: z.number().int(),
+  nearExpiryBatchCount: z.number().int(),
+  expiredBatchCount: z.number().int(),
+  /** The earliest expiry among in-date batches with stock: YYYY-MM-DD. */
+  nextExpiry: z.string().nullable(),
+});
+export type StockRow = z.infer<typeof stockRowSchema>;
+
+export const stockFilterSchema = z.enum(["all", "low", "prescription", "controlled"]);
+export type StockFilter = z.infer<typeof stockFilterSchema>;
+/** The Needs attention lists, as `stock-by-product`'s `attention` filter names them. */
+export const stockAttentionKindSchema = z.enum(["near_expiry", "expired", "quarantined"]);
+export type StockAttentionKind = z.infer<typeof stockAttentionKindSchema>;
+
+export const stockSearchSchema = z.object({
+  items: z.array(stockRowSchema),
+  total: z.number().int(),
+  expiryWarningDays: z.number().int(),
+});
+export type StockSearch = z.infer<typeof stockSearchSchema>;
+
+export const stockAttentionSchema = z.object({
+  expiringBatches: z.number().int(),
+  expiredBatches: z.number().int(),
+  quarantinedProducts: z.number().int(),
+  quarantinedUnits: z.number().int(),
+  lowStockProducts: z.number().int(),
+  expiryWarningDays: z.number().int(),
+});
+export type StockAttention = z.infer<typeof stockAttentionSchema>;
+
+export const stockBatchSchema = z.object({
+  batchId: uuid,
+  batchNo: z.string(),
+  expiryDate: isoDate,
+  daysToExpiry: z.number().int(),
+  expired: z.boolean(),
+  nearExpiry: z.boolean(),
+  needsExpiryReview: z.boolean(),
+  /** Every unit held: checkout skips the batch altogether. */
+  isQuarantined: z.boolean(),
+  quarantineReason: z.string().nullable(),
+  onHand: z.number().int(),
+  available: z.number().int(),
+  reserved: z.number().int(),
+  quarantined: z.number().int(),
+  sellingPrice: z.string(),
+  /** Null without `costs.view`. */
+  costPrice: z.string().nullable(),
+});
+export type StockBatch = z.infer<typeof stockBatchSchema>;
+
+export const productStockSchema = z.object({
+  product: z.object({
+    productId: uuid,
+    name: z.string(),
+    genericName: z.string().nullable(),
+    strength: z.string().nullable(),
+    manufacturer: z.string().nullable(),
+    unit: z.string().nullable(),
+    unitsPerPack: z.number().int(),
+    packLabel: z.string().nullable(),
+    requiresPrescription: z.boolean(),
+    isControlled: z.boolean(),
+    reorderLevel: z.number().int(),
+  }),
+  stockStatus: stockStatusSchema,
+  totals: z.object({
+    onHand: z.number().int(),
+    available: z.number().int(),
+    quarantined: z.number().int(),
+    reserved: z.number().int(),
+    expired: z.number().int(),
+  }),
+  /** In expiry order, oldest first: the order checkout sells them in. */
+  batches: z.array(stockBatchSchema),
+  reservations: z.array(z.object({ qty: z.number().int(), label: z.string() })),
+  /** Where the person also works (owners: every branch). */
+  otherBranches: z.array(
+    z.object({ branchId: uuid, name: z.string(), available: z.number().int(), onHand: z.number().int() }),
+  ),
+  movements: z.array(
+    z.object({
+      id: uuid,
+      occurredAt: z.string(),
+      movementType: z.string(),
+      batchNo: z.string().nullable(),
+      /** Change to on hand; zero for a quarantine move. */
+      qtyDelta: z.number().int(),
+      /** Units moved into (+) or out of (−) quarantine. */
+      quarantineDelta: z.number().int(),
+      actorName: z.string().nullable(),
+    }),
+  ),
+  /** At cost; a larger write-off needs a manager. Null: the tenant has no limit. */
+  writeOffLimit: z.string().nullable(),
+});
+export type ProductStock = z.infer<typeof productStockSchema>;
+
+export const stockAdjustmentSchema = z.object({
+  productId: uuid,
+  batchId: uuid,
+  kind: z.enum(["found", "damaged", "expired", "lost", "correction"]),
+  /** A correction says which way; the other kinds set it themselves. */
+  direction: z.enum(["in", "out"]).optional(),
+  qty: z.number().int().min(1).max(99999),
+  reason: z.string().trim().max(512).optional(),
+  /** A write-off of units already held in quarantine. */
+  fromQuarantine: z.boolean(),
+});
+export type StockAdjustment = z.infer<typeof stockAdjustmentSchema>;
+
 export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
 export type ActionError = z.infer<typeof actionErrorSchema>;
 
@@ -433,6 +563,27 @@ export const ipcContract = {
     channel: "pos:staff:pin-sign-in",
     input: z.object({ staffUserId: uuid, pin }),
     output: result(deviceStateSchema),
+  },
+  stockSearch: {
+    channel: "pos:stock:search",
+    input: z.object({
+      q: z.string().trim().max(120).optional(),
+      filter: stockFilterSchema,
+      attention: stockAttentionKindSchema.optional(),
+    }),
+    output: result(stockSearchSchema),
+  },
+  stockAttention: { channel: "pos:stock:attention", input: noInput, output: result(stockAttentionSchema) },
+  productStock: {
+    channel: "pos:stock:product",
+    input: z.object({ productId: uuid }),
+    output: result(productStockSchema),
+  },
+  /** A direct adjustment or write-off, through the signed command (#95). */
+  adjustStock: {
+    channel: "pos:stock:adjust",
+    input: stockAdjustmentSchema,
+    output: result(z.object({ qty: z.number().int(), movementType: z.enum(["adjustment_in", "adjustment_out"]) })),
   },
   enroll: {
     channel: "pos:enrollment:enroll",
