@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, Menu, net, safeStorage, session } from "electron";
+import { createPublicKey } from "node:crypto";
 import { join } from "node:path";
 import type { ActionResult } from "../shared/ipc-contract";
 import { ApiSession } from "./api/api-client";
@@ -15,6 +16,7 @@ import { renderSaleReceiptHtml } from "./printing/receipt-html";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
+import { startOfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { SignedCommandService } from "./terminal/signed-commands";
 import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport } from "./readiness";
@@ -323,6 +325,25 @@ async function start(): Promise<void> {
     appVersion: app.getVersion(),
     logger,
   });
+  const authorityKeyId = process.env.POS_OFFLINE_AUTHORITY_KEY_ID;
+  const authorityPublicKey = process.env.POS_OFFLINE_AUTHORITY_PUBLIC_KEY;
+  if (authorityKeyId && authorityPublicKey) {
+    try {
+      const publicKey = createPublicKey(authorityPublicKey);
+      if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("Expected Ed25519 public key");
+      const stopRefresh = startOfflineAuthorityRefresh({
+        db: store.db,
+        api: terminalApi,
+        terminal,
+        readDevice: () => deviceStore.read(),
+        signer: { keyId: authorityKeyId, publicKey },
+        report: (error) => logger.warn("offline_authority.refresh_failed", { error }),
+      });
+      app.once("before-quit", stopRefresh);
+    } catch (error) {
+      logger.error("offline_authority.invalid_public_key", { error });
+    }
+  }
   checkout = new CheckoutService({ db: store.db, api: terminalApi, terminal, logger });
   commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });

@@ -564,7 +564,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   {
     // P2b #103: the absent-cashier close. Opening and closing your own shift needs only the
     // counter's own POS permission; closing someone else's is a manager's call, made with their
-    // own PIN, a reason and the count. Migration `20261104010000_till_shifts` grants it.
+    // own PIN, a reason and the count. Migration `20261105010000_till_shifts` grants it.
     key: "shifts.close_others",
     module: "shifts",
     label: "Close another person's shift at the counter",
