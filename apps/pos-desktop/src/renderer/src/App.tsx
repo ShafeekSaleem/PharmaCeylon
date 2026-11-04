@@ -216,21 +216,14 @@ export function App() {
                 <KeyScope active={page === "work"}>
                   <KeyBinding keys="Escape" onKey={() => setPage("sell")} />
                   <div className={shell.page} hidden={page !== "work"}>
-                    <div className={ui.pageH}>
-                      <div>
-                        <h1>Counter work</h1>
-                        <p>
-                          Refunds approved on the web, and actions sent from
-                          here that still need confirming.
-                        </p>
-                      </div>
-                    </div>
                     <CounterWork
                       key={`work-${sessionId}`}
                       onActivity={refreshReadiness}
                       onCount={setWorkCount}
                       reloadKey={commandsSent}
                       poll={!device.locked}
+                      you={session.staffName}
+                      counterLabel={device.enrollment?.counterLabel ?? null}
                     />
                   </div>
                 </KeyScope>

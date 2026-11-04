@@ -259,6 +259,43 @@ export const refundAtCounterSchema = z.object({
 });
 export type RefundAtCounter = z.infer<typeof refundAtCounterSchema>;
 
+export const counterWorkKinds = [
+  "prepared_receipt",
+  "held_delivery",
+  "transfer_ship",
+  "transfer_receive",
+  "refund",
+  "stocktake",
+  "held_adjustment",
+  "supplier_return",
+  "import_stock",
+] as const;
+export type CounterWorkKind = (typeof counterWorkKinds)[number];
+
+const counterWorkPersonSchema = z.object({ name: z.string().nullable(), at: z.string().nullable() });
+
+/** Web-approved work waiting at this branch's counter (`GET /counter-work`), with its approval state. */
+export const counterWorkItemSchema = z.object({
+  kind: z.enum(counterWorkKinds),
+  id: uuid,
+  reference: z.string(),
+  subject: z.string().nullable(),
+  lineCount: z.number().int(),
+  amount: z.string().nullable(),
+  readyAt: z.string(),
+  requested: counterWorkPersonSchema.nullable(),
+  approved: counterWorkPersonSchema.nullable(),
+  dispatched: counterWorkPersonSchema.nullable(),
+  approval: z.object({
+    evidenceId: uuid.nullable(),
+    approvedVersion: z.number().int().nullable(),
+    currentVersion: z.number().int().nullable(),
+    state: z.enum(["matches", "changed", "revoked", "not_needed"]),
+    changes: z.array(z.string()),
+  }),
+});
+export type CounterWorkItem = z.infer<typeof counterWorkItemSchema>;
+
 export const refundExecutedSchema = z.object({
   requestNumber: z.string(),
   amountMinor: z.number().int(),
@@ -391,6 +428,7 @@ export const ipcContract = {
     input: z.object({ saleId: uuid, printerName: z.string().min(1).max(260) }),
     output: printResultSchema,
   },
+  counterWork: { channel: "pos:counter:work", input: noInput, output: result(z.array(counterWorkItemSchema)) },
   refundsReady: { channel: "pos:counter:refunds", input: noInput, output: result(z.array(refundAtCounterSchema)) },
   executeRefund: {
     channel: "pos:counter:execute-refund",
