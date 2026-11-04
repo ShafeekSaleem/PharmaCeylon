@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { ManagementApprovalsService } from "../security/management-approvals.service";
@@ -17,7 +18,6 @@ import {
   Prisma,
   StockMovementType,
 } from "@prisma/client";
-import { terminalSigningText } from "@pharmaceylon/shared";
 import { AuditService } from "../audit/audit.service";
 import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { IDEMPOTENCY_SCOPE } from "../common/idempotency.constants";
@@ -48,11 +48,7 @@ class HeldRequestReplay extends Error {}
 
 /** Same fields and values, whatever the key order (jsonb reorders keys). */
 function sameRequest(stored: Prisma.JsonValue, entered: Prisma.InputJsonObject): boolean {
-  try {
-    return terminalSigningText("command", stored) === terminalSigningText("command", entered);
-  } catch {
-    return false;
-  }
+  return isDeepStrictEqual(stored, entered);
 }
 
 /**
