@@ -276,7 +276,8 @@ export class InventoryController {
    * Counter work: posts the adjustment now or not at all. Increases need `inventory.manage`. A
    * write-off needs `inventory.write_off` (over the tenant's threshold, only if they may also
    * approve their own requests); any other write-off is refused with 409
-   * WRITE_OFF_APPROVAL_REQUIRED, and nothing is held — send it to `adjustment-requests`.
+   * WRITE_OFF_APPROVAL_REQUIRED, and nothing is held — send it to `adjustment-requests`. A resend
+   * with the same `Idempotency-Key` returns the first result and moves nothing.
    */
   @RequirePermission("inventory.manage", "inventory.write_off")
   @Post("adjustments")
@@ -284,8 +285,9 @@ export class InventoryController {
     @CurrentUser() user: RequestUser,
     @RequireBranchId() branchId: string,
     @Body() dto: StockAdjustmentDto,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
   ) {
-    return this.adjustments.postDirect(user, branchId, dto);
+    return this.adjustments.postDirect(user, branchId, dto, idempotencyKey);
   }
 
   /** Remote: records a write-off for approval (`{ held: true }`). Moves no stock. A resend with

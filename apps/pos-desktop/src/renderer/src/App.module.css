@@ -1,5 +1,6 @@
-/* Today's checkout, dispensing and counter-work panels. They move onto tokens.css and ui.module.css
-   when the Sell page is restyled (P2b #103). */
+/* Today's counter-work panels. Sell and the prescription sheet moved to Sell.module.css and
+   Dispensing.module.css; these move onto tokens.css and ui.module.css with the Counter work page
+   (P2b #103, phase 2). */
 
 .panel {
   display: flex;

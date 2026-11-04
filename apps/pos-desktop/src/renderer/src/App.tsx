@@ -6,12 +6,12 @@ import type {
   Printer,
   ReadinessReport,
 } from "../../shared/ipc-contract";
-import { Checkout } from "./Checkout";
 import { CounterWork } from "./CounterWork";
 import full from "./Fullscreen.module.css";
 import { Icon } from "./Icon";
 import { KeyBinding, KeyScope } from "./keymap";
 import { PersonPanel } from "./Person";
+import { Sell } from "./Sell";
 import { SetupScreen } from "./Setup";
 import { Rail, ServerBlock, StatusBar, TitleBar, type Page } from "./Shell";
 import shell from "./Shell.module.css";
@@ -28,7 +28,7 @@ export function App() {
   const [api, setApi] = useState<ApiReachability | null>(null);
   const [device, setDevice] = useState<DeviceState | null>(null);
   const [deviceFailed, setDeviceFailed] = useState(false);
-  /** The printer checkout prints to: Windows' first. Undefined until the list arrives. */
+  /** The printer shown in the status bar: Windows' first. Undefined until the list arrives. */
   const [printer, setPrinter] = useState<Printer | null | undefined>(undefined);
   const [page, setPage] = useState<Page>("sell");
   const [personOpen, setPersonOpen] = useState(false);
@@ -206,7 +206,7 @@ export function App() {
                 {/* Each page's keys work only while it is the one shown. */}
                 <KeyScope active={page === "sell"}>
                   <div className={shell.page} hidden={page !== "sell"}>
-                    <Checkout
+                    <Sell
                       key={sessionId}
                       onActivity={refreshReadiness}
                       onCommandSent={onCommandSent}
