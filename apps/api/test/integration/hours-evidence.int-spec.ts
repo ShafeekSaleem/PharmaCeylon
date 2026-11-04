@@ -118,7 +118,35 @@ afterAll(() => prisma.$disconnect());
 describe("operating-hours evidence provider", () => {
   it("fails closed while the branch has no structured hours", async () => {
     await setHours(null);
+    await expect(outcome("2026-10-26T10:00")).resolves.toBe("BRANCH_HOURS_NOT_CONFIGURED");
+  });
+
+  it("refuses an unusable timezone or an inactive branch as setup, not as a passing fault", async () => {
+    await setHours(weekly);
+    const branch = (data: { timezone?: string; isActive?: boolean }) =>
+      prisma.branch.update({ where: { id: fx.mainBranchId }, data });
+    try {
+      await branch({ timezone: "Colombo" }); // the branch form takes free text
+      await expect(outcome("2026-10-26T10:00")).resolves.toBe("BRANCH_HOURS_NOT_CONFIGURED");
+      await branch({ timezone: "Asia/Colombo", isActive: false });
+      await expect(outcome("2026-10-26T10:00")).resolves.toBe("BRANCH_HOURS_NOT_CONFIGURED");
+    } finally {
+      await branch({ timezone: "Asia/Colombo", isActive: true });
+    }
+    await expect(outcome("2026-10-26T10:00")).resolves.toBe("allowed");
+  });
+
+  it("keeps stored hours it cannot read a retryable fault", async () => {
+    // Passes the column's shape check but not validateBranchHours, which every save runs.
+    await prisma.branch.update({
+      where: { id: fx.mainBranchId },
+      data: {
+        operatingHours: { schemaVersion: 1, weekly: {}, exceptions: [], mandatory: null },
+        operatingHoursOrigin: "editor",
+      },
+    });
     await expect(outcome("2026-10-26T10:00")).resolves.toBe("TEMPORARILY_UNAVAILABLE");
+    await setHours(weekly);
   });
 
   it("allows selling inside the routine schedule and refuses outside it", async () => {
@@ -173,7 +201,7 @@ describe("operating-hours evidence provider", () => {
       outcome("2026-10-26T10:00", sellingCommand({
         identity: { tenantId: other.tenantId, branchId: fx.mainBranchId, terminalId: randomUUID(), enrollmentId: randomUUID(), keyId: "k" },
       })),
-    ).resolves.toBe("TEMPORARILY_UNAVAILABLE");
+    ).resolves.toBe("BRANCH_HOURS_NOT_CONFIGURED");
   });
 });
 

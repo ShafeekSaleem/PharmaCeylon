@@ -421,7 +421,8 @@ Errors raised before routing (malformed JSON, an unknown path) keep the platform
 | 403 | `CHALLENGE_EXPIRED`, `CHALLENGE_INVALID`, `CHALLENGE_USED_OR_EXPIRED` | Not executed. Prepare again. |
 | 403 | `LOCAL_ATTENDANCE_UNAVAILABLE` | Attendance not proven. Not executed. |
 | 403 | `PERMISSION_DENIED`, `APPROVAL_REQUIRED`, `APPROVAL_INVALID` | Not executed. |
-| 403 | `TEMPORARILY_UNAVAILABLE` | Selling-hours operation at a branch whose hours are unset, unreadable or in an unusable timezone (or no hours provider installed). Not executed; set the branch hours. |
+| 403 | `BRANCH_HOURS_NOT_CONFIGURED` | Selling-hours operation at a branch whose hours are unset, whose timezone is unusable or that is inactive (or no hours provider installed). Not executed and not retryable: a manager sets the branch hours (the owner fixes the timezone), then the counter prepares a new command. |
+| 403 | `TEMPORARILY_UNAVAILABLE` (`retryable: true`) | Selling-hours operation at a branch whose stored hours the server cannot read. Every save validates the hours, so this is a server fault (for example hours a newer release saved, read during a rolling deploy), not setup. Not executed; resend the identical envelope with backoff. |
 | 403 | `OUTSIDE_OPERATING_HOURS` | Outside the owner's mandatory limit. Nobody can override it. Not executed. |
 | 403 | `BUSINESS_HOURS_ACK_REQUIRED` | Outside routine hours with no business extension. A manager can approve an extension on the web. Not executed. |
 | 409 | `REPLAY_CONFLICT` | This `commandId` already committed with different content. Definitive. |
@@ -662,9 +663,10 @@ administrator is out of scope. Shafeek accepted these limits for v1 on 2026-11-0
 the seller's session opened at that counter, not a proof bound to the sale; that is the v1 rule.
 
 **Mandatory hours on counter sales.** A checkout carrying `x-terminal-session` is refused with
-403 `OUTSIDE_OPERATING_HOURS` outside the branch's mandatory selling windows (W7), and with
-`TEMPORARILY_UNAVAILABLE` if the stored hours or timezone can't be read. Routine closing time
-stays advisory online, and a branch with no hours set has no restriction.
+403 `OUTSIDE_OPERATING_HOURS` outside the branch's mandatory selling windows (W7), with
+`BRANCH_HOURS_NOT_CONFIGURED` if the branch's timezone is unusable or the branch is inactive, and
+with `TEMPORARILY_UNAVAILABLE` if the stored hours can't be read. Routine closing time stays
+advisory online, and a branch with no hours set has no restriction.
 
 **Unconfirmed sales.** The checkout idempotency key is scoped to the seller, so only the person
 who rang up an unconfirmed sale can confirm it from the counter; the desktop names them in its
