@@ -1,10 +1,11 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, UseFilters } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CounterRoute } from "../security/decorators/counter-route.decorator";
 import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { TerminalErrorFilter } from "../terminals/terminal-error.filter";
 import { CounterWorkService } from "./counter-work.service";
 import { TERMINAL_EXECUTE } from "./terminal-command.executor";
 
@@ -14,6 +15,7 @@ import { TERMINAL_EXECUTE } from "./terminal-command.executor";
  * is listed only to someone holding that operation's own permission at the branch.
  */
 @ApiTags("terminal-commands")
+@UseFilters(TerminalErrorFilter)
 @Controller("counter-work")
 export class CounterWorkController {
   constructor(private readonly work: CounterWorkService) {}
