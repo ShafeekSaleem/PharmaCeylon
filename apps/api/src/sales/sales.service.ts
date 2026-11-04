@@ -1320,10 +1320,16 @@ export class SalesService {
                 sku: true,
                 isControlled: true,
                 requiresPrescription: true,
+                unit: true,
               },
             },
-            batch: { select: { id: true, batchNo: true } },
+            batch: { select: { id: true, batchNo: true, expiryDate: true } },
           },
+        },
+        goodsReturns: {
+          where: { type: GoodsReturnType.customer, status: GoodsReturnStatus.completed },
+          select: { returnNumber: true, amount: true, createdAt: true },
+          orderBy: { createdAt: "asc" },
         },
       },
     });
@@ -1338,12 +1344,16 @@ export class SalesService {
     const requiresPharmacist =
       Boolean(sale.prescriptionId) ||
       sale.items.some((i) => i.product.isControlled);
+    // The counter shows the limit before anyone presses Refund, so the manager's PIN or the
+    // web approval is asked for up front rather than as a refusal.
+    const threshold = await this.refundApprovalThreshold(this.prisma, tenantId);
 
     return {
       saleId: sale.id,
       invoiceNo: sale.invoiceNo,
       status: sale.status,
       requiresPharmacist,
+      refundApprovalThreshold: threshold?.toFixed(2) ?? null,
       lines: [...lines.values()].map((rem) => {
         const item = sale.items.find(
           (i) => i.productId === rem.productId && i.batchId === rem.batchId,
@@ -1358,6 +1368,8 @@ export class SalesService {
           isControlled: item?.product.isControlled ?? false,
           requiresPrescription: item?.product.requiresPrescription ?? false,
           batchNo: item?.batch.batchNo ?? "",
+          expiryDate: item?.batch.expiryDate.toISOString().slice(0, 10) ?? null,
+          unit: item?.product.unit ?? null,
           soldQty: rem.soldQty,
           remainingQty: rem.remainingQty,
           unitPrice: rem.unitPrice,
@@ -1366,6 +1378,12 @@ export class SalesService {
         };
       }),
       totalRemainingQty: totalRemainingQty(lines),
+      // Earlier refunds of this sale, so the counter can say "1 earlier, on 30 Oct".
+      refunds: sale.goodsReturns.map((row) => ({
+        returnNumber: row.returnNumber,
+        amount: row.amount.toFixed(2),
+        createdAt: row.createdAt.toISOString(),
+      })),
     };
   }
 

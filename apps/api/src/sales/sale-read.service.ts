@@ -62,7 +62,7 @@ const SALE_SUMMARY_SELECT = {
   soldAt: true,
   grandTotal: true,
   branch: { select: { id: true, name: true } },
-  customer: { select: { id: true, fullName: true } },
+  customer: { select: { id: true, fullName: true, phone: true } },
   seller: { select: { id: true, fullName: true } },
   items: {
     select: {
@@ -86,6 +86,7 @@ function toSaleSummary(sale: SaleSummaryRow) {
     branch: sale.branch,
     itemCount: sale.items.reduce((sum, i) => sum + i.qty, 0),
     customerName: sale.customer?.fullName ?? null,
+    customerPhone: sale.customer?.phone ?? null,
     sellerName: sale.seller.fullName,
     // How the customer paid — refund rows are negative and don't count.
     paymentMethods: [
@@ -188,7 +189,23 @@ export type SaleHistoryFilters = {
   soldBy?: string;
   paymentMethod?: PaymentMethod;
   invoiceNo?: string;
+  /** Part of the customer's phone; only digits count. */
+  customerPhone?: string;
+  /** Sale total bounds, both inclusive. */
+  minTotal?: string;
+  maxTotal?: string;
 };
+
+/**
+ * The digits of a phone that identify the line, whatever way it was written: no separators, no
+ * Sri Lankan country code (94) and no trunk 0. "+94 71 482 0937" and "071-482 0937" both give
+ * "714820937", which is a substring of either stored form's digits.
+ */
+export function phoneSearchDigits(value: string): string {
+  let digits = value.replace(/\D/g, "").replace(/^0+/, "");
+  if (digits.startsWith("94") && digits.length >= 11) digits = digits.slice(2);
+  return digits.replace(/^0+/, "");
+}
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
@@ -430,12 +447,22 @@ export class SaleReadService {
     if (filters.from && filters.to && filters.from > filters.to) {
       throw new BadRequestException("from must not be after to");
     }
+    const minTotal = filters.minTotal ? new Prisma.Decimal(filters.minTotal) : null;
+    const maxTotal = filters.maxTotal ? new Prisma.Decimal(filters.maxTotal) : null;
+    if (minTotal && maxTotal && minTotal.gt(maxTotal)) {
+      throw new BadRequestException("minTotal must not be more than maxTotal");
+    }
+    const phoneDigits = filters.customerPhone !== undefined ? phoneSearchDigits(filters.customerPhone) : null;
+    if (phoneDigits !== null && phoneDigits.length < 4) {
+      throw new BadRequestException("Enter at least 4 digits of the phone number");
+    }
 
     const page = Math.max(filters.page ?? 1, 1);
     const pageSize = Math.min(Math.max(filters.pageSize ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE);
     const branchIds = await this.historyScope(user, activeBranchId, filters.branchId);
     const invoiceNo = filters.invoiceNo?.trim().replace(/\s+/g, "");
     const zone = filters.from || filters.to ? await this.tenantZone(user.tenantId) : null;
+    const customerIds = phoneDigits ? await this.customersByPhone(user.tenantId, phoneDigits) : null;
 
     const where: Prisma.SaleWhereInput = {
       tenantId: user.tenantId,
@@ -447,6 +474,10 @@ export class SaleReadService {
         ? { payments: { some: { method: filters.paymentMethod, amount: { gt: 0 } } } }
         : {}),
       ...(invoiceNo ? { invoiceNo: { contains: invoiceNo, mode: "insensitive" } } : {}),
+      ...(customerIds ? { customerId: { in: customerIds } } : {}),
+      ...(minTotal || maxTotal
+        ? { grandTotal: { ...(minTotal ? { gte: minTotal } : {}), ...(maxTotal ? { lte: maxTotal } : {}) } }
+        : {}),
     };
 
     const [rows, total] = await Promise.all([
@@ -460,6 +491,21 @@ export class SaleReadService {
       this.prisma.sale.count({ where }),
     ]);
     return { items: rows.map(toSaleSummary), total, page, pageSize };
+  }
+
+  /**
+   * Customers whose phone holds these digits, ignoring how the phone was typed in. Phones are
+   * free text ("071 482 0937", "+94714820937"), so the comparison strips non-digits in SQL.
+   */
+  private async customersByPhone(tenantId: string, digits: string): Promise<string[]> {
+    const pattern = `%${digits}%`;
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM customer
+      WHERE tenant_id = ${tenantId}::uuid
+        AND phone IS NOT NULL
+        AND regexp_replace(phone, '[^0-9]', '', 'g') LIKE ${pattern}
+      LIMIT 200`;
+    return rows.map((row) => row.id);
   }
 
   /** What the Sales filters offer: the branches the caller can view, and who has sold there. */
