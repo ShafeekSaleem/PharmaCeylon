@@ -656,7 +656,8 @@ export function assertStockSnapshotBounds(snapshot: BranchStockSnapshot): void {
   assertSafeInteger(snapshot.generatedAt);
   assertSafeInteger(snapshot.includedThroughSequence);
   if (snapshot.includedThroughSequence === 0 ? snapshot.includedThroughHash !== null :
-      !/^[a-f0-9]{64}$/.test(snapshot.includedThroughHash ?? "")) throw new Error("Invalid snapshot watermark");
+      typeof snapshot.includedThroughHash !== "string" ||
+      !/^[a-f0-9]{64}$/.test(snapshot.includedThroughHash)) throw new Error("Invalid snapshot watermark");
   const ids = new Set<string>();
   const batches = new Set<string>();
   for (const line of snapshot.lines) {
@@ -664,6 +665,7 @@ export function assertStockSnapshotBounds(snapshot: BranchStockSnapshot): void {
         ids.has(line.snapshotLineId) || batches.has(line.batchId)) throw new Error("Duplicate or missing snapshot identity");
     ids.add(line.snapshotLineId);
     batches.add(line.batchId);
+    if (typeof line.stockReviewRequired !== "boolean") throw new Error("Missing or invalid stock review state");
     assertSafeInteger(line.availableQuantity);
     assertSafeInteger(line.unitPriceMinor);
     assertSafeInteger(line.taxBasisPoints);

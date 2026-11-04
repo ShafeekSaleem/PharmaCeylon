@@ -6,6 +6,7 @@ import { SalesController } from "../sales/sales.controller";
 import { TerminalCommandsController } from "../terminal-commands/terminal-commands.controller";
 import { OfflineActivationController } from "../terminals/offline-activation.controller";
 import { OfflineAssignmentController } from "../terminals/offline-assignment.controller";
+import { OfflineAuthorityController } from "../terminals/offline-authority.controller";
 import { TerminalEnrollmentController } from "../terminals/terminal-enrollment.controller";
 import { COUNTER_ROUTE_KEY } from "./decorators/counter-route.decorator";
 import { IS_PUBLIC_KEY } from "./decorators/public.decorator";
@@ -31,6 +32,7 @@ describe("routes a PIN-opened counter login may call", () => {
     [PrescriptionsController, ["search", "getOne"]],
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],
     [OfflineAssignmentController, ["view"]],
+    [OfflineAuthorityController, ["prepare", "issue"]],
     [
       TerminalEnrollmentController,
       [
