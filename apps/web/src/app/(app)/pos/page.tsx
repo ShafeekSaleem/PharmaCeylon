@@ -429,6 +429,7 @@ function PosWorkspace() {
           forPharmacist ? `Held as ${created.holdRef} for the pharmacist.` : `Held as ${created.holdRef}.`,
         );
         setPinOpen(false);
+        setSellerUnregistered(false);
         resetSale();
         void holds.reload();
       } catch (e) {
@@ -622,14 +623,15 @@ function PosWorkspace() {
         void holds.reload();
         void todaySales.reload();
       } catch (e) {
-        beep("error");
         // P1 #47: the seller may dispense controlled medicines but has no current SLMC registration
-        // at this branch, so a registered pharmacist co-signs instead of the sale dead-ending.
+        // at this branch, so a registered pharmacist co-signs instead of the sale dead-ending. That
+        // is the next step, not a failure, so it gets no error beep.
         if (!pharmacistApproval && e instanceof ApiError && e.code === "SELLER_NOT_QUALIFIED") {
           setSellerUnregistered(true);
           setPinOpen(true);
           throw e;
         }
+        beep("error");
         toasts.error(e instanceof Error ? e.message : "Checkout failed");
         throw e;
       } finally {

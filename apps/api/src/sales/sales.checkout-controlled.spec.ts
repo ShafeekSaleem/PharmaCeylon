@@ -326,6 +326,7 @@ describe("SalesService controlled checkout authority", () => {
         expect(registrations.assertQualified).toHaveBeenCalledWith(tx, { tenantId, branchId, userId: pharmacistId });
 
         registrations.assertQualified.mockImplementation(async () => denied("PHARMACIST_REQUIRED"));
+        tx.tenant.findUnique.mockClear();
         await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toMatchObject({
           status: 403,
           response: {
@@ -335,7 +336,7 @@ describe("SalesService controlled checkout authority", () => {
         });
         expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
         // Refused before anything else is read on the transaction.
-        expect(tx.tenant.findUnique).toHaveBeenCalledTimes(1);
+        expect(tx.tenant.findUnique).not.toHaveBeenCalled();
       });
 
       it("follows the tenant's grants of sales.approve_controlled, not a fixed list of roles", async () => {
