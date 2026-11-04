@@ -15,6 +15,7 @@ import { TerminalCommandsController } from "../terminal-commands/terminal-comman
 import { EnrollmentCodesController } from "./enrollment-codes.controller";
 import { OfflineActivationController } from "./offline-activation.controller";
 import { OfflineAssignmentController } from "./offline-assignment.controller";
+import { OfflineAuthorityController } from "./offline-authority.controller";
 import { OFFLINE_ASSIGNMENT_ERRORS } from "./offline-assignment.service";
 import { TerminalEnrollmentController } from "./terminal-enrollment.controller";
 import {
@@ -191,6 +192,7 @@ describe("terminal error filter coverage", () => {
       EnrollmentCodesController,
       OfflineActivationController,
       OfflineAssignmentController,
+      OfflineAuthorityController,
       TerminalEnrollmentController,
       TerminalCommandsController,
     ];
@@ -208,6 +210,7 @@ describe("terminal error filter coverage", () => {
       "enrollment-codes.controller.ts",
       "offline-activation.controller.ts",
       "offline-assignment.controller.ts",
+      "offline-authority.controller.ts",
       "terminal-commands.controller.ts",
       "terminal-enrollment.controller.ts",
     ]);
