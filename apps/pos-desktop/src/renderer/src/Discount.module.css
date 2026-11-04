@@ -1,0 +1,159 @@
+/* The line discount sheet over Sell (F9). Its chrome and the manager rows are the prescription
+   sheet's (Dispensing.module.css); this adds the amount entry. Colours are tokens.css. */
+
+.sheet {
+  width: 520px;
+}
+
+.kind {
+  color: var(--pos-info);
+  background: var(--pos-info-soft);
+}
+
+.line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: var(--pos-surface-2);
+  border: 1px solid var(--pos-line);
+  font-size: 13px;
+  color: var(--pos-text-2);
+}
+
+.line b {
+  font-size: 14px;
+  color: var(--pos-text);
+}
+
+.entry {
+  display: grid;
+  gap: 10px;
+}
+
+.entry > [role="group"] {
+  justify-self: start;
+}
+
+.amount {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+}
+
+.amount:focus-within {
+  border-color: var(--pos-primary);
+  box-shadow: var(--pos-focus);
+}
+
+.amountBad,
+.amountBad:focus-within {
+  border-color: var(--pos-bad);
+}
+
+.amount small {
+  margin: 0 8px;
+  font-size: 14px;
+  color: var(--pos-text-3);
+  font-weight: 600;
+}
+
+.amount small:first-child {
+  margin-left: 0;
+}
+
+.amount input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--pos-text);
+  font: 700 22px/1 var(--pos-font-display);
+  user-select: text;
+}
+
+.quick {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.quick button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pos-surface-3);
+  color: var(--pos-text-2);
+  font: 600 12.5px/1 var(--pos-font);
+  cursor: pointer;
+}
+
+.quick button small {
+  font-weight: 500;
+  color: var(--pos-text-3);
+}
+
+.quick button[aria-pressed="true"] {
+  background: var(--pos-primary-soft-2);
+  color: var(--pos-primary-ink);
+}
+
+.quick button:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.result {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 5px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px dashed var(--pos-line-strong);
+  font-size: 13px;
+}
+
+.result dt {
+  color: var(--pos-text-2);
+}
+
+.result dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+.neg {
+  color: var(--pos-ok);
+}
+
+.over {
+  background: var(--pos-warn-soft);
+  border-color: var(--pos-warn-line);
+}
+
+.over > :global(.pos-ic) {
+  color: var(--pos-warn);
+}
+
+@media (max-height: 700px) {
+  .amount {
+    height: 46px;
+  }
+
+  .quick button {
+    height: 36px;
+  }
+}

@@ -18,6 +18,11 @@ import type {
   Tender,
 } from "../../shared/ipc-contract";
 import { saleTotalMinor } from "../../shared/sale-total";
+import {
+  DiscountSheet,
+  type DiscountApprover,
+  type LineDiscount,
+} from "./Discount";
 import { PrescriptionSheet, type RxLine } from "./Dispensing";
 import { time } from "./format";
 import { Icon } from "./Icon";
@@ -26,9 +31,14 @@ import { KeyHint } from "./KeyHint";
 import { inField, KeyScope, SCAN_GAP_MS, useKeyBinding } from "./keymap";
 import s from "./Sell.module.css";
 import {
+  discountFromInput,
+  discountPercent,
   FIND_FILTERS,
   findProducts,
   highlight,
+  isDiscountRefusal,
+  overDiscountLimit,
+  percentText,
   isSlmcRefusal,
   minor,
   money,
@@ -45,7 +55,15 @@ import { Avatar } from "./Shell";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
 
-type Line = { product: CatalogProduct; qty: number };
+type Line = { product: CatalogProduct; qty: number; discount: LineDiscount | null };
+
+/** A line's discount in cents at its current quantity: a percent follows the quantity, an amount
+ *  stays put but never exceeds the line. */
+function discountMinorOf(line: Line): number {
+  if (!line.discount) return 0;
+  const gross = minor(line.product.unitPrice) * line.qty;
+  return discountFromInput(line.discount.mode, line.discount.value, gross) ?? gross;
+}
 type Method = "cash" | "card" | "split";
 
 const productName = (p: CatalogProduct) =>
@@ -66,6 +84,7 @@ function PendingCheckouts({
   const [drafts, setDrafts] = useState<CheckoutDraftView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pins, setPins] = useState<Record<string, string>>({});
+  const [managerPins, setManagerPins] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
     void window.pos
@@ -82,16 +101,21 @@ function PendingCheckouts({
     setError(null);
     setBusy(true);
     const pin = pins[draft.draftId];
+    const managerPin = managerPins[draft.draftId];
     const result = await invoke(() =>
       window.pos.retryCheckout({
         draftId: draft.draftId,
         ...(draft.coSignerId && pin
           ? { coSign: { approverUserId: draft.coSignerId, pin } }
           : {}),
+        ...(draft.discountCoSignerId && managerPin
+          ? { discountCoSign: { approverUserId: draft.discountCoSignerId, pin: managerPin } }
+          : {}),
       }),
     );
     setBusy(false);
     setPins((current) => ({ ...current, [draft.draftId]: "" }));
+    setManagerPins((current) => ({ ...current, [draft.draftId]: "" }));
     if (result.ok) onResolved(result.value);
     else setError(result.error.message);
     load();
@@ -125,6 +149,22 @@ function PendingCheckouts({
                   value={pins[d.draftId] ?? ""}
                   onChange={(e) =>
                     setPins((current) => ({
+                      ...current,
+                      [d.draftId]: e.target.value,
+                    }))
+                  }
+                />
+              )}
+              {d.discountCoSignerId && (
+                <input
+                  type="password"
+                  autoComplete="off"
+                  className={ui.in}
+                  aria-label="Approving manager's PIN"
+                  placeholder="Manager PIN, if asked"
+                  value={managerPins[d.draftId] ?? ""}
+                  onChange={(e) =>
+                    setManagerPins((current) => ({
                       ...current,
                       [d.draftId]: e.target.value,
                     }))
@@ -291,12 +331,16 @@ function CustomerStrip({
 export function Sell({
   onActivity,
   onCommandSent,
+  online = true,
 }: {
   onActivity?: () => void;
   onCommandSent?: () => void;
+  /** Whether the server answers. Discounts need it: offline, F9 is off and says why. */
+  online?: boolean;
 } = {}) {
   const [catalog, setCatalog] = useState<CatalogProduct[] | null>(null);
   const [vatRatePercent, setVatRatePercent] = useState(0);
+  const [maxDiscountPercent, setMaxDiscountPercent] = useState(10);
   const [pendingKey, setPendingKey] = useState(0);
   // The cart whose sale may already have gone through: it can't be sent again, only confirmed
   // above or cleared to start a different sale.
@@ -333,11 +377,19 @@ export function Sell({
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [printer, setPrinter] = useState("");
   const [printMessage, setPrintMessage] = useState<string | null>(null);
+  // P2b #103: the line discount sheet (F9) and the manager's co-sign, which covers every line of
+  // the sale over the limit. Their PIN is kept only until the next completion attempt.
+  const [discountFor, setDiscountFor] = useState<string | null>(null);
+  const [discountApprover, setDiscountApprover] =
+    useState<DiscountApprover>(null);
+  const [discountPin, setDiscountPin] = useState("");
+  const [discountRefusal, setDiscountRefusal] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const cashRef = useRef<HTMLInputElement>(null);
   const customerRef = useRef<HTMLInputElement>(null);
   const pinRef = useRef<HTMLInputElement>(null);
+  const discountPinRef = useRef<HTMLInputElement>(null);
 
   const rxProducts = lines.filter((l) => l.product.needsPharmacist);
   const needsPrescription = rxProducts.length > 0;
@@ -366,6 +418,10 @@ export function Sell({
     setSheetOpen(false);
     setSheetOffered(false);
     setRefusal(null);
+    setDiscountFor(null);
+    setDiscountApprover(null);
+    setDiscountPin("");
+    setDiscountRefusal(null);
   }
 
   const loadHolds = useCallback(() => {
@@ -397,6 +453,7 @@ export function Sell({
       if (!result.ok) return setError(result.error.message);
       setCatalog(result.value.products);
       setVatRatePercent(result.value.vatRatePercent);
+      setMaxDiscountPercent(result.value.maxDiscountPercent);
     });
   }, []);
   useEffect(refresh, [refresh]);
@@ -411,9 +468,22 @@ export function Sell({
     lines.map((l) => ({
       unitPriceMinor: minor(l.product.unitPrice),
       qty: l.qty,
+      discountMinor: discountMinorOf(l),
     })),
     vatRatePercent,
   );
+  // Lines whose discount is over the branch's limit: the sale needs a manager's approval for them.
+  const overLimit = lines.filter((l) =>
+    overDiscountLimit(
+      discountMinorOf(l),
+      minor(l.product.unitPrice) * l.qty,
+      maxDiscountPercent,
+    ),
+  );
+  const discountApproved =
+    overLimit.length === 0 ||
+    discountApprover?.kind === "self" ||
+    (discountApprover?.kind === "manager" && discountPin.length >= 4);
   const cashMinor = method !== "card" && cash ? minor(cash) : 0;
   const cardMinor =
     method === "card"
@@ -446,7 +516,7 @@ export function Sell({
             ? { ...l, qty: Math.min(l.qty + 1, product.available) }
             : l,
         );
-      return [...current, { product, qty: 1 }];
+      return [...current, { product, qty: 1, discount: null }];
     });
     setSelectedId(product.productId);
     setQuery("");
@@ -546,15 +616,62 @@ export function Sell({
     setRefusal(null);
   }
 
+  // Discounts need the server: it reads the limit and checks the manager. Offline they're off.
+  const discountOffReason = !online
+    ? "Discounts need the server. They're off while the counter is offline."
+    : null;
+  const canDiscount = !busy && !awaiting && !sale && lines.length > 0 && !discountOffReason;
+
+  function openDiscount(productId: string | null = selectedId) {
+    if (!online) return;
+    const line = lines.find((l) => l.product.productId === productId) ?? lines[0];
+    if (!line) return;
+    setSelectedId(line.product.productId);
+    setDiscountFor(line.product.productId);
+  }
+
+  function applyDiscount(discount: LineDiscount | null) {
+    setLines((current) =>
+      current.map((l) =>
+        l.product.productId === discountFor ? { ...l, discount } : l,
+      ),
+    );
+    setDiscountRefusal(null);
+    setDiscountFor(null);
+  }
+
+  // Closing the discount sheet puts the cursor back in search, for the next scan.
+  const discountWasOpen = useRef(false);
+  useEffect(() => {
+    if (discountFor) discountWasOpen.current = true;
+    else if (discountWasOpen.current) {
+      discountWasOpen.current = false;
+      searchRef.current?.focus();
+    }
+  }, [discountFor]);
+  // Going offline closes it: the approval it would ask for can't be checked.
+  useEffect(() => {
+    if (!online) setDiscountFor(null);
+  }, [online]);
+
+  /** The lines as the counter sends them: ids, quantities and each line's discount in cents. */
+  const saleLines = () =>
+    lines.map((l) => {
+      const discountMinor = discountMinorOf(l);
+      return {
+        productId: l.product.productId,
+        qty: l.qty,
+        ...(discountMinor > 0 ? { discountMinor } : {}),
+      };
+    });
+
   async function hold() {
     if (busy || awaiting || !lines.length) return;
     setError(null);
     const result = await invoke(() =>
       window.pos.holdCart({
-        lines: lines.map((l) => ({
-          productId: l.product.productId,
-          qty: l.qty,
-        })),
+        // A held discount keeps its amount; a manager's approval is asked for again on recall.
+        lines: saleLines(),
         dispensing,
       }),
     );
@@ -575,6 +692,7 @@ export function Sell({
     if (!fresh.ok) return setError(fresh.error.message);
     setCatalog(fresh.value.products);
     setVatRatePercent(fresh.value.vatRatePercent);
+    setMaxDiscountPercent(fresh.value.maxDiscountPercent);
     const result = await invoke(() => window.pos.recallHold({ holdId }));
     loadHolds();
     if (!result.ok) return setError(result.error.message);
@@ -586,7 +704,15 @@ export function Sell({
     const restored = held.lines.flatMap((l) => {
       const product = byId.get(l.productId);
       return product && product.available > 0
-        ? [{ product, qty: Math.min(l.qty, product.available) }]
+        ? [
+            {
+              product,
+              qty: Math.min(l.qty, product.available),
+              discount: l.discountMinor
+                ? { mode: "amount" as const, value: plainMoney(l.discountMinor) }
+                : null,
+            },
+          ]
         : [];
     });
     setLines(restored);
@@ -623,25 +749,37 @@ export function Sell({
       setSheetOpen(true);
       return;
     }
+    // A discount over the limit needs its approver first: take the person to the sheet.
+    if (!discountApproved) {
+      openDiscount(overLimit[0]!.product.productId);
+      return;
+    }
     setBusy(true);
     setError(null);
     setRefusal(null);
+    setDiscountRefusal(null);
     try {
       const result = await invoke(() =>
         window.pos.submitCheckout({
-          lines: lines.map((l) => ({
-            productId: l.product.productId,
-            qty: l.qty,
-          })),
+          lines: saleLines(),
           tender: tender(),
           dispensing,
           ...(hasControlled && approverId
             ? { coSign: { approverUserId: approverId, pin } }
             : {}),
+          ...(overLimit.length > 0 && discountApprover?.kind === "manager"
+            ? {
+                discountCoSign: {
+                  approverUserId: discountApprover.userId,
+                  pin: discountPin,
+                },
+              }
+            : {}),
         }),
       );
-      // The PIN is good for one attempt; never leave it sitting in the form.
+      // The PINs are good for one attempt; never leave them sitting in the form.
       setPin("");
+      setDiscountPin("");
       if (result.ok) {
         setSale(result.value);
         setLastSale(result.value);
@@ -656,6 +794,10 @@ export function Sell({
         if (result.error.code === "APPROVER_NOT_QUALIFIED" && approverId)
           setRefusedApproverIds((ids) => [...new Set([...ids, approverId])]);
         setSheetOpen(true);
+      } else if (isDiscountRefusal(result.error.code) && overLimit.length > 0) {
+        // The manager's approval was needed or refused: say why in the discount sheet.
+        setDiscountRefusal(result.error.message);
+        setDiscountFor(overLimit[0]!.product.productId);
       } else {
         setError(result.error.message);
         if (result.error.code === "CHECKOUT_UNCERTAIN") setAwaiting(true);
@@ -686,6 +828,7 @@ export function Sell({
   useKeyBinding("F6", () => focusSearch());
   useKeyBinding("F7", () => openCustomer());
   useKeyBinding("F8", () => void hold(), { enabled: canHold });
+  useKeyBinding("F9", () => openDiscount(), { enabled: canDiscount });
   useKeyBinding("F10", () => openPharmacist(), { enabled: needsPrescription });
   useKeyBinding(["F12", "Ctrl+Enter"], () => void complete(), {
     enabled: canComplete,
@@ -1100,6 +1243,13 @@ export function Sell({
               const p = l.product;
               const sel = p.productId === selectedId;
               const linked = prescription && !prescription.expired;
+              const grossMinor = minor(p.unitPrice) * l.qty;
+              const lineDiscount = discountMinorOf(l);
+              const needsManager = overDiscountLimit(
+                lineDiscount,
+                grossMinor,
+                maxDiscountPercent,
+              );
               return (
                 <div
                   key={p.productId}
@@ -1126,6 +1276,28 @@ export function Sell({
                         <span className={cx(ui.pill, ui.warn, s.linePill)}>
                           Controlled · co-sign
                         </span>
+                      )}
+                      {lineDiscount > 0 && (
+                        <button
+                          type="button"
+                          className={cx(
+                            ui.pill,
+                            needsManager ? ui.warn : ui.info,
+                            s.linePill,
+                            s.discountPill,
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDiscount(p.productId);
+                          }}
+                          disabled={!canDiscount}
+                          aria-label={`Change the discount on ${p.name}`}
+                        >
+                          <Icon name="tag" />
+                          Discount −
+                          {percentText(discountPercent(lineDiscount, grossMinor))}
+                          {needsManager ? " · manager" : ""}
+                        </button>
                       )}
                       <span>
                         {[
@@ -1178,7 +1350,10 @@ export function Sell({
                     {money(minor(p.unitPrice))}
                   </span>
                   <span className={cx(s.am, s.r)}>
-                    {money(minor(p.unitPrice) * l.qty)}
+                    {lineDiscount > 0 && (
+                      <span className={s.was}>{money(grossMinor)}</span>
+                    )}
+                    {money(grossMinor - lineDiscount)}
                   </span>
                 </div>
               );
@@ -1196,6 +1371,9 @@ export function Sell({
               </span>
               <span>
                 <kbd className={s.key}>Del</kbd> remove
+              </span>
+              <span>
+                <kbd className={s.key}>F9</kbd> discount
               </span>
               <span>
                 <kbd className={s.key}>F10</kbd> pharmacist
@@ -1222,6 +1400,19 @@ export function Sell({
                   {money(minor(sale.grandTotal))}
                 </div>
                 <dl className={s.brk}>
+                  {minor(sale.discountTotal) > 0 && (
+                    <>
+                      <dt>
+                        Discount
+                        {sale.discountApproverName
+                          ? ` · approved by ${sale.discountApproverName}`
+                          : ""}
+                      </dt>
+                      <dd className={s.neg}>
+                        −{money(minor(sale.discountTotal))}
+                      </dd>
+                    </>
+                  )}
                   <dt>Paid</dt>
                   <dd>{money(minor(sale.amountPaid))}</dd>
                   {sale.payments.map((p, i) => (
@@ -1291,6 +1482,12 @@ export function Sell({
                 <dl className={s.brk}>
                   <dt>Subtotal</dt>
                   <dd>{money(totals.subtotalMinor)}</dd>
+                  {totals.discountMinor > 0 && (
+                    <>
+                      <dt>Discount</dt>
+                      <dd className={s.neg}>−{money(totals.discountMinor)}</dd>
+                    </>
+                  )}
                   <dt>VAT{vatRatePercent ? ` (${vatRatePercent}%)` : ""}</dt>
                   <dd>{money(totals.taxMinor)}</dd>
                 </dl>
@@ -1307,6 +1504,31 @@ export function Sell({
                     <small>{rxBox.detail}</small>
                   </div>
                   <KeyHint keys="F10" small />
+                </button>
+              )}
+              {overLimit.length > 0 && (
+                <button
+                  type="button"
+                  className={cx(s.cosign, !discountApproved && s.cosignTodo)}
+                  onClick={() => openDiscount(overLimit[0]!.product.productId)}
+                  disabled={!online}
+                >
+                  <Icon name={discountApproved ? "shield-check" : "tag"} />
+                  <div>
+                    <b>
+                      {discountApproved
+                        ? "Discount ready to approve"
+                        : `Discount over ${percentText(maxDiscountPercent)} needs a manager`}
+                    </b>
+                    <small>
+                      {discountApprover?.kind === "manager" && discountApproved
+                        ? `${discountApprover.name} approves as you complete`
+                        : discountApprover?.kind === "self"
+                          ? "You approve it as you complete"
+                          : "A manager enters their PIN to approve it."}
+                    </small>
+                  </div>
+                  <KeyHint keys="F9" small />
                 </button>
               )}
               <div
@@ -1386,8 +1608,18 @@ export function Sell({
                   </>
                 )}
               </div>
-              {lastSale && (
-                <div className={s.extras}>
+              <div className={s.extras}>
+                <button
+                  type="button"
+                  className={cx(ui.btn, ui.ghost)}
+                  onClick={() => openDiscount()}
+                  disabled={!canDiscount}
+                  title={discountOffReason ?? undefined}
+                >
+                  <Icon name="tag" />
+                  Discount <KeyHint keys="F9" small />
+                </button>
+                {lastSale && (
                   <button
                     type="button"
                     className={cx(ui.btn, ui.ghost)}
@@ -1399,7 +1631,13 @@ export function Sell({
                     <Icon name="receipt" />
                     Last receipt
                   </button>
-                </div>
+                )}
+              </div>
+              {discountOffReason && (
+                <p className={cx(ui.muted, s.offReason)} role="note">
+                  <Icon name="wifi-off" />
+                  {discountOffReason}
+                </p>
               )}
               <div className={s.payActions}>
                 <div className={s.payMsg}>
@@ -1443,6 +1681,37 @@ export function Sell({
         // Clicking anywhere else closes the open menu.
         <div className={s.menuCatch} onClick={() => setMenu(null)} />
       )}
+      {discountFor &&
+        (() => {
+          const line = lines.find((l) => l.product.productId === discountFor);
+          if (!line) return null;
+          return (
+            <KeyScope layer>
+              <DiscountSheet
+                line={{
+                  productId: line.product.productId,
+                  name: productName(line.product),
+                  qty: line.qty,
+                  unit: line.product.unit,
+                  unitPriceMinor: minor(line.product.unitPrice),
+                  discount: line.discount,
+                }}
+                limitPercent={maxDiscountPercent}
+                approver={discountApprover}
+                pin={discountPin}
+                refusal={discountRefusal}
+                pinRef={discountPinRef}
+                onApply={applyDiscount}
+                onApprover={(approver) => {
+                  setDiscountApprover(approver);
+                  setDiscountPin("");
+                }}
+                onPin={setDiscountPin}
+                onClose={() => setDiscountFor(null)}
+              />
+            </KeyScope>
+          );
+        })()}
       {sheetOpen && needsPrescription && (
         <KeyScope layer>
         <PrescriptionSheet

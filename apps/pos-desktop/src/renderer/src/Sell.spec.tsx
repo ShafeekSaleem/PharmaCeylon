@@ -36,7 +36,11 @@ beforeEach(() => {
   pos = stubPos({
     catalog: async () => ({
       ok: true,
-      value: { products: [panadol, amoxicillin], vatRatePercent: 0 },
+      value: {
+        products: [panadol, amoxicillin],
+        vatRatePercent: 0,
+        maxDiscountPercent: 10,
+      },
     }),
     listHolds: async () => ({ ok: true, value: [] }),
     holdCart: async () => ({ ok: true, value: { holdRef: "H-0001" } }),
@@ -50,10 +54,10 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-async function renderSell() {
+async function renderSell(props: { online?: boolean } = {}) {
   renderWithKeys(
     <KeyScope active>
-      <Sell />
+      <Sell {...props} />
     </KeyScope>,
   );
   await act(async () => undefined);
@@ -164,5 +168,139 @@ describe("Sell's keys", () => {
     press("F10");
     await act(async () => undefined);
     expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+});
+
+describe("line discounts on F9 (P2b #103)", () => {
+  const managerId = "00000000-0000-4000-8000-0000000000f1";
+  const discountField = () =>
+    screen.getByLabelText("Discount percent") as HTMLInputElement;
+
+  /** Panadol × 2 (192.00) on the ticket, paid in full, with F9's sheet open. */
+  async function discountSheet() {
+    await renderSell();
+    await scan(panadol.barcode!);
+    press("+", { shiftKey: true });
+    press("F9");
+    await act(async () => undefined);
+    expect(screen.getByRole("dialog", { name: panadol.name })).toBeTruthy();
+    expect(document.activeElement).toBe(discountField());
+  }
+
+  it("gives a discount up to the limit without a manager, and shows it on the ticket and in the totals", async () => {
+    pos.submitCheckout!.mockImplementation(() => new Promise(() => undefined));
+    await discountSheet();
+    fireEvent.change(discountField(), { target: { value: "10" } });
+    expect(screen.queryByText("Manager approval")).toBeNull();
+    press("Enter");
+    await act(async () => undefined);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(search());
+
+    // The line keeps its full price struck through; the totals take the discount off.
+    expect(screen.getByRole("button", { name: `Change the discount on ${panadol.name}` }).textContent).toContain("Discount −10%");
+    expect(screen.getByText("Discount", { selector: "dt" })).toBeTruthy();
+    expect(screen.getByText("−19.20")).toBeTruthy();
+    expect(screen.getAllByText("172.80").length).toBeGreaterThan(0);
+
+    fireEvent.change(cash(), { target: { value: "172.80" } });
+    press("F12");
+    expect(pos.submitCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lines: [{ productId: panadol.productId, qty: 2, discountMinor: 1920 }],
+        tender: { cashAmount: "172.80" },
+      }),
+    );
+    expect(pos.submitCheckout!.mock.calls[0]![0]).not.toHaveProperty("discountCoSign");
+  });
+
+  it("over the limit, asks for a manager's PIN and sends their co-sign with the sale, once", async () => {
+    pos.listDiscountApprovers = jest.fn(async () => ({
+      ok: true,
+      value: [{ userId: managerId, fullName: "Nimal Manager", hasPin: true }],
+    })) as never;
+    pos.submitCheckout!.mockImplementation(async () => ({
+      ok: false,
+      error: { code: "DISCOUNT_COSIGN_REFUSED", message: "Incorrect till PIN" },
+    }));
+    await discountSheet();
+    fireEvent.change(discountField(), { target: { value: "25" } });
+    await act(async () => undefined);
+    expect(screen.getByText(/Over the 10% limit/)).toBeTruthy();
+    // Not until someone approves it.
+    expect((screen.getByRole("button", { name: /Apply discount/ }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /Nimal Manager/ }));
+    await act(async () => undefined);
+    const pin = screen.getByLabelText("Nimal Manager's PIN") as HTMLInputElement;
+    expect(document.activeElement).toBe(pin);
+    fireEvent.change(pin, { target: { value: "8642" } });
+    press("Enter");
+    await act(async () => undefined);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("Nimal Manager approves as you complete")).toBeTruthy();
+
+    fireEvent.change(cash(), { target: { value: "200" } });
+    press("F12");
+    await act(async () => undefined);
+    expect(pos.submitCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lines: [{ productId: panadol.productId, qty: 2, discountMinor: 4800 }],
+        discountCoSign: { approverUserId: managerId, pin: "8642" },
+      }),
+    );
+    // Refused: back in the sheet with the reason, and the PIN is gone.
+    expect(screen.getByRole("dialog", { name: panadol.name })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Incorrect till PIN");
+    expect((screen.getByLabelText("Nimal Manager's PIN") as HTMLInputElement).value).toBe("");
+  });
+
+  it("asks again for approval of a recalled discount over the limit before completing it", async () => {
+    pos.listDiscountApprovers = jest.fn(async () => ({ ok: true, value: [] })) as never;
+    pos.listHolds = jest.fn(async () => ({
+      ok: true,
+      value: [{ holdId: "00000000-0000-4000-8000-0000000000a9", holdRef: "H-0009", label: null, itemCount: 2, total: "144.00", createdAt: "", heldBy: "Ana" }],
+    })) as never;
+    pos.recallHold = jest.fn(async () => ({
+      ok: true,
+      value: { lines: [{ productId: panadol.productId, qty: 2, discountMinor: 4800 }], customer: null, prescription: null },
+    })) as never;
+    pos.submitCheckout!.mockImplementation(() => new Promise(() => undefined));
+    await renderSell();
+    fireEvent.click(screen.getByRole("button", { name: /^Held/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Recall" }));
+    await act(async () => undefined);
+    // The held discount came back; the approval didn't.
+    expect(screen.getByText("Discount over 10% needs a manager")).toBeTruthy();
+
+    fireEvent.change(cash(), { target: { value: "200" } });
+    press("F12");
+    await act(async () => undefined);
+    expect(pos.submitCheckout).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: panadol.name })).toBeTruthy();
+    expect((screen.getByLabelText("Discount amount") as HTMLInputElement).value).toBe("48.00");
+
+    // A seller whose role may approve their own says so; the server decides at checkout.
+    fireEvent.click(screen.getByRole("button", { name: /approving it myself/ }));
+    press("Enter", { ctrlKey: true });
+    await act(async () => undefined);
+    press("F12");
+    expect(pos.submitCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ lines: [{ productId: panadol.productId, qty: 2, discountMinor: 4800 }] }),
+    );
+    expect(pos.submitCheckout!.mock.calls[0]![0]).not.toHaveProperty("discountCoSign");
+  });
+
+  it("is off while the counter is offline, and says why", async () => {
+    await renderSell({ online: false });
+    await scan(panadol.barcode!);
+    press("F9");
+    await act(async () => undefined);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const button = screen.getByRole("button", { name: /^Discount/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByRole("note").textContent).toContain(
+      "Discounts need the server. They're off while the counter is offline.",
+    );
   });
 });
