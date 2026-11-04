@@ -1,6 +1,11 @@
 # P1 acceptance-test audit (Epic #47)
 
-Audited against `develop` at `e1f0de1` (2026-11-02). Each acceptance criterion in
+Audited against `develop` at `e1f0de1` (2026-11-02), and re-checked at `e82aa7a` (2026-11-04),
+after P2 [#93](https://github.com/ShafeekSaleem/PharmaCeylon/pull/93), MR 10a
+[#100](https://github.com/ShafeekSaleem/PharmaCeylon/pull/100) and MR 10b
+[#102](https://github.com/ShafeekSaleem/PharmaCeylon/pull/102) merged. The AC3 row for a seller
+dispensing alone was added once [#109](https://github.com/ShafeekSaleem/PharmaCeylon/pull/109)
+merged. Each acceptance criterion in
 [#47](https://github.com/ShafeekSaleem/PharmaCeylon/issues/47) is split into the claims it
 makes. Each claim is mapped to the tests that prove it.
 
@@ -10,14 +15,17 @@ This document ticks nothing. The checkboxes on #47 stay with the issue owner.
 
 - **PROVEN**: unit and/or PostgreSQL tests exercise the claim through the real code path.
 - **PARTIAL**: the delivered part is proven; the rest is named in the row.
-- **BLOCKED-ON-P2**: needs P2 [#93](https://github.com/ShafeekSaleem/PharmaCeylon/pull/93)
-  (local activation, real attendance, PIN co-sign) or later P3/P5 work. It is not tested here
-  because the behaviour does not exist on `develop` yet.
+- **WAITS ON …**: the behaviour does not exist on `develop` yet, so nothing can test it. The
+  status names the work it waits on. The first audit marked these rows BLOCKED-ON-P2. P2 (#93)
+  has since merged. The rows that were waiting on it are now PROVEN or PARTIAL. The rest were
+  waiting on other work, and now say which.
 - **MISSING**: delivered on `develop` but not tested. This audit leaves no row MISSING.
 
 **Where tests live.** Paths are relative to `apps/api`. `int:` means `test/integration/*.int-spec.ts`,
 run with `npm run test:integration -w api`. `unit:` means a colocated `src/**/*.spec.ts`.
-Tests marked **(new)** were added by this audit.
+Tests marked **(new)** were added by the first audit. Tests marked **(new, re-check)** were added
+by the 2026-11-04 re-check. `desktop:` means `apps/pos-desktop/src/main/**/*.spec.ts`, run with
+`npm run test -w pos-desktop`.
 
 ## AC1: negative boundary tests, and remote management positives
 
@@ -26,7 +34,7 @@ Tests marked **(new)** were added by this audit.
 | Claim | Status | Tests |
 |---|---|---|
 | Remote (browser/owner) caller cannot run a **signed** physical operation | PROVEN | unit `security/operation-authorization.service.spec.ts`: "owner cannot execute %s without terminal evidence"; int `terminal-execution`: "an owner's browser session cannot post stock: no terminal proof, no borrowed session, no unenrolled key" **(new)** |
-| Legacy **browser** physical routes (`POST /stocktakes/:id/post`, `/transfers/:id/ship`, checkout, …) refuse non-terminal callers | BLOCKED-ON-P2 | Not enforced on `develop`. Coordinated production enforcement is an open #47 item after #93 and W1 rollout. Browser routes still post by design until then. Import undo is the exception: it is already limited to non-live branches (int `import-stock`: "only offers legacy physical undo at its selected non-live branch"). |
+| Legacy **browser** physical routes (`POST /stocktakes/:id/post`, `/transfers/:id/ship`, checkout, …) refuse non-terminal callers | WAITS ON W1 rollout + P6 | Not enforced on `develop`: browser routes still post by design. Coordinated production enforcement is still an open #47 item. It no longer waits on #93. It waits on two things: W1 rollout, meaning branches actually going live (the W1 #63 web foundation is done), and the P6 [#52](https://github.com/ShafeekSaleem/PharmaCeylon/issues/52) counter screens that replace each browser physical route. The branch state enforcement will key on is built: int `pos-rollout`: "starts every branch not live", "refuses a fallback on a branch that isn't live, at the database too", "runs a fallback on a live branch and audits each change with the branch". Import undo is the exception: it is already limited to non-live branches (int `import-stock`: "only offers legacy physical undo at its selected non-live branch"). |
 | Wrong tenant / wrong branch | PROVEN | int `terminal-execution`: "rejects another tenant's owner and a different branch header"; unit `terminal-commands/terminal-command.executor.spec.ts`: "rejects a branch header or tenant that differs from the signed identity before any transaction"; int `terminal-foundation`: "rejects a terminal at another tenant's branch"; int `terminal-verification`: "rejects another key, another branch, another authenticated staff member and another operation" |
 | Wrong enrollment / another device's key | PROVEN | int `terminal-execution`: "rejects another enrollment's identity and another device's signature"; int `terminal-foundation`: "binds enrollments to the exact tenant, branch and terminal", "rejects mismatched receipt identity including the signing key"; int `terminal-verification`: "requires possession of the challenge's candidate enrollment key" |
 | Revoked device (execution and replay) | PROVEN | int `terminal-execution`: "rejects execution and replay from a revoked device"; int `terminal-verification`: "revocation closes staff bindings and blocks previously prepared commands without deleting history", "enrollment lock makes a revocation that wins the race block verification"; unit executor: "refuses replay to another staff user and to a revoked enrollment" |
@@ -36,8 +44,8 @@ Tests marked **(new)** were added by this audit.
 | Expired command | PROVEN | unit `terminal-wire.spec`: "enforces trusted time and bounded challenge lifetime"; int `terminal-verification`: "rejects expiry and a caller-selected time window"; int `terminal-execution`: "refuses an expired command without spending its nonce; the same command still runs once in time" **(new)** |
 | Stale sign-in (token version bumped after signing) | PROVEN | int `terminal-verification`: "rechecks membership, token version and branch roles rather than cached owner claims"; int `terminal-execution`: "refuses a command signed before the executor's sign-in changed, and its replay" **(new)** |
 | Live permission removed (execution and replay) | PROVEN | int `terminal-execution`: "refuses execution and replay after the operation permission is removed", "refuses execution and replay to a custom role without terminal.execute"; int `terminal-verification`: "rejects a custom permission removed during verification's enrollment lock wait"; unit executor: "refuses replay when live branch authority is gone" |
-| Unverifiable attendance, owner included (fails closed) | PROVEN | int `terminal-execution`: "rejects unverified attendance for the owner", "denies execution without a test attendance or hours provider"; int `terminal-verification`: "rejects unknown/remote attendance evidence including for an owner", "default production attendance denies owner enrollment and preserves the unconsumed challenge"; unit `terminal-wire.spec`: "production attendance verification denies even an owner-provided local claim" |
-| Real independent attendance accepted | BLOCKED-ON-P2 | Production `LocalAttendanceVerifier` always denies. The real provider is P2 (#93). Tests use a fixture verifier. |
+| Unverifiable attendance, owner included (fails closed) | PROVEN | int `terminal-execution`: "rejects unverified attendance for the owner", "denies execution without a test attendance or hours provider"; int `terminal-verification`: "rejects unknown/remote attendance evidence including for an owner", "default production attendance denies owner enrollment and preserves the unconsumed challenge"; unit `terminal-wire.spec`: "production attendance verification denies a claim that was never recorded as a proof" (renamed by #93) |
+| Real independent attendance accepted | PROVEN | The production `LocalAttendanceVerifier` now accepts a console proof that desktop main signed and `AttendanceProofsService` recorded (D-P2a). int `terminal-enrollment`, run with the production verifier and recorder ("nothing is stubbed"): "enrolls a console-attended device and opens a staff session on it", "refuses %s" (a Remote Desktop session, the remote flag on a console session, an unidentified session), "refuses an attestation signed by a key other than the one being enrolled", "refuses an attestation for a different challenge, counter, actor or branch", "consumes a proof once and leaves it usable when the operation rolls back", "does not accept an enrollment proof for a session, or a used proof twice", "refuses session attestations from a revoked device", "keeps proof content immutable and never deletes it", and for PIN sign-in "needs this counter's key and a console proof, and counts no guess without them". int `offline-activation`: "activates the authorized counter once, recording authorizer and activator separately", "refuses activation from a counter other than the authorized target". int `terminal-execution`: "posts once on a console proof recorded for the command, through the production verifier" **(new, re-check)**, for a signed physical command (refuses an RDP attestation, replays a lost response without the spent proof, and refuses the spent proof for another command). The other signed-domain tests keep the fixture verifier, which is bound to the same exact expectation. The accepted v1 limit is decided, not tested: remote-control tools that drive the console session look local to Windows (D-P2a). |
 | Positive: remote management without terminal proof | PROVEN | unit `operation-authorization.service.spec`: "permits remote management/reservations at %s without a terminal"; unit `security/operation-classification.spec.ts`: "permits remote management classification for %s"; int `management-approvals`: "permits remote approval and exact scoped use for %s without posting effects"; int `offline-assignment`: "lets an owner authorize one exact enrolled target, remotely and idempotently" |
 | Positive: normal business reservations without terminal proof | PROVEN | int `transfers`: "approves the exact displayed content: reservation only, no ledger movement"; unit `operation-classification.spec`: "keeps normal reservations remote but both transfer execution ends local"; int `workflows`: "counts reserved units as on the shelf, so a pending transfer creates no false surplus" |
 
@@ -56,7 +64,7 @@ Tests marked **(new)** were added by this audit.
 | Existing self-approval settings preserved | PROVEN | int `management-approvals`: "preserves configurable self-approval without imposing two different approver/executor people"; int `held-approvals`: "enforces existing self-approval policy and rejects wrong-branch execution"; int `workflows`: "enforces self-approval for every counter, not only the stocktake creator"; unit `security/access.service.spec.ts` |
 | Separate approval and execution audit | PROVEN | int `terminal-execution`: "lost response: retry returns the identical original result with one effect and one audit chain" (approvedBy/executedBy + command provenance); int `receiving-returns`: "approves without stock, receipt or invoice, then posts exactly once with three actors recorded"; int `transfers`: "dispatches once: stock leaves the source, is in transit, and the audit names every actor" |
 | No indirect physical posting via approval or workers | PROVEN | int `management-approvals`: "permits remote approval and exact scoped use for %s without posting effects"; int `refund-requests`: "prepares within the original-sale limit and refuses beyond it"; lint scanners `scripts/check-stock-writes.mjs` and `../../scripts/pos/check-mutation-inventory.mjs` (route inventory) |
-| No indirect physical posting via **legacy browser routes** | BLOCKED-ON-P2 | Same as AC1: browser physical routes still post until coordinated enforcement (after #93 / W1). |
+| No indirect physical posting via **legacy browser routes** | WAITS ON W1 rollout + P6 | Same as AC1: browser physical routes still post until coordinated enforcement, which waits on branches going live (W1 rollout) and the P6 #52 counter screens. #93 is merged and no longer what it waits on. |
 
 ## AC3: clinical evidence
 
@@ -69,8 +77,9 @@ Tests marked **(new)** were added by this audit.
 | Permission administration grants no pharmacist bypass | PROVEN | int `pharmacist-registration`: "a custom role holding every permission key is still not qualified, and cannot record its own registration" **(new)**, "refuses managers, whatever their permissions" |
 | Permission administration grants no device bypass | PROVEN | int `terminal-execution`: "refuses execution and replay to a custom role without terminal.execute"; the owner case in AC1 |
 | Ordinary role administration still works | PROVEN | int `back-office-access`: "edits a custom role's web scope independently, keeps tenant boundaries and refuses owner lockout" |
-| Pharmacist PIN co-sign checks the SLMC registration | BLOCKED-ON-P2 | `sales/pharmacist-approval.service.ts` is owned by #93 and does not call `assertQualified` yet. unit `sales/pharmacist-approval.service.spec.ts` covers role/PIN only. |
-| Clinical work through the signed executor | BLOCKED-ON-P2 | No signed operation in the registry has clinical facts yet; checkout is not a signed operation. The clinical port is proven at the boundary instead. |
+| Pharmacist PIN co-sign checks the SLMC registration | PROVEN | MR 10b (#102) checks the co-signer on the checkout's own transaction, after their PIN, through `clinical/pharmacist-registration.service.ts`. int `pharmacist-registration` "controlled checkout co-sign (P1 #47 with P2 #93)": "refuses a co-signer with no registration, an expired one or a revoked one, and sells nothing", "accepts a registered co-signer and keeps the registration it relied on with the sale", "waits for a revocation in progress and is refused once it commits", "pins a sale's registration to its dispenser in the database"; unit `sales/sales.checkout-controlled.spec.ts`: "checks the co-signer's registration on the checkout's own transaction, after their PIN", "refuses an unregistered, expired or revoked co-signer with a coded 403 that names them", "lets other failures through unchanged", "makes a named co-signer the dispenser even when the seller could dispense alone". A seller who dispenses alone is the next row. |
+| A seller dispensing alone needs their own SLMC registration, on the web POS too | PROVEN | #109 checks every controlled checkout, at a counter or on the web POS, whatever the branch's desktop POS state; before it the web POS trusted the seller's role before go-live and during a fallback. int `pharmacist-registration` "a seller dispensing alone on the web, with no co-sign or counter session": "is checked at every branch, whatever its desktop POS state, and sells nothing without one", "keeps the registration it relied on with the sale, in every desktop POS state"; int `terminal-enrollment`: "needs the seller's own SLMC registration, checked on the counter's checkout transaction"; unit `sales/sales.checkout-controlled.spec.ts`: "needs their own registration at a counter, and is told to get a co-sign without one", "needs their own registration on the web POS too, at every branch, and is told to get a co-sign". Not tested: the web POS opening its pharmacist PIN dialog on `SELLER_NOT_QUALIFIED` (`apps/web/src/app/(app)/pos/page.tsx`) has no automated test. |
+| Clinical work through the signed executor | PARTIAL | Prescriptions are a signed clinical operation (MR 10a, #100). int `terminal-execution` "prescriptions through signed commands (clinical)": "records once for a registered pharmacist, replays the original result and audits the registration", "refuses an owner or manager with no registration: no prescription, receipt or spent nonce", "refuses a command prepared before the registration was revoked"; int `pharmacist-registration` "the unsigned prescription route at a branch live on PharmaCeylon POS": "refuses outside a fallback, whoever calls it, and records nothing"; desktop `terminal/signed-commands.spec.ts`: "sends a signed clinical command, with no approval or co-sign evidence, and keeps its receipt", "treats a missing SLMC registration as a final refusal the counter can explain". Open: co-sign evidence on a signed prescription command waits on the desktop Sell work. Checkout is not a signed operation; its clinical check is the co-sign row above. |
 
 ## AC4: concurrent retry and lost response
 
@@ -82,7 +91,7 @@ Tests marked **(new)** were added by this audit.
 | Concurrent retries give one effect, one audit chain | PROVEN | int `terminal-execution`: "concurrent identical retries produce one effect and the same receipt", "posts a held write-off once, notifies after commit and replays the original result"; int `transfers`: "concurrent identical dispatch retries produce one effect and one receipt"; int `refund-requests`: "concurrent retries and browser executions refund once"; int `payment-evidence`: "replays concurrent/lost responses and a later different key without another financial effect"; int `terminal-foundation`: "permits only one concurrent insert for a command, regardless of actor or content"; unit executor: "replays the committed original after a receipt unique violation instead of executing again" |
 | Altered command replays fail | PROVEN | int `terminal-execution`: "rejects an altered replay of a committed command and an altered unexecuted command"; unit executor: "rejects altered content for a committed command identity as REPLAY_CONFLICT" |
 | Replay keeps live authority | PROVEN | int `terminal-execution`: "refuses execution and replay after the operation permission is removed", "refuses to replay another staff member's receipt", "replays a committed command while unrelated work holds the enrollment lock" |
-| Offline sequence receipts | BLOCKED-ON-P2 | P2/P5 producers. int `terminal-foundation`: "rejects reused offline sequence but allows multiple online receipts" covers only the schema. |
+| Offline sequence receipts | WAITS ON P5 | Nothing produces offline receipts yet. They come with P5 [#51](https://github.com/ShafeekSaleem/PharmaCeylon/issues/51) offline sync and reconciliation, not P2. int `terminal-foundation`: "rejects reused offline sequence but allows multiple online receipts" covers only the schema. |
 
 ## AC5: injected failures and existing invariants
 
@@ -102,14 +111,14 @@ Tests marked **(new)** were added by this audit.
 | Claim | Status | Tests |
 |---|---|---|
 | API device fixtures exercise P1 | PROVEN | `test/fixtures/terminal-device.ts` (real Ed25519), used by int `terminal-execution`, `terminal-verification`, `transfers`, `receiving-returns`, `refund-requests`, `support-records`, `hours-evidence`, `offline-assignment` |
-| Integrated local-attendance enforcement with P2 | BLOCKED-ON-P2 | Needs the #93 desktop client and attendance provider. |
+| Integrated local-attendance enforcement with P2 | PARTIAL | Both halves of #93 are proven against the shared `LocalAttendanceAttestation` contract. API: the production-verifier tests in AC1 "Real independent attendance accepted". Desktop main: desktop `terminal/terminal-service.spec.ts`: "enrolls with a fresh key, proves attendance and signs the manager out", "binds the attestation to the challenge digest the server computes", "refuses to enroll from a remote session before contacting the server for a proof", "refuses an attended action while a remote-control tool is running, before any proof", "shows a waiting authorization and activates it with a signed, attended command", "refuses to activate from a remote session"; desktop `attendance/remote-tools.spec.ts`. Open: no automated test drives the desktop client against a running API. The criterion's "demonstrated … before operational rollout" is a go-live step on a real counter, not a test. |
 
 ## Operational-readiness acceptance additions (unchecked items)
 
 | Claim | Status | Tests |
 |---|---|---|
 | Incident and external-card-attempt records: held, immutable, no stock/cash/refund effects | PROVEN | int `support-records`: "persists the signed note as held evidence, replays identical uploads and moves nothing", "refuses a card number in the note before anything is stored", "holds an event that disagrees with its attempt's draft, amount, reference or linked sale", "rejects another device's signature, a wrong branch, an untrusted clock and a stale uploader", "keeps signed content immutable, the outcome final and conflicts permanent"; unit `terminals/offline-support-records.spec.ts` |
-| P3/P5 acknowledgement / grant / manager verification before dependent sale/shift commands | BLOCKED-ON-P2 | P3/P5 (records remain held). No HTTP intake route yet. P5 sync calls the intake. |
+| P3/P5 acknowledgement / grant / manager verification before dependent sale/shift commands | WAITS ON P3/P5 | Offline grants are P3 [#49](https://github.com/ShafeekSaleem/PharmaCeylon/issues/49); acknowledgement and manager verification come with P5 #51 sync. Until then, records stay held. No HTTP intake route exists yet; P5 sync will call the intake. |
 | Material revisions vs notes vs partial counters | PROVEN | int `management-approvals`: "notes retain approval and advance only metadata for %s", "material line changes invalidate %s, even when restored to the old value", "partial receipt counters do not rewrite approved material or revision", "header prices/destination and line insert/delete are material; version rollback is denied"; int `workflows`: "preserves approval on note edits and invalidates material edits even when restored"; int `held-approvals`: "preserves notes but invalidates a changed-and-restored payload"; int `import-stock`: "invalidates internal material edits and change-then-revert; freezes posted material" |
 | Remaining quantities and current authority enforced transactionally | PROVEN | int `transfers`: "two partial receives of the same count post once; the stale one is refused"; int `refund-requests`: "refuses a revoked approval and a refund that exceeds what is now returnable"; int `held-approvals`: "keeps an approved write-off intact when later sales leave insufficient stock" |
 
@@ -123,8 +132,15 @@ Tests marked **(new)** were added by this audit.
 
 ## Still unproven, and why
 
-1. **Browser physical routes are not refused yet.** Coordinated enforcement comes after #93 and W1 rollout (AC1, AC2).
-2. **Real local attendance.** P2 #93 (AC1, AC6).
-3. **PIN co-sign SLMC check.** P2 #93 owns `pharmacist-approval.service.ts` (AC3).
-4. **Clinical work through a signed operation.** It needs a clinical operation in the registry, which comes with checkout under P2/P5 (AC3).
-5. **Offline sequence receipts and P3/P5 verification of support records** (AC4, readiness).
+Re-checked 2026-11-04. Real local attendance (AC1) and the PIN co-sign SLMC check (AC3) were
+open in the first audit. They are now proven by the tests above, and so is the seller's own
+registration on the web POS (AC3, #109). Clinical work through a signed operation (AC3), also
+open then, is now partly proven: what remains is item 3.
+
+1. **Browser physical routes are not refused yet.** Coordinated enforcement waits on W1 rollout
+   (branches going live) and the P6 #52 counter screens (AC1, AC2).
+2. **Desktop and API attendance are each proven, but not run together.** Each side is tested
+   against the shared contract. The demonstration on a real counter is a go-live step (AC6).
+3. **Co-sign evidence on signed prescription commands.** Waits on the desktop Sell work (AC3).
+4. **Offline sequence receipts.** P5 #51 (AC4).
+5. **Acknowledgement, grant and manager verification of held records.** P3 #49 / P5 #51 (readiness).

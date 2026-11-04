@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import type {
+  LocalAttendanceAttestation,
   OnlineCommandReceipt,
   OnlineTerminalCommand,
   SignedPhysicalOperation,
   TerminalEnrollmentCommand,
   TerminalSessionCommand,
+  WindowsSessionEvidence,
 } from "@pharmaceylon/shared";
 import { AuditService, type AuditInput } from "../../src/audit/audit.service";
 import { CategoryTaxonomyService } from "../../src/catalog/category-taxonomy.service";
@@ -30,6 +32,7 @@ import { OperationAuthorizationService } from "../../src/security/operation-auth
 import { StocktakesService } from "../../src/stocktakes/stocktakes.service";
 import { SignedOperations } from "../../src/terminal-commands/signed-operations";
 import { TerminalCommandExecutor } from "../../src/terminal-commands/terminal-command.executor";
+import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
 import {
   LocalAttendanceVerifier,
   type AttendanceExpectation,
@@ -863,6 +866,57 @@ describe("production providers stay fail-closed", () => {
       response: { code: "TEMPORARILY_UNAVAILABLE" } });
     expect((await batchTotals(prisma, st.batchId)).onHand).toBe(50);
     expect(await receiptsFor(payload.commandId)).toBe(0);
+  });
+});
+
+describe("signed execution with recorded console attendance (P1 #47 with P2 #93)", () => {
+  it("posts once on a console proof recorded for the command, through the production verifier", async () => {
+    const counter = await counterFor(fx.managerId);
+    const st = await approvedStocktake(44, 50);
+    const { payload, request } = await signedCommand(counter, "POST /api/v1/stocktakes/:id/post",
+      { stocktakeId: st.id }, st.approvalId);
+    // What desktop main signs and uploads before sending the command (attendance/attestation.ts).
+    const proofs = new AttendanceProofsService(proxy as never, access);
+    const attest = (command: OnlineTerminalCommand<unknown>, windowsSession: WindowsSessionEvidence) => {
+      const a: LocalAttendanceAttestation = {
+        contractVersion: 1, kind: "local_attendance", proofId: randomUUID(), purpose: "command",
+        identity: command.identity, actorUserId: counter.staff.userId,
+        registerId: command.session.registerId, tillId: command.session.tillId,
+        payloadDigest: sha256(boundedCanonical(command)), windowsSession,
+        appVersion: "0.0.1", observedAt: Date.now(),
+      };
+      return proofs.record(counter.staff, branch(), counter.device.sign(a, a.identity.keyId, "attendance"));
+    };
+    const productionTrust = new TerminalTrustService(access, audit, new LocalAttendanceVerifier());
+    const production = new TerminalCommandExecutor(proxy as never, productionTrust,
+      new OperationAuthorizationService(access, productionTrust,
+        new OpenHours(undefined, undefined, registrations), approvals),
+      operations, audit, access);
+    const send = (attendanceProofId: string, command = request.command) =>
+      production.execute(counter.staff, branch(), { command, attendanceProofId });
+
+    await expect(attest(payload, { sessionId: 2, protocol: "rdp", remoteSession: true }))
+      .rejects.toMatchObject({ response: { code: "REMOTE_SESSION_DENIED" } });
+    const proof = await attest(payload, { sessionId: 1, protocol: "console", remoteSession: false });
+    const first = await send(proof.proofId);
+    expect(first).toMatchObject({ replayed: false, commandId: payload.commandId,
+      result: { type: "stocktake.posted", stocktakeId: st.id, effect: "applied" } });
+    expect((await batchTotals(prisma, st.batchId)).onHand).toBe(44);
+    const used = await prisma.terminalAttendanceProof.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, id: proof.proofId } });
+    expect(used.consumedAt).not.toBeNull();
+    // A lost response is replayed from the receipt; the spent proof is not asked for again.
+    expect(await send(proof.proofId)).toMatchObject({ replayed: true, commandId: payload.commandId });
+    expect(await receiptsFor(payload.commandId)).toBe(1);
+
+    // The spent proof does not carry another command.
+    const other = await approvedStocktake(45, 50);
+    const next = await signedCommand(counter, "POST /api/v1/stocktakes/:id/post",
+      { stocktakeId: other.id }, other.approvalId);
+    await expect(send(proof.proofId, next.request.command)).rejects.toMatchObject({
+      response: { code: "LOCAL_ATTENDANCE_UNAVAILABLE" } });
+    expect((await batchTotals(prisma, other.batchId)).onHand).toBe(50);
+    expect(await receiptsFor(next.payload.commandId)).toBe(0);
   });
 });
 
