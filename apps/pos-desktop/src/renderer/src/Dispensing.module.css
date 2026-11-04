@@ -1,0 +1,519 @@
+/* The prescription sheet over Sell (docs/design/desktop-app, screen=rxa). Colours come from tokens.css. */
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--pos-scrim);
+}
+
+.sheet {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  width: 600px;
+  max-width: calc(100% - 28px);
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+  box-shadow: var(--pos-sheet-shadow);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 18px 16px 20px;
+}
+
+.kind {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--pos-t-violet);
+  background: color-mix(in srgb, var(--pos-t-violet) 13%, transparent);
+}
+
+.kind :global(.pos-ic) {
+  width: 22px;
+  height: 22px;
+}
+
+.head h2 {
+  margin: 3px 0 0;
+  font: 650 20px/1.2 var(--pos-font-display);
+  letter-spacing: -0.015em;
+}
+
+.close {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 20px;
+  background: var(--pos-surface-2);
+  border-top: 1px solid var(--pos-line);
+  border-bottom: 1px solid var(--pos-line);
+}
+
+.ms {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pos-text-3);
+  white-space: nowrap;
+}
+
+.ms i {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+  font: 700 11px/1 var(--pos-font);
+  font-style: normal;
+}
+
+.ms i :global(.pos-ic) {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.8;
+}
+
+.ms.isDone {
+  color: var(--pos-text-2);
+}
+
+.ms.isDone i {
+  background: var(--pos-ok);
+  border-color: var(--pos-ok);
+  color: var(--pos-surface);
+}
+
+.ms.isNow {
+  color: var(--pos-text);
+}
+
+.ms.isNow i {
+  background: var(--pos-rx);
+  border-color: var(--pos-rx);
+  color: var(--pos-on-rx);
+  box-shadow: 0 0 0 3px var(--pos-rx-soft);
+}
+
+.msLine {
+  flex: 1;
+  height: 1.5px;
+  background: var(--pos-line-strong);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.fromCustomer {
+  height: 19px !important;
+  font-size: 10.5px !important;
+  padding: 0 7px !important;
+}
+
+.assigned {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px dashed var(--pos-line-strong);
+  background: var(--pos-surface-2);
+  color: var(--pos-text-3);
+  font-size: 13px;
+}
+
+.formActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.subH {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.subH span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cv {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: var(--pos-surface-2);
+  border: 1px solid var(--pos-line);
+  color: var(--pos-text);
+  font: 400 13px/1.3 var(--pos-font);
+  text-align: left;
+}
+
+button.cv {
+  width: 100%;
+  cursor: pointer;
+}
+
+button.cv:hover:not(:disabled) {
+  border-color: var(--pos-line-strong);
+}
+
+button.cv:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+button.cv:disabled {
+  cursor: default;
+  color: var(--pos-text-3);
+}
+
+.cv b {
+  font-weight: 600;
+}
+
+.q {
+  margin-left: auto;
+  color: var(--pos-text-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cb {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+}
+
+.cb :global(.pos-ic) {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
+}
+
+.cbOn {
+  background: var(--pos-primary);
+  border-color: var(--pos-primary);
+  color: var(--pos-on-primary);
+}
+
+.rx {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--pos-rx-line);
+  background: var(--pos-rx-soft);
+  color: var(--pos-rx-ink);
+  font: 700 10.5px/1 var(--pos-font);
+  letter-spacing: 0.04em;
+}
+
+.linked {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+}
+
+.linked > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.linked b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.linked small {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.search {
+  display: flex;
+  gap: 8px;
+}
+
+.search input {
+  flex: 1;
+}
+
+/* The pharmacist who co-signs, and the PIN they enter on this counter. */
+.pharm {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface);
+  color: var(--pos-text);
+  font: inherit;
+  text-align: left;
+}
+
+button.pharm {
+  cursor: pointer;
+}
+
+button.pharm:hover {
+  border-color: var(--pos-line-strong);
+}
+
+button.pharm:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.pharmOn {
+  border: 1.5px solid var(--pos-rx);
+  background: var(--pos-rx-soft);
+  box-shadow: 0 0 0 3px var(--pos-rx-soft);
+}
+
+.pharmRefused {
+  opacity: 0.6;
+}
+
+.pharm .av {
+  width: 42px;
+  height: 42px;
+  font-size: 14px;
+}
+
+.pharm > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.pharm b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.pharm small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.selfIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--pos-surface-3);
+  color: var(--pos-text-3);
+  border: 1px solid var(--pos-line);
+}
+
+.pinMini {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  flex: none !important;
+}
+
+.pinMini > span {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+  font-weight: 600;
+}
+
+.dots {
+  position: relative;
+  display: flex;
+  gap: 8px;
+}
+
+.dots i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--pos-line-strong);
+}
+
+.dots i.f {
+  background: var(--pos-rx);
+  border-color: var(--pos-rx);
+}
+
+.dots:focus-within i:not(.f):first-of-type {
+  border-color: var(--pos-rx);
+}
+
+/* The real PIN field sits over the dots, so typing and pasting work as in any field. */
+.dots input {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  opacity: 0;
+  border: 0;
+  cursor: text;
+}
+
+.password {
+  width: 190px;
+  height: 36px;
+}
+
+.autochecks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.autochecks span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.autochecks :global(.pos-ic) {
+  width: 14px;
+  height: 14px;
+  color: var(--pos-ok);
+  stroke-width: 2.6;
+}
+
+.autochecks .warnCheck :global(.pos-ic) {
+  color: var(--pos-bad);
+}
+
+.refusal {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.refusal > div {
+  display: flex;
+  gap: 10px;
+}
+
+.refusal p {
+  margin: 0;
+}
+
+.refusalActions {
+  display: flex;
+  gap: 8px;
+  padding-left: 27px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+}
+
+.tot small {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--pos-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tot b {
+  font: 700 20px/1.2 var(--pos-font-display);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.key {
+  font-size: 9.5px;
+  padding: 2px 4px;
+}
+
+@media (max-height: 820px) {
+  .head {
+    padding: 14px 16px 12px 18px;
+  }
+
+  .body {
+    gap: 12px;
+    padding: 12px 18px;
+  }
+}
