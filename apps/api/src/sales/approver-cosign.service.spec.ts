@@ -31,6 +31,22 @@ describe("ApproverCoSignService (P2b #103)", () => {
     expect(verifyApproverPin).toHaveBeenLastCalledWith("t", "b", "mgr", "1234", "cashier", "returns.approve");
   });
 
+  it("tags a refused PIN with the co-sign it was for, keeping the code and message", async () => {
+    verifyApproverPin.mockRejectedValueOnce(
+      new ForbiddenException({ code: "APPROVER_PIN_INCORRECT", message: "Incorrect till PIN" }),
+    );
+    await expect(
+      service.verify({ tenantId: "t", branchId: "b", sessionUserId: "c", coSign: { approverUserId: "mgr", pin: "0000" }, purpose: "discount" }),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: "APPROVER_PIN_INCORRECT", message: "Incorrect till PIN", coSign: "discount" },
+    });
+    verifyApproverPin.mockRejectedValueOnce(new ForbiddenException("Selected user can't approve this at this branch"));
+    await expect(
+      service.verify({ tenantId: "t", branchId: "b", sessionUserId: "c", coSign: { approverUserId: "x", pin: "1234" }, purpose: "refund" }),
+    ).rejects.toMatchObject({ response: { message: "Selected user can't approve this at this branch", coSign: "refund" } });
+  });
+
   it("refuses a co-sign by the person whose session it is, without checking the PIN", async () => {
     await expect(
       service.verify({
@@ -40,7 +56,7 @@ describe("ApproverCoSignService (P2b #103)", () => {
         coSign: { approverUserId: "mgr", pin: "1234" },
         purpose: "discount",
       }),
-    ).rejects.toMatchObject({ response: { code: "APPROVER_IS_SELF" } });
+    ).rejects.toMatchObject({ response: { code: "APPROVER_IS_SELF", coSign: "discount" } });
     expect(verifyApproverPin).not.toHaveBeenCalled();
   });
 

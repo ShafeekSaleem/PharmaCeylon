@@ -827,6 +827,10 @@ the way the pharmacist co-sign works:
   (`AccessService.resolveApprovalAuthority`), not from a token or the permission cache: without
   the permission now, **403** `APPROVER_NOT_AUTHORISED`. The limit and threshold are read from
   `TenantSettings` on every request, never taken from the client.
+- **Which co-sign was refused.** Every refusal from the co-sign itself (`APPROVER_PIN_*`,
+  `APPROVER_NOT_AUTHORISED`, `APPROVER_IS_SELF`, and the "can't approve this" 403) carries
+  `coSign: "discount" | "refund"`, because a checkout can carry a pharmacist's co-sign and a
+  manager's, and both refuse a wrong PIN with the same code.
 - **Not yourself.** A co-sign naming the signed-in user is **403** `APPROVER_IS_SELF`. Approving
   your own work goes through your own authority and the self-approval rule
   (`selfApprovalRoleKeys`), which is unchanged — including for the co-signer: a manager who
@@ -838,7 +842,8 @@ the way the pharmacist co-sign works:
   with the request (`sale.pharmacist_pin_failed` records the attempt count and the permission,
   never the secret).
 
-**Discounts at checkout** (`POST /sales/checkout`). Each line's `discountAmount` must be between
+**Discounts at checkout** (`POST /sales/checkout`). `GET /sales/pos/catalog` returns the
+limit as `maxDiscountPercent` beside `vatRatePercent`, for display only. Each line's `discountAmount` must be between
 zero and `unitPrice × qty` (**400**), for everyone. A line's discount percent is
 `discountAmount ÷ (unitPrice × qty) × 100`. Up to `posMaxDiscountPercent` (default 10) anyone
 selling may give it. Above it, `sales.discount_override` approves (owners and managers by default;

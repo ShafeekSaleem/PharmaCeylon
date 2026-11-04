@@ -7,6 +7,17 @@ import { PharmacistApprovalService } from "./pharmacist-approval.service";
 
 type Db = Prisma.TransactionClient | PrismaService;
 
+/**
+ * A co-sign refusal says which co-sign it was (`coSign: "discount" | "refund"`): a checkout can
+ * carry a pharmacist's co-sign and a manager's, and both refuse a wrong PIN with the same code.
+ */
+function tagged(error: unknown, purpose: CoSignPurpose): unknown {
+  if (!(error instanceof ForbiddenException)) return error;
+  const body = error.getResponse();
+  const fields = typeof body === "string" ? { message: body } : (body as Record<string, unknown>);
+  return new ForbiddenException({ ...fields, coSign: purpose });
+}
+
 /** What a co-signer is approving, with the permission it takes. */
 export const CO_SIGN_PERMISSION = {
   discount: "sales.discount_override",
@@ -54,20 +65,25 @@ export class ApproverCoSignService {
     if (input.coSign.approverUserId === input.sessionUserId) {
       throw new ForbiddenException({
         code: "APPROVER_IS_SELF",
+        coSign: input.purpose,
         message:
           input.purpose === "discount"
             ? "You can't co-sign your own sale. Ask another manager to enter their till PIN."
             : "You can't co-sign your own refund. Ask another approver to enter their till PIN.",
       });
     }
-    return this.pins.verifyApproverPin(
-      input.tenantId,
-      input.branchId,
-      input.coSign.approverUserId,
-      input.coSign.pin,
-      input.sessionUserId,
-      CO_SIGN_PERMISSION[input.purpose],
-    );
+    try {
+      return await this.pins.verifyApproverPin(
+        input.tenantId,
+        input.branchId,
+        input.coSign.approverUserId,
+        input.coSign.pin,
+        input.sessionUserId,
+        CO_SIGN_PERMISSION[input.purpose],
+      );
+    } catch (error) {
+      throw tagged(error, input.purpose);
+    }
   }
 
   /** The approver's current authority at the branch, read on `db`. */
@@ -82,6 +98,7 @@ export class ApproverCoSignService {
     if (!access?.has(CO_SIGN_PERMISSION[purpose])) {
       throw new ForbiddenException({
         code: "APPROVER_NOT_AUTHORISED",
+        coSign: purpose,
         message:
           purpose === "discount"
             ? "The selected person can't approve discounts over the limit at this branch."
