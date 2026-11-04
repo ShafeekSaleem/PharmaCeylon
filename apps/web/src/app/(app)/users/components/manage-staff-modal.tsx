@@ -19,6 +19,7 @@ import { ROLE_COLORS } from "../constants";
 import { useRoles } from "../hooks/use-roles";
 import type { AdminUser, SecurityInfo } from "../types";
 import { formatDate, roleDisplayName } from "../utils";
+import { SlmcRegistration } from "./slmc-registration";
 import css from "../users.module.css";
 
 /**
@@ -392,6 +393,13 @@ export function ManageStaffModal({
           </ModalButton>
         </div>
       </div>
+
+      <SlmcRegistration
+        userId={staff.id}
+        fullName={staff.fullName}
+        staffActive={staff.isActive}
+        actorIsOwner={actorIsOwner}
+      />
 
       <div style={{ marginTop: "1.1rem" }}>
         <div className={css.miniLabel} style={{ marginBottom: "0.5rem" }}>

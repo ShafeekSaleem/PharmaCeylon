@@ -73,6 +73,27 @@ export type PreparedCounter = {
   current: boolean;
 };
 
+/** `status` describes the registration only; the clinical check also needs an active account. */
+export type PharmacistRegistrationStatus = "current" | "expired" | "revoked";
+
+/** P1 #47: an owner-recorded SLMC registration (`GET /admin/pharmacist-registrations`). */
+export type PharmacistRegistration = {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  accountActive: boolean;
+  slmcNumber: string;
+  /** YYYY-MM-DD, the last day it is current, in the tenant's timezone. */
+  expiresOn: string;
+  status: PharmacistRegistrationStatus;
+  recordedByUserId: string;
+  recordedAt: string;
+  revokedAt: string | null;
+  revokedByUserId: string | null;
+  revocationReason: string | null;
+};
+
 export type SecurityInfo = {
   pin: {
     isSet: boolean;

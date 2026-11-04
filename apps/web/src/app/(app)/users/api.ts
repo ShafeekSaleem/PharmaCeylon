@@ -1,5 +1,5 @@
 import { apiJson, type TenantBranch } from "@/lib/auth-client";
-import type { SecurityInfo, StaffInvitation } from "./types";
+import type { PharmacistRegistration, SecurityInfo, StaffInvitation } from "./types";
 
 /**
  * All active tenant branches, unscoped by the caller's own branch roles —
@@ -22,6 +22,36 @@ export function resetStaffPin(userId: string): Promise<{ reset: boolean }> {
 
 export function forceStaffLogout(userId: string): Promise<{ ok: boolean }> {
   return apiJson(`/admin/users/${userId}/force-logout`, { method: "POST" });
+}
+
+/** Every registration in the tenant, current ones first. */
+export function fetchPharmacistRegistrations(): Promise<PharmacistRegistration[]> {
+  return apiJson<PharmacistRegistration[]>("/admin/pharmacist-registrations");
+}
+
+/** Owner only. A renewal revokes the registration it replaces; the same values again change nothing. */
+export function recordPharmacistRegistration(input: {
+  userId: string;
+  slmcNumber: string;
+  expiresOn: string;
+}): Promise<PharmacistRegistration> {
+  return apiJson("/admin/pharmacist-registrations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/** Owner only. Revoking again is a no-op. */
+export function revokePharmacistRegistration(
+  registrationId: string,
+  reason: string,
+): Promise<PharmacistRegistration> {
+  return apiJson(`/admin/pharmacist-registrations/${registrationId}/revoke`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
 }
 
 export function fetchStaffInvitations(): Promise<StaffInvitation[]> {
