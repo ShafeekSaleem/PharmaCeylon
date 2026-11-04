@@ -766,7 +766,7 @@ works.
 - **Shape.** The PIN cannot go in a signed body, digest, receipt or log, so it is spent online
   first. `POST /terminal-commands/pharmacist-cosigns` (`identity`, `@CounterRoute()`) takes
   `{ workSessionId, operation, body, pharmacistUserId, pin }` and issues a `pharmacist_cosign_evidence`
-  row (migration `20261104100000`). The row is bound to the tenant, branch, counter session, the
+  row (migration `20261105000300`). The row is bound to the tenant, branch, counter session, the
   person signed in there, the operation and a digest of the exact body, and lives 5 minutes. The
   command carries only its ID as `pharmacistEvidenceId`. The command's own digest can't be the
   binding, because it contains that ID.

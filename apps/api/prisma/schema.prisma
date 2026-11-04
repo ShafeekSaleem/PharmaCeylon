@@ -997,7 +997,7 @@ model PharmacistRegistration {
 /// Created online with the PIN (checked, never stored) and bound to the counter staff session, the
 /// operation and the digest of the exact body; the command references it as
 /// `pharmacistEvidenceId` and spends it once. Foreign keys, the shape check and the retention
-/// trigger are in migration 20261104100000.
+/// trigger are in migration 20261105000300.
 model PharmacistCosignEvidence {
   id               String    @id @default(uuid()) @db.Uuid
   tenantId         String    @map("tenant_id") @db.Uuid
