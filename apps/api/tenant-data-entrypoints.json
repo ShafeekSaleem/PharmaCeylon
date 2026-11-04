@@ -274,6 +274,11 @@
       "reason": "Locks one tenant/branch sale before a refund or void, so concurrent refunds of the same units serialize; stock, payments, status and audit share the caller transaction. Checkout takes a transaction-scoped advisory lock on the caller's tenant + user + idempotency key only, so overlapping retries serialize and replay the committed sale; no data is read or written by raw SQL."
     },
     {
+      "path": "src/sales/sale-read.service.ts",
+      "mode": "tenant-filtered-read-model",
+      "reason": "Sales history's customer-phone filter reads customer ids WHERE tenant_id = the caller's tenant and the phone's digits contain the typed digits (regexp_replace in SQL, since phones are free text); the ids then narrow a Prisma sale query that is itself tenant- and branch-scoped. Read only, LIMIT 200."
+    },
+    {
       "path": "src/sales/refund-requests.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one tenant/branch refund request (after its sale) for approval, cancellation and execution; approval evidence, StockService effects and success audit share the caller transaction."
