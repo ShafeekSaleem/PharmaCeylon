@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   ApiReachability,
   AppInfo,
@@ -8,6 +8,8 @@ import type {
 } from "../../shared/ipc-contract";
 import { Icon } from "./Icon";
 import full from "./Fullscreen.module.css";
+import { KeyHint } from "./KeyHint";
+import { clickSubmit, useKeyBinding } from "./keymap";
 import { atTheComputer } from "./Shell";
 import styles from "./Setup.module.css";
 import ui from "./ui.module.css";
@@ -23,6 +25,8 @@ export function SignInForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const { busy, error, run } = useAction();
+  const form = useRef<HTMLFormElement>(null);
+  useKeyBinding("Ctrl+Enter", () => clickSubmit(form.current));
   function submit(event: FormEvent) {
     event.preventDefault();
     void run(
@@ -34,7 +38,7 @@ export function SignInForm({
     );
   }
   return (
-    <form className={styles.fields} onSubmit={submit}>
+    <form className={styles.fields} onSubmit={submit} ref={form}>
       <div className={ui.f}>
         <label htmlFor="sign-in-email">Email</label>
         <input
@@ -68,6 +72,7 @@ export function SignInForm({
         >
           {busy ? "Signing in…" : submitLabel}
           <Icon name="arrow-right" />
+          <KeyHint keys="Ctrl+Enter" onPrimary />
         </button>
       </div>
     </form>
@@ -81,6 +86,8 @@ function ServerSetup({
 }: Props & { onDone: () => void }) {
   const [url, setUrl] = useState(state.serverUrl ?? "");
   const { busy, error, run } = useAction();
+  const form = useRef<HTMLFormElement>(null);
+  useKeyBinding("Ctrl+Enter", () => clickSubmit(form.current));
   function submit(event: FormEvent) {
     event.preventDefault();
     void run(
@@ -93,7 +100,7 @@ function ServerSetup({
     );
   }
   return (
-    <form className={styles.fields} onSubmit={submit}>
+    <form className={styles.fields} onSubmit={submit} ref={form}>
       <div className={ui.f}>
         <label htmlFor="server-url">Server address</label>
         <input
@@ -114,6 +121,7 @@ function ServerSetup({
           disabled={busy || !url.trim()}
         >
           Save server address
+          <KeyHint keys="Ctrl+Enter" onPrimary />
         </button>
       </div>
     </form>
@@ -130,6 +138,11 @@ function EnrollPanel({ state, onState }: Props) {
   const [newCounter, setNewCounter] = useState("");
   const [label, setLabel] = useState("");
   const { busy, error, run } = useAction();
+  const form = useRef<HTMLFormElement>(null);
+  // Ctrl+Enter sends the form from anywhere on the step, as the button's key hint says. Plain
+  // Enter in the new counter's name adds the counter instead (its own onKeyDown, below).
+  useKeyBinding("Ctrl+Enter", () => clickSubmit(form.current));
+  useKeyBinding("Escape", () => setAdding(false), { enabled: adding });
 
   useEffect(() => {
     if (!branchId || mode !== "counter") return;
@@ -210,11 +223,7 @@ function EnrollPanel({ state, onState }: Props) {
     );
 
   return (
-    <form
-      className={styles.form}
-      onSubmit={enroll}
-      onKeyDown={submitOnCtrlEnter}
-    >
+    <form className={styles.form} onSubmit={enroll} ref={form}>
       <StepHead
         step="Step 3 of 4"
         title="Enroll this computer"
@@ -372,6 +381,7 @@ function EnrollPanel({ state, onState }: Props) {
                     onClick={() => setAdding(false)}
                   >
                     Cancel
+                    <KeyHint keys="Escape" small />
                   </button>
                 </div>
               ) : (
@@ -421,18 +431,11 @@ function EnrollPanel({ state, onState }: Props) {
         >
           <Icon name="monitor" />
           {busy ? "Working…" : "Enroll this computer"}
-          <kbd>Ctrl ↵</kbd>
+          <KeyHint keys="Ctrl+Enter" onPrimary />
         </button>
       </div>
     </form>
   );
-}
-
-/** Ctrl+Enter sends the form from any field, as the button's key hint says. */
-function submitOnCtrlEnter(event: KeyboardEvent<HTMLFormElement>) {
-  if (event.key !== "Enter" || !event.ctrlKey) return;
-  event.preventDefault();
-  event.currentTarget.requestSubmit();
 }
 
 function StepHead({
@@ -525,6 +528,10 @@ export function SetupScreen({
   const { busy, error, run } = useAction();
   const serverStep =
     state.serverUrlEditable && (!state.serverUrl || editingServer);
+  // Esc goes back from changing a saved server address to the step it came from.
+  useKeyBinding("Escape", () => setEditingServer(false), {
+    enabled: serverStep && Boolean(state.serverUrl),
+  });
   const current = serverStep ? 1 : state.operator ? 3 : 2;
   const credentialCheck = readiness?.checks.find(
     (c) => c.id === "credential-store",

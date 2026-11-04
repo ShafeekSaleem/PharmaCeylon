@@ -10,6 +10,7 @@ import { Checkout } from "./Checkout";
 import { CounterWork } from "./CounterWork";
 import full from "./Fullscreen.module.css";
 import { Icon } from "./Icon";
+import { KeyBinding, KeyScope } from "./keymap";
 import { PersonPanel } from "./Person";
 import { SetupScreen } from "./Setup";
 import { Rail, ServerBlock, StatusBar, TitleBar, type Page } from "./Shell";
@@ -184,63 +185,74 @@ export function App() {
       <>
         {device.locked && signIn}
         {/* Locking hides the frame rather than closing it, so the sale on screen is still there
-            after the unlock. */}
-        <div className={shell.work} hidden={device.locked}>
-          <div className={shell.frame}>
-            <Rail
-              page={page}
-              onPage={setPage}
-              workCount={workCount}
-              showWork={workCount > 0 || page === "work"}
-              session={session}
-              personOpen={personOpen}
-              onPerson={() =>
-                personOpen ? closePerson() : setPersonOpen(true)
-              }
-              onLock={lock}
-            />
-            {/* Pages stay mounted while hidden, so moving between them never loses a sale in progress. */}
-            <main className={shell.content}>
-              <div className={shell.page} hidden={page !== "sell"}>
-                <Checkout
-                  key={sessionId}
-                  onActivity={refreshReadiness}
-                  onCommandSent={onCommandSent}
-                />
-              </div>
-              <div className={shell.page} hidden={page !== "work"}>
-                <div className={ui.pageH}>
-                  <div>
-                    <h1>Counter work</h1>
-                    <p>
-                      Refunds approved on the web, and actions sent from here
-                      that still need confirming.
-                    </p>
+            after the unlock. Its keys go quiet with it. */}
+        <KeyScope active={!device.locked}>
+          <div className={shell.work} hidden={device.locked}>
+            <div className={shell.frame}>
+              <Rail
+                page={page}
+                onPage={setPage}
+                workCount={workCount}
+                showWork={workCount > 0 || page === "work"}
+                session={session}
+                personOpen={personOpen}
+                onPerson={() =>
+                  personOpen ? closePerson() : setPersonOpen(true)
+                }
+                onLock={lock}
+              />
+              {/* Pages stay mounted while hidden, so moving between them never loses a sale in progress. */}
+              <main className={shell.content}>
+                {/* Each page's keys work only while it is the one shown. */}
+                <KeyScope active={page === "sell"}>
+                  <div className={shell.page} hidden={page !== "sell"}>
+                    <Checkout
+                      key={sessionId}
+                      onActivity={refreshReadiness}
+                      onCommandSent={onCommandSent}
+                    />
                   </div>
-                </div>
-                <CounterWork
-                  key={`work-${sessionId}`}
-                  onActivity={refreshReadiness}
-                  onCount={setWorkCount}
-                  reloadKey={commandsSent}
-                  poll={!device.locked}
-                />
-              </div>
-              <div className={shell.page} hidden={page !== "counter"}>
-                <ThisCounterPage
-                  state={device}
-                  info={info}
-                  readiness={readiness}
-                  onCheck={refreshReadiness}
-                />
-              </div>
-              {api && !api.reachable && page !== "counter" && (
-                <ServerBlock onRetry={refreshApi} />
-              )}
-            </main>
+                </KeyScope>
+                <KeyScope active={page === "work"}>
+                  <KeyBinding keys="Escape" onKey={() => setPage("sell")} />
+                  <div className={shell.page} hidden={page !== "work"}>
+                    <div className={ui.pageH}>
+                      <div>
+                        <h1>Counter work</h1>
+                        <p>
+                          Refunds approved on the web, and actions sent from
+                          here that still need confirming.
+                        </p>
+                      </div>
+                    </div>
+                    <CounterWork
+                      key={`work-${sessionId}`}
+                      onActivity={refreshReadiness}
+                      onCount={setWorkCount}
+                      reloadKey={commandsSent}
+                      poll={!device.locked}
+                    />
+                  </div>
+                </KeyScope>
+                <KeyScope active={page === "counter"}>
+                  <KeyBinding keys="Escape" onKey={() => setPage("sell")} />
+                  <div className={shell.page} hidden={page !== "counter"}>
+                    <ThisCounterPage
+                      state={device}
+                      info={info}
+                      readiness={readiness}
+                      onCheck={refreshReadiness}
+                    />
+                  </div>
+                </KeyScope>
+                {api && !api.reachable && page !== "counter" && (
+                  <ServerBlock onRetry={refreshApi} />
+                )}
+              </main>
+            </div>
+            <StatusBar state={device} api={api} printer={printer} info={info} />
           </div>
-          <StatusBar state={device} api={api} printer={printer} info={info} />
-        </div>
+        </KeyScope>
         {personOpen && !device.locked && (
           <PersonPanel
             state={device}
