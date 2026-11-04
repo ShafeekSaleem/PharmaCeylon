@@ -294,7 +294,7 @@ describe("Returns: over the refund limit", () => {
     await overTheLimit();
 
     expect(screen.getByText(/Over the Rs 5,000.00 refund limit/)).toBeTruthy();
-    const button = screen.getByRole("button", { name: /Send for approval · Rs 6,300.00/ });
+    const button = screen.getByRole("button", { name: /Send for approval/ });
     fireEvent.click(button);
     await act(async () => undefined);
     expect(pos.submitReturn).toHaveBeenCalled();

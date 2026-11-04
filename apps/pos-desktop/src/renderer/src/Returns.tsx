@@ -946,7 +946,7 @@ export function Returns({
     : null;
 
   let primaryLabel = `Refund Rs ${money(totalMinor)}`;
-  if (over && !mayApprove) primaryLabel = `Send for approval · Rs ${money(totalMinor)}`;
+  if (over && !mayApprove) primaryLabel = "Send for approval";
 
   return (
     <div className={r.returns} aria-label="Returns">
@@ -1029,7 +1029,9 @@ export function Returns({
                   <small>
                     Bought {dayMonth(new Date(sale.soldAt))},{" "}
                     {daysAgo(new Date(sale.soldAt), now)} · paid by{" "}
-                    {paidText(sale).toLowerCase()}
+                    {[...new Set(sale.payments.map((p) => p.method))]
+                      .map((m) => (METHOD_LABELS[m] ?? m).toLowerCase())
+                      .join(" and ") || "—"}
                   </small>
                 </div>
                 <span className={ui.grow} />
