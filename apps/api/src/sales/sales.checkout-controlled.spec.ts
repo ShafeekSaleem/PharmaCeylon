@@ -24,15 +24,9 @@ describe("SalesService controlled checkout authority", () => {
   let txnEntered: boolean;
   let audit: AuditService;
   let tax: TaxService;
-  const rollout = (state: "not_live" | "live" | "fallback") => ({
-    desktopPosRollout: state === "not_live" ? "not_live" : "live",
-    desktopPosLiveAt: state === "not_live" ? null : new Date("2026-10-01T00:00:00Z"),
-    posFallbackStartedAt: state === "fallback" ? new Date() : null,
-    posFallbackEndsAt: state === "fallback" ? new Date(Date.now() + 3_600_000) : null,
-  });
-  // Past the clinical check, the next thing checkout reads on its transaction is the tenant.
+  // Past the clinical check, the next thing checkout reads on its transaction is the tenant. The
+  // branch isn't read: whether the registration is checked doesn't depend on its desktop POS state.
   const tx = {
-    branch: { findFirst: jest.fn() },
     tenant: {
       findUnique: jest.fn(async () => {
         throw new Error("stop-after-clinical");
@@ -48,7 +42,6 @@ describe("SalesService controlled checkout authority", () => {
   beforeEach(() => {
     txnEntered = false;
     tx.tenant.findUnique.mockClear();
-    tx.branch.findFirst.mockReset().mockResolvedValue(rollout("not_live"));
     registrations = {
       assertQualified: jest.fn().mockResolvedValue({ registrationId: "reg-1", slmcNumber: "PH/1234" }),
     };
@@ -326,36 +319,23 @@ describe("SalesService controlled checkout authority", () => {
           },
         });
         expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
-        // A counter checkout never needs the branch's rollout to decide.
-        expect(tx.branch.findFirst).not.toHaveBeenCalled();
       });
 
-      it("is trusted by role on the web POS before go-live and during a fallback (still open, MR 10)", async () => {
-        for (const state of ["not_live", "fallback"] as const) {
-          tx.branch.findFirst.mockResolvedValue(rollout(state));
-          await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toThrow("stop-after-clinical");
-        }
-        expect(tx.branch.findFirst).toHaveBeenCalledWith(
-          expect.objectContaining({ where: { id: branchId, tenantId } }),
-        );
-        expect(registrations.assertQualified).not.toHaveBeenCalled();
-      });
+      it("needs their own registration on the web POS too, at every branch, and is told to get a co-sign", async () => {
+        await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toThrow("stop-after-clinical");
+        expect(registrations.assertQualified).toHaveBeenCalledWith(tx, { tenantId, branchId, userId: pharmacistId });
 
-      it("is checked without x-terminal-session at a live branch, so leaving the header out skips nothing", async () => {
-        tx.branch.findFirst.mockResolvedValue(rollout("live"));
         registrations.assertQualified.mockImplementation(async () => denied("PHARMACIST_REQUIRED"));
         await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toMatchObject({
           status: 403,
-          response: { code: "SELLER_NOT_QUALIFIED" },
+          response: {
+            code: "SELLER_NOT_QUALIFIED",
+            message: expect.stringContaining("Ask a registered pharmacist to co-sign"),
+          },
         });
-        expect(registrations.assertQualified).toHaveBeenCalledWith(tx, { tenantId, branchId, userId: pharmacistId });
-        expect(tx.tenant.findUnique).not.toHaveBeenCalled();
-      });
-
-      it("is checked when the branch can't be read", async () => {
-        tx.branch.findFirst.mockResolvedValue(null);
-        await expect(sell(pharmacistId, RoleName.pharmacist)).rejects.toThrow("stop-after-clinical");
-        expect(registrations.assertQualified).toHaveBeenCalled();
+        expect(pharmacistApproval.verifyApproverPin).not.toHaveBeenCalled();
+        // Refused before anything else is read on the transaction.
+        expect(tx.tenant.findUnique).toHaveBeenCalledTimes(1);
       });
 
       it("follows the tenant's grants of sales.approve_controlled, not a fixed list of roles", async () => {

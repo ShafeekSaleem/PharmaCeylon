@@ -579,28 +579,26 @@ describe("controlled checkout co-sign (P1 #47 with P2 #93)", () => {
     const soldByPharmacist = () => prisma.sale.count({ where: { tenantId: fx.tenantId, soldBy: pharmacistId } });
     afterEach(() => rollout("not_live"));
 
-    it("is checked at a branch live on PharmaCeylon POS, so leaving out x-terminal-session skips nothing", async () => {
-      await rollout("live");
-      const before = await soldByPharmacist();
-      await expect(code(sellAlone())).resolves.toBe("SELLER_NOT_QUALIFIED");
-      expect(await soldByPharmacist()).toBe(before);
+    const states = ["not_live", "live", "fallback"] as const;
 
-      const row = await record(pharmacistId, "PH-SA-1");
-      const sale = await sellAlone();
-      expect(await prisma.sale.findUniqueOrThrow({ where: { id: sale!.id } })).toMatchObject({
-        dispensedBy: pharmacistId,
-        dispenserRegistrationId: row.id,
-        terminalId: null,
-      });
+    it("is checked at every branch, whatever its desktop POS state, and sells nothing without one", async () => {
+      const before = await soldByPharmacist();
+      for (const state of states) {
+        await rollout(state);
+        await expect(code(sellAlone())).resolves.toBe("SELLER_NOT_QUALIFIED");
+      }
+      expect(await soldByPharmacist()).toBe(before);
     });
 
-    it("is trusted by role before go-live and during an owner's fallback (still open, MR 10)", async () => {
-      for (const state of ["not_live", "fallback"] as const) {
+    it("keeps the registration it relied on with the sale, in every desktop POS state", async () => {
+      const row = await record(pharmacistId, "PH-SA-1");
+      for (const state of states) {
         await rollout(state);
         const sale = await sellAlone();
         expect(await prisma.sale.findUniqueOrThrow({ where: { id: sale!.id } })).toMatchObject({
           dispensedBy: pharmacistId,
-          dispenserRegistrationId: null,
+          dispenserRegistrationId: row.id,
+          terminalId: null,
         });
       }
     });

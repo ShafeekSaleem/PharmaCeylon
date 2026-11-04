@@ -681,12 +681,14 @@ touches P2's dispensing flow (`apps/pos-desktop/src/main/checkout/dispensing.ts`
   had any co-sign ignored without its PIN being checked.
 - **Seller dispensing alone.** Authority is `sales.approve_controlled` at the branch from the
   tenant's grants, the permission a co-signer needs (`PharmacistApprovalService.hasApproverRole`),
-  instead of a fixed list of roles. At a counter (`x-terminal-session`) the seller needs their own
-  registration as well (403 `SELLER_NOT_QUALIFIED`, asking for a co-sign), and so does any checkout
-  at a branch live on PharmaCeylon POS outside a fallback: the check is keyed to the branch's
-  state, not to a header the client can leave out. Before go-live and during a fallback the web
-  POS still trusts the permission (MR 10, "Still open"). Desktop POS isn't live at any branch yet,
-  so this doesn't affect sales today.
+  instead of a fixed list of roles. The seller needs their own current registration as well, on
+  every checkout: at a counter or on the web POS, at every branch, whatever its desktop POS state
+  (decided by Shafeek 2026-11-04; before that the web POS trusted the permission before go-live and
+  during a fallback). Without one the refusal is 403 `SELLER_NOT_QUALIFIED`, asking for a co-sign.
+  The web POS then opens its pharmacist PIN dialog, so a registered pharmacist co-signs and the
+  sale goes through. An owner, manager or pharmacist with no registration recorded now needs that
+  co-sign for controlled medicines. Owners record registrations with
+  `POST /admin/pharmacist-registrations`; there is no web screen for it yet.
 - **Provenance.** `sale.dispenser_registration_id` (migration `20261103000000`) is written in the
   same transaction. A composite foreign key to `pharmacist_registration (tenant_id, user_id, id)`
   pins it to `dispensed_by`, and a check stops it existing without a dispenser. Both are added
@@ -739,8 +741,8 @@ Tests:
   - a registered co-signer accepted, with the sale's registration and the audit provenance;
   - a revocation in progress making checkout wait, then refusing it;
   - the database refusing a sale whose registration belongs to someone else;
-  - a seller dispensing alone on the web: checked at a live branch without the header, trusted
-    before go-live and during a fallback;
+  - a seller dispensing alone on the web: checked before go-live, at a live branch and during a
+    fallback, and the registration kept with the sale in each;
   - the unsigned prescription route refusing at a live branch and recording otherwise.
 - `test/integration/terminal-enrollment.int-spec.ts`: a seller dispensing alone at a real counter
   session, refused without a registration and accepted with one, attributed to the counter.

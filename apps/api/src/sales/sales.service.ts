@@ -52,7 +52,6 @@ import {
   type ClinicalEvidence,
   PharmacistRegistrationService,
 } from "../clinical/pharmacist-registration.service";
-import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 
 function d(s: string): Prisma.Decimal {
   return new Prisma.Decimal(s);
@@ -248,31 +247,11 @@ export class SalesService {
   }
 
   /**
-   * Whether the checkout's transaction checks the dispenser's SLMC registration. Always for a
-   * co-signer, and for a seller dispensing alone at a counter. The web POS still trusts the
-   * seller's role (MR 10), but only where a branch uses it: at a branch live on PharmaCeylon POS
-   * outside a fallback, a checkout without `x-terminal-session` is checked as the counter is, so
-   * leaving the header out can't skip it. A branch that can't be read is checked.
-   */
-  private async checksDispenser(
-    tx: Prisma.TransactionClient,
-    tenantId: string,
-    branchId: string,
-    check: ClinicalCheck,
-    atCounter: boolean,
-  ): Promise<boolean> {
-    if (check.kind === "co_sign" || atCounter) return true;
-    const branch = await tx.branch.findFirst({
-      where: { id: branchId, tenantId },
-      select: POS_ROLLOUT_SELECT,
-    });
-    return !branch || resolvePosRollout(branch).state === "live";
-  }
-
-  /**
-   * P1 #47: the dispenser's current SLMC registration, on the checkout's transaction. It is
+   * P1 #47: the dispenser's current SLMC registration, on the checkout's transaction. Every
+   * controlled checkout is checked, a co-signer's or a seller's dispensing alone, at a counter or
+   * on the web POS, whatever the branch's desktop POS state (decided 2026-11-04). It is
    * share-locked until the sale commits, so a revocation either commits first and refuses this
-   * sale, or waits for it. The refusal names who isn't registered and what the counter can do.
+   * sale, or waits for it. The refusal names who isn't registered and what the seller can do.
    * Both codes are given only after the transaction has looked up an earlier attempt with the
    * same key, so a client may take them as final on a resend.
    */
@@ -556,11 +535,9 @@ export class SalesService {
           if (!this.operatingHours) throw new Error("Counter checkout needs the operating-hours provider");
           await this.operatingHours.assertMandatoryForSale(tx, tenantId, branchId);
         }
-        registration =
-          dispense.clinical &&
-          (await this.checksDispenser(tx, tenantId, branchId, dispense.clinical, counter !== undefined))
-            ? await this.assertDispenserQualified(tx, tenantId, branchId, dispense.clinical)
-            : null;
+        registration = dispense.clinical
+          ? await this.assertDispenserQualified(tx, tenantId, branchId, dispense.clinical)
+          : null;
         const lines: Array<{
           productId: string;
           batchId: string;
