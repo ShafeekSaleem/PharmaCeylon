@@ -36,8 +36,10 @@ import {
   createPrisma,
   createStockedBatch,
   createTenant,
+  openTestShift,
   type TenantFixture,
 } from "./fixtures";
+import { TillShiftsService } from "../../src/terminals/shifts/till-shifts.service";
 
 /** P2: enrollment and staff sessions with the PRODUCTION attendance verifier. Proofs are real
  * signed attestations recorded through AttendanceProofsService; nothing is stubbed. */
@@ -1341,6 +1343,14 @@ describe("go-live evidence from counters", () => {
   });
 });
 
+/** P2b #103: counter sales need the seller's open till shift; these suites open one directly. */
+const shifts = new TillShiftsService(prisma as never, trust, new OperatingHoursEvidence(), access, audit, pinAlerts as unknown as PinAlerts);
+async function openSellingSession(device: Device, identity: TerminalIdentity, actor: RequestUser) {
+  const session = await openSession(device, identity, actor);
+  await openTestShift(prisma, fx.tenantId, session.workSessionId);
+  return session;
+}
+
 describe("online checkout attributed to the counter, till and staff session", () => {
   const stock = new StockService();
   const sales = new SalesService(
@@ -1352,6 +1362,8 @@ describe("online checkout attributed to the counter, till and staff session", ()
     stock,
     trust,
     new OperatingHoursEvidence(),
+    undefined,
+    shifts,
   );
   const sell = (
     actor: RequestUser,
@@ -1374,8 +1386,8 @@ describe("online checkout attributed to the counter, till and staff session", ()
     const batchId = await createStockedBatch(prisma, stock, fx, { qty: 1 });
     const a = await enroll();
     const b = await enroll();
-    const sessionA = await openSession(a.device, a.identity, clerk);
-    const sessionB = await openSession(b.device, b.identity, owner);
+    const sessionA = await openSellingSession(a.device, a.identity, clerk);
+    const sessionB = await openSellingSession(b.device, b.identity, owner);
     const results = await Promise.allSettled([
       sell(clerk, sessionA.workSessionId, randomUUID()),
       sell(owner, sessionB.workSessionId, randomUUID()),
@@ -1404,7 +1416,7 @@ describe("online checkout attributed to the counter, till and staff session", ()
   it("a resend overlapping its first attempt replays that sale instead of failing on its stock", async () => {
     await createStockedBatch(prisma, stock, fx, { qty: 1 });
     const a = await enroll();
-    const session = await openSession(a.device, a.identity, clerk);
+    const session = await openSellingSession(a.device, a.identity, clerk);
     const key = randomUUID();
     // Both start before either commits: without the in-transaction recheck the second would wait
     // on the batch lock and then fail on the unit the first just sold.
@@ -1421,7 +1433,7 @@ describe("online checkout attributed to the counter, till and staff session", ()
   it("refuses a counter sale outside the branch's mandatory selling windows", async () => {
     await createStockedBatch(prisma, stock, fx, { qty: 5 });
     const a = await enroll();
-    const session = await openSession(a.device, a.identity, clerk);
+    const session = await openSellingSession(a.device, a.identity, clerk);
     const before = await prisma.branch.findFirstOrThrow({
       where: { tenantId: fx.tenantId, id: fx.mainBranchId },
       select: { operatingHours: true, operatingHoursOrigin: true },
@@ -1463,7 +1475,7 @@ describe("online checkout attributed to the counter, till and staff session", ()
   it("refuses someone else's or a closed session, and sells nothing", async () => {
     await createStockedBatch(prisma, stock, fx, { qty: 5 });
     const { device, identity } = await enroll();
-    const session = await openSession(device, identity, clerk);
+    const session = await openSellingSession(device, identity, clerk);
     await expect(
       sell(owner, session.workSessionId, randomUUID()),
     ).rejects.toMatchObject({
@@ -1510,6 +1522,7 @@ describe("a controlled sale dispensed by the seller alone at a counter (P1 #47)"
     trust,
     new OperatingHoursEvidence(),
     registrations,
+    shifts,
   );
 
   it("needs the seller's own SLMC registration, checked on the counter's checkout transaction", async () => {
@@ -1536,7 +1549,7 @@ describe("a controlled sale dispensed by the seller alone at a counter (P1 #47)"
       },
     });
     const { device, identity } = await enroll();
-    const session = await openSession(device, identity, owner);
+    const session = await openSellingSession(device, identity, owner);
     // An owner dispenses alone by role; no role stands in for the registration.
     const sellAlone = () =>
       sales.checkout(

@@ -19,6 +19,7 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
 | Physical execution | (P1 executor) | `SignedCommandService` with stored envelopes (`signed_command`); remote-approved refunds executed at the counter showing requester, approver and executor |
 | Readiness | — | Device enrollment, prepared staff, unconfirmed sales/actions and who must confirm them |
 | Prescriptions and co-sign | Checkout refusals coded `PRESCRIPTION_REQUIRED` / `PHARMACIST_APPROVAL_REQUIRED` / `APPROVER_NOT_QUALIFIED` / `SELLER_NOT_QUALIFIED`; wrong co-sign secrets are 403. The dispenser's SLMC registration is checked in the checkout transaction and kept on the sale; approvers are registered pharmacists only (P1 MR 10b) | Link a customer and prescription (find, or record through the signed clinical command), pharmacist co-sign by PIN for controlled items; the PIN is sent once and never stored (the draft keeps the co-signer only); holds carry the customer and prescription |
+| Till shifts (P2b #103) | `till_shift` (one open per till, partial unique index; immutable once closed), `till_cash_movement`; open with own PIN and a note-and-coin count, close by the owner or a manager's assisted close (`shifts.close_others`); counter sales and cash refunds carry `shift_id` (D-P2b-shift) | (next PRs: local copy, Sell gate, Cash & shift page) |
 | Web (W6, W3) | `GET /admin/users/:id/security` adds PIN version and prepared counters | Settings → Counters & devices: counters, enrolled computer, issue and revoke codes, report lost, retire. Users → Manage staff: PIN state, version, prepared and stale counters, reset for every role |
 
 ## Decisions
@@ -47,6 +48,26 @@ after #93 merged; details are in [POS_P1_IMPLEMENTATION.md](POS_P1_IMPLEMENTATIO
   (`SignedCommandService`), not the unsigned route, which now refuses at live branches outside a
   fallback (`PRESCRIPTION_AT_COUNTER`). So a cashier can't record one: the registered pharmacist
   switches in and records it. Finding and linking an existing prescription is unchanged.
+
+**D-P2b-shift — sales attach to the shift directly (P2b #103, 2026-11-04).** The contract defines
+the work session as the staff shift; `TerminalStaffSession` is only who is signed in. The two
+don't line up: the person who opened a shift locks, unlocks and switches back in during it (each a
+new or superseding sign-in), and a manager's assisted close is a sign-in by someone else on that
+shift. So:
+- `till_shift.id` **is** D7b's `workSessionId`: generated on the counter, the identity
+  `shift_open` / `shift_close` carry, the same record P4 writes offline and P5 replays. The online
+  sign-in maps to D7b's `OfflineStaffSignIn`, not to the work session.
+- `sale.shift_id`, `sale_payment.shift_id` and `goods_return.shift_id` reference the shift
+  directly. A sale's own payments carry the sale's shift; a refund's negative payments carry the
+  refund's shift, which can be a later one, so expected cash is a sum over the shift's own rows.
+- `sale.work_session_id` keeps naming the sign-in, as before (renaming it would touch every reader
+  of counter sales while other P2b sessions are in flight). Read it as "signed in as", and
+  `shift_id` as the D7b work session.
+- Every counter sale belongs to exactly one shift: checkout share-locks the seller's own open
+  shift on that till and refuses without one (`SHIFT_REQUIRED`, `SHIFT_HELD_BY_OTHER`). A cash
+  refund executed at a counter does the same on the executor's shift. Closing takes the row
+  `FOR UPDATE`, so it waits for in-flight sales, and nothing lands on a closed shift.
+- Web POS sales and refunds have no till and carry no shift.
 
 **Mandatory hours (D-W6).** Counter checkout refuses outside the branch's mandatory selling
 windows. Routine closing time stays advisory online; revised D8's acknowledgement is an offline
@@ -99,8 +120,8 @@ fail closed.
   ship and receive, prepared receipt post and supplier return complete. `SignedCommandService`
   can drive them all, but only refunds have a screen, so a live branch can't do these at the
   counter until it lands.
-- **D8 after-hours acknowledgement and assisted-handover preparation.** Need P3 grants and P4
-  shifts.
+- **D8 after-hours acknowledgement and offline assisted handover.** Need P3 grants and P4's offline
+  journal. Online shifts and the online assisted close exist (P2b #103, D-P2b-shift).
 - **D11 replacement clearance evidence.** The first nomination works. `recoveryEvidence` returns
   false, so replacing a nominated counter fails closed until P3 grant cutoff and P5 journal review
   supply evidence.

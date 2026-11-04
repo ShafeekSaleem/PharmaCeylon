@@ -48,6 +48,7 @@ import type { CommandProvenance } from "../terminals/command-provenance";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
 import { TerminalTrustService } from "../terminals/terminal-trust.service";
+import { TillShiftsService } from "../terminals/shifts/till-shifts.service";
 import {
   type ClinicalEvidence,
   PharmacistRegistrationService,
@@ -162,6 +163,7 @@ export class SalesService {
     private readonly terminalTrust?: TerminalTrustService,
     private readonly operatingHours?: OperatingHoursEvidence,
     private readonly registrations?: PharmacistRegistrationService,
+    private readonly shifts?: TillShiftsService,
   ) {}
 
   private branchEffectiveRoles(
@@ -519,7 +521,7 @@ export class SalesService {
         }
         // Attribution, not authority: the session must be the seller's own, open, on an active
         // enrollment at this branch. It serializes sales per counter on the enrollment lock.
-        let attribution: { terminalId: string; tillId: string; workSessionId: string } | null = null;
+        let attribution: { terminalId: string; tillId: string; workSessionId: string; shiftId: string } | null = null;
         if (counter) {
           if (!this.terminalTrust) throw new Error("Counter attribution needs the terminal trust service");
           if (counter.user.userId !== userId) throw new ForbiddenException("The counter session belongs to someone else");
@@ -529,11 +531,15 @@ export class SalesService {
             branchId,
             counter.workSessionId,
           );
-          attribution = { terminalId: identity.terminalId, tillId: session.tillId, workSessionId: session.id };
           // P2 / D-W6: a counter sale respects the branch's mandatory selling restrictions.
           // Routine closing time stays advisory online.
           if (!this.operatingHours) throw new Error("Counter checkout needs the operating-hours provider");
           await this.operatingHours.assertMandatoryForSale(tx, tenantId, branchId);
+          // P2b #103: and belongs to the seller's own open shift on that till, share-locked so the
+          // shift can't close under it.
+          if (!this.shifts) throw new Error("Counter checkout needs the till shift service");
+          const shiftId = await this.shifts.requireForSale(tx, { tenantId, branchId, tillId: session.tillId, userId });
+          attribution = { terminalId: identity.terminalId, tillId: session.tillId, workSessionId: session.id, shiftId };
         }
         registration = dispense.clinical
           ? await this.assertDispenserQualified(tx, tenantId, branchId, dispense.clinical)
@@ -718,6 +724,7 @@ export class SalesService {
                 terminalId: attribution?.terminalId ?? null,
                 tillId: attribution?.tillId ?? null,
                 workSessionId: attribution?.workSessionId ?? null,
+                shiftId: attribution?.shiftId ?? null,
                 items: {
                   create: lines.map((l) => ({
                     tenantId,
@@ -736,6 +743,7 @@ export class SalesService {
                     method: p.method,
                     amount: p.amount,
                     reference: p.reference,
+                    shiftId: attribution?.shiftId ?? null,
                   })),
                 },
               },
@@ -1172,6 +1180,21 @@ export class SalesService {
   ) {
     const { tenantId, branchId, sale, plan } = input;
     const userId = input.executorUserId;
+    const refundSplit = this.refundSplit(sale, plan.refundTotal, input.refundMethod);
+    // P2b #103: a refund executed at a counter belongs to the executor's shift on that till; one
+    // paying cash out of the drawer is refused without an open shift.
+    const command = input.refundRequest?.command;
+    let shiftId: string | null = null;
+    if (command) {
+      if (!this.shifts) throw new Error("Counter refunds need the till shift service");
+      shiftId = await this.shifts.forCounterRefund(tx, {
+        tenantId,
+        branchId,
+        tillId: command.tillId,
+        userId,
+        paysCash: refundSplit.some((part) => part.method === PaymentMethod.cash && part.amount.gt(0)),
+      });
+    }
     const returnNumber = await this.nextPosReturnNumber(tx, tenantId, branchId);
     const created = await tx.goodsReturn.create({
       data: {
@@ -1189,6 +1212,7 @@ export class SalesService {
         requestedBy: input.requestedBy,
         approvedBy: input.approvedBy,
         processedBy: userId,
+        shiftId,
         items: {
           create: plan.requested.map((line) => ({
             tenantId,
@@ -1229,7 +1253,6 @@ export class SalesService {
       );
     }
 
-    const refundSplit = this.refundSplit(sale, plan.refundTotal, input.refundMethod);
     for (const part of refundSplit) {
       await tx.salePayment.create({
         data: {
@@ -1238,6 +1261,7 @@ export class SalesService {
           method: part.method,
           amount: part.amount.neg(),
           reference: `POS refund ${created.returnNumber}`,
+          shiftId,
         },
       });
     }

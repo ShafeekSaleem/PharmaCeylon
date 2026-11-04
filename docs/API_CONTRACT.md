@@ -683,6 +683,83 @@ counter through the signed command, which does check. During an owner's fallback
 what the branch is using, so the route works there, and at branches not live yet, as before. Both
 are unchecked until the web can carry clinical evidence (W5).
 
+## Till shifts (P2b #103)
+
+A till shift is one person's turn at one till (the cash drawer), opened and closed with a counted
+drawer. It is D7b's **work session**: the shift's ID is the `workSessionId` that `shift_open` and
+`shift_close` carry, generated on the counter, so P4 writes the same record offline and P5 replays
+it without conversion. The sign-in that the routes below take in their path
+(`TerminalStaffSession`, also called `workSessionId` there and in `x-terminal-session`) is a
+different thing: who is signed in at the counter now. A shift outlives sign-ins (lock, unlock,
+switch user), and sales attach to the shift directly ([POS_P2_IMPLEMENTATION.md](POS_P2_IMPLEMENTATION.md),
+D-P2b-shift).
+
+Money is in minor units (cents of LKR). A count is `{ totalMinor, lines: [{ denominationMinor,
+count }] }` in Sri Lankan notes and coins (5,000 down to 1 rupee); the server adds the lines up
+again and refuses a total that doesn't match (400 `CASH_COUNT_INVALID`). Stored lines drop empty
+denominations and run largest first.
+
+All routes are `@CounterRoute()`, need `sales.pos_use`, and run on the caller's own open staff
+session at an active enrollment, so the till is the session's, never a client claim.
+
+| Route | What it does |
+| --- | --- |
+| `GET /terminals/sessions/:workSessionId/shifts/current` | `{ registerId, tillId, current: { shift, summary } \| null, lastClosed: shift \| null }` for the session's till |
+| `GET /terminals/sessions/:workSessionId/shifts` | The till's shifts, newest first (30) |
+| `GET /terminals/sessions/:workSessionId/shifts/:shiftId` | `{ shift, summary }` for one shift on this till (past shifts, the X report) |
+| `POST /terminals/sessions/:workSessionId/shifts` | Open: `{ shiftId, pin, openingCount, previousClosedWorkSessionId? }` |
+| `POST /terminals/sessions/:workSessionId/shifts/:shiftId/close` | Close: `{ commandId, closingCount, counterExpectedCashMinor?, assistance?: { pin, reason } }` |
+
+**Shift fields** (D7b names): `workSessionId`, `registerId`, `tillId`, `terminalId`,
+`staffUserId`, `staff`, `currency` (`LKR`), `status` (`open` / `closed`), `openedAt`,
+`openingCashMinor`, `openingCount`, `previousClosedWorkSessionId`, `closedAt`,
+`closingCashCountMinor`, `closingCount`, `expectedCashMinor` (server), `counterExpectedCashMinor`
+(the counter's own running figure, kept beside it), `varianceMinor` (count − expected),
+`closedBy`, `closeKind` (`self` / `assisted`), `assistanceReason`.
+
+**Summary:** `openingCashMinor`, `cashTakenMinor` (cash tendered), `changeGivenMinor`,
+`cashRefundsMinor`, `cashPaidOutMinor`, `cashPaidInMinor`, `expectedCashMinor` (live while open,
+the recorded figure once closed), `saleCount`, `salesTotalMinor`, `takingsByMethod[]`
+(`{ method, takenMinor, refundedMinor }`, cash net of change), `takingsByHour[]` (`{ hour:
+"YYYY-MM-DDTHH" in the branch's timezone, saleCount, totalMinor }`), `refunds[]` and
+`cashMovements[]`.
+
+**Expected cash** = opening count + cash taken − change given − cash refunds − cash paid out
+(+ cash paid in, which nothing writes yet). Voided sales are left out.
+
+**Opening** needs the caller's own PIN (the server verifier and its lockout: `PIN_INCORRECT`,
+`PIN_LOCKED`, `PIN_SWITCHED_OFF`, `PIN_NOT_SET`, all 403), a count, and no shift already open on the
+till: 409 `SHIFT_ALREADY_OPEN` (theirs) or `SHIFT_HELD_BY_OTHER` (someone else's, with
+`workSessionId`, `staffUserId`, `openedAt`). It follows checkout's hours rule: 403
+`OUTSIDE_OPERATING_HOURS` outside a mandatory restriction. `previousClosedWorkSessionId`, when
+sent, must name the till's last closed shift (409 `SHIFT_STATE_CHANGED`); the server records it
+either way. A resend with the same `shiftId` and count replays the open; the same ID for a
+different open is 409 `SHIFT_ID_USED`. Concurrent opens on a till: exactly one wins (a partial
+unique index backs the counter row lock).
+
+**Closing** is allowed outside selling hours (D8). The shift's own person closes it with the
+count. Anyone else is the **absent-cashier close**: `assistance` with their own PIN and a reason,
+and `shifts.close_others` (owners and managers by default), checked live; without `assistance`
+it is 403 `SHIFT_ASSISTANCE_REQUIRED`, without the permission 403 `PERMISSION_DENIED`. The
+original person stays `staffUserId`; the closer is `closedBy`, and `closeKind` is `assisted`. A
+resend with the same `commandId` replays the close; another close of a closed shift is 409
+`SHIFT_ALREADY_CLOSED`. A close waits for sales still landing on the shift, then fixes expected
+cash and the variance. A closed shift never changes, enforced by a trigger, so a shortage stays on
+record whatever the next opening count says. Handover is a close then the next person's open; the
+end of the day is a close with no open after it.
+
+**Counter sales and refunds.** A checkout with `x-terminal-session` needs the seller's own open
+shift on that till: 409 `SHIFT_REQUIRED` with none, `SHIFT_HELD_BY_OTHER` with someone else's.
+Both come after the idempotency lookup, so a counter can treat them as final. The sale and its
+payments carry `shiftId`. A refund executed at a counter (the signed refund command) that pays
+cash out needs the executor's open shift on that till (409 `SHIFT_REQUIRED`) and joins it, with its
+goods return and negative payments carrying `shiftId`; one paying no cash joins the executor's open
+shift if there is one. Web POS sales and refunds carry no shift.
+
+**Cash movements.** `till_cash_movement` holds drawer cash that is neither a sale nor a refund.
+It has no route: `TillShiftsService.recordCashMovement` writes it inside the payer's transaction,
+on their own open shift, and P6's supplier cash payout (revised D10) is the first caller.
+
 ## Offline support records (P1, sync intake)
 
 The `OfflineSupportRecord` stream (`@pharmaceylon/shared`, `pos-resilience-contracts.ts`) is what a

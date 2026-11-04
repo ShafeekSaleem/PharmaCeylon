@@ -1066,6 +1066,16 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/terminals/sessions/:workSessionId/shifts",
+    "source": "apps/api/src/terminals/shifts/till-shifts.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminals/sessions/:workSessionId/shifts/:shiftId/close",
+    "source": "apps/api/src/terminals/shifts/till-shifts.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/terminals/sessions/:workSessionId/test-receipt",
     "source": "apps/api/src/terminals/terminal-enrollment.controller.ts"
   },

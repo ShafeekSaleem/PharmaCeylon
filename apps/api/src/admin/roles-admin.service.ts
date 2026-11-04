@@ -54,6 +54,7 @@ export class RolesAdminService {
       "inventory.manage_bulk",
       "purchasing.receive",
       "terminal.execute",
+      "shifts.close_others",
     ]);
     const mixedKeys = new Set([
       "stocktakes.use",

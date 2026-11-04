@@ -18,6 +18,8 @@ import { StaffCredentialsService } from "./staff-credentials.service";
 import { TerminalEnrollmentController } from "./terminal-enrollment.controller";
 import { TerminalEnrollmentService } from "./terminal-enrollment.service";
 import { TerminalTrustService } from "./terminal-trust.service";
+import { TillShiftsController } from "./shifts/till-shifts.controller";
+import { TillShiftsService } from "./shifts/till-shifts.service";
 
 @Module({
   imports: [AuthModule, NotificationsModule],
@@ -26,6 +28,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     OfflineActivationController,
     TerminalEnrollmentController,
     EnrollmentCodesController,
+    TillShiftsController,
   ],
   providers: [
     LocalAttendanceVerifier,
@@ -42,6 +45,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     EnrollmentCodesService,
     OfflineActivationClearance,
     OfflineActivationService,
+    TillShiftsService,
   ],
   exports: [
     TerminalTrustService,
@@ -51,6 +55,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     OfflineSupportRecords,
     OfflineAssignmentService,
     PinAlerts,
+    TillShiftsService,
   ],
 })
 export class TerminalsModule {}
