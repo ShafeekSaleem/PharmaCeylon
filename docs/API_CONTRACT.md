@@ -805,6 +805,73 @@ is locked, so a revocation that commits first refuses the sale and a later one w
   - `GET /api/v1/sales/refunds` (`sales.refund`) lists the branch's customer returns, newest first, with `reasonCode` and `refundedTo: [{ method, amount }]`; `GET /api/v1/sales/pos/refund-approvers` lists who can approve one at the till.
 - **The sale as the till gets it**: checkout, void, refund, `GET /sales/pos/by-invoice`, `GET /sales` and `GET /sales/:id` answer with the same shape. Each item has its own columns plus `product: { id, name, sku, unit }` and `batch: { id, batchNo, expiryDate }`, and never the batch's cost or selling price, whatever the caller holds. Historical cost is unavailable until sales store a sale-time cost snapshot.
 
+### Approver co-sign: discounts and refunds over the limit (P2b #103)
+
+One shape, shared by a line discount over the tenant's `posMaxDiscountPercent` and a prepared
+refund over `approvalRequiredReturnThreshold`. Someone with the authority approves **on another
+person's session, on the same counter**, by choosing their name and entering their own till PIN,
+the way the pharmacist co-sign works:
+
+```json
+{ "approverUserId": "<uuid>", "pin": "<their till PIN, or their login password if they have none>" }
+```
+
+- **Who can co-sign.** `GET /sales/pos/discount-approvers` (`sales.pos_use`) lists people with
+  `sales.discount_override` at the branch; `GET /sales/pos/refund-approvers` (`sales.refund`)
+  people with `returns.approve`. Each row is `{ id, fullName, email, hasPosPin, roles }`. Both
+  are `@CounterRoute()`s. The picker should leave out the signed-in person.
+- **Checked on the server, live.** The PIN is checked first, outside the transaction, with the
+  same lockout as the pharmacist co-sign (5 wrong, 15 minutes, switched off at the third lock;
+  `APPROVER_PIN_INCORRECT` / `_LOCKED` / `_SWITCHED_OFF`, all **403**). The approver's membership,
+  branch roles and grants are then read from the database inside the transaction
+  (`AccessService.resolveApprovalAuthority`), not from a token or the permission cache: without
+  the permission now, **403** `APPROVER_NOT_AUTHORISED`. The limit and threshold are read from
+  `TenantSettings` on every request, never taken from the client.
+- **Not yourself.** A co-sign naming the signed-in user is **403** `APPROVER_IS_SELF`. Approving
+  your own work goes through your own authority and the self-approval rule
+  (`selfApprovalRoleKeys`), which is unchanged — including for the co-signer: a manager who
+  prepared a refund and may not approve their own can't co-sign it on someone else's session.
+- **Both people recorded** (revised D10): the seller or refunder stays the actor of their sale or
+  refund, and the approver is recorded beside them.
+- **Online only.** No signed or offline counter command carries a co-sign, and the desktop
+  disables both while offline. The PIN is compared and dropped: it is not logged, audited or kept
+  with the request (`sale.pharmacist_pin_failed` records the attempt count and the permission,
+  never the secret).
+
+**Discounts at checkout** (`POST /sales/checkout`). Each line's `discountAmount` must be between
+zero and `unitPrice × qty` (**400**), for everyone. A line's discount percent is
+`discountAmount ÷ (unitPrice × qty) × 100`. Up to `posMaxDiscountPercent` (default 10) anyone
+selling may give it. Above it, `sales.discount_override` approves (owners and managers by default;
+it used to be a hardcoded owner/manager check, and a migration grants it to those built-in roles):
+
+- the seller, when they hold it and their role may approve its own requests; otherwise
+- **403** `code: "DISCOUNT_APPROVAL_REQUIRED"`, with `limitPercent` and `maxPercent` (the highest
+  line, to two decimals), until the body carries `discountApproval: { approverUserId, pin }`.
+
+Within the limit `discountApproval` is ignored and not verified. Over it the sale stores
+`discountApprovedBy` (the self-approving seller or the co-signer; `null` within the limit) beside
+`soldBy`, the response carries `discountApprover: { id, fullName }`, and the transaction writes a
+`sale.discount_approved` audit with the approver as actor and `{ soldByUserId, approvedByUserId,
+coSigned, limitPercent, maxLinePercent, discountTotal, workSessionId }`.
+
+**Refunds** (`POST /sales/refund-requests/:id/approve`). The route now accepts `sales.refund` as
+well as `returns.approve`, and the body takes an optional `coSign` beside the review pin:
+
+```json
+{ "approvalId": "<uuid>", "expectedVersion": 1, "expectedDigest": "<64 hex>",
+  "coSign": { "approverUserId": "<uuid>", "pin": "…" } }
+```
+
+Without `coSign` nothing changes: the signed-in user approves and needs `returns.approve` (else
+**403** `PERMISSION_DENIED`). With it, the signed-in person needs `sales.refund`, the co-signer
+needs `returns.approve` (live), and the exact-approval evidence (`ManagementApproval`), the
+request's `approver` and the `sale.refund_approved` / `management_approval.issued` audits are the
+co-signer's, with `coSignedOnSessionOfUserId` naming the signed-in person. Execution is unchanged:
+the counter then runs `execute` with the returned `executionApprovalId`, and requester, approver
+and executor stay separate. The route is a `@CounterRoute()`. A refund over the threshold executed
+with no approval is still refused with `APPROVAL_REQUIRED`. The till refund
+(`POST /sales/:id/refund`, `approval: { approverUserId, pin }`) keeps its own co-sign as before.
+
 **Reading sales back (back office)** — all three need `sales.view` and no `x-branch-id` header; they cover the branches where the caller holds `sales.view` (every active branch for an owner), never the whole tenant. `SaleReadService` (`sales/sale-read.service.ts`) is the one read path: the till's recall, invoice lookup and typeahead (`/sales/pos/*`) and global search use it too.
 
 - `GET /api/v1/sales/history` — newest first, paged on the server: `page` (from 1), `pageSize` (default 25, max 100), `branchId` (a branch id or `all`; omitted means the header's branch, or every viewable branch without one), `from` / `to` (tenant calendar days, `YYYY-MM-DD`, inclusive), `soldBy` (user id), `paymentMethod` (`cash`, `card`, `mobile_wallet`, `credit` — refund rows don't count), `invoiceNo` (contains, spaces ignored). Returns `{ items, total, page, pageSize }`. A `branchId` the caller can't view is **403**.

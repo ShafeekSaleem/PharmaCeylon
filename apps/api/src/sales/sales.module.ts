@@ -2,6 +2,7 @@ import { TerminalsModule } from "../terminals/terminals.module";
 import { Module } from "@nestjs/common";
 import { CatalogModule } from "../catalog/catalog.module";
 import { HeldSalesService } from "./held-sales.service";
+import { ApproverCoSignService } from "./approver-cosign.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
 import { PosService } from "./pos.service";
 import { RefundRequestsController } from "./refund-requests.controller";
@@ -23,6 +24,7 @@ import { ClinicalModule } from "../clinical/clinical.module";
     SaleReadService,
     HeldSalesService,
     PharmacistApprovalService,
+    ApproverCoSignService,
     RefundRequestsService,
   ],
   exports: [SaleReadService, RefundRequestsService],

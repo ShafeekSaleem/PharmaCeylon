@@ -1250,6 +1250,7 @@ model AppUser {
   supplierDebitNotesRaised SupplierDebitNote[]      @relation("SupplierDebitNoteCreator")
   sales                    Sale[]                   @relation("SaleSeller")
   salesDispensed           Sale[]                   @relation("SaleDispenser")
+  salesDiscountApproved    Sale[]                   @relation("SaleDiscountApprover")
   ledgerEntriesCreated     StockLedger[]            @relation("StockLedgerActor")
   transfersRequested       Transfer[]               @relation("TransferRequester")
   transfersApproved        Transfer[]               @relation("TransferApprover")
@@ -2600,6 +2601,10 @@ model Sale {
   /// share-locked (a PIN co-signer, or the seller at a counter). The foreign key pins it to
   /// `dispensedBy` in this tenant. Null when no registration was checked.
   dispenserRegistrationId String? @map("dispenser_registration_id") @db.Uuid
+  /// P2b #103: who approved a line discount over `posMaxDiscountPercent` — the seller under their
+  /// own authority, or a manager co-signing with their PIN on the seller's session. Kept apart from
+  /// `soldBy` (revised D10). Null when every line was within the limit.
+  discountApprovedBy String? @map("discount_approved_by") @db.Uuid
   /// P2 attribution: the enrolled counter, till and staff session the sale was rung up on, from
   /// the seller's own verified open session there. Null for web POS sales.
   terminalId     String?    @map("terminal_id") @db.Uuid
@@ -2610,6 +2615,7 @@ model Sale {
   branch       Branch        @relation(fields: [branchId], references: [id])
   seller       AppUser       @relation("SaleSeller", fields: [soldBy], references: [id])
   dispenser    AppUser?      @relation("SaleDispenser", fields: [dispensedBy], references: [id])
+  discountApprover AppUser?  @relation("SaleDiscountApprover", fields: [discountApprovedBy], references: [id])
   dispenserRegistration PharmacistRegistration? @relation(fields: [tenantId, dispensedBy, dispenserRegistrationId], references: [tenantId, userId, id], onDelete: Restrict, onUpdate: Restrict)
   customer     Customer?     @relation(fields: [customerId], references: [id])
   prescription Prescription? @relation(fields: [prescriptionId], references: [id])
