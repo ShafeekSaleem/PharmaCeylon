@@ -965,6 +965,54 @@ conflicts within and across kinds (including a D8 acknowledgement ID), wrong sig
 clock, uploader token and kind, revoked device, audit-failure rollback, immutability and the
 per-kind database shape. `hours-evidence.int-spec.ts` now checks D8 conflict retention.
 
+## P3 #49 slice: held evidence verified against issued grants; D11 cutoff
+
+Supplies the P3 half of the #47 readiness item "P3/P5 acknowledgement/grant/manager
+verification" and of D11 replacement clearance. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#held-offline-evidence-verification-p3).
+
+- **D8 acknowledgements (MR 7) are verified.** `HeldEvidenceVerifier.verifyHoursAcknowledgement`
+  binds a held acknowledgement to a grant issued to that exact enrollment (version, nomination,
+  device), to the original outage, and to a manager in the grant's `authorizedStaff` with
+  `acknowledge_business_hours` and the same preparation and PIN version. The window must stay
+  inside the grant's lifetime and inside its mandatory windows. The record moves once to
+  `accepted`, or to `rejected` with the reason in `held_reason`. That is the move the MR 7 trigger
+  already allows, so there is no migration.
+- **Support records (MR 9) get the same grant check.** It covers the sign-in they cite, their work
+  session and the staff they name. A failure rejects the record. A pass leaves it `held` for P5's
+  sale and card-machine verification. Records held as `enrollment_revoked` or `attempt_mismatch`
+  are left for P5 reconciliation.
+- **D11, P3's half.** `OfflineActivationClearance` locks the branch nomination and computes the
+  old counter's authority cutoff from what was issued (`grant-cutoff.ts`). The cutoff is a
+  confirmed revocation or retirement, the latest grant's `expiresAt`, or none if it was never
+  issued a grant. Replacement clears only once the cutoff has passed **and**
+  `journalRecoveryEvidence` (P5's half) is supplied. P5's half still returns false, so replacement
+  still fails closed with `OFFLINE_RECOVERY_EVIDENCE_REQUIRED`. One behaviour changes: a still-enrolled old counter whose
+  grants have all expired (or that never had one) now reports that reason instead of
+  `PREVIOUS_STILL_ACTIVE`.
+- **Issuance cannot race a replacement.** `isNominated` takes a share lock on the nomination row
+  that clearance locks for update. An issuance overlapping an activation either completes first,
+  so clearance sees its grant, or gets a write conflict (raw 40001, now retried). The retry then
+  finds the counter no longer nominated.
+
+Not done here: P5's journal recovery and review, P5 sync and its HTTP intake, and refusing
+dependent sale/shift commands until their evidence is accepted. The sign-in and outage evidence
+is trusted as P5 hands it over; verifying the journal signatures it comes from is P5's job.
+
+Tests: `held-evidence-verification.spec.ts` (window coverage, exact-key parsing, cutoff instant) and
+`test/integration/held-evidence.int-spec.ts` (PostgreSQL, grants issued through
+`issueOfflineAuthority`):
+- an accepted acknowledgement, decided once and immutable;
+- refusals for an unknown grant, another enrollment's grant, version and nomination mismatches, a
+  window past expiry, an unprepared manager, a manager without the capability, PIN version and
+  preparation mismatches, another counter's sign-in, a sign-in before the grant, and the wrong
+  outage;
+- a mandatory window respected and one overridden;
+- support records held with no business effect, and rejected for each staff, session, window,
+  grant and credential failure;
+- D11 before expiry, after expiry without and with P5's half, and a revoked old counter;
+- an issuance racing an activation.
+
 ## Remaining P1 MRs, in order
 
 ### MR 4c: product-import stock staging and separate posting
