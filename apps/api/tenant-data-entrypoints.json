@@ -271,7 +271,12 @@
     {
       "path": "src/sales/sales.service.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Locks one tenant/branch sale before a refund or void, so concurrent refunds of the same units serialize; stock, payments, status and audit share the caller transaction. Checkout takes a transaction-scoped advisory lock on the caller's tenant + user + idempotency key only, so overlapping retries serialize and replay the committed sale; no data is read or written by raw SQL."
+      "reason": "Locks one tenant/branch sale before a refund or void, so concurrent refunds of the same units serialize; stock, payments, status and audit share the caller transaction. Checkout's key lock is in checkout-lock.ts."
+    },
+    {
+      "path": "src/sales/checkout-lock.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Transaction-scoped advisory lock on the tenant + seller + checkout idempotency key only, taken by checkout and by resolving that key from another sign-in at the same counter, so overlapping attempts serialize and a 'never landed' answer can't overtake a running original; no data is read or written by raw SQL."
     },
     {
       "path": "src/sales/refund-requests.service.ts",

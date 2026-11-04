@@ -97,6 +97,9 @@ let calls: {
   opts: { body?: unknown; headers?: Record<string, string> };
 }[];
 let checkoutReply: () => unknown;
+let resolveReply: () => unknown;
+/** Who is signed in at the counter now; a colleague's sign-in replaces it. */
+let signedIn: { staffUserId: string; workSessionId: string };
 
 function service() {
   const api = {
@@ -130,12 +133,13 @@ function service() {
         });
         return checkoutReply();
       }
+      if (path === "/sales/checkout/resolve") return resolveReply();
       throw new Error(path);
     },
   };
   const terminal = {
     current: () => ({
-      staff: { workSessionId, staffUserId, staffName: "Cashier", openedAt: "" },
+      staff: { ...signedIn, staffName: "Cashier", openedAt: "" },
       identity,
     }),
   };
@@ -152,6 +156,10 @@ beforeEach(() => {
   local = openLocalStore(dir, protector, migrations);
   calls = [];
   checkoutReply = () => saleResponse();
+  resolveReply = () => {
+    throw new Error("not expected");
+  };
+  signedIn = { staffUserId, workSessionId };
   catalogResponse.vatRatePercent = 0;
   identity = { ...identity, branchId, enrollmentId: randomUUID() };
 });
@@ -395,7 +403,7 @@ describe("checkout safety", () => {
     expect(checkout.pending()).toEqual([]);
   });
 
-  it("names who rang up an unconfirmed sale, since only they can confirm it", async () => {
+  it("names who rang up an unconfirmed sale, and whether it is the person signed in", async () => {
     local.db
       .prepare(
         "INSERT INTO staff_session_log (work_session_id, staff_user_id, staff_name, enrollment_id, opened_at) VALUES (?, ?, ?, ?, ?)",
@@ -410,7 +418,11 @@ describe("checkout safety", () => {
       checkout.submit([{ productId: paracetamol, qty: 1 }], { cashAmount: "5" }),
     ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
     expect(checkout.pending()).toEqual([
-      expect.objectContaining({ staffUserId, staffName: "Nimal Perera" }),
+      expect.objectContaining({ staffUserId, staffName: "Nimal Perera", ownSale: true }),
+    ]);
+    signedIn = { staffUserId: randomUUID(), workSessionId: randomUUID() };
+    expect(checkout.pending()).toEqual([
+      expect.objectContaining({ staffUserId, staffName: "Nimal Perera", ownSale: false }),
     ]);
   });
 
@@ -429,6 +441,91 @@ describe("checkout safety", () => {
       code: "DRAFT_OTHER_COUNTER",
     });
     expect(calls.filter((c) => c.path === "/sales/checkout")).toHaveLength(1);
+  });
+});
+
+describe("confirming someone else's unconfirmed sale", () => {
+  async function leaveUnconfirmed(coSign?: { approverUserId: string; pin: string }) {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      coSign
+        ? checkout.submit([{ productId: morphine, qty: 1 }], { cashAmount: "40" }, { prescriptionId }, coSign)
+        : checkout.submit([{ productId: paracetamol, qty: 2 }], { cashAmount: "10" }),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const [pending] = checkout.pending();
+    // A colleague signs in at the same counter.
+    signedIn = { staffUserId: randomUUID(), workSessionId: randomUUID() };
+    return { checkout, draftId: pending!.draftId };
+  }
+
+  it("looks the sale up under the colleague's sign-in and never sends it again", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed();
+    const saleId = randomUUID();
+    resolveReply = () => ({ outcome: "landed", sale: { ...saleResponse(saleId), seller: { fullName: "Nimal Perera" } } });
+    await expect(checkout.retry(draftId)).resolves.toMatchObject({
+      saleId,
+      invoiceNo: "INV-0042",
+      sellerName: "Nimal Perera",
+    });
+    expect(calls.filter((c) => c.path === "/sales/checkout")).toHaveLength(1);
+    const lookup = calls.find((c) => c.path === "/sales/checkout/resolve")!;
+    // The original's key and session; the caller's own session in the header.
+    expect(lookup.opts.body).toEqual({ idempotencyKey: draftId, workSessionId });
+    expect(lookup.opts.headers).toEqual({ "x-terminal-session": signedIn.workSessionId });
+    expect(lookup.opts.headers).not.toHaveProperty("Idempotency-Key");
+    expect(checkout.pending()).toEqual([]);
+    expect(
+      local.db.prepare("SELECT status, sale_id, staff_user_id FROM checkout_draft").get(),
+    ).toEqual({ status: "completed", sale_id: saleId, staff_user_id: staffUserId });
+  });
+
+  it("clears the sale once the server says it never landed, and asks for it to be rung up again", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed();
+    resolveReply = () => ({ outcome: "never_landed" });
+    await expect(checkout.retry(draftId)).rejects.toMatchObject({ code: "CHECKOUT_NEVER_LANDED" });
+    expect(checkout.pending()).toEqual([]);
+    expect(
+      local.db.prepare("SELECT status, error_code FROM checkout_draft").get(),
+    ).toEqual({ status: "refused", error_code: "CHECKOUT_NEVER_LANDED" });
+    expect(calls.filter((c) => c.path === "/sales/checkout")).toHaveLength(1);
+  });
+
+  it("needs no co-sign PIN from a colleague, and sends none", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed({ approverUserId: pharmacistId, pin: "4321" });
+    resolveReply = () => ({ outcome: "landed", sale: saleResponse() });
+    await checkout.retry(draftId, { approverUserId: pharmacistId, pin: "4321" });
+    const lookup = calls.find((c) => c.path === "/sales/checkout/resolve")!;
+    expect(JSON.stringify(lookup.opts)).not.toContain("4321");
+  });
+
+  it("keeps the sale pending when the lookup gets no answer or is refused", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed();
+    resolveReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(checkout.retry(draftId)).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const refusal = new ApiError(403, "CHECKOUT_OTHER_COUNTER", "not here");
+    resolveReply = () => {
+      throw refusal;
+    };
+    await expect(checkout.retry(draftId)).rejects.toBe(refusal);
+    expect(checkout.pending()).toHaveLength(1);
+    // The seller can still resend it themselves later.
+    signedIn = { staffUserId, workSessionId: randomUUID() };
+    checkoutReply = () => saleResponse();
+    await checkout.retry(draftId);
+    expect(checkout.pending()).toEqual([]);
+  });
+
+  it("won't look a sale up from a counter re-enrolled since it was rung up", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed();
+    identity = { ...identity, enrollmentId: randomUUID() };
+    await expect(checkout.retry(draftId)).rejects.toMatchObject({ code: "DRAFT_OTHER_COUNTER" });
+    expect(calls.some((c) => c.path === "/sales/checkout/resolve")).toBe(false);
   });
 });
 

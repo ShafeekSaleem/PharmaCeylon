@@ -156,7 +156,8 @@ attendance proofs, staff-session challenge/finish/end, the caller's own PIN set/
 sign-in's challenge and finish (`POST /terminals/pin-sessions/challenge`, `POST /terminals/pin-sessions`,
 D-W5).
 `POST /terminals/sessions/:workSessionId/test-receipt` is `local_record` (go-live evidence recorded
-at the counter). They
+at the counter). `POST /sales/checkout/resolve` is `local_record`: someone at the counter looks up
+an earlier checkout from it and, when nothing landed, seals that key; it posts no sale. They
 bind or remove a device or staff identity and move no stock, cash or grant. Contract:
 [API_CONTRACT.md](API_CONTRACT.md#desktop-enrollment-and-staff-sessions-p2).
 

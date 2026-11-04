@@ -147,6 +147,9 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/sales/refund-requests/:id/execute": "refund",
   "POST /api/v1/sales/:id/void": "refund",
   "POST /api/v1/sales/checkout": "checkout",
+  // P2: looks an earlier counter checkout up for someone other than its seller; seals a key that
+  // never landed. Posts no sale and moves no stock or cash.
+  "POST /api/v1/sales/checkout/resolve": "local_record",
   "POST /api/v1/sales/holds": "local_record",
   "DELETE /api/v1/sales/holds/:id": "local_record",
   "POST /api/v1/sales/holds/:id/recall": "local_record",

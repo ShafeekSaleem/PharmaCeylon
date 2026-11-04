@@ -110,6 +110,9 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 - First request with a key performs the mutation and records the key → resource id.
 - Retries with the **same** key return the **same** resource (replay).
 - Reusing a key for a **different** logical operation (e.g. different PO on receive, different transfer id on ship/receive) returns **400** with a clear message—do not silently post twice.
+- `checkout` keys can be sealed: `POST /sales/checkout/resolve` records scope `checkout_sealed`
+  for the seller's key once nothing landed under it, and checkout then refuses that key with 409
+  `CHECKOUT_SEALED` ("Desktop enrollment and staff sessions", "Unconfirmed sales").
 - `stock_adjustment` keeps the first request's body with the key (`idempotency_record.request_body`) and replays only an identical body at the same branch; any other body is the 400. `held_adjustment_request` compares against the held adjustment's saved payload.
 
 ## Private supplier-payment evidence (P1)
@@ -668,9 +671,34 @@ the seller's session opened at that counter, not a proof bound to the sale; that
 with `TEMPORARILY_UNAVAILABLE` if the stored hours can't be read. Routine closing time stays
 advisory online, and a branch with no hours set has no restriction.
 
-**Unconfirmed sales.** The checkout idempotency key is scoped to the seller, so only the person
-who rang up an unconfirmed sale can confirm it from the counter; the desktop names them in its
-pending list and readiness.
+**Unconfirmed sales.** The checkout idempotency key is scoped to the seller. The seller confirms
+their own unconfirmed sale by resending it under the same key. Anyone else signed in at the same
+enrolled counter confirms it with `POST /sales/checkout/resolve` (`sales.pos_use`, a counter
+route), which looks the original up and never sends it again:
+
+- Headers: `x-branch-id` and `x-terminal-session: <the caller's own open workSessionId>`.
+- Body: `{ idempotencyKey, workSessionId }`, the original's key and the staff session it was sent
+  under.
+- The server finds that session at this branch and requires it to be on the caller's enrollment.
+  It takes the same lock checkout takes for the seller's key, then reads the seller's checkout
+  record. A first attempt that is still running finishes first.
+- **200 `{ outcome: "landed", sale }`**: the committed sale, with the `POST /sales/checkout` sale
+  shape. It is still the seller's (`soldBy`, `workSessionId`), and nothing is posted.
+- **200 `{ outcome: "never_landed" }`**: nothing committed under the key, and now nothing can. The
+  lookup seals the key for that seller (`idempotency_record` scope `checkout_sealed`, `resourceId`
+  = the caller's session). A checkout with that key arriving later is refused with **409
+  `CHECKOUT_SEALED`** after the key lock, so the counter can ring the sale up again under a new
+  key. Asking again gives the same answer.
+- **403 `CHECKOUT_OTHER_COUNTER`**: the original session isn't at this branch or on this counter's
+  enrollment, or the seller's key belongs to a sale in another session. Nothing is sealed.
+- **403 `SESSION_INVALID`**: the caller has no open session of their own on an active enrollment.
+- Audited as `sale.checkout_resolved`, with the caller as actor and the outcome.
+
+Who may resolve: anyone with `sales.pos_use` signed in at that counter, not only managers. The
+route moves no stock or cash, attributes nothing to the caller, and only answers for this
+counter's own sales. Sealing a key that never landed only stops a sale that would otherwise arrive
+unannounced after the counter was told it hadn't happened. Requiring a manager would bring back
+the single-person wait the route exists to remove, at a counter run by two cashiers.
 
 **Web PIN routes.** `POST /sales/pos/me/pos-pin` and `/clear` are refused with 403
 `PIN_SET_AT_COUNTER` at a branch live on PharmaCeylon POS (outside a fallback), because there the
