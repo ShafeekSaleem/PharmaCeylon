@@ -915,29 +915,25 @@ describe("D-W5 PIN sign-in at a counter", () => {
       await expect(pinSignIn.begin(signed)).resolves.toEqual(first);
     expect(await openPinChallenges(identity.enrollmentId)).toBe(1);
 
-    // tenant-scope: test fixture — the first challenge is near its end, too close to finish.
-    await prisma.terminalChallenge.updateMany({
-      where: {
-        tenantId: fx.tenantId,
-        purpose: "pin_session",
-        consumedAt: null,
-        payload: { path: ["identity", "enrollmentId"], equals: identity.enrollmentId },
-      },
-      data: { expiresAt: new Date(Date.now() + 20_000) },
-    });
-    const second = await pinSignIn.begin(signed);
-    expect(second.serverNonce).not.toBe(first.serverNonce);
-    await expect(pinSignIn.begin(signed)).resolves.toEqual(second);
+    // Seventy seconds on, the first has too little left to finish. Challenge rows are immutable,
+    // so the clock moves rather than the row.
+    const realNow = Date.now.bind(Date);
+    const clock = jest.spyOn(Date, "now").mockImplementation(() => realNow() + 70_000);
+    try {
+      const second = await pinSignIn.begin(signed);
+      expect(second.serverNonce).not.toBe(first.serverNonce);
+      await expect(pinSignIn.begin(signed)).resolves.toEqual(second);
+    } finally {
+      clock.mockRestore();
+    }
     expect(await openPinChallenges(identity.enrollmentId)).toBe(2);
 
     // Spent, it is never handed out again.
-    await expect(answer(device, second, PIN)).resolves.toMatchObject({
+    await expect(answer(device, first, PIN)).resolves.toMatchObject({
       session: { staffUserId: clerk.userId },
     });
-    const third = await pinSignIn.begin(signed);
-    expect([first.serverNonce, second.serverNonce]).not.toContain(
-      third.serverNonce,
-    );
+    const next = await pinSignIn.begin(signed);
+    expect(next.serverNonce).not.toBe(first.serverNonce);
   });
 
   it("checks the device signature before waiting on the counter's lock", async () => {

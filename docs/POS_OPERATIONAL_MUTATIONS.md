@@ -150,9 +150,11 @@ nomination, no grant). Contract: [API_CONTRACT.md](API_CONTRACT.md).
 
 ## P2 desktop enrollment and staff sessions
 
-`POST /terminals/counters` is `management`. The other thirteen routes are `identity`:
+`POST /terminals/counters` is `management`. The other fifteen routes are `identity`:
 enrollment challenge/code-challenge/finish, enrollment code issue/revoke, revoke, retire,
-attendance proofs, staff-session challenge/finish/end and the caller's own PIN set/prepare.
+attendance proofs, staff-session challenge/finish/end, the caller's own PIN set/prepare, and PIN
+sign-in's challenge and finish (`POST /terminals/pin-sessions/challenge`, `POST /terminals/pin-sessions`,
+D-W5).
 `POST /terminals/sessions/:workSessionId/test-receipt` is `local_record` (go-live evidence recorded
 at the counter). They
 bind or remove a device or staff identity and move no stock, cash or grant. Contract:
