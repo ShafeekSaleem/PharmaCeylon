@@ -217,6 +217,7 @@ export function App() {
                       key={sessionId}
                       onActivity={refreshReadiness}
                       onCommandSent={onCommandSent}
+                      online={api?.reachable !== false}
                     />
                   </div>
                 </KeyScope>

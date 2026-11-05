@@ -31,10 +31,13 @@ describe("routes a PIN-opened counter login may call", () => {
       [
         "posCatalog",
         "listApprovers",
+        "listDiscountApprovers",
+        "listRefundApprovers",
         "hold",
         "listHolds",
         "recallHold",
         "checkout",
+        "resolveCheckout",
         // The Returns page: find the sale, what is still returnable, and today's refunds.
         "posByInvoice",
         "getReturnable",
@@ -42,10 +45,11 @@ describe("routes a PIN-opened counter login may call", () => {
         "listRefunds",
       ],
     ],
-    [RefundRequestsController, ["list", "prepare"]],
+    // `approve` takes the approver co-sign on the counter (P2b #103); `prepare` is the Returns page.
+    [RefundRequestsController, ["list", "prepare", "approve"]],
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],
-    [TerminalCommandsController, ["prepare", "execute"]],
+    [TerminalCommandsController, ["prepare", "execute", "cosign"]],
     [OfflineAssignmentController, ["view"]],
     [OfflineAuthorityController, ["prepare", "issue"]],
     [

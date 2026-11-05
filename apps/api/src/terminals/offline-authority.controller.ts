@@ -9,7 +9,12 @@ import { CurrentUser } from "../security/decorators/current-user.decorator";
 import { RequireBranchId } from "../security/decorators/require-branch.decorator";
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
-import { firstIssuanceState, isNominated, issueOfflineAuthority } from "./offline-authority-issuance";
+import {
+  emptyJournalState,
+  hasAcceptedOfflineJournal,
+  isNominated,
+  issueOfflineAuthority,
+} from "./offline-authority-issuance";
 import { TerminalErrorFilter } from "./terminal-error.filter";
 import { TerminalTrustService } from "./terminal-trust.service";
 import { denied, object, text, uuid } from "./terminal-wire";
@@ -48,6 +53,14 @@ export class OfflineAuthorityController {
       // Only the branch's offline counter gets authority. Refusing here, before the counter spends
       // an attendance proof, rolls the challenge back with the transaction.
       if (!(await isNominated(tx, command.identity))) denied("IDENTITY_MISMATCH");
+      // Likewise a counter whose offline journal needs reconciling, unless this request ID was
+      // already issued: a lost response must stay recoverable.
+      const { tenantId, branchId: scopeBranchId, enrollmentId } = command.identity;
+      const issued = await tx.offlineAuthorityIssuance.findUnique({
+        where: { tenantId_branchId_enrollmentId_commandId: { tenantId, branchId: scopeBranchId, enrollmentId, commandId: requestId } },
+        select: { snapshotId: true },
+      });
+      if (!issued && (await hasAcceptedOfflineJournal(tx, command.identity))) denied("RECONCILIATION_REQUIRED");
       return command;
     });
   }
@@ -70,7 +83,7 @@ export class OfflineAuthorityController {
         const { command } = await this.trust.verifyCommand(tx, user, branchId, descriptor, body.envelope, proofId);
         return { identity: command.identity, commandId: command.body.requestId };
       },
-      readState: firstIssuanceState,
+      readState: emptyJournalState,
     });
   }
 }

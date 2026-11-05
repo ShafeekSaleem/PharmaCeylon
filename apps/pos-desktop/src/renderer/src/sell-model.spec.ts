@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@jest/globals";
 import type { CatalogProduct } from "../../shared/ipc-contract";
 import {
+  discountFromInput,
+  discountPercent,
   findProducts,
+  isDiscountRefusal,
+  overDiscountLimit,
+  percentText,
   highlight,
   isSlmcRefusal,
   issuedAgo,
@@ -157,13 +162,52 @@ describe("SLMC refusals", () => {
     expect(refusal.actions).toEqual(["choose-pharmacist", "hold"]);
   });
 
-  it("tells the counter a pharmacist switches in to record a prescription, since a co-sign isn't accepted yet", () => {
+  it("tells the counter to record a prescription with a registered pharmacist's PIN, or hold the sale", () => {
     const refusal = slmcRefusal(
       "PHARMACIST_REQUIRED",
       "Recording a prescription needs a pharmacist.",
     );
-    expect(refusal.actions).toEqual(["hold"]);
-    expect(refusal.next).toMatch(/signs in at this counter/);
-    expect(refusal.next).toMatch(/isn't accepted for recording yet/);
+    expect(refusal.actions).toEqual(["choose-pharmacist", "hold"]);
+    expect(refusal.next).toMatch(/ask for their PIN/);
+    expect(refusal.next).not.toMatch(/isn't accepted/);
+  });
+});
+
+describe("line discounts (P2b #103)", () => {
+  it("turns a typed percent or amount into cents off the line", () => {
+    expect(discountFromInput("percent", "10", 19_200)).toBe(1_920);
+    expect(discountFromInput("percent", "12.5", 9_999)).toBe(1_250); // half up to the cent
+    expect(discountFromInput("amount", "25", 19_200)).toBe(2_500);
+    expect(discountFromInput("amount", "0", 19_200)).toBe(0);
+  });
+
+  it("refuses what isn't a discount: empty, not a number, or more than the line", () => {
+    for (const raw of ["", " ", "abc", "-5", "1.234", "1e3"])
+      expect(discountFromInput("amount", raw, 19_200)).toBeNull();
+    expect(discountFromInput("percent", "100.01", 19_200)).toBeNull();
+    expect(discountFromInput("amount", "192.01", 19_200)).toBeNull();
+    expect(discountFromInput("percent", "100", 19_200)).toBe(19_200);
+  });
+
+  it("reads the limit as the server does: strictly above it needs a manager", () => {
+    expect(overDiscountLimit(1_920, 19_200, 10)).toBe(false); // exactly 10%
+    expect(overDiscountLimit(1_921, 19_200, 10)).toBe(true);
+    expect(overDiscountLimit(750, 10_000, 7.5)).toBe(false);
+    expect(overDiscountLimit(751, 10_000, 7.5)).toBe(true);
+    expect(overDiscountLimit(0, 10_000, 0)).toBe(false);
+    expect(overDiscountLimit(1, 10_000, 0)).toBe(true);
+  });
+
+  it("writes the percent the counter shows", () => {
+    expect(discountPercent(1_920, 19_200)).toBe(10);
+    expect(discountPercent(1_000, 3_000)).toBe(33.33);
+    expect(percentText(10)).toBe("10%");
+    expect(percentText(12.5)).toBe("12.5%");
+  });
+
+  it("knows the refusals that send the person back to the discount co-sign", () => {
+    expect(isDiscountRefusal("DISCOUNT_APPROVAL_REQUIRED")).toBe(true);
+    expect(isDiscountRefusal("DISCOUNT_COSIGN_REFUSED")).toBe(true);
+    expect(isDiscountRefusal("APPROVER_PIN_INCORRECT")).toBe(false);
   });
 });

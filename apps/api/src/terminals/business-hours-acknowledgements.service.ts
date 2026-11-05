@@ -79,8 +79,8 @@ export function parseHoursAcknowledgement(raw: unknown): OfflineBusinessHoursAck
  *   one ID space with the other support records (`support-record-intake.ts`): the same bytes
  *   replay the stored receipt; different content under the same ID returns `conflict` and is
  *   retained for repair.
- * - Stored as `held`. The grant, nomination and prepared-manager sign-in it cites do not exist
- *   server-side yet (P3 grants, P2 PIN sign-ins); verification moves it to accepted/rejected.
+ * - Stored as `held`. `HeldEvidenceVerifier` (P3) moves it to accepted/rejected against the grant
+ *   that was issued and the manager sign-in and outage P5 sync supplies from the journal.
  *   A revoked device's upload is retained for reconciliation, still held.
  *
  * This record never posts a sale, shift, stock or cash effect, and never authorizes an online

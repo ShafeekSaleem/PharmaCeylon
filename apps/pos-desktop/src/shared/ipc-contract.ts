@@ -18,10 +18,26 @@ export const readinessCheckSchema = z.object({
 });
 export type ReadinessCheck = z.infer<typeof readinessCheckSchema>;
 
+/** This counter's installed offline authority, for the This counter page (P3 #49). */
+export const offlineBackupSchema = z.object({
+  /** The grant's expiry and the saved stock's time, ISO; null when nothing is installed. */
+  grantExpiresAt: z.string().nullable(),
+  snapshotGeneratedAt: z.string().nullable(),
+  /** People the installed grant lets sign in offline. */
+  authorizedStaff: z.number().int().min(0),
+  /** True while the saved stock is young enough for an outage to start on it. */
+  usable: z.boolean(),
+  /** Consecutive failed renewals, and what the last one needs, in plain words. */
+  failures: z.number().int().min(0),
+  failure: z.string().nullable(),
+});
+export type OfflineBackup = z.infer<typeof offlineBackupSchema>;
+
 export const readinessReportSchema = z.object({
   ready: z.boolean(),
   checkedAt: z.string(),
   checks: z.array(readinessCheckSchema),
+  offlineBackup: offlineBackupSchema.nullable().optional(),
 });
 export type ReadinessReport = z.infer<typeof readinessReportSchema>;
 
@@ -153,6 +169,9 @@ export type CatalogProduct = z.infer<typeof catalogProductSchema>;
 export const catalogSchema = z.object({
   products: z.array(catalogProductSchema),
   vatRatePercent: z.number().min(0).max(100),
+  /** The line discount anyone selling may give (`posMaxDiscountPercent`); above it a manager
+   *  approves. Shown only: the server reads the setting again at checkout. */
+  maxDiscountPercent: z.number().min(0).max(100),
 });
 export type CatalogView = z.infer<typeof catalogSchema>;
 
@@ -193,15 +212,21 @@ export const recordPrescriptionSchema = z.object({
   customerId: uuid.optional(),
   notes: z.string().trim().max(512).optional(),
 });
-export type RecordPrescription = z.infer<typeof recordPrescriptionSchema>;
-
-/** A pharmacist's co-sign for controlled items: their till PIN, or login password if they have none.
- * Sent with one checkout and never stored on this computer. */
+/** A co-sign on someone else's session: a pharmacist's for controlled items, or (P2b) a manager's
+ * for a discount over the limit. Their till PIN, or login password if they have none. Sent with
+ * one checkout and never stored on this computer. */
 export const coSignSchema = z.object({
   approverUserId: uuid,
   pin: z.string().min(4).max(128),
 });
 export type CoSign = z.infer<typeof coSignSchema>;
+
+/** Recording a prescription: by the person signed in, if they hold an SLMC registration, or with a
+ * registered pharmacist's co-sign (their PIN, sent once to the server and never stored here). */
+export const recordPrescriptionWithCoSignSchema = recordPrescriptionSchema.extend({
+  coSign: coSignSchema.optional(),
+});
+export type RecordPrescription = z.infer<typeof recordPrescriptionWithCoSignSchema>;
 
 export const dispensingSchema = z.object({
   customerId: uuid.optional(),
@@ -217,6 +242,14 @@ export const tenderSchema = z.object({
 });
 export type Tender = z.infer<typeof tenderSchema>;
 
+/** A line on the counter: the product, how many, and the discount off the line in cents. */
+export const saleLineSchema = z.object({
+  productId: uuid,
+  qty: z.number().int().min(1).max(9999),
+  discountMinor: z.number().int().min(0).max(99_999_999_999).optional(),
+});
+export type SaleLine = z.infer<typeof saleLineSchema>;
+
 export const completedSaleSchema = z.object({
   saleId: uuid,
   invoiceNo: z.string(),
@@ -228,7 +261,11 @@ export const completedSaleSchema = z.object({
   amountPaid: z.string(),
   changeDue: z.string(),
   sellerName: z.string(),
-  lines: z.array(z.object({ name: z.string(), qty: z.number().int(), unitPrice: z.string(), lineTotal: z.string() })),
+  /** Who approved a discount over the limit, when one did. */
+  discountApproverName: z.string().nullable(),
+  lines: z.array(
+    z.object({ name: z.string(), qty: z.number().int(), unitPrice: z.string(), discountAmount: z.string(), lineTotal: z.string() }),
+  ),
   payments: z.array(z.object({ method: z.string(), amount: z.string(), reference: z.string().nullable() })),
 });
 export type CompletedSale = z.infer<typeof completedSaleSchema>;
@@ -241,8 +278,12 @@ export const checkoutDraftSchema = z.object({
   lineCount: z.number().int(),
   /** Who co-signed controlled items, so confirming can ask the same pharmacist again. */
   coSignerId: uuid.nullable(),
-  /** Who rang it up: only they can confirm it, because the server keys retries to the seller. */
+  /** Who co-signed a discount over the limit, so confirming can ask the same manager again. */
+  discountCoSignerId: uuid.nullable(),
+  /** Who rang it up. Anyone signed in here can confirm it; it stays this person's sale. */
   staffName: z.string().nullable(),
+  /** Whether the person signed in now rang it up: they resend it, anyone else only looks it up. */
+  ownSale: z.boolean(),
 });
 export type CheckoutDraftView = z.infer<typeof checkoutDraftSchema>;
 
@@ -432,17 +473,19 @@ export const ipcContract = {
   submitCheckout: {
     channel: "pos:checkout:submit",
     input: z.object({
-      lines: z.array(z.object({ productId: uuid, qty: z.number().int().min(1).max(9999) })).min(1).max(200),
+      lines: z.array(saleLineSchema).min(1).max(200),
       tender: tenderSchema,
       dispensing: dispensingSchema.optional(),
       coSign: coSignSchema.optional(),
+      /** A manager's co-sign for a discount over the limit (P2b #103). Online only. */
+      discountCoSign: coSignSchema.optional(),
     }),
     output: result(completedSaleSchema),
   },
   holdCart: {
     channel: "pos:checkout:hold",
     input: z.object({
-      lines: z.array(z.object({ productId: uuid, qty: z.number().int().min(1).max(9999) })).min(1).max(200),
+      lines: z.array(saleLineSchema).min(1).max(200),
       label: z.string().trim().max(120).optional(),
       dispensing: dispensingSchema.optional(),
     }),
@@ -454,7 +497,7 @@ export const ipcContract = {
     input: z.object({ holdId: uuid }),
     output: result(
       z.object({
-        lines: z.array(z.object({ productId: z.string(), qty: z.number().int() })),
+        lines: z.array(z.object({ productId: z.string(), qty: z.number().int(), discountMinor: z.number().int().min(0) })),
         customer: customerSchema.nullable(),
         prescription: prescriptionSchema.nullable(),
       }),
@@ -463,7 +506,7 @@ export const ipcContract = {
   pendingCheckouts: { channel: "pos:checkout:pending", input: noInput, output: z.array(checkoutDraftSchema) },
   retryCheckout: {
     channel: "pos:checkout:retry",
-    input: z.object({ draftId: uuid, coSign: coSignSchema.optional() }),
+    input: z.object({ draftId: uuid, coSign: coSignSchema.optional(), discountCoSign: coSignSchema.optional() }),
     output: result(completedSaleSchema),
   },
   searchCustomers: {
@@ -478,10 +521,16 @@ export const ipcContract = {
   },
   recordPrescription: {
     channel: "pos:dispensing:record-prescription",
-    input: recordPrescriptionSchema,
+    input: recordPrescriptionWithCoSignSchema,
     output: result(prescriptionSchema),
   },
   listApprovers: { channel: "pos:dispensing:approvers", input: noInput, output: result(z.array(approverSchema)) },
+  /** People who can approve a discount over the limit at this branch, for the co-sign picker. */
+  listDiscountApprovers: {
+    channel: "pos:checkout:discount-approvers",
+    input: noInput,
+    output: result(z.array(approverSchema)),
+  },
   printSaleReceipt: {
     channel: "pos:checkout:print",
     input: z.object({ saleId: uuid, printerName: z.string().min(1).max(260) }),

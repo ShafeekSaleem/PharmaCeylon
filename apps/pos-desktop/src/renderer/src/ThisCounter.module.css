@@ -139,6 +139,12 @@ div.tiles {
   text-overflow: ellipsis;
 }
 
+/* A check that isn't OK says what to do about it: show all of it. */
+.dWrap {
+  padding: 6px 0;
+  white-space: normal;
+}
+
 .rdFoot {
   margin: auto 18px 0;
   padding: 12px 0 14px;

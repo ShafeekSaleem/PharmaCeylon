@@ -69,8 +69,14 @@ export class RefundRequestsController {
     return this.refunds.prepare(user, branchId, saleId, dto);
   }
 
-  @ApiOperation({ summary: "Approve the exact prepared refund (over the tenant threshold)" })
-  @RequirePermission("returns.approve")
+  @ApiOperation({
+    summary:
+      "Approve the exact prepared refund (over the tenant threshold), as yourself or with an approver's co-sign on your counter session",
+  })
+  // Someone refunding at the counter reaches this with `sales.refund` to send an approver's
+  // co-sign; the service then needs `returns.approve` from whoever approves, read live.
+  @RequirePermission("returns.approve", "sales.refund")
+  @CounterRoute()
   @HttpCode(HttpStatus.OK)
   @Post("refund-requests/:id/approve")
   approve(
