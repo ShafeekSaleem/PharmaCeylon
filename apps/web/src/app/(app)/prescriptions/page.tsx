@@ -18,6 +18,7 @@ import { useAuth } from "@/lib/use-auth";
 import { InventoryFilterSelect } from "../inventory/components/inventory-filter-select";
 import { formatDate } from "../customers/utils";
 import css from "../customers/customers.module.css";
+import { checkedByLabel, type PrescriptionPeople } from "./prescription-people";
 
 const PAGE_SIZE = 25;
 
@@ -27,7 +28,7 @@ const VALIDITY_OPTIONS = [
   { value: "expired", label: "Expired" },
 ];
 
-type PrescriptionRow = {
+type PrescriptionRow = PrescriptionPeople & {
   id: string;
   rxNumber: string;
   patientName: string;
@@ -156,6 +157,28 @@ function PrescriptionsPageContent() {
           ) : null}
         </div>
       ),
+    },
+    {
+      key: "recordedBy",
+      header: "Recorded by",
+      sortable: true,
+      getValue: (r) => r.recordedBy.fullName,
+      render: (r) => <span className={css.nameMain}>{r.recordedBy.fullName}</span>,
+    },
+    {
+      key: "checkedBy",
+      header: "Pharmacist checked by",
+      sortable: true,
+      getValue: (r) => r.checkedBy?.fullName ?? "",
+      render: (r) => {
+        const checked = checkedByLabel(r.checkedBy);
+        return (
+          <div className={css.nameCell}>
+            <span className={r.checkedBy ? css.nameMain : css.muted}>{checked.name}</span>
+            <span className={css.nameSub}>{checked.detail}</span>
+          </div>
+        );
+      },
     },
     {
       key: "issuedOn",

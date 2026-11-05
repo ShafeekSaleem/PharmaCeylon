@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import * as bcrypt from "bcrypt";
 import { Prisma, PrismaClient } from "@prisma/client";
 import type {
@@ -807,7 +809,8 @@ describe("prescriptions through signed commands (clinical)", () => {
       pharmacistRegistrationId: registration.id });
     expect(await recorded(number)).toBe(1);
     const row = await prisma.prescription.findFirstOrThrow({ where: { tenantId: fx.tenantId, rxNumber: number } });
-    expect(row).toMatchObject({ createdBy: pharmacistId, doctorRegNo: "SLMC 9921", validUntil: null });
+    expect(row).toMatchObject({ createdBy: pharmacistId, doctorRegNo: "SLMC 9921", validUntil: null,
+      checkedBy: pharmacistId, checkedRegistrationId: registration.id });
     const event = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId,
       eventName: "prescription.recorded", entityId: row.id } });
     expect(event.payload).toMatchObject({ rxNumber: number, command: { commandId: payload.commandId,
@@ -898,7 +901,14 @@ describe("prescriptions through signed commands (clinical)", () => {
         pharmacistRegistrationId: registration.id });
       expect(await recorded(number)).toBe(1);
       const row = await prisma.prescription.findFirstOrThrow({ where: { tenantId: fx.tenantId, rxNumber: number } });
-      expect(row.createdBy).toBe(cashierId);
+      expect(row).toMatchObject({ createdBy: cashierId, checkedBy: pharmacistId, checkedRegistrationId: registration.id });
+      // The register, the lookup and the record all say who typed it and which pharmacist checked it.
+      const people = { recordedBy: { id: cashierId, fullName: "Rx Cashier" },
+        checkedBy: { id: pharmacistId, fullName: "Rx Pharmacist", slmcNumber: registration.slmcNumber } };
+      const register = await prescriptions.list(fx.tenantId, branch(), { q: number });
+      expect(register.items).toEqual([expect.objectContaining({ rxNumber: number, ...people })]);
+      expect(await prescriptions.getOne(fx.tenantId, branch(), row.id)).toMatchObject(people);
+      expect(await prescriptions.search(fx.tenantId, branch(), { q: number })).toEqual([expect.objectContaining(people)]);
       const provenance = { commandId: payload.commandId, pharmacistRegistrationId: registration.id,
         pharmacistUserId: pharmacistId, pharmacistEvidenceId: cosign.pharmacistEvidenceId };
       const recordedEvent = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId,
@@ -922,6 +932,44 @@ describe("prescriptions through signed commands (clinical)", () => {
       expect(resent).toMatchObject({ receiptId: a.receiptId, replayed: true, result: a.result });
       expect(await recorded(number)).toBe(1);
       expect(await executionAudits(payload.commandId)).toBe(1);
+    });
+
+    it("backfills who checked a prescription recorded before this was stored, from its audit provenance", async () => {
+      const registration = await registered();
+      const body = prescription(rxNumber());
+      const cosign = await issue(body);
+      const cosigned = await signedCommand(cashier, RX, body, null, cosign.pharmacistEvidenceId);
+      const a = (await run(cashier, cosigned.request)).result as { prescriptionId: string };
+      const own = await counterFor(pharmacistId);
+      const alone = await signedCommand(own, RX, prescription(rxNumber()), null);
+      const b = (await run(own, alone.request)).result as { prescriptionId: string };
+      // Before the co-sign change the provenance had no pharmacistUserId: the recorder checked it.
+      await prisma.$executeRaw`UPDATE audit_event SET payload = payload #- '{command,pharmacistUserId}'
+        WHERE tenant_id = ${fx.tenantId}::uuid AND entity_id = ${b.prescriptionId}::uuid`;
+      const ids = [a.prescriptionId, b.prescriptionId];
+      await prisma.prescription.updateMany({ where: { tenantId: fx.tenantId, id: { in: ids } },
+        data: { checkedBy: null, checkedRegistrationId: null } });
+      const sql = readFileSync(join(__dirname, "../../prisma/migrations/20261105300000_prescription_checked_by/migration.sql"), "utf8");
+      await prisma.$executeRawUnsafe(sql.slice(sql.indexOf("UPDATE prescription p")));
+      const rows = await prisma.prescription.findMany({ where: { tenantId: fx.tenantId, id: { in: ids } },
+        select: { id: true, checkedBy: true, checkedRegistrationId: true } });
+      expect(rows.sort((x, y) => ids.indexOf(x.id) - ids.indexOf(y.id))).toEqual([
+        { id: a.prescriptionId, checkedBy: pharmacistId, checkedRegistrationId: registration.id },
+        { id: b.prescriptionId, checkedBy: pharmacistId, checkedRegistrationId: registration.id },
+      ]);
+      // The database pins the registration to the checker, and needs both or neither.
+      await expect(prisma.prescription.updateMany({ where: { tenantId: fx.tenantId, id: a.prescriptionId },
+        data: { checkedBy: cashierId } })).rejects.toThrow();
+      await expect(prisma.prescription.updateMany({ where: { tenantId: fx.tenantId, id: a.prescriptionId },
+        data: { checkedRegistrationId: null } })).rejects.toThrow();
+      // A registration that isn't the checker's is never copied.
+      await prisma.prescription.updateMany({ where: { tenantId: fx.tenantId, id: a.prescriptionId },
+        data: { checkedBy: null, checkedRegistrationId: null } });
+      await prisma.$executeRaw`UPDATE audit_event SET payload = jsonb_set(payload, '{command,pharmacistUserId}',
+        to_jsonb(${cashierId}::text)) WHERE tenant_id = ${fx.tenantId}::uuid AND entity_id = ${a.prescriptionId}::uuid`;
+      await prisma.$executeRawUnsafe(sql.slice(sql.indexOf("UPDATE prescription p")));
+      expect(await prisma.prescription.findFirstOrThrow({ where: { tenantId: fx.tenantId, id: a.prescriptionId } }))
+        .toMatchObject({ checkedBy: null, checkedRegistrationId: null });
     });
 
     it("still refuses a cashier recording alone, whose role has no prescriptions.create", async () => {
