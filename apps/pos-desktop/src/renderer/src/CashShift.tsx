@@ -464,7 +464,7 @@ export function ShiftGate({
   return (
     <div className={shell.block} role="alert">
       <div className={cx(ui.panel, shell.blockCard)}>
-        <span className={cx(ui.kind, shell.blockIcon)}>
+        <span className={cx(ui.kind, shell.blockIcon, styles.gateIcon)}>
           <Icon name="wallet" />
         </span>
         <h2>{title}</h2>

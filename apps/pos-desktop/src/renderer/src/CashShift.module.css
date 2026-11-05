@@ -350,6 +350,13 @@ div.main b {
   margin-top: auto;
 }
 
+/* ---------- the Sell gate ---------- */
+/* It asks for a step, not an error: the brand tone, not the server cover's red. */
+span.gateIcon {
+  color: var(--pos-primary-ink);
+  background: var(--pos-primary-soft);
+}
+
 /* ---------- smaller windows ---------- */
 @media (max-width: 1280px) {
   .body {
