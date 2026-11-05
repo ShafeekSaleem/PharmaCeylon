@@ -77,6 +77,16 @@ Settings → Payments and Settings → Offline policy use `tenant.management`, l
 Settings, and the read-only `GET /tenant/branches/:branchId/counter-settings` checks it at the
 target branch.
 
+Settings → Offline policy also provides **Offline-device assignment authority** for owners.
+An owner can explicitly grant or revoke authority per staff member and selected branch. Eligible
+staff must be active, assigned to that branch, and hold `tenant.management`, including through a
+custom role. Owners already hold assignment authority and cannot be selected as delegates.
+The list includes every active grant and up to 50 recent revoked grants. Revocation requires a
+reason and also revokes outstanding device authorizations made with that delegation; it does
+not deactivate an already nominated device. Role changes alone never create a delegation.
+The API rechecks live owner and delegate authority on every change. Local device activation and
+offline grants remain separate steps.
+
 ## Inventory actions (built-in defaults)
 
 The Inventory page is visible to every role holding `inventory.view` (all five built-in roles). What each can *do* there:
