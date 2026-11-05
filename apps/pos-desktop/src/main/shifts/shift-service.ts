@@ -16,6 +16,7 @@ import { toMinor } from "../checkout/money";
 /** The server's shift record (API_CONTRACT.md, "Till shifts"). */
 type ServerShift = {
   workSessionId: string;
+  shiftNumber: string;
   tillId: string;
   staffUserId: string;
   staff: { id: string; fullName: string } | null;
@@ -42,6 +43,7 @@ type ServerCurrent = {
 
 type Row = {
   work_session_id: string;
+  shift_number: string | null;
   enrollment_id: string;
   branch_id: string;
   till_id: string | null;
@@ -139,6 +141,7 @@ export class ShiftService {
     }
     return {
       workSessionId: row.work_session_id,
+      shiftNumber: row.shift_number,
       staffUserId: row.staff_user_id,
       staffName: row.staff_name,
       openedAt: row.opened_at,
@@ -249,22 +252,23 @@ export class ShiftService {
       this.deps.db
         .prepare(
           `UPDATE till_shift SET state = 'open', sync = 'synced', error_code = NULL, error_message = NULL,
-             till_id = ?, summary_json = ?, summary_at = ?, updated_at = ? WHERE work_session_id = ?`,
+             shift_number = ?, till_id = ?, summary_json = ?, summary_at = ?, updated_at = ? WHERE work_session_id = ?`,
         )
-        .run(shift.tillId, JSON.stringify(summary), at, at, shift.workSessionId);
+        .run(shift.shiftNumber, shift.tillId, JSON.stringify(summary), at, at, shift.workSessionId);
       return;
     }
     // A shift opened before this counter kept a copy (or on a previous install): it is imported
     // with the server's expected cash as the starting point of the counter's own figure (D7b).
     this.deps.db
       .prepare(
-        `INSERT INTO till_shift (work_session_id, enrollment_id, branch_id, till_id, staff_user_id, staff_name, opened_at,
+        `INSERT INTO till_shift (work_session_id, shift_number, enrollment_id, branch_id, till_id, staff_user_id, staff_name, opened_at,
            opening_cash_minor, opening_count_json, previous_closed_work_session_id, state, expected_cash_minor, sync,
            summary_json, summary_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, 'synced', ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, 'synced', ?, ?, ?)`,
       )
       .run(
         shift.workSessionId,
+        shift.shiftNumber,
         enrollmentId,
         branchId,
         shift.tillId,
@@ -305,13 +309,14 @@ export class ShiftService {
       this.deps.db
         .prepare(
           `UPDATE till_shift SET state = 'closed', sync = 'synced', error_code = NULL, error_message = NULL,
-             close_command_id = COALESCE(close_command_id, ?), closed_at = ?, closed_by_user_id = ?, closed_by_name = ?,
+             shift_number = ?, close_command_id = COALESCE(close_command_id, ?), closed_at = ?, closed_by_user_id = ?, closed_by_name = ?,
              closing_cash_count_minor = ?, closing_count_json = ?, server_expected_cash_minor = ?, variance_minor = ?,
              variance_note = ?, assistance_reason = ?,
              summary_json = COALESCE(?, summary_json), summary_at = COALESCE(?, summary_at), updated_at = ?
            WHERE work_session_id = ?`,
         )
         .run(
+          shift.shiftNumber,
           randomUUID(),
           ...fields,
           summary ? JSON.stringify(summary) : null,
@@ -323,15 +328,16 @@ export class ShiftService {
     }
     this.deps.db
       .prepare(
-        `INSERT INTO till_shift (work_session_id, enrollment_id, branch_id, till_id, staff_user_id, staff_name, opened_at,
+        `INSERT INTO till_shift (work_session_id, shift_number, enrollment_id, branch_id, till_id, staff_user_id, staff_name, opened_at,
            opening_cash_minor, opening_count_json, previous_closed_work_session_id, state, expected_cash_minor,
            close_command_id, closed_at, closed_by_user_id, closed_by_name, closing_cash_count_minor, closing_count_json,
            server_expected_cash_minor, variance_minor, variance_note, assistance_reason, sync, summary_json, summary_at,
            updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'closed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'closed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?)`,
       )
       .run(
         shift.workSessionId,
+        shift.shiftNumber,
         enrollmentId,
         branchId,
         shift.tillId,
@@ -394,10 +400,11 @@ export class ShiftService {
       const now = this.now().toISOString();
       this.deps.db
         .prepare(
-          `UPDATE till_shift SET state = 'open', sync = 'synced', till_id = ?, opened_at = ?, previous_closed_work_session_id = ?,
-             summary_json = ?, summary_at = ?, updated_at = ? WHERE work_session_id = ?`,
+          `UPDATE till_shift SET state = 'open', sync = 'synced', shift_number = ?, till_id = ?, opened_at = ?,
+             previous_closed_work_session_id = ?, summary_json = ?, summary_at = ?, updated_at = ? WHERE work_session_id = ?`,
         )
         .run(
+          detail.shift.shiftNumber,
           detail.shift.tillId,
           detail.shift.openedAt,
           detail.shift.previousClosedWorkSessionId,

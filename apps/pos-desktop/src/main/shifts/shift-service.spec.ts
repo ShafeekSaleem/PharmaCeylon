@@ -56,8 +56,10 @@ const summary = (expectedCashMinor: number) => ({
   refunds: [],
   cashMovements: [],
 });
-const serverShift = (id: string, staff: typeof cashier, over: Record<string, unknown> = {}) => ({
+type FakeShift = { workSessionId: string; status: string } & Record<string, unknown>;
+const serverShift = (id: string, staff: typeof cashier, over: Record<string, unknown> = {}): FakeShift => ({
   workSessionId: id,
+  shiftNumber: "S-0412",
   tillId,
   staffUserId: staff.staffUserId,
   staff: { id: staff.staffUserId, fullName: staff.staffName },
@@ -175,6 +177,7 @@ describe("opening a shift", () => {
       sync: "synced",
       openingCashMinor: 500_000,
       expectedCashMinor: 500_000,
+      shiftNumber: "S-0412",
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.body).toMatchObject({ shiftId: state.current!.workSessionId, pin: PIN, openingCount: FIVE_THOUSAND });

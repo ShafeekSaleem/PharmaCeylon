@@ -351,6 +351,8 @@ export type ShiftSummary = z.infer<typeof shiftSummarySchema>;
  */
 export const localShiftSchema = z.object({
   workSessionId: uuid,
+  /** `S-0412`, once the server has numbered it; null while an open waits for the server. */
+  shiftNumber: z.string().nullable(),
   staffUserId: uuid,
   staffName: z.string(),
   openedAt: z.string(),

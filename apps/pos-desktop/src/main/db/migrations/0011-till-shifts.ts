@@ -19,6 +19,7 @@ export const tillShifts: Migration = {
     db.exec(`
       CREATE TABLE till_shift (
         work_session_id                  TEXT PRIMARY KEY,
+        shift_number                     TEXT,
         enrollment_id                    TEXT NOT NULL,
         branch_id                        TEXT NOT NULL,
         till_id                          TEXT,
