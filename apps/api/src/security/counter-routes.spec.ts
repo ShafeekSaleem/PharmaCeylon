@@ -1,8 +1,10 @@
 import { AuthController } from "../auth/auth.controller";
 import { CustomersController } from "../customers/customers.controller";
+import { InventoryController } from "../inventory/inventory.controller";
 import { PrescriptionsController } from "../customers/prescriptions.controller";
 import { RefundRequestsController } from "../sales/refund-requests.controller";
 import { SalesController } from "../sales/sales.controller";
+import { CounterWorkController } from "../terminal-commands/counter-work.controller";
 import { TerminalCommandsController } from "../terminal-commands/terminal-commands.controller";
 import { OfflineActivationController } from "../terminals/offline-activation.controller";
 import { OfflineAssignmentController } from "../terminals/offline-assignment.controller";
@@ -39,13 +41,21 @@ describe("routes a PIN-opened counter login may call", () => {
         "recallHold",
         "checkout",
         "resolveCheckout",
+        // The Returns page: find the sale, what is still returnable, and today's refunds.
+        "posByInvoice",
+        "getReturnable",
+        "history",
+        "listRefunds",
       ],
     ],
-    // `approve` takes the approver co-sign on the counter (P2b #103).
-    [RefundRequestsController, ["list", "approve"]],
+    // `approve` takes the approver co-sign on the counter (P2b #103); `prepare` is the Returns page.
+    [RefundRequestsController, ["list", "prepare", "approve"]],
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],
+    [CounterWorkController, ["list"]],
+    // The Stock page reads; every stock change goes through the signed command above.
+    [InventoryController, ["stockByProduct", "productStock", "writeOffPolicy"]],
     [OfflineAssignmentController, ["view"]],
     [TillShiftsController, ["current", "list", "detail", "open", "close"]],
     [OfflineAuthorityController, ["prepare", "issue"]],

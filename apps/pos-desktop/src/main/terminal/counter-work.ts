@@ -1,8 +1,9 @@
 import type {
+  CounterWorkItem,
   RefundAtCounter,
   RefundExecuted,
 } from "../../shared/ipc-contract";
-import type { ApiSession } from "../api/api-client";
+import { ApiError, type ApiSession } from "../api/api-client";
 import { ActionFailure, type TerminalService } from "./terminal-service";
 import type { SignedCommandService } from "./signed-commands";
 
@@ -18,6 +19,8 @@ type RawRefundRequest = {
   requester: { id: string; fullName: string } | null;
   approver: { id: string; fullName: string } | null;
   approvalRequired: boolean;
+  requestedAt?: string;
+  approvedAt?: string | null;
 };
 
 /**
@@ -43,16 +46,63 @@ export class CounterWorkService {
     return current.identity.branchId;
   }
 
-  async refundsReady(): Promise<RefundAtCounter[]> {
+  /**
+   * Everything approved on the web and waiting here, each with who asked, who approved which
+   * version and whether it still matches. Someone the server won't show counter work to (no
+   * `terminal.execute`) has nothing waiting. A server from before `GET /counter-work` still
+   * lists its refunds, so refund execution keeps working through an upgrade.
+   */
+  async list(): Promise<CounterWorkItem[]> {
+    const branchId = this.branchId();
+    try {
+      return await this.deps.api.request<CounterWorkItem[]>(
+        "GET",
+        "/counter-work",
+        { branchId },
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      if (error.status === 403) return [];
+      if (error.status !== 404) throw error;
+    }
+    return (await this.readyRefunds(branchId)).map(
+      (r): CounterWorkItem => ({
+        kind: "refund",
+        id: r.id,
+        reference: r.requestNumber,
+        subject: r.invoiceNo,
+        lineCount: 0,
+        amount: r.amount,
+        readyAt: r.approvedAt ?? r.requestedAt ?? new Date(0).toISOString(),
+        requested: r.requester
+          ? { name: r.requester.fullName, at: r.requestedAt ?? null }
+          : null,
+        approved: r.approver
+          ? { name: r.approver.fullName, at: r.approvedAt ?? null }
+          : null,
+        dispatched: null,
+        approval: {
+          evidenceId: r.executionApprovalId,
+          approvedVersion: null,
+          currentVersion: null,
+          state: r.executionApprovalId ? "matches" : "not_needed",
+          changes: [],
+        },
+      }),
+    );
+  }
+
+  private async readyRefunds(branchId: string) {
     const rows = await this.deps.api.request<RawRefundRequest[]>(
       "GET",
       "/sales/refund-requests",
-      {
-        branchId: this.branchId(),
-      },
+      { branchId },
     );
-    return rows
-      .filter((r) => r.readyAtCounter)
+    return rows.filter((r) => r.readyAtCounter);
+  }
+
+  async refundsReady(): Promise<RefundAtCounter[]> {
+    return (await this.readyRefunds(this.branchId()))
       .map((r) => ({
         refundRequestId: r.id,
         requestNumber: r.requestNumber,

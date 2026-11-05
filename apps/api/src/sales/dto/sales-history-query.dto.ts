@@ -14,6 +14,7 @@ import {
 } from "class-validator";
 
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+const MONEY = /^\d{1,10}(\.\d{1,2})?$/;
 
 /** Query for `GET /sales/history` — the back-office Sales list. */
 export class SalesHistoryQueryDto {
@@ -59,4 +60,24 @@ export class SalesHistoryQueryDto {
   @IsString()
   @MaxLength(64)
   invoiceNo?: string;
+
+  /**
+   * The customer's phone, or part of it. Only the digits count, on both sides, so
+   * "071 482 0937", "0714820937" and "+94 71 482 0937" find the same customer.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  @Matches(/(?:\D*\d){4}/, { message: "customerPhone needs at least 4 digits" })
+  customerPhone?: string;
+
+  /** Lowest sale total, inclusive. */
+  @IsOptional()
+  @Matches(MONEY, { message: "minTotal must be an amount like 1250.00" })
+  minTotal?: string;
+
+  /** Highest sale total, inclusive. */
+  @IsOptional()
+  @Matches(MONEY, { message: "maxTotal must be an amount like 1250.00" })
+  maxTotal?: string;
 }
