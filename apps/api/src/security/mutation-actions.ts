@@ -233,6 +233,10 @@ export const MUTATION_ACTIONS = Object.freeze({
   "POST /api/v1/terminals/sessions/:workSessionId/prepare": "identity",
   "POST /api/v1/terminals/sessions/:workSessionId/test-receipt": "local_record",
   "POST /api/v1/terminals/sessions/challenge": "identity",
+  // P2b #103: opening and closing a till shift records counted cash at the counter (D7b's online
+  // form); no stock, no cash movement of its own, on the caller's own counter session.
+  "POST /api/v1/terminals/sessions/:workSessionId/shifts": "local_record",
+  "POST /api/v1/terminals/sessions/:workSessionId/shifts/:shiftId/close": "local_record",
   // Revised D13 remote management: delegation and online assignment authorization only. They
   // nominate nothing; local signed activation on the exact target is a separate step.
   // Revised D13 local activation: the signed, attended step on the exact target. Issues no grant.

@@ -24,9 +24,11 @@ import {
   type AttendanceExpectation,
 } from "../../src/terminals/local-attendance.verifier";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
+import { OperatingHoursEvidence } from "../../src/terminals/operating-hours.evidence";
+import { TillShiftsService } from "../../src/terminals/shifts/till-shifts.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
-import { batchTotals, createPrisma, createStockedBatch, createTenant, type TenantFixture } from "./fixtures";
+import { batchTotals, createPrisma, createStockedBatch, createTenant, openTestShift, type TenantFixture } from "./fixtures";
 
 const prisma: PrismaClient = createPrisma();
 const proxy = createTenantAwarePrismaProxy(prisma);
@@ -74,7 +76,10 @@ const approvals = new ManagementApprovalsService(access, audit);
 const attendance = new FixtureAttendance();
 const trust = new TerminalTrustService(access, audit, attendance);
 const authorization = new OperationAuthorizationService(access, trust, new OpenHours(), approvals);
-const sales = new SalesService(proxy as never, audit, {} as never, {} as never, {} as never, stock);
+// P2b #103: a refund executed at the counter comes out of the executor's open till shift.
+const shifts = new TillShiftsService(proxy as never, trust, new OperatingHoursEvidence(), access, audit, {} as never);
+const sales = new SalesService(proxy as never, audit, {} as never, {} as never, {} as never, stock,
+  undefined, undefined, undefined, undefined, shifts);
 const refunds = new RefundRequestsService(proxy as never, audit, access, approvals, sales, stock);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
   new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, refunds, {} as never),
@@ -102,7 +107,8 @@ async function counterFor(who: string) {
   const sessionPayload = await tx(c => trust.beginSession(c, staff, branch(), identity));
   const session = await tx(c => trust.finishSession(c, staff, branch(),
     device.sign(sessionPayload, identity.keyId), attendance.allow(sessionPayload, "session")));
-  return { device, identity, session, staff };
+  const shiftId = await openTestShift(prisma, fx.tenantId, session.workSessionId);
+  return { device, identity, session, staff, shiftId };
 }
 type Counter = Awaited<ReturnType<typeof counterFor>>;
 async function signed(counter: Counter, body: unknown, approvalEvidenceId: string | null) {
@@ -232,6 +238,10 @@ describe("execution at the counter", () => {
     // Under the threshold nobody approved it, so the goods return names no approver.
     const goodsReturn = await prisma.goodsReturn.findFirstOrThrow({ where: { id: (first.result as { goodsReturnId: string }).goodsReturnId } });
     expect(goodsReturn).toMatchObject({ requestedBy: fx.managerId, approvedBy: null, processedBy: fx.clerkId });
+    // The cash came out of the executor's open shift on that till.
+    expect(goodsReturn.shiftId).toBe(counter.shiftId);
+    const paidOut = await prisma.salePayment.findFirstOrThrow({ where: { tenantId: fx.tenantId, saleId, amount: { lt: 0 } } });
+    expect(paidOut.shiftId).toBe(counter.shiftId);
     // A distinct second command finds it executed: no second refund.
     const again = await signed(counter, { refundRequestId: request.id }, null);
     expect((await run(counter, again.request)).result).toMatchObject({ effect: "already_applied", refundedTo: [] });

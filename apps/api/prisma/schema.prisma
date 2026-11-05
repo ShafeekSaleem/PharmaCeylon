@@ -662,6 +662,7 @@ model TerminalCounter {
   terminals OperationalTerminal[]
   sessions  TerminalStaffSession[]
   enrollmentCodes TerminalEnrollmentCode[]
+  shifts    TillShift[]
 
   @@unique([tenantId, branchId, id, tillId])
   @@unique([tenantId, tillId])
@@ -687,6 +688,95 @@ model TerminalStaffSession {
 
   @@index([tenantId, branchId, enrollmentId])
   @@map("terminal_staff_session")
+}
+
+enum TillShiftCloseKind {
+  /// The person who opened the shift counted and closed it.
+  self
+  /// A manager closed an absent person's shift with their own PIN, a reason and the count.
+  assisted
+}
+
+enum TillCashMovementDirection {
+  in
+  out
+}
+
+/// P2b #103: one person's shift on one till (the cash drawer), opened and closed with a counted
+/// drawer. It is D7b's work session: `id` is the counter-generated work-session ID that
+/// `shift_open` / `shift_close` carry, so P4 writes the same record offline and P5 replays it.
+/// Money is in minor units (cents of LKR), as in the D7b commands. Counts keep the total and
+/// the note-and-coin breakdown (`[{ denominationMinor, count }]`). Only one shift is open on a
+/// till at a time (partial unique index), and a closed shift never changes (trigger).
+model TillShift {
+  id                          String              @id @db.Uuid
+  tenantId                    String              @map("tenant_id") @db.Uuid
+  branchId                    String              @map("branch_id") @db.Uuid
+  /// What people call it at the counter (`S-0412`), numbered per branch when the server opens it.
+  shiftNumber                 String              @map("shift_number") @db.VarChar(32)
+  registerId                  String              @map("register_id") @db.Uuid
+  tillId                      String              @map("till_id") @db.Uuid
+  terminalId                  String              @map("terminal_id") @db.Uuid
+  enrollmentId                String              @map("enrollment_id") @db.Uuid
+  staffUserId                 String              @map("staff_user_id") @db.Uuid
+  /// The sign-in (`TerminalStaffSession`) the shift was opened from.
+  openedStaffSessionId        String              @map("opened_staff_session_id") @db.Uuid
+  previousClosedWorkSessionId String?             @map("previous_closed_work_session_id") @db.Uuid
+  currency                    String              @default("LKR") @db.VarChar(3)
+  openedAt                    DateTime            @default(now()) @map("opened_at")
+  openingCashMinor            Int                 @map("opening_cash_minor")
+  openingCount                Json                @map("opening_count")
+  closedAt                    DateTime?           @map("closed_at")
+  closingCashCountMinor       Int?                @map("closing_cash_count_minor")
+  closingCount                Json?               @map("closing_count")
+  /// The server's figure: opening + cash taken − change − cash refunds − paid out + paid in.
+  expectedCashMinor           Int?                @map("expected_cash_minor")
+  /// The counter's own running figure at close, kept beside the server's for P4/P5 comparison.
+  counterExpectedCashMinor    Int?                @map("counter_expected_cash_minor")
+  /// Closing count − expected cash. Kept whatever the next shift's opening count says.
+  varianceMinor               Int?                @map("variance_minor")
+  closedByUserId              String?             @map("closed_by_user_id") @db.Uuid
+  closedStaffSessionId        String?             @map("closed_staff_session_id") @db.Uuid
+  closeKind                   TillShiftCloseKind? @map("close_kind")
+  assistanceReason            String?             @map("assistance_reason") @db.VarChar(500)
+  /// What the person who counted said about a difference.
+  varianceNote                String?             @map("variance_note") @db.VarChar(500)
+  /// The counter's command ID for the close, so a resend after a lost response replays it.
+  closeCommandId              String?             @unique @map("close_command_id") @db.Uuid
+
+  counter       TerminalCounter    @relation(fields: [tenantId, branchId, registerId, tillId], references: [tenantId, branchId, id, tillId], onDelete: Restrict, onUpdate: Restrict)
+  sales         Sale[]
+  payments      SalePayment[]
+  goodsReturns  GoodsReturn[]
+  cashMovements TillCashMovement[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, branchId, id])
+  @@unique([tenantId, branchId, shiftNumber])
+  @@index([tenantId, tillId, openedAt(sort: Desc)])
+  @@map("till_shift")
+}
+
+/// P2b #103: cash put into or taken out of a till's drawer during a shift that isn't a sale or
+/// a refund — a supplier cash payout (P6, revised D10) is the first writer. Only
+/// `TillShiftsService.recordCashMovement` writes it, inside the payer's transaction.
+model TillCashMovement {
+  id            String                    @id @default(uuid()) @db.Uuid
+  tenantId      String                    @map("tenant_id") @db.Uuid
+  branchId      String                    @map("branch_id") @db.Uuid
+  shiftId       String                    @map("shift_id") @db.Uuid
+  direction     TillCashMovementDirection
+  amountMinor   Int                       @map("amount_minor")
+  reason        String                    @db.VarChar(300)
+  referenceType String?                   @map("reference_type") @db.VarChar(40)
+  referenceId   String?                   @map("reference_id") @db.Uuid
+  recordedBy    String                    @map("recorded_by") @db.Uuid
+  recordedAt    DateTime                  @default(now()) @map("recorded_at")
+
+  shift TillShift @relation(fields: [tenantId, branchId, shiftId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, shiftId])
+  @@map("till_cash_movement")
 }
 
 /// D-W5: a staff member prepared this enrolled counter for their personal PIN at `pinVersion` by
@@ -2672,9 +2762,14 @@ model Sale {
   terminalId     String?    @map("terminal_id") @db.Uuid
   tillId         String?    @map("till_id") @db.Uuid
   workSessionId  String?    @map("work_session_id") @db.Uuid
+  /// P2b #103: the till shift (D7b work session) a counter sale belongs to: the seller's own open
+  /// shift on that till. `workSessionId` above names the sign-in (`TerminalStaffSession`), not
+  /// the shift. Null for web POS sales. See POS_P2_IMPLEMENTATION.md, D-P2b-shift.
+  shiftId        String?    @map("shift_id") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at")
 
   branch       Branch        @relation(fields: [branchId], references: [id])
+  shift        TillShift?    @relation(fields: [tenantId, branchId, shiftId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
   seller       AppUser       @relation("SaleSeller", fields: [soldBy], references: [id])
   dispenser    AppUser?      @relation("SaleDispenser", fields: [dispensedBy], references: [id])
   discountApprover AppUser?  @relation("SaleDiscountApprover", fields: [discountApprovedBy], references: [id])
@@ -2690,6 +2785,7 @@ model Sale {
   @@index([tenantId, branchId, soldAt(sort: Desc)])
   @@index([tenantId, customerId])
   @@index([tenantId, dispensedBy])
+  @@index([tenantId, shiftId])
   @@map("sale")
 }
 
@@ -2750,11 +2846,17 @@ model SalePayment {
   method    PaymentMethod
   amount    Decimal       @db.Decimal(12, 2)
   reference String?       @db.VarChar(128)
+  /// P2b #103: the till shift whose drawer this money went into or came out of. A sale's own
+  /// payments carry the sale's shift; a refund's negative payments carry the refund's shift,
+  /// which may be a later one. Null off the counter.
+  shiftId   String?       @map("shift_id") @db.Uuid
   createdAt DateTime      @default(now()) @map("created_at")
 
-  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale  Sale       @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  shift TillShift? @relation(fields: [tenantId, shiftId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId, saleId])
+  @@index([tenantId, shiftId])
   @@map("sale_payment")
 }
 
@@ -2996,8 +3098,12 @@ model GoodsReturn {
   updatedAt       DateTime          @updatedAt @map("updated_at")
   approvalVersion Int              @default(1) @map("approval_version")
   metadataVersion Int              @default(1) @map("metadata_version")
+  /// P2b #103: the till shift a customer refund executed at a counter belongs to. Null for
+  /// supplier returns and refunds off the counter.
+  shiftId         String?          @map("shift_id") @db.Uuid
 
   branch        Branch         @relation(fields: [branchId], references: [id])
+  shift         TillShift?     @relation(fields: [tenantId, branchId, shiftId], references: [tenantId, branchId, id], onDelete: Restrict, onUpdate: Restrict)
   sale          Sale?          @relation(fields: [saleId], references: [id])
   supplier      Supplier?      @relation(fields: [supplierId], references: [id])
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])

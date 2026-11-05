@@ -18,9 +18,10 @@ import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.s
 import { LocalAttendanceVerifier } from "../../src/terminals/local-attendance.verifier";
 import { OperatingHoursEvidence } from "../../src/terminals/operating-hours.evidence";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
+import { TillShiftsService } from "../../src/terminals/shifts/till-shifts.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
 import { terminalDevice } from "../fixtures/terminal-device";
-import { createPrisma, createStockedBatch, createTenant, type TenantFixture } from "./fixtures";
+import { createPrisma, createStockedBatch, createTenant, ensureTestShift, type TenantFixture } from "./fixtures";
 
 /**
  * P2: someone else signed in at the same enrolled counter confirms a checkout its seller left
@@ -41,6 +42,10 @@ const sales = new SalesService(
   stock,
   trust,
   new OperatingHoursEvidence(),
+  undefined,
+  undefined,
+  // P2b #103: counter sales go on the seller's open till shift.
+  new TillShiftsService(prisma as never, trust, new OperatingHoursEvidence(), access, audit, {} as never),
 );
 const resolution = new CheckoutResolutionService(prisma as never, trust, audit);
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) =>
@@ -118,8 +123,8 @@ async function openSession(device: Device, identity: TerminalIdentity, actor: Re
   );
 }
 
-const sell = (actor: RequestUser, workSessionId: string, key: string) =>
-  sales.checkout(
+const sell = async (actor: RequestUser, workSessionId: string, key: string) =>
+  ensureTestShift(prisma, fx.tenantId, workSessionId).then(() => sales.checkout(
     fx.tenantId,
     fx.mainBranchId,
     actor.userId,
@@ -127,7 +132,7 @@ const sell = (actor: RequestUser, workSessionId: string, key: string) =>
     { items: [{ productId: fx.productId, qty: 1, unitPrice: "15.00" }] } as never,
     key,
     { user: actor, workSessionId },
-  );
+  ));
 
 const resolve = (
   actor: RequestUser,

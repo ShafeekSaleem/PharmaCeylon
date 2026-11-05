@@ -159,3 +159,40 @@ export async function batchTotals(prisma: PrismaClient, batchId: string) {
     ledgerOnHand: ledger._sum.qtyDelta ?? 0,
   };
 }
+
+/**
+ * P2b #103: an open till shift for a counter staff session (the sign-in), written straight to the
+ * table so suites about something else can sell or refund at a counter. `till-shifts.int-spec.ts`
+ * covers opening one properly.
+ */
+export async function openTestShift(prisma: PrismaClient, tenantId: string, workSessionId: string): Promise<string> {
+  const session = await prisma.terminalStaffSession.findFirstOrThrow({ where: { tenantId, id: workSessionId } });
+  const id = randomUUID();
+  await prisma.tillShift.create({
+    data: {
+      id,
+      tenantId,
+      branchId: session.branchId,
+      shiftNumber: `S-T${id.slice(0, 8)}`,
+      registerId: session.registerId,
+      tillId: session.tillId,
+      terminalId: session.terminalId,
+      enrollmentId: session.enrollmentId,
+      staffUserId: session.staffUserId,
+      openedStaffSessionId: session.id,
+      openingCashMinor: 0,
+      openingCount: [],
+    },
+  });
+  return id;
+}
+
+/**
+ * P2b #103: the session's staff member's open shift on its till, opened if the till has none.
+ * For suites where the seller signs in and out of one counter between sales.
+ */
+export async function ensureTestShift(prisma: PrismaClient, tenantId: string, workSessionId: string): Promise<string> {
+  const session = await prisma.terminalStaffSession.findFirstOrThrow({ where: { tenantId, id: workSessionId } });
+  const open = await prisma.tillShift.findFirst({ where: { tenantId, tillId: session.tillId, closedAt: null } });
+  return open?.id ?? openTestShift(prisma, tenantId, workSessionId);
+}

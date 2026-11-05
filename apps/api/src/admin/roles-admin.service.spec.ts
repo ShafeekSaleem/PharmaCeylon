@@ -76,6 +76,10 @@ describe("RolesAdminService", () => {
         ?.moduleLabel,
     ).toContain("At the counter (desktop)");
     expect(
+      groups.find((group) => group.permissions.some((entry) => entry.key === "shifts.close_others"))
+        ?.moduleLabel,
+    ).toBe("At the counter (desktop) - POS & Sales");
+    expect(
       groups.find((group) => group.permissions.some((entry) => entry.key === "users.manage"))
         ?.moduleLabel,
     ).toContain("Manage from anywhere");

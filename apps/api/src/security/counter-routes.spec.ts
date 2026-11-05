@@ -10,6 +10,7 @@ import { OfflineActivationController } from "../terminals/offline-activation.con
 import { OfflineAssignmentController } from "../terminals/offline-assignment.controller";
 import { OfflineAuthorityController } from "../terminals/offline-authority.controller";
 import { TerminalEnrollmentController } from "../terminals/terminal-enrollment.controller";
+import { TillShiftsController } from "../terminals/shifts/till-shifts.controller";
 import { COUNTER_ROUTE_KEY } from "./decorators/counter-route.decorator";
 import { IS_PUBLIC_KEY } from "./decorators/public.decorator";
 
@@ -56,6 +57,7 @@ describe("routes a PIN-opened counter login may call", () => {
     // The Stock page reads; every stock change goes through the signed command above.
     [InventoryController, ["stockByProduct", "productStock", "writeOffPolicy"]],
     [OfflineAssignmentController, ["view"]],
+    [TillShiftsController, ["current", "list", "detail", "open", "close"]],
     [OfflineAuthorityController, ["prepare", "issue"]],
     [
       TerminalEnrollmentController,

@@ -161,6 +161,14 @@ an earlier checkout from it and, when nothing landed, seals that key; it posts n
 bind or remove a device or staff identity and move no stock, cash or grant. Contract:
 [API_CONTRACT.md](API_CONTRACT.md#desktop-enrollment-and-staff-sessions-p2).
 
+## P2b till shifts
+
+`POST /terminals/sessions/:workSessionId/shifts` (open) and
+`POST /terminals/sessions/:workSessionId/shifts/:shiftId/close` are `local_record`: counted cash
+recorded at the counter on the caller's own staff session, D7b's online form. They move no stock
+and no cash of their own. Sales, refunds and payouts attach to the open shift inside their own
+operations. Contract: [API_CONTRACT.md](API_CONTRACT.md#till-shifts-p2b-103).
+
 ## P1 signed terminal commands
 
 `POST /terminal-commands/prepare` is classified `identity`: it issues a single-use command

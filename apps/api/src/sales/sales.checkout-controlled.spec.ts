@@ -313,6 +313,9 @@ describe("SalesService controlled checkout authority", () => {
           } as never,
           { assertMandatoryForSale: jest.fn().mockResolvedValue(undefined) } as never,
           registrations as unknown as PharmacistRegistrationService,
+          undefined,
+          // P2b #103: the seller's open till shift.
+          { requireForSale: jest.fn().mockResolvedValue("shift-1") } as never,
         );
 
       it("needs their own registration at a counter, and is told to get a co-sign without one", async () => {

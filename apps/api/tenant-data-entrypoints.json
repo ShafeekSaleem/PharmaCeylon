@@ -139,6 +139,11 @@
       "reason": "Locks one enrollment by bound tenant, branch and enrollment id to serialize command/session verification, revocation and session closure through the caller's transaction; locks one counter by tenant, branch and register id so concurrent enrollments onto it serialize."
     },
     {
+      "path": "src/terminals/shifts/till-shifts.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one counter by tenant, branch and register id to serialize shift opens; locks one till shift by tenant, branch and id (FOR UPDATE to close, FOR SHARE for sales, refunds and cash movements adding to it); sums one shift's cash payments, change and cash movements filtered by tenant and shift id."
+    },
+    {
       "path": "src/terminal-commands/terminal-command.executor.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one enrollment by the caller's tenant, branch header and signed enrollment id before the scoped receipt lookup, so identical command retries serialize and replay the committed original result."

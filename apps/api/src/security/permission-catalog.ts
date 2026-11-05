@@ -56,6 +56,7 @@ export const MODULE_SECTIONS: Record<string, string> = {
   audit: "staff_access",
   tenant: "staff_access",
   sales: "pos_sales",
+  shifts: "pos_sales",
   catalog: "catalog_products",
   products: "catalog_products",
   nmra: "catalog_products",
@@ -567,6 +568,21 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
       "Confirm, at the enrolled counter an owner or delegated manager authorized, that it becomes the branch's offline-capable counter. Needs verified local attendance.",
     defaultRoles: [owner, manager],
     riskLevel: "elevated",
+  },
+
+  // ── Till shifts ──
+  {
+    // P2b #103: the absent-cashier close. Opening and closing your own shift needs only the
+    // counter's own POS permission; closing someone else's is a manager's call, made with their
+    // own PIN, a reason and the count. Migration `20261105200000_till_shifts` grants it.
+    key: "shifts.close_others",
+    module: "shifts",
+    label: "Close another person's shift at the counter",
+    description:
+      "Close the open shift of someone who is not at the counter, with your own PIN, a reason and the counted drawer. They stay on the record as the shift's owner.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["sales.pos_use"],
   },
 
   // ── Suppliers ──
