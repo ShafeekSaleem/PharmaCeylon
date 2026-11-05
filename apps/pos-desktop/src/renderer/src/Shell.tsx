@@ -242,17 +242,22 @@ export function StatusBar({
         <>
           <span className={styles.sb}>
             <Icon name="clock" />
-            Shift {shift.shiftNumber && <b>{shift.shiftNumber}</b>}
-            {shift.shiftNumber && " · "}
-            {shortName(shift.staffName)}
-            <span className={styles.sbLabel}> · since</span>{" "}
-            {time(new Date(shift.openedAt))}
-            {shift.status === "closing" && " · closing, not yet synced"}
+            {/* One run of text, so the bar's flex gap doesn't space out its words. */}
+            <span>
+              Shift {shift.shiftNumber && <b>{shift.shiftNumber}</b>}
+              {shift.shiftNumber && " · "}
+              {shortName(shift.staffName)}
+              <span className={styles.sbLabel}> · since</span>{" "}
+              {time(new Date(shift.openedAt))}
+              {shift.status === "closing" && " · closing, not yet synced"}
+            </span>
           </span>
           <span className={styles.sb}>
             <Icon name="wallet" />
-            <span className={styles.sbLabel}>Drawer expected </span>
-            <b>Rs {money(shift.expectedCashMinor)}</b>
+            <span>
+              <span className={styles.sbLabel}>Drawer expected </span>
+              <b>Rs {money(shift.expectedCashMinor)}</b>
+            </span>
           </span>
         </>
       ) : (
