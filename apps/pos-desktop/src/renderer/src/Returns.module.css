@@ -545,6 +545,117 @@
   height: 16px;
 }
 
+/* The manager co-signing over the limit, as the mockup draws it inside the box. */
+.apprRow {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+}
+
+.apprRow > span:first-child {
+  width: 38px;
+  height: 38px;
+}
+
+.apprRow > span:first-child,
+.apprRow > .dots {
+  flex: none;
+}
+
+.apprRow > div:not(.dots) {
+  min-width: 0;
+}
+
+.apprRow b,
+.apprRow small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apprRow b {
+  display: block;
+  font-size: 13px;
+}
+
+.apprRow small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.apprRow:not(.apprOn) {
+  opacity: 0.75;
+}
+
+.apprOn {
+  cursor: default;
+}
+
+.dots {
+  position: relative;
+  display: flex;
+  gap: 6px;
+}
+
+.dots i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--pos-line-strong);
+}
+
+.dots i.dotOn {
+  background: var(--pos-warn);
+  border-color: var(--pos-warn);
+}
+
+.dots:focus-within i:not(.dotOn):first-of-type {
+  border-color: var(--pos-warn);
+}
+
+/* The real PIN field sits over the dots, so typing and pasting work as in any field. */
+.dots input {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  opacity: 0;
+  border: 0;
+  cursor: text;
+}
+
+.password.password {
+  width: 150px;
+  height: 34px;
+}
+
+.alt.alt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.altBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pos-primary-ink);
+  font: 700 12px/1.3 var(--pos-font);
+  cursor: pointer;
+}
+
+.altBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.altBtn:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+  border-radius: 4px;
+}
+
 .effect {
   display: flex;
   flex-direction: column;
@@ -631,7 +742,7 @@
    explanation give way, since the lines and the heading already say both. */
 @media (max-height: 700px) {
   .refund dl,
-  .refund .appr p,
+  .refund .appr > p:not(.alt):not([role="alert"]),
   .refund .effect {
     display: none;
   }

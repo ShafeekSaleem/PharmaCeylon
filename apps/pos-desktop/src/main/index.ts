@@ -329,6 +329,16 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return returns.today();
         }),
+      listRefundApprovers: () =>
+        act(logger, "listRefundApprovers", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.approvers();
+        }),
+      approveReturn: ({ saleId, refundRequestId, coSign }) =>
+        act(logger, "approveReturn", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.approve(saleId, refundRequestId, coSign);
+        }),
       submitReturn: (input) =>
         act(logger, "submitReturn", async () => {
           if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
