@@ -16,10 +16,12 @@ import { renderSaleReceiptHtml } from "./printing/receipt-html";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
+import { ReturnsService } from "./returns/returns-service";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { SignedCommandService } from "./terminal/signed-commands";
 import { ShiftService } from "./shifts/shift-service";
+import { StockLookupService } from "./terminal/stock-lookup";
 import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport, type ReadinessFacts } from "./readiness";
 import { isAppUrl } from "./renderer-path";
@@ -76,6 +78,8 @@ let dispensing: DispensingService | null = null;
 let commands: SignedCommandService | null = null;
 let counterWork: CounterWorkService | null = null;
 let shifts: ShiftService | null = null;
+let stock: StockLookupService | null = null;
+let returns: ReturnsService | null = null;
 let authorityRefresh: OfflineAuthorityRefresh | null = null;
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
@@ -291,6 +295,11 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         if (!sale || !device) return { ok: false, error: "That sale is not available to print here." };
         return printHtml(printerName, renderSaleReceiptHtml(sale, { branchName: device.branchName, counterLabel: device.counterLabel }));
       },
+      counterWork: () =>
+        act(logger, "counterWork", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.list();
+        }),
       refundsReady: () =>
         act(logger, "refundsReady", () => {
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
@@ -301,14 +310,59 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           const executed = await counterWork.executeRefund(refundRequestId);
           const executor = terminal?.current()?.staff.staffUserId;
-          if (!executed.alreadyApplied && executor) shifts?.recordRefund(refundRequestId, executed.refundedTo, executor);
+          if (!executed.alreadyApplied && executor) shifts?.recordRefund(executed.requestNumber, executed.refundedTo, executor);
           return executed;
+        }),
+      returnFindSale: ({ invoiceNo }) =>
+        act(logger, "returnFindSale", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.findSale(invoiceNo);
+        }),
+      returnSearchSales: (filter) =>
+        act(logger, "returnSearchSales", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.searchSales(filter);
+        }),
+      returnsToday: () =>
+        act(logger, "returnsToday", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.today();
+        }),
+      submitReturn: (input) =>
+        act(logger, "submitReturn", async () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          const outcome = await returns.submit(input);
+          // A cash refund done here leaves the open shift's drawer: the counter's own figure too.
+          const executor = terminal?.current()?.staff.staffUserId;
+          if (outcome.status === "refunded" && !outcome.refund.alreadyApplied && executor)
+            shifts?.recordRefund(outcome.refund.requestNumber, outcome.refund.refundedTo, executor);
+          return outcome;
         }),
       pendingCommands: () => commands?.pending() ?? [],
       retryCommand: ({ commandId }) =>
         act(logger, "retryCommand", async () => {
           if (!commands) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return { replayed: (await commands.retry(commandId)).replayed };
+        }),
+      stockSearch: (input) =>
+        act(logger, "stockSearch", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.search(input);
+        }),
+      stockAttention: () =>
+        act(logger, "stockAttention", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.attention();
+        }),
+      productStock: ({ productId }) =>
+        act(logger, "productStock", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.product(productId);
+        }),
+      adjustStock: (input) =>
+        act(logger, "adjustStock", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.adjust(input);
         }),
       confirmTestReceipt: ({ printerName }) =>
         act(logger, "confirmTestReceipt", (service) => service.confirmTestReceipt(printerName)),
@@ -408,6 +462,8 @@ async function start(): Promise<void> {
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
   shifts = new ShiftService({ db: store.db, api: terminalApi, terminal, device: deviceStore, logger });
+  stock = new StockLookupService({ api: terminalApi, terminal, commands });
+  returns = new ReturnsService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);
   mainWindow = createMainWindow({ devServerUrl, show: true });
   mainWindow.on("closed", () => (mainWindow = null));

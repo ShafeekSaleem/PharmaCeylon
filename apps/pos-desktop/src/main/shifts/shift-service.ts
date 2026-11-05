@@ -572,10 +572,11 @@ export class ShiftService {
     this.post(sale.saleId, "sale", sellerId, { cashIn, change: toMinor(sale.changeDue), cashOut: 0 });
   }
 
-  /** A refund executed here: the cash it paid back leaves this counter's own figure, once. */
-  recordRefund(refundRequestId: string, refundedTo: { method: string; amountMinor: number }[], executorId: string) {
+  /** A refund executed here: the cash it paid back leaves this counter's own figure, once. Keyed
+   * by the refund's request number, so Returns and Counter work can't both count one refund. */
+  recordRefund(requestNumber: string, refundedTo: { method: string; amountMinor: number }[], executorId: string) {
     const cashOut = refundedTo.filter((r) => r.method === "cash").reduce((sum, r) => sum + r.amountMinor, 0);
-    this.post(`refund:${refundRequestId}`, "refund", executorId, { cashIn: 0, change: 0, cashOut });
+    this.post(`refund:${requestNumber}`, "refund", executorId, { cashIn: 0, change: 0, cashOut });
   }
 
   private post(

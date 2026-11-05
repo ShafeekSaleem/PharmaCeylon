@@ -141,6 +141,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "Look up a posted sale by invoice number" })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Get("pos/by-invoice")
   posByInvoice(
     @CurrentUser() user: RequestUser,
@@ -299,6 +300,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "Recent customer refunds at this branch" })
   @RequirePermission("sales.refund")
+  @CounterRoute()
   @Get("refunds")
   listRefunds(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.sales.listRefunds(user.tenantId, branchId);
@@ -314,6 +316,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "Remaining returnable qty per line for a sale" })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Get(":id/returnable")
   getReturnable(
     @CurrentUser() user: RequestUser,
@@ -330,6 +333,7 @@ export class SalesController {
     summary: "Sales history across the branches you can view, paged and filtered on the server",
   })
   @RequirePermission("sales.view")
+  @CounterRoute()
   @Get("history")
   history(
     @CurrentUser() user: RequestUser,

@@ -58,6 +58,7 @@ export class RefundRequestsController {
 
   @ApiOperation({ summary: "Prepare a refund from a sale; it waits at the counter (no stock or money moves)" })
   @RequirePermission("sales.refund")
+  @CounterRoute()
   @Post(":id/refund-requests")
   prepare(
     @CurrentUser() user: RequestUser,

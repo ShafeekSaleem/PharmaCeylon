@@ -300,6 +300,43 @@ export const refundAtCounterSchema = z.object({
 });
 export type RefundAtCounter = z.infer<typeof refundAtCounterSchema>;
 
+export const counterWorkKinds = [
+  "prepared_receipt",
+  "held_delivery",
+  "transfer_ship",
+  "transfer_receive",
+  "refund",
+  "stocktake",
+  "held_adjustment",
+  "supplier_return",
+  "import_stock",
+] as const;
+export type CounterWorkKind = (typeof counterWorkKinds)[number];
+
+const counterWorkPersonSchema = z.object({ name: z.string().nullable(), at: z.string().nullable() });
+
+/** Web-approved work waiting at this branch's counter (`GET /counter-work`), with its approval state. */
+export const counterWorkItemSchema = z.object({
+  kind: z.enum(counterWorkKinds),
+  id: uuid,
+  reference: z.string(),
+  subject: z.string().nullable(),
+  lineCount: z.number().int(),
+  amount: z.string().nullable(),
+  readyAt: z.string(),
+  requested: counterWorkPersonSchema.nullable(),
+  approved: counterWorkPersonSchema.nullable(),
+  dispatched: counterWorkPersonSchema.nullable(),
+  approval: z.object({
+    evidenceId: uuid.nullable(),
+    approvedVersion: z.number().int().nullable(),
+    currentVersion: z.number().int().nullable(),
+    state: z.enum(["matches", "changed", "revoked", "not_needed"]),
+    changes: z.array(z.string()),
+  }),
+});
+export type CounterWorkItem = z.infer<typeof counterWorkItemSchema>;
+
 export const refundExecutedSchema = z.object({
   requestNumber: z.string(),
   amountMinor: z.number().int(),
@@ -309,6 +346,102 @@ export const refundExecutedSchema = z.object({
   approvedBy: z.string().nullable(),
 });
 export type RefundExecuted = z.infer<typeof refundExecutedSchema>;
+
+/** Why something came back: the server's `REFUND_REASONS`, in its order. */
+export const refundReasonSchema = z.enum([
+  "wrong_item",
+  "changed_mind",
+  "damaged",
+  "expired",
+  "adverse_reaction",
+  "other",
+]);
+export type RefundReason = z.infer<typeof refundReasonSchema>;
+
+export const paymentMethodSchema = z.enum(["cash", "card", "mobile_wallet", "credit"]);
+export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
+
+/** One line of a sale on the Returns page, with what earlier refunds have left of it. */
+export const returnLineSchema = z.object({
+  productId: uuid,
+  batchId: uuid,
+  name: z.string(),
+  sku: z.string(),
+  batchNo: z.string(),
+  expiryDate: z.string().nullable(),
+  unit: z.string().nullable(),
+  soldQty: z.number().int(),
+  remainingQty: z.number().int(),
+  /** What the customer paid for the whole line; a partial refund is this × qty ÷ sold. */
+  paidTotal: z.string(),
+  isControlled: z.boolean(),
+  requiresPrescription: z.boolean(),
+});
+export type ReturnLine = z.infer<typeof returnLineSchema>;
+
+export const returnSaleSchema = z.object({
+  saleId: uuid,
+  invoiceNo: z.string(),
+  status: z.string(),
+  soldAt: z.string(),
+  grandTotal: z.string(),
+  sellerName: z.string().nullable(),
+  customer: z.object({ fullName: z.string(), phone: z.string().nullable() }).nullable(),
+  /** How the customer paid: refund rows (negative) don't count. */
+  payments: z.array(z.object({ method: z.string(), amount: z.string(), reference: z.string().nullable() })),
+  /** A prescription or controlled item: refunding needs someone who can approve controlled sales. */
+  needsPharmacist: z.boolean(),
+  /** The tenant's refund limit; at or over it, the refund needs approval. Null: no limit. */
+  refundLimit: z.string().nullable(),
+  earlierRefunds: z.array(z.object({ returnNumber: z.string(), amount: z.string(), createdAt: z.string() })),
+  lines: z.array(returnLineSchema),
+});
+export type ReturnSale = z.infer<typeof returnSaleSchema>;
+
+/** A row of the sales history, for finding a sale without the receipt. */
+export const saleFoundSchema = z.object({
+  saleId: uuid,
+  invoiceNo: z.string(),
+  status: z.string(),
+  soldAt: z.string(),
+  grandTotal: z.string(),
+  itemCount: z.number().int(),
+  customerName: z.string().nullable(),
+  customerPhone: z.string().nullable(),
+  sellerName: z.string().nullable(),
+  paymentMethods: z.array(z.string()),
+  summary: z.string(),
+});
+export type SaleFound = z.infer<typeof saleFoundSchema>;
+
+export const refundTodaySchema = z.object({
+  returnNumber: z.string(),
+  invoiceNo: z.string().nullable(),
+  amount: z.string(),
+  createdAt: z.string(),
+  reasonCode: z.string().nullable(),
+  refundedTo: z.array(z.object({ method: z.string(), amount: z.string() })),
+  refundedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+  itemCount: z.number().int(),
+});
+export type RefundToday = z.infer<typeof refundTodaySchema>;
+
+export const returnOutcomeSchema = z.discriminatedUnion("status", [
+  /** Refunded here and now: prepared, then executed through the signed command. */
+  z.object({ status: z.literal("refunded"), refund: refundExecutedSchema }),
+  /** At or over the limit and the person can't approve it: it waits for a manager on the web. */
+  z.object({
+    status: z.literal("awaiting_approval"),
+    refundRequestId: uuid,
+    requestNumber: z.string(),
+    amount: z.string(),
+  }),
+]);
+export type ReturnOutcome = z.infer<typeof returnOutcomeSchema>;
+
+const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const amountFilter = z.string().regex(/^\d{1,9}(\.\d{1,2})?$/);
 
 export const heldCartSchema = z.object({
   holdId: uuid,
@@ -320,6 +453,136 @@ export const heldCartSchema = z.object({
   heldBy: z.string(),
 });
 export type HeldCart = z.infer<typeof heldCartSchema>;
+
+/** The Stock page (screen=stock). Units are the product's selling unit; nothing here is in packs. */
+export const stockStatusSchema = z.enum(["ok", "low", "out"]);
+export const stockRowSchema = z.object({
+  productId: uuid,
+  name: z.string(),
+  strength: z.string().nullable(),
+  unit: z.string().nullable(),
+  manufacturer: z.string().nullable(),
+  unitsPerPack: z.number().int(),
+  packLabel: z.string().nullable(),
+  requiresPrescription: z.boolean(),
+  isControlled: z.boolean(),
+  reorderLevel: z.number().int(),
+  stockStatus: stockStatusSchema,
+  available: z.number().int(),
+  onHand: z.number().int(),
+  quarantined: z.number().int(),
+  reserved: z.number().int(),
+  batchCount: z.number().int(),
+  nearExpiryBatchCount: z.number().int(),
+  expiredBatchCount: z.number().int(),
+  /** The earliest expiry among in-date batches with stock: YYYY-MM-DD. */
+  nextExpiry: z.string().nullable(),
+});
+export type StockRow = z.infer<typeof stockRowSchema>;
+
+export const stockFilterSchema = z.enum(["all", "low", "prescription", "controlled"]);
+export type StockFilter = z.infer<typeof stockFilterSchema>;
+/** The Needs attention lists, as `stock-by-product`'s `attention` filter names them. */
+export const stockAttentionKindSchema = z.enum(["near_expiry", "expired", "quarantined"]);
+export type StockAttentionKind = z.infer<typeof stockAttentionKindSchema>;
+
+export const stockSearchSchema = z.object({
+  items: z.array(stockRowSchema),
+  total: z.number().int(),
+  expiryWarningDays: z.number().int(),
+});
+export type StockSearch = z.infer<typeof stockSearchSchema>;
+
+export const stockAttentionSchema = z.object({
+  expiringBatches: z.number().int(),
+  expiredBatches: z.number().int(),
+  quarantinedProducts: z.number().int(),
+  quarantinedUnits: z.number().int(),
+  lowStockProducts: z.number().int(),
+  expiryWarningDays: z.number().int(),
+});
+export type StockAttention = z.infer<typeof stockAttentionSchema>;
+
+export const stockBatchSchema = z.object({
+  batchId: uuid,
+  batchNo: z.string(),
+  expiryDate: isoDate,
+  daysToExpiry: z.number().int(),
+  expired: z.boolean(),
+  nearExpiry: z.boolean(),
+  needsExpiryReview: z.boolean(),
+  /** Every unit held: checkout skips the batch altogether. */
+  isQuarantined: z.boolean(),
+  quarantineReason: z.string().nullable(),
+  onHand: z.number().int(),
+  available: z.number().int(),
+  reserved: z.number().int(),
+  quarantined: z.number().int(),
+  sellingPrice: z.string(),
+  /** Null without `costs.view`. */
+  costPrice: z.string().nullable(),
+});
+export type StockBatch = z.infer<typeof stockBatchSchema>;
+
+export const productStockSchema = z.object({
+  product: z.object({
+    productId: uuid,
+    name: z.string(),
+    genericName: z.string().nullable(),
+    strength: z.string().nullable(),
+    manufacturer: z.string().nullable(),
+    unit: z.string().nullable(),
+    unitsPerPack: z.number().int(),
+    packLabel: z.string().nullable(),
+    requiresPrescription: z.boolean(),
+    isControlled: z.boolean(),
+    reorderLevel: z.number().int(),
+  }),
+  stockStatus: stockStatusSchema,
+  totals: z.object({
+    onHand: z.number().int(),
+    available: z.number().int(),
+    quarantined: z.number().int(),
+    reserved: z.number().int(),
+    expired: z.number().int(),
+  }),
+  /** In expiry order, oldest first: the order checkout sells them in. */
+  batches: z.array(stockBatchSchema),
+  reservations: z.array(z.object({ qty: z.number().int(), label: z.string() })),
+  /** Where the person also works (owners: every branch). */
+  otherBranches: z.array(
+    z.object({ branchId: uuid, name: z.string(), available: z.number().int(), onHand: z.number().int() }),
+  ),
+  movements: z.array(
+    z.object({
+      id: uuid,
+      occurredAt: z.string(),
+      movementType: z.string(),
+      batchNo: z.string().nullable(),
+      /** Change to on hand; zero for a quarantine move. */
+      qtyDelta: z.number().int(),
+      /** Units moved into (+) or out of (−) quarantine. */
+      quarantineDelta: z.number().int(),
+      actorName: z.string().nullable(),
+    }),
+  ),
+  /** At cost; a larger write-off needs a manager. Null: the tenant has no limit. */
+  writeOffLimit: z.string().nullable(),
+});
+export type ProductStock = z.infer<typeof productStockSchema>;
+
+export const stockAdjustmentSchema = z.object({
+  productId: uuid,
+  batchId: uuid,
+  kind: z.enum(["found", "damaged", "expired", "lost", "correction"]),
+  /** A correction says which way; the other kinds set it themselves. */
+  direction: z.enum(["in", "out"]).optional(),
+  qty: z.number().int().min(1).max(99999),
+  reason: z.string().trim().max(512).optional(),
+  /** A write-off of units already held in quarantine. */
+  fromQuarantine: z.boolean(),
+});
+export type StockAdjustment = z.infer<typeof stockAdjustmentSchema>;
 
 export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
 export type ActionError = z.infer<typeof actionErrorSchema>;
@@ -543,6 +806,7 @@ export const ipcContract = {
     input: z.object({ saleId: uuid, printerName: z.string().min(1).max(260) }),
     output: printResultSchema,
   },
+  counterWork: { channel: "pos:counter:work", input: noInput, output: result(z.array(counterWorkItemSchema)) },
   refundsReady: { channel: "pos:counter:refunds", input: noInput, output: result(z.array(refundAtCounterSchema)) },
   executeRefund: {
     channel: "pos:counter:execute-refund",
@@ -560,6 +824,50 @@ export const ipcContract = {
     channel: "pos:counter:retry-command",
     input: z.object({ commandId: uuid }),
     output: result(z.object({ replayed: z.boolean() })),
+  },
+  /** Returns: the sale on a receipt (barcode or typed invoice number), with what is left to return. */
+  returnFindSale: {
+    channel: "pos:returns:find-sale",
+    input: z.object({ invoiceNo: z.string().trim().min(1).max(64) }),
+    output: result(returnSaleSchema),
+  },
+  /** Returns without the receipt: the branch's sales history by phone, amount, date and who sold it. */
+  returnSearchSales: {
+    channel: "pos:returns:search-sales",
+    input: z.object({
+      customerPhone: z.string().trim().max(32).optional(),
+      minTotal: amountFilter.optional(),
+      maxTotal: amountFilter.optional(),
+      from: dateKey.optional(),
+      to: dateKey.optional(),
+      soldByMe: z.boolean().optional(),
+      paymentMethod: paymentMethodSchema.optional(),
+    }),
+    output: result(z.array(saleFoundSchema)),
+  },
+  returnsToday: { channel: "pos:returns:today", input: noInput, output: result(z.array(refundTodaySchema)) },
+  /** Refund at the counter: prepared, then executed here unless it needs approval on the web. */
+  submitReturn: {
+    channel: "pos:returns:submit",
+    input: z.object({
+      saleId: uuid,
+      lines: z
+        .array(
+          z.object({
+            productId: uuid,
+            batchId: uuid,
+            qty: z.number().int().min(1).max(9999),
+            disposition: z.enum(["restock", "quarantine"]),
+          }),
+        )
+        .min(1)
+        .max(200),
+      reasonCode: refundReasonSchema,
+      note: z.string().trim().max(500).optional(),
+      /** Omitted: back the way the sale was paid. */
+      refundMethod: paymentMethodSchema.optional(),
+    }),
+    output: result(returnOutcomeSchema),
   },
   confirmTestReceipt: {
     channel: "pos:printers:confirm-test-receipt",
@@ -610,6 +918,27 @@ export const ipcContract = {
     channel: "pos:shift:retry-close",
     input: z.object({ pin: pin.optional() }),
     output: result(shiftStateSchema),
+  },
+  stockSearch: {
+    channel: "pos:stock:search",
+    input: z.object({
+      q: z.string().trim().max(120).optional(),
+      filter: stockFilterSchema,
+      attention: stockAttentionKindSchema.optional(),
+    }),
+    output: result(stockSearchSchema),
+  },
+  stockAttention: { channel: "pos:stock:attention", input: noInput, output: result(stockAttentionSchema) },
+  productStock: {
+    channel: "pos:stock:product",
+    input: z.object({ productId: uuid }),
+    output: result(productStockSchema),
+  },
+  /** A direct adjustment or write-off, through the signed command (#95). */
+  adjustStock: {
+    channel: "pos:stock:adjust",
+    input: stockAdjustmentSchema,
+    output: result(z.object({ qty: z.number().int(), movementType: z.enum(["adjustment_in", "adjustment_out"]) })),
   },
   enroll: {
     channel: "pos:enrollment:enroll",

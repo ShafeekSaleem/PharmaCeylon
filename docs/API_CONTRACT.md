@@ -329,6 +329,26 @@ must be `null` for every v1 operation except prescriptions (a pharmacist's co-si
 `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
 key, type or coercion is `INVALID_COMMAND`.
 
+### Work waiting at the counter (P2b)
+
+`GET /api/v1/counter-work` (`x-branch-id`; `terminal.execute`; a `@CounterRoute()`) lists what was
+approved on the web and waits for this branch's counter to execute. It is read-only and projects
+the existing documents (no model of its own): approved prepared receipts and held deliveries on a
+receivable order, approved transfers leaving this branch (approval present, or waived by
+`approvalRequiredForBranchTransfers`), transfers on their way here, refund requests the refund list
+calls `readyAtCounter` (plus open ones whose approval was revoked), approved stocktakes, approved
+held write-offs, approved supplier returns, and staged import stock not yet posted. Each kind is
+listed only to a caller holding that operation's own permission at the branch; `amount` on
+purchasing, write-off and supplier-return items is `null` without `costs.view`.
+
+Each item: `{ kind, id, reference, subject, lineCount, amount, readyAt, requested, approved,
+dispatched, approval: { evidenceId, approvedVersion, currentVersion, state, changes }, operation }`,
+newest first. `requested` / `approved` / `dispatched` are `{ name, at }` or `null`. `state` is
+`matches` (the pinned approval's version and material digest equal the document now), `changed`
+(something moved since approval, e.g. the order under a held delivery; `changes` names what, in
+words), `revoked`, or `not_needed`. Execution itself still goes through
+`POST /terminal-commands/execute` with `operation`, which re-checks everything.
+
 ### Envelope, canonical bytes and digest
 
 ```text
@@ -961,6 +981,15 @@ is locked, so a revocation that commits first refuses the sale and a later one w
     goods return's `approvedBy` is `null` and the `sale.refunded` audit carries `approvalWaived: true`. `GET /sales/refund-requests?saleId=&status=`
     and `GET /sales/refund-requests/:id` (`sales.refund`) return `status`, `readyAtCounter`,
     `approvalRequired`, `approvalReview` and requester/approver/executor.
+  - **The desktop Returns page** prepares at the counter too: a PIN-opened counter login may call
+    `POST /sales/:id/refund-requests` (`@CounterRoute()`), then executes the request through the
+    signed operation when it is `readyAtCounter`. Over the threshold, a cashier's request waits
+    for approval on the web and then appears under the page's "From web" tab.
+  - `GET /api/v1/sales/:id/returnable` (`sales.pos_use`, counter route) lists each sale line's
+    `soldQty` and `remainingQty` after earlier refunds, with `isControlled`,
+    `requiresPrescription`, `batchNo`, `expiryDate`, `unit` and `refundUnitPrice`; plus
+    `refundApprovalThreshold` (the tenant's limit, or `null`) and `refunds` (earlier completed
+    refunds of the sale: `returnNumber`, `amount`, `createdAt`).
   - Refunds and voids of one sale now take a row lock on the sale, so two counters (or a till
     refund and a prepared one) can never refund the same units twice.
   - `GET /api/v1/sales/refunds` (`sales.refund`) lists the branch's customer returns, newest first, with `reasonCode` and `refundedTo: [{ method, amount }]`; `GET /api/v1/sales/pos/refund-approvers` lists who can approve one at the till.
@@ -1040,7 +1069,8 @@ with no approval is still refused with `APPROVAL_REQUIRED`. The till refund
 
 **Reading sales back (back office)** — all three need `sales.view` and no `x-branch-id` header; they cover the branches where the caller holds `sales.view` (every active branch for an owner), never the whole tenant. `SaleReadService` (`sales/sale-read.service.ts`) is the one read path: the till's recall, invoice lookup and typeahead (`/sales/pos/*`) and global search use it too.
 
-- `GET /api/v1/sales/history` — newest first, paged on the server: `page` (from 1), `pageSize` (default 25, max 100), `branchId` (a branch id or `all`; omitted means the header's branch, or every viewable branch without one), `from` / `to` (tenant calendar days, `YYYY-MM-DD`, inclusive), `soldBy` (user id), `paymentMethod` (`cash`, `card`, `mobile_wallet`, `credit` — refund rows don't count), `invoiceNo` (contains, spaces ignored). Returns `{ items, total, page, pageSize }`. A `branchId` the caller can't view is **403**.
+- `GET /api/v1/sales/history` — newest first, paged on the server: `page` (from 1), `pageSize` (default 25, max 100), `branchId` (a branch id or `all`; omitted means the header's branch, or every viewable branch without one), `from` / `to` (tenant calendar days, `YYYY-MM-DD`, inclusive), `soldBy` (user id), `paymentMethod` (`cash`, `card`, `mobile_wallet`, `credit` — refund rows don't count), `invoiceNo` (contains, spaces ignored), `customerPhone` (part of the customer's phone; only digits count, and a leading `0` or `+94` is ignored, so `071 482 0937` and `+94714820937` find the same customer; at least 4 digits), `minTotal` / `maxTotal` (sale total, inclusive). Each row carries `customerPhone`. Returns `{ items, total, page, pageSize }`. A `branchId` the caller can't view is **403**.
+  The desktop Returns page calls it from a PIN-opened counter login (`@CounterRoute()`), pinned to that counter's branch, to find a sale without the receipt.
 - `GET /api/v1/sales/history/options` — `{ branches, sellers }` for the filters.
 - `GET /api/v1/sales/history/:id` — items with batch, payments (refunds are negative rows), customer, prescription, seller, dispenser and completed refunds. `unitCost` and `costTotal` are currently `null` for every caller: sales do not store a sale-time cost snapshot, and the current batch cost cannot establish historical COGS. A sale outside the caller's branches is **404**.
 

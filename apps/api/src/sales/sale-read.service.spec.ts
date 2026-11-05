@@ -5,7 +5,7 @@ import { validate } from "class-validator";
 import { PERMISSION_KEY } from "../security/decorators/require-permission.decorator";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { SalesHistoryQueryDto } from "./dto/sales-history-query.dto";
-import { SaleReadService } from "./sale-read.service";
+import { phoneSearchDigits, SaleReadService } from "./sale-read.service";
 import { SalesController } from "./sales.controller";
 
 const dec = (value: string) => new Prisma.Decimal(value);
@@ -106,6 +106,7 @@ function setup() {
       findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn().mockResolvedValue(0),
     },
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
   const permissions = {
     resolveGrantedKeys: jest.fn(async (entries: Array<{ roleId?: string | null }>) =>
@@ -261,6 +262,95 @@ describe("SaleReadService.history — filters and pagination", () => {
 
     await expect(service.history(owner, "branch-a", filters)).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.sale.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("SaleReadService.history — finding a sale without the receipt", () => {
+  it("finds the customer's sales by the digits of their phone", async () => {
+    const { prisma, service } = setup();
+    prisma.$queryRaw.mockResolvedValue([{ id: "customer-1" }, { id: "customer-2" }]);
+
+    await service.history(owner, "branch-a", { customerPhone: "+94 71 482-0937" });
+
+    // Tagged template: the strings, then the tenant and the LIKE pattern.
+    const [, tenantId, pattern] = prisma.$queryRaw.mock.calls[0]!;
+    expect(tenantId).toBe("tenant-1");
+    expect(pattern).toBe("%714820937%");
+    expect(lastWhere(prisma.sale.findMany)).toMatchObject({ customerId: { in: ["customer-1", "customer-2"] } });
+  });
+
+  it("returns nothing, not everything, when no customer has that phone", async () => {
+    const { prisma, service } = setup();
+
+    await service.history(owner, "branch-a", { customerPhone: "0771234567" });
+
+    expect(lastWhere(prisma.sale.findMany)).toMatchObject({ customerId: { in: [] } });
+  });
+
+  it("refuses a phone with fewer than 4 digits once the trunk 0 is gone", async () => {
+    const { prisma, service } = setup();
+
+    await expect(service.history(owner, "branch-a", { customerPhone: "0712" })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("filters by the sale total, both ends inclusive", async () => {
+    const { prisma, service } = setup();
+
+    await service.history(owner, "branch-a", { minTotal: "6500", maxTotal: "7500.50" });
+
+    expect(lastWhere(prisma.sale.findMany).grandTotal).toEqual({
+      gte: new Prisma.Decimal("6500"),
+      lte: new Prisma.Decimal("7500.50"),
+    });
+  });
+
+  it("takes one bound on its own", async () => {
+    const { prisma, service } = setup();
+
+    await service.history(owner, "branch-a", { minTotal: "5000" });
+
+    expect(lastWhere(prisma.sale.findMany).grandTotal).toEqual({ gte: new Prisma.Decimal("5000") });
+  });
+
+  it("refuses a minimum above the maximum", async () => {
+    const { prisma, service } = setup();
+
+    await expect(service.history(owner, "branch-a", { minTotal: "10", maxTotal: "5" })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.sale.findMany).not.toHaveBeenCalled();
+  });
+
+  it("shows the customer's phone on each row", async () => {
+    const { prisma, service } = setup();
+    prisma.sale.findMany.mockResolvedValue([
+      { ...summaryRow("000051"), customer: { id: "customer-1", fullName: "Ruwan", phone: "071 482 0937" } },
+    ]);
+
+    const result = await service.history(owner, "branch-a", {});
+
+    expect(result.items[0]).toMatchObject({ customerName: "Ruwan", customerPhone: "071 482 0937" });
+  });
+
+  it.each([
+    ["071 482 0937", "714820937"],
+    ["+94714820937", "714820937"],
+    ["0094 71 482 0937", "714820937"],
+    ["4820937", "4820937"],
+  ])("reads %p as the digits %p", (typed, digits) => {
+    expect(phoneSearchDigits(typed)).toBe(digits);
+  });
+
+  it.each([
+    [{ customerPhone: "07" }, "customerPhone"],
+    [{ minTotal: "-5" }, "minTotal"],
+    [{ maxTotal: "12.345" }, "maxTotal"],
+  ])("validates %j", async (query, property) => {
+    const errors = await validate(plainToInstance(SalesHistoryQueryDto, query));
+    expect(errors.map((e) => e.property)).toContain(property);
   });
 });
 
