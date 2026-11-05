@@ -7,6 +7,7 @@ import type {
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
+import { cutoffPassed, offlineAuthorityCutoff, type AuthorityCutoff } from "./grant-cutoff";
 import { OfflineAssignmentService } from "./offline-assignment.service";
 import { TerminalTrustService } from "./terminal-trust.service";
 import { invalid, object, text, uuid } from "./terminal-wire";
@@ -42,42 +43,53 @@ export type ClearanceDecision =
   | Readonly<{
       cleared: true;
       basis: "initial_nomination" | "recovery_evidence";
+      cutoff: AuthorityCutoff | null;
     }>
   | Readonly<{
       cleared: false;
       reason: "PREVIOUS_STILL_ACTIVE" | "OFFLINE_RECOVERY_EVIDENCE_REQUIRED";
+      cutoff: AuthorityCutoff;
     }>;
 
 /**
- * D11 clearance port. Activation may replace a nominated terminal only once the old one can no
- * longer sell offline (server cutoff confirmed, or its last grant expired) AND its offline journal
- * is recovered or the loss reviewed. Grants (P3) and journal recovery (P5) do not exist yet, so the
- * production provider clears only a branch's first nomination and fails closed otherwise. P3/P5
- * replace `recoveryEvidence` with real grant-expiry and journal-review evidence.
+ * D11 clearance. Activation may replace a nominated counter only when both halves hold:
+ *
+ * 1. P3, the authority cutoff (`grant-cutoff.ts`): the old counter can no longer sell offline,
+ *    because it is confirmed disabled (enrollment revoked or terminal retired) or the latest grant
+ *    the server issued it has expired (or it was never issued one). Otherwise
+ *    `PREVIOUS_STILL_ACTIVE`.
+ * 2. P5, missing-journal recovery and review: the old counter's offline sales are recovered or
+ *    their loss reviewed. P5 has not supplied this yet, so `journalRecoveryEvidence` returns
+ *    false and replacement fails closed with `OFFLINE_RECOVERY_EVIDENCE_REQUIRED`.
+ *
+ * The branch's nomination row is locked first. Issuance takes a share lock on the same row
+ * (`isNominated`), so a grant cannot be issued to the old counter between this cutoff read and
+ * the nomination moving.
  */
 @Injectable()
 export class OfflineActivationClearance {
-  async check(tx: Tx, previous: Nomination | null): Promise<ClearanceDecision> {
-    if (!previous) return { cleared: true, basis: "initial_nomination" };
-    const old = await tx.terminalEnrollment.findFirst({
-      where: {
-        tenantId: previous.tenantId,
-        branchId: previous.branchId,
-        id: previous.enrollmentId,
-      },
-      include: { terminal: true },
-    });
-    if (old && !old.revokedAt && !old.terminal.retiredAt)
-      return { cleared: false, reason: "PREVIOUS_STILL_ACTIVE" };
-    return (await this.recoveryEvidence(tx, previous))
-      ? { cleared: true, basis: "recovery_evidence" }
-      : { cleared: false, reason: "OFFLINE_RECOVERY_EVIDENCE_REQUIRED" };
+  async check(tx: Tx, previous: Nomination | null, now = Date.now()): Promise<ClearanceDecision> {
+    if (!previous) return { cleared: true, basis: "initial_nomination", cutoff: null };
+    await tx.$queryRaw`
+      SELECT id FROM offline_terminal_nomination
+      WHERE tenant_id = ${previous.tenantId}::uuid AND branch_id = ${previous.branchId}::uuid
+      FOR UPDATE`;
+    const cutoff = await offlineAuthorityCutoff(tx, previous);
+    if (!cutoffPassed(cutoff, now))
+      return { cleared: false, reason: "PREVIOUS_STILL_ACTIVE", cutoff };
+    return (await this.journalRecoveryEvidence(tx, previous, cutoff))
+      ? { cleared: true, basis: "recovery_evidence", cutoff }
+      : { cleared: false, reason: "OFFLINE_RECOVERY_EVIDENCE_REQUIRED", cutoff };
   }
 
-  /** P3/P5 integration point: grant cutoff or expiry plus journal recovery/loss review. */
-  protected async recoveryEvidence(
+  /**
+   * P5's half, not supplied yet: the old counter's journal is recovered through its cutoff, or
+   * the missing part reviewed. Fails closed until P5 replaces it.
+   */
+  protected async journalRecoveryEvidence(
     _tx: Tx,
     _previous: Nomination,
+    _cutoff: AuthorityCutoff,
   ): Promise<boolean> {
     return false;
   }
@@ -169,9 +181,11 @@ export class OfflineActivationService {
         throw new ConflictException({
           code: "D11_CLEARANCE_REQUIRED",
           reason: decision.reason,
+          // When the old counter's offline authority ends (null: it never had any).
+          authorityCutoffAt: decision.cutoff.at,
           message:
             decision.reason === "PREVIOUS_STILL_ACTIVE"
-              ? "The current offline counter is still enrolled. Disable it in the back office first."
+              ? "The current offline counter can still sell offline. Disable it in the back office, or wait until its offline permission expires."
               : "The previous offline counter's sales must be recovered or reviewed before another can take over.",
         });
 
@@ -241,6 +255,7 @@ export class OfflineActivationService {
             nominationVersion: version,
             previousEnrollmentId: previous?.enrollmentId ?? null,
             clearance: decision.basis,
+            authorityCutoff: decision.cutoff,
             terminalId: identity.terminalId,
             commandId: command.commandId,
             workSessionId: command.session.workSessionId,

@@ -79,6 +79,7 @@ const ICONS = {
     </>
   ),
   "chevron-down": <path d="m6 9 6 6 6-6" />,
+  "chevron-right": <path d="m9 18 6-6-6-6" />,
   "clipboard-list": (
     <>
       <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />

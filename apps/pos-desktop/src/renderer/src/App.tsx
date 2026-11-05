@@ -11,6 +11,7 @@ import full from "./Fullscreen.module.css";
 import { Icon } from "./Icon";
 import { KeyBinding, KeyScope } from "./keymap";
 import { PersonPanel } from "./Person";
+import { Returns } from "./Returns";
 import { Sell } from "./Sell";
 import { SetupScreen } from "./Setup";
 import { Rail, ServerBlock, StatusBar, TitleBar, type Page } from "./Shell";
@@ -88,6 +89,12 @@ export function App() {
   const session = device?.staffSession ?? null;
   const sessionId = session?.workSessionId;
   const pinReady = Boolean(device?.pin?.prepared);
+  // Owners and managers approve their own refunds by default (the tenant's self-approval
+  // roles); Returns words its button by this, and the server decides.
+  const sessionRole = device?.counterStaff.find(
+    (person) => person.staffUserId === session?.staffUserId,
+  )?.role;
+  const mayApproveRefunds = sessionRole === "owner" || sessionRole === "manager";
 
   // Each sign-in opens on Sell. Someone whose PIN isn't set or prepared here gets their panel
   // straight away, since they can't lock the counter without it.
@@ -210,6 +217,19 @@ export function App() {
                       key={sessionId}
                       onActivity={refreshReadiness}
                       onCommandSent={onCommandSent}
+                      online={api?.reachable !== false}
+                    />
+                  </div>
+                </KeyScope>
+                <KeyScope active={page === "returns"}>
+                  <KeyBinding keys="Escape" onKey={() => setPage("sell")} />
+                  <div className={shell.page} hidden={page !== "returns"}>
+                    <Returns
+                      key={`returns-${sessionId}`}
+                      active={page === "returns" && !device.locked}
+                      mayApprove={mayApproveRefunds}
+                      poll={!device.locked}
+                      onActivity={refreshReadiness}
                     />
                   </div>
                 </KeyScope>

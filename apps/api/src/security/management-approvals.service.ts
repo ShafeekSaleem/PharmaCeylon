@@ -86,6 +86,12 @@ export class ManagementApprovalsService {
       reason: string;
       expiresAt: number | null;
     },
+    /**
+     * P2b #103 approver co-sign: someone else approves on `user`'s session, their PIN already
+     * verified by the caller. The evidence and audit are theirs; their authority is read live here
+     * from the database, since they hold no token of their own on this request.
+     */
+    coSigner?: { userId: string },
   ) {
     uuid(input.approvalId);
     hex(input.expectedDigest);
@@ -95,9 +101,14 @@ export class ManagementApprovalsService {
       input.expectedVersion < 1
     )
       denied("APPROVAL_INVALID");
-    const doc = await this.preview(tx, user, branchId, action, documentId);
+    const approverUserId = coSigner?.userId ?? user.userId;
+    const doc = coSigner
+      ? await approvalDocument(tx, user.tenantId, branchId, action, documentId, "approval")
+      : await this.preview(tx, user, branchId, action, documentId);
     // Recheck current self-approval settings after the document lock wait.
-    const actor = await this.access.resolveLive(user, branchId, tx);
+    const actor = coSigner
+      ? await this.access.resolveApprovalAuthority({ tenantId: user.tenantId, userId: coSigner.userId }, branchId, tx)
+      : await this.access.resolveLive(user, branchId, tx);
     if (!actor.has(approvalAction(action).approvalPermission))
       denied("PERMISSION_DENIED");
     assertMayApprove(
@@ -118,7 +129,7 @@ export class ManagementApprovalsService {
         boundedCanonical(evidence(prior).document) !==
           boundedCanonical(doc.identity) ||
         prior.authorizedAction !== action ||
-        prior.approvedByUserId !== user.userId ||
+        prior.approvedByUserId !== approverUserId ||
         prior.reason !== input.reason ||
         (prior.expiresAt?.getTime() ?? null) !== input.expiresAt ||
         prior.revokedAt
@@ -138,7 +149,7 @@ export class ManagementApprovalsService {
         ...doc.identity,
         material: doc.material,
         authorizedAction: action,
-        approvedByUserId: user.userId,
+        approvedByUserId: approverUserId,
         approvedAt: new Date(now),
         expiresAt: input.expiresAt === null ? null : new Date(input.expiresAt),
         reason: input.reason,
@@ -148,7 +159,7 @@ export class ManagementApprovalsService {
       {
         tenantId: user.tenantId,
         branchId,
-        actorUserId: user.userId,
+        actorUserId: approverUserId,
         eventName: "management_approval.issued",
         entityName: "management_approval",
         entityId: row.id,
@@ -158,7 +169,8 @@ export class ManagementApprovalsService {
           documentVersion: row.documentVersion,
           documentDigest: row.documentDigest,
           requestedByUserId: row.requestedByUserId,
-          approvedByUserId: user.userId,
+          approvedByUserId: approverUserId,
+          ...(coSigner ? { coSignedOnSessionOfUserId: user.userId } : {}),
         },
       },
       tx,
