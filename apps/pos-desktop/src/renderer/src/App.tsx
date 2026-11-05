@@ -5,7 +5,9 @@ import type {
   DeviceState,
   Printer,
   ReadinessReport,
+  ShiftState,
 } from "../../shared/ipc-contract";
+import { CashShiftPage, ShiftGate } from "./CashShift";
 import { CounterWork } from "./CounterWork";
 import full from "./Fullscreen.module.css";
 import { Icon } from "./Icon";
@@ -23,6 +25,9 @@ import ui from "./ui.module.css";
 import { cx } from "./useAction";
 
 const API_POLL_MS = 15_000;
+/** The counter's own copy of its shift is a local read: cheap enough to keep the status bar current. */
+const SHIFT_LOCAL_MS = 3_000;
+const SHIFT_SERVER_MS = 30_000;
 
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -36,6 +41,7 @@ export function App() {
   const [personOpen, setPersonOpen] = useState(false);
   const [workCount, setWorkCount] = useState(0);
   const [lockError, setLockError] = useState<string | null>(null);
+  const [shift, setShift] = useState<ShiftState | null>(null);
 
   const refreshApi = useCallback(() => {
     window.pos
@@ -90,6 +96,35 @@ export function App() {
   const session = device?.staffSession ?? null;
   const sessionId = session?.workSessionId;
   const pinReady = Boolean(device?.pin?.prepared);
+  const unlocked = Boolean(sessionId) && !device?.locked;
+
+  // The shift on this till: the counter's own copy, which answers locked or offline, and the
+  // server's answer while someone is signed in (it also resends a close a restart interrupted).
+  const loadShift = useCallback(() => {
+    window.pos
+      .getShift()
+      .then(setShift)
+      .catch(() => undefined);
+  }, []);
+  const refreshShift = useCallback(() => {
+    window.pos
+      .refreshShift()
+      .then((result) => (result.ok ? setShift(result.value) : loadShift()))
+      .catch(() => undefined);
+  }, [loadShift]);
+  useEffect(() => {
+    if (!device) return;
+    loadShift();
+    const timer = window.setInterval(loadShift, SHIFT_LOCAL_MS);
+    return () => window.clearInterval(timer);
+  }, [Boolean(device), loadShift]);
+  useEffect(() => {
+    if (!unlocked) return;
+    refreshShift();
+    const timer = window.setInterval(refreshShift, SHIFT_SERVER_MS);
+    return () => window.clearInterval(timer);
+  }, [unlocked, sessionId, refreshShift]);
+
   // Owners and managers approve their own refunds by default (the tenant's self-approval
   // roles); Returns words its button by this, and the server decides.
   const sessionRole = device?.counterStaff.find(
@@ -167,6 +202,11 @@ export function App() {
     );
 
   const active = device.enrollment?.status === "active";
+  // Selling needs the signed-in person's own open shift on this till.
+  const current = shift?.current ?? null;
+  const sellGated =
+    Boolean(shift) &&
+    !(current?.status === "open" && current.staffUserId === session?.staffUserId);
   const signIn = (
     <SignInScreen
       key={sessionId ?? "signed-out"}
@@ -174,6 +214,7 @@ export function App() {
       onState={setDevice}
       api={api}
       printer={printer}
+      shift={shift?.current ?? null}
     />
   );
   let body;
@@ -211,8 +252,9 @@ export function App() {
               />
               {/* Pages stay mounted while hidden, so moving between them never loses a sale in progress. */}
               <main className={shell.content}>
-                {/* Each page's keys work only while it is the one shown. */}
-                <KeyScope active={page === "sell"}>
+                {/* Each page's keys work only while it is the one shown. Sell's go quiet while
+                    there's no open shift to sell on. */}
+                <KeyScope active={page === "sell" && !sellGated}>
                   <div className={shell.page} hidden={page !== "sell"}>
                     <Sell
                       key={sessionId}
@@ -259,6 +301,23 @@ export function App() {
                     />
                   </div>
                 </KeyScope>
+                <KeyScope active={page === "cash"}>
+                  <KeyBinding keys="Escape" onKey={() => setPage("sell")} />
+                  <div className={shell.page} hidden={page !== "cash"}>
+                    <CashShiftPage
+                      device={device}
+                      shift={shift}
+                      onShift={setShift}
+                    />
+                  </div>
+                </KeyScope>
+                {page === "sell" && shift && sellGated && (
+                  <ShiftGate
+                    device={device}
+                    shift={shift}
+                    onOpen={() => setPage("cash")}
+                  />
+                )}
                 <KeyScope active={page === "counter"}>
                   <KeyBinding keys="Escape" onKey={() => setPage("sell")} />
                   <div className={shell.page} hidden={page !== "counter"}>
@@ -275,7 +334,13 @@ export function App() {
                 )}
               </main>
             </div>
-            <StatusBar state={device} api={api} printer={printer} info={info} />
+            <StatusBar
+              state={device}
+              api={api}
+              printer={printer}
+              info={info}
+              shift={shift?.current ?? null}
+            />
           </div>
         </KeyScope>
         {personOpen && !device.locked && (

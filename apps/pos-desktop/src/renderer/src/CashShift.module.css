@@ -1,0 +1,393 @@
+/* Cash & shift (mockup screen=cash). */
+
+.page {
+  flex: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 452px;
+  gap: 14px;
+  min-height: 0;
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ---------- this shift ---------- */
+.shiftCard {
+  flex: none;
+}
+
+.shiftH {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px 14px;
+}
+
+.shiftH > span:first-child {
+  width: 42px;
+  height: 42px;
+  font-size: 14px;
+}
+
+.shiftH b {
+  display: block;
+  font-size: 14.5px;
+}
+
+.shiftH small {
+  display: block;
+  margin-top: 1px;
+  font-size: 12.5px;
+  color: var(--pos-text-3);
+}
+
+.right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: none;
+}
+
+div.tiles {
+  margin: 0 18px 18px;
+}
+
+div.main {
+  background: var(--pos-primary-soft);
+  border-color: color-mix(in srgb, var(--pos-primary) 30%, transparent);
+}
+
+div.main b {
+  color: var(--pos-primary-ink);
+}
+
+/* ---------- no shift open ---------- */
+.empty {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+}
+
+.emptyIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+}
+
+.empty b {
+  display: block;
+  font-size: 14.5px;
+}
+
+.empty small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--pos-text-3);
+}
+
+.lastClose {
+  flex: none;
+  padding-bottom: 8px;
+}
+
+.kv {
+  display: flex;
+  flex-direction: column;
+  padding: 0 18px;
+}
+
+.kv > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 40px;
+  align-items: center;
+  border-bottom: 1px solid var(--pos-line);
+  font-size: 13px;
+}
+
+.kv > div:last-child {
+  border-bottom: 0;
+}
+
+.kv span {
+  color: var(--pos-text-3);
+}
+
+.kv b {
+  font-weight: 600;
+  text-align: right;
+}
+
+.neg {
+  color: var(--pos-bad);
+}
+
+/* ---------- counting the drawer ---------- */
+.count {
+  padding: 0;
+  overflow: auto;
+}
+
+.cntH {
+  padding: 18px 20px 12px;
+}
+
+.cntH h2 {
+  margin-top: 3px;
+  font: 650 19px/1.2 var(--pos-font-display);
+  letter-spacing: -0.015em;
+}
+
+.cntH p {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+}
+
+.den {
+  flex: none;
+  margin: 0 20px;
+  border: 1px solid var(--pos-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.denRow {
+  display: grid;
+  grid-template-columns: 104px 18px 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--pos-line);
+  font-size: 13px;
+}
+
+.denRow:last-child {
+  border-bottom: 0;
+}
+
+.denHead {
+  height: 30px;
+  background: var(--pos-surface-2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pos-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.c {
+  text-align: center;
+}
+
+.r {
+  text-align: right;
+}
+
+.sel {
+  background: var(--pos-primary-soft);
+}
+
+.nv {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.nv i {
+  width: 22px;
+  height: 14px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--c) 30%, var(--pos-surface));
+  border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+}
+
+.nv i.coin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.x {
+  color: var(--pos-text-3);
+  text-align: center;
+}
+
+.cell {
+  width: 100%;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+  color: var(--pos-text);
+  font: 600 13px/1 var(--pos-font);
+  text-align: center;
+  padding: 0 9px;
+}
+
+.cell::placeholder {
+  color: var(--pos-text-3);
+  font-weight: 500;
+}
+
+.cell:focus {
+  outline: none;
+  border: 1.5px solid var(--pos-primary);
+  box-shadow: var(--pos-focus);
+}
+
+.cellBad {
+  border-color: var(--pos-warn);
+  background: var(--pos-warn-soft);
+  color: var(--pos-warn-ink);
+}
+
+.am {
+  text-align: right;
+  font-weight: 600;
+}
+
+.tot3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 20px 0;
+}
+
+.tot3 > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+}
+
+.tot3 small {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pos-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tot3 b {
+  display: block;
+  margin-top: 3px;
+  font: 700 17px/1.2 var(--pos-font-display);
+}
+
+.tot3 > div.short {
+  background: var(--pos-bad-soft);
+  border-color: var(--pos-bad-line);
+}
+
+.tot3 > div.short small,
+.tot3 > div.short b {
+  color: var(--pos-bad-ink);
+}
+
+.tot3 > div.over {
+  background: var(--pos-warn-soft);
+  border-color: var(--pos-warn-line);
+}
+
+.tot3 > div.over small,
+.tot3 > div.over b {
+  color: var(--pos-warn-ink);
+}
+
+.field {
+  margin: 12px 20px 0;
+}
+
+.offl {
+  display: flex;
+  gap: 8px;
+  margin: 10px 20px 0;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.offl :global(.pos-ic) {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  color: var(--pos-info);
+}
+
+.err {
+  margin: 8px 20px 10px;
+}
+
+/* The count's buttons stay at the bottom of the panel. */
+.count > :last-child {
+  margin-top: auto;
+}
+
+/* ---------- the Sell gate ---------- */
+/* It asks for a step, not an error: the brand tone, not the server cover's red. */
+span.gateIcon {
+  color: var(--pos-primary-ink);
+  background: var(--pos-primary-soft);
+}
+
+/* ---------- smaller windows ---------- */
+@media (max-width: 1280px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr) 400px;
+  }
+  div.tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 1100px) {
+  .page {
+    grid-template-rows: auto auto;
+    overflow: auto;
+  }
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .left {
+    overflow: visible;
+  }
+}
+
+@media (max-height: 820px) {
+  .denRow {
+    height: 34px;
+  }
+  .cntH {
+    padding: 14px 20px 8px;
+  }
+  .tot3 {
+    margin-top: 8px;
+  }
+}

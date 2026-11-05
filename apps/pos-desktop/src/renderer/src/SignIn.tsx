@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type {
   ApiReachability,
   DeviceState,
+  LocalShift,
   Printer,
 } from "../../shared/ipc-contract";
 import { longDay, time, useNow } from "./format";
@@ -190,15 +191,48 @@ function counterPeople(state: DeviceState): CounterPerson[] {
   ];
 }
 
+/**
+ * The person who opened the shift on this till continues it; anyone else hands over with a cash
+ * count first. A close saved here but not confirmed by the server says so.
+ */
+function ShiftNote({ shift }: { shift: LocalShift }) {
+  const name = shift.shiftNumber ? `Shift ${shift.shiftNumber}` : "A shift";
+  const first = firstName(shift.staffName);
+  if (shift.status === "closing")
+    return (
+      <div className={cx(ui.note, ui.noteWarn, styles.note)}>
+        <Icon name="alert-triangle" />
+        <div>
+          <b>{name}&apos;s close isn&apos;t confirmed yet.</b> It&apos;s saved
+          on this counter and is sent again when{" "}
+          {shift.closedByName ? firstName(shift.closedByName) : first} signs
+          in.
+        </div>
+      </div>
+    );
+  return (
+    <div className={cx(ui.note, styles.note)}>
+      <Icon name="info" />
+      <div>
+        <b>{name} is open on this till.</b> {first} continues it. Anyone else
+        hands over the shift with a cash count first.
+      </div>
+    </div>
+  );
+}
+
 function StaffCard({
   person,
   openedAt,
+  shiftSince,
   selected,
   busy,
   onSelect,
 }: {
   person: CounterPerson;
   openedAt: string | undefined;
+  /** When the shift open on this till began, if it is this person's. */
+  shiftSince: string | undefined;
   selected: boolean;
   busy: boolean;
   onSelect: () => void;
@@ -219,7 +253,11 @@ function StaffCard({
         {(role || person.state === "signed_in") && (
           <small>{role ?? "Locked this counter"}</small>
         )}
-        {person.state === "signed_in" ? (
+        {shiftSince && !locked ? (
+          <span className={cx(ui.pill, ui.brand)}>
+            Shift open since {time(new Date(shiftSince))}
+          </span>
+        ) : person.state === "signed_in" ? (
           <span className={cx(ui.pill, ui.brand)}>
             {openedAt
               ? `Signed in since ${time(new Date(openedAt))}`
@@ -257,9 +295,12 @@ export function SignInScreen({
   onState,
   api,
   printer,
+  shift = null,
 }: Props & {
   api: ApiReachability | null;
   printer: Printer | null | undefined;
+  /** The shift open on this till (this counter's copy), if any. */
+  shift?: LocalShift | null;
 }) {
   const now = useNow();
   const [pin, setPin] = useState("");
@@ -349,6 +390,11 @@ export function SignInScreen({
                         ? session.openedAt
                         : undefined
                     }
+                    shiftSince={
+                      shift && shift.staffUserId === person.staffUserId
+                        ? shift.openedAt
+                        : undefined
+                    }
                     selected={person.staffUserId === selected.staffUserId}
                     busy={busy}
                     onSelect={() => choose(person)}
@@ -372,6 +418,7 @@ export function SignInScreen({
                   </div>
                 </button>
               </div>
+              {shift && <ShiftNote shift={shift} />}
               {unlocking && state.pin?.lockedUntil ? (
                 <div
                   role="alert"

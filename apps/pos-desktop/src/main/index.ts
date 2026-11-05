@@ -20,6 +20,7 @@ import { ReturnsService } from "./returns/returns-service";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { SignedCommandService } from "./terminal/signed-commands";
+import { ShiftService } from "./shifts/shift-service";
 import { StockLookupService } from "./terminal/stock-lookup";
 import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport, type ReadinessFacts } from "./readiness";
@@ -76,6 +77,7 @@ let checkout: CheckoutService | null = null;
 let dispensing: DispensingService | null = null;
 let commands: SignedCommandService | null = null;
 let counterWork: CounterWorkService | null = null;
+let shifts: ShiftService | null = null;
 let stock: StockLookupService | null = null;
 let returns: ReturnsService | null = null;
 let authorityRefresh: OfflineAuthorityRefresh | null = null;
@@ -103,6 +105,17 @@ function unconfirmedFacts(): { unconfirmed: number; unconfirmedSalesBy: string[]
     unconfirmedSalesBy: names(sales),
     unconfirmedBy: names(actions),
   };
+}
+
+function requireShifts(): ShiftService {
+  if (!shifts) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+  return shifts;
+}
+
+/** A completed counter sale moves the open shift's own running expected cash (D7b), once. */
+function postSale(sale: CompletedSale): void {
+  const seller = terminal?.current()?.staff.staffUserId;
+  if (seller) shifts?.recordSale(sale, seller);
 }
 
 async function act<T>(
@@ -218,6 +231,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           const sale = await checkout.submit(lines, tender, details, coSign, discountCoSign);
           recentSales.set(sale.saleId, sale);
+          postSale(sale);
           return sale;
         }),
       holdCart: ({ lines, label, dispensing: details }) =>
@@ -252,6 +266,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           const sale = await checkout.retry(draftId, coSign, discountCoSign);
           recentSales.set(sale.saleId, sale);
+          postSale(sale);
           return sale;
         }),
       searchCustomers: ({ q }) =>
@@ -291,9 +306,12 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           return counterWork.refundsReady();
         }),
       executeRefund: ({ refundRequestId }) =>
-        act(logger, "executeRefund", () => {
+        act(logger, "executeRefund", async () => {
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          return counterWork.executeRefund(refundRequestId);
+          const executed = await counterWork.executeRefund(refundRequestId);
+          const executor = terminal?.current()?.staff.staffUserId;
+          if (!executed.alreadyApplied && executor) shifts?.recordRefund(executed.requestNumber, executed.refundedTo, executor);
+          return executed;
         }),
       returnFindSale: ({ invoiceNo }) =>
         act(logger, "returnFindSale", () => {
@@ -311,9 +329,14 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           return returns.today();
         }),
       submitReturn: (input) =>
-        act(logger, "submitReturn", () => {
+        act(logger, "submitReturn", async () => {
           if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          return returns.submit(input);
+          const outcome = await returns.submit(input);
+          // A cash refund done here leaves the open shift's drawer: the counter's own figure too.
+          const executor = terminal?.current()?.staff.staffUserId;
+          if (outcome.status === "refunded" && !outcome.refund.alreadyApplied && executor)
+            shifts?.recordRefund(outcome.refund.requestNumber, outcome.refund.refundedTo, executor);
+          return outcome;
         }),
       pendingCommands: () => commands?.pending() ?? [],
       retryCommand: ({ commandId }) =>
@@ -350,6 +373,12 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       preparePin: ({ pin }) => act(logger, "preparePin", (service) => service.preparePin(pin)),
       lock: () => act(logger, "lock", (service) => service.lock()),
       unlock: ({ pin }) => act(logger, "unlock", (service) => service.unlock(pin)),
+      getShift: () => shifts?.state() ?? { current: null, lastClosed: null, unsynced: [] },
+      refreshShift: () => act(logger, "refreshShift", () => requireShifts().refresh()),
+      openShift: ({ pin, count }) => act(logger, "openShift", () => requireShifts().open(pin, count)),
+      closeShift: ({ count, varianceNote, assistance }) =>
+        act(logger, "closeShift", () => requireShifts().close(count, { varianceNote, assistance })),
+      retryShiftClose: ({ pin }) => act(logger, "retryShiftClose", () => requireShifts().retryClose(pin)),
       pinSignIn: ({ staffUserId, pin }) =>
         act(logger, "pinSignIn", (service) => service.signInWithPin(staffUserId, pin)),
     },
@@ -432,6 +461,7 @@ async function start(): Promise<void> {
   commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
+  shifts = new ShiftService({ db: store.db, api: terminalApi, terminal, device: deviceStore, logger });
   stock = new StockLookupService({ api: terminalApi, terminal, commands });
   returns = new ReturnsService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);
