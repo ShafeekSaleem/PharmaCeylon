@@ -42,6 +42,8 @@ export function App() {
   const [workCount, setWorkCount] = useState(0);
   const [lockError, setLockError] = useState<string | null>(null);
   const [shift, setShift] = useState<ShiftState | null>(null);
+  /** Who the last handover named to take over, picked first on the lock screen. */
+  const [nextUp, setNextUp] = useState<string | null>(null);
 
   const refreshApi = useCallback(() => {
     window.pos
@@ -215,6 +217,7 @@ export function App() {
       api={api}
       printer={printer}
       shift={shift?.current ?? null}
+      suggested={nextUp}
     />
   );
   let body;
@@ -308,6 +311,13 @@ export function App() {
                       device={device}
                       shift={shift}
                       onShift={setShift}
+                      printer={printer}
+                      active={page === "cash"}
+                      onHandover={(next) => {
+                        // The outgoing person is done: the counter locks for whoever comes next.
+                        setNextUp(next);
+                        lock();
+                      }}
                     />
                   </div>
                 </KeyScope>

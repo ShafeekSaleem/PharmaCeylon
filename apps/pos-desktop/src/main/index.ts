@@ -13,6 +13,7 @@ import { createLogger } from "./logging/logger";
 import { printTestReceipt } from "./printing/test-receipt";
 import { printHtml } from "./printing/print-html";
 import { renderSaleReceiptHtml } from "./printing/receipt-html";
+import { renderXReportHtml } from "./printing/x-report-html";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
@@ -379,6 +380,28 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       closeShift: ({ count, varianceNote, assistance }) =>
         act(logger, "closeShift", () => requireShifts().close(count, { varianceNote, assistance })),
       retryShiftClose: ({ pin }) => act(logger, "retryShiftClose", () => requireShifts().retryClose(pin)),
+      listShifts: () => act(logger, "listShifts", () => requireShifts().list()),
+      shiftDetail: ({ workSessionId }) => act(logger, "shiftDetail", () => requireShifts().detail(workSessionId)),
+      printXReport: ({ printerName }) =>
+        act(logger, "printXReport", async (service) => {
+          const report = await requireShifts().xReport();
+          const device = store ? new DeviceStore(store.db).read() : null;
+          const printedBy = service.current()?.staff.staffName ?? "";
+          return printHtml(
+            printerName,
+            renderXReportHtml({
+              branchName: device?.branchName ?? "",
+              counterLabel: device?.counterLabel ?? "",
+              shiftNumber: report.shift.shiftNumber,
+              staffName: report.shift.staffName,
+              openedAt: report.shift.openedAt,
+              printedAt: new Date(),
+              printedBy,
+              summary: report.summary,
+              current: report.current,
+            }),
+          );
+        }),
       pinSignIn: ({ staffUserId, pin }) =>
         act(logger, "pinSignIn", (service) => service.signInWithPin(staffUserId, pin)),
     },

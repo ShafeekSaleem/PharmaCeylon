@@ -690,6 +690,25 @@ export const shiftStateSchema = z.object({
 });
 export type ShiftState = z.infer<typeof shiftStateSchema>;
 
+/** A shift on this till as the server records it, for Past shifts. */
+export const pastShiftSchema = z.object({
+  workSessionId: uuid,
+  shiftNumber: z.string(),
+  staffName: z.string(),
+  status: z.enum(["open", "closed"]),
+  openedAt: z.string(),
+  openingCashMinor: minor,
+  closedAt: z.string().nullable(),
+  closingCashCountMinor: minor.nullable(),
+  expectedCashMinor: minor.nullable(),
+  varianceMinor: minor.nullable(),
+  varianceNote: z.string().nullable(),
+  closedByName: z.string().nullable(),
+  closeKind: z.enum(["self", "assisted"]).nullable(),
+  assistanceReason: z.string().nullable(),
+});
+export type PastShift = z.infer<typeof pastShiftSchema>;
+
 /** Actions report refusals as data so the person at the counter sees why, not a generic error. */
 function result<T extends z.ZodTypeAny>(value: T) {
   return z.discriminatedUnion("ok", [
@@ -918,6 +937,19 @@ export const ipcContract = {
     channel: "pos:shift:retry-close",
     input: z.object({ pin: pin.optional() }),
     output: result(shiftStateSchema),
+  },
+  /** Shifts on this till, newest first, from the server. */
+  listShifts: { channel: "pos:shift:list", input: noInput, output: result(z.array(pastShiftSchema)) },
+  shiftDetail: {
+    channel: "pos:shift:detail",
+    input: z.object({ workSessionId: uuid }),
+    output: result(z.object({ shift: pastShiftSchema, summary: shiftSummarySchema })),
+  },
+  /** Prints a mid-shift summary on the receipt printer; the shift stays open. */
+  printXReport: {
+    channel: "pos:shift:x-report",
+    input: z.object({ printerName: z.string().min(1).max(260) }),
+    output: result(printResultSchema),
   },
   stockSearch: {
     channel: "pos:stock:search",

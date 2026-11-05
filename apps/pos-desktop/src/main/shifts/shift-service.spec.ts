@@ -368,6 +368,35 @@ describe("closing a shift", () => {
   });
 });
 
+describe("past shifts and the X report", () => {
+  it("lists the till's shifts and reads one with its figures", async () => {
+    const server = fakeServer();
+    const id = randomUUID();
+    server.shifts.set(id, serverShift(id, cashier, { status: "closed", closedAt: "2026-11-04T09:00:00.000Z",
+      closingCashCountMinor: 499_000, expectedCashMinor: 500_000, varianceMinor: -1_000, closeKind: "self",
+      closedBy: { id: cashier.staffUserId, fullName: cashier.staffName } }));
+    handler = (call) =>
+      call.method === "GET" && call.path.endsWith("/shifts") ? [...server.shifts.values()] : server.handle(call);
+    const shifts = service();
+    expect(await shifts.list()).toMatchObject([
+      { workSessionId: id, shiftNumber: "S-0412", staffName: cashier.staffName, varianceMinor: -1_000, closeKind: "self" },
+    ]);
+    expect((await shifts.detail(id)).summary.expectedCashMinor).toBe(500_000);
+  });
+
+  it("reports from the server's fresh figures, or the counter's last copy when it can't be reached", async () => {
+    const shifts = service();
+    await shifts.open(PIN, FIVE_THOUSAND);
+    expect(await shifts.xReport()).toMatchObject({ current: true, summary: { expectedCashMinor: 500_000 } });
+    handler = offline;
+    expect(await shifts.xReport()).toMatchObject({ current: false, summary: { expectedCashMinor: 500_000 } });
+  });
+
+  it("has nothing to report without an open shift", async () => {
+    await expect(service().xReport()).rejects.toMatchObject({ code: "SHIFT_NOT_OPEN" });
+  });
+});
+
 describe("while locked", () => {
   it("still knows whose shift is open on the till", async () => {
     await service().open(PIN, FIVE_THOUSAND);

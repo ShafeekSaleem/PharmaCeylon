@@ -3,6 +3,7 @@ import {
   shiftSummarySchema,
   type CashCount,
   type LocalShift,
+  type PastShift,
   type ShiftState,
   type ShiftSummary,
 } from "../../shared/ipc-contract";
@@ -31,9 +32,27 @@ type ServerShift = {
   expectedCashMinor: number | null;
   varianceMinor: number | null;
   closedBy: { id: string; fullName: string } | null;
+  closeKind: "self" | "assisted" | null;
   assistanceReason: string | null;
   varianceNote: string | null;
 };
+
+const past = (shift: ServerShift): PastShift => ({
+  workSessionId: shift.workSessionId,
+  shiftNumber: shift.shiftNumber,
+  staffName: shift.staff?.fullName ?? "",
+  status: shift.status,
+  openedAt: shift.openedAt,
+  openingCashMinor: shift.openingCashMinor,
+  closedAt: shift.closedAt,
+  closingCashCountMinor: shift.closingCashCountMinor,
+  expectedCashMinor: shift.expectedCashMinor,
+  varianceMinor: shift.varianceMinor,
+  varianceNote: shift.varianceNote,
+  closedByName: shift.closedBy?.fullName ?? null,
+  closeKind: shift.closeKind ?? null,
+  assistanceReason: shift.assistanceReason,
+});
 type ServerDetail = { shift: ServerShift; summary: ShiftSummary };
 type ServerCurrent = {
   tillId: string;
@@ -560,6 +579,47 @@ export class ShiftService {
       this.deps.db.prepare("DELETE FROM till_shift_posting WHERE work_session_id = ?").run(workSessionId);
       this.deps.db.prepare("DELETE FROM till_shift WHERE work_session_id = ?").run(workSessionId);
     })();
+  }
+
+  /** The till's shifts from the server, newest first (Past shifts). */
+  async list(): Promise<PastShift[]> {
+    const { staff, identity } = this.counter();
+    const rows = await this.deps.api.request<ServerShift[]>("GET", this.path(staff.workSessionId), {
+      branchId: identity.branchId,
+    });
+    return rows.map(past);
+  }
+
+  /** One shift on this till with its totals, from the server. */
+  async detail(workSessionId: string): Promise<{ shift: PastShift; summary: ShiftSummary }> {
+    const { staff, identity } = this.counter();
+    const detail = await this.deps.api.request<ServerDetail>(
+      "GET",
+      this.path(staff.workSessionId, `/${workSessionId}`),
+      { branchId: identity.branchId },
+    );
+    return { shift: past(detail.shift), summary: detail.summary };
+  }
+
+  /**
+   * The open shift's figures for an X report: the server's, fresh, when it answers (they're kept
+   * as the counter's copy too), or the counter's last copy, marked as such.
+   */
+  async xReport(): Promise<{ shift: LocalShift; summary: ShiftSummary; current: boolean }> {
+    this.counter();
+    const before = this.state().current;
+    if (!before || before.status === "opening")
+      throw new ActionFailure("SHIFT_NOT_OPEN", "There's no open shift on this till to report on.");
+    let current = true;
+    try {
+      await this.refresh();
+    } catch {
+      current = false;
+    }
+    const shift = this.state().current ?? before;
+    if (!shift.summary)
+      throw new ActionFailure("SHIFT_FIGURES_UNAVAILABLE", "The server hasn't sent this shift's figures yet. Try again when it's reachable.");
+    return { shift, summary: shift.summary, current };
   }
 
   // ── the counter's own running expected cash ──────────────────────────────────────────────
