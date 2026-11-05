@@ -473,10 +473,21 @@ an owner or still a delegated manager with branch management), applies D11 clear
 authorization `consumed` by the activator, writes `offline_terminal_nomination` at `version + 1`
 and audits `terminal.offline_activated` with authorizer and activator separately. Concurrent
 activations serialize on the enrollment and branch locks; only one consumes the authorization.
-D11: a branch's first nomination is cleared; replacing a nominated terminal needs the old one
-revoked or retired (`D11_CLEARANCE_REQUIRED` reason `PREVIOUS_STILL_ACTIVE`) **and** grant
-cutoff plus journal recovery evidence, which P3/P5 provide — until then replacement fails closed
-(`OFFLINE_RECOVERY_EVIDENCE_REQUIRED`). Stale, revoked or consumed authorizations are
+D11: a branch's first nomination is cleared. Replacing a nominated terminal needs both halves,
+checked with the branch's nomination row locked:
+
+1. **P3, the authority cutoff.** The old counter must no longer be able to sell offline: it is
+   confirmed disabled (enrollment revoked or terminal retired), or the latest grant the server
+   issued it has expired (`now >= expiresAt`), or it was never issued one. Otherwise 409
+   `D11_CLEARANCE_REQUIRED` reason `PREVIOUS_STILL_ACTIVE`, with `authorityCutoffAt` (epoch ms)
+   saying when its last grant expires.
+2. **P5, missing-journal recovery and review.** Not supplied yet, so replacement still fails
+   closed with reason `OFFLINE_RECOVERY_EVIDENCE_REQUIRED` (`authorityCutoffAt` is the cutoff, or
+   `null` when the old counter never held a grant).
+
+Revocation is a cutoff for the server, not for a disconnected device: the grant it already holds
+is reported as `lastGrantExpiresAt` in the activation audit, for the journal review to account
+for. Stale, revoked or consumed authorizations are
 409 `OFFLINE_AUTHORIZATION_NOT_CURRENT` and need renewal. Activation issues no grant.
 
 ## Desktop enrollment and staff sessions (P2)
@@ -1155,3 +1166,50 @@ Issuance requires `OFFLINE_AUTHORITY_KEY_ID` and an Ed25519 PKCS#8 PEM in
 server public key (`POS_OFFLINE_AUTHORITY_KEY_ID`, `POS_OFFLINE_AUTHORITY_PUBLIC_KEY`). Until
 reconciliation supplies a production watermark and stock-review state, a new request after the
 first issuance returns `RECONCILIATION_REQUIRED`.
+
+## Held offline evidence verification (P3)
+
+`HeldEvidenceVerifier` (`apps/api/src/terminals/held-evidence-verifier.service.ts`) verifies held
+offline evidence against the grants this server issued. P5 sync calls it on its own transaction,
+after verifying the device journal it takes the evidence from; there is no HTTP route. The caller
+must be live at the branch. Verification takes the same record lock as intake, and the grant is
+looked up only among `offline_authority_issuance` rows of the record's own tenant, branch and
+enrollment, so another counter's grant is as unknown as a made-up one.
+
+- `verifyHoursAcknowledgement(tx, user, branchId, { enrollmentId, recordId, managerSignIn, outage })`
+  for a held D8 acknowledgement. `managerSignIn` is the `OfflineStaffSignIn` the acknowledgement
+  cites; `outage` is `{ offlineSessionId, offlineStartedAt }` from the journal command that relies
+  on it. Both are parsed with exact keys. The record moves to `accepted`, or to `rejected` with the
+  reason in `heldReason`.
+- `verifySupportRecord(tx, user, branchId, { enrollmentId, recordId, staffSignIn })` for a held sale
+  incident or card-attempt event. It moves to `rejected` when the check below fails. When the check
+  passes it stays `held` under its existing reason (`sale_unverified`, `payment_unverified`): the
+  sale and the card-machine result are P5's to verify. Support records still post no stock, cash or
+  refund effect.
+
+The result is `{ recordId, status, reason, decided }`, where `decided` is true only on the call that
+moved the record. A record that is already decided is returned as stored, and the P1 trigger lets
+the outcome move only once. A record held as `enrollment_revoked` or `attempt_mismatch` is not P3's
+to settle, so it is returned unchanged.
+
+The first check that fails names the reason. The order is fixed, so the same evidence always gets
+the same reason: grant, then the sign-in (identity, staff, credential, times), then capability,
+outage, window and mandatory limit for an acknowledgement, or work session and named staff for a
+support record.
+
+| Reason | Acknowledgement | Support record |
+| --- | --- | --- |
+| `grant_not_issued` | No grant with `grantId` was issued to this enrollment | Same, for the sign-in's `grantId` |
+| `grant_binding_mismatch` | Grant version, nomination version or device identity differ | Device identity differs |
+| `sign_in_mismatch` | The sign-in is not `managerSignInId`, or is for another grant, device, register or till | Same, for `staffSignInId` |
+| `staff_not_prepared` | The signed-in person is not in the grant's `authorizedStaff` | Same, and for the incident recorder or the card-decline verifier |
+| `credential_version_mismatch` | Another `staffAuthorizationId`, `credentialVersion` or method than the grant authorized | Same |
+| `outside_grant_window` | Sign-in or record outside `[notBefore, expiresAt)`, sign-in after the record, or the window ends after `expiresAt` | Sign-in or record outside the grant, or sign-in after the record |
+| `manager_lacks_capability` | The grant did not give the manager `acknowledge_business_hours` | — |
+| `work_session_mismatch` | — | The record's work session is not the sign-in's |
+| `outage_mismatch` | Another `offlineSessionId`, or the outage began outside the grant or after the record | — |
+| `mandatory_window_overridden` | The window is not wholly inside the grant's `mandatoryOperatingWindows` (when not `null`) | — |
+
+The acknowledgement window may extend routine
+`operatingWindows`, which is what it is for. It may never reach past a mandatory limit or the
+grant's expiry.

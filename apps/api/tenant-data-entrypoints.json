@@ -169,6 +169,26 @@
       "reason": "Locks one branch row by the caller's tenant and branch id to serialize offline-counter delegation, assignment authorization, revocation and activation-time revalidation; no data is written by raw SQL."
     },
     {
+      "path": "src/terminals/offline-activation.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "D11 clearance locks the branch's offline_terminal_nomination row (FOR UPDATE) by the previous nomination's tenant_id and branch_id, so no grant is issued to the old counter between the cutoff read and the nomination moving; no data is written by raw SQL."
+    },
+    {
+      "path": "src/terminals/offline-authority-issuance.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Issuance takes a share lock (FOR SHARE) on the branch's offline_terminal_nomination row by the authenticated identity's tenant_id and branch_id, pairing with the D11 clearance lock; no data is written by raw SQL."
+    },
+    {
+      "path": "src/terminals/grant-cutoff.ts",
+      "mode": "tenant-filtered-aggregate",
+      "reason": "Read-only max(grant expiresAt) over offline_authority_issuance filtered by bound tenant_id, branch_id and enrollment_id, for D11 clearance."
+    },
+    {
+      "path": "src/terminals/held-evidence-verifier.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Transaction-scoped advisory lock on the caller's tenant + enrollment id + support record id, the same key support-record intake takes, so verification and a replayed upload serialize; no data is read or written by raw SQL."
+    },
+    {
       "path": "scripts/test-rls-canary-activation.mjs",
       "mode": "ephemeral-test",
       "reason": "CI-only scoped transaction setup in a self-cleaning database proof."
