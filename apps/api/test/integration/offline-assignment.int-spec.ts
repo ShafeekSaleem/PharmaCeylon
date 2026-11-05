@@ -248,6 +248,24 @@ describe("assignment authorization", () => {
 });
 
 describe("delegation", () => {
+  it("retains an older live delegation when newer revoked history fills the history limit", async () => {
+    const before = await assignments.delegate(user(fx.ownerId), fx.mainBranchId, fx.managerId);
+    const live = before.delegations.find((d) => d.revokedAt === null)!;
+    const newer = new Date(live.createdAt + 1000);
+    await prisma.offlineTerminalDelegation.createMany({
+      data: Array.from({ length: 51 }, () => ({
+        tenantId: fx.tenantId, branchId: fx.mainBranchId, managerUserId: fx.managerId,
+        delegatedByUserId: fx.ownerId, createdAt: newer, revokedAt: newer,
+        revokedByUserId: fx.ownerId, revocationReason: "Historical delegation",
+      })),
+    });
+    const view = await assignments.view(user(fx.ownerId), fx.mainBranchId);
+    expect(view.delegations.find((d) => d.delegationId === live.delegationId)).toMatchObject({ revokedAt: null });
+    expect(view.delegations.filter((d) => d.revokedAt !== null)).toHaveLength(50);
+    const after = await assignments.revokeDelegation(user(fx.ownerId), fx.mainBranchId, live.delegationId, "Owner revoked");
+    expect(after.delegations.some((d) => d.revokedAt === null)).toBe(false);
+  });
+
   it("is owner-only, per branch, and never onward", async () => {
     await expect(code(assignments.delegate(user(fx.managerId), fx.mainBranchId, secondManagerId))).resolves.toBe("OFFLINE_ASSIGNMENT_OWNER_ONLY");
     // A manager at another branch is not eligible here; a clerk without branch management is not.

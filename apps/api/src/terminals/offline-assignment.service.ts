@@ -407,11 +407,20 @@ export class OfflineAssignmentService {
   private async read(tx: Tx, tenantId: string, branchId: string): Promise<OfflineAssignmentView> {
     // Sequential: one transaction client never runs queries concurrently.
     const nomination = await this.nomination(tx, tenantId, branchId);
-    const delegations = await tx.offlineTerminalDelegation.findMany({
-      where: { tenantId, branchId },
+    // Never hide a live delegation behind newer revoked history: the owner must be able
+    // to see and revoke every outstanding grant. Keep only the history bounded.
+    const activeDelegations = await tx.offlineTerminalDelegation.findMany({
+      where: { tenantId, branchId, revokedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    const revokedDelegations = await tx.offlineTerminalDelegation.findMany({
+      where: { tenantId, branchId, revokedAt: { not: null } },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
+    const delegations = [...activeDelegations, ...revokedDelegations].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
     const authorizations = await tx.offlineTerminalAssignmentAuthorization.findMany({
       where: { tenantId, branchId },
       orderBy: { authorizedAt: "desc" },
