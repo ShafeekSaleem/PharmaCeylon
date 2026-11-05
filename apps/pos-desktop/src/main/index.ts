@@ -20,6 +20,7 @@ import { ReturnsService } from "./returns/returns-service";
 import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
 import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { SignedCommandService } from "./terminal/signed-commands";
+import { StockLookupService } from "./terminal/stock-lookup";
 import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport, type ReadinessFacts } from "./readiness";
 import { isAppUrl } from "./renderer-path";
@@ -75,6 +76,7 @@ let checkout: CheckoutService | null = null;
 let dispensing: DispensingService | null = null;
 let commands: SignedCommandService | null = null;
 let counterWork: CounterWorkService | null = null;
+let stock: StockLookupService | null = null;
 let returns: ReturnsService | null = null;
 let authorityRefresh: OfflineAuthorityRefresh | null = null;
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
@@ -319,6 +321,26 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!commands) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return { replayed: (await commands.retry(commandId)).replayed };
         }),
+      stockSearch: (input) =>
+        act(logger, "stockSearch", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.search(input);
+        }),
+      stockAttention: () =>
+        act(logger, "stockAttention", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.attention();
+        }),
+      productStock: ({ productId }) =>
+        act(logger, "productStock", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.product(productId);
+        }),
+      adjustStock: (input) =>
+        act(logger, "adjustStock", () => {
+          if (!stock) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return stock.adjust(input);
+        }),
       confirmTestReceipt: ({ printerName }) =>
         act(logger, "confirmTestReceipt", (service) => service.confirmTestReceipt(printerName)),
       offlineCounter: () => act(logger, "offlineCounter", (service) => service.offlineCounter()),
@@ -410,6 +432,7 @@ async function start(): Promise<void> {
   commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
+  stock = new StockLookupService({ api: terminalApi, terminal, commands });
   returns = new ReturnsService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);
   mainWindow = createMainWindow({ devServerUrl, show: true });

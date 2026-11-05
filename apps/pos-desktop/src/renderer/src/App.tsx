@@ -13,6 +13,7 @@ import { KeyBinding, KeyScope } from "./keymap";
 import { PersonPanel } from "./Person";
 import { Returns } from "./Returns";
 import { Sell } from "./Sell";
+import { Stock } from "./Stock";
 import { SetupScreen } from "./Setup";
 import { Rail, ServerBlock, StatusBar, TitleBar, type Page } from "./Shell";
 import shell from "./Shell.module.css";
@@ -244,6 +245,17 @@ export function App() {
                       poll={!device.locked}
                       you={session.staffName}
                       counterLabel={device.enrollment?.counterLabel ?? null}
+                    />
+                  </div>
+                </KeyScope>
+                <KeyScope active={page === "stock"}>
+                  <KeyBinding keys="Escape" onKey={() => setPage("sell")} />
+                  <div className={shell.page} hidden={page !== "stock"}>
+                    <Stock
+                      key={`stock-${sessionId}`}
+                      branchName={device.enrollment?.branchName ?? ""}
+                      active={page === "stock" && !device.locked}
+                      onCommandSent={onCommandSent}
                     />
                   </div>
                 </KeyScope>
