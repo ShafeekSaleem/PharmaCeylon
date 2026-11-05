@@ -712,6 +712,8 @@ model TillShift {
   id                          String              @id @db.Uuid
   tenantId                    String              @map("tenant_id") @db.Uuid
   branchId                    String              @map("branch_id") @db.Uuid
+  /// What people call it at the counter (`S-0412`), numbered per branch when the server opens it.
+  shiftNumber                 String              @map("shift_number") @db.VarChar(32)
   registerId                  String              @map("register_id") @db.Uuid
   tillId                      String              @map("till_id") @db.Uuid
   terminalId                  String              @map("terminal_id") @db.Uuid
@@ -750,6 +752,7 @@ model TillShift {
 
   @@unique([tenantId, id])
   @@unique([tenantId, branchId, id])
+  @@unique([tenantId, branchId, shiftNumber])
   @@index([tenantId, tillId, openedAt(sort: Desc)])
   @@map("till_shift")
 }

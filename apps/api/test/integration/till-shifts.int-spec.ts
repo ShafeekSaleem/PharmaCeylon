@@ -225,6 +225,7 @@ describe("one open shift per till", () => {
     const opened = await open(clerk, session.workSessionId, FIVE_THOUSAND, shiftId);
     expect(opened.shift).toMatchObject({
       workSessionId: shiftId,
+      shiftNumber: expect.stringMatching(/^S-\d{4,}$/),
       staffUserId: clerk.userId,
       tillId: session.tillId,
       status: "open",
@@ -284,7 +285,7 @@ describe("one open shift per till", () => {
     const row = await shiftRow(first.shift.workSessionId);
     await expect(
       prisma.tillShift.create({
-        data: { ...row, id: randomUUID(), openingCount: row.openingCount as Prisma.InputJsonValue, closingCount: Prisma.DbNull },
+        data: { ...row, id: randomUUID(), shiftNumber: `S-X${randomUUID().slice(0, 6)}`, openingCount: row.openingCount as Prisma.InputJsonValue, closingCount: Prisma.DbNull },
       }),
     ).rejects.toThrow();
   });

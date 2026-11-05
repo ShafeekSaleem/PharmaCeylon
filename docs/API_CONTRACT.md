@@ -710,7 +710,8 @@ session at an active enrollment, so the till is the session's, never a client cl
 | `POST /terminals/sessions/:workSessionId/shifts` | Open: `{ shiftId, pin, openingCount, previousClosedWorkSessionId? }` |
 | `POST /terminals/sessions/:workSessionId/shifts/:shiftId/close` | Close: `{ commandId, closingCount, counterExpectedCashMinor?, varianceNote?, assistance?: { pin, reason } }` |
 
-**Shift fields** (D7b names): `workSessionId`, `registerId`, `tillId`, `terminalId`,
+**Shift fields** (D7b names): `workSessionId`, `shiftNumber` (`S-0412`, numbered per branch by
+the server on open; an offline open gets its number when P5 replays it), `registerId`, `tillId`, `terminalId`,
 `staffUserId`, `staff`, `currency` (`LKR`), `status` (`open` / `closed`), `openedAt`,
 `openingCashMinor`, `openingCount`, `previousClosedWorkSessionId`, `closedAt`,
 `closingCashCountMinor`, `closingCount`, `expectedCashMinor` (server), `counterExpectedCashMinor`

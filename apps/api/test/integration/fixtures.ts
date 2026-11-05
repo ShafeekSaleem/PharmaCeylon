@@ -173,6 +173,7 @@ export async function openTestShift(prisma: PrismaClient, tenantId: string, work
       id,
       tenantId,
       branchId: session.branchId,
+      shiftNumber: `S-T${id.slice(0, 8)}`,
       registerId: session.registerId,
       tillId: session.tillId,
       terminalId: session.terminalId,
