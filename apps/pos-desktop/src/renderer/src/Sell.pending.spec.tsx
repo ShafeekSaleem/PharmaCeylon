@@ -13,6 +13,7 @@ const draft = (overrides: Partial<CheckoutDraftView> = {}): CheckoutDraftView =>
   createdAt: new Date(2026, 10, 4, 10, 15).toISOString(),
   lineCount: 2,
   coSignerId: null,
+  discountCoSignerId: null,
   staffName: "Ana Perera",
   ownSale: false,
   ...overrides,
