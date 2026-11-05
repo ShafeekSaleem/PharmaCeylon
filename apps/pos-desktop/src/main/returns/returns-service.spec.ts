@@ -30,6 +30,9 @@ const staff = { workSessionId: randomUUID(), staffUserId: randomUUID(), staffNam
 const saleId = randomUUID();
 const requestId = randomUUID();
 const approvalId = randomUUID();
+const managerId = randomUUID();
+const ownerId = randomUUID();
+const review = { expectedVersion: 1, expectedDigest: "d".repeat(64) };
 const [stripsBatch, losartanBatch, strips, losartan] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
 
 type Sent = { method: string; path: string; body: any; branchId?: string };
@@ -38,6 +41,7 @@ let local: LocalStore;
 let sent: Sent[];
 let prepared: Record<string, unknown>;
 let byInvoice: () => unknown;
+let approveReply: (body: any) => unknown;
 
 function service() {
   const api = {
@@ -83,6 +87,14 @@ function service() {
             reasonCode: "other", sale: null, refundedTo: [], refundedBy: null, approvedBy: null, items: [] },
         ];
       if (path === `/sales/${saleId}/refund-requests`) return prepared;
+      if (path === "/sales/pos/refund-approvers")
+        return [
+          { id: staff.staffUserId, fullName: "Sachini R.", hasPosPin: true },
+          { id: managerId, fullName: "Dilini Fernando", hasPosPin: true },
+          { id: ownerId, fullName: "Owner", hasPosPin: false },
+        ];
+      if (path === `/sales/refund-requests?saleId=${saleId}`) return [{ ...prepared, status: "prepared" }];
+      if (path === `/sales/refund-requests/${requestId}/approve`) return approveReply(opts.body);
       if (path === "/terminal-commands/prepare")
         return {
           contractVersion: 1, kind: "online_operation", commandId: randomUUID(), identity,
@@ -131,7 +143,12 @@ beforeEach(() => {
       { method: "card", amount: "-640.00", reference: "POS refund RET-1" },
     ],
   });
+  approveReply = () => ({
+    ...prepared, readyAtCounter: true, executionApprovalId: approvalId, approvalReview: null,
+    approver: { fullName: "Dilini Fernando" },
+  });
   prepared = {
+    approvalReview: review,
     id: requestId, requestNumber: "RFR-12", amount: "4850.00", readyAtCounter: true, executionApprovalId: null,
     requester: { fullName: "Sachini R." }, approver: null,
   };
@@ -272,5 +289,74 @@ describe("Returns: refunding", () => {
       amount: "6300.00",
     });
     expect(sent.some((s) => s.path.startsWith("/terminal-commands"))).toBe(false);
+  });
+});
+
+describe("Returns: a manager's co-sign over the limit", () => {
+  const coSign = { approverUserId: managerId, pin: "482913" };
+  const input = {
+    saleId,
+    lines: [{ productId: strips, batchId: stripsBatch, qty: 1, disposition: "restock" as const }],
+    reasonCode: "wrong_item" as const,
+  };
+
+  it("lists who may co-sign here, without the person signed in", async () => {
+    await expect(service().approvers()).resolves.toEqual([
+      { userId: managerId, fullName: "Dilini Fernando", hasPin: true },
+      { userId: ownerId, fullName: "Owner", hasPin: false },
+    ]);
+  });
+
+  it("approves the exact prepared refund with the co-sign, then refunds it here", async () => {
+    prepared = { ...prepared, amount: "6300.00", readyAtCounter: false };
+    const outcome = await service().submit({ ...input, coSign });
+
+    // The prepare never carries the PIN.
+    expect(sent.find((x) => x.path === `/sales/${saleId}/refund-requests`)!.body).not.toHaveProperty("coSign");
+    const approve = sent.find((x) => x.path === `/sales/refund-requests/${requestId}/approve`)!;
+    expect(approve).toMatchObject({ method: "POST", branchId: identity.branchId });
+    expect(approve.body).toEqual({
+      approvalId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      ...review,
+      coSign,
+    });
+    expect(sent.find((x) => x.path === "/terminal-commands/prepare")!.body).toMatchObject({
+      approvalEvidenceId: approvalId,
+    });
+    expect(outcome).toMatchObject({ status: "refunded", refund: { approvedBy: "Dilini Fernando" } });
+  });
+
+  it("keeps the request waiting and says why when the co-sign is refused", async () => {
+    prepared = { ...prepared, amount: "6300.00", readyAtCounter: false };
+    approveReply = () => {
+      throw new ApiError(403, "PIN_INVALID", "That PIN isn't right.");
+    };
+    const outcome = await service().submit({ ...input, coSign });
+    expect(outcome).toEqual({
+      status: "awaiting_approval",
+      refundRequestId: requestId,
+      requestNumber: "RFR-12",
+      amount: "6300.00",
+      coSignRefusal: { code: "PIN_INVALID", message: "That PIN isn't right." },
+    });
+    expect(sent.some((x) => x.path.startsWith("/terminal-commands"))).toBe(false);
+  });
+
+  it("co-signs a request already waiting, read fresh from the server", async () => {
+    prepared = { ...prepared, amount: "6300.00", readyAtCounter: false };
+    const outcome = await service().approve(saleId, requestId, coSign);
+    expect(sent.map((x) => x.path)).toEqual([
+      `/sales/refund-requests?saleId=${saleId}`,
+      `/sales/refund-requests/${requestId}/approve`,
+      "/terminal-commands/prepare",
+      "/terminal-commands/execute",
+    ]);
+    expect(outcome.status).toBe("refunded");
+  });
+
+  it("refuses a request that is no longer waiting at this branch", async () => {
+    await expect(service().approve(saleId, randomUUID(), coSign)).rejects.toMatchObject({
+      code: "REFUND_NOT_FOUND",
+    });
   });
 });

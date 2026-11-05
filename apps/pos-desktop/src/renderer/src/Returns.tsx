@@ -7,6 +7,8 @@ import {
   type FormEvent,
 } from "react";
 import type {
+  ApproverView,
+  CoSign,
   PaymentMethod,
   RefundAtCounter,
   RefundExecuted,
@@ -116,6 +118,15 @@ export function Returns({
   const [outcome, setOutcome] = useState<ReturnOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Over the limit: the manager co-signing on this counter (P2b #103). The PIN lives only here,
+  // is sent with one approval and is cleared after every attempt.
+  const [approvers, setApprovers] = useState<ApproverView[] | null>(null);
+  const [approverId, setApproverId] = useState<string | null>(null);
+  const [pin, setPin] = useState("");
+  const [coSignError, setCoSignError] = useState<string | null>(null);
+  /** A request prepared here whose co-sign was refused: retrying approves it, not a new one. */
+  const [waiting, setWaiting] = useState<{ refundRequestId: string; requestNumber: string; amount: string } | null>(null);
+  const pinRef = useRef<HTMLInputElement>(null);
 
   const [lookup, setLookup] = useState<Lookup>(null);
   const [phone, setPhone] = useState("");
@@ -180,6 +191,9 @@ export function Returns({
     setReason("wrong_item");
     setOutcome(null);
     setError(null);
+    setWaiting(null);
+    setPin("");
+    setCoSignError(null);
     window.setTimeout(() => linesRef.current?.focus(), 0);
   }, []);
 
@@ -260,7 +274,9 @@ export function Returns({
   const lines = sale?.lines ?? [];
   const choice = (line: ReturnLine): Choice =>
     choices[lineKey(line)] ?? { qty: 0, disposition: "restock" };
+  // While a prepared request waits for the PIN again, what it refunds is fixed.
   const setQty = (line: ReturnLine, qty: number) => {
+    if (waiting) return;
     const next = Math.max(0, Math.min(line.remainingQty, Math.round(qty) || 0));
     setChoices((current) => ({
       ...current,
@@ -269,6 +285,7 @@ export function Returns({
     setOutcome(null);
   };
   const setDisposition = (line: ReturnLine, disposition: Disposition) => {
+    if (waiting) return;
     setChoices((current) => ({
       ...current,
       [lineKey(line)]: { ...choice(line), disposition },
@@ -288,24 +305,53 @@ export function Returns({
   const noteNeeded = reason === "other" && !note.trim();
   const canRefund =
     Boolean(sale) && units > 0 && !busy && !noteNeeded && tab === "find";
+  // Someone here may co-sign: the refund then waits for their PIN, and the web is the fallback.
+  const askManager = over && !mayApprove && (approvers?.length ?? 0) > 0;
+  const approver = approvers?.find((a) => a.userId === approverId) ?? null;
+  const coSign: CoSign | null =
+    askManager && approver && pin.length >= 4 ? { approverUserId: approver.userId, pin } : null;
+  const canSubmit = canRefund && (!askManager || coSign !== null);
+  useEffect(() => {
+    if (!over || mayApprove || approvers !== null) return;
+    void invoke(() => window.pos.listRefundApprovers()).then((result) => {
+      const list = result.ok ? result.value : [];
+      setApprovers(list);
+      setApproverId((current) => current ?? list.find((a) => a.hasPin)?.userId ?? list[0]?.userId ?? null);
+    });
+  }, [over, mayApprove, approvers]);
   const waitingForSale = sale
     ? (web ?? []).find((w) => w.invoiceNo === sale.invoiceNo)
     : undefined;
 
-  async function refund() {
-    if (!sale || !canRefund) return;
+  /** Refund now, with the manager's co-sign when one is needed; `toWeb` leaves it for the web instead. */
+  async function refund(toWeb = false) {
+    if (!sale || !canRefund || (!toWeb && askManager && !coSign)) return;
     setBusy(true);
     setError(null);
     setOutcome(null);
-    const result = await invoke(() =>
-      window.pos.submitReturn({
-        saleId: sale.saleId,
-        lines: refundLines(sale, choices),
-        reasonCode: reason,
-        ...(note.trim() ? { note: note.trim() } : {}),
-        ...(method ? { refundMethod: method } : {}),
-      }),
-    );
+    setCoSignError(null);
+    const signed = toWeb ? undefined : (coSign ?? undefined);
+    setPin("");
+    let result;
+    if (waiting && toWeb) {
+      // Already prepared and waiting: leaving it for the web needs nothing more from the server.
+      result = { ok: true as const, value: { status: "awaiting_approval" as const, ...waiting } };
+    } else if (waiting && signed) {
+      result = await invoke(() =>
+        window.pos.approveReturn({ saleId: sale.saleId, refundRequestId: waiting.refundRequestId, coSign: signed }),
+      );
+    } else {
+      result = await invoke(() =>
+        window.pos.submitReturn({
+          saleId: sale.saleId,
+          lines: refundLines(sale, choices),
+          reasonCode: reason,
+          ...(note.trim() ? { note: note.trim() } : {}),
+          ...(method ? { refundMethod: method } : {}),
+          ...(signed ? { coSign: signed } : {}),
+        }),
+      );
+    }
     setBusy(false);
     onActivity?.();
     if (!result.ok) {
@@ -313,7 +359,17 @@ export function Returns({
       loadWeb();
       return;
     }
-    setOutcome(result.value);
+    const value = result.value;
+    if (value.status === "awaiting_approval" && value.coSignRefusal) {
+      // The manager's PIN or authority was refused. The request is prepared and waits; the same
+      // lines stay on screen so the PIN can be tried again, or it can be left for the web.
+      setWaiting({ refundRequestId: value.refundRequestId, requestNumber: value.requestNumber, amount: value.amount });
+      setCoSignError(value.coSignRefusal.message);
+      window.setTimeout(() => pinRef.current?.focus(), 0);
+      return;
+    }
+    setWaiting(null);
+    setOutcome(value);
     loadToday();
     loadWeb();
     // What is left to return has changed (or a request now holds the sale): read it again.
@@ -366,7 +422,7 @@ export function Returns({
       void executeWeb(webPick.refundRequestId);
       return;
     }
-    if (!canRefund) return false;
+    if (!canSubmit) return false;
     void refund();
   });
   useKeyBinding("Escape", () => {
@@ -410,6 +466,7 @@ export function Returns({
   });
   useKeyBinding(["A", "a"], () => {
     if (!sale) return false;
+    if (waiting) return false;
     setChoices((current) => everything(sale, current));
   });
 
@@ -946,7 +1003,8 @@ export function Returns({
     : null;
 
   let primaryLabel = `Refund Rs ${money(totalMinor)}`;
-  if (over && !mayApprove) primaryLabel = "Send for approval";
+  // With nobody here to co-sign, the button sends it to the web; otherwise it waits for the PIN.
+  if (over && !mayApprove && !askManager) primaryLabel = "Send for approval";
 
   return (
     <div className={r.returns} aria-label="Returns">
@@ -1002,7 +1060,7 @@ export function Returns({
               <button
                 type="button"
                 className={cx(ui.btn, ui.ghost)}
-                onClick={() => setChoices((current) => everything(sale, current))}
+                onClick={() => !waiting && setChoices((current) => everything(sale, current))}
                 disabled={!sale.lines.some((l) => l.remainingQty > 0)}
               >
                 <Icon name="rotate-ccw" />
@@ -1115,7 +1173,7 @@ export function Returns({
                 className={ui.in}
                 value={reason}
                 onChange={(e) => setReason(e.target.value as RefundReason)}
-                disabled={!sale}
+                disabled={!sale || waiting !== null}
               >
                 {REASONS.map((x) => (
                   <option key={x.code} value={x.code}>
@@ -1136,7 +1194,7 @@ export function Returns({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               maxLength={500}
-              disabled={!sale}
+              disabled={!sale || waiting !== null}
             />
           </div>
           {sale && methods.length > 0 && (
@@ -1150,6 +1208,7 @@ export function Returns({
                     className={s.m}
                     aria-pressed={chosenMethod === m}
                     onClick={() => setMethod(m.method)}
+                    disabled={waiting !== null}
                   >
                     <Icon name={m.icon} />
                     <span>
@@ -1162,16 +1221,99 @@ export function Returns({
             </div>
           )}
           {over && sale?.refundLimit && (
-            <div className={r.appr} role="note">
+            <div className={r.appr} role="group" aria-label="Refund limit">
               <div className={r.apprH}>
                 <Icon name="shield-check" />
                 Over the Rs {money(minor(sale.refundLimit))} refund limit
               </div>
-              <p>
-                {mayApprove
-                  ? "You approve it as you refund it, and it's recorded as approved by you."
-                  : "A manager approves it on the web. Then it waits under From web, ready to refund here."}
-              </p>
+              {mayApprove ? (
+                <p>You approve it as you refund it, and it&apos;s recorded as approved by you.</p>
+              ) : approvers === null ? (
+                <p>Finding who can approve it here…</p>
+              ) : approvers.length === 0 ? (
+                <p>
+                  Nobody else here can approve refunds. A manager approves it on the web; then it
+                  waits under From web, ready to refund here.
+                </p>
+              ) : (
+                <>
+                  {approvers.map((a) => {
+                    const on = a.userId === approverId;
+                    const how = a.hasPin ? "ready on this counter" : "approves with their login password";
+                    return (
+                      <div
+                        key={a.userId}
+                        className={cx(r.apprRow, on && r.apprOn)}
+                        onClick={() => {
+                          if (on) return;
+                          setApproverId(a.userId);
+                          setPin("");
+                          window.setTimeout(() => pinRef.current?.focus(), 0);
+                        }}
+                      >
+                        <Avatar id={a.userId} name={a.fullName} />
+                        <div>
+                          <b>{a.fullName}</b>
+                          <small>{on ? how : "Choose to approve instead"}</small>
+                        </div>
+                        <span className={ui.grow} />
+                        {on &&
+                          (a.hasPin ? (
+                            <div className={r.dots}>
+                              {Array.from({ length: Math.max(6, pin.length) }, (_, i) => (
+                                <i key={i} className={i < pin.length ? r.dotOn : undefined} />
+                              ))}
+                              <input
+                                ref={pinRef}
+                                type="password"
+                                inputMode="numeric"
+                                autoComplete="off"
+                                aria-label={`${a.fullName}'s PIN`}
+                                value={pin}
+                                maxLength={8}
+                                onChange={(e) => {
+                                  setPin(e.target.value.replace(/\D/g, ""));
+                                  setCoSignError(null);
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <input
+                              ref={pinRef}
+                              type="password"
+                              autoComplete="off"
+                              className={cx(ui.in, r.password)}
+                              aria-label={`${a.fullName}'s login password`}
+                              value={pin}
+                              maxLength={128}
+                              onChange={(e) => {
+                                setPin(e.target.value);
+                                setCoSignError(null);
+                              }}
+                            />
+                          ))}
+                      </div>
+                    );
+                  })}
+                  {coSignError && (
+                    <p role="alert" className={ui.badText}>
+                      {coSignError}
+                      {waiting ? ` ${waiting.requestNumber} is prepared and waiting; nothing was refunded.` : ""}
+                    </p>
+                  )}
+                  <p className={r.alt}>
+                    Not here?{" "}
+                    <button
+                      type="button"
+                      className={r.altBtn}
+                      onClick={() => void refund(true)}
+                      disabled={!canRefund}
+                    >
+                      Send it for approval on the web
+                    </button>
+                  </p>
+                </>
+              )}
             </div>
           )}
           {coming.length > 0 && (
@@ -1236,7 +1378,7 @@ export function Returns({
               type="button"
               className={cx(ui.btn, ui.primary, s.xl)}
               onClick={() => void refund()}
-              disabled={!canRefund}
+              disabled={!canSubmit}
             >
               <Icon name="rotate-ccw" />
               {busy ? "Refunding…" : primaryLabel}

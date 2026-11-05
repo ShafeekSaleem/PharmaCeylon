@@ -1,4 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type {
+  ApproverView,
+  CoSign,
   IpcInput,
   RefundToday,
   ReturnOutcome,
@@ -75,6 +78,8 @@ type RawPrepared = {
   amount: string;
   readyAtCounter: boolean;
   executionApprovalId: string | null;
+  /** What an approver signs for: present while the request is open. */
+  approvalReview: { expectedVersion: number; expectedDigest: string } | null;
   requester: { fullName: string } | null;
   approver: { fullName: string } | null;
 };
@@ -203,6 +208,85 @@ export class ReturnsService {
       }));
   }
 
+  /** Who may co-sign a refund over the limit at this branch, not counting whoever is signed in. */
+  async approvers(): Promise<ApproverView[]> {
+    const { staff } = this.current();
+    const rows = await this.get<{ id: string; fullName: string; hasPosPin: boolean }[]>(
+      "/sales/pos/refund-approvers",
+    );
+    return rows
+      .filter((row) => row.id !== staff.staffUserId)
+      .map((row) => ({ userId: row.id, fullName: row.fullName, hasPin: row.hasPosPin }));
+  }
+
+  /**
+   * A request waiting for approval, co-signed here by a manager with their own PIN, then refunded
+   * at once. The approval is for the exact content the server shows (`approvalReview`). A refused
+   * co-sign leaves the request waiting and says why, so the PIN can be tried again or the
+   * approval left to the web.
+   */
+  async approve(saleId: string, refundRequestId: string, coSign: CoSign): Promise<ReturnOutcome> {
+    const rows = await this.get<(RawPrepared & { status: string })[]>(
+      `/sales/refund-requests?${new URLSearchParams({ saleId })}`,
+    );
+    const request = rows.find((row) => row.id === refundRequestId);
+    if (!request)
+      throw new ActionFailure("REFUND_NOT_FOUND", "That refund is not waiting at this branch any more.");
+    return this.approveAndRefund(request, coSign);
+  }
+
+  private async approveAndRefund(request: RawPrepared, coSign: CoSign): Promise<ReturnOutcome> {
+    if (request.readyAtCounter) return this.refund(request);
+    const waiting = {
+      status: "awaiting_approval" as const,
+      refundRequestId: request.id,
+      requestNumber: request.requestNumber,
+      amount: request.amount,
+    };
+    if (!request.approvalReview)
+      throw new ActionFailure("REFUND_NOT_OPEN", "That refund is no longer waiting for approval.");
+    let approved: RawPrepared;
+    try {
+      approved = await this.deps.api.request<RawPrepared>(
+        "POST",
+        `/sales/refund-requests/${request.id}/approve`,
+        {
+          branchId: this.current().identity.branchId,
+          body: { approvalId: randomUUID(), ...request.approvalReview, coSign },
+        },
+      );
+    } catch (error) {
+      // Nothing moved: the request is still prepared and waiting.
+      const refusal =
+        error instanceof ApiError
+          ? { code: error.code, message: error.message }
+          : { code: "UNEXPECTED", message: "The approval didn't go through. Try again." };
+      return { ...waiting, coSignRefusal: refusal };
+    }
+    if (!approved.readyAtCounter) return waiting;
+    return this.refund(approved);
+  }
+
+  private async refund(request: RawPrepared): Promise<ReturnOutcome> {
+    const receipt = await this.deps.commands.execute(
+      EXECUTE,
+      { refundRequestId: request.id },
+      request.executionApprovalId,
+    );
+    const { result } = receipt;
+    return {
+      status: "refunded",
+      refund: {
+        requestNumber: request.requestNumber,
+        amountMinor: result.amountMinor,
+        refundedTo: result.refundedTo.map((r) => ({ method: r.method, amountMinor: r.amountMinor })),
+        alreadyApplied: result.effect === "already_applied",
+        requestedBy: request.requester?.fullName ?? null,
+        approvedBy: request.approver?.fullName ?? null,
+      },
+    };
+  }
+
   async submit(input: IpcInput<"submitReturn">): Promise<ReturnOutcome> {
     const { identity } = this.current();
     const prepared = await this.deps.api.request<RawPrepared>(
@@ -218,29 +302,13 @@ export class ReturnsService {
         },
       },
     );
-    if (!prepared.readyAtCounter)
-      return {
-        status: "awaiting_approval",
-        refundRequestId: prepared.id,
-        requestNumber: prepared.requestNumber,
-        amount: prepared.amount,
-      };
-    const receipt = await this.deps.commands.execute(
-      EXECUTE,
-      { refundRequestId: prepared.id },
-      prepared.executionApprovalId,
-    );
-    const { result } = receipt;
+    if (prepared.readyAtCounter) return this.refund(prepared);
+    if (input.coSign) return this.approveAndRefund(prepared, input.coSign);
     return {
-      status: "refunded",
-      refund: {
-        requestNumber: prepared.requestNumber,
-        amountMinor: result.amountMinor,
-        refundedTo: result.refundedTo.map((r) => ({ method: r.method, amountMinor: r.amountMinor })),
-        alreadyApplied: result.effect === "already_applied",
-        requestedBy: prepared.requester?.fullName ?? null,
-        approvedBy: prepared.approver?.fullName ?? null,
-      },
+      status: "awaiting_approval",
+      refundRequestId: prepared.id,
+      requestNumber: prepared.requestNumber,
+      amount: prepared.amount,
     };
   }
 }

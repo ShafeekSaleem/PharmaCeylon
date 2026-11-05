@@ -69,6 +69,23 @@ beforeEach(() => {
     returnsToday: async () => ({ ok: true, value: [] }),
     returnFindSale: async () => ({ ok: true, value: sale }),
     returnSearchSales: async () => ({ ok: true, value: [found] }),
+    listRefundApprovers: async () => ({
+      ok: true,
+      value: [
+        { userId: id(50), fullName: "Dilini Fernando", hasPin: true },
+        { userId: id(51), fullName: "Owner Perera", hasPin: false },
+      ],
+    }),
+    approveReturn: async () => ({
+      ok: true,
+      value: {
+        status: "refunded",
+        refund: {
+          requestNumber: "RFR-13", amountMinor: 630000, refundedTo: [{ method: "card", amountMinor: 630000 }],
+          alreadyApplied: false, requestedBy: "Sachini R.", approvedBy: "Dilini Fernando",
+        },
+      },
+    }),
     submitReturn: async () => ({
       ok: true,
       value: {
@@ -284,9 +301,11 @@ describe("Returns: over the refund limit", () => {
     press("+");
     fireEvent.click(row("Softclix Lancets ×25"));
     press("+");
+    await act(async () => undefined);
   }
 
-  it("sends a cashier's refund for approval on the web, and says nothing was refunded", async () => {
+  it("with nobody here to co-sign, sends a cashier's refund for approval on the web", async () => {
+    pos.listRefundApprovers!.mockImplementation(async () => ({ ok: true, value: [] }));
     pos.submitReturn!.mockImplementation(async () => ({
       ok: true,
       value: { status: "awaiting_approval", refundRequestId: id(40), requestNumber: "RFR-13", amount: "6300.00" },
@@ -294,6 +313,7 @@ describe("Returns: over the refund limit", () => {
     await overTheLimit();
 
     expect(screen.getByText(/Over the Rs 5,000.00 refund limit/)).toBeTruthy();
+    expect(screen.getByText(/Nobody else here can approve refunds/)).toBeTruthy();
     const button = screen.getByRole("button", { name: /Send for approval/ });
     fireEvent.click(button);
     await act(async () => undefined);
@@ -343,5 +363,104 @@ describe("Returns: from the web", () => {
     await findByInvoice();
     fireEvent.click(screen.getByRole("button", { name: /RF-0031 prepared on the web/ }));
     expect(screen.getByRole("button", { name: /From web/ }).getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("Returns: a manager co-signs over the limit", () => {
+  async function overTheLimit() {
+    await renderReturns();
+    await findByInvoice();
+    fireEvent.click(row("Accu-Chek Active Strips ×50"));
+    press("+");
+    fireEvent.click(row("Softclix Lancets ×25"));
+    press("+");
+    await act(async () => undefined);
+  }
+  const box = () => screen.getByRole("group", { name: "Refund limit" });
+
+  it("asks for the manager's PIN before refunding, and sends it with the refund", async () => {
+    pos.submitReturn!.mockImplementation(async () => ({
+      ok: true,
+      value: {
+        status: "refunded",
+        refund: {
+          requestNumber: "RFR-13", amountMinor: 630000, refundedTo: [{ method: "card", amountMinor: 630000 }],
+          alreadyApplied: false, requestedBy: "Sachini R.", approvedBy: "Dilini Fernando",
+        },
+      },
+    }));
+    await overTheLimit();
+    expect(within(box()).getByText("Dilini Fernando")).toBeTruthy();
+    expect(within(box()).getByText("ready on this counter")).toBeTruthy();
+    const refund = screen.getByRole("button", { name: /Refund Rs 6,300.00/ });
+    expect(refund.hasAttribute("disabled")).toBe(true);
+    press("F12");
+    expect(pos.submitReturn).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Dilini Fernando's PIN"), { target: { value: "48a2913" } });
+    expect((screen.getByLabelText("Dilini Fernando's PIN") as HTMLInputElement).value).toBe("482913");
+    expect(refund.hasAttribute("disabled")).toBe(false);
+    press("F12");
+    await act(async () => undefined);
+    expect(pos.submitReturn).toHaveBeenCalledWith(
+      expect.objectContaining({ coSign: { approverUserId: id(50), pin: "482913" } }),
+    );
+    expect(screen.getByRole("status").textContent).toContain("Approved by Dilini Fernando");
+  });
+
+  it("asks a manager with no PIN for their login password", async () => {
+    await overTheLimit();
+    fireEvent.click(within(box()).getByText("Owner Perera"));
+    fireEvent.change(screen.getByLabelText("Owner Perera's login password"), { target: { value: "s3cret-pass" } });
+    press("F12");
+    await act(async () => undefined);
+    expect(pos.submitReturn).toHaveBeenCalledWith(
+      expect.objectContaining({ coSign: { approverUserId: id(51), pin: "s3cret-pass" } }),
+    );
+  });
+
+  it("after a refused PIN, keeps the request and the lines, and approves that request on retry", async () => {
+    pos.submitReturn!.mockImplementation(async () => ({
+      ok: true,
+      value: {
+        status: "awaiting_approval", refundRequestId: id(40), requestNumber: "RFR-13", amount: "6300.00",
+        coSignRefusal: { code: "PIN_INVALID", message: "That PIN isn't right." },
+      },
+    }));
+    await overTheLimit();
+    fireEvent.change(screen.getByLabelText("Dilini Fernando's PIN"), { target: { value: "000000" } });
+    press("F12");
+    await act(async () => undefined);
+
+    const alert = within(box()).getByRole("alert");
+    expect(alert.textContent).toContain("That PIN isn't right.");
+    expect(alert.textContent).toContain("RFR-13 is prepared and waiting; nothing was refunded.");
+    // The PIN is cleared, and the lines can't change under the waiting request.
+    expect((screen.getByLabelText("Dilini Fernando's PIN") as HTMLInputElement).value).toBe("");
+    press("+");
+    expect(screen.getByText(/coming back/).textContent).toBe("2 items · 2 units coming back");
+
+    fireEvent.change(screen.getByLabelText("Dilini Fernando's PIN"), { target: { value: "482913" } });
+    press("F12");
+    await act(async () => undefined);
+    expect(pos.submitReturn).toHaveBeenCalledTimes(1);
+    expect(pos.approveReturn).toHaveBeenCalledWith({
+      saleId: id(1),
+      refundRequestId: id(40),
+      coSign: { approverUserId: id(50), pin: "482913" },
+    });
+    expect(screen.getByRole("status").textContent).toContain("Refunded Rs 6,300.00");
+  });
+
+  it("not here? sends it for approval on the web, without a PIN", async () => {
+    pos.submitReturn!.mockImplementation(async () => ({
+      ok: true,
+      value: { status: "awaiting_approval", refundRequestId: id(40), requestNumber: "RFR-13", amount: "6300.00" },
+    }));
+    await overTheLimit();
+    fireEvent.click(screen.getByRole("button", { name: "Send it for approval on the web" }));
+    await act(async () => undefined);
+    expect(pos.submitReturn).toHaveBeenCalledWith(expect.not.objectContaining({ coSign: expect.anything() }));
+    expect(screen.getByRole("status").textContent).toContain("Sent for approval as RFR-13");
   });
 });

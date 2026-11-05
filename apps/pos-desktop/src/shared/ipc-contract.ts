@@ -436,6 +436,11 @@ export const returnOutcomeSchema = z.discriminatedUnion("status", [
     refundRequestId: uuid,
     requestNumber: z.string(),
     amount: z.string(),
+    /**
+     * A manager's co-sign was sent and refused (wrong PIN, no authority, locked out). The request
+     * stays prepared: the PIN can be tried again, or the approval left to the web.
+     */
+    coSignRefusal: z.object({ code: z.string(), message: z.string() }).optional(),
   }),
 ]);
 export type ReturnOutcome = z.infer<typeof returnOutcomeSchema>;
@@ -885,7 +890,21 @@ export const ipcContract = {
       note: z.string().trim().max(500).optional(),
       /** Omitted: back the way the sale was paid. */
       refundMethod: paymentMethodSchema.optional(),
+      /** Over the limit: a manager on this counter approves with their own PIN. Never stored. */
+      coSign: coSignSchema.optional(),
     }),
+    output: result(returnOutcomeSchema),
+  },
+  /** Who may co-sign a refund over the limit here: people with `returns.approve`, not the one signed in. */
+  listRefundApprovers: {
+    channel: "pos:returns:approvers",
+    input: noInput,
+    output: result(z.array(approverSchema)),
+  },
+  /** A refund already waiting for approval: a manager co-signs it here, and it is refunded at once. */
+  approveReturn: {
+    channel: "pos:returns:approve",
+    input: z.object({ saleId: uuid, refundRequestId: uuid, coSign: coSignSchema }),
     output: result(returnOutcomeSchema),
   },
   confirmTestReceipt: {
