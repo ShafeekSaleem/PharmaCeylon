@@ -297,7 +297,7 @@ export class PosService {
 
     const tenantVatSettings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
-      select: { vatRatePercent: true },
+      select: { vatRatePercent: true, posMaxDiscountPercent: true },
     });
     const effectiveVatRatePercent =
       tenantVatSettings?.vatRatePercent != null
@@ -306,6 +306,9 @@ export class PosService {
 
     return {
       vatRatePercent: effectiveVatRatePercent,
+      /** P2b #103: the line discount anyone selling may give; above it a manager approves. Shown
+       *  only — checkout reads the setting again and enforces it. */
+      maxDiscountPercent: Number(tenantVatSettings?.posMaxDiscountPercent ?? 10),
       nearExpiryDays,
       products,
       /** Active COMMERCIAL departments — drives the POS browsing chips (tenant-scoped, never empty departments the tenant hasn't enabled). */

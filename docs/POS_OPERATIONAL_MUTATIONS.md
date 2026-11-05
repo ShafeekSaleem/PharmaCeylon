@@ -69,7 +69,7 @@ offline approvals, refunds/voids and stock operations remain blocked.
 | `suppliers/*` | Online remote supplier/master/price management. Legacy invoice payments use the same evidence/authority rules: bank-payment record remote, actual branch cash local. |
 | `products/*` | Online remote catalog/prices/eligibility/categories/tags/aliases/NMRA/barcode and catalog-only import/analyze/preview/selection. Import confirm/undo creating/removing batches or stock requires local execution; split mixed jobs. Preserve historical snapshot identities. D-W2 (live branches): an import's stock rows may be staged remotely as a no-effect draft; posting them is the local step. |
 | `catalog-tasks/*` | Online remote catalog refresh/apply/dismiss/reopen, including bulk safe apply, with permissions and provenance. A stock-bearing side effect requires local execution. |
-| `customers/*`, `prescriptions` | Online remote administrative customer contact editing with existing permissions/privacy. Prescription clinical verification, qualified sign-off and dispensing remain local and online; administrative permission is not clinical authority. `POST prescriptions` is `clinical` and a signed terminal command: the session's staff member must hold a current SLMC registration, and the registration relied on is recorded in the command provenance. |
+| `customers/*`, `prescriptions` | Online remote administrative customer contact editing with existing permissions/privacy. Prescription clinical verification, qualified sign-off and dispensing remain local and online; administrative permission is not clinical authority. `POST prescriptions` is `clinical` and a signed terminal command: the session's staff member must hold a current SLMC registration, or a registered pharmacist co-signs with their PIN (`POST terminal-commands/pharmacist-cosigns`); the registration relied on, and whose it is, are recorded in the command provenance. |
 | `admin/*`, `staff-invitations/*` | Online identity/access administration; remote management allowed with existing permissions. Changes invalidate sessions/grants according to revocation policy; cannot retroactively undo disconnected sales. `admin/pharmacist-registrations` (record, revoke) is owner-only `identity`: it records qualification evidence that clinical execution checks, and dispenses nothing. |
 | `auth/*` | Authentication/self-profile/password/avatar/session management, allowed online from permitted clients; never confers terminal authority by itself. |
 | `tenant/*` | Online remote tenant/branch/settings management. Settings version future grants, never rewrite signed historical grants or rebind enrolled identity. Revised D13 separates remote online assignment authorization from exact-target local online activation. W1: `branches/:branchId/pos-rollout/live` and `/fallback` (POST and DELETE) are the owner-only desktop POS switch and web-POS fallback (D-W1, D-W7), classified `management`; going live is refused until the go-live checklist passes. |
@@ -156,7 +156,8 @@ attendance proofs, staff-session challenge/finish/end, the caller's own PIN set/
 sign-in's challenge and finish (`POST /terminals/pin-sessions/challenge`, `POST /terminals/pin-sessions`,
 D-W5).
 `POST /terminals/sessions/:workSessionId/test-receipt` is `local_record` (go-live evidence recorded
-at the counter). They
+at the counter). `POST /sales/checkout/resolve` is `local_record`: someone at the counter looks up
+an earlier checkout from it and, when nothing landed, seals that key; it posts no sale. They
 bind or remove a device or staff identity and move no stock, cash or grant. Contract:
 [API_CONTRACT.md](API_CONTRACT.md#desktop-enrollment-and-staff-sessions-p2).
 
@@ -172,6 +173,9 @@ operations. Contract: [API_CONTRACT.md](API_CONTRACT.md#till-shifts-p2b-103).
 
 `POST /terminal-commands/prepare` is classified `identity`: it issues a single-use command
 challenge for an authorized staff session and has no business effect.
+`POST /terminal-commands/pharmacist-cosigns` is classified `identity`: it checks a registered
+pharmacist's PIN and binds their co-sign to one clinical command at this counter session (P1 #47).
+It moves nothing itself; the signed prescription that spends it is `clinical` on its own route.
 `POST /terminal-commands/execute` is classified `stock`. It runs only the closed v1
 signed-operation registry:
 

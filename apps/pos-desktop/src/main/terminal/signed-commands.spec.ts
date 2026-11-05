@@ -46,6 +46,7 @@ let local: LocalStore;
 let sent: { path: string; body: any }[];
 let executeReply: () => unknown;
 let tamper = false;
+const pharmacistEvidenceId = randomUUID();
 
 function services() {
   const api = {
@@ -85,9 +86,12 @@ function services() {
           serverNonce: "e".repeat(64),
           body: tamper ? { refundRequestId: randomUUID() } : opts.body.body,
           approvalEvidenceId: opts.body.approvalEvidenceId,
-          pharmacistEvidenceId: null,
+          pharmacistEvidenceId: opts.body.pharmacistEvidenceId,
           operatingHoursExceptionId: null,
         };
+      if (path === "/terminal-commands/pharmacist-cosigns")
+        return { pharmacistEvidenceId, pharmacistUserId: opts.body.pharmacistUserId,
+          pharmacistRegistrationId: randomUUID(), expiresAt: 0 };
       if (path === "/terminal-commands/execute") {
         const stored = local.db
           .prepare("SELECT status FROM signed_command")
@@ -289,12 +293,58 @@ describe("prescriptions recorded at the counter", () => {
     };
     await expect(dispensing.record(input)).rejects.toMatchObject({
       code: "PHARMACIST_REQUIRED",
-      message: expect.stringContaining("switch in at this counter"),
+      message: expect.stringContaining("ask for their PIN"),
     });
     expect(commands.pending()).toEqual([]);
     expect(status()).toEqual([
       { operation: "POST /api/v1/prescriptions", status: "refused", error_code: "PHARMACIST_REQUIRED" },
     ]);
+  });
+
+  it("records with a pharmacist's co-sign: the PIN goes to the co-sign only, the signed command carries its ID", async () => {
+    const { dispensing, commands } = services();
+    const approverUserId = randomUUID();
+    executeReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(dispensing.record({ ...input, coSign: { approverUserId, pin: "735190" } }))
+      .rejects.toMatchObject({ code: "COMMAND_UNCERTAIN" });
+    expect(sent.map((s) => s.path)).toEqual([
+      "/terminal-commands/pharmacist-cosigns",
+      "/terminal-commands/prepare",
+      "/terminal-commands/execute",
+    ]);
+    expect(sent[0]!.body).toMatchObject({ pharmacistUserId: approverUserId, pin: "735190",
+      operation: "POST /api/v1/prescriptions", body: sent[1]!.body.body });
+    expect(sent[1]!.body).toMatchObject({ pharmacistEvidenceId, approvalEvidenceId: null });
+    expect(sent[2]!.body.command.payload.pharmacistEvidenceId).toBe(pharmacistEvidenceId);
+    // Nothing kept on this computer holds the PIN.
+    expect(JSON.stringify(local.db.prepare("SELECT * FROM signed_command").all())).not.toContain("735190");
+    // The lost response is confirmed by resending the identical envelope; no new co-sign is asked for.
+    const [pending] = commands.pending();
+    executeReply = () => ({
+      ...receipt(true),
+      operation: "POST /api/v1/prescriptions",
+      result: { type: "prescription.recorded", prescriptionId, rxNumber: "RX-00041", pharmacistRegistrationId },
+    });
+    await expect(commands.retry(pending!.commandId)).resolves.toMatchObject({ replayed: true });
+    expect(sent.filter((s) => s.path === "/terminal-commands/pharmacist-cosigns")).toHaveLength(1);
+    expect(sent[3]!.body).toEqual(sent[2]!.body);
+  });
+
+  it("clears a resent co-signed command refused for its co-sign, which proves it never ran", async () => {
+    const { dispensing, commands } = services();
+    executeReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(dispensing.record({ ...input, coSign: { approverUserId: randomUUID(), pin: "735190" } }))
+      .rejects.toMatchObject({ code: "COMMAND_UNCERTAIN" });
+    const [pending] = commands.pending();
+    executeReply = () => {
+      throw new ApiError(403, "COSIGN_INVALID", "Terminal authorization failed");
+    };
+    await expect(commands.retry(pending!.commandId)).rejects.toMatchObject({ code: "COSIGN_INVALID" });
+    expect(commands.pending()).toEqual([]);
   });
 
   it("keeps an unanswered one to confirm, and says the prescription may exist", async () => {

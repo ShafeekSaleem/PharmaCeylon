@@ -79,7 +79,7 @@ const authorization = new OperationAuthorizationService(access, trust, new OpenH
 // P2b #103: a refund executed at the counter comes out of the executor's open till shift.
 const shifts = new TillShiftsService(proxy as never, trust, new OperatingHoursEvidence(), access, audit, {} as never);
 const sales = new SalesService(proxy as never, audit, {} as never, {} as never, {} as never, stock,
-  undefined, undefined, undefined, shifts);
+  undefined, undefined, undefined, undefined, shifts);
 const refunds = new RefundRequestsService(proxy as never, audit, access, approvals, sales, stock);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization,
   new SignedOperations({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, refunds, {} as never),

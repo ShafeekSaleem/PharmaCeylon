@@ -8,6 +8,7 @@ import {
 import { DispensingService, toPrescription } from "./dispensing";
 
 const branchId = randomUUID();
+const workSessionId = randomUUID();
 const now = new Date("2026-11-01T10:00:00.000Z");
 
 const rx = (validUntil: string | null) => ({
@@ -23,23 +24,23 @@ const rx = (validUntil: string | null) => ({
 
 function service(
   reply: (path: string, opts: { body?: unknown }) => unknown,
-  execute: (operation: string, body: unknown, approval: unknown) => unknown = () => {
+  execute: (operation: string, body: unknown, approval: unknown, pharmacistEvidenceId: unknown) => unknown = () => {
     throw new Error("no signed command expected");
   },
 ) {
-  const calls: { method: string; path: string; branchId?: string }[] = [];
+  const calls: { method: string; path: string; branchId?: string; body?: unknown }[] = [];
   const api = {
     request: async (
       method: string,
       path: string,
       opts: { body?: unknown; branchId?: string } = {},
     ) => {
-      calls.push({ method, path, branchId: opts.branchId });
+      calls.push({ method, path, branchId: opts.branchId, ...(opts.body === undefined ? {} : { body: opts.body }) });
       return reply(path, opts);
     },
   };
-  const signedIn = { current: () => ({ identity: { branchId } }) };
-  const commands = { execute: jest.fn(async (...args: [string, unknown, unknown]) => execute(...args)) };
+  const signedIn = { current: () => ({ identity: { branchId }, staff: { workSessionId } }) };
+  const commands = { execute: jest.fn(async (...args: [string, unknown, unknown, unknown]) => execute(...args)) };
   return {
     calls,
     commands,
@@ -139,8 +140,83 @@ describe("DispensingService", () => {
           notes: null,
         },
         null,
+        null,
       );
       expect(calls).toEqual([]);
+    });
+
+    it("gets a registered pharmacist's co-sign with their PIN first, then signs only its ID", async () => {
+      const approverUserId = randomUUID();
+      const pharmacistEvidenceId = randomUUID();
+      const { dispensing, calls, commands } = service(
+        () => ({ pharmacistEvidenceId, pharmacistUserId: approverUserId, pharmacistRegistrationId: randomUUID(),
+          expiresAt: now.getTime() + 300_000 }),
+        () => recorded,
+      );
+      await expect(
+        dispensing.record({
+          patientName: "Nimal Perera",
+          doctorName: "Silva",
+          issuedOn: "2026-10-20",
+          coSign: { approverUserId, pin: "735190" },
+        }),
+      ).resolves.toMatchObject({ prescriptionId, rxNumber: "RX-00031" });
+      const body = {
+        rxNumber: null,
+        patientName: "Nimal Perera",
+        doctorName: "Silva",
+        doctorRegNo: null,
+        issuedOn: "2026-10-20",
+        validUntil: null,
+        customerId: null,
+        notes: null,
+      };
+      // The co-sign covers exactly the body that is then signed.
+      expect(calls).toEqual([
+        {
+          method: "POST",
+          path: "/terminal-commands/pharmacist-cosigns",
+          branchId,
+          body: {
+            workSessionId,
+            operation: "POST /api/v1/prescriptions",
+            body,
+            pharmacistUserId: approverUserId,
+            pin: "735190",
+          },
+        },
+      ]);
+      expect(commands.execute).toHaveBeenCalledWith("POST /api/v1/prescriptions", body, null, pharmacistEvidenceId);
+      // The PIN is in no signed command.
+      expect(JSON.stringify(commands.execute.mock.calls)).not.toContain("735190");
+    });
+
+    it("explains a co-signer without a registration or a stale co-sign, and sends no command after a wrong PIN", async () => {
+      const coSign = { approverUserId: randomUUID(), pin: "000000" };
+      const input = { patientName: "Nimal", doctorName: "Silva", issuedOn: "2026-10-20", coSign };
+      const wrong = new ApiError(403, "APPROVER_PIN_INCORRECT", "Incorrect pharmacist PIN");
+      const pin = service(() => {
+        throw wrong;
+      });
+      await expect(pin.dispensing.record(input)).rejects.toBe(wrong);
+      expect(pin.commands.execute).not.toHaveBeenCalled();
+      const unqualified = service(() => {
+        throw new ApiError(403, "APPROVER_NOT_QUALIFIED", "Terminal authorization failed");
+      });
+      await expect(unqualified.dispensing.record(input)).rejects.toMatchObject({
+        code: "APPROVER_NOT_QUALIFIED",
+        message: expect.stringContaining("can't co-sign the prescription"),
+      });
+      const stale = service(
+        () => ({ pharmacistEvidenceId: randomUUID() }),
+        () => {
+          throw new ApiError(403, "COSIGN_INVALID", "Terminal authorization failed");
+        },
+      );
+      await expect(stale.dispensing.record(input)).rejects.toMatchObject({
+        code: "COSIGN_INVALID",
+        message: expect.stringContaining("Ask for their PIN again"),
+      });
     });
 
     it("says who can record it when the signed-in person isn't a registered pharmacist", async () => {
@@ -158,7 +234,7 @@ describe("DispensingService", () => {
       await expect(refusal).rejects.toBeInstanceOf(ActionFailure);
       await expect(refusal).rejects.toMatchObject({
         code: "PHARMACIST_REQUIRED",
-        message: expect.stringContaining("current SLMC registration"),
+        message: expect.stringContaining("ask for their PIN"),
       });
     });
 

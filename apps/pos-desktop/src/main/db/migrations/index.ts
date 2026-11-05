@@ -9,7 +9,8 @@ import { checkoutDraftCounter } from "./0007-checkout-draft-counter";
 import { pinLockUptime } from "./0008-pin-lock-uptime";
 import { staffCredentialRole } from "./0009-staff-credential-role";
 import { offlineAuthority } from "./0010-offline-authority";
-import { tillShifts } from "./0011-till-shifts";
+import { checkoutDiscountCoSigner } from "./0011-checkout-discount-co-signer";
+import { tillShifts } from "./0012-till-shifts";
 
 /** Append only. A released migration is never edited or reordered. */
-export const migrations: readonly Migration[] = [foundation, deviceIdentity, staffCredentials, checkoutDrafts, signedCommands, checkoutCoSigner, checkoutDraftCounter, pinLockUptime, staffCredentialRole, offlineAuthority, tillShifts];
+export const migrations: readonly Migration[] = [foundation, deviceIdentity, staffCredentials, checkoutDrafts, signedCommands, checkoutCoSigner, checkoutDraftCounter, pinLockUptime, staffCredentialRole, offlineAuthority, checkoutDiscountCoSigner, tillShifts];

@@ -2,7 +2,7 @@ import { join, resolve, sep } from "node:path";
 import { ipcContract } from "../shared/ipc-contract";
 import { checkApi } from "./api-check";
 import { renderTestReceiptHtml } from "./printing/receipt-html";
-import { buildReadinessReport } from "./readiness";
+import { buildReadinessReport, clockTime, explainRefreshFailure } from "./readiness";
 import { isAppUrl, resolveRendererFile } from "./renderer-path";
 
 describe("resolveRendererFile", () => {
@@ -75,6 +75,16 @@ describe("buildReadinessReport", () => {
     expect(statusOf(buildReadinessReport(healthy, new Date()), "staff")).toBe("not_ready");
   });
 
+  it("says who started an unconfirmed sale and that anyone here can confirm it", () => {
+    const report = buildReadinessReport(
+      { ...healthy, unconfirmed: 2, unconfirmedSalesBy: ["Nimal Perera"], unconfirmedBy: ["Kamala Silva"] },
+      new Date(),
+    );
+    const detail = report.checks.find((check) => check.id === "unconfirmed")!.detail;
+    expect(detail).toContain("Sales started by Nimal Perera: anyone signed in here can confirm them.");
+    expect(detail).toContain("Only the person who sent each action can confirm it: Kamala Silva.");
+  });
+
   it("fails the database and schema checks when the store is not usable", () => {
     const report = buildReadinessReport({ ...healthy, databaseOpen: false }, new Date());
     expect(statusOf(report, "database")).toBe("failed");
@@ -141,5 +151,69 @@ describe("ipcContract", () => {
     expect(input.safeParse({ printerName: 42 }).success).toBe(false);
     expect(input.safeParse(undefined).success).toBe(false);
     expect(ipcContract.getReadiness.input.safeParse({ unexpected: true }).success).toBe(false);
+  });
+});
+
+describe("offline backup readiness (P3 #49)", () => {
+  const now = new Date(2026, 10, 4, 14, 32);
+  const t = now.getTime();
+  const active = {
+    databaseOpen: true, schemaVersion: 1, latestSchemaVersion: 1, credentialStoreAvailable: true,
+    enrollmentStatus: "active" as const, preparedStaff: 5,
+  };
+  const healthyRefresh = { nominated: true, lastSuccessAt: t - 60_000, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null };
+  const installed = { grantExpiresAt: t + 86_340_000, snapshotGeneratedAt: t - 120_000, authorizedStaff: 4, lines: 412 };
+  const check = (report: ReturnType<typeof buildReadinessReport>, id: string) => report.checks.find((c) => c.id === id)!;
+
+  it("shows the grant's expiry, the saved stock's time and who can sign in offline", () => {
+    const report = buildReadinessReport({ ...active, offlineAuthority: { refresh: healthyRefresh, installed } }, now);
+    expect(check(report, "grant")).toMatchObject({ status: "ok", detail: "Valid until 14:31 tomorrow. Renewed automatically while online." });
+    expect(check(report, "catalogue")).toMatchObject({ status: "ok", detail: "Stock and prices saved 14:30 today, 412 batches." });
+    expect(check(report, "staff").detail).toBe("5 people have a PIN prepared here. 4 can sign in offline under the current permission.");
+    expect(report.offlineBackup).toMatchObject({ usable: true, authorizedStaff: 4, failures: 0, failure: null });
+  });
+
+  it("fails saved stock past 15 minutes and explains the renewal failure", () => {
+    const report = buildReadinessReport({
+      ...active,
+      offlineAuthority: {
+        refresh: { ...healthyRefresh, consecutiveFailures: 3, lastFailure: { at: t - 60_000, code: "BRANCH_HOURS_NOT_CONFIGURED" }, nextAttemptAt: t + 4 * 60_000 },
+        installed: { ...installed, snapshotGeneratedAt: t - 20 * 60_000 },
+      },
+    }, now);
+    expect(check(report, "catalogue")).toMatchObject({ status: "failed" });
+    expect(check(report, "catalogue").detail).toMatch(/^Saved stock is 20 minutes old, over the 15-minute limit for starting an outage\. Renewal failed: The branch's selling hours are not set\. .* Next try 14:36\.$/);
+    expect(check(report, "grant").status).toBe("warning");
+    expect(report.offlineBackup).toMatchObject({ usable: false, failures: 3 });
+    expect(report.ready).toBe(false);
+  });
+
+  it("fails an expired grant, and tells a replaced counter it won't be renewed", () => {
+    const expired = buildReadinessReport({ ...active, offlineAuthority: { refresh: healthyRefresh, installed: { ...installed, grantExpiresAt: t - 1 } } }, now);
+    expect(check(expired, "grant")).toMatchObject({ status: "failed", detail: "Expired 14:31 today. Sign in here while online to renew it." });
+    const replaced = buildReadinessReport({ ...active, offlineAuthority: { refresh: { ...healthyRefresh, nominated: false }, installed } }, now);
+    expect(check(replaced, "grant")).toMatchObject({ status: "failed" });
+    expect(check(replaced, "grant").detail).toContain("no longer the branch's offline backup");
+    expect(replaced.offlineBackup?.usable).toBe(false);
+  });
+
+  it("is not set up before the first pair, on a non-backup counter, or without a server key", () => {
+    const waiting = buildReadinessReport({ ...active, offlineAuthority: { refresh: healthyRefresh, installed: null } }, now);
+    expect(check(waiting, "grant")).toMatchObject({ status: "not_ready", detail: expect.stringContaining("fetched automatically") });
+    const other = buildReadinessReport({ ...active, offlineAuthority: { refresh: { ...healthyRefresh, nominated: false }, installed: null } }, now);
+    expect(check(other, "grant").detail).toContain("not the branch's offline backup");
+    const failing = buildReadinessReport({
+      ...active,
+      offlineAuthority: { refresh: { ...healthyRefresh, consecutiveFailures: 1, lastFailure: { at: t, code: "GRANT_INVALID" } }, installed: null },
+    }, now);
+    expect(check(failing, "grant").status).toBe("failed");
+    const unkeyed = buildReadinessReport({ ...active, offlineAuthority: { refresh: null, installed: null } }, now);
+    expect(check(unkeyed, "grant").detail).toContain("no offline permission key");
+  });
+
+  it("words every failure as something to do", () => {
+    for (const code of ["GRANT_INVALID", "BRANCH_HOURS_NOT_CONFIGURED", "RECONCILIATION_REQUIRED", "local_usage", "invalid", "NETWORK", "HTTP_502", "WEIRD"])
+      expect(explainRefreshFailure(code).length).toBeGreaterThan(20);
+    expect(clockTime(new Date(2026, 10, 6, 9, 5).getTime(), now)).toBe("6 Nov 09:05");
   });
 });

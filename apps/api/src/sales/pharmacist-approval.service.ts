@@ -297,19 +297,19 @@ export class PharmacistApprovalService {
       );
     }
 
+    // A discount or refund co-sign (P2b #103) has no "hold for pharmacist" to fall back on.
+    const controlled = permission === APPROVE_CONTROLLED_PERMISSION;
     // Also when no PIN is set: the password stands in for it here, and is guessed at the same way.
     if (user.posPinLockouts >= MAX_PIN_LOCKOUTS) {
       throw new ForbiddenException({
         code: "APPROVER_PIN_SWITCHED_OFF",
-        message:
-          "Too many wrong attempts for this approver. They need to sign in with their password before they can co-sign again. Use Hold for pharmacist meanwhile.",
+        message: `Too many wrong attempts for this approver. They need to sign in with their password before they can co-sign again.${controlled ? " Use Hold for pharmacist meanwhile." : " Ask another approver meanwhile."}`,
       });
     }
     if (user.posPinLockedUntil && user.posPinLockedUntil.getTime() > Date.now()) {
       throw new ForbiddenException({
         code: "APPROVER_PIN_LOCKED",
-        message:
-          "Approver PIN is temporarily locked after too many failed attempts. Try again shortly or use Hold for pharmacist.",
+        message: `Approver PIN is temporarily locked after too many failed attempts. Try again shortly${controlled ? " or use Hold for pharmacist" : " or ask another approver"}.`,
       });
     }
 
@@ -328,13 +328,16 @@ export class PharmacistApprovalService {
         eventName: "sale.pharmacist_pin_failed",
         entityName: "app_user",
         entityId: user.id,
-        payload: { failures, locked: Boolean(lockedUntil), switchedOff },
+        // The permission the co-sign was for; never the PIN.
+        payload: { failures, locked: Boolean(lockedUntil), switchedOff, permission },
       });
       if (switchedOff) await this.alerts.switchedOff(tenantId, branchId, user.id);
       throw new ForbiddenException({
         code: "APPROVER_PIN_INCORRECT",
         message: user.posPinHash
-          ? "Incorrect pharmacist PIN"
+          ? controlled
+            ? "Incorrect pharmacist PIN"
+            : "Incorrect till PIN"
           : "Incorrect password (this approver has not set a till PIN yet)",
       });
     }

@@ -17,9 +17,10 @@ staff sessions" and "Offline-counter assignment"); product rules stay in
 | Go-live evidence (D-W1) | `terminal_test_receipt`; checklist and setup readiness count prepared staff (current PIN version) and confirmed receipts on active counters | "Yes, the receipt came out" after a test print |
 | Online checkout | `x-terminal-session` attribution on `POST /sales/checkout` (`sale.terminal_id/till_id/work_session_id`); mandatory selling windows (W7) enforced on counter sales; overlapping retries of one key replay the original | Server-priced cart with the VAT-inclusive total, a tender covering it, cash/card/split, crash-safe drafts (`checkout_draft`) confirmed by idempotent resend, receipts, held carts |
 | Physical execution | (P1 executor) | `SignedCommandService` with stored envelopes (`signed_command`); remote-approved refunds executed at the counter showing requester, approver and executor |
-| Readiness | — | Device enrollment, prepared staff, unconfirmed sales/actions and who must confirm them |
+| Unconfirmed sales | `POST /sales/checkout/resolve`: someone else at the same enrolled counter looks a seller's unconfirmed checkout up by tenant, branch, enrollment and key, under the checkout's own key lock. It returns the committed sale, or says "never landed" and seals the key (`checkout_sealed`, later checkout 409 `CHECKOUT_SEALED`) | The seller resends; anyone else signed in looks it up and never resends. Sell's pending list says who started each sale |
+| Readiness | — | Device enrollment, prepared staff, unconfirmed sales/actions: who started each sale (anyone here can confirm it) and who must confirm each action |
 | Prescriptions and co-sign | Checkout refusals coded `PRESCRIPTION_REQUIRED` / `PHARMACIST_APPROVAL_REQUIRED` / `APPROVER_NOT_QUALIFIED` / `SELLER_NOT_QUALIFIED`; wrong co-sign secrets are 403. The dispenser's SLMC registration is checked in the checkout transaction and kept on the sale; approvers are registered pharmacists only (P1 MR 10b) | Link a customer and prescription (find, or record through the signed clinical command), pharmacist co-sign by PIN for controlled items; the PIN is sent once and never stored (the draft keeps the co-signer only); holds carry the customer and prescription |
-| Till shifts (P2b #103) | `till_shift` (one open per till, partial unique index; immutable once closed), `till_cash_movement`; open with own PIN and a note-and-coin count, close by the owner or a manager's assisted close (`shifts.close_others`); counter sales and cash refunds carry `shift_id` (D-P2b-shift) | (next PRs: local copy, Sell gate, Cash & shift page) |
+| Till shifts (P2b #103) | `till_shift` (one open per till, partial unique index; immutable once closed), `till_cash_movement`; open with own PIN and a note-and-coin count, close by the owner or a manager's assisted close (`shifts.close_others`); counter sales and cash refunds carry `shift_id` (D-P2b-shift) | `ShiftService` keeps the till's shifts in SQLCipher (local migration 0012): whose shift is open, the counter's own running expected cash (D7b), and whether the server confirmed the last open or close. A close is saved with its command ID before it is sent and resent under that ID after a restart; no PIN is stored. Sell is covered until the signed-in person's own shift is open; the status bar shows the shift and the drawer; the lock screen shows "Shift open since" and the handover note; Cash & shift opens and closes shifts (P2b #103) |
 | Web (W6, W3) | `GET /admin/users/:id/security` adds PIN version and prepared counters | Settings → Counters & devices: counters, enrolled computer, issue and revoke codes, report lost, retire. Users → Manage staff: PIN state, version, prepared and stale counters, reset for every role |
 
 ## Decisions
@@ -74,6 +75,30 @@ windows. Routine closing time stays advisory online; revised D8's acknowledgemen
 matter (P3/P4). A branch with no hours set has no restriction; stored hours that can't be read
 fail closed.
 
+**Confirming another seller's sale (2026-11-04).** This closes the epic's "a manager can't
+confirm another seller's unconfirmed sale", which conflicted with "no hidden single-original-cashier
+restriction".
+- **Lookup, never a resend.** Someone other than the seller never resends the sale. A resend under
+  their own key would be a new sale attributed to them, and the seller's key can't be borrowed.
+  `POST /sales/checkout/resolve` finds the original by the key and session the draft recorded.
+  The session must be at this branch and on the caller's enrollment.
+- **"Never landed" is definite.** The lookup takes checkout's own key lock
+  (`sales/checkout-lock.ts`), so an original still in its transaction commits or rolls back first.
+  When nothing is there, the lookup seals the key in the same transaction, and checkout checks for
+  the seal under that lock. An original that was still on its way is refused when it arrives,
+  instead of landing after the counter rang the sale up again. A slow original already in its
+  transaction also holds the counter's enrollment lock, so a colleague can't even sign in at that
+  till until it finishes.
+- **Who may confirm: anyone with `sales.pos_use` signed in at that counter.** A manager-only rule
+  would keep a sale waiting at a counter run by two cashiers. The lookup moves nothing, attributes
+  nothing to the caller and answers only for the counter's own sales, and it is audited
+  (`sale.checkout_resolved`). Proposed for Shafeek to agree in the PR.
+- **Desktop.** `CheckoutService.retry` resends for the seller and looks up for anyone else. "Never
+  landed" marks the draft refused (`CHECKOUT_NEVER_LANDED`) and asks for the sale to be rung up
+  again. A lookup with no answer, or one refused before the lookup, leaves the draft pending. A
+  colleague's lookup asks for no co-sign PIN. Sell's pending list says "rung up by you" or "started
+  by <name>".
+
 ## Verification
 
 - CI runs `npm run lint` (typechecks every workspace), the API unit suite, the PostgreSQL suites
@@ -82,7 +107,9 @@ fail closed.
 - The PostgreSQL suites run against the real attendance verifier, with nothing stubbed. They cover
   remote sessions, wrong bindings, replay, rollback, codes, PINs, supersession, D13/D11, go-live
   evidence, the last-unit race across two counters, overlapping retries of one checkout key,
-  occupied counters and mandatory hours.
+  occupied counters and mandatory hours. `checkout-resolution.int-spec.ts` covers confirming
+  another seller's sale: landed, never landed (and the late original refused), a slow first
+  attempt racing the lookup, the key lock, and another counter, branch or session refused.
 - Desktop specs cover the key, Windows session classification, remote-tool detection, the API
   client (shared refresh, coded 401s), enrollment, sessions, PINs and the lockout, activation,
   checkout drafts, tender, holds and signed commands, including the signed prescription command and
@@ -102,10 +129,9 @@ fail closed.
 
 ## Known limits in this PR
 
-- **Only the original seller can confirm an unconfirmed sale.** The server scopes checkout
-  idempotency to the seller, so a sale left unconfirmed waits for that person to sign in at the
-  counter again. The pending list and readiness name them. Letting a manager confirm it, with the
-  server finding the original by key at the branch, is a follow-up.
+- **Only the person who sent an unconfirmed signed action can confirm it.** Sales no longer have
+  this limit (see "Confirming another seller's sale"). A signed command is still resent by its
+  sender, so readiness names who must come back for each.
 - **Remote-control detection is by process name.** It stops the casual case only (see D-P2a).
 - **Only a registered pharmacist signed in at the counter can record a prescription.** A signed
   command takes no co-sign evidence yet, so a cashier asks the pharmacist to switch in. Nobody can

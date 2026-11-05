@@ -154,6 +154,11 @@
       "reason": "Transaction-scoped advisory locks on the caller's tenant + signed enrollment id + support record id (and, for card attempts, attempt id) only, so identical support-record uploads serialize and replay the stored receipt; no data is read or written by raw SQL."
     },
     {
+      "path": "src/clinical/pharmacist-cosign.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Locks one pharmacist co-sign row by the signed command's tenant, branch, counter session and staff member (FOR UPDATE) so a co-sign is spent once; it is then marked spent through the tenant-scoped delegate, and no data is written by raw SQL."
+    },
+    {
       "path": "src/clinical/pharmacist-registration.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one tenant membership or pharmacist registration row by the caller's tenant id and the target id (FOR UPDATE / FOR SHARE) to serialize recording, revocation and the clinical check; no data is written by raw SQL."
@@ -172,6 +177,26 @@
       "path": "src/terminals/offline-assignment.service.ts",
       "mode": "scoped-domain-lock",
       "reason": "Locks one branch row by the caller's tenant and branch id to serialize offline-counter delegation, assignment authorization, revocation and activation-time revalidation; no data is written by raw SQL."
+    },
+    {
+      "path": "src/terminals/offline-activation.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "D11 clearance locks the branch's offline_terminal_nomination row (FOR UPDATE) by the previous nomination's tenant_id and branch_id, so no grant is issued to the old counter between the cutoff read and the nomination moving; no data is written by raw SQL."
+    },
+    {
+      "path": "src/terminals/offline-authority-issuance.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Holds the authenticated counter's own nomination, enrollment and terminal rows (FOR SHARE, by tenant, branch and identity) while offline authority is issued, and share-locks the branch's offline_terminal_nomination row (by tenant_id and branch_id) for replays and challenges, pairing with the D11 clearance lock; a replaced, revoked or retired counter is never issued to. No data is written by raw SQL."
+    },
+    {
+      "path": "src/terminals/grant-cutoff.ts",
+      "mode": "tenant-filtered-aggregate",
+      "reason": "Read-only max(grant expiresAt) over offline_authority_issuance filtered by bound tenant_id, branch_id and enrollment_id, for D11 clearance."
+    },
+    {
+      "path": "src/terminals/held-evidence-verifier.service.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Transaction-scoped advisory lock on the caller's tenant + enrollment id + support record id, the same key support-record intake takes, so verification and a replayed upload serialize; no data is read or written by raw SQL."
     },
     {
       "path": "scripts/test-rls-canary-activation.mjs",
@@ -276,7 +301,12 @@
     {
       "path": "src/sales/sales.service.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Locks one tenant/branch sale before a refund or void, so concurrent refunds of the same units serialize; stock, payments, status and audit share the caller transaction. Checkout takes a transaction-scoped advisory lock on the caller's tenant + user + idempotency key only, so overlapping retries serialize and replay the committed sale; no data is read or written by raw SQL."
+      "reason": "Locks one tenant/branch sale before a refund or void, so concurrent refunds of the same units serialize; stock, payments, status and audit share the caller transaction. Checkout's key lock is in checkout-lock.ts."
+    },
+    {
+      "path": "src/sales/checkout-lock.ts",
+      "mode": "scoped-domain-lock",
+      "reason": "Transaction-scoped advisory lock on the tenant + seller + checkout idempotency key only, taken by checkout and by resolving that key from another sign-in at the same counter, so overlapping attempts serialize and a 'never landed' answer can't overtake a running original; no data is read or written by raw SQL."
     },
     {
       "path": "src/sales/refund-requests.service.ts",

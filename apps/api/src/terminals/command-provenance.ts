@@ -14,4 +14,9 @@ export type CommandProvenance = Readonly<{
   attendanceId: string;
   /** The SLMC registration a clinical operation relied on (P1 #47); null for non-clinical ones. */
   pharmacistRegistrationId: string | null;
+  /** Whose registration that is: the session's staff member dispensing alone, or the pharmacist
+   * who co-signed by PIN. Null for non-clinical operations. */
+  pharmacistUserId: string | null;
+  /** The PIN co-sign the command spent; null when nobody co-signed. */
+  pharmacistEvidenceId: string | null;
 }>;
