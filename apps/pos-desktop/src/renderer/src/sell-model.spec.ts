@@ -162,14 +162,14 @@ describe("SLMC refusals", () => {
     expect(refusal.actions).toEqual(["choose-pharmacist", "hold"]);
   });
 
-  it("tells the counter a pharmacist switches in to record a prescription, since a co-sign isn't accepted yet", () => {
+  it("tells the counter to record a prescription with a registered pharmacist's PIN, or hold the sale", () => {
     const refusal = slmcRefusal(
       "PHARMACIST_REQUIRED",
       "Recording a prescription needs a pharmacist.",
     );
-    expect(refusal.actions).toEqual(["hold"]);
-    expect(refusal.next).toMatch(/signs in at this counter/);
-    expect(refusal.next).toMatch(/isn't accepted for recording yet/);
+    expect(refusal.actions).toEqual(["choose-pharmacist", "hold"]);
+    expect(refusal.next).toMatch(/ask for their PIN/);
+    expect(refusal.next).not.toMatch(/isn't accepted/);
   });
 });
 

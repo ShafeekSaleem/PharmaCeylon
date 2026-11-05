@@ -141,7 +141,7 @@ function setup() {
     {} as never,
   );
   const saleRead = new SaleReadService(prisma as never, {} as never);
-  const controller = new SalesController(sales, {} as never, saleRead, {} as never, {} as never, {} as never);
+  const controller = new SalesController(sales, {} as never, saleRead, {} as never, {} as never, {} as never, {} as never);
   return { controller };
 }
 

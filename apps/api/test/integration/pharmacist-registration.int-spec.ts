@@ -3,6 +3,7 @@ import * as bcrypt from "bcrypt";
 import type { Prisma } from "@prisma/client";
 import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
+import { PharmacistCosignService } from "../../src/clinical/pharmacist-cosign.service";
 import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-registration.service";
 import { businessDateKey } from "../../src/common/business-date.util";
 import { StockService } from "../../src/inventory/stock/stock.service";
@@ -339,14 +340,26 @@ describe("MandatoryOperationEvidence.clinical", () => {
 
   it("checks the signed session's staff member", async () => {
     const row = await record(pharmacistId, "PH-12");
-    await expect(tx((c) => evidence.clinical(c, command(pharmacistId)))).resolves.toEqual({ registrationId: row.id, slmcNumber: "PH-12" });
+    await expect(tx((c) => evidence.clinical(c, command(pharmacistId)))).resolves.toEqual({ registrationId: row.id,
+      slmcNumber: "PH-12", pharmacistUserId: pharmacistId, pharmacistEvidenceId: null });
     await expect(code(tx((c) => evidence.clinical(c, command(fx.ownerId))))).resolves.toBe("PHARMACIST_REQUIRED");
   });
 
-  it("does not accept co-sign evidence online yet, and fails closed without a provider", async () => {
+  it("takes co-sign evidence only through its provider, and fails closed without a provider", async () => {
     await record(pharmacistId, "PH-13");
+    // No co-sign provider installed: a command naming a co-sign is refused, not checked as the seller's.
     await expect(
       code(tx((c) => evidence.clinical(c, command(pharmacistId, { pharmacistEvidenceId: randomUUID() })))),
+    ).resolves.toBe("PHARMACIST_REQUIRED");
+    // With one, a co-sign that was never issued for this counter session is refused.
+    const withCosign = new MandatoryOperationEvidence(undefined, undefined, registrations,
+      new PharmacistCosignService(registrations, audit));
+    await expect(
+      code(tx((c) => withCosign.clinical(c, command(pharmacistId, { pharmacistEvidenceId: randomUUID() })))),
+    ).resolves.toBe("COSIGN_INVALID");
+    await expect(
+      code(tx((c) => withCosign.clinical(c, command(pharmacistId, { operation: "POST /api/v1/stocktakes/:id/post",
+        pharmacistEvidenceId: randomUUID() })))),
     ).resolves.toBe("INVALID_COMMAND");
     await expect(code(tx((c) => new MandatoryOperationEvidence().clinical(c, command(pharmacistId))))).resolves.toBe(
       "PHARMACIST_REQUIRED",

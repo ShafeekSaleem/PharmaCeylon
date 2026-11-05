@@ -319,6 +319,9 @@ describe("revised D13: remote authorization, local activation on the exact targe
   });
 
   it("will not replace the offline counter until D11 clearance exists, and fails closed without recovery evidence", async () => {
+    // The first counter was never issued a grant, so P3's cutoff half holds (it never had offline
+    // authority) and replacement waits on P5's journal recovery half alone. Cutoffs from real
+    // grants are covered in held-evidence.int-spec.ts.
     const replacement = await enroll();
     const { workSessionId } = await session(
       replacement.device,
@@ -338,7 +341,8 @@ describe("revised D13: remote authorization, local activation on the exact targe
     ).rejects.toMatchObject({
       response: {
         code: "D11_CLEARANCE_REQUIRED",
-        reason: "PREVIOUS_STILL_ACTIVE",
+        reason: "OFFLINE_RECOVERY_EVIDENCE_REQUIRED",
+        authorityCutoffAt: null,
       },
     });
 
@@ -375,9 +379,9 @@ describe("revised D13: remote authorization, local activation on the exact targe
       first.identity.enrollmentId,
     );
 
-    // With recovery evidence (P3/P5's job), the replacement takes over at the next version.
+    // With P5's journal recovery evidence, the replacement takes over at the next version.
     class Cleared extends OfflineActivationClearance {
-      protected override async recoveryEvidence() {
+      protected override async journalRecoveryEvidence() {
         return true;
       }
     }

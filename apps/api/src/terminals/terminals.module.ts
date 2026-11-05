@@ -4,6 +4,7 @@ import { NotificationsModule } from "../notifications/notifications.module";
 import { PricingModule } from "../pricing/pricing.module";
 import { AttendanceProofsService } from "./attendance-proofs.service";
 import { BusinessHoursAcknowledgements } from "./business-hours-acknowledgements.service";
+import { HeldEvidenceVerifier } from "./held-evidence-verifier.service";
 import { EnrollmentCodesController } from "./enrollment-codes.controller";
 import { EnrollmentCodesService } from "./enrollment-codes.service";
 import { LocalAttendanceVerifier } from "./local-attendance.verifier";
@@ -36,6 +37,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     OperatingHoursEvidence,
     BusinessHoursAcknowledgements,
     OfflineSupportRecords,
+    HeldEvidenceVerifier,
     OfflineAssignmentService,
     AttendanceProofsService,
     TerminalEnrollmentService,
@@ -52,6 +54,7 @@ import { TerminalTrustService } from "./terminal-trust.service";
     OperatingHoursEvidence,
     BusinessHoursAcknowledgements,
     OfflineSupportRecords,
+    HeldEvidenceVerifier,
     OfflineAssignmentService,
     PinAlerts,
   ],

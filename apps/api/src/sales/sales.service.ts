@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -45,6 +46,7 @@ import {
   totalRemainingQty,
 } from "./sale-returnable";
 import { SALE_INCLUDE } from "./sale-read.service";
+import { CHECKOUT_SEALED_SCOPE, lockCheckoutKey } from "./checkout-lock";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
@@ -551,8 +553,7 @@ export class SalesService {
           // the original still runs) waits here, then finds the committed record and replays it,
           // instead of failing on stock the original just took and being taken as a refusal.
           // Hash collisions only over-serialize.
-          const lockKey = `checkout:${tenantId}:${userId}:${idempotencyKey}`;
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+          await lockCheckoutKey(tx, tenantId, userId, idempotencyKey);
           const committed = await tx.idempotencyRecord.findUnique({
             where: {
               tenantId_userId_scope_idempotencyKey: {
@@ -564,6 +565,22 @@ export class SalesService {
             },
           });
           if (committed) throw new CheckoutReplay(committed.resourceId);
+          // Someone else at the counter was told this key never landed (CheckoutResolutionService).
+          const sealed = await tx.idempotencyRecord.findUnique({
+            where: {
+              tenantId_userId_scope_idempotencyKey: {
+                tenantId,
+                userId,
+                scope: CHECKOUT_SEALED_SCOPE,
+                idempotencyKey,
+              },
+            },
+          });
+          if (sealed)
+            throw new ConflictException({
+              code: "CHECKOUT_SEALED",
+              message: "This sale was already recorded at the counter as never having gone through. Ring it up again.",
+            });
         }
         // Attribution, not authority: the session must be the seller's own, open, on an active
         // enrollment at this branch. It serializes sales per counter on the enrollment lock.

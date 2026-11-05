@@ -71,7 +71,11 @@ const productName = (p: CatalogProduct) =>
     ? `${p.name} ${p.strength}`
     : p.name;
 
-/** Sales sent but not confirmed: they can only be confirmed with the server, never sent again. */
+/**
+ * Sales sent but not confirmed: they can only be confirmed with the server, never sent again.
+ * Anyone signed in here can confirm one. Its seller's confirmation resends it under their own key;
+ * anyone else's only looks it up, so it stays the seller's sale and needs no co-sign PIN.
+ */
 function PendingCheckouts({
   reloadKey,
   onResolved,
@@ -100,8 +104,9 @@ function PendingCheckouts({
   async function confirm(draft: CheckoutDraftView) {
     setError(null);
     setBusy(true);
-    const pin = pins[draft.draftId];
-    const managerPin = managerPins[draft.draftId];
+    // Only the seller's own confirmation resends, so only it carries co-sign PINs.
+    const pin = draft.ownSale ? pins[draft.draftId] : undefined;
+    const managerPin = draft.ownSale ? managerPins[draft.draftId] : undefined;
     const result = await invoke(() =>
       window.pos.retryCheckout({
         draftId: draft.draftId,
@@ -135,11 +140,11 @@ function PendingCheckouts({
               <span>
                 {d.lineCount} item{d.lineCount === 1 ? "" : "s"}, about{" "}
                 {d.estimatedTotal}, {time(new Date(d.createdAt))}
-                {d.staffName
-                  ? ` · rung up by ${d.staffName}, who must confirm it`
-                  : ""}
+                {d.ownSale
+                  ? " · rung up by you"
+                  : ` · started by ${d.staffName ?? "someone who has signed out"}. Confirming looks it up; it stays their sale`}
               </span>
-              {d.coSignerId && (
+              {d.ownSale && d.coSignerId && (
                 <input
                   type="password"
                   autoComplete="off"
@@ -155,7 +160,7 @@ function PendingCheckouts({
                   }
                 />
               )}
-              {d.discountCoSignerId && (
+              {d.ownSale && d.discountCoSignerId && (
                 <input
                   type="password"
                   autoComplete="off"

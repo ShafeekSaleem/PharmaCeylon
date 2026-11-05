@@ -246,6 +246,73 @@ describe("Transactional operation authorization independently of owner permissio
     ).rejects.toMatchObject({ response: { code: "PHARMACIST_REQUIRED" } });
   });
 
+  describe("a pharmacist's PIN co-sign (P1 #47)", () => {
+    const rx: OperationDescriptor<{ quantity: number }> = {
+      ...base,
+      routeTemplate: "/api/v1/prescriptions",
+      permission: "prescriptions.create",
+      cosign: { permission: "sales.pos_use" },
+    };
+    const cosigned = (f: ReturnType<typeof fixture>) => {
+      f.terminal.command = { ...f.terminal.command, pharmacistEvidenceId: randomUUID() };
+    };
+    const clinical = {
+      registrationId: randomUUID(),
+      slmcNumber: "PH-1",
+      pharmacistUserId: randomUUID(),
+      pharmacistEvidenceId: randomUUID(),
+    };
+
+    it("asks the signed-in person for the co-sign grant instead of the operation's, and spends the co-sign", async () => {
+      const evidence = new MandatoryOperationEvidence();
+      jest.spyOn(evidence, "hours").mockResolvedValue(undefined);
+      const spend = jest.spyOn(evidence, "clinical").mockResolvedValue(clinical);
+      const f = fixture(evidence);
+      cosigned(f);
+      const granted = new Set(["sales.pos_use"]);
+      f.access.resolveLive.mockResolvedValue({ has: (key: string) => granted.has(key) });
+      await expect(f.service.authorize({} as never, user, branchId, rx, { ...localInput, cosigned: true }))
+        .resolves.toMatchObject({ clinical });
+      expect(f.terminals.verifyCommand.mock.calls[0][3]).toMatchObject({ permission: "sales.pos_use" });
+      expect(spend).toHaveBeenCalledWith({}, f.terminal.command);
+      // Without the co-sign, the same person needs the operation's own grant.
+      f.terminal.command = { ...f.terminal.command, pharmacistEvidenceId: null };
+      await expect(f.service.authorize({} as never, user, branchId, rx, localInput))
+        .rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+    });
+
+    it("refuses a co-sign the caller didn't declare, one on an operation that takes none, and one on remote work", async () => {
+      const evidence = new MandatoryOperationEvidence();
+      jest.spyOn(evidence, "hours").mockResolvedValue(undefined);
+      const spend = jest.spyOn(evidence, "clinical").mockResolvedValue(clinical);
+      const f = fixture(evidence);
+      cosigned(f);
+      await expect(f.service.authorize({} as never, user, branchId, rx, localInput))
+        .rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+      await expect(f.service.authorize({} as never, user, branchId, stock, { ...localInput, cosigned: true }))
+        .rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+      // A clinical descriptor that allows no co-sign never reaches the evidence port with one.
+      await expect(f.service.authorize({} as never, user, branchId, { ...rx, cosign: undefined }, localInput))
+        .rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+      await expect(f.service.authorize({} as never, user, branchId, { ...base, cosign: rx.cosign },
+        { body: { quantity: 1 }, cosigned: true })).rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+      expect(spend).not.toHaveBeenCalled();
+    });
+
+    it("routes a co-signed command to the co-sign provider and fails closed without one", async () => {
+      const consume = jest.fn().mockResolvedValue(clinical);
+      const own = jest.fn();
+      const signed = { ...command(), pharmacistEvidenceId: randomUUID() };
+      const evidence = new MandatoryOperationEvidence(undefined, undefined,
+        { assertForCommand: own } as never, { consume } as never);
+      await expect(evidence.clinical({} as never, signed)).resolves.toBe(clinical);
+      expect(consume).toHaveBeenCalledWith({}, signed);
+      expect(own).not.toHaveBeenCalled();
+      await expect(new MandatoryOperationEvidence(undefined, undefined, { assertForCommand: own } as never)
+        .clinical({} as never, signed)).rejects.toMatchObject({ response: { code: "PHARMACIST_REQUIRED" } });
+    });
+  });
+
   it("bank records require independent evidence; cash cannot use the remote bank path", async () => {
     const f = fixture();
     const descriptor = {

@@ -37,13 +37,14 @@ describe("routes a PIN-opened counter login may call", () => {
         "listHolds",
         "recallHold",
         "checkout",
+        "resolveCheckout",
       ],
     ],
     // `approve` takes the approver co-sign on the counter (P2b #103).
     [RefundRequestsController, ["list", "approve"]],
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],
-    [TerminalCommandsController, ["prepare", "execute"]],
+    [TerminalCommandsController, ["prepare", "execute", "cosign"]],
     [OfflineAssignmentController, ["view"]],
     [OfflineAuthorityController, ["prepare", "issue"]],
     [

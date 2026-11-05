@@ -26,11 +26,24 @@ export async function firstIssuanceState(
 
 /** Whether this exact enrollment is the branch's current, unrevoked offline counter. */
 export async function isNominated(tx: Prisma.TransactionClient, identity: TerminalIdentity): Promise<boolean> {
+  // Shares the row D11 clearance locks: an activation moving the nomination either waits for this
+  // issuance (and then sees its grant) or makes it retry and find the counter no longer nominated.
+  await tx.$queryRaw`
+    SELECT id FROM offline_terminal_nomination
+    WHERE tenant_id = ${identity.tenantId}::uuid AND branch_id = ${identity.branchId}::uuid
+    FOR SHARE`;
   const nomination = await tx.offlineTerminalNomination.findFirst({
     where: { ...identity, enrollment: { revokedAt: null, terminal: { retiredAt: null } } },
     select: { id: true },
   });
   return nomination !== null;
+}
+
+/** The nomination share lock surfaces a concurrent activation as a raw-query 40001 (P2010). */
+function rawWriteConflict(error: Prisma.PrismaClientKnownRequestError): boolean {
+  const cause = (error.meta as { driverAdapterError?: { cause?: { originalCode?: unknown } } } | undefined)
+    ?.driverAdapterError?.cause;
+  return error.code === "P2010" && cause?.originalCode === "40001";
 }
 
 /** The authenticator verifies device, actor and command ID on every attempt, including replay.
@@ -83,7 +96,7 @@ export async function issueOfflineAuthority(
   } catch (error) {
     // Retry an overlapping issuance from a fresh view so a committed command can be replayed.
     if (error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === "P2002" || error.code === "P2034")) return issue();
+        (error.code === "P2002" || error.code === "P2034" || rawWriteConflict(error))) return issue();
     throw error;
   }
 }

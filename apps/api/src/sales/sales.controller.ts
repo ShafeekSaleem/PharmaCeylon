@@ -24,6 +24,8 @@ import {
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
 import { CheckoutDto } from "./dto/checkout.dto";
+import { ResolveCheckoutDto } from "./dto/resolve-checkout.dto";
+import { CheckoutResolutionService } from "./checkout-resolution.service";
 import { HoldSaleDto } from "./dto/hold-sale.dto";
 import { ClearPosPinDto, SetPosPinDto } from "./dto/pharmacist-approval.dto";
 import { RefundSaleDto } from "./dto/refund-sale.dto";
@@ -47,6 +49,7 @@ export class SalesController {
     private readonly held: HeldSalesService,
     private readonly pharmacistApproval: PharmacistApprovalService,
     private readonly access: AccessService,
+    private readonly resolution: CheckoutResolutionService,
   ) {}
 
   @ApiOperation({ summary: "Sellable products with FEFO batches for the POS screen" })
@@ -244,6 +247,27 @@ export class SalesController {
       idempotencyKey,
       terminalSession ? { user, workSessionId: terminalSession } : undefined,
     );
+  }
+
+  @ApiOperation({
+    summary:
+      "Whether an earlier checkout from this counter landed, for someone other than its seller; never resends it",
+  })
+  @ApiHeader({ name: "x-terminal-session", required: true, description: "The caller's own open staff session at the counter" })
+  @ApiBody({ type: ResolveCheckoutDto })
+  @RequirePermission("sales.pos_use")
+  @CounterRoute()
+  @HttpCode(HttpStatus.OK)
+  @Post("checkout/resolve")
+  resolveCheckout(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Headers("x-terminal-session") terminalSession: string | undefined,
+    @Body() dto: ResolveCheckoutDto,
+  ) {
+    if (!terminalSession || !UUID.test(terminalSession))
+      throw new BadRequestException("x-terminal-session must be a staff session id");
+    return this.resolution.resolve(user, branchId, terminalSession, dto);
   }
 
   @ApiOperation({ summary: "Void a posted sale (stock restored); pharmacist, manager, or owner" })
