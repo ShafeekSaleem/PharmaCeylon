@@ -1,3 +1,4 @@
+import type { PharmacistCosign } from "@pharmaceylon/shared";
 import type {
   ApproverView,
   CustomerView,
@@ -56,7 +57,24 @@ function recordRefusal(error: unknown): unknown {
   if (error instanceof ApiError && error.code === "PHARMACIST_REQUIRED")
     return new ActionFailure(
       "PHARMACIST_REQUIRED",
-      "Recording a prescription needs a pharmacist with a current SLMC registration at this branch. Ask them to switch in at this counter and record it.",
+      "Recording a prescription needs a pharmacist with a current SLMC registration at this branch. Choose them and ask for their PIN, or ask them to switch in at this counter and record it.",
+    );
+  if (error instanceof ApiError && error.code === "APPROVER_NOT_QUALIFIED")
+    return new ActionFailure(
+      "APPROVER_NOT_QUALIFIED",
+      "This pharmacist has no current SLMC registration at this branch, so they can't co-sign the prescription. Nothing was saved.",
+    );
+  // Spent, expired or for different details: a fresh co-sign is asked for, never reused.
+  if (error instanceof ApiError && error.code === "COSIGN_INVALID")
+    return new ActionFailure(
+      "COSIGN_INVALID",
+      "The pharmacist's co-sign has expired or was for different details. Ask for their PIN again. Nothing was saved.",
+    );
+  // Without a signed-in counter session, a cashier recording alone is refused the grant.
+  if (error instanceof ApiError && error.code === "PERMISSION_DENIED")
+    return new ActionFailure(
+      "PERMISSION_DENIED",
+      "You can't record prescriptions yourself. Choose a registered pharmacist and ask for their PIN.",
     );
   if (error instanceof ActionFailure && error.code === "COMMAND_UNCERTAIN")
     return new ActionFailure(
@@ -69,7 +87,8 @@ function recordRefusal(error: unknown): unknown {
 /**
  * Prescription capture and co-sign lookups for checkout at the counter. Everything goes to the
  * server as the signed-in person. Recording a prescription is a signed clinical command: the
- * signed-in person needs `prescriptions.create` and a current SLMC registration at the branch.
+ * signed-in person needs `prescriptions.create` and a current SLMC registration at the branch, or
+ * `sales.pos_use` and a registered pharmacist's PIN co-sign.
  * The checkout itself decides who may dispense controlled items and verifies the co-signer's PIN
  * and registration. Nothing here is cached on disk; patient details stay on the server (the
  * signed envelope kept until its receipt arrives is the exception).
@@ -148,7 +167,12 @@ export class DispensingService {
     );
   }
 
-  /** Signed, so the server checks the signed-in person's SLMC registration (P1 #47). */
+  /**
+   * Signed, so the server checks an SLMC registration (P1 #47): the signed-in person's own, or with
+   * `coSign` a registered pharmacist's. Their PIN goes once to the server, which checks it and issues
+   * a single-use co-sign for exactly this prescription; the signed command carries only its ID.
+   * The PIN is not kept, signed or logged.
+   */
   async record(input: RecordPrescription): Promise<PrescriptionView> {
     // The adapter takes every key, trimmed text, and null rather than blank.
     const text = (value: string | undefined) => value?.trim() || null;
@@ -162,11 +186,33 @@ export class DispensingService {
       customerId: input.customerId ?? null,
       notes: text(input.notes),
     };
-    const { result } = await this.deps.commands
-      .execute("POST /api/v1/prescriptions", body, null)
-      .catch((error: unknown) => {
-        throw recordRefusal(error);
-      });
+    const operation = "POST /api/v1/prescriptions" as const;
+    const { result } = await (async () => {
+      let pharmacistEvidenceId: string | null = null;
+      if (input.coSign) {
+        const current = this.deps.terminal.current();
+        if (!current)
+          throw new ActionFailure("NOT_SIGNED_IN", "Sign in at this counter first.");
+        const cosign = await this.deps.api.request<PharmacistCosign>(
+          "POST",
+          "/terminal-commands/pharmacist-cosigns",
+          {
+            branchId: current.identity.branchId,
+            body: {
+              workSessionId: current.staff.workSessionId,
+              operation,
+              body,
+              pharmacistUserId: input.coSign.approverUserId,
+              pin: input.coSign.pin,
+            },
+          },
+        );
+        pharmacistEvidenceId = cosign.pharmacistEvidenceId;
+      }
+      return this.deps.commands.execute(operation, body, null, pharmacistEvidenceId);
+    })().catch((error: unknown) => {
+      throw recordRefusal(error);
+    });
     // The receipt carries ids only; the rest is what was signed.
     return toPrescription(
       {

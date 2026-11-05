@@ -6,6 +6,7 @@ import { RequireBranchId } from "../security/decorators/require-branch.decorator
 import { RequirePermission } from "../security/decorators/require-permission.decorator";
 import { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { TerminalErrorFilter } from "../terminals/terminal-error.filter";
+import { PharmacistCosigns } from "./pharmacist-cosigns.service";
 import { TERMINAL_EXECUTE, TerminalCommandExecutor } from "./terminal-command.executor";
 
 /** Signed physical execution for enrolled desktop counters (contract: docs/API_CONTRACT.md).
@@ -17,7 +18,10 @@ import { TERMINAL_EXECUTE, TerminalCommandExecutor } from "./terminal-command.ex
 @UseFilters(TerminalErrorFilter)
 @Controller("terminal-commands")
 export class TerminalCommandsController {
-  constructor(private readonly executor: TerminalCommandExecutor) {}
+  constructor(
+    private readonly executor: TerminalCommandExecutor,
+    private readonly cosigns: PharmacistCosigns,
+  ) {}
 
   @RequirePermission(TERMINAL_EXECUTE)
   @CounterRoute()
@@ -41,5 +45,19 @@ export class TerminalCommandsController {
     @Body() body: unknown,
   ) {
     return this.executor.execute(user, branchId, body);
+  }
+
+  /** A registered pharmacist's PIN co-sign for one clinical command (prescriptions), for the person
+   * signed in at this counter. The command then carries only `pharmacistEvidenceId`. */
+  @RequirePermission(TERMINAL_EXECUTE)
+  @CounterRoute()
+  @Post("pharmacist-cosigns")
+  @HttpCode(200)
+  cosign(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Body() body: unknown,
+  ) {
+    return this.cosigns.issue(user, branchId, body);
   }
 }

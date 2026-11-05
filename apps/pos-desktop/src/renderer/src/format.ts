@@ -87,3 +87,14 @@ export function shortName(name: string) {
   const parts = name.trim().split(/\s+/);
   return parts.length > 1 ? `${parts[0]} ${parts.at(-1)![0]}.` : (parts[0] ?? name);
 }
+
+/** "14:32 today", "14:32 tomorrow", otherwise "Wed 6 Nov 14:32". */
+export function relativeTime(date: Date, now = new Date()) {
+  const day = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(date) - day(now)) / 86_400_000);
+  if (days === 0) return `${time(date)} today`;
+  if (days === 1) return `${time(date)} tomorrow`;
+  if (days === -1) return `${time(date)} yesterday`;
+  return `${shortDay(date)} ${time(date)}`;
+}

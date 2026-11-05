@@ -13,7 +13,7 @@ import type { Migration } from "../migrator";
  * refund, so a confirmed resend of the same sale can't count its cash twice.
  */
 export const tillShifts: Migration = {
-  version: 11,
+  version: 12,
   name: "till-shifts",
   up(db) {
     db.exec(`

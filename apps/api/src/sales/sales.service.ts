@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -35,6 +36,7 @@ import { allocateRefund } from "./refund-allocation";
 import { meetsApprovalThreshold } from "../common/approval-threshold.util";
 import type { ActorAccess } from "../security/access.service";
 import { PharmacistApprovalService } from "./pharmacist-approval.service";
+import { ApproverCoSignService } from "./approver-cosign.service";
 import { softRxMatchWarnings } from "./rx-match.util";
 import { SetupReadinessService } from "../setup/setup-readiness.service";
 import {
@@ -44,6 +46,7 @@ import {
   totalRemainingQty,
 } from "./sale-returnable";
 import { SALE_INCLUDE } from "./sale-read.service";
+import { CHECKOUT_SEALED_SCOPE, lockCheckoutKey } from "./checkout-lock";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import type { RequestUser } from "../security/interfaces/authenticated-request.interface";
 import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
@@ -106,6 +109,15 @@ type ClinicalCheck =
   | { kind: "co_sign"; userId: string; name: string }
   | { kind: "self"; userId: string };
 
+/** Who approved a discount over the limit: the seller under their own authority, or a co-signer. */
+type DiscountAuthority = {
+  kind: "self" | "co_sign";
+  userId: string;
+  name: string | null;
+  limitPercent: number;
+  maxPercent: number;
+};
+
 export const REFUND_SALE_INCLUDE = {
   items: {
     include: {
@@ -163,6 +175,7 @@ export class SalesService {
     private readonly terminalTrust?: TerminalTrustService,
     private readonly operatingHours?: OperatingHoursEvidence,
     private readonly registrations?: PharmacistRegistrationService,
+    private readonly coSign?: ApproverCoSignService,
     private readonly shifts?: TillShiftsService,
   ) {}
 
@@ -178,6 +191,60 @@ export class SalesService {
       return [...new Set([...atBranch, RoleName.owner])];
     }
     return atBranch;
+  }
+
+  /**
+   * P2b #103: line discounts. Every line's discount is between zero and its subtotal. Up to the
+   * tenant's `posMaxDiscountPercent` anyone selling may give one. Above it, someone with
+   * `sales.discount_override` approves: the seller themselves when their role may approve its own
+   * requests (owners and managers by default, as before), otherwise a manager co-signing with their
+   * till PIN on the seller's session (`discountApproval`). The PIN is checked here, before the
+   * transaction, so a wrong one counts towards the lockout; the approver's authority is read live
+   * again inside it (`assertDiscountApprover`). Returns who approved, or null within the limit.
+   */
+  private async resolveDiscountAuthority(input: {
+    tenantId: string;
+    branchId: string;
+    userId: string;
+    items: CheckoutDto["items"];
+    limitPercent: number;
+    coSign: CheckoutDto["discountApproval"];
+  }): Promise<DiscountAuthority | null> {
+    let maxPercent = 0;
+    for (const item of input.items) {
+      const gross = d(item.unitPrice).mul(item.qty);
+      const discount = d(item.discountAmount ?? "0");
+      if (discount.lt(0) || discount.gt(gross)) {
+        throw new BadRequestException("Line discount must be between zero and the line subtotal");
+      }
+      const percent = gross.isZero() ? 0 : discount.div(gross).mul(100).toNumber();
+      maxPercent = Math.max(maxPercent, percent);
+    }
+    if (maxPercent <= input.limitPercent) {
+      // Within the limit a co-sign approves nothing, so it is not checked (or recorded).
+      return null;
+    }
+    if (!this.coSign) throw new Error("Discounts over the limit need the approver co-sign service");
+    const evidence = { limitPercent: input.limitPercent, maxPercent: Math.round(maxPercent * 100) / 100 };
+    if (input.coSign?.approverUserId && input.coSign.pin) {
+      const verified = await this.coSign.verify({
+        tenantId: input.tenantId,
+        branchId: input.branchId,
+        sessionUserId: input.userId,
+        coSign: input.coSign,
+        purpose: "discount",
+      });
+      return { kind: "co_sign", userId: verified.approverUserId, name: verified.approverName, ...evidence };
+    }
+    if (await this.coSign.sellerMayApprove(input.tenantId, input.branchId, input.userId, "discount")) {
+      return { kind: "self", userId: input.userId, name: null, ...evidence };
+    }
+    throw new ForbiddenException({
+      code: "DISCOUNT_APPROVAL_REQUIRED",
+      message: `A discount over ${input.limitPercent}% needs a manager. Ask a manager to enter their till PIN.`,
+      limitPercent: input.limitPercent,
+      maxPercent: evidence.maxPercent,
+    });
   }
 
   /**
@@ -394,32 +461,15 @@ export class SalesService {
         "Select a customer before completing this sale",
       );
     }
-    const effectiveRoles = this.branchEffectiveRoles(branchRoles, branchId);
-    const mayOverrideDiscount = effectiveRoles.some(
-      (role) => role === RoleName.owner || role === RoleName.manager,
-    );
-    const maximumDiscountPercent = Number(
-      checkoutPolicy?.posMaxDiscountPercent ?? 10,
-    );
-    if (!mayOverrideDiscount) {
-      for (const item of dto.items) {
-        const gross = d(item.unitPrice).mul(item.qty);
-        const discount = d(item.discountAmount ?? "0");
-        if (discount.lt(0) || discount.gt(gross)) {
-          throw new BadRequestException(
-            "Line discount must be between zero and the line subtotal",
-          );
-        }
-        const discountPercent = gross.isZero()
-          ? 0
-          : discount.div(gross).mul(100).toNumber();
-        if (discountPercent > maximumDiscountPercent) {
-          throw new ForbiddenException(
-            `Discount exceeds the ${maximumDiscountPercent}% limit and requires a manager`,
-          );
-        }
-      }
-    }
+    const discountAuthority = await this.resolveDiscountAuthority({
+      tenantId,
+      branchId,
+      userId,
+      items: dto.items,
+      // Read on every checkout, never taken from the client: a limit lowered a moment ago applies.
+      limitPercent: Number(checkoutPolicy?.posMaxDiscountPercent ?? 10),
+      coSign: dto.discountApproval,
+    });
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
@@ -505,8 +555,7 @@ export class SalesService {
           // the original still runs) waits here, then finds the committed record and replays it,
           // instead of failing on stock the original just took and being taken as a refusal.
           // Hash collisions only over-serialize.
-          const lockKey = `checkout:${tenantId}:${userId}:${idempotencyKey}`;
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+          await lockCheckoutKey(tx, tenantId, userId, idempotencyKey);
           const committed = await tx.idempotencyRecord.findUnique({
             where: {
               tenantId_userId_scope_idempotencyKey: {
@@ -518,6 +567,22 @@ export class SalesService {
             },
           });
           if (committed) throw new CheckoutReplay(committed.resourceId);
+          // Someone else at the counter was told this key never landed (CheckoutResolutionService).
+          const sealed = await tx.idempotencyRecord.findUnique({
+            where: {
+              tenantId_userId_scope_idempotencyKey: {
+                tenantId,
+                userId,
+                scope: CHECKOUT_SEALED_SCOPE,
+                idempotencyKey,
+              },
+            },
+          });
+          if (sealed)
+            throw new ConflictException({
+              code: "CHECKOUT_SEALED",
+              message: "This sale was already recorded at the counter as never having gone through. Ring it up again.",
+            });
         }
         // Attribution, not authority: the session must be the seller's own, open, on an active
         // enrollment at this branch. It serializes sales per counter on the enrollment lock.
@@ -544,6 +609,11 @@ export class SalesService {
         registration = dispense.clinical
           ? await this.assertDispenserQualified(tx, tenantId, branchId, dispense.clinical)
           : null;
+        // The co-signer's authority, read again on this transaction just before the sale is
+        // written: a manager whose role changed after their PIN was checked doesn't approve it.
+        if (discountAuthority?.kind === "co_sign") {
+          await this.coSign!.assertAuthority(tx, tenantId, branchId, discountAuthority.userId, "discount");
+        }
         const lines: Array<{
           productId: string;
           batchId: string;
@@ -721,6 +791,7 @@ export class SalesService {
                 soldBy: userId,
                 dispensedBy: dispensedBy,
                 dispenserRegistrationId: registration?.registrationId ?? null,
+                discountApprovedBy: discountAuthority?.userId ?? null,
                 terminalId: attribution?.terminalId ?? null,
                 tillId: attribution?.tillId ?? null,
                 workSessionId: attribution?.workSessionId ?? null,
@@ -767,6 +838,31 @@ export class SalesService {
                 from: "sellable" as const,
               })),
             );
+
+            if (discountAuthority) {
+              // Seller and approver, recorded separately (revised D10), with the sale.
+              await this.audit.log(
+                {
+                  tenantId,
+                  branchId,
+                  actorUserId: discountAuthority.userId,
+                  eventName: "sale.discount_approved",
+                  entityName: "sale",
+                  entityId: sale.id,
+                  payload: {
+                    invoiceNo: sale.invoiceNo,
+                    soldByUserId: userId,
+                    approvedByUserId: discountAuthority.userId,
+                    coSigned: discountAuthority.kind === "co_sign",
+                    limitPercent: discountAuthority.limitPercent,
+                    maxLinePercent: discountAuthority.maxPercent,
+                    discountTotal: discountTotal.toFixed(2),
+                    workSessionId: attribution?.workSessionId ?? null,
+                  },
+                },
+                tx,
+              );
+            }
 
             if (dto.heldSaleId) {
               await tx.heldSale.deleteMany({

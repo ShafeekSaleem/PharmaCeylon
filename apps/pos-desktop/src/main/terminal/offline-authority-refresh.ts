@@ -2,18 +2,55 @@ import { randomUUID, type KeyObject } from "node:crypto";
 import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { ApiError, type ApiSession } from "../api/api-client";
 import type { PosDatabase } from "../db/database";
-import { installInitialOfflineAuthority, type OfflineAuthority } from "./offline-authority";
+import {
+  installOfflineAuthority,
+  readInstalledOfflineAuthority,
+  type InstallResult,
+  type OfflineAuthority,
+} from "./offline-authority";
+import { hasLocalOfflineUsage } from "./offline-journal";
 import type { TerminalService } from "./terminal-service";
 
 const operation = "POST /api/v1/terminals/offline-authority";
 
-/** How often the counter checks; most checks end locally (installed, or waiting out a back-off). */
+/** How often the counter checks; most checks end locally (fresh enough, or backing off). */
 export const OFFLINE_AUTHORITY_TICK_MS = 60_000;
+/**
+ * Renew once the installed snapshot is this old. An outage may only start on a snapshot at most
+ * 15 minutes old, so a healthy counter's saved stock is 5–6 minutes old at worst. That leaves
+ * room for a failed renewal and its 1- and 2-minute retries (5 + 1 + 2 + request time) before
+ * the snapshot is too old, without a renewal every minute. Each renewal also restarts the 24
+ * hours of the grant.
+ */
+export const OFFLINE_AUTHORITY_REFRESH_MS = 5 * 60_000;
 /** A counter that isn't the branch's offline counter asks again this much later. */
 export const NOT_NOMINATED_RECHECK_MS = 15 * 60_000;
-/** Back-off after any other failure: 1, 2, 4 … minutes, at most 30. */
-const FIRST_BACKOFF_MS = 60_000;
-const MAX_BACKOFF_MS = 30 * 60_000;
+export const FIRST_BACKOFF_MS = 60_000;
+/** Back-off cap for a failure that may clear by itself (network, server busy): the cadence. */
+const TRANSIENT_BACKOFF_CAP_MS = OFFLINE_AUTHORITY_REFRESH_MS;
+/** Back-off cap for one that needs a person (setup, reconciliation, a pair that won't verify). */
+const PERSISTENT_BACKOFF_CAP_MS = 30 * 60_000;
+
+/** Server refusals that won't clear until someone changes something. */
+const PERSISTENT_CODES = new Set(["GRANT_INVALID", "BRANCH_HOURS_NOT_CONFIGURED", "RECONCILIATION_REQUIRED"]);
+
+export class OfflineAuthorityInstallError extends Error {
+  constructor(readonly result: Exclude<InstallResult, "installed" | "already_installed">) {
+    super(`Offline authority not installed: ${result}`);
+    this.name = "OfflineAuthorityInstallError";
+  }
+}
+
+/** What the readiness checks show about renewal. In memory: a restart starts it afresh. */
+export type OfflineAuthorityRefreshStatus = {
+  /** False once the server said this isn't the branch's offline counter; null until it answers. */
+  nominated: boolean | null;
+  lastSuccessAt: number | null;
+  consecutiveFailures: number;
+  /** An API error code, an install result (`invalid`, `local_usage` …), or `NETWORK`. */
+  lastFailure: { at: number; code: string } | null;
+  nextAttemptAt: number | null;
+};
 
 export type OfflineAuthorityRefreshDeps = {
   db: PosDatabase;
@@ -23,35 +60,62 @@ export type OfflineAuthorityRefreshDeps = {
   signer: { keyId: string; publicKey: KeyObject };
   report: (error: unknown) => void;
   now?: () => number;
+  /** P4's local journal check; see offline-journal.ts. */
+  localUsage?: (db: PosDatabase, enrollmentId: string) => boolean;
 };
 
+function failureCode(error: unknown): string {
+  if (error instanceof OfflineAuthorityInstallError) return error.result;
+  if (error instanceof ApiError) return error.status === 0 ? "NETWORK" : error.code;
+  return "NETWORK";
+}
+
+function persistent(error: unknown): boolean {
+  if (error instanceof OfflineAuthorityInstallError) return true;
+  return error instanceof ApiError && PERSISTENT_CODES.has(error.code);
+}
+
 /**
- * Installs this counter's first offline authority (P3 #49) while it is online. Each request costs
- * the server a challenge and the counter an attendance proof, so a counter that isn't the
- * branch's offline counter, or keeps failing, asks less often instead of every minute.
+ * Keeps this counter's offline authority fresh while it is online (P3 #49): installs the first
+ * pair, then renews it every five minutes through the rebasing installer.
+ *
+ * Every renewal is a new signed command with its own attendance proof. The proof is taken
+ * automatically (console session, no remote-control tools), so it costs a process listing and a
+ * request, not a person's time. It is what ties each fresh 24 hours of authority to this
+ * computer being used at the counter now: reusing an old proof would let a remote session keep
+ * renewing indefinitely.
  */
 export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps) {
   const now = deps.now ?? Date.now;
+  const localUsage = deps.localUsage ?? hasLocalOfflineUsage;
   let inFlight = false;
-  let failures = 0;
-  let nextAttemptAt = 0;
+  const status: OfflineAuthorityRefreshStatus = {
+    nominated: null, lastSuccessAt: null, consecutiveFailures: 0, lastFailure: null, nextAttemptAt: null,
+  };
+
+  function due(enrollmentId: string): boolean {
+    const installed = readInstalledOfflineAuthority(deps.db, enrollmentId);
+    return !installed || now() - installed.snapshot.payload.generatedAt >= OFFLINE_AUTHORITY_REFRESH_MS;
+  }
+
+  /** One request ID per pending request, kept across restarts until its response arrives, so a
+   * lost response is recovered by replay instead of minting another version. */
+  function requestIdFor(enrollmentId: string): string {
+    deps.db.prepare(`
+      INSERT INTO offline_authority_request (enrollment_id, request_id)
+      VALUES (?, ?) ON CONFLICT(enrollment_id) DO NOTHING
+    `).run(enrollmentId, randomUUID());
+    return (deps.db.prepare("SELECT request_id FROM offline_authority_request WHERE enrollment_id = ?")
+      .get(enrollmentId) as { request_id: string }).request_id;
+  }
 
   async function attempt(): Promise<"installed" | "skipped"> {
     const current = deps.terminal.current();
     const device = deps.readDevice();
     if (!current || !device) return "skipped";
     const { identity, key, staff } = current;
-    if (deps.db.prepare("SELECT 1 FROM offline_authority WHERE enrollment_id = ?").get(identity.enrollmentId))
-      return "skipped";
-    // One request ID per enrollment, kept across restarts, so a lost response is recovered by
-    // replay instead of being refused as a second issuance.
-    deps.db.prepare(`
-      INSERT INTO offline_authority_request (enrollment_id, request_id)
-      VALUES (?, ?) ON CONFLICT(enrollment_id) DO NOTHING
-    `).run(identity.enrollmentId, randomUUID());
-    const { request_id: requestId } = deps.db.prepare(`
-      SELECT request_id FROM offline_authority_request WHERE enrollment_id = ?
-    `).get(identity.enrollmentId) as { request_id: string };
+    if (!due(identity.enrollmentId)) return "skipped";
+    const requestId = requestIdFor(identity.enrollmentId);
     const branchId = identity.branchId;
     const command = await deps.api.request<OnlineTerminalCommand<{ requestId: string }>>(
       "POST", "/terminals/offline-authority/challenge", {
@@ -70,44 +134,63 @@ export function createOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps)
     });
     // Someone else signed in meanwhile: the server kept the pair, and the next tick replays it.
     if (deps.terminal.current()?.staff.workSessionId !== staff.workSessionId) return "skipped";
-    const result = installInitialOfflineAuthority(deps.db, response, {
+    const result = installOfflineAuthority(deps.db, response, {
       identity, registerId: device.registerId, tillId: device.tillId, signer: deps.signer, trustedNow: now(),
-    });
-    if (result !== "installed" && result !== "already_installed")
-      throw new Error(`Offline authority not installed: ${result}`);
+    }, localUsage);
+    // The response arrived, so this request is settled whatever the install made of it; the next
+    // renewal is a new request. (A replay of a pair that is now too old would never verify.)
+    deps.db.prepare("DELETE FROM offline_authority_request WHERE enrollment_id = ? AND request_id = ?")
+      .run(identity.enrollmentId, requestId);
+    if (result !== "installed" && result !== "already_installed") throw new OfflineAuthorityInstallError(result);
     return "installed";
   }
 
   return {
     /** One check. Never throws: failures are reported and delay the next attempt. */
     async tick(): Promise<void> {
-      if (inFlight || now() < nextAttemptAt) return;
+      if (inFlight || (status.nextAttemptAt !== null && now() < status.nextAttemptAt)) return;
       inFlight = true;
       try {
-        await attempt();
-        failures = 0;
-        nextAttemptAt = 0;
+        if ((await attempt()) === "installed") {
+          status.nominated = true;
+          status.lastSuccessAt = now();
+          status.consecutiveFailures = 0;
+          status.lastFailure = null;
+        }
+        status.nextAttemptAt = null;
       } catch (error) {
         if (error instanceof ApiError && error.code === "IDENTITY_MISMATCH") {
           // Not (or no longer) the branch's offline counter: nothing is wrong, check again later.
-          failures = 0;
-          nextAttemptAt = now() + NOT_NOMINATED_RECHECK_MS;
+          status.nominated = false;
+          status.consecutiveFailures = 0;
+          status.lastFailure = null;
+          status.nextAttemptAt = now() + NOT_NOMINATED_RECHECK_MS;
           return;
         }
-        failures += 1;
-        nextAttemptAt = now() + Math.min(MAX_BACKOFF_MS, FIRST_BACKOFF_MS * 2 ** (failures - 1));
+        status.consecutiveFailures += 1;
+        status.lastFailure = { at: now(), code: failureCode(error) };
+        const cap = persistent(error) ? PERSISTENT_BACKOFF_CAP_MS : TRANSIENT_BACKOFF_CAP_MS;
+        status.nextAttemptAt = now() + Math.min(cap, FIRST_BACKOFF_MS * 2 ** (status.consecutiveFailures - 1));
         deps.report(error);
       } finally {
         inFlight = false;
       }
     },
+    status(): OfflineAuthorityRefreshStatus {
+      return { ...status, lastFailure: status.lastFailure && { ...status.lastFailure } };
+    },
   };
 }
 
-/** Starts the check on a timer; returns the stop. */
-export function startOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps): () => void {
+export type OfflineAuthorityRefresh = ReturnType<typeof createOfflineAuthorityRefresh>;
+
+/** Starts the check on a timer; returns the refresh (for its status) and the stop. */
+export function startOfflineAuthorityRefresh(deps: OfflineAuthorityRefreshDeps): {
+  refresh: OfflineAuthorityRefresh;
+  stop: () => void;
+} {
   const refresh = createOfflineAuthorityRefresh(deps);
   const timer = setInterval(() => void refresh.tick(), OFFLINE_AUTHORITY_TICK_MS);
   timer.unref();
-  return () => clearInterval(timer);
+  return { refresh, stop: () => clearInterval(timer) };
 }

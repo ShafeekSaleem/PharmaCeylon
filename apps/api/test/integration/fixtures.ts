@@ -186,3 +186,13 @@ export async function openTestShift(prisma: PrismaClient, tenantId: string, work
   });
   return id;
 }
+
+/**
+ * P2b #103: the session's staff member's open shift on its till, opened if the till has none.
+ * For suites where the seller signs in and out of one counter between sales.
+ */
+export async function ensureTestShift(prisma: PrismaClient, tenantId: string, workSessionId: string): Promise<string> {
+  const session = await prisma.terminalStaffSession.findFirstOrThrow({ where: { tenantId, id: workSessionId } });
+  const open = await prisma.tillShift.findFirst({ where: { tenantId, tillId: session.tillId, closedAt: null } });
+  return open?.id ?? openTestShift(prisma, tenantId, workSessionId);
+}

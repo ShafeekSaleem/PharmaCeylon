@@ -12,6 +12,7 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
+import { ApproverCoSignDto } from "./approver-cosign.dto";
 import { PharmacistApprovalDto } from "./pharmacist-approval.dto";
 
 export class CheckoutLineDto {
@@ -101,4 +102,14 @@ export class CheckoutDto {
   @ValidateNested()
   @Type(() => PharmacistApprovalDto)
   pharmacistApproval?: PharmacistApprovalDto;
+
+  /**
+   * P2b #103: a manager's co-sign for a line discount over `posMaxDiscountPercent`, entered on the
+   * seller's session. Needed only when a line is over the limit and the seller can't approve their
+   * own (`DISCOUNT_APPROVAL_REQUIRED`). Ignored within the limit. Online only.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ApproverCoSignDto)
+  discountApproval?: ApproverCoSignDto;
 }

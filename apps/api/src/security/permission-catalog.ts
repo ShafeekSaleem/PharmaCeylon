@@ -492,6 +492,16 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     riskLevel: "sensitive",
     dependencies: ["sales.pos_use"],
   },
+  {
+    key: "sales.discount_override",
+    module: "sales",
+    label: "Approve discounts over the limit",
+    description:
+      "Give, or co-sign with a till PIN on someone else's sale, a line discount above the POS discount limit in Settings. Giving one on your own sale also needs your role to approve its own requests.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["sales.pos_use"],
+  },
 
   // Offline manager capabilities (D8, assisted handover). Not endpoint permissions: P3 signs
   // them into a branch's offline grant for each prepared staff member who holds them here.
@@ -564,7 +574,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   {
     // P2b #103: the absent-cashier close. Opening and closing your own shift needs only the
     // counter's own POS permission; closing someone else's is a manager's call, made with their
-    // own PIN, a reason and the count. Migration `20261105010000_till_shifts` grants it.
+    // own PIN, a reason and the count. Migration `20261105200000_till_shifts` grants it.
     key: "shifts.close_others",
     module: "shifts",
     label: "Close another person's shift at the counter",

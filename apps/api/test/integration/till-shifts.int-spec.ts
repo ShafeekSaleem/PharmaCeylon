@@ -47,6 +47,7 @@ const sales = new SalesService(
   trust,
   hours,
   undefined,
+  undefined,
   shifts,
 );
 const tx = <T>(run: (client: Prisma.TransactionClient) => Promise<T>) => prisma.$transaction(run, { timeout: 15_000 });

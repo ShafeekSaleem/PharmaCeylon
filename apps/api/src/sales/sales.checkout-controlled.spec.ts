@@ -204,6 +204,20 @@ describe("SalesService controlled checkout authority", () => {
       posMaxDiscountPercent: 10,
     });
 
+    // The cashier can't approve their own discount over the limit (sales.checkout-discount.spec.ts).
+    const coSign = { sellerMayApprove: jest.fn().mockResolvedValue(false), verify: jest.fn() };
+    service = new SalesService(
+      prisma as never,
+      audit,
+      tax,
+      pharmacistApproval as unknown as PharmacistApprovalService,
+      { assertCanSell: jest.fn().mockResolvedValue(undefined) } as never,
+      new StockService(),
+      undefined,
+      undefined,
+      registrations as unknown as PharmacistRegistrationService,
+      coSign as never,
+    );
     await expect(
       service.checkout(
         tenantId,
@@ -299,6 +313,7 @@ describe("SalesService controlled checkout authority", () => {
           } as never,
           { assertMandatoryForSale: jest.fn().mockResolvedValue(undefined) } as never,
           registrations as unknown as PharmacistRegistrationService,
+          undefined,
           // P2b #103: the seller's open till shift.
           { requireForSale: jest.fn().mockResolvedValue("shift-1") } as never,
         );

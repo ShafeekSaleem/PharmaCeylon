@@ -42,6 +42,7 @@ export const SALE_INCLUDE = {
   },
   seller: { select: { id: true, fullName: true } },
   dispenser: { select: { id: true, fullName: true } },
+  discountApprover: { select: { id: true, fullName: true } },
 } satisfies Prisma.SaleInclude;
 
 /**

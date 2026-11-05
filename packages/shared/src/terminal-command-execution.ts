@@ -140,22 +140,48 @@ export type SignedOperationResult = {
   /** Each command is its own prescription; a replay returns this original receipt. */
   "POST /api/v1/prescriptions": Readonly<{
     type: "prescription.recorded"; prescriptionId: string; rxNumber: string;
-    pharmacistRegistrationId: string; // the SLMC registration the pharmacist was qualified by
+    // The SLMC registration relied on: the signed-in pharmacist's own, or the co-signer's when the
+    // command carried a co-sign (`pharmacistEvidenceId`). The co-signer is in the audit provenance.
+    pharmacistRegistrationId: string;
   }>;
 };
 
 /** POST /api/v1/terminal-commands/prepare (Bearer + x-branch-id). Returns OnlineTerminalCommand<body>.
  * approvalEvidenceId is required for stocktake/held posting, must be null for import operations,
  * direct adjustments, prescriptions and transfer receipt, and is the transfer's approval (or null where waived) for transfer dispatch;
- * pharmacist/hours evidence IDs must be null for every v1 operation.
+ * pharmacistEvidenceId is null, or for a clinical operation (prescriptions) a co-sign from
+ * POST /terminal-commands/pharmacist-cosigns; operatingHoursExceptionId must be null for every v1 operation.
  */
 export type TerminalCommandPrepareRequest<O extends SignedPhysicalOperation = SignedPhysicalOperation> = Readonly<{
   workSessionId: string;
   operation: O;
   body: SignedOperationBody[O];
   approvalEvidenceId: string | null;
-  pharmacistEvidenceId: null;
+  pharmacistEvidenceId: string | null;
   operatingHoursExceptionId: null;
+}>;
+
+/** Operations a registered pharmacist may co-sign by PIN for the signed-in staff member. */
+export const COSIGNABLE_OPERATIONS = ["POST /api/v1/prescriptions"] as const;
+export type CosignableOperation = typeof COSIGNABLE_OPERATIONS[number];
+
+/** POST /api/v1/terminal-commands/pharmacist-cosigns (Bearer + x-branch-id). The PIN is checked
+ * here and never stored, signed or logged; the co-sign it creates is single-use, bound to this
+ * tenant, branch, counter staff session, operation and exact body, and short-lived. The command
+ * then carries only `pharmacistEvidenceId`.
+ */
+export type PharmacistCosignRequest<O extends CosignableOperation = CosignableOperation> = Readonly<{
+  workSessionId: string;
+  operation: O;
+  body: SignedOperationBody[O];
+  pharmacistUserId: string;
+  pin: string;
+}>;
+export type PharmacistCosign = Readonly<{
+  pharmacistEvidenceId: string;
+  pharmacistUserId: string;
+  pharmacistRegistrationId: string; // the registration it was checked against when created
+  expiresAt: number; // epoch ms; prepare and execute before then
 }>;
 
 /** POST /api/v1/terminal-commands/execute. attendanceProofId comes from P2's attendance provider. */

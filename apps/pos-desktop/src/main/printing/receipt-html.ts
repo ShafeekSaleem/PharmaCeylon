@@ -22,7 +22,9 @@ export type ReceiptSale = {
   amountPaid: string;
   changeDue: string;
   sellerName: string;
-  lines: { name: string; qty: number; unitPrice: string; lineTotal: string }[];
+  /** Who approved a discount over the limit (P2b #103), printed beside the seller. */
+  discountApproverName?: string | null;
+  lines: { name: string; qty: number; unitPrice: string; discountAmount?: string; lineTotal: string }[];
   payments: { method: string; amount: string; reference: string | null }[];
 };
 
@@ -31,7 +33,13 @@ export function renderSaleReceiptHtml(sale: ReceiptSale, place: { branchName: st
   const row = (label: string, value: string, cls = "") =>
     `<tr${cls ? ` class="${cls}"` : ""}><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`;
   const lines = sale.lines
-    .map((l) => `${row(l.name, "")}${row(`  ${l.qty} x ${l.unitPrice}`, l.lineTotal)}`)
+    // The line's discount on its own row, under the amount it's taken from (the line total is net).
+    .map((l) => {
+      const discounted = l.discountAmount && Number(l.discountAmount) > 0;
+      return `${row(l.name, "")}${row(`  ${l.qty} x ${l.unitPrice}`, discounted ? "" : l.lineTotal)}${
+        discounted ? row(`  Discount -${l.discountAmount}`, l.lineTotal) : ""
+      }`;
+    })
     .join("\n");
   const payments = sale.payments
     .map((p) => row(p.method === "card" ? `Card${p.reference ? ` (${p.reference})` : ""}` : "Cash", p.amount))
@@ -49,6 +57,7 @@ export function renderSaleReceiptHtml(sale: ReceiptSale, place: { branchName: st
 ${row("Invoice", sale.invoiceNo)}
 ${row("Date", new Date(sale.soldAt).toLocaleString())}
 ${row("Served by", sale.sellerName)}
+${sale.discountApproverName ? row("Discount approved by", sale.discountApproverName) : ""}
 </table>
 <hr>
 <table>
