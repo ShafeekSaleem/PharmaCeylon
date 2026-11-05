@@ -1,0 +1,549 @@
+/* Counter work (`screen=work` in docs/design/desktop-app). Colours come from tokens.css. */
+
+.page {
+  display: grid;
+  flex: 1;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+}
+
+.head {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+.tabs {
+  margin-left: auto;
+}
+
+.tabs i {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--pos-surface-3);
+  color: var(--pos-text-2);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.tabs button[aria-pressed="true"] i {
+  background: var(--pos-primary);
+  color: var(--pos-on-primary);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 456px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+}
+
+/* ---------- the queue ---------- */
+.queue {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for the selected card's focus ring. */
+  padding: 3px;
+  margin: -3px;
+}
+
+.card {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface);
+  box-shadow: var(--pos-shadow);
+  color: var(--pos-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.card[aria-current="true"] {
+  border: 1.5px solid var(--pos-primary);
+  padding: 11.5px 13.5px;
+  background: color-mix(in srgb, var(--pos-primary) 5%, var(--pos-surface));
+  box-shadow: var(--pos-focus);
+}
+
+/* Each kind's own colour. Doubled so it outranks ui.kind's brand colour whatever the load order. */
+.kind.kind {
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+}
+
+.teal {
+  --c: var(--pos-t-teal);
+}
+.cyan {
+  --c: var(--pos-t-cyan);
+}
+.rose {
+  --c: var(--pos-t-rose);
+}
+.indigo {
+  --c: var(--pos-t-indigo);
+}
+.amber {
+  --c: var(--pos-t-amber);
+}
+.emerald {
+  --c: var(--pos-t-emerald);
+}
+.violet {
+  --c: var(--pos-t-violet);
+}
+.blue {
+  --c: var(--pos-t-blue);
+}
+
+.cardMain {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cardTop b {
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.cardTop .ref {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pos-text-3);
+}
+
+.when {
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+  white-space: nowrap;
+}
+
+.desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.by {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Sent from here without an answer: confirm before doing anything again. */
+.unconfirmed {
+  flex-direction: column;
+  gap: 8px;
+  cursor: default;
+  border-color: var(--pos-warn-line);
+  background: var(--pos-warn-soft);
+}
+
+.unconfirmed h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--pos-warn-ink);
+}
+
+.unconfirmed h3 :global(.pos-ic) {
+  width: 15px;
+  height: 15px;
+}
+
+.unconfirmed p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+}
+
+.pendingRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pos-warn-line);
+  font-size: 12.5px;
+}
+
+.pendingRow span {
+  flex: 1;
+  min-width: 0;
+}
+
+.pendingRow small {
+  display: block;
+  color: var(--pos-text-3);
+  font-size: 11.5px;
+}
+
+/* What was done here since this person signed in (the mockup's "Done at this counter"). */
+.doneHere {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--pos-line-strong);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pos-text-2);
+}
+
+.doneHere :global(.pos-ic) {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  color: var(--pos-ok);
+}
+
+.queueEmpty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px;
+  border-radius: 12px;
+  border: 1px dashed var(--pos-line-strong);
+  color: var(--pos-text-2);
+  font-size: 13px;
+}
+
+.queueEmpty :global(.pos-ic) {
+  width: 18px;
+  height: 18px;
+  color: var(--pos-text-3);
+}
+
+/* ---------- the detail pane ---------- */
+.detail {
+  overflow-y: auto;
+}
+
+.dh {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px 14px;
+}
+
+.dh .kind {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+}
+
+.dh .kind :global(.pos-ic) {
+  width: 23px;
+  height: 23px;
+}
+
+.dhMain {
+  min-width: 0;
+}
+
+.dh h2 {
+  margin: 3px 0 0;
+  font: 650 20px/1.2 var(--pos-font-display);
+  letter-spacing: -0.015em;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+}
+
+.meta span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.meta :global(.pos-ic) {
+  width: 14px;
+  height: 14px;
+  color: var(--pos-text-3);
+}
+
+.dhRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Requested → approved → you. */
+.trail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 20px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dot {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--pos-line-strong);
+  background: var(--pos-surface);
+  color: var(--pos-text-3);
+}
+
+.dot :global(.pos-ic) {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.6;
+}
+
+.done .dot {
+  border-color: var(--pos-ok);
+  background: var(--pos-ok);
+  color: var(--pos-surface);
+}
+
+.now .dot {
+  border-color: var(--pos-primary);
+  background: var(--pos-primary);
+  color: var(--pos-on-primary);
+  box-shadow: var(--pos-focus);
+}
+
+.warnStep .dot {
+  border-color: var(--pos-warn);
+  background: var(--pos-warn);
+  color: var(--pos-surface);
+}
+
+.badStep .dot {
+  border-color: var(--pos-bad);
+  background: var(--pos-bad);
+  color: var(--pos-surface);
+}
+
+.step > div {
+  min-width: 0;
+}
+
+.stepLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pos-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.step b {
+  display: block;
+  margin-top: 1px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--pos-text-3);
+}
+
+.trailNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 20px 0;
+  font-size: 12px;
+  color: var(--pos-ok-ink);
+}
+
+.trailNote :global(.pos-ic) {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  color: var(--pos-ok);
+}
+
+.trailNote.changed {
+  color: var(--pos-warn-ink);
+}
+
+.trailNote.changed :global(.pos-ic) {
+  color: var(--pos-warn);
+}
+
+.trailNote.revoked {
+  color: var(--pos-bad-ink);
+}
+
+.trailNote.revoked :global(.pos-ic) {
+  color: var(--pos-bad);
+}
+
+.trailNote.waived {
+  color: var(--pos-text-2);
+}
+
+.trailNote.waived :global(.pos-ic) {
+  color: var(--pos-text-3);
+}
+
+.trailNote ul {
+  margin: 2px 0 0;
+  padding-left: 16px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.facts {
+  margin: 0;
+}
+
+.waiting {
+  align-items: flex-start;
+}
+
+.waiting b {
+  display: block;
+}
+
+.result {
+  margin: 0 20px;
+}
+
+.footText {
+  font-size: 12.5px;
+  color: var(--pos-text-2);
+}
+
+.footText b {
+  display: block;
+  font-size: 13px;
+  color: var(--pos-text);
+}
+
+.noSelection {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--pos-text-2);
+  font-size: 13px;
+  text-align: center;
+}
+
+.noSelection :global(.pos-ic) {
+  width: 26px;
+  height: 26px;
+  color: var(--pos-text-3);
+}
+
+/* 1366 × 768 and below: a narrower queue; at the minimum width the people step text wraps. */
+@media (max-width: 1400px) {
+  .body {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1100px) {
+  .body {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+
+  .trail {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .step {
+    gap: 8px;
+  }
+
+  .dhRight {
+    display: none;
+  }
+
+  .by {
+    display: none;
+  }
+}

@@ -3,6 +3,7 @@ import { CustomersController } from "../customers/customers.controller";
 import { PrescriptionsController } from "../customers/prescriptions.controller";
 import { RefundRequestsController } from "../sales/refund-requests.controller";
 import { SalesController } from "../sales/sales.controller";
+import { CounterWorkController } from "../terminal-commands/counter-work.controller";
 import { TerminalCommandsController } from "../terminal-commands/terminal-commands.controller";
 import { OfflineActivationController } from "../terminals/offline-activation.controller";
 import { OfflineAssignmentController } from "../terminals/offline-assignment.controller";
@@ -50,6 +51,7 @@ describe("routes a PIN-opened counter login may call", () => {
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],
+    [CounterWorkController, ["list"]],
     [OfflineAssignmentController, ["view"]],
     [OfflineAuthorityController, ["prepare", "issue"]],
     [

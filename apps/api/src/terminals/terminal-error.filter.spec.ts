@@ -12,6 +12,7 @@ import { TERMINAL_ERROR_RETRYABLE } from "@pharmaceylon/shared";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TerminalCommandsController } from "../terminal-commands/terminal-commands.controller";
+import { CounterWorkController } from "../terminal-commands/counter-work.controller";
 import { EnrollmentCodesController } from "./enrollment-codes.controller";
 import { OfflineActivationController } from "./offline-activation.controller";
 import { OfflineAssignmentController } from "./offline-assignment.controller";
@@ -195,6 +196,7 @@ describe("terminal error filter coverage", () => {
       OfflineAuthorityController,
       TerminalEnrollmentController,
       TerminalCommandsController,
+      CounterWorkController,
     ];
     for (const controller of controllers)
       expect(
@@ -207,6 +209,7 @@ describe("terminal error filter coverage", () => {
       ),
     );
     expect(files.sort()).toEqual([
+      "counter-work.controller.ts",
       "enrollment-codes.controller.ts",
       "offline-activation.controller.ts",
       "offline-assignment.controller.ts",

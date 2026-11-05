@@ -278,6 +278,11 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         if (!sale || !device) return { ok: false, error: "That sale is not available to print here." };
         return printHtml(printerName, renderSaleReceiptHtml(sale, { branchName: device.branchName, counterLabel: device.counterLabel }));
       },
+      counterWork: () =>
+        act(logger, "counterWork", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.list();
+        }),
       refundsReady: () =>
         act(logger, "refundsReady", () => {
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");

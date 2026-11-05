@@ -329,6 +329,26 @@ must be `null` for every v1 operation except prescriptions (a pharmacist's co-si
 `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
 key, type or coercion is `INVALID_COMMAND`.
 
+### Work waiting at the counter (P2b)
+
+`GET /api/v1/counter-work` (`x-branch-id`; `terminal.execute`; a `@CounterRoute()`) lists what was
+approved on the web and waits for this branch's counter to execute. It is read-only and projects
+the existing documents (no model of its own): approved prepared receipts and held deliveries on a
+receivable order, approved transfers leaving this branch (approval present, or waived by
+`approvalRequiredForBranchTransfers`), transfers on their way here, refund requests the refund list
+calls `readyAtCounter` (plus open ones whose approval was revoked), approved stocktakes, approved
+held write-offs, approved supplier returns, and staged import stock not yet posted. Each kind is
+listed only to a caller holding that operation's own permission at the branch; `amount` on
+purchasing, write-off and supplier-return items is `null` without `costs.view`.
+
+Each item: `{ kind, id, reference, subject, lineCount, amount, readyAt, requested, approved,
+dispatched, approval: { evidenceId, approvedVersion, currentVersion, state, changes }, operation }`,
+newest first. `requested` / `approved` / `dispatched` are `{ name, at }` or `null`. `state` is
+`matches` (the pinned approval's version and material digest equal the document now), `changed`
+(something moved since approval, e.g. the order under a held delivery; `changes` names what, in
+words), `revoked`, or `not_needed`. Execution itself still goes through
+`POST /terminal-commands/execute` with `operation`, which re-checks everything.
+
 ### Envelope, canonical bytes and digest
 
 ```text

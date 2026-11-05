@@ -11,6 +11,8 @@ import { CustomersModule } from "../customers/customers.module";
 import { SalesModule } from "../sales/sales.module";
 import { ClinicalModule } from "../clinical/clinical.module";
 import { PharmacistCosigns } from "./pharmacist-cosigns.service";
+import { CounterWorkController } from "./counter-work.controller";
+import { CounterWorkService } from "./counter-work.service";
 import { SignedOperations } from "./signed-operations";
 import { TerminalCommandsController } from "./terminal-commands.controller";
 import { TerminalCommandExecutor } from "./terminal-command.executor";
@@ -29,7 +31,7 @@ import { TerminalCommandExecutor } from "./terminal-command.executor";
     CustomersModule,
     ClinicalModule,
   ],
-  controllers: [TerminalCommandsController],
-  providers: [TerminalCommandExecutor, SignedOperations, PharmacistCosigns],
+  controllers: [TerminalCommandsController, CounterWorkController],
+  providers: [TerminalCommandExecutor, SignedOperations, PharmacistCosigns, CounterWorkService],
 })
 export class TerminalCommandsModule {}
