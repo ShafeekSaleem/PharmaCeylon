@@ -11,10 +11,13 @@ const BEFORE_REPLAY_CODES = new Set(["BRANCH_SETUP_INCOMPLETE"]);
  * 403s checkout gives only inside its transaction, after it has waited on the key's lock and found
  * no earlier attempt: the dispenser's SLMC registration (a co-signer's, or the seller's alone).
  * Kept pending, a sale whose co-signer's registration lapsed could never be confirmed or cleared.
+ * A signed command's pharmacist co-sign is the same: the executor looks up the receipt first, so
+ * `APPROVER_NOT_QUALIFIED` or a spent or expired co-sign (`COSIGN_INVALID`) proves it never ran.
  */
 const AFTER_REPLAY_FORBIDDEN_CODES = new Set([
   "APPROVER_NOT_QUALIFIED",
   "SELLER_NOT_QUALIFIED",
+  "COSIGN_INVALID",
 ]);
 
 /**

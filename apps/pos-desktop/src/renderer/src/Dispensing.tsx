@@ -78,6 +78,113 @@ function RefusalNote({
   );
 }
 
+/**
+ * Who the prescription is recorded with: a registered pharmacist co-signing with their own PIN (or
+ * login password, if they have no PIN), or the person signed in, if they hold a registration. The
+ * server checks the PIN and the pharmacist's SLMC registration; the PIN is sent once and not kept.
+ */
+function RecordCosigner({
+  approvers,
+  cosignerId,
+  pin,
+  refusedIds,
+  onCosigner,
+  onPin,
+}: {
+  approvers: ApproverView[];
+  cosignerId: string;
+  pin: string;
+  refusedIds: string[];
+  onCosigner: (id: string) => void;
+  onPin: (pin: string) => void;
+}) {
+  return (
+    <div className={cx(d.list, d.wide)} id="rx-record-cosigners">
+      <div className={d.subH}>
+        Recorded with <span>a registered pharmacist</span>
+      </div>
+      {approvers.map((a) => {
+        const on = a.userId === cosignerId;
+        const state = refusedIds.includes(a.userId)
+          ? "No current SLMC registration at this branch"
+          : a.hasPin
+            ? "Pharmacist · co-signs with their PIN"
+            : "Pharmacist · no PIN yet, co-signs with their login password";
+        if (!on)
+          return (
+            <button
+              key={a.userId}
+              type="button"
+              className={cx(d.pharm, refusedIds.includes(a.userId) && d.pharmRefused)}
+              onClick={() => onCosigner(a.userId)}
+            >
+              <Avatar id={a.userId} name={a.fullName} className={d.av} />
+              <div>
+                <b>{a.fullName}</b>
+                <small>{state}</small>
+              </div>
+            </button>
+          );
+        const digits = Math.max(6, pin.length);
+        return (
+          <div key={a.userId} className={cx(d.pharm, d.pharmOn)}>
+            <Avatar id={a.userId} name={a.fullName} className={d.av} />
+            <div>
+              <b>{a.fullName}</b>
+              <small>{state}</small>
+            </div>
+            <div className={d.pinMini}>
+              <span>{a.hasPin ? "Pharmacist's PIN" : "Their login password"}</span>
+              {a.hasPin ? (
+                <div className={d.dots}>
+                  {Array.from({ length: digits }, (_, i) => (
+                    <i key={i} className={i < pin.length ? d.f : undefined} />
+                  ))}
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    autoFocus
+                    aria-label={`${a.fullName}'s PIN to record the prescription`}
+                    value={pin}
+                    maxLength={8}
+                    onChange={(e) => onPin(e.target.value.replace(/\D/g, ""))}
+                  />
+                </div>
+              ) : (
+                <input
+                  type="password"
+                  autoComplete="off"
+                  autoFocus
+                  className={cx(ui.in, d.password)}
+                  aria-label={`${a.fullName}'s login password to record the prescription`}
+                  value={pin}
+                  maxLength={128}
+                  onChange={(e) => onPin(e.target.value)}
+                />
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        className={cx(d.pharm, !cosignerId && d.pharmOn)}
+        onClick={() => onCosigner("")}
+        aria-pressed={!cosignerId}
+      >
+        <span className={d.selfIcon}>
+          <Icon name="user" />
+        </span>
+        <div>
+          <b>I&apos;m recording it myself</b>
+          <small>Only if you have a current SLMC registration at this branch.</small>
+        </div>
+      </button>
+    </div>
+  );
+}
+
 function RecordPrescription({
   customer,
   onRecorded,
@@ -101,13 +208,34 @@ function RecordPrescription({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<SlmcRefusal | null>(null);
+  const [approvers, setApprovers] = useState<ApproverView[]>([]);
+  const [cosignerId, setCosignerId] = useState("");
+  const [pin, setPin] = useState("");
+  const [refusedIds, setRefusedIds] = useState<string[]>([]);
   const fromCustomer = Boolean(customer) && patientName === customer?.fullName;
+  const cosignReady = !cosignerId || pin.length >= 4;
+
+  // The registered pharmacists at this branch; only they are offered as co-signers.
+  useEffect(() => {
+    void invoke(() => window.pos.listApprovers()).then((result) => {
+      if (result.ok) setApprovers(result.value);
+    });
+  }, []);
+
+  function chooseCosigner(id: string) {
+    setCosignerId(id);
+    setPin("");
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (!cosignReady) return;
     setBusy(true);
     setError(null);
     setRefusal(null);
+    const coSign = cosignerId ? { approverUserId: cosignerId, pin } : null;
+    // A PIN is used for one attempt only; a retry asks for it again.
+    setPin("");
     try {
       const result = await invoke(() =>
         window.pos.recordPrescription({
@@ -118,12 +246,17 @@ function RecordPrescription({
           ...(validUntil ? { validUntil } : {}),
           ...(notes.trim() ? { notes } : {}),
           ...(customer ? { customerId: customer.customerId } : {}),
+          ...(coSign ? { coSign } : {}),
         }),
       );
       if (result.ok) onRecorded(result.value);
       else if (result.error.code === "PHARMACIST_REQUIRED")
         setRefusal(slmcRefusal("PHARMACIST_REQUIRED", result.error.message));
-      else setError(result.error.message);
+      else {
+        if (result.error.code === "APPROVER_NOT_QUALIFIED" && coSign)
+          setRefusedIds((ids) => [...ids, coSign.approverUserId]);
+        setError(result.error.message);
+      }
     } finally {
       setBusy(false);
       // Show a command left unconfirmed straight away, with its confirm button.
@@ -217,14 +350,24 @@ function RecordPrescription({
           maxLength={512}
         />
       </div>
+      {approvers.length > 0 && (
+        <RecordCosigner
+          approvers={approvers}
+          cosignerId={cosignerId}
+          pin={pin}
+          refusedIds={refusedIds}
+          onCosigner={chooseCosigner}
+          onPin={setPin}
+        />
+      )}
       <div className={cx(d.formActions, d.wide)}>
         <button
           type="submit"
           className={cx(ui.btn, ui.outline)}
-          disabled={busy}
+          disabled={busy || !cosignReady}
         >
           <Icon name="check" />
-          {busy ? "Saving…" : "Save prescription"}
+          {busy ? "Saving…" : cosignerId ? "Co-sign and save" : "Save prescription"}
         </button>
         <button type="button" className={cx(ui.btn, ui.ghost)} onClick={onFind}>
           <Icon name="search" />
@@ -233,7 +376,18 @@ function RecordPrescription({
       </div>
       {refusal && (
         <div className={d.wide}>
-          <RefusalNote refusal={refusal} onHold={onHold} />
+          <RefusalNote
+            refusal={refusal}
+            onChoosePharmacist={
+              approvers.length
+                ? () =>
+                    document
+                      .querySelector<HTMLButtonElement>("#rx-record-cosigners button")
+                      ?.focus()
+                : undefined
+            }
+            onHold={onHold}
+          />
         </div>
       )}
       {error && (

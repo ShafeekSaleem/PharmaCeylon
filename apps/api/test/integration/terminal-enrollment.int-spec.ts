@@ -1363,6 +1363,7 @@ describe("online checkout attributed to the counter, till and staff session", ()
     trust,
     new OperatingHoursEvidence(),
     undefined,
+    undefined,
     shifts,
   );
   const sell = (
@@ -1522,6 +1523,7 @@ describe("a controlled sale dispensed by the seller alone at a counter (P1 #47)"
     trust,
     new OperatingHoursEvidence(),
     registrations,
+    undefined,
     shifts,
   );
 

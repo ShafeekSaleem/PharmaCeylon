@@ -604,8 +604,8 @@ current one.
 - **Port.** `MandatoryOperationEvidence.clinical` now delegates to the provider for the signed
   session's staff member and returns the registration relied on. `OperationAuthorizationService`
   passes it on, and the executor puts it in `CommandProvenance.pharmacistRegistrationId`, which
-  domain cores already copy into their success audit. A bare instance still fails closed. `pharmacistEvidenceId` must stay null
-  online (`INVALID_COMMAND`) until co-sign evidence exists.
+  domain cores already copy into their success audit. A bare instance still fails closed. `pharmacistEvidenceId` had to stay null
+  online (`INVALID_COMMAND`) until co-sign evidence existed; MR 10c adds it for prescriptions.
 
 Two new `identity` routes plus a GET (203 in the inventory with #94 and #95). When it merged, no signed operation carried a clinical
 effect yet; MR 10a below adds the first. Still open:
@@ -658,8 +658,8 @@ port had no caller. It is now the twelfth v1 signed operation:
   (coordinated enforcement comes after #93 and W1). `pharmacistEvidenceId` stays `null`: a
   cashier's session with a pharmacist co-signing by PIN is the co-sign work after #93, which
   follows the 2026-11-01 decision to handle prescriptions inside Sell. MR 10b has since moved the
-  desktop onto this command and refuses the browser route at live branches; the co-sign evidence
-  on a signed command is still open there.
+  desktop onto this command and refuses the browser route at live branches, and MR 10c adds the
+  co-sign evidence.
 
 Tests: `terminal-command.executor.spec.ts` (registry and body parser) and
 `test/integration/terminal-execution.int-spec.ts` "prescriptions through signed commands". They
@@ -724,9 +724,8 @@ Rollout note: no screen records registrations yet (MR 10, "Web"). Until an owner
 through `POST /admin/pharmacist-registrations`, nobody can co-sign controlled items, on the web POS
 or at a counter.
 
-Still open: a cashier can't record a prescription at the counter, because a signed command takes
-no co-sign evidence (`pharmacistEvidenceId` stays `null`). The registered pharmacist switches in
-to record it. Binding the PIN co-sign to the signed command is the next step if that is too slow.
+Still open when this merged: a cashier couldn't record a prescription at the counter, because a
+signed command took no co-sign evidence. MR 10c closes it.
 
 Tests:
 - `sales.checkout-controlled.spec.ts`: the check runs on the checkout's transaction after the PIN;
@@ -756,6 +755,103 @@ Tests:
 - Desktop `dispensing.spec.ts` and `signed-commands.spec.ts`: the exact signed body, with no
   approval or co-sign evidence and no browser route; the receipt kept; `PHARMACIST_REQUIRED` as a
   final refusal; an unanswered command left to confirm.
+
+## MR 10c: a pharmacist's PIN co-sign on the signed prescription command
+
+The last open SLMC item on #47 (2026-11-04). Before this, recording a prescription at the counter
+needed the signed-in person's own registration, so a cashier held the sale while the pharmacist
+switched in. Now the cashier records it with a registered pharmacist's PIN, as checkout's co-sign
+works.
+
+- **Shape.** The PIN cannot go in a signed body, digest, receipt or log, so it is spent online
+  first. `POST /terminal-commands/pharmacist-cosigns` (`identity`, `@CounterRoute()`) takes
+  `{ workSessionId, operation, body, pharmacistUserId, pin }` and issues a `pharmacist_cosign_evidence`
+  row (migration `20261105000300`). The row is bound to the tenant, branch, counter session, the
+  person signed in there, the operation and a digest of the exact body, and lives 5 minutes. The
+  command carries only its ID as `pharmacistEvidenceId`. The command's own digest can't be the
+  binding, because it contains that ID.
+- **Issuing** (`terminal-commands/pharmacist-cosigns.service.ts`). The caller's open session and
+  live grants are checked first, so nobody outside a counter session can spend guesses at a PIN.
+  `PharmacistApprovalService.verifyApproverPin` then checks the PIN outside a transaction, as at
+  checkout. A wrong PIN is committed towards the co-signer's own lockout, and the refusal codes are
+  the same (`APPROVER_PIN_INCORRECT`, `_LOCKED`, `_SWITCHED_OFF`). Then one transaction re-checks the
+  session and issues the co-sign, which needs the co-signer's current registration at the branch
+  (`APPROVER_NOT_QUALIFIED`). The co-signer is picked from `GET /sales/pos/approvers`, which lists
+  only registered pharmacists.
+- **Spending** (`clinical/pharmacist-cosign.service.ts`). `MandatoryOperationEvidence.clinical`
+  sends a command with `pharmacistEvidenceId` to `PharmacistCosignService.consume`, inside the
+  execution transaction. It locks the row and requires the exact session, staff member, operation
+  and body, unspent and unexpired (`COSIGN_INVALID`). It checks the co-signer's registration with
+  `assertQualified` (same share lock, so a revocation committing first refuses it), then marks the
+  row spent by this command with the registration relied on. A refusal rolls everything back, so a
+  co-sign is spent only by a command that succeeds, and only once. A lost-response resend replays
+  the receipt, which the executor looks up before authorizing, so the spent co-sign isn't needed
+  again; this is the attendance-proof pattern.
+- **Permissions (differs from the brief).** A cashier has no `prescriptions.create` by default, so a
+  co-sign alone would not have let them record. The descriptor now has
+  `cosign: { permission: "sales.pos_use" }`. A co-signed command needs that grant from the signed-in
+  person, and the co-signer needs `prescriptions.create`, checked with their PIN, as checkout asks
+  the co-signer for `sales.approve_controlled`. `operationPermission(descriptor, body, cosigned)`
+  is used at every check: prepare, verification, authorization, the executor's live recheck and
+  replay. The authorization service refuses a co-sign the executor didn't declare and a co-sign on
+  an operation that takes none (`INVALID_COMMAND`).
+- **Provenance.** `CommandProvenance` gains `pharmacistUserId` (whose registration) and
+  `pharmacistEvidenceId`. Both audits that carry it (`prescription.recorded`,
+  `terminal.command_executed`) therefore name the co-signer and the registration separately from
+  the actor, the cashier. The receipt's result shape is unchanged: its `pharmacistRegistrationId`
+  is the co-signer's. Issuing writes `pharmacist_cosign.issued`, and wrong PINs write
+  `sale.pharmacist_pin_failed`, as checkout does.
+- **Retention.** Co-signs are spent once and are otherwise immutable and never deleted (trigger).
+  They have a `pc_tenant_isolation` policy, and RLS stays disabled as for every staged table.
+- **Desktop.** The prescription sheet's record form lists the registered pharmacists under
+  "Recorded with", plus "I'm recording it myself". Choosing a pharmacist asks for their PIN (or
+  login password if they have none), and the button becomes "Co-sign and save". Desktop main sends
+  the PIN once to the co-sign route, then signs a command carrying only its ID. The PIN is cleared
+  after every attempt and kept nowhere on the counter. `PHARMACIST_REQUIRED` now points to the
+  co-sign and offers "Choose a pharmacist" as well as a hold. `APPROVER_NOT_QUALIFIED` marks that
+  pharmacist, and `COSIGN_INVALID` asks for the PIN again. A resend refused with `COSIGN_INVALID`
+  is final (`definite-refusal.ts`).
+- **Not changed.** The unsigned browser `POST /prescriptions` and checkout's co-sign. A co-signer's
+  `prescriptions.create` is checked when the co-sign is issued, not again when it is spent; their
+  registration is checked both times.
+
+Tests:
+- int `terminal-execution` "prescriptions through signed commands (clinical)" › "a cashier recording
+  with a registered pharmacist's PIN co-sign":
+  - "records with the co-signer's registration, keeps both people in the provenance and replays a
+    lost response without the spent co-sign"
+  - "still refuses a cashier recording alone, whose role has no prescriptions.create"
+  - "refuses an unregistered, expired or revoked co-signer with APPROVER_NOT_QUALIFIED and records
+    nothing"
+  - "counts a wrong PIN towards the co-signer's own lock, and a locked PIN refuses the right one"
+  - "spends a co-sign once, only on the counter session and exact body it was given for, and keeps
+    it"
+- int `pharmacist-registration`: "takes co-sign evidence only through its provider, and fails
+  closed without a provider".
+- unit `operation-authorization.service.spec.ts` "a pharmacist's PIN co-sign (P1 #47)":
+  - "asks the signed-in person for the co-sign grant instead of the operation's, and spends the
+    co-sign"
+  - "refuses a co-sign the caller didn't declare, one on an operation that takes none, and one on
+    remote work"
+  - "routes a co-signed command to the co-sign provider and fails closed without one"
+- unit `terminal-command.executor.spec.ts`:
+  - "prepares a co-signed prescription with the co-sign grant and its evidence ID, and nothing
+    else co-signed"
+  - "lets a pharmacist co-sign exactly the shared contract's co-signable operations"
+- Desktop main:
+  - `dispensing.spec.ts`: "gets a registered pharmacist's co-sign with their PIN first, then signs
+    only its ID", "explains a co-signer without a registration or a stale co-sign, and sends no
+    command after a wrong PIN"
+  - `signed-commands.spec.ts`: "records with a pharmacist's co-sign: the PIN goes to the co-sign
+    only, the signed command carries its ID", "clears a resent co-signed command refused for its
+    co-sign, which proves it never ran"
+- Desktop renderer `Dispensing.spec.tsx` "recording a prescription at the counter":
+  - "records with a registered pharmacist's PIN, sent once with the details and then cleared"
+  - "records as the signed-in person by default, with no co-sign"
+  - "explains PHARMACIST_REQUIRED and offers a pharmacist's co-sign or a hold"
+  - "marks a co-signer without a registration, and asks for the PIN again after any refusal"
+- Desktop renderer `sell-model.spec.ts`: "tells the counter to record a prescription with a
+  registered pharmacist's PIN, or hold the sale".
 
 ## P6 #52 slice: transfer approval, dispatch and receipt
 
@@ -964,6 +1060,54 @@ lifecycle, every mismatch kind, concurrent events of one attempt, concurrent ide
 conflicts within and across kinds (including a D8 acknowledgement ID), wrong signature, branch,
 clock, uploader token and kind, revoked device, audit-failure rollback, immutability and the
 per-kind database shape. `hours-evidence.int-spec.ts` now checks D8 conflict retention.
+
+## P3 #49 slice: held evidence verified against issued grants; D11 cutoff
+
+Supplies the P3 half of the #47 readiness item "P3/P5 acknowledgement/grant/manager
+verification" and of D11 replacement clearance. Contract:
+[API_CONTRACT.md](API_CONTRACT.md#held-offline-evidence-verification-p3).
+
+- **D8 acknowledgements (MR 7) are verified.** `HeldEvidenceVerifier.verifyHoursAcknowledgement`
+  binds a held acknowledgement to a grant issued to that exact enrollment (version, nomination,
+  device), to the original outage, and to a manager in the grant's `authorizedStaff` with
+  `acknowledge_business_hours` and the same preparation and PIN version. The window must stay
+  inside the grant's lifetime and inside its mandatory windows. The record moves once to
+  `accepted`, or to `rejected` with the reason in `held_reason`. That is the move the MR 7 trigger
+  already allows, so there is no migration.
+- **Support records (MR 9) get the same grant check.** It covers the sign-in they cite, their work
+  session and the staff they name. A failure rejects the record. A pass leaves it `held` for P5's
+  sale and card-machine verification. Records held as `enrollment_revoked` or `attempt_mismatch`
+  are left for P5 reconciliation.
+- **D11, P3's half.** `OfflineActivationClearance` locks the branch nomination and computes the
+  old counter's authority cutoff from what was issued (`grant-cutoff.ts`). The cutoff is a
+  confirmed revocation or retirement, the latest grant's `expiresAt`, or none if it was never
+  issued a grant. Replacement clears only once the cutoff has passed **and**
+  `journalRecoveryEvidence` (P5's half) is supplied. P5's half still returns false, so replacement
+  still fails closed with `OFFLINE_RECOVERY_EVIDENCE_REQUIRED`. One behaviour changes: a still-enrolled old counter whose
+  grants have all expired (or that never had one) now reports that reason instead of
+  `PREVIOUS_STILL_ACTIVE`.
+- **Issuance cannot race a replacement.** `isNominated` takes a share lock on the nomination row
+  that clearance locks for update. An issuance overlapping an activation either completes first,
+  so clearance sees its grant, or gets a write conflict (raw 40001, now retried). The retry then
+  finds the counter no longer nominated.
+
+Not done here: P5's journal recovery and review, P5 sync and its HTTP intake, and refusing
+dependent sale/shift commands until their evidence is accepted. The sign-in and outage evidence
+is trusted as P5 hands it over; verifying the journal signatures it comes from is P5's job.
+
+Tests: `held-evidence-verification.spec.ts` (window coverage, exact-key parsing, cutoff instant) and
+`test/integration/held-evidence.int-spec.ts` (PostgreSQL, grants issued through
+`issueOfflineAuthority`):
+- an accepted acknowledgement, decided once and immutable;
+- refusals for an unknown grant, another enrollment's grant, version and nomination mismatches, a
+  window past expiry, an unprepared manager, a manager without the capability, PIN version and
+  preparation mismatches, another counter's sign-in, a sign-in before the grant, and the wrong
+  outage;
+- a mandatory window respected and one overridden;
+- support records held with no business effect, and rejected for each staff, session, window,
+  grant and credential failure;
+- D11 before expiry, after expiry without and with P5's half, and a revoked old counter;
+- an issuance racing an activation.
 
 ## Remaining P1 MRs, in order
 

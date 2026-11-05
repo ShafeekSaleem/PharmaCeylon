@@ -39,6 +39,11 @@ export type OperationDescriptor<T> = Readonly<{
    * tenant turned transfer approval off). The command must then carry no approval evidence;
    * the waiver is re-read after every evidence provider, like resolved facts.
    */
+  /** Clinical operations a registered pharmacist may co-sign by PIN for whoever is signed in at
+   * the counter (P1 #47). A co-signed command needs `permission` here from the signed-in person
+   * instead of the operation's own grant, which the co-signer must hold (checked with their PIN);
+   * the co-signer's SLMC registration is the command's clinical evidence. */
+  cosign?: { permission: string };
   approval?: {
     action: ApprovalAction;
     documentId: (body: T) => string;
@@ -51,10 +56,15 @@ export type OperationDescriptor<T> = Readonly<{
   };
 }>;
 
-/** The grant an operation needs for this exact parsed body. */
-export function operationPermission<T>(descriptor: OperationDescriptor<T>, body: T): string {
-  const permission =
-    typeof descriptor.permission === "function" ? descriptor.permission(body) : descriptor.permission;
+/** The grant an operation needs from the signed-in person for this exact parsed body, and whether
+ * a pharmacist co-signed it (`pharmacistEvidenceId` set). */
+export function operationPermission<T>(descriptor: OperationDescriptor<T>, body: T, cosigned = false): string {
+  if (cosigned && !descriptor.cosign) denied("INVALID_COMMAND");
+  const permission = cosigned
+    ? descriptor.cosign!.permission
+    : typeof descriptor.permission === "function"
+      ? descriptor.permission(body)
+      : descriptor.permission;
   if (!PERMISSION_KEYS.includes(permission)) denied("INVALID_COMMAND");
   return permission;
 }
@@ -81,12 +91,15 @@ export class OperationAuthorizationService {
       body: unknown;
       signedCommand?: unknown;
       attendanceProofId?: string;
+      /** The signed command carries a pharmacist's co-sign; verified against it below. */
+      cosigned?: boolean;
     },
   ) {
     const body = descriptor.parseBody(input.body);
     if (boundedCanonical(body) !== boundedCanonical(input.body))
       denied("INVALID_COMMAND");
-    const permission = operationPermission(descriptor, body);
+    const cosigned = input.cosigned === true;
+    const permission = operationPermission(descriptor, body, cosigned);
     const actor = await this.access.resolveLive(user, branchId, tx);
     if (!actor.has(permission)) denied("PERMISSION_DENIED");
     const facts = descriptor.resolveFacts
@@ -99,7 +112,7 @@ export class OperationAuthorizationService {
     );
     const operation = `${descriptor.method} ${descriptor.routeTemplate}`;
     if (!classification.requiresLocalTerminal) {
-      if (descriptor.approval) denied("INVALID_COMMAND");
+      if (descriptor.approval || cosigned) denied("INVALID_COMMAND");
       if (classification.effects.includes("bank_payment_record"))
         await this.evidence.bankPayment(tx, {
           tenantId: user.tenantId,
@@ -136,7 +149,10 @@ export class OperationAuthorizationService {
       input.signedCommand,
       input.attendanceProofId,
     );
-    if (boundedCanonical(terminal.command.body) !== boundedCanonical(body))
+    if (
+      boundedCanonical(terminal.command.body) !== boundedCanonical(body) ||
+      (terminal.command.pharmacistEvidenceId !== null) !== cosigned
+    )
       denied("INVALID_COMMAND");
     let approval = null;
     let revalidateApproval:
@@ -189,6 +205,9 @@ export class OperationAuthorizationService {
         ? await descriptor.resolveFacts(tx, user, branchId, body)
         : undefined,
     );
+    // A co-sign is clinical evidence only; on any other operation it is never silently ignored.
+    if (!classification.effects.includes("clinical_dispensing") && terminal.command.pharmacistEvidenceId !== null)
+      denied("INVALID_COMMAND");
     const clinical = classification.effects.includes("clinical_dispensing")
       ? await this.evidence.clinical(tx, terminal.command)
       : null;

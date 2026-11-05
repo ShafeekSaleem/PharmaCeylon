@@ -4,7 +4,8 @@ import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { denied } from "../terminals/terminal-wire";
 import { OperatingHoursEvidence } from "../terminals/operating-hours.evidence";
 import { SupplierPaymentEvidenceService } from "../purchasing/ledger/supplier-payment-evidence.service";
-import { type ClinicalEvidence, PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
+import { PharmacistRegistrationService } from "../clinical/pharmacist-registration.service";
+import { type CommandClinicalEvidence, PharmacistCosignService } from "../clinical/pharmacist-cosign.service";
 
 /** Integration ports for server-resolved evidence. No owner/manager shortcut and no
  * caller-supplied verified booleans. Real domain providers must bind the exact command,
@@ -22,17 +23,25 @@ export class MandatoryOperationEvidence {
     private readonly paymentProvider?: SupplierPaymentEvidenceService,
     @Optional()
     private readonly clinicalProvider?: PharmacistRegistrationService,
+    @Optional()
+    private readonly cosignProvider?: PharmacistCosignService,
   ) {}
 
-  /** The signed session's staff member must hold a current SLMC registration an owner recorded
-   * (P1 #47); no role, permission or ownership substitutes for it. Returns the registration
-   * relied on, for the operation's provenance. */
+  /** A current SLMC registration an owner recorded (P1 #47): the signed session's staff member's
+   * own, or, when the command carries `pharmacistEvidenceId`, the co-signing pharmacist's, whose
+   * PIN co-sign is spent here. No role, permission or ownership substitutes for it. Returns the
+   * registration relied on and whose it is, for the operation's provenance. */
   async clinical(
     tx: Prisma.TransactionClient,
     command: OnlineTerminalCommand<unknown>,
-  ): Promise<ClinicalEvidence> {
+  ): Promise<CommandClinicalEvidence> {
+    if (command.pharmacistEvidenceId !== null) {
+      if (!this.cosignProvider) denied("PHARMACIST_REQUIRED");
+      return this.cosignProvider.consume(tx, command);
+    }
     if (!this.clinicalProvider) denied("PHARMACIST_REQUIRED");
-    return this.clinicalProvider.assertForCommand(tx, command);
+    const own = await this.clinicalProvider.assertForCommand(tx, command);
+    return { ...own, pharmacistUserId: command.session.staffUserId, pharmacistEvidenceId: null };
   }
   async hours(
     tx: Prisma.TransactionClient,

@@ -666,6 +666,11 @@
   },
   {
     "method": "POST",
+    "path": "/api/v1/sales/checkout/resolve",
+    "source": "apps/api/src/sales/sales.controller.ts"
+  },
+  {
+    "method": "POST",
     "path": "/api/v1/sales/holds",
     "source": "apps/api/src/sales/sales.controller.ts"
   },
@@ -952,6 +957,11 @@
   {
     "method": "POST",
     "path": "/api/v1/terminal-commands/execute",
+    "source": "apps/api/src/terminal-commands/terminal-commands.controller.ts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/terminal-commands/pharmacist-cosigns",
     "source": "apps/api/src/terminal-commands/terminal-commands.controller.ts"
   },
   {
