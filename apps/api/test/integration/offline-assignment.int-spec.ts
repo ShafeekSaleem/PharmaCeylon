@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { TerminalEnrollmentCommand } from "@pharmaceylon/shared";
 import { AuditService } from "../../src/audit/audit.service";
 import { createTenantAwarePrismaProxy } from "../../src/prisma/tenant-aware-prisma.proxy";
@@ -248,6 +248,18 @@ describe("assignment authorization", () => {
 });
 
 describe("delegation", () => {
+  it("reads active and revoked delegations from one database snapshot", async () => {
+    const transaction = jest.spyOn(proxy, "$transaction");
+    try {
+      await assignments.view(user(fx.ownerId), fx.mainBranchId);
+      expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      });
+    } finally {
+      transaction.mockRestore();
+    }
+  });
+
   it("retains an older live delegation when newer revoked history fills the history limit", async () => {
     const before = await assignments.delegate(user(fx.ownerId), fx.mainBranchId, fx.managerId);
     const live = before.delegations.find((d) => d.revokedAt === null)!;

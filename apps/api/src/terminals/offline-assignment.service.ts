@@ -64,10 +64,15 @@ export class OfflineAssignmentService {
   ) {}
 
   async view(user: RequestUser, branchId: string): Promise<OfflineAssignmentView> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.access.resolveLive(user, branchId, tx);
-      return this.read(tx, user.tenantId, branchId);
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.access.resolveLive(user, branchId, tx);
+        return this.read(tx, user.tenantId, branchId);
+      },
+      // `read` loads active and bounded revoked delegation sets separately. Keep
+      // them on one snapshot so a concurrent revoke cannot appear in both sets.
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   async delegate(user: RequestUser, branchId: string, managerUserId: string) {
