@@ -853,6 +853,53 @@ Tests:
 - Desktop renderer `sell-model.spec.ts`: "tells the counter to record a prescription with a
   registered pharmacist's PIN, or hold the sale".
 
+## MR 10d: registers show the pharmacist who checked each prescription
+
+After MR 10c a cashier can type a prescription in with a pharmacist's PIN, so "who recorded it"
+no longer says who verified it. Inspectors and the dangerous-drugs register care about the
+pharmacist who checked it (2026-11-05).
+
+- **Data: stored on the prescription.** Migration `20261105300000` adds `prescription.checked_by`
+  and `checked_registration_id`, written by `PrescriptionsService.createInTransaction` from the
+  signed command's provenance (`pharmacistUserId`, `pharmacistRegistrationId`) in the same
+  transaction. A composite foreign key to `pharmacist_registration (tenant_id, user_id, id)` pins
+  the registration to the checker, and a check needs both or neither. Both are added `NOT VALID`
+  and validated by `20261105300100` in its own transaction, as `sale.dispenser_registration_id` was.
+  Reading the audit provenance at list time was the alternative; a column keeps the register a
+  plain indexed read and survives audit retention.
+- **Backfill.** The same migration fills prescriptions already recorded at a counter from their
+  `prescription.recorded` audit: the co-signer when the provenance names one, otherwise the
+  recorder (before MR 10c the registration was always the recorder's own). Only a registration
+  that belongs to that person is copied.
+- **Browser route.** The unsigned `POST /prescriptions` checks no registration, so `checkedBy` stays
+  `null` and the register says "Not checked".
+- **Reads.** Every prescription response carries `recordedBy` and `checkedBy` (with the
+  registration's `slmcNumber`): the counter's search, the register, one prescription, the
+  browser route's response and the customer profile's prescription history.
+- **Web.** The Prescriptions register gets "Recorded by" and "Pharmacist checked by" columns, the
+  second with the SLMC number beside the name, as the Prescriber column shows the doctor's
+  registration. The customer profile's Prescriptions tab gives both on each row.
+- **Desktop.** Unchanged: the counter's prescription lookup shows no recorder.
+- **Not changed.** There is no prescription or controlled-drug register report or export yet;
+  when one is built it should take these two fields.
+
+Tests:
+- int `terminal-execution` "prescriptions through signed commands (clinical)":
+  - "records once for a registered pharmacist, replays the original result and audits the
+    registration" (the pharmacist recording alone is the checker);
+  - "records with the co-signer's registration, keeps both people in the provenance and replays a
+    lost response without the spent co-sign" (the co-signer is the checker; the register, the
+    lookup and one prescription show both people);
+  - "backfills who checked a prescription recorded before this was stored, from its audit
+    provenance" (both provenance shapes, a registration that isn't the checker's never copied, and
+    the database refusing a mismatched or half-set pair).
+- int `pharmacist-registration` "the unsigned prescription route at a branch live on PharmaCeylon
+  POS": "records before go-live and during an owner's fallback, when the web POS is in use"
+  (`checkedBy: null`).
+- Web `prescriptions/page.spec.tsx` "the prescription register": "shows who recorded each
+  prescription and which pharmacist checked it, with their SLMC number", "says a prescription
+  recorded on the web was not checked by a registered pharmacist".
+
 ## P6 #52 slice: transfer approval, dispatch and receipt
 
 Transfers already reserved on approval and moved stock on ship/receive; what was missing was the

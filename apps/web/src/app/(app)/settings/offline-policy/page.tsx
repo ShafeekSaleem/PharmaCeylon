@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui";
 import css from "../settings.module.css";
 import { OfflineManagersCard } from "./offline-managers-card";
 import { OfflinePolicyCard } from "./offline-policy-card";
+import { AssignmentDelegationsCard } from "./assignment-delegations-card";
 
 export default function OfflinePolicySettingsPage() {
   // Bumped after the policy saves, so the managers card re-reads the branch's offline state.
@@ -18,6 +19,7 @@ export default function OfflinePolicySettingsPage() {
       <div className={css.panel}>
         <OfflinePolicyCard onSaved={() => setSaves((n) => n + 1)} />
         <OfflineManagersCard refreshKey={saves} />
+        <AssignmentDelegationsCard />
       </div>
     </div>
   );

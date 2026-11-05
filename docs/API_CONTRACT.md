@@ -507,7 +507,7 @@ permission `tenant.management`, which is never sufficient by itself. Every respo
 
 | Route | Who | Effect |
 | --- | --- | --- |
-| `GET /terminals/offline-assignment` | branch staff with `tenant.management` | Current nomination (`nominationVersion`, 0 = none), delegations, recent authorizations. |
+| `GET /terminals/offline-assignment` | branch staff with `tenant.management` | Current nomination (`nominationVersion`, 0 = none), every active delegation plus up to 50 recent revoked delegations (newest first), recent authorizations. |
 | `POST /terminals/offline-assignment/delegations` `{ managerUserId }` | **owner only** | Delegates assignment to one manager for this branch. The delegate must be assigned here and hold `tenant.management` here. Idempotent. Managers cannot delegate onward; no role edit creates a delegation. |
 | `POST /terminals/offline-assignment/delegations/:delegationId/revoke` `{ reason }` | owner only | Revokes it, and revokes the delegate's outstanding authorization. |
 | `POST /terminals/offline-assignment/authorizations` `OfflineAssignmentAuthorizeRequest` | owner, or a manager with a live delegation for this branch | Authorizes one exact active enrolled target at this branch and the `expectedNominationVersion` shown. Supersedes the branch's previous outstanding authorization. `authorizationId` is client-generated: resending is a no-op, reuse for anything else is 409 `AUTHORIZATION_ID_CONFLICT`. |
@@ -1266,6 +1266,16 @@ Two read paths per entity, deliberately different, because a counter picker and 
 
 - **Customer history spans branches; the prescription register does not.** Someone who fills a prescription at one shop and returns to another is the normal case, so `/:id/profile` is tenant-scoped. `Prescription.rxNumber` is unique per branch, so the register follows the `x-branch-id` header.
 - Lifetime value counts **posted** sales only — a voided or refunded sale is not spend.
+- **Who recorded it, and who checked it.** Every prescription in `GET /prescriptions`,
+  `GET /prescriptions/register`, `GET /prescriptions/:id`, the `POST /prescriptions` response and
+  the profile's prescription history carries `recordedBy: { id, fullName }` (who typed it in) and
+  `checkedBy: { id, fullName, slmcNumber } | null`: the pharmacist whose SLMC registration the
+  signed counter command relied on (the PIN co-signer, or the registered pharmacist recording it
+  alone) and that registration's number. `checkedBy` is `null` for a prescription recorded through
+  the unsigned browser route, which checks no registration. It is stored with the prescription at
+  record time (`prescription.checked_by` / `checked_registration_id`, pinned to each other by a
+  composite foreign key), and prescriptions recorded at a counter before it existed were filled
+  from their `prescription.recorded` audit provenance.
 - `validity=valid` includes prescriptions with `validUntil: null`, which never lapse. The cutoff is midnight UTC, so one expiring today still reads as valid.
 - Deactivating a customer (`isActive: false`) hides them from the counter picker and keeps all history; there is no delete.
 - `customers.manage` is separate from `customers.create` so counter staff can register a walk-in without being able to rewrite an existing profile. Defaults to owner, manager and pharmacist.

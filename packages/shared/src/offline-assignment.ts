@@ -15,7 +15,7 @@ export type OfflineAssignmentView = Readonly<{
     activatedAt: number;
   }> | null;
   nominationVersion: number;
-  /** Newest first, including revoked ones (`revokedAt` set). */
+  /** Newest first: every active delegation and up to 50 recent revoked ones (`revokedAt` set). */
   delegations: ReadonlyArray<OfflineTerminalDelegation>;
   /** Newest first; at most one has `status: "authorized"`. */
   authorizations: ReadonlyArray<

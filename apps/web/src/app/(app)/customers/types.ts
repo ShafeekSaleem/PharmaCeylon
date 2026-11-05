@@ -1,3 +1,4 @@
+import type { PrescriptionPeople } from "../prescriptions/prescription-people";
 export const PAGE_SIZE = 25;
 
 export type CustomerStatusFilter = "all" | "active" | "inactive";
@@ -35,7 +36,7 @@ export type CustomerSale = {
   _count: { items: number };
 };
 
-export type CustomerPrescription = {
+export type CustomerPrescription = PrescriptionPeople & {
   id: string;
   rxNumber: string;
   patientName: string;
