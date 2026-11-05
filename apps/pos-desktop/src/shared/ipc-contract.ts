@@ -283,6 +283,107 @@ export type HeldCart = z.infer<typeof heldCartSchema>;
 export const actionErrorSchema = z.object({ code: z.string(), message: z.string() });
 export type ActionError = z.infer<typeof actionErrorSchema>;
 
+/** A drawer count in minor units (cents): the total and the note-and-coin lines it came from. */
+export const cashCountSchema = z.object({
+  totalMinor: z.number().int().min(0).max(2_000_000_000),
+  lines: z
+    .array(
+      z.object({
+        denominationMinor: z.number().int().positive(),
+        count: z.number().int().min(0).max(100_000),
+      }),
+    )
+    .max(20),
+});
+export type CashCount = z.infer<typeof cashCountSchema>;
+
+const minor = z.number().int();
+const personSchema = z.object({ id: uuid, fullName: z.string() }).nullable();
+
+/** The server's totals for one shift (API_CONTRACT.md, "Till shifts"). */
+export const shiftSummarySchema = z.object({
+  openingCashMinor: minor,
+  cashTakenMinor: minor,
+  changeGivenMinor: minor,
+  cashRefundsMinor: minor,
+  cashPaidOutMinor: minor,
+  cashPaidInMinor: minor,
+  expectedCashMinor: minor,
+  saleCount: z.number().int(),
+  salesTotalMinor: minor,
+  firstSaleAt: z.string().nullable(),
+  lastSaleAt: z.string().nullable(),
+  takingsByMethod: z.array(
+    z.object({ method: z.string(), saleCount: z.number().int(), takenMinor: minor, refundedMinor: minor }),
+  ),
+  takingsByHour: z.array(z.object({ hour: z.string(), saleCount: z.number().int(), totalMinor: minor })),
+  refunds: z.array(
+    z.object({
+      goodsReturnId: uuid,
+      returnNumber: z.string(),
+      invoiceNo: z.string().nullable(),
+      amountMinor: minor,
+      paidBack: z.array(z.object({ method: z.string(), amountMinor: minor })),
+      items: z.array(z.object({ name: z.string(), qty: z.number().int(), disposition: z.string() })),
+      processedBy: personSchema,
+      at: z.string(),
+    }),
+  ),
+  cashMovements: z.array(
+    z.object({
+      id: uuid,
+      direction: z.enum(["in", "out"]),
+      amountMinor: minor,
+      reason: z.string(),
+      referenceType: z.string().nullable(),
+      at: z.string(),
+      recordedBy: personSchema,
+    }),
+  ),
+});
+export type ShiftSummary = z.infer<typeof shiftSummarySchema>;
+
+/**
+ * This counter's copy of a till shift. `status` is where the shift is on this counter: `opening`
+ * and `closing` mean the step is saved here and sent, and `sync` says whether the server has
+ * confirmed it. `expectedCashMinor` is the counter's own running figure; `summary` is the
+ * server's, from the last time it answered.
+ */
+export const localShiftSchema = z.object({
+  workSessionId: uuid,
+  staffUserId: uuid,
+  staffName: z.string(),
+  openedAt: z.string(),
+  openingCashMinor: minor,
+  openingCount: cashCountSchema.shape.lines,
+  status: z.enum(["opening", "open", "closing", "closed"]),
+  sync: z.enum(["pending", "synced", "failed"]),
+  error: z.object({ code: z.string(), message: z.string() }).nullable(),
+  expectedCashMinor: minor,
+  closedAt: z.string().nullable(),
+  closedByName: z.string().nullable(),
+  closingCashCountMinor: minor.nullable(),
+  /** The server's expected cash at the close, once it has confirmed it. */
+  serverExpectedCashMinor: minor.nullable(),
+  varianceMinor: minor.nullable(),
+  varianceNote: z.string().nullable(),
+  assistanceReason: z.string().nullable(),
+  /** An unconfirmed close made for someone else: the manager's PIN is needed to send it again. */
+  needsManagerPin: z.boolean(),
+  summary: shiftSummarySchema.nullable(),
+  summaryAt: z.string().nullable(),
+});
+export type LocalShift = z.infer<typeof localShiftSchema>;
+
+export const shiftStateSchema = z.object({
+  /** The shift open on this till, or being opened or closed. */
+  current: localShiftSchema.nullable(),
+  lastClosed: localShiftSchema.nullable(),
+  /** Every shift step the server hasn't confirmed yet, oldest first. */
+  unsynced: z.array(localShiftSchema),
+});
+export type ShiftState = z.infer<typeof shiftStateSchema>;
+
 /** Actions report refusals as data so the person at the counter sees why, not a generic error. */
 function result<T extends z.ZodTypeAny>(value: T) {
   return z.discriminatedUnion("ok", [
@@ -433,6 +534,31 @@ export const ipcContract = {
     channel: "pos:staff:pin-sign-in",
     input: z.object({ staffUserId: uuid, pin }),
     output: result(deviceStateSchema),
+  },
+  /** This counter's copy of its till shifts. Local only: it answers while locked or offline. */
+  getShift: { channel: "pos:shift:get", input: noInput, output: shiftStateSchema },
+  /** Asks the server, adopts what it says, and resends a saved close that wasn't confirmed. */
+  refreshShift: { channel: "pos:shift:refresh", input: noInput, output: result(shiftStateSchema) },
+  openShift: {
+    channel: "pos:shift:open",
+    input: z.object({ pin, count: cashCountSchema }),
+    output: result(shiftStateSchema),
+  },
+  /** Closes the open shift; someone else's needs `assistance` (their own PIN and why). */
+  closeShift: {
+    channel: "pos:shift:close",
+    input: z.object({
+      count: cashCountSchema,
+      varianceNote: z.string().trim().max(500).optional(),
+      assistance: z.object({ pin, reason: z.string().trim().min(1).max(500) }).optional(),
+    }),
+    output: result(shiftStateSchema),
+  },
+  /** Sends an unconfirmed close again; a close made for someone else needs the manager's PIN. */
+  retryShiftClose: {
+    channel: "pos:shift:retry-close",
+    input: z.object({ pin: pin.optional() }),
+    output: result(shiftStateSchema),
   },
   enroll: {
     channel: "pos:enrollment:enroll",

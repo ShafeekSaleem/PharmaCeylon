@@ -18,6 +18,7 @@ import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
 import { startOfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { SignedCommandService } from "./terminal/signed-commands";
+import { ShiftService } from "./shifts/shift-service";
 import type { CompletedSale } from "../shared/ipc-contract";
 import { buildReadinessReport } from "./readiness";
 import { isAppUrl } from "./renderer-path";
@@ -73,6 +74,7 @@ let checkout: CheckoutService | null = null;
 let dispensing: DispensingService | null = null;
 let commands: SignedCommandService | null = null;
 let counterWork: CounterWorkService | null = null;
+let shifts: ShiftService | null = null;
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
 
@@ -89,6 +91,17 @@ function unconfirmedFacts(): { unconfirmed: number; unconfirmedBy: string[] } {
     unconfirmed: pending.length,
     unconfirmedBy: [...new Set(pending.map((p) => p.staffName ?? "someone who has signed out"))],
   };
+}
+
+function requireShifts(): ShiftService {
+  if (!shifts) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+  return shifts;
+}
+
+/** A completed counter sale moves the open shift's own running expected cash (D7b), once. */
+function postSale(sale: CompletedSale): void {
+  const seller = terminal?.current()?.staff.staffUserId;
+  if (seller) shifts?.recordSale(sale, seller);
 }
 
 async function act<T>(
@@ -185,6 +198,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           const sale = await checkout.submit(lines, tender, details, coSign);
           recentSales.set(sale.saleId, sale);
+          postSale(sale);
           return sale;
         }),
       holdCart: ({ lines, label, dispensing: details }) =>
@@ -214,6 +228,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           const sale = await checkout.retry(draftId, coSign);
           recentSales.set(sale.saleId, sale);
+          postSale(sale);
           return sale;
         }),
       searchCustomers: ({ q }) =>
@@ -248,9 +263,12 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           return counterWork.refundsReady();
         }),
       executeRefund: ({ refundRequestId }) =>
-        act(logger, "executeRefund", () => {
+        act(logger, "executeRefund", async () => {
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          return counterWork.executeRefund(refundRequestId);
+          const executed = await counterWork.executeRefund(refundRequestId);
+          const executor = terminal?.current()?.staff.staffUserId;
+          if (!executed.alreadyApplied && executor) shifts?.recordRefund(refundRequestId, executed.refundedTo, executor);
+          return executed;
         }),
       pendingCommands: () => commands?.pending() ?? [],
       retryCommand: ({ commandId }) =>
@@ -267,6 +285,12 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
       preparePin: ({ pin }) => act(logger, "preparePin", (service) => service.preparePin(pin)),
       lock: () => act(logger, "lock", (service) => service.lock()),
       unlock: ({ pin }) => act(logger, "unlock", (service) => service.unlock(pin)),
+      getShift: () => shifts?.state() ?? { current: null, lastClosed: null, unsynced: [] },
+      refreshShift: () => act(logger, "refreshShift", () => requireShifts().refresh()),
+      openShift: ({ pin, count }) => act(logger, "openShift", () => requireShifts().open(pin, count)),
+      closeShift: ({ count, varianceNote, assistance }) =>
+        act(logger, "closeShift", () => requireShifts().close(count, { varianceNote, assistance })),
+      retryShiftClose: ({ pin }) => act(logger, "retryShiftClose", () => requireShifts().retryClose(pin)),
       pinSignIn: ({ staffUserId, pin }) =>
         act(logger, "pinSignIn", (service) => service.signInWithPin(staffUserId, pin)),
     },
@@ -348,6 +372,7 @@ async function start(): Promise<void> {
   commands = new SignedCommandService({ db: store.db, api: terminalApi, terminal, logger });
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
+  shifts = new ShiftService({ db: store.db, api: terminalApi, terminal, device: deviceStore, logger });
   registerIpc(store.schemaVersion, logger);
   mainWindow = createMainWindow({ devServerUrl, show: true });
   mainWindow.on("closed", () => (mainWindow = null));
