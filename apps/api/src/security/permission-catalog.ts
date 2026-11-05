@@ -229,6 +229,17 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     defaultRoles: [owner, manager, pharmacist, cashier, inventory_clerk],
   },
   {
+    // Decided 2026-11-05 (#103): the counter can tell a customer whether a sister branch has an
+    // item, without seeing that branch's stock. Bands only; controlled items say "ask the
+    // pharmacist". Migration `20261105300000_other_branch_availability` grants it.
+    key: "inventory.view_other_branches_availability",
+    module: "inventory",
+    label: "See whether other branches have a product",
+    description:
+      "At the counter, show every other branch as In stock, Low or Out for a product. No quantities, costs or batches; controlled items show \"Ask the pharmacist\".",
+    defaultRoles: [owner, manager, pharmacist, cashier],
+  },
+  {
     key: "inventory.manage",
     module: "inventory",
     label: "Manage inventory",

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ApiSession } from "../api/api-client";
+import { ApiError, type ApiSession } from "../api/api-client";
 import type { SignedCommandService } from "./signed-commands";
 import { StockLookupService } from "./stock-lookup";
 import type { TerminalService } from "./terminal-service";
@@ -101,46 +101,84 @@ describe("StockLookupService", () => {
     expect(calls.every((c) => c.method === "GET" && c.branchId === branchId)).toBe(true);
   });
 
-  it("reads one product's stock and the write-off limit", async () => {
-    const { stock, calls } = service((path) =>
-      path.endsWith("/policy")
-        ? { threshold: "10000.00" }
-        : {
-            product: { ...item().product, genericName: "Amoxicillin" },
-            stockStatus: "ok",
-            totals: { onHand: 10, available: 8, quarantined: 2, reserved: 0, expired: 0, incoming: 0 },
-            batches: [
-              {
-                id: batchId,
-                batchNo: "AUG-7520",
-                expiryDate: "2027-02-28T00:00:00.000Z",
-                daysToExpiry: 119,
-                expired: false,
-                nearExpiry: false,
-                needsExpiryReview: false,
-                isQuarantined: false,
-                quarantineReason: null,
-                qtyOnHand: 10,
-                availableQty: 8,
-                reservedQty: 0,
-                quarantinedQty: 2,
-                sellingPrice: "145.00",
-                costPrice: null,
-              },
-            ],
-            reservations: [],
-            otherBranches: [{ branchId: randomUUID(), name: "Kandy", code: "KDY", available: 0, onHand: 0 }],
-            recentMovements: [],
-          },
+  const rawProduct = () => ({
+    product: { ...item().product, genericName: "Amoxicillin" },
+    stockStatus: "ok",
+    totals: { onHand: 10, available: 8, quarantined: 2, reserved: 0, expired: 0, incoming: 0 },
+    batches: [
+      {
+        id: batchId,
+        batchNo: "AUG-7520",
+        expiryDate: "2027-02-28T00:00:00.000Z",
+        daysToExpiry: 119,
+        expired: false,
+        nearExpiry: false,
+        needsExpiryReview: false,
+        isQuarantined: false,
+        quarantineReason: null,
+        qtyOnHand: 10,
+        availableQty: 8,
+        reservedQty: 0,
+        quarantinedQty: 2,
+        sellingPrice: "145.00",
+        costPrice: null,
+      },
+    ],
+    reservations: [],
+    // An older server, or a password login, may still send quantities here: never passed on.
+    otherBranches: [{ branchId: randomUUID(), name: "Galle", code: "GLE", available: 32, onHand: 40 }],
+    recentMovements: [],
+  });
+  const kandy = randomUUID();
+  const replyFor =
+    (availability: () => unknown) =>
+    (path: string): unknown => {
+      if (path.endsWith("/policy")) return { threshold: "10000.00" };
+      if (path.endsWith("/branch-availability")) return availability();
+      return rawProduct();
+    };
+
+  it("reads one product's stock, the write-off limit and other branches as bands", async () => {
+    const { stock, calls } = service(
+      replyFor(() => ({
+        productId,
+        controlled: false,
+        branches: [{ branchId: kandy, name: "Kandy", band: "low" }],
+      })),
     );
     const view = await stock.product(productId);
     expect(calls.map((c) => c.path)).toEqual([
       `/inventory/products/${productId}/stock`,
       "/inventory/write-offs/policy",
+      `/inventory/products/${productId}/branch-availability`,
     ]);
+    expect(calls.every((c) => c.branchId === branchId)).toBe(true);
     expect(view.batches[0]).toMatchObject({ batchId, expiryDate: "2027-02-28", available: 8, costPrice: null });
     expect(view.writeOffLimit).toBe("10000.00");
-    expect(view.otherBranches).toEqual([expect.objectContaining({ name: "Kandy", available: 0 })]);
+    expect(view.otherBranches).toEqual({
+      allowed: true,
+      branches: [{ branchId: kandy, name: "Kandy", band: "low" }],
+    });
+    // The full detail's other branches (Galle, with quantities) are dropped, not merged in.
+    expect(JSON.stringify(view.otherBranches)).not.toMatch(/Galle|available|onHand/);
+  });
+
+  it("shows no other branches when the role's permission is off", async () => {
+    const { stock } = service(
+      replyFor(() => {
+        throw new ApiError(403, "FORBIDDEN", "Insufficient permissions");
+      }),
+    );
+    expect((await stock.product(productId)).otherBranches).toEqual({ allowed: false, branches: [] });
+  });
+
+  it("still fails on any other refusal", async () => {
+    const { stock } = service(
+      replyFor(() => {
+        throw new ApiError(0, "NETWORK", "offline");
+      }),
+    );
+    await expect(stock.product(productId)).rejects.toMatchObject({ code: "NETWORK" });
   });
 
   it("posts a write-off as the exact signed adjustment body", async () => {

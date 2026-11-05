@@ -209,3 +209,19 @@ export function writeOffCheck(
 }
 
 export const rs = (valueMinor: number) => `Rs ${money(valueMinor)}`;
+
+export type Band = ProductStock["otherBranches"]["branches"][number]["band"];
+
+/** Another branch, as the counter may see it: a band and a dot, never a quantity. */
+export function bandText(band: Band): { text: string; tone: "ok" | "warn" | "bad" | "ask" } {
+  switch (band) {
+    case "in_stock":
+      return { text: "In stock", tone: "ok" };
+    case "low":
+      return { text: "Low", tone: "warn" };
+    case "out":
+      return { text: "Out", tone: "bad" };
+    case "ask_pharmacist":
+      return { text: "Ask the pharmacist", tone: "ask" };
+  }
+}

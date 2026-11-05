@@ -21,6 +21,7 @@ import { clickSubmit, inField, KeyScope, useKeyBinding } from "./keymap";
 import { highlight, minor, money, moveSelection } from "./sell-model";
 import s from "./Stock.module.css";
 import {
+  bandText,
   batchStatus,
   expiryLabel,
   expiryWhen,
@@ -887,23 +888,28 @@ export function Stock({
               <div className={s.cards}>
                 <div className={s.card}>
                   <div className={s.subH}>
-                    Other branches <span>Available</span>
+                    Other branches <span>Availability</span>
                   </div>
-                  {product.otherBranches.length === 0 ? (
+                  {!product.otherBranches.allowed ? (
                     <div className={s.footN}>
-                      You don&apos;t work at any other branch.
+                      Your role doesn&apos;t show other branches&apos; stock.
                     </div>
+                  ) : product.otherBranches.branches.length === 0 ? (
+                    <div className={s.footN}>This is the only branch.</div>
                   ) : (
-                    product.otherBranches.map((b) => (
-                      <div
-                        key={b.branchId}
-                        className={cx(s.kv, b.available > 0 ? s.kvOk : s.kvBad)}
-                      >
-                        <span className={s.dot} />
-                        {b.name}
-                        <b>{b.available}</b>
-                      </div>
-                    ))
+                    product.otherBranches.branches.map((b) => {
+                      const band = bandText(b.band);
+                      return (
+                        <div
+                          key={b.branchId}
+                          className={cx(s.kv, s[`kv_${band.tone}`])}
+                        >
+                          <span className={s.dot} />
+                          {b.name}
+                          <b>{band.text}</b>
+                        </div>
+                      );
+                    })
                   )}
                   <div className={s.footN}>
                     Transfers are requested and approved on the web.

@@ -554,10 +554,21 @@ export const productStockSchema = z.object({
   /** In expiry order, oldest first: the order checkout sells them in. */
   batches: z.array(stockBatchSchema),
   reservations: z.array(z.object({ qty: z.number().int(), label: z.string() })),
-  /** Where the person also works (owners: every branch). */
-  otherBranches: z.array(
-    z.object({ branchId: uuid, name: z.string(), available: z.number().int(), onHand: z.number().int() }),
-  ),
+  /**
+   * Every other active branch of the tenant, as a band only: no quantities, costs or batches
+   * (decided 2026-11-05). `allowed` is false when the person's role has
+   * `inventory.view_other_branches_availability` switched off.
+   */
+  otherBranches: z.object({
+    allowed: z.boolean(),
+    branches: z.array(
+      z.object({
+        branchId: uuid,
+        name: z.string(),
+        band: z.enum(["in_stock", "low", "out", "ask_pharmacist"]),
+      }),
+    ),
+  }),
   movements: z.array(
     z.object({
       id: uuid,
