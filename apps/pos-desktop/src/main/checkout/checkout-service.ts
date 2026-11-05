@@ -397,8 +397,10 @@ export class CheckoutService {
   }
 
   /**
-   * Resends an uncertain checkout exactly as it was first sent. A sale the server already took
-   * replays without the co-sign; one that never arrived needs the co-signer's PIN again.
+   * Resolves a sale sent without a definite answer. The person who rang it up resends it exactly
+   * as it was first sent: a sale the server already took replays without the co-sign, and one that
+   * never arrived needs the co-signer's PIN again. Anyone else signed in here only asks the server
+   * whether it landed (`resolveForSeller`); their sign-in never sends it again.
    */
   async retry(draftId: string, coSign?: CoSign): Promise<CompletedSale> {
     const { staff, identity } = this.counter();
@@ -407,12 +409,6 @@ export class CheckoutService {
       throw new ActionFailure(
         "DRAFT_NOT_PENDING",
         "That sale is not waiting to be confirmed.",
-      );
-    // Only the person who rang it up resolves it; their idempotency scope is their own.
-    if (row.staff_user_id !== staff.staffUserId)
-      throw new ActionFailure(
-        "DRAFT_OTHER_STAFF",
-        "Only the person who rang this sale up can confirm it.",
       );
     // The sale belongs to the branch and enrollment it was rung up on. Resending it from a counter
     // re-enrolled elsewhere would post it, and take the stock, at the wrong branch.
@@ -424,6 +420,8 @@ export class CheckoutService {
         "DRAFT_OTHER_COUNTER",
         "This sale was rung up before the counter was re-enrolled. Check it in Sales history on the web.",
       );
+    if (row.staff_user_id !== staff.staffUserId)
+      return this.resolveForSeller(row, staff.workSessionId, identity.branchId);
     if (coSign && coSign.approverUserId !== row.co_signer_id)
       throw new ActionFailure(
         "CO_SIGNER_CHANGED",
@@ -440,8 +438,56 @@ export class CheckoutService {
   }
 
   /**
-   * Sales sent without a definite answer. The server scopes idempotency to the seller, so only the
-   * person who rang one up can confirm it; their name is shown so the counter knows who to call back.
+   * Someone other than the seller confirms the seller's sale. The server finds it by its key on
+   * this counter and returns it as committed, still the seller's; or, once it can no longer land,
+   * says it never did, and the counter rings it up again. Nothing is resent under this sign-in.
+   */
+  private async resolveForSeller(
+    row: DraftRow,
+    workSessionId: string,
+    branchId: string,
+  ): Promise<CompletedSale> {
+    let answer:
+      | { outcome: "landed"; sale: RawSale }
+      | { outcome: "never_landed" };
+    try {
+      answer = await this.deps.api.request("POST", "/sales/checkout/resolve", {
+        branchId,
+        body: { idempotencyKey: row.id, workSessionId: row.work_session_id },
+        headers: { "x-terminal-session": workSessionId },
+      });
+    } catch (error) {
+      // No answer, or refused before the lookup (sign-in, permission, another counter): the sale
+      // stays pending exactly as it was, for the seller or someone else to confirm later.
+      if (error instanceof ApiError && error.uncertain)
+        throw new ActionFailure(
+          "CHECKOUT_UNCERTAIN",
+          "The server did not answer. The sale is still waiting to be confirmed.",
+        );
+      throw error;
+    }
+    if (answer.outcome === "landed") {
+      this.mark(row.id, "completed", {
+        saleId: answer.sale.id,
+        invoiceNo: answer.sale.invoiceNo,
+      });
+      this.deps.logger.info("checkout.resolved", {
+        draftId: row.id,
+        saleId: answer.sale.id,
+      });
+      return toSale(answer.sale);
+    }
+    this.mark(row.id, "refused", { errorCode: "CHECKOUT_NEVER_LANDED" });
+    this.deps.logger.info("checkout.never_landed", { draftId: row.id });
+    throw new ActionFailure(
+      "CHECKOUT_NEVER_LANDED",
+      "That sale never went through, and now it can't. Ring it up again if the customer still wants it.",
+    );
+  }
+
+  /**
+   * Sales sent without a definite answer, with who rang each up. Anyone signed in here can confirm
+   * one; the seller's name is shown because the sale stays theirs either way.
    */
   pending(): CheckoutDraftView[] {
     const rows = this.deps.db
@@ -450,6 +496,7 @@ export class CheckoutService {
          FROM checkout_draft d WHERE d.status IN ('submitted', 'uncertain') ORDER BY d.created_at`,
       )
       .all() as (DraftRow & { staff_name: string | null })[];
+    const signedIn = this.deps.terminal.current()?.staff.staffUserId ?? null;
     return rows.map((row) => ({
       draftId: row.id,
       staffUserId: row.staff_user_id,
@@ -458,6 +505,7 @@ export class CheckoutService {
       lineCount: (JSON.parse(row.request_json) as CheckoutRequest).items.length,
       coSignerId: row.co_signer_id,
       staffName: row.staff_name,
+      ownSale: row.staff_user_id === signedIn,
     }));
   }
 

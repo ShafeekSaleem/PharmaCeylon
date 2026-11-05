@@ -26,7 +26,7 @@ const marked = (controller: Controller, method: string, key: string) =>
 describe("routes a PIN-opened counter login may call", () => {
   const counterRoutes: Array<[Controller, string[]]> = [
     [AuthController, ["logout"]],
-    [SalesController, ["posCatalog", "listApprovers", "hold", "listHolds", "recallHold", "checkout"]],
+    [SalesController, ["posCatalog", "listApprovers", "hold", "listHolds", "recallHold", "checkout", "resolveCheckout"]],
     [RefundRequestsController, ["list"]],
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],

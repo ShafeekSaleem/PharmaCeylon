@@ -11,7 +11,9 @@ export type ReadinessFacts = {
   preparedStaff?: number;
   /** Sales and signed actions sent without a confirmed outcome. */
   unconfirmed?: number;
-  /** Who has to sign in here to confirm them. */
+  /** Who started each unconfirmed sale. Anyone signed in here can confirm one. */
+  unconfirmedSalesBy?: string[];
+  /** Who sent each unconfirmed signed action: only they can confirm it. */
   unconfirmedBy?: string[];
 };
 
@@ -72,8 +74,12 @@ export function buildReadinessReport(facts: ReadinessFacts, now: Date): Readines
         (facts.unconfirmed ?? 0) === 0
           ? "Every sale and action sent from here has a confirmed outcome."
           : `${facts.unconfirmed} waiting for confirmation with the server.${
+              facts.unconfirmedSalesBy?.length
+                ? ` Sales started by ${facts.unconfirmedSalesBy.join(", ")}: anyone signed in here can confirm them.`
+                : ""
+            }${
               facts.unconfirmedBy?.length
-                ? ` Only the person who sent each can confirm it: ${facts.unconfirmedBy.join(", ")}.`
+                ? ` Only the person who sent each action can confirm it: ${facts.unconfirmedBy.join(", ")}.`
                 : ""
             }`,
     },

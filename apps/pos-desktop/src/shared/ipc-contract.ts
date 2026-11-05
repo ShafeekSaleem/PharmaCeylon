@@ -246,8 +246,10 @@ export const checkoutDraftSchema = z.object({
   lineCount: z.number().int(),
   /** Who co-signed controlled items, so confirming can ask the same pharmacist again. */
   coSignerId: uuid.nullable(),
-  /** Who rang it up: only they can confirm it, because the server keys retries to the seller. */
+  /** Who rang it up. Anyone signed in here can confirm it; it stays this person's sale. */
   staffName: z.string().nullable(),
+  /** Whether the person signed in now rang it up: they resend it, anyone else only looks it up. */
+  ownSale: z.boolean(),
 });
 export type CheckoutDraftView = z.infer<typeof checkoutDraftSchema>;
 
