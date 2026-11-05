@@ -249,7 +249,7 @@ describe("assignment authorization", () => {
 
 describe("delegation", () => {
   it("reads active and revoked delegations from one database snapshot", async () => {
-    const transaction = jest.spyOn(proxy, "$transaction");
+    const transaction = jest.spyOn(prisma, "$transaction");
     try {
       await assignments.view(user(fx.ownerId), fx.mainBranchId);
       expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
