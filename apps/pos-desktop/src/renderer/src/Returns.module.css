@@ -1,0 +1,642 @@
+/* Returns (docs/design/desktop-app, screen=returns): find the sale, items to return, refund.
+   The ticket and refund panels reuse Sell's pieces (Sell.module.css); this file holds what is
+   Returns' own. Colours come from tokens.css. Doubled class names (.r6.r6) outrank Sell's single
+   ones whatever order the stylesheets load in. */
+
+.returns {
+  container: returns / inline-size;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 348px minmax(0, 1fr) 364px;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------- find ---------- */
+.find {
+  padding-bottom: 14px;
+  overflow-y: auto;
+}
+
+/* The panel scrolls rather than squashing what it holds. */
+.find > * {
+  flex-shrink: 0;
+}
+
+.seg {
+  margin: 0 14px;
+}
+
+.seg button {
+  flex: 1;
+  justify-content: center;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--pos-surface-3);
+  color: var(--pos-text-2);
+  font: 700 11px/1 var(--pos-font);
+  font-style: normal;
+}
+
+.search.search {
+  margin: 12px 14px 0;
+  height: 48px;
+}
+
+.search input {
+  font: 600 15px/1 var(--pos-mono);
+  letter-spacing: 0;
+}
+
+.hintL {
+  margin: 8px 16px 0;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.chips {
+  margin: 10px 14px 0;
+}
+
+.pad {
+  margin: 10px 16px 0;
+}
+
+.lookup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 14px 0;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+}
+
+.lookup > button {
+  justify-content: center;
+}
+
+.lookupGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  height: 40px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pos-text-2);
+}
+
+.found {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 14px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.foundRow,
+.todayItem {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface);
+  color: var(--pos-text);
+  font: inherit;
+  text-align: left;
+}
+
+.foundRow {
+  cursor: pointer;
+}
+
+.foundRow:hover:not(:disabled) {
+  background: var(--pos-surface-2);
+}
+
+.foundRow:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.foundRow small,
+.todayItem small {
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.foundTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.none {
+  margin: 14px 16px 0;
+  font-size: 12.5px;
+  color: var(--pos-text-3);
+}
+
+.saleFound {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 14px 14px 0;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1.5px solid var(--pos-primary);
+  background: color-mix(in srgb, var(--pos-primary) 5%, var(--pos-surface));
+  box-shadow: var(--pos-focus);
+}
+
+.foundHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.foundHead :global(.pos-ic) {
+  width: 16px;
+  height: 16px;
+  color: var(--pos-ok);
+}
+
+.foundHead b {
+  font-size: 13px;
+}
+
+.foundHead > span {
+  margin-left: auto;
+  color: var(--pos-text-2);
+}
+
+.saleFound dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.saleFound dt {
+  color: var(--pos-text-3);
+}
+
+.saleFound dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--pos-line-strong);
+}
+
+.who b {
+  display: block;
+  font-size: 13px;
+}
+
+.who small {
+  display: block;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.webCard {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 12px 14px 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+  color: var(--pos-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.webCard:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.webKind.webKind {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  color: var(--pos-t-rose);
+  background: color-mix(in srgb, var(--pos-t-rose) 13%, transparent);
+}
+
+.webKind :global(.pos-ic) {
+  width: 17px;
+  height: 17px;
+}
+
+.webCard b,
+.webBody b {
+  display: block;
+  font-size: 12.5px;
+}
+
+.webCard small,
+.webBody small {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+.go {
+  margin-left: auto;
+  width: 16px;
+  height: 16px;
+  color: var(--pos-text-3);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+
+.list > .pad,
+.list > .none {
+  margin: 0 2px;
+}
+
+.webItem {
+  display: flex;
+  gap: 11px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface-2);
+  cursor: pointer;
+}
+
+.webItem.picked {
+  border-color: var(--pos-primary);
+  background: var(--pos-primary-soft);
+}
+
+.webBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.webBody button {
+  margin-top: 8px;
+}
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: auto 14px 0;
+  padding: 12px 13px;
+  border-radius: 10px;
+  background: var(--pos-info-soft);
+  border: 1px solid var(--pos-info-line);
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+/* Space above the rules when the panel's content reaches them. */
+.find > * + .rules {
+  margin-top: 14px;
+}
+
+.rules div {
+  display: flex;
+  gap: 8px;
+}
+
+.rules :global(.pos-ic) {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  color: var(--pos-info);
+}
+
+/* ---------- items to return ---------- */
+.ticket {
+  min-height: 0;
+}
+
+.linesFocus:focus {
+  outline: none;
+}
+
+.r6.r6 {
+  grid-template-columns: 22px minmax(0, 1fr) 54px 100px 182px 84px;
+}
+
+.sold {
+  text-align: center;
+  color: var(--pos-text-2);
+  font-weight: 600;
+}
+
+.sold small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--pos-text-3);
+}
+
+.off .sold,
+.off :global(.pos-num) {
+  color: var(--pos-text-3);
+}
+
+.off > div:nth-child(2) > div:first-child,
+.off > span:last-child {
+  color: var(--pos-text-3);
+}
+
+.zero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  min-width: 86px;
+  border-radius: 8px;
+  border: 1px dashed var(--pos-line-strong);
+  color: var(--pos-text-3);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.calm.calm {
+  border: 1px solid var(--pos-line-strong);
+  box-shadow: none;
+}
+
+.cond {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--pos-surface-3);
+}
+
+.cond button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--pos-text-3);
+  font: 600 12px/1 var(--pos-font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cond button:focus-visible {
+  outline: none;
+  box-shadow: var(--pos-focus);
+}
+
+.cond :global(.pos-ic) {
+  width: 13px;
+  height: 13px;
+}
+
+.cond button[aria-pressed="true"] {
+  background: var(--pos-surface);
+  box-shadow:
+    var(--pos-shadow),
+    0 0 0 1px var(--pos-line);
+}
+
+.cond .onOk {
+  color: var(--pos-ok-ink);
+}
+
+.cond .onQ {
+  color: var(--pos-warn-ink);
+}
+
+.condNa {
+  font-size: 12px;
+  color: var(--pos-text-3);
+}
+
+/* ---------- refund ---------- */
+.refund .refundTotal {
+  color: var(--pos-text);
+}
+
+.two.two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.one.one {
+  grid-template-columns: 1fr;
+}
+
+.two > button {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 10px;
+  height: 64px;
+  padding: 0 12px;
+  text-align: left;
+}
+
+.two > button {
+  min-width: 0;
+}
+
+.two > button > span {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.two > button small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 3px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--pos-text-3);
+}
+
+.two > button[aria-pressed="true"] small {
+  color: var(--pos-primary-ink);
+  opacity: 0.8;
+}
+
+.appr {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1.5px solid var(--pos-warn-line);
+  background: var(--pos-warn-soft);
+}
+
+.appr p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.apprH {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--pos-warn-ink);
+}
+
+.apprH :global(.pos-ic) {
+  width: 16px;
+  height: 16px;
+}
+
+.effect {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--pos-text-2);
+}
+
+.effect span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.effect i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.effOk i {
+  background: var(--pos-ok);
+}
+
+.effQ i {
+  background: var(--pos-warn);
+}
+
+.done.done {
+  background: var(--pos-ok-soft);
+  border-color: var(--pos-ok-line);
+}
+
+.done > :global(.pos-ic) {
+  color: var(--pos-ok);
+}
+
+/* ---------- smaller windows ---------- */
+
+/* 1366 × 768 (the default window): the columns narrow a little. */
+@container returns (max-width: 1280px) {
+  .grid {
+    grid-template-columns: 300px minmax(0, 1fr) 320px;
+  }
+
+  .r6.r6 {
+    grid-template-columns: 20px minmax(0, 1fr) 48px 100px 168px 72px;
+  }
+}
+
+/* 1024 × 640 (the minimum): find sits above the items, and the refund keeps its own column. */
+@container returns (max-width: 1060px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .find {
+    grid-column: 1;
+    grid-row: 1;
+    max-height: calc(38vh - 40px);
+  }
+
+  .ticket {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .refund {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .rules {
+    display: none;
+  }
+
+  .r6.r6 {
+    grid-template-columns: 20px minmax(0, 1fr) 44px 100px 160px 68px;
+  }
+}
+
+/* Short windows (1024 × 640): the refund keeps its button in view; the breakdown and the limit's
+   explanation give way, since the lines and the heading already say both. */
+@media (max-height: 700px) {
+  .refund dl,
+  .refund .appr p,
+  .refund .effect {
+    display: none;
+  }
+
+  .refund .appr {
+    padding: 9px 12px;
+  }
+}

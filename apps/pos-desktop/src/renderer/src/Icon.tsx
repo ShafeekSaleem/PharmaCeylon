@@ -71,6 +71,7 @@ const ICONS = {
     </>
   ),
   "chevron-down": <path d="m6 9 6 6 6-6" />,
+  "chevron-right": <path d="m9 18 6-6-6-6" />,
   clock: (
     <>
       <circle cx="12" cy="12" r="10" />
@@ -177,6 +178,12 @@ const ICONS = {
       <path d="M21 3v5h-5" />
       <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
       <path d="M8 16H3v5" />
+    </>
+  ),
+  "rotate-ccw": (
+    <>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
     </>
   ),
   search: (

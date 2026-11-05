@@ -38,10 +38,15 @@ describe("routes a PIN-opened counter login may call", () => {
         "recallHold",
         "checkout",
         "resolveCheckout",
+        // The Returns page: find the sale, what is still returnable, and today's refunds.
+        "posByInvoice",
+        "getReturnable",
+        "history",
+        "listRefunds",
       ],
     ],
-    // `approve` takes the approver co-sign on the counter (P2b #103).
-    [RefundRequestsController, ["list", "approve"]],
+    // `approve` takes the approver co-sign on the counter (P2b #103); `prepare` is the Returns page.
+    [RefundRequestsController, ["list", "prepare", "approve"]],
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],
