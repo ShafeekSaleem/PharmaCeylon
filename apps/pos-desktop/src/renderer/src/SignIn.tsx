@@ -296,16 +296,19 @@ export function SignInScreen({
   api,
   printer,
   shift = null,
+  suggested = null,
 }: Props & {
   api: ApiReachability | null;
   printer: Printer | null | undefined;
   /** The shift open on this till (this counter's copy), if any. */
   shift?: LocalShift | null;
+  /** Who to pick first: the person a handover named to take over. */
+  suggested?: string | null;
 }) {
   const now = useNow();
   const [pin, setPin] = useState("");
   const [switching, setSwitching] = useState(false);
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(suggested);
   /** Whose PIN the last attempt was, so its refusal stays with them if the list changes. */
   const [tried, setTried] = useState<CounterPerson | null>(null);
   const { busy, error, run, clear } = useAction();

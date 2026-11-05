@@ -43,6 +43,9 @@ export function rowCount(raw: string | undefined): number | null {
 export const rowAmountMinor = (row: DrawerRow, raw: string | undefined) =>
   (rowCount(raw) ?? 0) * row.denominationMinor;
 
+/** Whether anything has been typed yet. An empty drawer is counted by typing 0 somewhere. */
+export const counted = (entry: DrawerEntry) => Object.values(entry).some((v) => v.trim() !== "");
+
 /** The count to send, or null while any row isn't a whole number. Empty rows are left out. */
 export function drawerCount(entry: DrawerEntry): CashCount | null {
   let totalMinor = 0;
