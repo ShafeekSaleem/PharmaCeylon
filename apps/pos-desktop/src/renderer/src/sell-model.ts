@@ -187,3 +187,44 @@ export function slmcRefusal(
       };
   }
 }
+
+// ---- line discounts (P2b #103) ----
+
+export type DiscountMode = "percent" | "amount";
+
+/**
+ * The discount, in cents, that a typed value gives off a line of `grossMinor`: a percent of the
+ * line (rounded half up to the cent) or an amount. Null when it isn't a usable discount: empty,
+ * not a number, or more than the line.
+ */
+export function discountFromInput(mode: DiscountMode, raw: string, grossMinor: number): number | null {
+  const text = raw.trim();
+  if (!text || !/^\d+(\.\d{0,2})?$/.test(text)) return null;
+  const value = Number(text);
+  const discount = mode === "percent" ? Math.round((grossMinor * Math.round(value * 100)) / 10_000) : Math.round(value * 100);
+  if (mode === "percent" && value > 100) return null;
+  return discount >= 0 && discount <= grossMinor ? discount : null;
+}
+
+/** The discount as a percent of the line, to two places: 1250 off 12500 → 10. */
+export function discountPercent(discountMinor: number, grossMinor: number): number {
+  if (grossMinor <= 0) return 0;
+  return Math.round((discountMinor / grossMinor) * 10_000) / 100;
+}
+
+/**
+ * Whether a discount is above the branch's limit and so needs a manager, the way the server
+ * decides: the line's percent strictly above `posMaxDiscountPercent`. Compared in whole numbers,
+ * so exactly 10% of a line is never read as 10.0000001%.
+ */
+export function overDiscountLimit(discountMinor: number, grossMinor: number, limitPercent: number): boolean {
+  if (discountMinor <= 0 || grossMinor <= 0) return false;
+  return discountMinor * 10_000 > Math.round(limitPercent * 100) * grossMinor;
+}
+
+/** "10%", "12.5%": a percent the way the counter writes it. */
+export const percentText = (value: number) => `${Number(value.toFixed(2))}%`;
+
+/** Refusals that mean the manager's discount co-sign is needed again or was not accepted. */
+export const isDiscountRefusal = (code: string) =>
+  code === "DISCOUNT_APPROVAL_REQUIRED" || code === "DISCOUNT_COSIGN_REFUSED";

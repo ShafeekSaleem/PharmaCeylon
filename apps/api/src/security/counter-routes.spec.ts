@@ -26,8 +26,22 @@ const marked = (controller: Controller, method: string, key: string) =>
 describe("routes a PIN-opened counter login may call", () => {
   const counterRoutes: Array<[Controller, string[]]> = [
     [AuthController, ["logout"]],
-    [SalesController, ["posCatalog", "listApprovers", "hold", "listHolds", "recallHold", "checkout", "resolveCheckout"]],
-    [RefundRequestsController, ["list"]],
+    [
+      SalesController,
+      [
+        "posCatalog",
+        "listApprovers",
+        "listDiscountApprovers",
+        "listRefundApprovers",
+        "hold",
+        "listHolds",
+        "recallHold",
+        "checkout",
+        "resolveCheckout",
+      ],
+    ],
+    // `approve` takes the approver co-sign on the counter (P2b #103).
+    [RefundRequestsController, ["list", "approve"]],
     [CustomersController, ["search", "getOne"]],
     [PrescriptionsController, ["search", "getOne"]],
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],

@@ -74,6 +74,17 @@ export class SalesController {
     return this.pharmacistApproval.listApprovers(user.tenantId, branchId);
   }
 
+  @ApiOperation({
+    summary:
+      "Who can co-sign a line discount over the limit with a till PIN: people with sales.discount_override at this branch",
+  })
+  @RequirePermission("sales.pos_use")
+  @CounterRoute()
+  @Get("pos/discount-approvers")
+  listDiscountApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.pharmacistApproval.listApprovers(user.tenantId, branchId, "sales.discount_override");
+  }
+
   @ApiOperation({ summary: "Set or rotate your own POS till PIN (pharmacist+)" })
   @RequirePermission("sales.pos_pin_manage")
   @Post("pos/me/pos-pin")
@@ -295,6 +306,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "People who may approve a refund over the threshold, for the till PIN picker" })
   @RequirePermission("sales.refund")
+  @CounterRoute()
   @Get("pos/refund-approvers")
   listRefundApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.pharmacistApproval.listApprovers(user.tenantId, branchId, "returns.approve");

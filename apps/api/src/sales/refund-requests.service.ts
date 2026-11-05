@@ -32,6 +32,7 @@ import type {
   ListSaleRefundRequestsQueryDto,
   PrepareSaleRefundDto,
 } from "./dto/refund-request.dto";
+import { ApproverCoSignService } from "./approver-cosign.service";
 import { refundReason, SalesService, type RefundPlan } from "./sales.service";
 
 type Tx = Prisma.TransactionClient;
@@ -72,6 +73,7 @@ export class RefundRequestsService {
     private readonly approvals: ManagementApprovalsService,
     private readonly sales: SalesService,
     private readonly stock: StockService,
+    private readonly coSign?: ApproverCoSignService,
   ) {}
 
   async prepare(user: RequestUser, branchId: string, saleId: string, dto: PrepareSaleRefundDto) {
@@ -145,35 +147,63 @@ export class RefundRequestsService {
     return this.getOne(tenantId, branchId, id);
   }
 
+  /**
+   * Approve the exact prepared content: as the signed-in user, or (P2b #103) as an approver
+   * co-signing on that user's session with their own till PIN (`dto.coSign`). With a co-sign the
+   * signed-in person is the one at the counter, so they need `sales.refund`; the approver needs
+   * `returns.approve`, read live, and the existing self-approval rule applies to them.
+   */
   async approve(user: RequestUser, branchId: string, id: string, dto: ApproveSaleRefundDto) {
-    await this.prisma.$transaction((tx) => this.approveInTransaction(tx, user, branchId, id, dto));
+    const { coSign, ...review } = dto;
+    // The PIN is checked before the transaction, so a wrong one counts towards the lockout.
+    const coSigner = coSign
+      ? await this.coSign!.verify({ tenantId: user.tenantId, branchId, sessionUserId: user.userId, coSign, purpose: "refund" })
+      : null;
+    await this.prisma.$transaction(async (tx) => {
+      if (coSigner) {
+        const actor = await this.access.resolveLive(user, branchId, tx);
+        if (!actor.has("sales.refund")) throw new ForbiddenException("Your role can't refund sales");
+        await this.coSign!.assertAuthority(tx, user.tenantId, branchId, coSigner.approverUserId, "refund");
+      }
+      await this.approveInTransaction(tx, user, branchId, id, review,
+        coSigner ? { userId: coSigner.approverUserId } : undefined);
+    });
     return this.getOne(user.tenantId, branchId, id);
   }
 
   /** Exact approval of the prepared content. Never refunds anything. */
-  private async approveInTransaction(tx: Tx, user: RequestUser, branchId: string, id: string, dto: ApproveSaleRefundDto) {
+  private async approveInTransaction(
+    tx: Tx,
+    user: RequestUser,
+    branchId: string,
+    id: string,
+    dto: Omit<ApproveSaleRefundDto, "coSign">,
+    coSigner?: { userId: string },
+  ) {
     const row = await this.lock(tx, user.tenantId, branchId, id);
     if (!OPEN.includes(row.status)) throw new BadRequestException("This refund is no longer waiting for approval");
     // Live approve permission, self-approval and the displayed version/digest are checked here.
     const evidence = await this.approvals.issue(tx, user, branchId, "sale_refund.execute", id, {
       ...dto, reason: "Reviewed refund lines and amount", expiresAt: null,
-    });
+    }, coSigner);
     if (row.executionApprovalId === evidence.approvalId) return;
+    const approverUserId = evidence.approvedByUserId;
     await tx.saleRefundRequest.update({
       where: { id, tenantId: user.tenantId, branchId },
       data: {
         status: SaleRefundRequestStatus.approved,
-        approvedBy: user.userId,
+        approvedBy: approverUserId,
         approvedAt: new Date(),
         executionApprovalId: evidence.approvalId,
       },
     });
     await this.audit.log({
-      tenantId: user.tenantId, branchId, actorUserId: user.userId, eventName: "sale.refund_approved",
+      tenantId: user.tenantId, branchId, actorUserId: approverUserId, eventName: "sale.refund_approved",
       entityName: "sale_refund_request", entityId: id,
       payload: { saleId: row.saleId, approvalId: evidence.approvalId, amount: row.amount.toFixed(2),
-        requestedByUserId: row.requestedBy, approvedByUserId: user.userId,
-        selfApproved: row.requestedBy === user.userId },
+        requestedByUserId: row.requestedBy, approvedByUserId: approverUserId,
+        selfApproved: row.requestedBy === approverUserId,
+        ...(coSigner ? { coSigned: true, coSignedOnSessionOfUserId: user.userId } : {}) },
     }, tx);
   }
 

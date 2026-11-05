@@ -46,6 +46,7 @@ export class RolesAdminService {
       "sales.void",
       "sales.refund",
       "sales.approve_controlled",
+      "sales.discount_override",
       "prescriptions.create",
       "inventory.manage",
       "inventory.write_off",

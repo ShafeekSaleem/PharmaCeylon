@@ -209,10 +209,10 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return checkout.catalog();
         }),
-      submitCheckout: ({ lines, tender, dispensing: details, coSign }) =>
+      submitCheckout: ({ lines, tender, dispensing: details, coSign, discountCoSign }) =>
         act(logger, "submitCheckout", async () => {
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          const sale = await checkout.submit(lines, tender, details, coSign);
+          const sale = await checkout.submit(lines, tender, details, coSign, discountCoSign);
           recentSales.set(sale.saleId, sale);
           return sale;
         }),
@@ -237,11 +237,16 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           ]);
           return { lines: held.lines, customer, prescription };
         }),
+      listDiscountApprovers: () =>
+        act(logger, "listDiscountApprovers", () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return checkout.discountApprovers();
+        }),
       pendingCheckouts: () => checkout?.pending() ?? [],
-      retryCheckout: ({ draftId, coSign }) =>
+      retryCheckout: ({ draftId, coSign, discountCoSign }) =>
         act(logger, "retryCheckout", async () => {
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          const sale = await checkout.retry(draftId, coSign);
+          const sale = await checkout.retry(draftId, coSign, discountCoSign);
           recentSales.set(sale.saleId, sale);
           return sale;
         }),

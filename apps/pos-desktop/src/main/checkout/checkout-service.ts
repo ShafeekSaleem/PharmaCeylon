@@ -6,7 +6,9 @@ import type {
   CoSign,
   CompletedSale,
   Dispensing,
+  ApproverView,
   HeldCart,
+  SaleLine,
   Tender,
 } from "../../shared/ipc-contract";
 import { ApiError, type ApiSession } from "../api/api-client";
@@ -46,15 +48,17 @@ type RawSale = {
   items: {
     qty: number;
     unitPrice: string;
+    discountAmount?: string;
     lineTotal: string;
     product: { name: string };
   }[];
   payments: { method: string; amount: string; reference: string | null }[];
   seller: { fullName: string } | null;
+  discountApprover?: { fullName: string } | null;
 };
 
 type CheckoutRequest = {
-  items: { productId: string; qty: number; unitPrice: string }[];
+  items: { productId: string; qty: number; unitPrice: string; discountAmount?: string }[];
   payments: { method: "cash" | "card"; amount: string; reference?: string }[];
   customerId?: string;
   prescriptionId?: string;
@@ -62,7 +66,7 @@ type CheckoutRequest = {
 
 /** What a recalled hold brings back: the lines plus the customer and prescription it was held with. */
 export type RecalledHold = {
-  lines: { productId: string; qty: number }[];
+  lines: { productId: string; qty: number; discountMinor: number }[];
   customerId: string | null;
   prescriptionId: string | null;
 };
@@ -78,6 +82,7 @@ type DraftRow = {
   invoice_no: string | null;
   error_code: string | null;
   co_signer_id: string | null;
+  discount_co_signer_id: string | null;
   branch_id: string | null;
   enrollment_id: string | null;
   created_at: string;
@@ -94,10 +99,12 @@ const toSale = (sale: RawSale): CompletedSale => ({
   amountPaid: sale.amountPaid,
   changeDue: sale.changeDue,
   sellerName: sale.seller?.fullName ?? "",
+  discountApproverName: sale.discountApprover?.fullName ?? null,
   lines: sale.items.map((i) => ({
     name: i.product.name,
     qty: i.qty,
     unitPrice: i.unitPrice,
+    discountAmount: i.discountAmount ?? "0.00",
     lineTotal: i.lineTotal,
   })),
   payments: sale.payments.map((p) => ({
@@ -106,6 +113,16 @@ const toSale = (sale: RawSale): CompletedSale => ({
     reference: p.reference,
   })),
 });
+
+/**
+ * The manager's discount co-sign and the pharmacist's both refuse a wrong PIN with the same codes;
+ * the server says which it was (`coSign: "discount"`), and the counter reopens the right sheet.
+ */
+function discountCoSignRefusal(error: unknown): unknown {
+  if (error instanceof ApiError && error.body.coSign === "discount")
+    return new ActionFailure("DISCOUNT_COSIGN_REFUSED", error.message);
+  return error;
+}
 
 /**
  * Normal online checkout from the counter through the central sales API. Prices come from the
@@ -147,6 +164,7 @@ export class CheckoutService {
     const raw = await this.deps.api.request<{
       products: RawCatalogProduct[];
       vatRatePercent?: number;
+      maxDiscountPercent?: number;
     }>("GET", "/sales/pos/catalog", { branchId: identity.branchId });
     const list = raw.products;
     const products: CatalogProduct[] = list
@@ -170,12 +188,17 @@ export class CheckoutService {
       typeof raw.vatRatePercent === "number" && raw.vatRatePercent > 0
         ? raw.vatRatePercent
         : 0;
-    return { products, vatRatePercent: this.vatRatePercent };
+    // An older server doesn't send the limit: show its default, which it enforces anyway.
+    const maxDiscountPercent =
+      typeof raw.maxDiscountPercent === "number" && raw.maxDiscountPercent >= 0 && raw.maxDiscountPercent <= 100
+        ? raw.maxDiscountPercent
+        : 10;
+    return { products, vatRatePercent: this.vatRatePercent, maxDiscountPercent };
   }
 
   /** Builds the request from the cached server catalog; the renderer supplies only ids and quantities. */
   private buildRequest(
-    lines: { productId: string; qty: number }[],
+    lines: SaleLine[],
     tender: Tender,
     dispensing: Dispensing,
   ): { request: CheckoutRequest; totalMinor: number } {
@@ -199,15 +222,28 @@ export class CheckoutService {
           "NOT_ENOUGH_STOCK",
           `Only ${product.available} of ${product.name} available.`,
         );
+      // A line discount is an amount off the line, never more than the line (the server refuses
+      // that too). Whether it needs a manager is the server's call, against the limit it reads.
+      const discountMinor = line.discountMinor ?? 0;
+      if (discountMinor > toMinor(product.unitPrice) * line.qty)
+        throw new ActionFailure(
+          "DISCOUNT_TOO_LARGE",
+          `The discount on ${product.name} is more than the line.`,
+        );
       return {
         productId: product.productId,
         qty: line.qty,
         unitPrice: product.unitPrice,
+        ...(discountMinor > 0 ? { discountAmount: fromMinor(discountMinor) } : {}),
       };
     });
     // The total the cashier reviewed, VAT included, as the server will compute it.
     const { totalMinor } = saleTotalMinor(
-      items.map((i) => ({ unitPriceMinor: toMinor(i.unitPrice), qty: i.qty })),
+      items.map((i) => ({
+        unitPriceMinor: toMinor(i.unitPrice),
+        qty: i.qty,
+        discountMinor: i.discountAmount ? toMinor(i.discountAmount) : 0,
+      })),
       this.vatRatePercent,
     );
     const payments: CheckoutRequest["payments"] = [];
@@ -251,14 +287,17 @@ export class CheckoutService {
   }
 
   /**
-   * The co-signer's PIN goes to the server with this one request and is never written to the
-   * draft: only who co-signed is kept, so an unconfirmed sale can ask the same person again.
+   * The co-signers' PINs go to the server with this one request and are never written to the
+   * draft: only who co-signed is kept, so an unconfirmed sale can ask the same people again.
+   * `coSign` is a pharmacist's for controlled items; `discountCoSign` a manager's for a discount
+   * over the limit (P2b #103). Both need the server, so neither works offline.
    */
   async submit(
-    lines: { productId: string; qty: number }[],
+    lines: SaleLine[],
     tender: Tender,
     dispensing: Dispensing = {},
     coSign?: CoSign,
+    discountCoSign?: CoSign,
   ): Promise<CompletedSale> {
     const { staff, identity } = this.counter();
     const { request, totalMinor } = this.buildRequest(
@@ -270,8 +309,8 @@ export class CheckoutService {
     const at = this.now().toISOString();
     this.deps.db
       .prepare(
-        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, co_signer_id, branch_id, enrollment_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'submitted', ?, ?, ?, ?, ?)`,
+        `INSERT INTO checkout_draft (id, work_session_id, staff_user_id, request_json, total_minor, status, co_signer_id, discount_co_signer_id, branch_id, enrollment_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -280,6 +319,7 @@ export class CheckoutService {
         JSON.stringify(request),
         totalMinor,
         coSign?.approverUserId ?? null,
+        discountCoSign?.approverUserId ?? null,
         identity.branchId,
         identity.enrollmentId,
         at,
@@ -290,14 +330,30 @@ export class CheckoutService {
       request,
       staff.workSessionId,
       identity.branchId,
-      coSign,
+      { coSign, discountCoSign },
       false,
     );
   }
 
+  /**
+   * Who can co-sign a discount over the limit here (`sales.discount_override`), leaving out the
+   * person signed in: approving their own discount is their own authority, not a co-sign.
+   */
+  async discountApprovers(): Promise<ApproverView[]> {
+    const { identity, staff } = this.counter();
+    const rows = await this.deps.api.request<{ id: string; fullName: string; hasPosPin: boolean }[]>(
+      "GET",
+      "/sales/pos/discount-approvers",
+      { branchId: identity.branchId },
+    );
+    return rows
+      .filter((r) => r.id !== staff.staffUserId)
+      .map((r) => ({ userId: r.id, fullName: r.fullName, hasPin: r.hasPosPin }));
+  }
+
   /** Parks the cart on the server so any counter at the branch can recall it. */
   async hold(
-    lines: { productId: string; qty: number }[],
+    lines: SaleLine[],
     label: string | undefined,
     dispensing: Dispensing = {},
   ): Promise<{ holdRef: string }> {
@@ -311,7 +367,7 @@ export class CheckoutService {
           "CATALOG_STALE",
           "The product list changed. Refresh it and try again.",
         );
-      return sum + toMinor(product.unitPrice) * line.qty;
+      return sum + toMinor(product.unitPrice) * line.qty - (line.discountMinor ?? 0);
     }, 0);
     const held = await this.deps.api.request<{ id: string; holdRef: string }>(
       "POST",
@@ -322,7 +378,13 @@ export class CheckoutService {
           label: label?.trim() || undefined,
           itemCount: lines.reduce((sum, l) => sum + l.qty, 0),
           total: fromMinor(totalMinor),
-          lines: lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+          // A discount travels with its line; a manager's co-sign never does, so a held discount
+          // over the limit is approved again when the sale is completed.
+          lines: lines.map((l) => ({
+            productId: l.productId,
+            qty: l.qty,
+            ...(l.discountMinor ? { discountAmount: fromMinor(l.discountMinor) } : {}),
+          })),
           // Same meta keys as the web POS, so a hold recalls with its customer and prescription anywhere.
           meta: {
             source: "desktop_counter",
@@ -385,13 +447,17 @@ export class CheckoutService {
   }
 
   /** Accept only what this counter can sell from: product ids and whole quantities. */
-  private heldLines(lines: unknown[]): { productId: string; qty: number }[] {
+  private heldLines(lines: unknown[]): RecalledHold["lines"] {
     return lines.flatMap((raw) => {
-      const line = raw as { productId?: unknown; qty?: unknown };
+      const line = raw as { productId?: unknown; qty?: unknown; discountAmount?: unknown };
+      const discount =
+        typeof line.discountAmount === "string" && /^\d{1,9}(\.\d{1,2})?$/.test(line.discountAmount)
+          ? toMinor(line.discountAmount)
+          : 0;
       return typeof line.productId === "string" &&
         Number.isSafeInteger(line.qty) &&
         (line.qty as number) > 0
-        ? [{ productId: line.productId, qty: line.qty as number }]
+        ? [{ productId: line.productId, qty: line.qty as number, discountMinor: discount }]
         : [];
     });
   }
@@ -402,7 +468,7 @@ export class CheckoutService {
    * never arrived needs the co-signer's PIN again. Anyone else signed in here only asks the server
    * whether it landed (`resolveForSeller`); their sign-in never sends it again.
    */
-  async retry(draftId: string, coSign?: CoSign): Promise<CompletedSale> {
+  async retry(draftId: string, coSign?: CoSign, discountCoSign?: CoSign): Promise<CompletedSale> {
     const { staff, identity } = this.counter();
     const row = this.row(draftId);
     if (!row || (row.status !== "uncertain" && row.status !== "submitted"))
@@ -427,12 +493,17 @@ export class CheckoutService {
         "CO_SIGNER_CHANGED",
         "Only the pharmacist who co-signed this sale can confirm it.",
       );
+    if (discountCoSign && discountCoSign.approverUserId !== row.discount_co_signer_id)
+      throw new ActionFailure(
+        "CO_SIGNER_CHANGED",
+        "Only the manager who approved this sale's discount can confirm it.",
+      );
     return this.send(
       row.id,
       JSON.parse(row.request_json) as CheckoutRequest,
       staff.workSessionId,
       identity.branchId,
-      coSign,
+      { coSign, discountCoSign },
       true,
     );
   }
@@ -504,6 +575,7 @@ export class CheckoutService {
       createdAt: row.created_at,
       lineCount: (JSON.parse(row.request_json) as CheckoutRequest).items.length,
       coSignerId: row.co_signer_id,
+      discountCoSignerId: row.discount_co_signer_id,
       staffName: row.staff_name,
       ownSale: row.staff_user_id === signedIn,
     }));
@@ -539,7 +611,7 @@ export class CheckoutService {
     request: CheckoutRequest,
     workSessionId: string,
     branchId: string,
-    coSign: CoSign | undefined,
+    { coSign, discountCoSign }: { coSign?: CoSign; discountCoSign?: CoSign },
     resend: boolean,
   ): Promise<CompletedSale> {
     try {
@@ -548,7 +620,11 @@ export class CheckoutService {
         "/sales/checkout",
         {
           branchId,
-          body: coSign ? { ...request, pharmacistApproval: coSign } : request,
+          body: {
+            ...request,
+            ...(coSign ? { pharmacistApproval: coSign } : {}),
+            ...(discountCoSign ? { discountApproval: discountCoSign } : {}),
+          },
           headers: {
             "Idempotency-Key": id,
             "x-terminal-session": workSessionId,
@@ -577,10 +653,12 @@ export class CheckoutService {
         // Refused before the server could find the first attempt (sign-in, permission, the
         // co-sign PIN): the original may still have landed, so it stays pending.
         this.mark(id, "uncertain", { errorCode });
-        throw error;
+        throw discountCoSignRefusal(error);
       }
       this.mark(id, "refused", { errorCode });
-      throw error;
+      throw discountCoSignRefusal(error);
+    } finally {
+      // Nothing to clean: the PINs live only in this call's arguments.
     }
   }
 }
