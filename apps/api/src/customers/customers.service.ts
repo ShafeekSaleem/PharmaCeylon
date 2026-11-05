@@ -4,6 +4,7 @@ import { assertOneScopedMutation } from "../common/scoped-mutation.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCustomerDto } from "./dto/create-customer.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
+import { PRESCRIPTION_PEOPLE_SELECT, withPrescriptionPeople } from "./prescriptions.service";
 
 const CUSTOMER_SELECT = {
   id: true,
@@ -141,6 +142,7 @@ export class CustomersService {
           issuedOn: true,
           validUntil: true,
           branch: { select: { name: true } },
+          ...PRESCRIPTION_PEOPLE_SELECT,
         },
         orderBy: { issuedOn: "desc" },
         take: 20,
@@ -157,7 +159,7 @@ export class CustomersService {
     return {
       customer,
       sales,
-      prescriptions,
+      prescriptions: prescriptions.map(withPrescriptionPeople),
       stats: {
         postedSaleCount: totals._count,
         lifetimeValue: totals._sum.grandTotal?.toFixed(2) ?? "0.00",

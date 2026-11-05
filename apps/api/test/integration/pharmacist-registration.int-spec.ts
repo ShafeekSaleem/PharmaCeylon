@@ -639,7 +639,9 @@ describe("the unsigned prescription route at a branch live on PharmaCeylon POS",
   it("records before go-live and during an owner's fallback, when the web POS is in use", async () => {
     const before = await recorded();
     await rollout("not_live");
-    await expect(create()).resolves.toMatchObject({ patientName: "Nimal Perera" });
+    // No registration is checked on this route, so nobody is recorded as having verified it.
+    await expect(create()).resolves.toMatchObject({ patientName: "Nimal Perera", checkedBy: null,
+      recordedBy: { id: expect.any(String) } });
     await rollout("fallback");
     await expect(create()).resolves.toMatchObject({ patientName: "Nimal Perera" });
     expect(await recorded()).toBe(before + 2);

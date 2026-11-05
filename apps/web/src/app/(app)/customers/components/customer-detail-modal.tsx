@@ -163,6 +163,12 @@ export function CustomerDetailModal({
                           {rx.patientName} · Dr {rx.doctorName} ·{" "}
                           {formatDate(rx.issuedOn)} · {rx.branch.name}
                         </span>
+                        <span className={css.historyMeta}>
+                          Recorded by {rx.recordedBy.fullName} · Pharmacist checked by{" "}
+                          {rx.checkedBy
+                            ? `${rx.checkedBy.fullName} (SLMC ${rx.checkedBy.slmcNumber})`
+                            : "nobody: recorded on the web, with no registration check"}
+                        </span>
                       </div>
                       <div className={css.historyRight}>
                         {/* Validity is the thing a pharmacist checks first on a

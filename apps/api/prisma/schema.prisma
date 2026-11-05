@@ -1077,6 +1077,8 @@ model PharmacistRegistration {
   membership       TenantMembership @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
   /// Sales whose controlled lines this registration qualified the dispenser for.
   dispensedSales   Sale[]
+  /// Prescriptions this registration qualified the checking pharmacist for.
+  checkedPrescriptions Prescription[]
 
   @@unique([tenantId, userId, id], map: "pharmacist_registration_tenant_id_user_id_id_key")
   @@index([tenantId, userId])
@@ -1426,6 +1428,7 @@ model AppUser {
   stocktakePostingLines    StocktakePostingLine[]
   auditEvents              AuditEvent[]             @relation("AuditActor")
   prescriptionsCreated     Prescription[]           @relation("PrescriptionCreator")
+  prescriptionsChecked     Prescription[]           @relation("PrescriptionChecker")
   heldSales                HeldSale[]               @relation("HeldSaleHolder")
   notifications            Notification[]
   notificationPreferences  NotificationPreference[]
@@ -2825,12 +2828,19 @@ model Prescription {
   notes       String?   @db.VarChar(512)
   customerId  String?   @map("customer_id") @db.Uuid
   createdBy   String    @map("created_by") @db.Uuid
+  /// P1 #47: the pharmacist who verified it, whose SLMC registration the signed counter command
+  /// relied on: the PIN co-signer, or the registered pharmacist recording it alone. Null when it
+  /// was recorded through the unsigned browser route, which checks no registration.
+  checkedBy             String?   @map("checked_by") @db.Uuid
+  checkedRegistrationId String?   @map("checked_registration_id") @db.Uuid
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
   branch   Branch    @relation(fields: [branchId], references: [id])
   customer Customer? @relation(fields: [customerId], references: [id])
   creator  AppUser   @relation("PrescriptionCreator", fields: [createdBy], references: [id])
+  checker  AppUser?  @relation("PrescriptionChecker", fields: [checkedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  checkedRegistration PharmacistRegistration? @relation(fields: [tenantId, checkedBy, checkedRegistrationId], references: [tenantId, userId, id], onDelete: Restrict, onUpdate: Restrict)
   sales    Sale[]
 
   @@unique([tenantId, branchId, rxNumber])

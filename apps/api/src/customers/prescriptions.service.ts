@@ -12,6 +12,33 @@ import { POS_ROLLOUT_SELECT, resolvePosRollout } from "../tenant/pos-rollout";
 import type { CommandProvenance } from "../terminals/command-provenance";
 import { CreatePrescriptionDto } from "./dto/create-prescription.dto";
 
+/** Who recorded a prescription and which pharmacist verified it (P1 #47). */
+export const PRESCRIPTION_PEOPLE_SELECT = {
+  creator: { select: { id: true, fullName: true } },
+  checker: { select: { id: true, fullName: true } },
+  checkedRegistration: { select: { slmcNumber: true } },
+} satisfies Prisma.PrescriptionSelect;
+
+type PeopleRow = Prisma.PrescriptionGetPayload<{ select: typeof PRESCRIPTION_PEOPLE_SELECT }>;
+
+/**
+ * `recordedBy` typed it in; `checkedBy` is the pharmacist whose SLMC registration the signed counter
+ * command relied on (a PIN co-signer, or a registered pharmacist recording alone), with that
+ * registration's number. Registers and inspectors need the second. It is null for a prescription
+ * recorded through the unsigned browser route, which checks no registration.
+ */
+export function withPrescriptionPeople<T extends PeopleRow>(row: T) {
+  const { creator, checker, checkedRegistration, ...rest } = row;
+  return {
+    ...rest,
+    recordedBy: { id: creator.id, fullName: creator.fullName },
+    checkedBy:
+      checker && checkedRegistration
+        ? { id: checker.id, fullName: checker.fullName, slmcNumber: checkedRegistration.slmcNumber }
+        : null,
+  };
+}
+
 const PRESCRIPTION_SELECT = {
   id: true,
   rxNumber: true,
@@ -24,6 +51,7 @@ const PRESCRIPTION_SELECT = {
   customerId: true,
   createdAt: true,
   customer: { select: { id: true, fullName: true, phone: true } },
+  ...PRESCRIPTION_PEOPLE_SELECT,
 } satisfies Prisma.PrescriptionSelect;
 
 /** Midnight UTC today — the boundary a prescription lapses on. */
@@ -58,7 +86,7 @@ export class PrescriptionsService {
     options: { q?: string; customerId?: string; take?: number } = {},
   ) {
     const term = options.q?.trim();
-    return this.prisma.prescription.findMany({
+    const rows = await this.prisma.prescription.findMany({
       where: {
         tenantId,
         branchId,
@@ -77,6 +105,7 @@ export class PrescriptionsService {
       orderBy: { createdAt: "desc" },
       take: Math.min(Math.max(options.take ?? 20, 1), 50),
     });
+    return rows.map(withPrescriptionPeople);
   }
 
   /**
@@ -141,7 +170,7 @@ export class PrescriptionsService {
       this.prisma.prescription.count({ where }),
     ]);
 
-    return { items, total, page, pageSize };
+    return { items: items.map(withPrescriptionPeople), total, page, pageSize };
   }
 
   async getOne(tenantId: string, branchId: string, id: string) {
@@ -150,7 +179,7 @@ export class PrescriptionsService {
       select: PRESCRIPTION_SELECT,
     });
     if (!rx) throw new NotFoundException("Prescription not found");
-    return rx;
+    return withPrescriptionPeople(rx);
   }
 
   /**
@@ -233,6 +262,9 @@ export class PrescriptionsService {
           notes: dto.notes?.trim() || null,
           customerId: dto.customerId ?? null,
           createdBy: userId,
+          // The signed command's clinical evidence: who verified it, and on which registration.
+          checkedBy: command?.pharmacistUserId ?? null,
+          checkedRegistrationId: command?.pharmacistRegistrationId ?? null,
         },
         select: PRESCRIPTION_SELECT,
       });
@@ -259,6 +291,6 @@ export class PrescriptionsService {
       },
       tx,
     );
-    return created;
+    return withPrescriptionPeople(created);
   }
 }
