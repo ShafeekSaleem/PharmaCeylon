@@ -26,7 +26,7 @@ import {
   OfflineActivationService,
 } from "../../src/terminals/offline-activation.service";
 import { OfflineAssignmentService } from "../../src/terminals/offline-assignment.service";
-import { firstIssuanceState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
+import { emptyJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
 import { OfflineSupportRecords } from "../../src/terminals/offline-support-records.service";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
@@ -160,7 +160,7 @@ async function grantedCounter(first = false): Promise<Counter> {
     defaultVatRatePercent: 18,
     // Command signing and attendance are covered in terminal-execution; this is what follows.
     authenticate: async () => ({ identity, commandId: randomUUID() }),
-    readState: firstIssuanceState,
+    readState: emptyJournalState,
   });
   return { device, identity, grant: grant.payload };
 }
@@ -503,7 +503,7 @@ describe("D11: P3's authority cutoff", () => {
       issuance = issueOfflineAuthority(prisma as never, access, {
         signer, defaultVatRatePercent: 18,
         authenticate: async () => ({ identity: late, commandId: randomUUID() }),
-        readState: firstIssuanceState,
+        readState: emptyJournalState,
       });
       issuance.catch(() => undefined);
       await new Promise((resolve) => setTimeout(resolve, 500));
