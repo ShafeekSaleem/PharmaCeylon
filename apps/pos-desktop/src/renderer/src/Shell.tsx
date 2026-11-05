@@ -2,15 +2,17 @@ import type {
   ApiReachability,
   AppInfo,
   DeviceState,
+  LocalShift,
   Printer,
 } from "../../shared/ipc-contract";
-import { initials, shortDay, time, timeWithSeconds, useNow } from "./format";
+import { initials, shortDay, shortName, time, timeWithSeconds, useNow } from "./format";
+import { money } from "./sell-model";
 import { Icon, type IconName } from "./Icon";
 import styles from "./Shell.module.css";
 import ui from "./ui.module.css";
 import { cx } from "./useAction";
 
-export type Page = "sell" | "work" | "counter";
+export type Page = "sell" | "work" | "cash" | "counter";
 
 const TONES = [
   styles.teal,
@@ -136,6 +138,7 @@ export function Rail({
   onPage,
   workCount,
   showWork,
+  showCash = true,
   session,
   personOpen,
   onPerson,
@@ -145,6 +148,8 @@ export function Rail({
   onPage: (page: Page) => void;
   workCount: number;
   showWork: boolean;
+  /** Cash & shift: everyone who sells at the counter. */
+  showCash?: boolean;
   session: NonNullable<DeviceState["staffSession"]>;
   personOpen: boolean;
   onPerson: () => void;
@@ -169,6 +174,15 @@ export function Rail({
             onClick={() => onPage("work")}
           />
         </>
+      )}
+      {showCash && !showWork && <div className={styles.railSep} />}
+      {showCash && (
+        <RailItem
+          icon="wallet"
+          label="Cash & shift"
+          active={page === "cash"}
+          onClick={() => onPage("cash")}
+        />
       )}
       <div className={styles.railBottom}>
         <RailItem
@@ -200,11 +214,14 @@ export function StatusBar({
   api,
   printer,
   info,
+  shift = null,
 }: {
   state: DeviceState;
   api: ApiReachability | null;
   printer: Printer | null | undefined;
   info: AppInfo | null;
+  /** The shift open on this till (this counter's copy). */
+  shift?: LocalShift | null;
 }) {
   const session = state.staffSession;
   const local = atTheComputer(state);
@@ -221,12 +238,35 @@ export function StatusBar({
         <b>{serverText(api)}</b>
         {api && ` · checked ${timeWithSeconds(new Date(api.checkedAt))}`}
       </span>
-      {session && (
-        <span className={styles.sb}>
-          <Icon name="users" />
-          Signed in <b>{session.staffName}</b> · since{" "}
-          {time(new Date(session.openedAt))}
-        </span>
+      {shift ? (
+        <>
+          <span className={styles.sb}>
+            <Icon name="clock" />
+            Shift {shift.shiftNumber && <b>{shift.shiftNumber}</b>}
+            {shift.shiftNumber && " · "}
+            {shortName(shift.staffName)} · since{" "}
+            {time(new Date(shift.openedAt))}
+            {shift.status === "closing" && " · closing, not yet synced"}
+          </span>
+          <span className={styles.sb}>
+            <Icon name="wallet" />
+            Drawer expected <b>Rs {money(shift.expectedCashMinor)}</b>
+          </span>
+        </>
+      ) : (
+        session && (
+          <>
+            <span className={styles.sb}>
+              <Icon name="users" />
+              Signed in <b>{session.staffName}</b> · since{" "}
+              {time(new Date(session.openedAt))}
+            </span>
+            <span className={styles.sb}>
+              <Icon name="clock" />
+              No shift open
+            </span>
+          </>
+        )
       )}
       {printer !== undefined && (
         <span className={styles.sb}>

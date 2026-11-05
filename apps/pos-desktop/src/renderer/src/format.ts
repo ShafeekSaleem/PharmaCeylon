@@ -81,3 +81,9 @@ export function useNow() {
   }, []);
   return now;
 }
+
+/** "Sachini Rathnayake" → "Sachini R.", as the status bar names people. */
+export function shortName(name: string) {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1 ? `${parts[0]} ${parts.at(-1)![0]}.` : (parts[0] ?? name);
+}
