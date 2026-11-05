@@ -84,12 +84,20 @@ function currentApiBaseUrl(): string | null {
 }
 
 /** Runs a renderer-requested action; refusals come back as explained data, details go to the log. */
-/** Unconfirmed sales and signed actions, and who has to come back to confirm them. */
-function unconfirmedFacts(): { unconfirmed: number; unconfirmedBy: string[] } {
-  const pending = [...(checkout?.pending() ?? []), ...(commands?.pending() ?? [])];
+/**
+ * Unconfirmed sales and signed actions. A sale names who started it (anyone here can confirm it);
+ * an action names who has to come back to confirm it.
+ */
+function unconfirmedFacts(): { unconfirmed: number; unconfirmedSalesBy: string[]; unconfirmedBy: string[] } {
+  const sales = checkout?.pending() ?? [];
+  const actions = commands?.pending() ?? [];
+  const names = (rows: { staffName: string | null }[]) => [
+    ...new Set(rows.map((p) => p.staffName ?? "someone who has signed out")),
+  ];
   return {
-    unconfirmed: pending.length,
-    unconfirmedBy: [...new Set(pending.map((p) => p.staffName ?? "someone who has signed out"))],
+    unconfirmed: sales.length + actions.length,
+    unconfirmedSalesBy: names(sales),
+    unconfirmedBy: names(actions),
   };
 }
 

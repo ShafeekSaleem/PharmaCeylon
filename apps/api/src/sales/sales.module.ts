@@ -9,6 +9,7 @@ import { RefundRequestsService } from "./refund-requests.service";
 import { SaleReadService } from "./sale-read.service";
 import { SalesController } from "./sales.controller";
 import { SalesService } from "./sales.service";
+import { CheckoutResolutionService } from "./checkout-resolution.service";
 import { SetupModule } from "../setup/setup.module";
 import { OperationalAuthorizationModule } from "../security/operational-authorization.module";
 import { ClinicalModule } from "../clinical/clinical.module";
@@ -19,12 +20,13 @@ import { ClinicalModule } from "../clinical/clinical.module";
   controllers: [RefundRequestsController, SalesController],
   providers: [
     SalesService,
+    CheckoutResolutionService,
     PosService,
     SaleReadService,
     HeldSalesService,
     PharmacistApprovalService,
     RefundRequestsService,
   ],
-  exports: [SaleReadService, RefundRequestsService],
+  exports: [SaleReadService, RefundRequestsService, PharmacistApprovalService],
 })
 export class SalesModule {}

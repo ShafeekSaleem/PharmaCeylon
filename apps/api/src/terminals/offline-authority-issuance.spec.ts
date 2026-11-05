@@ -11,6 +11,8 @@ it("authenticates before replaying the original pair without recomputing authori
   const grant = { payload: { grantVersion: 3 } };
   const snapshot = { payload: { snapshotVersion: 3 } };
   const tx = {
+    // The nomination share lock D11 clearance pairs with.
+    $queryRaw: jest.fn().mockResolvedValue([{ id: "nomination" }]),
     offlineTerminalNomination: { findFirst: jest.fn().mockResolvedValue({ id: "nomination" }) },
     offlineAuthorityIssuance: { findUnique: jest.fn().mockResolvedValue({ snapshotId: "snapshot", grant }) },
     offlineStockSnapshot: { findFirstOrThrow: jest.fn().mockResolvedValue({ envelope: snapshot }) },

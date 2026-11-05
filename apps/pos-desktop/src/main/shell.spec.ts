@@ -75,6 +75,16 @@ describe("buildReadinessReport", () => {
     expect(statusOf(buildReadinessReport(healthy, new Date()), "staff")).toBe("not_ready");
   });
 
+  it("says who started an unconfirmed sale and that anyone here can confirm it", () => {
+    const report = buildReadinessReport(
+      { ...healthy, unconfirmed: 2, unconfirmedSalesBy: ["Nimal Perera"], unconfirmedBy: ["Kamala Silva"] },
+      new Date(),
+    );
+    const detail = report.checks.find((check) => check.id === "unconfirmed")!.detail;
+    expect(detail).toContain("Sales started by Nimal Perera: anyone signed in here can confirm them.");
+    expect(detail).toContain("Only the person who sent each action can confirm it: Kamala Silva.");
+  });
+
   it("fails the database and schema checks when the store is not usable", () => {
     const report = buildReadinessReport({ ...healthy, databaseOpen: false }, new Date());
     expect(statusOf(report, "database")).toBe("failed");

@@ -182,8 +182,8 @@ export function slmcRefusal(
         code,
         title: "Only a registered pharmacist can record a prescription",
         detail,
-        next: "Hold this sale. The pharmacist then signs in at this counter with their PIN, records the prescription and recalls the sale. A co-sign with their PIN isn't accepted for recording yet.",
-        actions: ["hold"],
+        next: "Choose a registered pharmacist under \"Recorded with\" and ask for their PIN, then save again. Or hold the sale until one is here. Nothing was saved.",
+        actions: ["choose-pharmacist", "hold"],
       };
   }
 }

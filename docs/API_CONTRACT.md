@@ -110,6 +110,9 @@ Send optional header **`Idempotency-Key`** (max 128 characters, trimmed). Keys a
 - First request with a key performs the mutation and records the key → resource id.
 - Retries with the **same** key return the **same** resource (replay).
 - Reusing a key for a **different** logical operation (e.g. different PO on receive, different transfer id on ship/receive) returns **400** with a clear message—do not silently post twice.
+- `checkout` keys can be sealed: `POST /sales/checkout/resolve` records scope `checkout_sealed`
+  for the seller's key once nothing landed under it, and checkout then refuses that key with 409
+  `CHECKOUT_SEALED` ("Desktop enrollment and staff sessions", "Unconfirmed sales").
 - `stock_adjustment` keeps the first request's body with the key (`idempotency_record.request_body`) and replays only an identical body at the same branch; any other body is the 400. `held_adjustment_request` compares against the held adjustment's saved payload.
 
 ## Private supplier-payment evidence (P1)
@@ -215,6 +218,10 @@ transaction.
 - `POST /terminal-commands/execute` — body `{ command: Signed<OnlineTerminalCommand>,
   attendanceProofId }` (exactly these keys). Returns an `OnlineCommandReceipt`, for the first
   execution and for every replay.
+- `POST /terminal-commands/pharmacist-cosigns` — body `{ workSessionId, operation, body,
+  pharmacistUserId, pin }` (exactly these keys). A registered pharmacist co-signs one clinical
+  command for the person signed in at this counter. Returns `{ pharmacistEvidenceId,
+  pharmacistUserId, pharmacistRegistrationId, expiresAt }` (below, "Pharmacist co-sign").
 
 ### v1 operations
 
@@ -231,7 +238,7 @@ transaction.
 | `POST /api/v1/purchasing/prepared-receipts/:id/post` | `{ preparedReceiptId }` | the prepared delivery's current approval | `purchasing.receive` |
 | `POST /api/v1/returns/:id/complete` | `{ goodsReturnId }` | the return's latest approval | `returns.process` |
 | `POST /api/v1/inventory/adjustments` | `{ kind, movementType, productId, batchId, newBatch, qty, reason, fromQuarantine }` | `null` | `inventory.manage` to add stock, `inventory.write_off` to write it off |
-| `POST /api/v1/prescriptions` | `{ rxNumber, patientName, doctorName, doctorRegNo, issuedOn, validUntil, customerId, notes }` | `null` | `prescriptions.create`, plus a current SLMC registration (below) |
+| `POST /api/v1/prescriptions` | `{ rxNumber, patientName, doctorName, doctorRegNo, issuedOn, validUntil, customerId, notes }` | `null` | `prescriptions.create`, plus a current SLMC registration; with a pharmacist's co-sign, `sales.pos_use` and the co-signer's registration (below) |
 
 Direct adjustments: every key is present. `movementType` is `adjustment_in`/`adjustment_out` for
 a `correction` (which also needs a `reason`) and `null` otherwise. `batchId` is `null` only with
@@ -244,18 +251,54 @@ retry of the same command replays the original result (`stock_adjustment.posted`
 `movementType`, `qty`, `stockReferenceId`), and a distinct command adjusts again. The
 `inventory.adjustment` audit carries the command provenance.
 
-Prescriptions (clinical): the signed session's staff member must hold a current SLMC
-registration recorded by an owner (`admin/pharmacist-registrations`) at the branch, with an active
-account and a role there. No role, permission or ownership substitutes for it: an owner or
-manager without one is refused with `PHARMACIST_REQUIRED`, with no effect, receipt or spent
+Prescriptions (clinical): a current SLMC registration recorded by an owner
+(`admin/pharmacist-registrations`) at the branch, with an active account and a role there, is
+needed. It is either the signed session's staff member's own (`pharmacistEvidenceId: null`), or a
+registered pharmacist's who co-signed with their PIN (`pharmacistEvidenceId` set; "Pharmacist
+co-sign" below). No role, permission or ownership substitutes for it: an owner or manager with no
+registration and no co-sign is refused with `PHARMACIST_REQUIRED`, with no effect, receipt or spent
 nonce, and so is a command prepared before the registration was revoked. Every key is present:
 `rxNumber`, `doctorRegNo`, `validUntil`, `customerId` and `notes` may be `null` (a `null`
 `rxNumber` is allocated `RX-#####` from the branch sequence). Text is exact and trimmed with the
 browser route's limits, dates are `YYYY-MM-DD`, and `validUntil` may not precede `issuedOn`.
-Result: `{ type: "prescription.recorded", prescriptionId, rxNumber, pharmacistRegistrationId }`.
+Result: `{ type: "prescription.recorded", prescriptionId, rxNumber, pharmacistRegistrationId }`,
+the registration relied on (the co-signer's when co-signed).
 Each command is its own prescription, and a retry replays the original result. The
-`prescription.recorded` audit carries the command provenance, including
-`pharmacistRegistrationId`. Recording a prescription is counter work, so it is hours-checked.
+`prescription.recorded` and `terminal.command_executed` audits carry the command provenance:
+`pharmacistRegistrationId`, `pharmacistUserId` (whose registration that is) and
+`pharmacistEvidenceId` (the co-sign spent, or `null`), separately from the actor, who is the
+session's staff member. Recording a prescription is counter work, so it is hours-checked.
+
+**Pharmacist co-sign** (P1 #47). A cashier records a prescription with a registered pharmacist's
+PIN, without the pharmacist switching in:
+
+1. `POST /terminal-commands/pharmacist-cosigns` with the exact body the command will carry, the
+   pharmacist (from `GET /sales/pos/approvers`, which lists only registered pharmacists) and their
+   PIN. The caller's open counter session (`workSessionId`), `terminal.execute` and `sales.pos_use`
+   are checked first (`SESSION_INVALID`, `PERMISSION_DENIED`). The PIN is then checked as at
+   checkout: the co-signer needs `prescriptions.create` at the branch, and a wrong PIN counts towards
+   their own lockout and is **403** `APPROVER_PIN_INCORRECT`, `APPROVER_PIN_LOCKED` or
+   `APPROVER_PIN_SWITCHED_OFF` (no PIN set: their login password, as at checkout). Last, the
+   co-signer needs a current registration at the branch, or **403** `APPROVER_NOT_QUALIFIED`. The
+   co-sign issued is bound to the tenant, branch, counter session, the person signed in there,
+   the operation and a SHA-256 of `canonicalJson({ operation, body })`. It expires after 5 minutes
+   and is audited (`pharmacist_cosign.issued`, with the co-signer and registration).
+2. `prepare` and `execute` the command with `pharmacistEvidenceId` set to it. A co-signed command
+   needs `sales.pos_use` from the signed-in person instead of `prescriptions.create`; everything
+   else (terminal proof, attendance, hours, live authority) is unchanged. Inside the execution
+   transaction the co-sign is locked and must match the command's session, staff member, operation
+   and body and be unspent and unexpired, or **403** `COSIGN_INVALID`. The co-signer's registration
+   is checked again with the same share lock as any clinical check (`APPROVER_NOT_QUALIFIED`), and
+   the co-sign is marked spent by this command with the registration relied on. A refusal rolls all
+   of it back, so only a command that succeeds spends a co-sign; a second command cannot use it.
+3. A lost response is resent identically and replays the original receipt; the receipt is looked up
+   before any clinical check, so the spent co-sign is not needed again. `COSIGN_INVALID` and
+   `APPROVER_NOT_QUALIFIED` on a resend prove the command never ran.
+
+The PIN is used only by step 1. It is not stored, and not part of the co-sign, the signed body, the
+request digest, the receipt or any audit. Co-signs are retained: they are spent once, otherwise
+immutable, and never deleted (database trigger). The unsigned browser `POST /prescriptions` is
+unchanged and takes no co-sign.
 
 Import posting: `selection: "all"` posts every remaining staged row and needs
 `categoryName: null`; `selection: "category"` posts one category (`categoryName: null` means
@@ -282,7 +325,8 @@ otherwise `approvalEvidenceId` must be `null`. Cash movement is resolved from th
 refundedTo: [{ method, amountMinor }], effect }` (LKR minor units). A request executes once: a
 later distinct command gets `effect: "already_applied"` with an empty `refundedTo`.
 `pharmacistEvidenceId`
-and `operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
+must be `null` for every v1 operation except prescriptions (a pharmacist's co-sign, above), and
+`operatingHoursExceptionId` must be `null` for every v1 operation. Any other operation,
 key, type or coercion is `INVALID_COMMAND`.
 
 ### Envelope, canonical bytes and digest
@@ -473,10 +517,21 @@ an owner or still a delegated manager with branch management), applies D11 clear
 authorization `consumed` by the activator, writes `offline_terminal_nomination` at `version + 1`
 and audits `terminal.offline_activated` with authorizer and activator separately. Concurrent
 activations serialize on the enrollment and branch locks; only one consumes the authorization.
-D11: a branch's first nomination is cleared; replacing a nominated terminal needs the old one
-revoked or retired (`D11_CLEARANCE_REQUIRED` reason `PREVIOUS_STILL_ACTIVE`) **and** grant
-cutoff plus journal recovery evidence, which P3/P5 provide — until then replacement fails closed
-(`OFFLINE_RECOVERY_EVIDENCE_REQUIRED`). Stale, revoked or consumed authorizations are
+D11: a branch's first nomination is cleared. Replacing a nominated terminal needs both halves,
+checked with the branch's nomination row locked:
+
+1. **P3, the authority cutoff.** The old counter must no longer be able to sell offline: it is
+   confirmed disabled (enrollment revoked or terminal retired), or the latest grant the server
+   issued it has expired (`now >= expiresAt`), or it was never issued one. Otherwise 409
+   `D11_CLEARANCE_REQUIRED` reason `PREVIOUS_STILL_ACTIVE`, with `authorityCutoffAt` (epoch ms)
+   saying when its last grant expires.
+2. **P5, missing-journal recovery and review.** Not supplied yet, so replacement still fails
+   closed with reason `OFFLINE_RECOVERY_EVIDENCE_REQUIRED` (`authorityCutoffAt` is the cutoff, or
+   `null` when the old counter never held a grant).
+
+Revocation is a cutoff for the server, not for a disconnected device: the grant it already holds
+is reported as `lastGrantExpiresAt` in the activation audit, for the journal review to account
+for. Stale, revoked or consumed authorizations are
 409 `OFFLINE_AUTHORIZATION_NOT_CURRENT` and need renewal. Activation issues no grant.
 
 ## Desktop enrollment and staff sessions (P2)
@@ -668,9 +723,34 @@ the seller's session opened at that counter, not a proof bound to the sale; that
 with `TEMPORARILY_UNAVAILABLE` if the stored hours can't be read. Routine closing time stays
 advisory online, and a branch with no hours set has no restriction.
 
-**Unconfirmed sales.** The checkout idempotency key is scoped to the seller, so only the person
-who rang up an unconfirmed sale can confirm it from the counter; the desktop names them in its
-pending list and readiness.
+**Unconfirmed sales.** The checkout idempotency key is scoped to the seller. The seller confirms
+their own unconfirmed sale by resending it under the same key. Anyone else signed in at the same
+enrolled counter confirms it with `POST /sales/checkout/resolve` (`sales.pos_use`, a counter
+route), which looks the original up and never sends it again:
+
+- Headers: `x-branch-id` and `x-terminal-session: <the caller's own open workSessionId>`.
+- Body: `{ idempotencyKey, workSessionId }`, the original's key and the staff session it was sent
+  under.
+- The server finds that session at this branch and requires it to be on the caller's enrollment.
+  It takes the same lock checkout takes for the seller's key, then reads the seller's checkout
+  record. A first attempt that is still running finishes first.
+- **200 `{ outcome: "landed", sale }`**: the committed sale, with the `POST /sales/checkout` sale
+  shape. It is still the seller's (`soldBy`, `workSessionId`), and nothing is posted.
+- **200 `{ outcome: "never_landed" }`**: nothing committed under the key, and now nothing can. The
+  lookup seals the key for that seller (`idempotency_record` scope `checkout_sealed`, `resourceId`
+  = the caller's session). A checkout with that key arriving later is refused with **409
+  `CHECKOUT_SEALED`** after the key lock, so the counter can ring the sale up again under a new
+  key. Asking again gives the same answer.
+- **403 `CHECKOUT_OTHER_COUNTER`**: the original session isn't at this branch or on this counter's
+  enrollment, or the seller's key belongs to a sale in another session. Nothing is sealed.
+- **403 `SESSION_INVALID`**: the caller has no open session of their own on an active enrollment.
+- Audited as `sale.checkout_resolved`, with the caller as actor and the outcome.
+
+Who may resolve: anyone with `sales.pos_use` signed in at that counter, not only managers. The
+route moves no stock or cash, attributes nothing to the caller, and only answers for this
+counter's own sales. Sealing a key that never landed only stops a sale that would otherwise arrive
+unannounced after the counter was told it hadn't happened. Requiring a manager would bring back
+the single-person wait the route exists to remove, at a counter run by two cashiers.
 
 **Web PIN routes.** `POST /sales/pos/me/pos-pin` and `/clear` are refused with 403
 `PIN_SET_AT_COUNTER` at a branch live on PharmaCeylon POS (outside a fallback), because there the
@@ -745,10 +825,11 @@ Otherwise the command is refused with `PHARMACIST_REQUIRED`. The registration is
 revocation that commits first is seen, and a later one waits for the clinical transaction; a
 renewal that commits during the wait is found by one fresh read, so it is not refused. The
 registration relied on is returned and copied into the command provenance
-(`pharmacistRegistrationId`) for the operation's success audit. A
-co-signing pharmacist (`pharmacistEvidenceId`) is still not accepted on a signed command
-(`INVALID_COMMAND`), so a prescription is recorded by a registered pharmacist signed in at the
-counter. The check is `PharmacistRegistrationService.assertQualified`; checkout calls it too.
+(`pharmacistRegistrationId`) for the operation's success audit. A signed prescription may instead
+carry a registered pharmacist's PIN co-sign (`pharmacistEvidenceId`, "Pharmacist co-sign" above);
+then the co-signer's registration is the one checked and recorded, and the co-signer is recorded
+as `pharmacistUserId`. A co-sign on any other operation is `INVALID_COMMAND`. The check is
+`PharmacistRegistrationService.assertQualified`; checkout calls it too.
 
 **Controlled checkout.** `POST /sales/checkout` with controlled lines checks the dispenser's
 registration with the same `assertQualified`, on the checkout's own transaction before any batch
@@ -1189,3 +1270,50 @@ for the enrollment (`pos-desktop/src/main/terminal/offline-journal.ts`; P4 lists
 there). A pair that fails verification, is older than the installed one, or claims a newer
 version with older evidence is never installed. Only the current pair is kept on the counter;
 the server keeps every version.
+
+## Held offline evidence verification (P3)
+
+`HeldEvidenceVerifier` (`apps/api/src/terminals/held-evidence-verifier.service.ts`) verifies held
+offline evidence against the grants this server issued. P5 sync calls it on its own transaction,
+after verifying the device journal it takes the evidence from; there is no HTTP route. The caller
+must be live at the branch. Verification takes the same record lock as intake, and the grant is
+looked up only among `offline_authority_issuance` rows of the record's own tenant, branch and
+enrollment, so another counter's grant is as unknown as a made-up one.
+
+- `verifyHoursAcknowledgement(tx, user, branchId, { enrollmentId, recordId, managerSignIn, outage })`
+  for a held D8 acknowledgement. `managerSignIn` is the `OfflineStaffSignIn` the acknowledgement
+  cites; `outage` is `{ offlineSessionId, offlineStartedAt }` from the journal command that relies
+  on it. Both are parsed with exact keys. The record moves to `accepted`, or to `rejected` with the
+  reason in `heldReason`.
+- `verifySupportRecord(tx, user, branchId, { enrollmentId, recordId, staffSignIn })` for a held sale
+  incident or card-attempt event. It moves to `rejected` when the check below fails. When the check
+  passes it stays `held` under its existing reason (`sale_unverified`, `payment_unverified`): the
+  sale and the card-machine result are P5's to verify. Support records still post no stock, cash or
+  refund effect.
+
+The result is `{ recordId, status, reason, decided }`, where `decided` is true only on the call that
+moved the record. A record that is already decided is returned as stored, and the P1 trigger lets
+the outcome move only once. A record held as `enrollment_revoked` or `attempt_mismatch` is not P3's
+to settle, so it is returned unchanged.
+
+The first check that fails names the reason. The order is fixed, so the same evidence always gets
+the same reason: grant, then the sign-in (identity, staff, credential, times), then capability,
+outage, window and mandatory limit for an acknowledgement, or work session and named staff for a
+support record.
+
+| Reason | Acknowledgement | Support record |
+| --- | --- | --- |
+| `grant_not_issued` | No grant with `grantId` was issued to this enrollment | Same, for the sign-in's `grantId` |
+| `grant_binding_mismatch` | Grant version, nomination version or device identity differ | Device identity differs |
+| `sign_in_mismatch` | The sign-in is not `managerSignInId`, or is for another grant, device, register or till | Same, for `staffSignInId` |
+| `staff_not_prepared` | The signed-in person is not in the grant's `authorizedStaff` | Same, and for the incident recorder or the card-decline verifier |
+| `credential_version_mismatch` | Another `staffAuthorizationId`, `credentialVersion` or method than the grant authorized | Same |
+| `outside_grant_window` | Sign-in or record outside `[notBefore, expiresAt)`, sign-in after the record, or the window ends after `expiresAt` | Sign-in or record outside the grant, or sign-in after the record |
+| `manager_lacks_capability` | The grant did not give the manager `acknowledge_business_hours` | — |
+| `work_session_mismatch` | — | The record's work session is not the sign-in's |
+| `outage_mismatch` | Another `offlineSessionId`, or the outage began outside the grant or after the record | — |
+| `mandatory_window_overridden` | The window is not wholly inside the grant's `mandatoryOperatingWindows` (when not `null`) | — |
+
+The acknowledgement window may extend routine
+`operatingWindows`, which is what it is for. It may never reach past a mandatory limit or the
+grant's expiry.
