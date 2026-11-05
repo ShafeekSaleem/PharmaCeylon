@@ -53,6 +53,7 @@ export class RolesAdminService {
       "inventory.quarantine",
       "inventory.release_quarantine",
       "inventory.manage_bulk",
+      "inventory.view_other_branches_availability",
       "purchasing.receive",
       "terminal.execute",
       "shifts.close_others",

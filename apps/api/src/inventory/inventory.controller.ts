@@ -211,10 +211,30 @@ export class InventoryController {
     return this.inventory.productStock(user.tenantId, branchId, productId, {
       canViewCost: access.has("costs.view"),
       // Other branches' stock is shown only where the user works too; owners see every branch.
-      accessibleBranchIds: isOwner
-        ? "all"
-        : [...new Set(user.branchRoles.map((entry) => entry.branchId))],
+      // A PIN-opened counter login gets none here: the counter shows other branches as bands
+      // only, from `branch-availability`, so no other branch's quantities reach it.
+      accessibleBranchIds: user.counter
+        ? []
+        : isOwner
+          ? "all"
+          : [...new Set(user.branchRoles.map((entry) => entry.branchId))],
     });
+  }
+
+  /**
+   * The counter's "Other branches": every other active branch of the tenant, as In stock, Low or
+   * Out (Ask the pharmacist for a controlled product). No quantities, costs or batches. Its own
+   * permission, so a tenant can switch it off per role without touching the web's full detail.
+   */
+  @RequirePermission("inventory.view_other_branches_availability")
+  @CounterRoute()
+  @Get("products/:productId/branch-availability")
+  branchAvailability(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Param("productId", ParseUUIDPipe) productId: string,
+  ) {
+    return this.inventory.otherBranchAvailability(user.tenantId, branchId, productId);
   }
 
   @RequirePermission("inventory.view")

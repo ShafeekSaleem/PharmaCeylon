@@ -55,7 +55,10 @@ describe("routes a PIN-opened counter login may call", () => {
     [TerminalCommandsController, ["prepare", "execute", "cosign"]],
     [CounterWorkController, ["list"]],
     // The Stock page reads; every stock change goes through the signed command above.
-    [InventoryController, ["stockByProduct", "productStock", "writeOffPolicy"]],
+    [
+      InventoryController,
+      ["stockByProduct", "productStock", "branchAvailability", "writeOffPolicy"],
+    ],
     [OfflineAssignmentController, ["view"]],
     [TillShiftsController, ["current", "list", "detail", "open", "close"]],
     [OfflineAuthorityController, ["prepare", "issue"]],

@@ -989,6 +989,54 @@ export class InventoryService {
     };
   }
 
+  /**
+   * Whether the tenant's other branches have a product, for the counter: a band per branch and
+   * nothing else. No quantities, costs or batches leave here, so a counter role can see every
+   * branch of the tenant without seeing its stock. The bands use the same rule as
+   * `stock-by-product` (available against the product's reorder level). A controlled product
+   * gets no band at all: the counter is told to ask the pharmacist rather than where scarce or
+   * abusable stock sits.
+   */
+  async otherBranchAvailability(tenantId: string, branchId: string, productId: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, tenantId },
+      select: { id: true, reorderLevel: true, isControlled: true },
+    });
+    if (!product) throw new NotFoundException("Product not found");
+    const branches = await this.prisma.branch.findMany({
+      where: { tenantId, isActive: true, id: { not: branchId } },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+    if (product.isControlled)
+      return {
+        productId,
+        controlled: true,
+        branches: branches.map((b) => ({
+          branchId: b.id,
+          name: b.name,
+          band: "ask_pharmacist" as OtherBranchBand,
+        })),
+      };
+    const { today } = await this.clock(tenantId);
+    const totals = await this.stockRead.productTotalsByBranch({
+      tenantId,
+      productId,
+      branchIds: branches.map((b) => b.id),
+      today,
+    });
+    const available = new Map(totals.map((row) => [row.branchId, row.available]));
+    return {
+      productId,
+      controlled: false,
+      branches: branches.map((b) => ({
+        branchId: b.id,
+        name: b.name,
+        band: availabilityBand(available.get(b.id) ?? 0, product.reorderLevel),
+      })),
+    };
+  }
+
   /** Everything the product stock panel shows, in one request. */
   async productStock(
     tenantId: string,
@@ -1547,6 +1595,14 @@ function emptyTotals(productId: string): ProductStockTotals {
     expiredBatchCount: 0,
     expiryReviewBatchCount: 0,
   };
+}
+
+/** A band in place of a quantity: what another branch's counter view may know. */
+export type OtherBranchBand = "in_stock" | "low" | "out" | "ask_pharmacist";
+
+export function availabilityBand(available: number, reorderLevel: number): OtherBranchBand {
+  const status = resolveStockStatus(available, reorderLevel);
+  return status === "ok" ? "in_stock" : status;
 }
 
 function matchesAttention(t: ProductStockTotals, attention: StockAttention): boolean {

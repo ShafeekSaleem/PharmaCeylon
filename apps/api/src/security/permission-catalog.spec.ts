@@ -16,4 +16,12 @@ describe("permission catalog defaults", () => {
     expect(defaultPermissionsForRole(RoleName.cashier)).not.toContain("stocktakes.review");
     expect(PERMISSION_CATALOG.filter((p) => p.key === "terminal.execute")).toHaveLength(1);
   });
+
+  it("lets the counter roles see other branches' availability by default, not the clerk", () => {
+    const key = "inventory.view_other_branches_availability";
+    for (const role of [RoleName.owner, RoleName.manager, RoleName.pharmacist, RoleName.cashier])
+      expect(defaultPermissionsForRole(role)).toContain(key);
+    expect(defaultPermissionsForRole(RoleName.inventory_clerk)).not.toContain(key);
+    expect(PERMISSION_CATALOG.filter((p) => p.key === key)).toHaveLength(1);
+  });
 });

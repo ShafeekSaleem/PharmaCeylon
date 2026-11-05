@@ -333,6 +333,9 @@ describe("Security Guards", () => {
             .mockResolvedValue({ items: [], total: 0, skip: 0, take: 50 } as never),
           jest.spyOn(inventory, "productStock").mockResolvedValue({ ok: true } as never),
           jest
+            .spyOn(inventory, "otherBranchAvailability")
+            .mockResolvedValue({ productId: PRODUCT, controlled: false, branches: [] } as never),
+          jest
             .spyOn(access, "resolve")
             .mockResolvedValue({ has: () => false } as never),
         );
@@ -352,16 +355,55 @@ describe("Security Guards", () => {
         );
       });
 
-      it("reaches one product's stock, with the other branches the person works at", async () => {
+      it("reaches one product's stock with no other branch's quantities", async () => {
         await request(app.getHttpServer())
           .get(`/api/v1/inventory/products/${PRODUCT}/stock`)
           .set("Authorization", `Bearer ${counterToken()}`)
+          .set("x-branch-id", "b1")
+          .expect(200);
+        // Other branches come as bands from branch-availability; none from here.
+        expect(inventory.productStock).toHaveBeenCalledWith("tenant-1", "b1", PRODUCT, {
+          canViewCost: false,
+          accessibleBranchIds: [],
+        });
+      });
+
+      it("leaves the web's full detail for the person's own branches unchanged", async () => {
+        await request(app.getHttpServer())
+          .get(`/api/v1/inventory/products/${PRODUCT}/stock`)
+          .set("Authorization", `Bearer ${signAccessToken()}`)
           .set("x-branch-id", "b1")
           .expect(200);
         expect(inventory.productStock).toHaveBeenCalledWith("tenant-1", "b1", PRODUCT, {
           canViewCost: false,
           accessibleBranchIds: ["b1", "b2"],
         });
+      });
+
+      it("reaches every branch's availability at the counter's branch", async () => {
+        await request(app.getHttpServer())
+          .get(`/api/v1/inventory/products/${PRODUCT}/branch-availability`)
+          .set("Authorization", `Bearer ${counterToken()}`)
+          .set("x-branch-id", "b1")
+          .expect(200);
+        expect(inventory.otherBranchAvailability).toHaveBeenCalledWith("tenant-1", "b1", PRODUCT);
+      });
+
+      it("refuses availability to a role with the permission switched off", async () => {
+        userContext.load.mockResolvedValue({
+          ...baseCtx,
+          branchRoles: [{ branchId: "b1", role: RoleName.custom, roleId: "counter-no-branches" }],
+        });
+        rolePermissionFindMany.mockResolvedValue([
+          { permissionKey: "inventory.view" },
+          { permissionKey: "sales.pos_use" },
+        ]);
+        await request(app.getHttpServer())
+          .get(`/api/v1/inventory/products/${PRODUCT}/branch-availability`)
+          .set("Authorization", `Bearer ${counterToken()}`)
+          .set("x-branch-id", "b1")
+          .expect(403);
+        expect(inventory.otherBranchAvailability).not.toHaveBeenCalled();
       });
 
       it("is still refused every route that changes stock, and the full movement history", async () => {
