@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import type { StockBatch, StockRow } from "../../shared/ipc-contract";
 import {
+  bandText,
   batchStatus,
   expiryWhen,
   movementLine,
@@ -154,5 +155,14 @@ describe("the write-off limit, as the server applies it", () => {
   it("can't tell without the cost, and never applies without a limit", () => {
     expect(writeOffCheck(batch({ costPrice: null }), 4, "10000.00").overLimit).toBeNull();
     expect(writeOffCheck(batch({ costPrice: null }), 4, null).overLimit).toBe(false);
+  });
+});
+
+describe("another branch's band", () => {
+  it("is a word and a tone, never a number", () => {
+    expect(bandText("in_stock")).toEqual({ text: "In stock", tone: "ok" });
+    expect(bandText("low")).toEqual({ text: "Low", tone: "warn" });
+    expect(bandText("out")).toEqual({ text: "Out", tone: "bad" });
+    expect(bandText("ask_pharmacist")).toEqual({ text: "Ask the pharmacist", tone: "ask" });
   });
 });

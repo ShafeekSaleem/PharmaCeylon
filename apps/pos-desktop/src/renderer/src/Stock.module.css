@@ -630,8 +630,26 @@
   font-weight: 600;
 }
 
-.kvBad {
+.kv_ok {
+  --c: var(--pos-ok);
+}
+
+.kv_warn {
+  --c: var(--pos-warn);
+}
+
+.kv_bad {
   --c: var(--pos-bad);
+}
+
+/* A controlled product: no band, so no colour that reads as stock. */
+.kv_ask {
+  --c: var(--pos-rx);
+}
+
+.kv_ask b {
+  color: var(--pos-rx-ink);
+  font-weight: 600;
 }
 
 .dot {

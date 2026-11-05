@@ -8,7 +8,7 @@ import type {
   StockRow,
   StockSearch,
 } from "../../shared/ipc-contract";
-import type { ApiSession } from "../api/api-client";
+import { ApiError, type ApiSession } from "../api/api-client";
 import { ActionFailure, type TerminalService } from "./terminal-service";
 import type { SignedCommandService } from "./signed-commands";
 
@@ -41,6 +41,16 @@ type RawStockList = {
   items: RawStockItem[];
   total: number;
   expiryWarningDays?: number;
+};
+
+type RawBranchAvailability = {
+  productId: string;
+  controlled: boolean;
+  branches: {
+    branchId: string;
+    name: string;
+    band: "in_stock" | "low" | "out" | "ask_pharmacist";
+  }[];
 };
 
 type RawProductStock = {
@@ -83,12 +93,6 @@ type RawProductStock = {
     costPrice: string | null;
   }[];
   reservations: { qty: number; label: string }[];
-  otherBranches: {
-    branchId: string;
-    name: string;
-    available: number;
-    onHand: number;
-  }[];
   recentMovements: {
     id: string;
     occurredAt: string;
@@ -210,17 +214,26 @@ export class StockLookupService {
 
   async product(productId: string): Promise<ProductStock> {
     const branchId = this.branchId();
-    const [raw, policy] = await Promise.all([
-      this.deps.api.request<RawProductStock>(
-        "GET",
-        `/inventory/products/${encodeURIComponent(productId)}/stock`,
-        { branchId },
-      ),
+    const path = `/inventory/products/${encodeURIComponent(productId)}`;
+    const [raw, policy, availability] = await Promise.all([
+      this.deps.api.request<RawProductStock>("GET", `${path}/stock`, {
+        branchId,
+      }),
       this.deps.api.request<{ threshold: string | null }>(
         "GET",
         "/inventory/write-offs/policy",
         { branchId },
       ),
+      // Refused (403) when the role has inventory.view_other_branches_availability switched off:
+      // the page then says so instead of failing.
+      this.deps.api
+        .request<RawBranchAvailability>("GET", `${path}/branch-availability`, {
+          branchId,
+        })
+        .catch((error: unknown) => {
+          if (error instanceof ApiError && error.status === 403) return null;
+          throw error;
+        }),
     ]);
     return {
       product: {
@@ -265,12 +278,17 @@ export class StockLookupService {
         qty: r.qty,
         label: r.label,
       })),
-      otherBranches: raw.otherBranches.map((b) => ({
-        branchId: b.branchId,
-        name: b.name,
-        available: b.available,
-        onHand: b.onHand,
-      })),
+      // Bands only, from their own read; nothing about other branches comes from the full detail.
+      otherBranches: availability
+        ? {
+            allowed: true,
+            branches: availability.branches.map((b) => ({
+              branchId: b.branchId,
+              name: b.name,
+              band: b.band,
+            })),
+          }
+        : { allowed: false, branches: [] },
       movements: raw.recentMovements.map((m) => ({
         id: m.id,
         occurredAt: m.occurredAt,

@@ -93,10 +93,14 @@ const augmentin: ProductStock = {
     batch("7781", { expiryDate: "2027-12-31", daysToExpiry: 425, onHand: 98, available: 98 }),
   ],
   reservations: [{ qty: 14, label: "TR-0095 to Nugegoda" }],
-  otherBranches: [
-    { branchId: "00000000-0000-4000-8000-0000000000b2", name: "Bambalapitiya", available: 64, onHand: 64 },
-    { branchId: "00000000-0000-4000-8000-0000000000b3", name: "Kandy", available: 0, onHand: 0 },
-  ],
+  otherBranches: {
+    allowed: true,
+    branches: [
+      { branchId: "00000000-0000-4000-8000-0000000000b2", name: "Bambalapitiya", band: "in_stock" },
+      { branchId: "00000000-0000-4000-8000-0000000000b4", name: "Galle", band: "low" },
+      { branchId: "00000000-0000-4000-8000-0000000000b3", name: "Kandy", band: "out" },
+    ],
+  },
   movements: [
     {
       id: "00000000-0000-4000-8000-0000000000f1",
@@ -299,12 +303,44 @@ describe("Needs attention", () => {
 });
 
 describe("other branches", () => {
-  it("shows what the server returned for the branches this person works at", async () => {
+  const card = () => screen.getByText("Other branches").parentElement!;
+  const branch = (name: string) => within(card()).getByText(name);
+
+  it("shows every other branch as a band, never a quantity", async () => {
     await renderStock();
-    const card = screen.getByText("Other branches").parentElement!;
-    expect(within(card).getByText("Bambalapitiya").parentElement!.textContent).toContain("64");
-    expect(within(card).getByText("Kandy").parentElement!.textContent).toContain("0");
-    expect(within(card).getByText("Transfers are requested and approved on the web.")).toBeTruthy();
+    expect(within(card()).getByText("Availability")).toBeTruthy();
+    expect(branch("Bambalapitiya").textContent).toBe("BambalapitiyaIn stock");
+    expect(branch("Galle").textContent).toBe("GalleLow");
+    expect(branch("Kandy").textContent).toBe("KandyOut");
+    expect(card().textContent).not.toMatch(/\d/);
+    expect(within(card()).getByText("Transfers are requested and approved on the web.")).toBeTruthy();
+  });
+
+  it("says Ask the pharmacist for a controlled product", async () => {
+    pos.productStock!.mockImplementation(async () => ({
+      ok: true,
+      value: {
+        ...augmentin,
+        product: { ...augmentin.product, isControlled: true },
+        otherBranches: {
+          allowed: true,
+          branches: augmentin.otherBranches.branches.map((b) => ({ ...b, band: "ask_pharmacist" })),
+        },
+      },
+    }));
+    await renderStock();
+    expect(within(card()).getAllByText("Ask the pharmacist")).toHaveLength(3);
+    expect(within(card()).queryByText("In stock")).toBeNull();
+  });
+
+  it("says so when the role doesn't show other branches", async () => {
+    pos.productStock!.mockImplementation(async () => ({
+      ok: true,
+      value: { ...augmentin, otherBranches: { allowed: false, branches: [] } },
+    }));
+    await renderStock();
+    expect(within(card()).getByText("Your role doesn't show other branches' stock.")).toBeTruthy();
+    expect(within(card()).queryByText("Bambalapitiya")).toBeNull();
   });
 });
 
