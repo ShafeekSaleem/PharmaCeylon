@@ -16,11 +16,13 @@ import { renderSaleReceiptHtml } from "./printing/receipt-html";
 import { CheckoutService } from "./checkout/checkout-service";
 import { DispensingService } from "./checkout/dispensing";
 import { CounterWorkService } from "./terminal/counter-work";
-import { startOfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
+import { ReturnsService } from "./returns/returns-service";
+import { readInstalledOfflineAuthority } from "./terminal/offline-authority";
+import { startOfflineAuthorityRefresh, type OfflineAuthorityRefresh } from "./terminal/offline-authority-refresh";
 import { SignedCommandService } from "./terminal/signed-commands";
 import { StockLookupService } from "./terminal/stock-lookup";
 import type { CompletedSale } from "../shared/ipc-contract";
-import { buildReadinessReport } from "./readiness";
+import { buildReadinessReport, type ReadinessFacts } from "./readiness";
 import { isAppUrl } from "./renderer-path";
 import { hardenSession, hardenWebContents, mainFetch, registerAppScheme, serveRenderer } from "./security";
 import { normalizeServerUrl, readServerUrl, writeServerUrl } from "./server-url";
@@ -75,6 +77,8 @@ let dispensing: DispensingService | null = null;
 let commands: SignedCommandService | null = null;
 let counterWork: CounterWorkService | null = null;
 let stock: StockLookupService | null = null;
+let returns: ReturnsService | null = null;
+let authorityRefresh: OfflineAuthorityRefresh | null = null;
 // Receipts can be reprinted for sales completed since the app started; nothing is kept on disk.
 const recentSales = new Map<string, CompletedSale>();
 
@@ -84,12 +88,20 @@ function currentApiBaseUrl(): string | null {
 }
 
 /** Runs a renderer-requested action; refusals come back as explained data, details go to the log. */
-/** Unconfirmed sales and signed actions, and who has to come back to confirm them. */
-function unconfirmedFacts(): { unconfirmed: number; unconfirmedBy: string[] } {
-  const pending = [...(checkout?.pending() ?? []), ...(commands?.pending() ?? [])];
+/**
+ * Unconfirmed sales and signed actions. A sale names who started it (anyone here can confirm it);
+ * an action names who has to come back to confirm it.
+ */
+function unconfirmedFacts(): { unconfirmed: number; unconfirmedSalesBy: string[]; unconfirmedBy: string[] } {
+  const sales = checkout?.pending() ?? [];
+  const actions = commands?.pending() ?? [];
+  const names = (rows: { staffName: string | null }[]) => [
+    ...new Set(rows.map((p) => p.staffName ?? "someone who has signed out")),
+  ];
   return {
-    unconfirmed: pending.length,
-    unconfirmedBy: [...new Set(pending.map((p) => p.staffName ?? "someone who has signed out"))],
+    unconfirmed: sales.length + actions.length,
+    unconfirmedSalesBy: names(sales),
+    unconfirmedBy: names(actions),
   };
 }
 
@@ -106,6 +118,24 @@ async function act<T>(
     logger.warn("terminal.action_refused", { action: name, code: explained.code });
     return { ok: false, error: explained };
   }
+}
+
+/** The installed offline authority and how its renewal is going, for the readiness checks. */
+function offlineAuthorityFacts(): Pick<ReadinessFacts, "offlineAuthority"> {
+  const enrollmentId = store ? new DeviceStore(store.db).read()?.identity.enrollmentId : undefined;
+  if (!store || !enrollmentId) return {};
+  const installed = readInstalledOfflineAuthority(store.db, enrollmentId);
+  return {
+    offlineAuthority: {
+      refresh: authorityRefresh?.status() ?? null,
+      installed: installed && {
+        grantExpiresAt: installed.grant.payload.expiresAt,
+        snapshotGeneratedAt: installed.snapshot.payload.generatedAt,
+        authorizedStaff: installed.grant.payload.authorizedStaff.length,
+        lines: installed.snapshot.payload.lines.length,
+      },
+    },
+  };
 }
 
 function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogger>): void {
@@ -133,6 +163,7 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
                 ).n
               : 0,
             ...unconfirmedFacts(),
+            ...offlineAuthorityFacts(),
           },
           new Date(),
         ),
@@ -182,10 +213,10 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return checkout.catalog();
         }),
-      submitCheckout: ({ lines, tender, dispensing: details, coSign }) =>
+      submitCheckout: ({ lines, tender, dispensing: details, coSign, discountCoSign }) =>
         act(logger, "submitCheckout", async () => {
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          const sale = await checkout.submit(lines, tender, details, coSign);
+          const sale = await checkout.submit(lines, tender, details, coSign, discountCoSign);
           recentSales.set(sale.saleId, sale);
           return sale;
         }),
@@ -210,11 +241,16 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
           ]);
           return { lines: held.lines, customer, prescription };
         }),
+      listDiscountApprovers: () =>
+        act(logger, "listDiscountApprovers", () => {
+          if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return checkout.discountApprovers();
+        }),
       pendingCheckouts: () => checkout?.pending() ?? [],
-      retryCheckout: ({ draftId, coSign }) =>
+      retryCheckout: ({ draftId, coSign, discountCoSign }) =>
         act(logger, "retryCheckout", async () => {
           if (!checkout) throw new ActionFailure("NOT_READY", "The counter is still starting.");
-          const sale = await checkout.retry(draftId, coSign);
+          const sale = await checkout.retry(draftId, coSign, discountCoSign);
           recentSales.set(sale.saleId, sale);
           return sale;
         }),
@@ -244,6 +280,11 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         if (!sale || !device) return { ok: false, error: "That sale is not available to print here." };
         return printHtml(printerName, renderSaleReceiptHtml(sale, { branchName: device.branchName, counterLabel: device.counterLabel }));
       },
+      counterWork: () =>
+        act(logger, "counterWork", () => {
+          if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return counterWork.list();
+        }),
       refundsReady: () =>
         act(logger, "refundsReady", () => {
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
@@ -253,6 +294,26 @@ function registerIpc(schemaVersion: number, logger: ReturnType<typeof createLogg
         act(logger, "executeRefund", () => {
           if (!counterWork) throw new ActionFailure("NOT_READY", "The counter is still starting.");
           return counterWork.executeRefund(refundRequestId);
+        }),
+      returnFindSale: ({ invoiceNo }) =>
+        act(logger, "returnFindSale", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.findSale(invoiceNo);
+        }),
+      returnSearchSales: (filter) =>
+        act(logger, "returnSearchSales", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.searchSales(filter);
+        }),
+      returnsToday: () =>
+        act(logger, "returnsToday", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.today();
+        }),
+      submitReturn: (input) =>
+        act(logger, "submitReturn", () => {
+          if (!returns) throw new ActionFailure("NOT_READY", "The counter is still starting.");
+          return returns.submit(input);
         }),
       pendingCommands: () => commands?.pending() ?? [],
       retryCommand: ({ commandId }) =>
@@ -353,7 +414,7 @@ async function start(): Promise<void> {
     try {
       const publicKey = createPublicKey(authorityPublicKey);
       if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("Expected Ed25519 public key");
-      const stopRefresh = startOfflineAuthorityRefresh({
+      const { refresh, stop: stopRefresh } = startOfflineAuthorityRefresh({
         db: store.db,
         api: terminalApi,
         terminal,
@@ -361,6 +422,7 @@ async function start(): Promise<void> {
         signer: { keyId: authorityKeyId, publicKey },
         report: (error) => logger.warn("offline_authority.refresh_failed", { error }),
       });
+      authorityRefresh = refresh;
       app.once("before-quit", stopRefresh);
     } catch (error) {
       logger.error("offline_authority.invalid_public_key", { error });
@@ -371,6 +433,7 @@ async function start(): Promise<void> {
   dispensing = new DispensingService({ api: terminalApi, terminal, commands });
   counterWork = new CounterWorkService({ api: terminalApi, terminal, commands });
   stock = new StockLookupService({ api: terminalApi, terminal, commands });
+  returns = new ReturnsService({ api: terminalApi, terminal, commands });
   registerIpc(store.schemaVersion, logger);
   mainWindow = createMainWindow({ devServerUrl, show: true });
   mainWindow.on("closed", () => (mainWindow = null));

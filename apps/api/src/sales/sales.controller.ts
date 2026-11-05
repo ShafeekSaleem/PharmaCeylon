@@ -24,6 +24,8 @@ import {
   RequestUser,
 } from "../security/interfaces/authenticated-request.interface";
 import { CheckoutDto } from "./dto/checkout.dto";
+import { ResolveCheckoutDto } from "./dto/resolve-checkout.dto";
+import { CheckoutResolutionService } from "./checkout-resolution.service";
 import { HoldSaleDto } from "./dto/hold-sale.dto";
 import { ClearPosPinDto, SetPosPinDto } from "./dto/pharmacist-approval.dto";
 import { RefundSaleDto } from "./dto/refund-sale.dto";
@@ -47,6 +49,7 @@ export class SalesController {
     private readonly held: HeldSalesService,
     private readonly pharmacistApproval: PharmacistApprovalService,
     private readonly access: AccessService,
+    private readonly resolution: CheckoutResolutionService,
   ) {}
 
   @ApiOperation({ summary: "Sellable products with FEFO batches for the POS screen" })
@@ -69,6 +72,17 @@ export class SalesController {
   @Get("pos/approvers")
   listApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.pharmacistApproval.listApprovers(user.tenantId, branchId);
+  }
+
+  @ApiOperation({
+    summary:
+      "Who can co-sign a line discount over the limit with a till PIN: people with sales.discount_override at this branch",
+  })
+  @RequirePermission("sales.pos_use")
+  @CounterRoute()
+  @Get("pos/discount-approvers")
+  listDiscountApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
+    return this.pharmacistApproval.listApprovers(user.tenantId, branchId, "sales.discount_override");
   }
 
   @ApiOperation({ summary: "Set or rotate your own POS till PIN (pharmacist+)" })
@@ -127,6 +141,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "Look up a posted sale by invoice number" })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Get("pos/by-invoice")
   posByInvoice(
     @CurrentUser() user: RequestUser,
@@ -235,6 +250,27 @@ export class SalesController {
     );
   }
 
+  @ApiOperation({
+    summary:
+      "Whether an earlier checkout from this counter landed, for someone other than its seller; never resends it",
+  })
+  @ApiHeader({ name: "x-terminal-session", required: true, description: "The caller's own open staff session at the counter" })
+  @ApiBody({ type: ResolveCheckoutDto })
+  @RequirePermission("sales.pos_use")
+  @CounterRoute()
+  @HttpCode(HttpStatus.OK)
+  @Post("checkout/resolve")
+  resolveCheckout(
+    @CurrentUser() user: RequestUser,
+    @RequireBranchId() branchId: string,
+    @Headers("x-terminal-session") terminalSession: string | undefined,
+    @Body() dto: ResolveCheckoutDto,
+  ) {
+    if (!terminalSession || !UUID.test(terminalSession))
+      throw new BadRequestException("x-terminal-session must be a staff session id");
+    return this.resolution.resolve(user, branchId, terminalSession, dto);
+  }
+
   @ApiOperation({ summary: "Void a posted sale (stock restored); pharmacist, manager, or owner" })
   @RequirePermission("sales.void")
   @HttpCode(HttpStatus.OK)
@@ -264,6 +300,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "Recent customer refunds at this branch" })
   @RequirePermission("sales.refund")
+  @CounterRoute()
   @Get("refunds")
   listRefunds(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.sales.listRefunds(user.tenantId, branchId);
@@ -271,6 +308,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "People who may approve a refund over the threshold, for the till PIN picker" })
   @RequirePermission("sales.refund")
+  @CounterRoute()
   @Get("pos/refund-approvers")
   listRefundApprovers(@CurrentUser() user: RequestUser, @RequireBranchId() branchId: string) {
     return this.pharmacistApproval.listApprovers(user.tenantId, branchId, "returns.approve");
@@ -278,6 +316,7 @@ export class SalesController {
 
   @ApiOperation({ summary: "Remaining returnable qty per line for a sale" })
   @RequirePermission("sales.pos_use")
+  @CounterRoute()
   @Get(":id/returnable")
   getReturnable(
     @CurrentUser() user: RequestUser,
@@ -294,6 +333,7 @@ export class SalesController {
     summary: "Sales history across the branches you can view, paged and filtered on the server",
   })
   @RequirePermission("sales.view")
+  @CounterRoute()
   @Get("history")
   history(
     @CurrentUser() user: RequestUser,

@@ -93,7 +93,8 @@ export class TerminalCommandExecutor {
         uuid(request.workSessionId),
         {
           operation: `${descriptor.method} ${descriptor.routeTemplate}`,
-          permission: operationPermission(descriptor, descriptor.parseBody(request.body)),
+          permission: operationPermission(descriptor, descriptor.parseBody(request.body),
+            evidence.pharmacistEvidenceId !== null),
           parseBody: descriptor.parseBody,
         },
         request.body,
@@ -175,13 +176,14 @@ export class TerminalCommandExecutor {
       user,
       branchId,
       operation.descriptor,
-      { body: command.body, signedCommand: envelope, attendanceProofId },
+      { body: command.body, signedCommand: envelope, attendanceProofId,
+        cosigned: command.pharmacistEvidenceId !== null },
     );
     if (!authorized.terminal || authorized.terminal.digest !== requestDigest)
       denied("TERMINAL_REQUIRED");
     // The route gate read cached claims; require it live, as the operation permission is.
     await this.requireLiveAuthority(tx, user, branchId,
-      operationPermission(operation.descriptor, authorized.body));
+      operationPermission(operation.descriptor, authorized.body, command.pharmacistEvidenceId !== null));
     const provenance: CommandProvenance = {
       commandId: command.commandId,
       requestDigest,
@@ -193,6 +195,8 @@ export class TerminalCommandExecutor {
       workSessionId: command.session.workSessionId,
       attendanceId: authorized.terminal.attendanceId,
       pharmacistRegistrationId: authorized.clinical?.registrationId ?? null,
+      pharmacistUserId: authorized.clinical?.pharmacistUserId ?? null,
+      pharmacistEvidenceId: authorized.clinical?.pharmacistEvidenceId ?? null,
     };
     const executed = await operation.execute(tx, user, branchId, authorized.body, {
       approvalEvidenceId: command.approvalEvidenceId,
@@ -256,7 +260,8 @@ export class TerminalCommandExecutor {
       denied("IDENTITY_MISMATCH");
     // A body-derived grant reads the strictly parsed body, as authorization does, never raw input.
     await this.requireLiveAuthority(tx, user, branchId,
-      operationPermission(operation.descriptor, operation.descriptor.parseBody(envelope.payload.body)));
+      operationPermission(operation.descriptor, operation.descriptor.parseBody(envelope.payload.body),
+        envelope.payload.pharmacistEvidenceId !== null));
     if (
       existing.requestDigest !== requestDigest ||
       existing.operation !== envelope.payload.operation ||
@@ -268,19 +273,27 @@ export class TerminalCommandExecutor {
   }
 
   private evidence(operation: Operation, raw: Record<string, unknown>): EvidenceIds {
-    if (raw.pharmacistEvidenceId !== null || raw.operatingHoursExceptionId !== null)
-      invalid();
-    if (!operation.descriptor.approval) {
+    if (raw.operatingHoursExceptionId !== null) invalid();
+    const { descriptor } = operation;
+    // A pharmacist's PIN co-sign (POST /terminal-commands/pharmacist-cosigns), only where a
+    // registered pharmacist may co-sign; the clinical check spends it inside the transaction.
+    const pharmacistEvidenceId =
+      raw.pharmacistEvidenceId !== null && descriptor.cosign
+        ? uuid(raw.pharmacistEvidenceId)
+        : raw.pharmacistEvidenceId === null
+          ? null
+          : invalid();
+    if (!descriptor.approval) {
       if (raw.approvalEvidenceId !== null) invalid();
-      return { approvalEvidenceId: null, pharmacistEvidenceId: null, operatingHoursExceptionId: null };
+      return { approvalEvidenceId: null, pharmacistEvidenceId, operatingHoursExceptionId: null };
     }
     return {
       // Null only where the domain may waive approval; authorization decides whether it does.
       approvalEvidenceId:
-        raw.approvalEvidenceId === null && operation.descriptor.approval.waived
+        raw.approvalEvidenceId === null && descriptor.approval.waived
           ? null
           : uuid(raw.approvalEvidenceId),
-      pharmacistEvidenceId: null,
+      pharmacistEvidenceId,
       operatingHoursExceptionId: null,
     };
   }

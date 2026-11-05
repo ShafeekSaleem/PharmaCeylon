@@ -97,6 +97,11 @@ let calls: {
   opts: { body?: unknown; headers?: Record<string, string> };
 }[];
 let checkoutReply: () => unknown;
+let recallLines: unknown[] | undefined;
+const managerId = randomUUID();
+let resolveReply: () => unknown;
+/** Who is signed in at the counter now; a colleague's sign-in replaces it. */
+let signedIn: { staffUserId: string; workSessionId: string };
 
 function service() {
   const api = {
@@ -109,10 +114,15 @@ function service() {
       if (path === "/sales/pos/catalog") return catalogResponse;
       if (path === "/sales/holds" && opts.body)
         return { id: randomUUID(), holdRef: "HOLD-0007" };
+      if (path === "/sales/pos/discount-approvers")
+        return [
+          { id: managerId, fullName: "Nimal Manager", hasPosPin: true },
+          { id: staffUserId, fullName: "Cashier", hasPosPin: true },
+        ];
       if (path.endsWith("/recall"))
         return {
           payload: {
-            lines: [
+            lines: recallLines ?? [
               { productId: paracetamol, qty: 2 },
               { productId: "x", qty: "3" },
               { name: "web-only" },
@@ -130,12 +140,13 @@ function service() {
         });
         return checkoutReply();
       }
+      if (path === "/sales/checkout/resolve") return resolveReply();
       throw new Error(path);
     },
   };
   const terminal = {
     current: () => ({
-      staff: { workSessionId, staffUserId, staffName: "Cashier", openedAt: "" },
+      staff: { ...signedIn, staffName: "Cashier", openedAt: "" },
       identity,
     }),
   };
@@ -152,6 +163,11 @@ beforeEach(() => {
   local = openLocalStore(dir, protector, migrations);
   calls = [];
   checkoutReply = () => saleResponse();
+  recallLines = undefined;
+  resolveReply = () => {
+    throw new Error("not expected");
+  };
+  signedIn = { staffUserId, workSessionId };
   catalogResponse.vatRatePercent = 0;
   identity = { ...identity, branchId, enrollmentId: randomUUID() };
 });
@@ -395,7 +411,7 @@ describe("checkout safety", () => {
     expect(checkout.pending()).toEqual([]);
   });
 
-  it("names who rang up an unconfirmed sale, since only they can confirm it", async () => {
+  it("names who rang up an unconfirmed sale, and whether it is the person signed in", async () => {
     local.db
       .prepare(
         "INSERT INTO staff_session_log (work_session_id, staff_user_id, staff_name, enrollment_id, opened_at) VALUES (?, ?, ?, ?, ?)",
@@ -410,7 +426,11 @@ describe("checkout safety", () => {
       checkout.submit([{ productId: paracetamol, qty: 1 }], { cashAmount: "5" }),
     ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
     expect(checkout.pending()).toEqual([
-      expect.objectContaining({ staffUserId, staffName: "Nimal Perera" }),
+      expect.objectContaining({ staffUserId, staffName: "Nimal Perera", ownSale: true }),
+    ]);
+    signedIn = { staffUserId: randomUUID(), workSessionId: randomUUID() };
+    expect(checkout.pending()).toEqual([
+      expect.objectContaining({ staffUserId, staffName: "Nimal Perera", ownSale: false }),
     ]);
   });
 
@@ -432,6 +452,203 @@ describe("checkout safety", () => {
   });
 });
 
+describe("confirming someone else's unconfirmed sale", () => {
+  async function leaveUnconfirmed(coSign?: { approverUserId: string; pin: string }) {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      coSign
+        ? checkout.submit([{ productId: morphine, qty: 1 }], { cashAmount: "40" }, { prescriptionId }, coSign)
+        : checkout.submit([{ productId: paracetamol, qty: 2 }], { cashAmount: "10" }),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const [pending] = checkout.pending();
+    // A colleague signs in at the same counter.
+    signedIn = { staffUserId: randomUUID(), workSessionId: randomUUID() };
+    return { checkout, draftId: pending!.draftId };
+  }
+
+  it("looks the sale up under the colleague's sign-in and never sends it again", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed();
+    const saleId = randomUUID();
+    resolveReply = () => ({ outcome: "landed", sale: { ...saleResponse(saleId), seller: { fullName: "Nimal Perera" } } });
+    await expect(checkout.retry(draftId)).resolves.toMatchObject({
+      saleId,
+      invoiceNo: "INV-0042",
+      sellerName: "Nimal Perera",
+    });
+    expect(calls.filter((c) => c.path === "/sales/checkout")).toHaveLength(1);
+    const lookup = calls.find((c) => c.path === "/sales/checkout/resolve")!;
+    // The original's key and session; the caller's own session in the header.
+    expect(lookup.opts.body).toEqual({ idempotencyKey: draftId, workSessionId });
+    expect(lookup.opts.headers).toEqual({ "x-terminal-session": signedIn.workSessionId });
+    expect(lookup.opts.headers).not.toHaveProperty("Idempotency-Key");
+    expect(checkout.pending()).toEqual([]);
+    expect(
+      local.db.prepare("SELECT status, sale_id, staff_user_id FROM checkout_draft").get(),
+    ).toEqual({ status: "completed", sale_id: saleId, staff_user_id: staffUserId });
+  });
+
+  it("clears the sale once the server says it never landed, and asks for it to be rung up again", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed();
+    resolveReply = () => ({ outcome: "never_landed" });
+    await expect(checkout.retry(draftId)).rejects.toMatchObject({ code: "CHECKOUT_NEVER_LANDED" });
+    expect(checkout.pending()).toEqual([]);
+    expect(
+      local.db.prepare("SELECT status, error_code FROM checkout_draft").get(),
+    ).toEqual({ status: "refused", error_code: "CHECKOUT_NEVER_LANDED" });
+    expect(calls.filter((c) => c.path === "/sales/checkout")).toHaveLength(1);
+  });
+
+  it("needs no co-sign PIN from a colleague, and sends none", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed({ approverUserId: pharmacistId, pin: "4321" });
+    resolveReply = () => ({ outcome: "landed", sale: saleResponse() });
+    await checkout.retry(draftId, { approverUserId: pharmacistId, pin: "4321" });
+    const lookup = calls.find((c) => c.path === "/sales/checkout/resolve")!;
+    expect(JSON.stringify(lookup.opts)).not.toContain("4321");
+  });
+
+  it("keeps the sale pending when the lookup gets no answer or is refused", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed();
+    resolveReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(checkout.retry(draftId)).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const refusal = new ApiError(403, "CHECKOUT_OTHER_COUNTER", "not here");
+    resolveReply = () => {
+      throw refusal;
+    };
+    await expect(checkout.retry(draftId)).rejects.toBe(refusal);
+    expect(checkout.pending()).toHaveLength(1);
+    // The seller can still resend it themselves later.
+    signedIn = { staffUserId, workSessionId: randomUUID() };
+    checkoutReply = () => saleResponse();
+    await checkout.retry(draftId);
+    expect(checkout.pending()).toEqual([]);
+  });
+
+  it("won't look a sale up from a counter re-enrolled since it was rung up", async () => {
+    const { checkout, draftId } = await leaveUnconfirmed();
+    identity = { ...identity, enrollmentId: randomUUID() };
+    await expect(checkout.retry(draftId)).rejects.toMatchObject({ code: "DRAFT_OTHER_COUNTER" });
+    expect(calls.some((c) => c.path === "/sales/checkout/resolve")).toBe(false);
+  });
+});
+
+describe("line discounts and the manager co-sign (P2b #103)", () => {
+  it("shows the branch's discount limit, defaulting to 10% when an older server sends none", async () => {
+    const checkout = service();
+    await expect(checkout.catalog()).resolves.toMatchObject({ maxDiscountPercent: 10 });
+    (catalogResponse as Record<string, unknown>).maxDiscountPercent = 7.5;
+    try {
+      await expect(checkout.catalog()).resolves.toMatchObject({ maxDiscountPercent: 7.5 });
+    } finally {
+      delete (catalogResponse as Record<string, unknown>).maxDiscountPercent;
+    }
+  });
+
+  it("sends each line's discount and charges the discounted, VAT-inclusive total", async () => {
+    const checkout = service();
+    catalogResponse.vatRatePercent = 10;
+    await checkout.catalog();
+    // 4 × 2.50 = 10.00, less 1.00 = 9.00, plus 10% VAT = 9.90.
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 4, discountMinor: 100 }], { cashAmount: "9.89" }),
+    ).rejects.toMatchObject({ code: "TENDER_SHORT" });
+    await checkout.submit([{ productId: paracetamol, qty: 4, discountMinor: 100 }], { cashAmount: "9.90" });
+    const sent = calls.find((c) => c.path === "/sales/checkout")!;
+    expect(sent.opts.body).toEqual({
+      items: [{ productId: paracetamol, qty: 4, unitPrice: "2.50", discountAmount: "1.00" }],
+      payments: [{ method: "cash", amount: "9.90" }],
+    });
+  });
+
+  it("refuses a discount bigger than its line before anything is sent", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 2, discountMinor: 501 }], { cashAmount: "5" }),
+    ).rejects.toMatchObject({ code: "DISCOUNT_TOO_LARGE" });
+    expect(calls.some((c) => c.path === "/sales/checkout")).toBe(false);
+  });
+
+  it("sends the manager's co-sign as discountApproval, keeping who approved but never the PIN", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    await checkout.submit(
+      [{ productId: paracetamol, qty: 2, discountMinor: 200 }],
+      { cashAmount: "3" },
+      {},
+      undefined,
+      { approverUserId: managerId, pin: "8642" },
+    );
+    const sent = calls.find((c) => c.path === "/sales/checkout")!;
+    expect(sent.opts.body).toMatchObject({ discountApproval: { approverUserId: managerId, pin: "8642" } });
+    expect(sent.opts.body).not.toHaveProperty("pharmacistApproval");
+    const row = local.db
+      .prepare("SELECT request_json, co_signer_id, discount_co_signer_id FROM checkout_draft")
+      .get() as { request_json: string; co_signer_id: string | null; discount_co_signer_id: string };
+    expect(row).toMatchObject({ co_signer_id: null, discount_co_signer_id: managerId });
+    expect(row.request_json).not.toContain("8642");
+  });
+
+  it("confirms an unanswered discounted sale with the same manager's PIN only", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(0, "NETWORK", "lost");
+    };
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 2, discountMinor: 200 }], { cashAmount: "3" }, {}, undefined, {
+        approverUserId: managerId,
+        pin: "8642",
+      }),
+    ).rejects.toMatchObject({ code: "CHECKOUT_UNCERTAIN" });
+    const [pending] = checkout.pending();
+    expect(pending).toMatchObject({ discountCoSignerId: managerId, coSignerId: null });
+    await expect(
+      checkout.retry(pending!.draftId, undefined, { approverUserId: randomUUID(), pin: "1111" }),
+    ).rejects.toMatchObject({ code: "CO_SIGNER_CHANGED" });
+    checkoutReply = () => saleResponse();
+    await checkout.retry(pending!.draftId, undefined, { approverUserId: managerId, pin: "8642" });
+    const [first, second] = calls.filter((c) => c.path === "/sales/checkout");
+    expect(second!.opts.body).toEqual(first!.opts.body);
+  });
+
+  it("tells a refused discount co-sign apart from a refused pharmacist's PIN", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    checkoutReply = () => {
+      throw new ApiError(403, "APPROVER_PIN_INCORRECT", "Incorrect till PIN", { coSign: "discount" });
+    };
+    await expect(
+      checkout.submit([{ productId: paracetamol, qty: 2, discountMinor: 200 }], { cashAmount: "3" }, {}, undefined, {
+        approverUserId: managerId,
+        pin: "0000",
+      }),
+    ).rejects.toMatchObject({ code: "DISCOUNT_COSIGN_REFUSED", message: "Incorrect till PIN" });
+    checkoutReply = () => {
+      throw new ApiError(403, "APPROVER_PIN_INCORRECT", "Incorrect pharmacist PIN");
+    };
+    await expect(
+      checkout.submit([{ productId: morphine, qty: 1 }], { cashAmount: "40" }, { prescriptionId }, {
+        approverUserId: pharmacistId,
+        pin: "0000",
+      }),
+    ).rejects.toMatchObject({ code: "APPROVER_PIN_INCORRECT" });
+  });
+
+  it("lists who can approve a discount, leaving out the person signed in", async () => {
+    const checkout = service();
+    await expect(checkout.discountApprovers()).resolves.toEqual([
+      { userId: managerId, fullName: "Nimal Manager", hasPin: true },
+    ]);
+    expect(calls.map((c) => c.path)).toContain("/sales/pos/discount-approvers");
+  });
+});
+
 describe("held carts", () => {
   it("holds with catalog totals and recalls only sellable product lines", async () => {
     const checkout = service();
@@ -443,9 +660,27 @@ describe("held carts", () => {
       calls.find((c) => c.path === "/sales/holds")!.opts.body,
     ).toMatchObject({ itemCount: 3, total: "7.50", label: "Blue shirt" });
     await expect(checkout.recall(randomUUID())).resolves.toEqual({
-      lines: [{ productId: paracetamol, qty: 2 }],
+      lines: [{ productId: paracetamol, qty: 2, discountMinor: 0 }],
       customerId,
       prescriptionId: null,
+    });
+  });
+
+  it("keeps a line's discount with the hold, never an approval, and brings it back on recall", async () => {
+    const checkout = service();
+    await checkout.catalog();
+    recallLines = [{ productId: paracetamol, qty: 2, discountAmount: "0.50" }, { productId: paracetamol, qty: 1, discountAmount: "-1" }];
+    await checkout.hold([{ productId: paracetamol, qty: 2, discountMinor: 50 }], undefined);
+    expect(calls.find((c) => c.path === "/sales/holds")!.opts.body).toMatchObject({
+      total: "4.50",
+      lines: [{ productId: paracetamol, qty: 2, discountAmount: "0.50" }],
+    });
+    await expect(checkout.recall(randomUUID())).resolves.toMatchObject({
+      lines: [
+        { productId: paracetamol, qty: 2, discountMinor: 50 },
+        // A discount that isn't an amount comes back as none.
+        { productId: paracetamol, qty: 1, discountMinor: 0 },
+      ],
     });
   });
 

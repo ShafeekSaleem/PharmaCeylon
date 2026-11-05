@@ -3,12 +3,13 @@ import type {
   AppInfo,
   CheckStatus,
   DeviceState,
+  OfflineBackup,
   OfflineCounterView,
   Printer,
   ReadinessCheck,
   ReadinessReport,
 } from "../../shared/ipc-contract";
-import { dayMonthYear, time } from "./format";
+import { dayMonthYear, relativeTime, time } from "./format";
 import { Icon } from "./Icon";
 import { KeyHint } from "./KeyHint";
 import { useKeyBinding } from "./keymap";
@@ -108,7 +109,13 @@ function Readiness({
                       {STATUS_LABEL[check.status]}
                     </span>
                     <b>{check.label}</b>
-                    <span className={styles.d} title={check.detail}>
+                    <span
+                      className={cx(
+                        styles.d,
+                        check.status !== "ok" && styles.dWrap,
+                      )}
+                      title={check.detail}
+                    >
                       {check.detail}
                     </span>
                   </div>
@@ -313,7 +320,13 @@ function PrinterTest() {
 }
 
 /** Shown to people who can manage the branch; others get a refusal and see nothing. */
-function OfflineCounterPanel({ branchName }: { branchName: string }) {
+function OfflineCounterPanel({
+  branchName,
+  backup,
+}: {
+  branchName: string;
+  backup: OfflineBackup | null;
+}) {
   const [view, setView] = useState<OfflineCounterView | null>(null);
   const [hidden, setHidden] = useState(false);
   const { busy, error, run } = useAction();
@@ -326,11 +339,16 @@ function OfflineCounterPanel({ branchName }: { branchName: string }) {
   if (hidden || !view) return null;
 
   const authorization = view.authorization;
+  const expiresAt = backup?.grantExpiresAt
+    ? new Date(backup.grantExpiresAt)
+    : null;
   const [title, tone, status] = view.thisCounterNominated
     ? [
         `This is ${branchName}'s offline backup counter`,
-        ui.info,
-        "This counter",
+        backup?.usable ? ui.info : ui.warn,
+        backup?.usable && expiresAt
+          ? `Ready until ${relativeTime(expiresAt)}`
+          : "Not ready for an outage",
       ]
     : authorization
       ? [
@@ -367,6 +385,53 @@ function OfflineCounterPanel({ branchName }: { branchName: string }) {
             </small>
           </div>
         </div>
+        {view.thisCounterNominated && (
+          <>
+            <div className={ui.kvs}>
+              <div className={ui.kv}>
+                Offline permission
+                <b>
+                  {expiresAt
+                    ? `Until ${relativeTime(expiresAt)}`
+                    : "Not received yet"}
+                </b>
+              </div>
+              <div className={ui.kv}>
+                Saved stock and prices
+                <b>
+                  {backup?.snapshotGeneratedAt
+                    ? relativeTime(new Date(backup.snapshotGeneratedAt))
+                    : "Not saved yet"}
+                </b>
+              </div>
+              <div className={ui.kv}>
+                Can sign in offline
+                <b>
+                  {backup
+                    ? `${backup.authorizedStaff} ${backup.authorizedStaff === 1 ? "person" : "people"}`
+                    : "—"}
+                </b>
+              </div>
+            </div>
+            {backup?.failure && (
+              <div className={cx(ui.note, ui.noteWarn)} role="status">
+                <Icon name="alert-triangle" />
+                <div>
+                  <b>
+                    {backup.failures === 1
+                      ? "The last renewal failed."
+                      : `The last ${backup.failures} renewals failed.`}
+                  </b>{" "}
+                  {backup.failure}
+                </div>
+              </div>
+            )}
+            <p className={styles.text}>
+              Renewed automatically every few minutes while someone is signed
+              in here and online. Each renewal gives 24 hours.
+            </p>
+          </>
+        )}
         {authorization && !view.thisCounterNominated && (
           <>
             <div className={ui.kvs}>
@@ -527,7 +592,10 @@ export function ThisCounterPage({
         <Readiness readiness={readiness} onCheck={onCheck} />
         <div className={styles.side}>
           <PrinterTest />
-          <OfflineCounterPanel branchName={enrollment.branchName} />
+          <OfflineCounterPanel
+            branchName={enrollment.branchName}
+            backup={readiness?.offlineBackup ?? null}
+          />
         </div>
       </div>
     </div>

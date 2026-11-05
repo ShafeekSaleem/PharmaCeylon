@@ -15,6 +15,7 @@ import {
   ValidateNested,
 } from "class-validator";
 import { PaymentMethod, SaleRefundRequestStatus } from "@prisma/client";
+import { ApproverCoSignDto } from "./approver-cosign.dto";
 import { REFUND_REASONS, RefundSaleItemDto, type RefundReason } from "./refund-sale.dto";
 
 /**
@@ -62,6 +63,15 @@ export class ApproveSaleRefundDto {
 
   @Matches(/^[0-9a-f]{64}$/)
   expectedDigest!: string;
+
+  /**
+   * P2b #103: an approver co-signing on the counter session of the person refunding, with their
+   * own till PIN. Omitted, the signed-in user approves as before. Online only.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ApproverCoSignDto)
+  coSign?: ApproverCoSignDto;
 }
 
 /** Pins the displayed approval (`executionApprovalId`); null when no approval applies. */

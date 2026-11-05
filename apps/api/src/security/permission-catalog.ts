@@ -491,6 +491,16 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     riskLevel: "sensitive",
     dependencies: ["sales.pos_use"],
   },
+  {
+    key: "sales.discount_override",
+    module: "sales",
+    label: "Approve discounts over the limit",
+    description:
+      "Give, or co-sign with a till PIN on someone else's sale, a line discount above the POS discount limit in Settings. Giving one on your own sale also needs your role to approve its own requests.",
+    defaultRoles: [owner, manager],
+    riskLevel: "elevated",
+    dependencies: ["sales.pos_use"],
+  },
 
   // Offline manager capabilities (D8, assisted handover). Not endpoint permissions: P3 signs
   // them into a branch's offline grant for each prepared staff member who holds them here.

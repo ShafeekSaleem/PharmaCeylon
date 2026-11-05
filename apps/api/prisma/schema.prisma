@@ -993,6 +993,30 @@ model PharmacistRegistration {
   @@map("pharmacist_registration")
 }
 
+/// P1 #47: a registered pharmacist's PIN co-sign for one signed clinical command at a counter.
+/// Created online with the PIN (checked, never stored) and bound to the counter staff session, the
+/// operation and the digest of the exact body; the command references it as
+/// `pharmacistEvidenceId` and spends it once. Foreign keys, the shape check and the retention
+/// trigger are in migration 20261105000300.
+model PharmacistCosignEvidence {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  branchId         String    @map("branch_id") @db.Uuid
+  workSessionId    String    @map("work_session_id") @db.Uuid
+  staffUserId      String    @map("staff_user_id") @db.Uuid
+  pharmacistUserId String    @map("pharmacist_user_id") @db.Uuid
+  operation        String    @db.VarChar(160)
+  bodyDigest       String    @map("body_digest") @db.Char(64)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  expiresAt        DateTime  @map("expires_at")
+  consumedAt       DateTime? @map("consumed_at")
+  commandId        String?   @map("command_id") @db.Uuid
+  registrationId   String?   @map("registration_id") @db.Uuid
+
+  @@index([tenantId, workSessionId])
+  @@map("pharmacist_cosign_evidence")
+}
+
 /// Revised D13: an owner's explicit, per-branch delegation of offline-terminal assignment to one
 /// manager. Never implied by a role or permission edit; managers cannot delegate onward. Content
 /// is immutable; revocation is recorded once.
@@ -1288,6 +1312,7 @@ model AppUser {
   supplierDebitNotesRaised SupplierDebitNote[]      @relation("SupplierDebitNoteCreator")
   sales                    Sale[]                   @relation("SaleSeller")
   salesDispensed           Sale[]                   @relation("SaleDispenser")
+  salesDiscountApproved    Sale[]                   @relation("SaleDiscountApprover")
   ledgerEntriesCreated     StockLedger[]            @relation("StockLedgerActor")
   transfersRequested       Transfer[]               @relation("TransferRequester")
   transfersApproved        Transfer[]               @relation("TransferApprover")
@@ -2638,6 +2663,10 @@ model Sale {
   /// share-locked (a PIN co-signer, or the seller at a counter). The foreign key pins it to
   /// `dispensedBy` in this tenant. Null when no registration was checked.
   dispenserRegistrationId String? @map("dispenser_registration_id") @db.Uuid
+  /// P2b #103: who approved a line discount over `posMaxDiscountPercent` — the seller under their
+  /// own authority, or a manager co-signing with their PIN on the seller's session. Kept apart from
+  /// `soldBy` (revised D10). Null when every line was within the limit.
+  discountApprovedBy String? @map("discount_approved_by") @db.Uuid
   /// P2 attribution: the enrolled counter, till and staff session the sale was rung up on, from
   /// the seller's own verified open session there. Null for web POS sales.
   terminalId     String?    @map("terminal_id") @db.Uuid
@@ -2648,6 +2677,7 @@ model Sale {
   branch       Branch        @relation(fields: [branchId], references: [id])
   seller       AppUser       @relation("SaleSeller", fields: [soldBy], references: [id])
   dispenser    AppUser?      @relation("SaleDispenser", fields: [dispensedBy], references: [id])
+  discountApprover AppUser?  @relation("SaleDiscountApprover", fields: [discountApprovedBy], references: [id])
   dispenserRegistration PharmacistRegistration? @relation(fields: [tenantId, dispensedBy, dispenserRegistrationId], references: [tenantId, userId, id], onDelete: Restrict, onUpdate: Restrict)
   customer     Customer?     @relation(fields: [customerId], references: [id])
   prescription Prescription? @relation(fields: [prescriptionId], references: [id])

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as bcrypt from "bcrypt";
 import { Prisma, PrismaClient } from "@prisma/client";
 import type {
   LocalAttendanceAttestation,
@@ -11,6 +12,7 @@ import type {
 } from "@pharmaceylon/shared";
 import { AuditService, type AuditInput } from "../../src/audit/audit.service";
 import { CategoryTaxonomyService } from "../../src/catalog/category-taxonomy.service";
+import { PharmacistCosignService } from "../../src/clinical/pharmacist-cosign.service";
 import { PharmacistRegistrationService } from "../../src/clinical/pharmacist-registration.service";
 import { businessDateKey } from "../../src/common/business-date.util";
 import { PrescriptionsService } from "../../src/customers/prescriptions.service";
@@ -23,13 +25,16 @@ import { ImportStockService } from "../../src/product-import/import-stock.servic
 import { ProductImportService } from "../../src/product-import/product-import.service";
 import { HeldDeliveryService } from "../../src/purchasing/held-delivery.service";
 import { PurchasingService } from "../../src/purchasing/purchasing.service";
+import { PharmacistApprovalService } from "../../src/sales/pharmacist-approval.service";
 import { AccessService } from "../../src/security/access.service";
+import { PermissionsService } from "../../src/security/permissions.service";
 import { WorkerAuthority } from "../../src/security/worker-authority";
 import type { RequestUser } from "../../src/security/interfaces/authenticated-request.interface";
 import { ManagementApprovalsService } from "../../src/security/management-approvals.service";
 import { MandatoryOperationEvidence } from "../../src/security/mandatory-operation-evidence";
 import { OperationAuthorizationService } from "../../src/security/operation-authorization.service";
 import { StocktakesService } from "../../src/stocktakes/stocktakes.service";
+import { PharmacistCosigns } from "../../src/terminal-commands/pharmacist-cosigns.service";
 import { SignedOperations } from "../../src/terminal-commands/signed-operations";
 import { TerminalCommandExecutor } from "../../src/terminal-commands/terminal-command.executor";
 import { AttendanceProofsService } from "../../src/terminals/attendance-proofs.service";
@@ -98,8 +103,9 @@ const approvals = new ManagementApprovalsService(access, audit);
 const attendance = new FixtureAttendance();
 const trust = new TerminalTrustService(access, audit, attendance);
 const registrations = new PharmacistRegistrationService(proxy as never, access, audit);
+const cosignEvidence = new PharmacistCosignService(registrations, audit);
 const authorization = new OperationAuthorizationService(access, trust,
-  new OpenHours(undefined, undefined, registrations), approvals);
+  new OpenHours(undefined, undefined, registrations, cosignEvidence), approvals);
 const prescriptions = new PrescriptionsService(proxy as never, audit);
 const notifications = { notifyByPermission: jest.fn().mockResolvedValue(1), notifyUser: jest.fn().mockResolvedValue(undefined) };
 const stocktakes = new StocktakesService(proxy as never, audit, stock, access, approvals);
@@ -115,6 +121,10 @@ const imports = new ProductImportService(proxy as never, audit, new CategoryTaxo
   } } as never, { refresh: async () => {} } as never, stock, new WorkerAuthority(access));
 const operations = new SignedOperations(stocktakes, adjustments, deliveries, importStock, imports, {} as never, {} as never, {} as never, {} as never, prescriptions);
 const executor = new TerminalCommandExecutor(proxy as never, trust, authorization, operations, audit, access);
+const pinApprovals = new PharmacistApprovalService(proxy as never, audit,
+  new PermissionsService(proxy as never, { get: () => 30 } as never), registrations,
+  { switchedOff: async () => undefined } as never);
+const cosigns = new PharmacistCosigns(proxy as never, trust, access, pinApprovals, cosignEvidence, operations);
 
 let fx: TenantFixture;
 let foreign: TenantFixture;
@@ -144,10 +154,10 @@ async function counterFor(who: string) {
 type Counter = Awaited<ReturnType<typeof counterFor>>;
 
 async function signedCommand(counter: Counter, operation: SignedPhysicalOperation, body: unknown,
-  approvalEvidenceId: string | null) {
+  approvalEvidenceId: string | null, pharmacistEvidenceId: string | null = null) {
   const payload = await executor.prepare(counter.staff, branch(), {
     workSessionId: counter.session.workSessionId, operation, body, approvalEvidenceId,
-    pharmacistEvidenceId: null, operatingHoursExceptionId: null,
+    pharmacistEvidenceId, operatingHoursExceptionId: null,
   }) as OnlineTerminalCommand<unknown>;
   return {
     payload,
@@ -831,7 +841,7 @@ describe("prescriptions through signed commands (clinical)", () => {
     expect(await receiptsFor(payload.commandId)).toBe(0);
   });
 
-  it("takes no approval or pharmacist evidence and rolls everything back when its audit fails", async () => {
+  it("takes no approval evidence and rolls everything back when its audit fails", async () => {
     await registered();
     const counter = await counterFor(pharmacistId);
     await expect(signedCommand(counter, RX, prescription(rxNumber()), randomUUID()))
@@ -845,6 +855,161 @@ describe("prescriptions through signed commands (clinical)", () => {
     expect(await executionAudits(payload.commandId)).toBe(0);
     audit.failOn = null;
     expect((await run(counter, request)).result).toMatchObject({ rxNumber: number });
+  });
+
+  describe("a cashier recording with a registered pharmacist's PIN co-sign", () => {
+    const PIN = "735190";
+    let cashierId: string;
+    let cashier: Counter;
+    const issue = (body: unknown, overrides: Record<string, unknown> = {}, counter = cashier) =>
+      cosigns.issue(counter.staff, branch(), {
+        workSessionId: counter.session.workSessionId, operation: RX, body,
+        pharmacistUserId: pharmacistId, pin: PIN, ...overrides,
+      });
+    const evidence = (id: string) =>
+      prisma.pharmacistCosignEvidence.findFirstOrThrow({ where: { tenantId: fx.tenantId, id } });
+    const evidenceCount = () => prisma.pharmacistCosignEvidence.count({ where: { tenantId: fx.tenantId } });
+
+    beforeAll(async () => {
+      const row = await prisma.appUser.create({ data: { tenantId: fx.tenantId,
+        email: `rx-cashier-${randomUUID().slice(0, 8)}@it.test`, fullName: "Rx Cashier", passwordHash: "x" } });
+      cashierId = row.id;
+      await prisma.tenantMembership.create({ data: { tenantId: fx.tenantId, userId: cashierId } });
+      await prisma.userBranchRole.create({ data: { tenantId: fx.tenantId, branchId: branch(), userId: cashierId,
+        role: "cashier" } });
+      await prisma.appUser.update({ where: { id: pharmacistId }, data: { posPinHash: await bcrypt.hash(PIN, 4) } });
+      cashier = await counterFor(cashierId);
+    });
+    afterEach(() => prisma.appUser.update({ where: { id: pharmacistId },
+      data: { failedPosPinAttempts: 0, posPinLockedUntil: null, posPinLockouts: 0 } }));
+
+    it("records with the co-signer's registration, keeps both people in the provenance and replays a lost response without the spent co-sign", async () => {
+      const registration = await registered();
+      const number = rxNumber();
+      const body = prescription(number);
+      const cosign = await issue(body);
+      expect(cosign).toEqual({ pharmacistEvidenceId: expect.any(String), pharmacistUserId: pharmacistId,
+        pharmacistRegistrationId: registration.id, expiresAt: expect.any(Number) });
+      const { payload, request } = await signedCommand(cashier, RX, body, null, cosign.pharmacistEvidenceId);
+      expect(payload.pharmacistEvidenceId).toBe(cosign.pharmacistEvidenceId);
+      const [a, b] = await Promise.all([run(cashier, request), run(cashier, request)]);
+      expect(a.receiptId).toBe(b.receiptId);
+      expect(a.result).toEqual({ type: "prescription.recorded", prescriptionId: expect.any(String), rxNumber: number,
+        pharmacistRegistrationId: registration.id });
+      expect(await recorded(number)).toBe(1);
+      const row = await prisma.prescription.findFirstOrThrow({ where: { tenantId: fx.tenantId, rxNumber: number } });
+      expect(row.createdBy).toBe(cashierId);
+      const provenance = { commandId: payload.commandId, pharmacistRegistrationId: registration.id,
+        pharmacistUserId: pharmacistId, pharmacistEvidenceId: cosign.pharmacistEvidenceId };
+      const recordedEvent = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId,
+        eventName: "prescription.recorded", entityId: row.id } });
+      expect(recordedEvent).toMatchObject({ actorUserId: cashierId, payload: { command: provenance } });
+      const executed = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId,
+        eventName: "terminal.command_executed", payload: { path: ["commandId"], equals: payload.commandId } } });
+      expect(executed).toMatchObject({ actorUserId: cashierId, payload: provenance });
+      expect(await evidence(cosign.pharmacistEvidenceId)).toMatchObject({ staffUserId: cashierId,
+        pharmacistUserId: pharmacistId, workSessionId: cashier.session.workSessionId,
+        commandId: payload.commandId, registrationId: registration.id, consumedAt: expect.any(Date) });
+      // The PIN is in no co-sign, command, receipt or audit.
+      const issued = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId: fx.tenantId,
+        eventName: "pharmacist_cosign.issued", entityId: cosign.pharmacistEvidenceId } });
+      const receipt = await prisma.terminalCommandReceipt.findFirstOrThrow({ where: { tenantId: fx.tenantId,
+        commandId: payload.commandId } });
+      for (const stored of [issued, recordedEvent, executed, receipt, await evidence(cosign.pharmacistEvidenceId)])
+        expect(JSON.stringify(stored)).not.toMatch(/"pin"|735190/i);
+      // The response was lost: the identical resend replays the receipt; the spent co-sign isn't needed again.
+      const resent = await run(cashier, request);
+      expect(resent).toMatchObject({ receiptId: a.receiptId, replayed: true, result: a.result });
+      expect(await recorded(number)).toBe(1);
+      expect(await executionAudits(payload.commandId)).toBe(1);
+    });
+
+    it("still refuses a cashier recording alone, whose role has no prescriptions.create", async () => {
+      await registered();
+      await expect(signedCommand(cashier, RX, prescription(rxNumber()), null))
+        .rejects.toMatchObject({ response: { code: "PERMISSION_DENIED" } });
+    });
+
+    it("refuses an unregistered, expired or revoked co-signer with APPROVER_NOT_QUALIFIED and records nothing", async () => {
+      const before = await evidenceCount();
+      // No registration: refused after the PIN, with no co-sign issued.
+      await expect(issue(prescription(rxNumber()))).rejects.toMatchObject({ response: { code: "APPROVER_NOT_QUALIFIED" } });
+      // Expired yesterday (in the branch's timezone).
+      const expired = await prisma.pharmacistRegistration.create({ data: { tenantId: fx.tenantId, userId: pharmacistId,
+        slmcNumber: `EXP-${randomUUID().slice(0, 8).toUpperCase()}`, recordedByUserId: fx.ownerId,
+        recordedAt: new Date(Date.now() - 400 * 86_400_000),
+        expiresOn: new Date(`${businessDateKey("Asia/Colombo", new Date(Date.now() - 86_400_000))}T00:00:00Z`) } });
+      await expect(issue(prescription(rxNumber()))).rejects.toMatchObject({ response: { code: "APPROVER_NOT_QUALIFIED" } });
+      expect(await evidenceCount()).toBe(before);
+      await registrations.revoke(user(fx.ownerId), branch(), expired.id, "test reset");
+      // Revoked between the co-sign and the command: the command is refused and leaves no trace.
+      const registration = await registered();
+      const number = rxNumber();
+      const cosign = await issue(prescription(number));
+      const { payload, request } = await signedCommand(cashier, RX, prescription(number), null, cosign.pharmacistEvidenceId);
+      await registrations.revoke(user(fx.ownerId), branch(), registration.id, "Struck off");
+      await expect(run(cashier, request)).rejects.toMatchObject({ response: { code: "APPROVER_NOT_QUALIFIED" } });
+      expect(await recorded(number)).toBe(0);
+      expect(await receiptsFor(payload.commandId)).toBe(0);
+      expect(await challengeConsumed(payload.serverNonce)).toBe(false);
+      expect((await evidence(cosign.pharmacistEvidenceId)).consumedAt).toBeNull();
+    });
+
+    it("counts a wrong PIN towards the co-signer's own lock, and a locked PIN refuses the right one", async () => {
+      await registered();
+      const before = await evidenceCount();
+      for (let attempt = 1; attempt <= 5; attempt++)
+        await expect(issue(prescription(rxNumber()), { pin: "000000" }))
+          .rejects.toMatchObject({ response: { code: "APPROVER_PIN_INCORRECT" } });
+      const locked = await prisma.appUser.findUniqueOrThrow({ where: { id: pharmacistId } });
+      expect(locked.posPinLockedUntil?.getTime()).toBeGreaterThan(Date.now());
+      await expect(issue(prescription(rxNumber()))).rejects.toMatchObject({ response: { code: "APPROVER_PIN_LOCKED" } });
+      expect(await evidenceCount()).toBe(before);
+      expect(await prisma.auditEvent.count({ where: { tenantId: fx.tenantId, eventName: "sale.pharmacist_pin_failed",
+        entityId: pharmacistId, actorUserId: cashierId } })).toBe(5);
+      // Only someone signed in at a counter may try: a closed or another person's session is refused first.
+      await expect(cosigns.issue(user(fx.managerId), branch(), { workSessionId: cashier.session.workSessionId,
+        operation: RX, body: prescription(rxNumber()), pharmacistUserId: pharmacistId, pin: "000000" }))
+        .rejects.toMatchObject({ response: { code: "SESSION_INVALID" } });
+      expect((await prisma.appUser.findUniqueOrThrow({ where: { id: pharmacistId } })).failedPosPinAttempts).toBe(0);
+    });
+
+    it("spends a co-sign once, only on the counter session and exact body it was given for, and keeps it", async () => {
+      await registered();
+      const body = prescription(null);
+      const cosign = await issue(body);
+      // Another body, or another counter session, can't use it.
+      const other = await signedCommand(cashier, RX, prescription(rxNumber()), null, cosign.pharmacistEvidenceId);
+      await expect(run(cashier, other.request)).rejects.toMatchObject({ response: { code: "COSIGN_INVALID" } });
+      expect(await challengeConsumed(other.payload.serverNonce)).toBe(false);
+      const ownerCounter = await counterFor(fx.ownerId);
+      const elsewhere = await signedCommand(ownerCounter, RX, body, null, cosign.pharmacistEvidenceId);
+      await expect(run(ownerCounter, elsewhere.request)).rejects.toMatchObject({ response: { code: "COSIGN_INVALID" } });
+      // Its own command spends it; a second command for the same body can't.
+      const first = await signedCommand(cashier, RX, body, null, cosign.pharmacistEvidenceId);
+      await run(cashier, first.request);
+      const second = await signedCommand(cashier, RX, body, null, cosign.pharmacistEvidenceId);
+      await expect(run(cashier, second.request)).rejects.toMatchObject({ response: { code: "COSIGN_INVALID" } });
+      expect(await receiptsFor(second.payload.commandId)).toBe(0);
+      expect(await challengeConsumed(second.payload.serverNonce)).toBe(false);
+      // An expired co-sign is refused too.
+      const stale = await prisma.pharmacistCosignEvidence.create({ data: { tenantId: fx.tenantId, branchId: branch(),
+        workSessionId: cashier.session.workSessionId, staffUserId: cashierId, pharmacistUserId: pharmacistId,
+        operation: RX, bodyDigest: (await evidence(cosign.pharmacistEvidenceId)).bodyDigest,
+        createdAt: new Date(Date.now() - 600_000), expiresAt: new Date(Date.now() - 1_000) } });
+      const late = await signedCommand(cashier, RX, body, null, stale.id);
+      await expect(run(cashier, late.request)).rejects.toMatchObject({ response: { code: "COSIGN_INVALID" } });
+      // Only clinical operations take one, and co-signs are retained.
+      const st = await approvedStocktake(45, 50);
+      const stocktake = await counterFor(fx.managerId);
+      await expect(signedCommand(stocktake, "POST /api/v1/stocktakes/:id/post", { stocktakeId: st.id }, st.approvalId,
+        cosign.pharmacistEvidenceId)).rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+      await expect(prisma.pharmacistCosignEvidence.deleteMany({ where: { tenantId: fx.tenantId, id: stale.id } }))
+        .rejects.toThrow(/retained/);
+      await expect(prisma.pharmacistCosignEvidence.updateMany({ where: { tenantId: fx.tenantId,
+        id: cosign.pharmacistEvidenceId }, data: { consumedAt: null, commandId: null, registrationId: null } }))
+        .rejects.toThrow(/immutable/);
+    });
   });
 });
 
