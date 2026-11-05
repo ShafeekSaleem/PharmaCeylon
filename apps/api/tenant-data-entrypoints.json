@@ -181,7 +181,7 @@
     {
       "path": "src/terminals/offline-authority-issuance.ts",
       "mode": "scoped-domain-lock",
-      "reason": "Issuance takes a share lock (FOR SHARE) on the branch's offline_terminal_nomination row by the authenticated identity's tenant_id and branch_id, pairing with the D11 clearance lock; no data is written by raw SQL."
+      "reason": "Holds the authenticated counter's own nomination, enrollment and terminal rows (FOR SHARE, by tenant, branch and identity) while offline authority is issued, and share-locks the branch's offline_terminal_nomination row (by tenant_id and branch_id) for replays and challenges, pairing with the D11 clearance lock; a replaced, revoked or retired counter is never issued to. No data is written by raw SQL."
     },
     {
       "path": "src/terminals/grant-cutoff.ts",

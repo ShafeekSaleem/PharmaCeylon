@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import { Prisma, RoleName, StockMovementType } from "@prisma/client";
 import {
   defaultCounterPolicy,
@@ -21,7 +21,7 @@ import {
   OfflineActivationService,
 } from "../../src/terminals/offline-activation.service";
 import { OfflineAssignmentService } from "../../src/terminals/offline-assignment.service";
-import { firstIssuanceState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
+import { emptyJournalState, issueOfflineAuthority } from "../../src/terminals/offline-authority-issuance";
 import { verifyStockSnapshot } from "../../src/terminals/stock-snapshot";
 import { TerminalTrustService } from "../../src/terminals/terminal-trust.service";
 import { boundedCanonical, sha256 } from "../../src/terminals/terminal-wire";
@@ -157,7 +157,7 @@ const issue = (identity: TerminalIdentity, commandId: string) =>
     // The signed command and its attendance are proven in terminal-execution; this file covers
     // what issuance does once the device and actor are authenticated.
     authenticate: async () => ({ identity, commandId }),
-    readState: firstIssuanceState,
+    readState: emptyJournalState,
   });
 
 const hours = (opens: string, closes: string) => ({ mode: "hours" as const, ranges: [{ opens, closes }] });
@@ -239,16 +239,121 @@ describe("initial offline authority (P3 #49)", () => {
     expect(await prisma.batchStock.findMany({ where: { tenantId: fx.tenantId }, orderBy: { batchId: "asc" } })).toEqual(totalsBefore);
   });
 
-  it("replays the original pair after a lost response, and refuses a new request until reconciliation exists", async () => {
+  it("replays the original pair after a lost response", async () => {
     const requestId = randomUUID();
     const counter = await nominatedCounterAfterReplacement();
     const first = await issue(counter, requestId);
     const again = await issue(counter, requestId);
     expect(again).toEqual(first);
     expect(await prisma.offlineStockSnapshot.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(1);
+  });
+
+  it("renews at watermark 0 while the offline journal is empty, as a new version that keeps the earlier ones", async () => {
+    const counter = await nominatedCounterAfterReplacement();
+    const firstRequest = randomUUID();
+    const first = await issue(counter, firstRequest);
+    // Stock moves between issuances: the renewal is a fresh last-known view, the first is kept as it was.
+    await prisma.$transaction((t) => stock.issue(
+      t,
+      { tenantId: fx.tenantId, branchId: fx.mainBranchId, userId: fx.ownerId, referenceType: "sale", referenceId: randomUUID() },
+      [{ productId: fx.productId, batchId: eligible, qty: 3, movementType: StockMovementType.sale_out }],
+    ));
+    const second = await issue(counter, randomUUID());
+    const third = await issue(counter, randomUUID());
+
+    expect([first, second, third].map((pair) => pair.grant.payload.grantVersion)).toEqual([1, 2, 3]);
+    for (const pair of [first, second, third]) {
+      expect(pair.grant.payload.grantVersion).toBe(pair.snapshot.payload.snapshotVersion);
+      expect(pair.snapshot.payload).toMatchObject({ includedThroughSequence: 0, includedThroughHash: null });
+      expect(pair.snapshot.payload.lines.every((line) => !line.stockReviewRequired)).toBe(true);
+      expect(verifyStockSnapshot(pair.snapshot, counter, { keyId: signer.keyId, publicKey: server.publicKey })).toBe(true);
+    }
+    const available = (pair: typeof first) => pair.snapshot.payload.lines.find((l) => l.batchId === eligible)?.availableQuantity;
+    expect(available(second)).toBe(available(first)! - 3);
+    // 24 hours from this renewal, not from the first issuance.
+    expect(second.grant.payload.expiresAt - second.grant.payload.issuedAt).toBe(MAX_OFFLINE_GRANT_MS);
+    expect(second.grant.payload.issuedAt).toBeGreaterThanOrEqual(first.grant.payload.issuedAt);
+    expect(new Set([first, second, third].map((p) => p.grant.payload.grantId)).size).toBe(3);
+
+    // Every version is kept, unchanged, and an old request still replays its own version.
+    const kept = await prisma.offlineStockSnapshot.findMany({
+      where: { enrollmentId: counter.enrollmentId }, orderBy: { version: "asc" }, select: { version: true, envelope: true },
+    });
+    expect(kept.map((row) => row.version)).toEqual([1, 2, 3]);
+    expect(kept[0].envelope).toEqual(first.snapshot);
+    expect(await issue(counter, firstRequest)).toEqual(first);
+    expect(await prisma.offlineAuthorityIssuance.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(3);
+    // Still nothing reserved for the offline counter.
+    expect(await prisma.stockReservation.count({ where: { tenantId: fx.tenantId } })).toBe(0);
+  });
+
+  it("refuses to renew once an offline journal entry is accepted, and still replays what was issued", async () => {
+    const counter = await nominatedCounterAfterReplacement();
+    const issuedRequest = randomUUID();
+    const issued = await issue(counter, issuedRequest);
+    await acceptOfflineJournalEntry(counter, 1n);
 
     await expect(issue(counter, randomUUID())).rejects.toMatchObject({ response: { code: "RECONCILIATION_REQUIRED" } });
-    expect(await prisma.offlineAuthorityIssuance.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(1);
+    expect(await prisma.offlineStockSnapshot.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(1);
+    // A lost response is still recoverable: the pair was issued before the entry was accepted.
+    expect(await issue(counter, issuedRequest)).toEqual(issued);
+  });
+
+  it("refuses even the first issuance over an accepted journal", async () => {
+    const counter = await nominatedCounterAfterReplacement();
+    await acceptOfflineJournalEntry(counter, 1n);
+    await expect(issue(counter, randomUUID())).rejects.toMatchObject({ response: { code: "RECONCILIATION_REQUIRED" } });
+    expect(await prisma.offlineStockSnapshot.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(0);
+  });
+
+  it("an online command receipt is not offline journal", async () => {
+    const counter = await nominatedCounterAfterReplacement();
+    await acceptOfflineJournalEntry(counter, null);
+    await expect(issue(counter, randomUUID())).resolves.toMatchObject({ grant: { payload: { grantVersion: 1 } } });
+  });
+
+  it("gives concurrent renewals their own consecutive versions", async () => {
+    const counter = await nominatedCounterAfterReplacement();
+    await issue(counter, randomUUID());
+    const pairs = await Promise.all([issue(counter, randomUUID()), issue(counter, randomUUID()), issue(counter, randomUUID())]);
+    expect(pairs.map((p) => p.grant.payload.grantVersion).sort()).toEqual([2, 3, 4]);
+    for (const pair of pairs) expect(pair.snapshot.payload.snapshotVersion).toBe(pair.grant.payload.grantVersion);
+    expect(await prisma.offlineAuthorityIssuance.count({ where: { enrollmentId: counter.enrollmentId } })).toBe(4);
+  });
+
+  it("never renews or replays to a counter that has been replaced", async () => {
+    const old = await nominatedCounterAfterReplacement();
+    const request = randomUUID();
+    await issue(old, request);
+    const replacement = await nominatedCounterAfterReplacement();
+
+    await expect(issue(old, randomUUID())).rejects.toMatchObject({ response: { code: "IDENTITY_MISMATCH" } });
+    await expect(issue(old, request)).rejects.toMatchObject({ response: { code: "IDENTITY_MISMATCH" } });
+    // The old counter's evidence stays; only the current nomination receives authority.
+    expect(await prisma.offlineStockSnapshot.count({ where: { enrollmentId: old.enrollmentId } })).toBe(1);
+    await expect(issue(replacement, randomUUID())).resolves.toMatchObject({ grant: { payload: { identity: replacement } } });
+  });
+
+  it("a renewal racing a replacement is refused once the replacement commits", async () => {
+    const old = await nominatedCounterAfterReplacement();
+    await issue(old, randomUUID());
+    const { identity: next } = await enroll();
+    const current = await prisma.offlineTerminalNomination.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, branchId: fx.mainBranchId },
+    });
+    let renewal: Promise<unknown> | undefined;
+    await prisma.$transaction(async (t) => {
+      await t.offlineTerminalNomination.update({
+        where: { id: current.id },
+        data: { terminalId: next.terminalId, enrollmentId: next.enrollmentId, keyId: next.keyId, version: current.version + 1 },
+      });
+      // The renewal reads the old nomination, then waits on its row until the move commits.
+      renewal = issue(old, randomUUID());
+      renewal.catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }, { timeout: 15_000 });
+    await expect(renewal).rejects.toMatchObject({ response: { code: "IDENTITY_MISMATCH" } });
+    expect(await prisma.offlineStockSnapshot.count({ where: { enrollmentId: old.enrollmentId } })).toBe(1);
   });
 
   it("gives identical concurrent requests one issuance and the same pair", async () => {
@@ -317,4 +422,16 @@ async function nominatedCounterAfterReplacement({ prepared = true } = {}) {
   });
   if (prepared) await prepare(identity, cashier.userId);
   return identity;
+}
+
+/** An offline command the server accepted into this enrollment's journal (null: an online one). */
+async function acceptOfflineJournalEntry(identity: TerminalIdentity, offlineSequence: bigint | null) {
+  await prisma.terminalCommandReceipt.create({
+    data: {
+      tenantId: identity.tenantId, branchId: identity.branchId, terminalId: identity.terminalId,
+      enrollmentId: identity.enrollmentId, keyId: identity.keyId, commandId: randomUUID(),
+      operation: "offline_sale", requestDigest: randomBytes(32).toString("hex"), offlineSequence,
+      actorUserId: fx.clerkId, command: { contractVersion: 1 }, result: { status: "accepted" },
+    },
+  });
 }

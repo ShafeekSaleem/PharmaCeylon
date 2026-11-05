@@ -1222,8 +1222,7 @@ attendance proof using the same `requestId` to recover the original pair.
 
 - Only the branch's current offline counter (the D13 nomination) may ask: the challenge itself
   is refused with 403 `IDENTITY_MISMATCH` for any other enrollment, before an attendance proof is
-  spent or anything is stored. The desktop then waits 15 minutes before asking again, and backs
-  off from 1 to 30 minutes after any other failure.
+  spent or anything is stored. The desktop then waits 15 minutes before asking again.
 - The grant needs the branch's selling hours: unset hours or an unusable timezone are 403
   `BRANCH_HOURS_NOT_CONFIGURED`; stored hours that fail validation are `TEMPORARILY_UNAVAILABLE`.
   Offline selling off, or nobody prepared on the counter with `sales.pos_use`, is `GRANT_INVALID`.
@@ -1233,9 +1232,44 @@ attendance proof using the same `requestId` to recover the original pair.
 Issuance requires `OFFLINE_AUTHORITY_KEY_ID` and an Ed25519 PKCS#8 PEM in
 `OFFLINE_AUTHORITY_PRIVATE_KEY` (a `\n`-escaped single line is accepted; see
 `apps/api/.env.example`). The desktop verifies responses against an independently provisioned
-server public key (`POS_OFFLINE_AUTHORITY_KEY_ID`, `POS_OFFLINE_AUTHORITY_PUBLIC_KEY`). Until
-reconciliation supplies a production watermark and stock-review state, a new request after the
-first issuance returns `RECONCILIATION_REQUIRED`.
+server public key (`POS_OFFLINE_AUTHORITY_KEY_ID`, `POS_OFFLINE_AUTHORITY_PUBLIC_KEY`).
+
+**Renewal.** The same request, with a new `requestId`, renews: every issuance is a new
+immutable version (the grant's `grantVersion` equals the snapshot's `snapshotVersion`, counting
+from 1 per enrollment), its grant expires 24 hours after this issuance, and earlier versions are
+kept. A `requestId` that was already issued always replays its own version, however many
+versions followed.
+
+- **Journal baseline.** The snapshot's `includedThroughSequence` / `includedThroughHash` come
+  from the enrollment's accepted offline journal, read in the issuance's own repeatable-read view:
+  `terminal_command_receipt` rows with an `offline_sequence`. While there are none, the baseline
+  is 0 / `null` and no batch is `stockReviewRequired`. Once any is accepted, a new request is 403
+  `RECONCILIATION_REQUIRED` (from the challenge already, unless the `requestId` is a replay):
+  rebasing over a journal needs the accepted head and P5's stock-review blocks. Online receipts
+  (no `offline_sequence`) are not journal.
+- **Replaced counters.** Only the current nomination is issued to, replays included. Issuance holds
+  the nomination, enrollment and terminal rows (`FOR SHARE`) until it commits, so moving the
+  nomination, revoking the enrollment or retiring the terminal either waits for it or makes it
+  retry, and the retry is refused with `IDENTITY_MISMATCH`.
+- **Concurrency.** Concurrent renewals with different `requestId`s get consecutive versions;
+  identical ones get one issuance. A conflict that persists after retries is
+  `TEMPORARILY_UNAVAILABLE`.
+
+**Desktop cadence.** The nominated counter renews whenever its installed snapshot is 5 minutes
+old, checking once a minute while someone is signed in and the counter is unlocked, so a healthy
+counter's saved stock is under 6 minutes old against the 15-minute outage-entry limit. Each
+renewal is a fresh signed command and attendance proof. A transient failure (network, 5xx,
+`TEMPORARILY_UNAVAILABLE`) is retried after 1, 2, 4, then every 5 minutes; a refusal that needs a
+person (`GRANT_INVALID`, `BRANCH_HOURS_NOT_CONFIGURED`, `RECONCILIATION_REQUIRED`, or a pair
+that will not install) backs off from 1 to 30 minutes. A request ID is kept until its response
+arrives, then discarded.
+
+**Desktop install.** The verified pair replaces the installed one in a single SQLite transaction,
+only if it is newer, its baseline is 0, and `hasLocalOfflineUsage` finds no offline use recorded
+for the enrollment (`pos-desktop/src/main/terminal/offline-journal.ts`; P4 lists its tables
+there). A pair that fails verification, is older than the installed one, or claims a newer
+version with older evidence is never installed. Only the current pair is kept on the counter;
+the server keeps every version.
 
 ## Held offline evidence verification (P3)
 
