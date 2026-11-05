@@ -9,6 +9,7 @@ CREATE TABLE "till_shift" (
     "id" UUID NOT NULL,
     "tenant_id" UUID NOT NULL,
     "branch_id" UUID NOT NULL,
+    "shift_number" VARCHAR(32) NOT NULL,
     "register_id" UUID NOT NULL,
     "till_id" UUID NOT NULL,
     "terminal_id" UUID NOT NULL,
@@ -60,6 +61,7 @@ CREATE UNIQUE INDEX "till_shift_close_command_id_key" ON "till_shift"("close_com
 CREATE INDEX "till_shift_tenant_id_till_id_opened_at_idx" ON "till_shift"("tenant_id", "till_id", "opened_at" DESC);
 CREATE UNIQUE INDEX "till_shift_tenant_id_id_key" ON "till_shift"("tenant_id", "id");
 CREATE UNIQUE INDEX "till_shift_tenant_id_branch_id_id_key" ON "till_shift"("tenant_id", "branch_id", "id");
+CREATE UNIQUE INDEX "till_shift_tenant_id_branch_id_shift_number_key" ON "till_shift"("tenant_id", "branch_id", "shift_number");
 CREATE INDEX "till_cash_movement_tenant_id_shift_id_idx" ON "till_cash_movement"("tenant_id", "shift_id");
 CREATE INDEX "sale_tenant_id_shift_id_idx" ON "sale"("tenant_id", "shift_id");
 CREATE INDEX "sale_payment_tenant_id_shift_id_idx" ON "sale_payment"("tenant_id", "shift_id");

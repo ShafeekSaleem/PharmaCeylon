@@ -8,6 +8,7 @@ import {
 import { PaymentMethod, Prisma, SaleStatus, TillCashMovementDirection, TillShiftCloseKind, type TillShift } from "@prisma/client";
 import { AuditService } from "../../audit/audit.service";
 import { safeTimeZone } from "../../common/business-date.util";
+import { nextDocumentNumber } from "../../common/document-sequence.util";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AccessService } from "../../security/access.service";
 import type { RequestUser } from "../../security/interfaces/authenticated-request.interface";
@@ -59,6 +60,8 @@ type Person = { id: string; fullName: string } | null;
 /** A shift as the counter and P4/P5 see it: D7b's fields, in minor units. */
 export type TillShiftView = Readonly<{
   workSessionId: string;
+  /** `S-0412`: numbered per branch by the server when it opens the shift. */
+  shiftNumber: string;
   registerId: string;
   tillId: string;
   terminalId: string;
@@ -233,12 +236,14 @@ export class TillShiftsService {
       const refused = await this.checkOwnPin(tx, user, dto.pin);
       if (refused) return { kind: "pin" as const, refused };
 
+      const shiftNumber = await nextDocumentNumber(tx, tenantId, branchId, "till_shift", "S-", 4);
       try {
         await tx.tillShift.create({
           data: {
             id: dto.shiftId,
             tenantId,
             branchId,
+            shiftNumber,
             registerId: session.registerId,
             tillId: session.tillId,
             terminalId: identity.terminalId,
@@ -268,6 +273,7 @@ export class TillShiftsService {
             registerId: session.registerId,
             terminalId: identity.terminalId,
             staffSessionId: session.id,
+            shiftNumber,
             openingCashMinor: opening.totalMinor,
             previousClosedWorkSessionId: last?.id ?? null,
           },
@@ -649,6 +655,7 @@ export class TillShiftsService {
         row.id,
         {
           workSessionId: row.id,
+          shiftNumber: row.shiftNumber,
           registerId: row.registerId,
           tillId: row.tillId,
           terminalId: row.terminalId,
