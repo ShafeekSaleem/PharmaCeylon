@@ -24,6 +24,7 @@ import { KeyHint } from "./KeyHint";
 import { clickSubmit, useKeyBinding } from "./keymap";
 import { money } from "./sell-model";
 import { Avatar } from "./Shell";
+import { ROLE_LABELS } from "./SignIn";
 import ui from "./ui.module.css";
 import { cx, ErrorLine, useAction } from "./useAction";
 
@@ -37,6 +38,8 @@ const TONE: Record<string, string> = {
   cyan: "var(--pos-t-cyan)",
   teal: "var(--pos-t-teal)",
 };
+
+const roleLabel = (role: string | null | undefined) => (role ? (ROLE_LABELS[role] ?? role) : null);
 
 const shiftName = (shift: Pick<LocalShift, "shiftNumber">) =>
   shift.shiftNumber ? `Shift ${shift.shiftNumber}` : "Shift";
@@ -139,9 +142,12 @@ export function DrawerTable({
 /** The shift open on this till: who, since when, and the drawer's figures. */
 export function ShiftCard({
   shift,
+  role,
   actions,
 }: {
   shift: LocalShift;
+  /** The shift owner's role at this counter, as the lock screen shows it. */
+  role?: string | null;
   actions?: ReactNode;
 }) {
   const summary = shift.summary;
@@ -158,8 +164,8 @@ export function ShiftCard({
             {shiftName(shift)} · {shift.staffName}
           </b>
           <small>
-            Opened {time(new Date(shift.openedAt))} with Rs {money(shift.openingCashMinor)} counted ·{" "}
-            {soFar(shift.openedAt)}
+            {role ? `${role} · opened` : "Opened"} {time(new Date(shift.openedAt))} with Rs{" "}
+            {money(shift.openingCashMinor)} counted · {soFar(shift.openedAt)}
           </small>
         </div>
         <div className={styles.right}>
@@ -242,7 +248,7 @@ function OpenShift({
           <b>{count ? money(count.totalMinor) : "—"}</b>
         </div>
         <div>
-          <small>Left by the last close</small>
+          <small>Last close</small>
           <b>{handedOver === null ? "—" : money(handedOver)}</b>
         </div>
         <div className={cx(differs && styles.short)}>
@@ -1012,6 +1018,7 @@ export function CashShiftPage({
             {open ? (
               <ShiftCard
                 shift={current}
+                role={roleLabel(device.counterStaff.find((p) => p.staffUserId === current.staffUserId)?.role)}
                 actions={current.status === "open" && <XReportButton printer={printer} />}
               />
             ) : (
@@ -1101,7 +1108,7 @@ export function ShiftGate({
   return (
     <div className={shell.block} role="alert">
       <div className={cx(ui.panel, shell.blockCard)}>
-        <span className={cx(ui.kind, shell.blockIcon)}>
+        <span className={cx(ui.kind, shell.blockIcon, styles.gateIcon)}>
           <Icon name="wallet" />
         </span>
         <h2>{title}</h2>

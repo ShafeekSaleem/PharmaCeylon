@@ -158,7 +158,7 @@ function Chips({
 
 type CounterPerson = DeviceState["counterStaff"][number];
 
-const ROLE_LABELS: Record<string, string> = {
+export const ROLE_LABELS: Record<string, string> = {
   owner: "Owner",
   manager: "Branch manager",
   pharmacist: "Pharmacist",

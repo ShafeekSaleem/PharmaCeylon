@@ -244,13 +244,15 @@ export function StatusBar({
             <Icon name="clock" />
             Shift {shift.shiftNumber && <b>{shift.shiftNumber}</b>}
             {shift.shiftNumber && " · "}
-            {shortName(shift.staffName)} · since{" "}
+            {shortName(shift.staffName)}
+            <span className={styles.sbLabel}> · since</span>{" "}
             {time(new Date(shift.openedAt))}
             {shift.status === "closing" && " · closing, not yet synced"}
           </span>
           <span className={styles.sb}>
             <Icon name="wallet" />
-            Drawer expected <b>Rs {money(shift.expectedCashMinor)}</b>
+            <span className={styles.sbLabel}>Drawer expected </span>
+            <b>Rs {money(shift.expectedCashMinor)}</b>
           </span>
         </>
       ) : (

@@ -452,3 +452,10 @@
   color: var(--pos-bad);
   background: var(--pos-bad-soft);
 }
+
+/* Status bar words that give way first in a narrow window; the figures stay. */
+@media (max-width: 1200px) {
+  .sbLabel {
+    display: none;
+  }
+}

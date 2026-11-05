@@ -77,7 +77,7 @@ div.main b {
 }
 
 /* ---------- no shift open ---------- */
-.empty {
+div.empty {
   flex: none;
   flex-direction: row;
   align-items: center;
@@ -345,8 +345,10 @@ div.main b {
   margin: 8px 20px 10px;
 }
 
-/* The count's buttons stay at the bottom of the panel. */
+/* The count's buttons stay at the bottom of the panel, and in view when it scrolls. */
 .count > :last-child {
+  position: sticky;
+  bottom: 0;
   margin-top: auto;
 }
 
@@ -639,6 +641,13 @@ div.main b {
   white-space: nowrap;
 }
 
+/* ---------- the Sell gate ---------- */
+/* It asks for a step, not an error: the brand tone, not the server cover's red. */
+span.gateIcon {
+  color: var(--pos-primary-ink);
+  background: var(--pos-primary-soft);
+}
+
 /* ---------- smaller windows ---------- */
 @media (max-width: 1280px) {
   .body {
@@ -655,16 +664,32 @@ div.main b {
   }
 }
 
+/* One scrolling column: the shift, then its takings, then the count. Nothing shrinks. */
 @media (max-width: 1100px) {
   .page {
-    grid-template-rows: auto auto;
+    display: flex;
+    flex-direction: column;
     overflow: auto;
   }
-  .body {
-    grid-template-columns: minmax(0, 1fr);
+  .page > *,
+  .body > *,
+  .left > *,
+  .two,
+  .two > div {
+    flex: none;
   }
-  .left {
+  .body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .left,
+  .two > div,
+  .count {
     overflow: visible;
+  }
+  .count > :last-child {
+    position: static;
   }
 }
 
