@@ -465,15 +465,19 @@ export class SignedOperations {
           };
         },
       },
-      // Clinical: the authorization service requires the session's staff member to hold a
-      // current SLMC registration (MandatoryOperationEvidence.clinical) and the executor records
-      // it in the provenance. No role or permission substitutes for it.
+      // Clinical: the authorization service requires a current SLMC registration
+      // (MandatoryOperationEvidence.clinical): the session's staff member's own, or a registered
+      // pharmacist's PIN co-sign (`pharmacistEvidenceId`). The executor records which, and whose,
+      // in the provenance. No role or permission substitutes for it.
       "POST /api/v1/prescriptions": {
         descriptor: {
           method: "POST",
           routeTemplate: "/api/v1/prescriptions",
           permission: "prescriptions.create",
           parseBody: prescriptionBody,
+          // A cashier records it at the counter with a registered pharmacist's PIN co-sign; the
+          // co-signer needs prescriptions.create, and the cashier the counter's own sales.pos_use.
+          cosign: { permission: "sales.pos_use" },
         },
         async execute(tx, user, branchId, body, context) {
           const registrationId = context.command.pharmacistRegistrationId;

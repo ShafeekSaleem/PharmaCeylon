@@ -46,6 +46,8 @@ export class SignedCommandService {
     operation: O,
     body: SignedOperationBody[O],
     approvalEvidenceId: string | null,
+    /** A registered pharmacist's co-sign (POST /terminal-commands/pharmacist-cosigns); prescriptions only. */
+    pharmacistEvidenceId: string | null = null,
   ): Promise<OnlineCommandReceipt<O>> {
     const current = this.deps.terminal.current();
     if (!current)
@@ -63,7 +65,7 @@ export class SignedCommandService {
         operation,
         body,
         approvalEvidenceId,
-        pharmacistEvidenceId: null,
+        pharmacistEvidenceId,
         operatingHoursExceptionId: null,
       },
     });
@@ -73,6 +75,7 @@ export class SignedCommandService {
       terminalSigningText("command", command.body) !==
         terminalSigningText("command", body) ||
       command.approvalEvidenceId !== approvalEvidenceId ||
+      command.pharmacistEvidenceId !== pharmacistEvidenceId ||
       command.identity.enrollmentId !== identity.enrollmentId
     )
       throw new ActionFailure(

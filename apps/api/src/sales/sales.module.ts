@@ -25,6 +25,6 @@ import { ClinicalModule } from "../clinical/clinical.module";
     PharmacistApprovalService,
     RefundRequestsService,
   ],
-  exports: [SaleReadService, RefundRequestsService],
+  exports: [SaleReadService, RefundRequestsService, PharmacistApprovalService],
 })
 export class SalesModule {}

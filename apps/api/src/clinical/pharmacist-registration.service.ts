@@ -235,9 +235,9 @@ export class PharmacistRegistrationService {
     return new Set(rows.map((row) => row.userId));
   }
 
-  /** The `MandatoryOperationEvidence.clinical` provider: the signed session's own staff member
-   * must be qualified. A co-signing pharmacist (`pharmacistEvidenceId`) is not accepted online
-   * yet; that evidence arrives with the desktop dispensing flow. */
+  /** The `MandatoryOperationEvidence.clinical` provider when the signed session's own staff member
+   * dispenses. A command carrying a co-sign (`pharmacistEvidenceId`) goes to
+   * `PharmacistCosignService.consume` instead, never here. */
   async assertForCommand(tx: Tx, command: OnlineTerminalCommand<unknown>, at: Date = new Date()): Promise<ClinicalEvidence> {
     if (command.pharmacistEvidenceId !== null) invalid();
     return this.assertQualified(

@@ -193,8 +193,6 @@ export const recordPrescriptionSchema = z.object({
   customerId: uuid.optional(),
   notes: z.string().trim().max(512).optional(),
 });
-export type RecordPrescription = z.infer<typeof recordPrescriptionSchema>;
-
 /** A pharmacist's co-sign for controlled items: their till PIN, or login password if they have none.
  * Sent with one checkout and never stored on this computer. */
 export const coSignSchema = z.object({
@@ -202,6 +200,13 @@ export const coSignSchema = z.object({
   pin: z.string().min(4).max(128),
 });
 export type CoSign = z.infer<typeof coSignSchema>;
+
+/** Recording a prescription: by the person signed in, if they hold an SLMC registration, or with a
+ * registered pharmacist's co-sign (their PIN, sent once to the server and never stored here). */
+export const recordPrescriptionWithCoSignSchema = recordPrescriptionSchema.extend({
+  coSign: coSignSchema.optional(),
+});
+export type RecordPrescription = z.infer<typeof recordPrescriptionWithCoSignSchema>;
 
 export const dispensingSchema = z.object({
   customerId: uuid.optional(),
@@ -382,7 +387,7 @@ export const ipcContract = {
   },
   recordPrescription: {
     channel: "pos:dispensing:record-prescription",
-    input: recordPrescriptionSchema,
+    input: recordPrescriptionWithCoSignSchema,
     output: result(prescriptionSchema),
   },
   listApprovers: { channel: "pos:dispensing:approvers", input: noInput, output: result(z.array(approverSchema)) },

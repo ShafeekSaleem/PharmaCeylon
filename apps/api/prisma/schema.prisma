@@ -993,6 +993,30 @@ model PharmacistRegistration {
   @@map("pharmacist_registration")
 }
 
+/// P1 #47: a registered pharmacist's PIN co-sign for one signed clinical command at a counter.
+/// Created online with the PIN (checked, never stored) and bound to the counter staff session, the
+/// operation and the digest of the exact body; the command references it as
+/// `pharmacistEvidenceId` and spends it once. Foreign keys, the shape check and the retention
+/// trigger are in migration 20261105000300.
+model PharmacistCosignEvidence {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  branchId         String    @map("branch_id") @db.Uuid
+  workSessionId    String    @map("work_session_id") @db.Uuid
+  staffUserId      String    @map("staff_user_id") @db.Uuid
+  pharmacistUserId String    @map("pharmacist_user_id") @db.Uuid
+  operation        String    @db.VarChar(160)
+  bodyDigest       String    @map("body_digest") @db.Char(64)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  expiresAt        DateTime  @map("expires_at")
+  consumedAt       DateTime? @map("consumed_at")
+  commandId        String?   @map("command_id") @db.Uuid
+  registrationId   String?   @map("registration_id") @db.Uuid
+
+  @@index([tenantId, workSessionId])
+  @@map("pharmacist_cosign_evidence")
+}
+
 /// Revised D13: an owner's explicit, per-branch delegation of offline-terminal assignment to one
 /// manager. Never implied by a role or permission edit; managers cannot delegate onward. Content
 /// is immutable; revocation is recorded once.

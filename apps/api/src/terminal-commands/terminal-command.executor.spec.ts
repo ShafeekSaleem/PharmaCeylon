@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type { OnlineTerminalCommand } from "@pharmaceylon/shared";
+import { COSIGNABLE_OPERATIONS, type OnlineTerminalCommand } from "@pharmaceylon/shared";
 import { terminalDevice } from "../../test/fixtures/terminal-device";
 import { boundedCanonical, sha256 } from "../terminals/terminal-wire";
 import { SignedOperations } from "./signed-operations";
@@ -333,6 +333,30 @@ describe("TerminalCommandExecutor", () => {
       pharmacistEvidenceId: null, operatingHoursExceptionId: null,
     })).rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
   });
+
+  it("prepares a co-signed prescription with the co-sign grant and its evidence ID, and nothing else co-signed", async () => {
+    const ctx = setup();
+    const workSessionId = randomUUID();
+    const pharmacistEvidenceId = randomUUID();
+    const body = {
+      rxNumber: null, patientName: "Nimal Perera", doctorName: "Dr. Silva", doctorRegNo: null,
+      issuedOn: "2026-11-04", validUntil: null, customerId: null, notes: null,
+    };
+    await ctx.executor.prepare(user as never, branchId, {
+      workSessionId, operation: "POST /api/v1/prescriptions", body, approvalEvidenceId: null,
+      pharmacistEvidenceId, operatingHoursExceptionId: null,
+    });
+    expect(ctx.trust.prepareCommand).toHaveBeenCalledWith(
+      ctx.tx, user, branchId, workSessionId,
+      expect.objectContaining({ operation: "POST /api/v1/prescriptions", permission: "sales.pos_use" }),
+      body,
+      { approvalEvidenceId: null, pharmacistEvidenceId, operatingHoursExceptionId: null },
+    );
+    await expect(ctx.executor.prepare(user as never, branchId, {
+      workSessionId, operation: "POST /api/v1/prescriptions", body, approvalEvidenceId: null,
+      pharmacistEvidenceId: "not-a-uuid", operatingHoursExceptionId: null,
+    })).rejects.toMatchObject({ response: { code: "INVALID_COMMAND" } });
+  });
 });
 
 describe("SignedOperations body parsers", () => {
@@ -358,6 +382,10 @@ describe("SignedOperations body parsers", () => {
     { importId, version: 2, selection: "all" },
   ])("rejects %j", (body) => {
     expect(() => parse(body)).toThrow();
+  });
+
+  it("lets a pharmacist co-sign exactly the shared contract's co-signable operations", () => {
+    expect(ops.operations().filter((o) => ops.get(o).descriptor.cosign)).toEqual([...COSIGNABLE_OPERATIONS]);
   });
 
   it("lists exactly the v1 physical operations", () => {
@@ -431,6 +459,8 @@ describe("SignedOperations body parsers", () => {
 
     it("is clinical work under prescriptions.create with no approval", () => {
       expect(rx).toMatchObject({ permission: "prescriptions.create" });
+      // A cashier records it with a registered pharmacist's PIN co-sign (P1 #47).
+      expect(rx.cosign).toEqual({ permission: "sales.pos_use" });
       expect(rx.approval).toBeUndefined();
     });
 
