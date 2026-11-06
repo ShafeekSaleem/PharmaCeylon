@@ -9,7 +9,12 @@ import type { PosDatabase } from "../db/database";
  * here**, in the same change that creates it; `offline-journal.spec.ts` fails for a table with an
  * `offline_` or `journal` name that is not listed, so one cannot be forgotten.
  */
-export const OFFLINE_USAGE_TABLES: readonly string[] = [];
+export const OFFLINE_USAGE_TABLES: readonly string[] = [
+  "offline_journal_state",
+  "offline_journal_staff_sign_in",
+  "offline_journal_command",
+  "offline_journal_batch_usage",
+];
 
 /** Tables whose names say "offline" but record no offline use: authority itself. */
 export const NOT_OFFLINE_USAGE = ["offline_authority", "offline_authority_request"] as const;

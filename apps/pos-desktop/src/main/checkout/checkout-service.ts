@@ -19,6 +19,7 @@ import {
   ActionFailure,
   type TerminalService,
 } from "../terminal/terminal-service";
+import type { OfflineJournalWriter } from "../terminal/offline-journal-writer";
 import { saleTotalMinor } from "../../shared/sale-total";
 import { fromMinor, toMinor } from "./money";
 
@@ -50,7 +51,8 @@ type RawSale = {
     unitPrice: string;
     discountAmount?: string;
     lineTotal: string;
-    product: { name: string };
+    product: { name: string; id?: string };
+    batch?: { id: string };
   }[];
   payments: { method: string; amount: string; reference: string | null }[];
   seller: { fullName: string } | null;
@@ -106,6 +108,7 @@ const toSale = (sale: RawSale): CompletedSale => ({
     unitPrice: i.unitPrice,
     discountAmount: i.discountAmount ?? "0.00",
     lineTotal: i.lineTotal,
+    ...(i.product.id && i.batch?.id ? { productId: i.product.id, batchId: i.batch.id } : {}),
   })),
   payments: sale.payments.map((p) => ({
     method: p.method,
@@ -141,6 +144,7 @@ export class CheckoutService {
       api: ApiSession;
       terminal: TerminalService;
       logger: Logger;
+      offlineJournal?: OfflineJournalWriter;
       now?: () => Date;
     },
   ) {}
@@ -542,6 +546,7 @@ export class CheckoutService {
         saleId: answer.sale.id,
         invoiceNo: answer.sale.invoiceNo,
       });
+      this.recordOnlineJournalUsage(answer.sale);
       this.deps.logger.info("checkout.resolved", {
         draftId: row.id,
         saleId: answer.sale.id,
@@ -579,6 +584,15 @@ export class CheckoutService {
       staffName: row.staff_name,
       ownSale: row.staff_user_id === signedIn,
     }));
+  }
+
+  private recordOnlineJournalUsage(sale: RawSale): void {
+    const device = this.deps.terminal.current();
+    if (!device || !this.deps.offlineJournal) return;
+    this.deps.offlineJournal.recordOnlineSaleBatchUsage(
+      device.identity.enrollmentId,
+      sale.items.flatMap((i) => (i.batch?.id ? [{ batchId: i.batch.id, qty: i.qty }] : [])),
+    );
   }
 
   private row(id: string): DraftRow | undefined {
@@ -635,6 +649,7 @@ export class CheckoutService {
         saleId: sale.id,
         invoiceNo: sale.invoiceNo,
       });
+      this.recordOnlineJournalUsage(sale);
       this.deps.logger.info("checkout.completed", {
         draftId: id,
         saleId: sale.id,

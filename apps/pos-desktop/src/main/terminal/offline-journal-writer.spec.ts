@@ -1,0 +1,372 @@
+import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  MAX_OFFLINE_GRANT_MS,
+  MAX_SNAPSHOT_AGE_AT_OUTAGE_MS,
+  terminalSigningText,
+  type BranchStockSnapshot,
+  type OfflineGrant,
+  type OfflineSaleCommand,
+  type Signed,
+  type WorkSessionIdentity,
+} from "@pharmaceylon/shared";
+import type { SecretProtector } from "../db/key-store";
+import { migrations } from "../db/migrations";
+import { DeviceKey } from "../device/device-key";
+import { openLocalStore, type LocalStore } from "../local-store";
+import { installOfflineAuthority, type OfflineAuthority } from "./offline-authority";
+import { journalCommandHash, OfflineJournalWriter } from "./offline-journal-writer";
+
+const protector: SecretProtector = {
+  isAvailable: () => true,
+  protect: (p) => Buffer.from(p),
+  unprotect: (b) => b.toString(),
+};
+
+const server = generateKeyPairSync("ed25519");
+const signer = { keyId: "offline-authority", publicKey: server.publicKey };
+const deviceKey = DeviceKey.generate();
+const NOW = Date.UTC(2026, 10, 4, 10, 0);
+
+const identity = {
+  tenantId: randomUUID(),
+  branchId: randomUUID(),
+  terminalId: randomUUID(),
+  enrollmentId: randomUUID(),
+  keyId: deviceKey.keyId,
+};
+
+const counter = { registerId: randomUUID(), tillId: randomUUID() };
+
+const staffSession: WorkSessionIdentity = {
+  registerId: counter.registerId,
+  tillId: counter.tillId,
+  workSessionId: randomUUID(),
+  staffUserId: randomUUID(),
+};
+
+function signedServer<T>(purpose: "grant" | "snapshot", payload: T): Signed<T> {
+  return {
+    algorithm: "Ed25519",
+    keyId: signer.keyId,
+    payload,
+    signature: sign(null, Buffer.from(terminalSigningText(purpose, payload)), server.privateKey).toString("base64url"),
+  };
+}
+
+function authorityPair(snapshotGeneratedAt: number): OfflineAuthority {
+  const issuedAt = snapshotGeneratedAt + 500;
+  const batchId = randomUUID();
+  // Server uses batch id as snapshotLineId (`stock-snapshot-lines.ts`); usage keys must match.
+  const snapshotLineId = batchId;
+  const snapshot: BranchStockSnapshot = {
+    contractVersion: 1,
+    kind: "branch_stock_snapshot",
+    snapshotId: randomUUID(),
+    snapshotVersion: 1,
+    identity,
+    generatedAt: snapshotGeneratedAt,
+    includedThroughSequence: 0,
+    includedThroughHash: null,
+    lines: [
+      {
+        snapshotLineId,
+        productId: randomUUID(),
+        batchId,
+        availableQuantity: 20,
+        stockReviewRequired: false,
+        unitPriceMinor: 1000,
+        taxBasisPoints: 1800,
+        sellBefore: NOW + 86_400_000 * 90,
+      },
+    ],
+  };
+  const grant: OfflineGrant = {
+    contractVersion: 1,
+    kind: "offline_grant",
+    identity,
+    ...counter,
+    authorizedStaff: [
+      {
+        staffUserId: staffSession.staffUserId,
+        staffAuthorizationId: randomUUID(),
+        credentialVersion: 1,
+        signInMethod: "personal_pin",
+        offlineManagerActions: [],
+      },
+    ],
+    grantId: randomUUID(),
+    grantVersion: 1,
+    nominationVersion: 1,
+    issuedAt,
+    notBefore: issuedAt,
+    expiresAt: issuedAt + MAX_OFFLINE_GRANT_MS,
+    maxSnapshotAgeAtOutageMs: MAX_SNAPSHOT_AGE_AT_OUTAGE_MS,
+    currency: "LKR",
+    externalCardAllowed: true,
+    policyVersion: 1,
+    operatingWindows: [{ startsAt: issuedAt, endsAt: issuedAt + MAX_OFFLINE_GRANT_MS }],
+    mandatoryOperatingWindows: null,
+    operatingHoursException: null,
+  };
+  return { grant: signedServer("grant", grant), snapshot: signedServer("snapshot", snapshot) };
+}
+
+function buildOrdinarySale(
+  installed: OfflineAuthority,
+  input: {
+    sequence: number;
+    previousCommandHash: string | null;
+    staffSignInId: string;
+    offlineSessionId: string;
+    offlineStartedAt: number;
+    lines: OfflineSaleCommand["lines"];
+    payments?: OfflineSaleCommand["payments"];
+    totalMinor?: number;
+    occurredAt?: number;
+  },
+): OfflineSaleCommand {
+  const grant = installed.grant.payload;
+  const snapshot = installed.snapshot.payload;
+  const lineNet = input.lines.reduce((s, l) => s + l.quantity * l.unitPriceMinor, 0);
+  const lineTax = input.lines.reduce((s, l) => s + l.taxMinor, 0);
+  const totalMinor = input.totalMinor ?? lineNet + lineTax;
+  return {
+    contractVersion: 1,
+    commandId: randomUUID(),
+    identity,
+    session: staffSession,
+    staffSignInId: input.staffSignInId,
+    sequence: input.sequence,
+    previousCommandHash: input.previousCommandHash,
+    occurredAt: input.occurredAt ?? NOW + 60_000,
+    grantId: grant.grantId,
+    grantVersion: grant.grantVersion,
+    nominationVersion: grant.nominationVersion,
+    offlineSessionId: input.offlineSessionId,
+    offlineStartedAt: input.offlineStartedAt,
+    businessHoursAcknowledgementId: null,
+    kind: "ordinary_sale",
+    snapshotId: snapshot.snapshotId,
+    snapshotVersion: snapshot.snapshotVersion,
+    currency: "LKR",
+    lines: input.lines,
+    payments: input.payments ?? [
+      { method: "cash", amountMinor: totalMinor, tenderedMinor: totalMinor, changeMinor: 0 },
+    ],
+    totalMinor,
+  };
+}
+
+let dir: string;
+let local: LocalStore;
+let writer: OfflineJournalWriter;
+let installed: OfflineAuthority;
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "pos-offline-journal-writer-"));
+  local = openLocalStore(dir, protector, migrations);
+  writer = new OfflineJournalWriter({ db: local.db, now: () => new Date(NOW) });
+  installed = authorityPair(NOW - 60_000);
+  installOfflineAuthority(local.db, installed, { identity, ...counter, signer, trustedNow: NOW });
+});
+afterEach(() => {
+  local.db.close();
+  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
+
+describe("OfflineJournalWriter", () => {
+  it("records PIN staff sign-in envelopes and sets active staff for journal attribution", () => {
+    const env = writer.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: deviceKey,
+    });
+    expect(env).not.toBeNull();
+    expect(writer.getActiveStaffSignInId(identity.enrollmentId)).toBe(env!.payload.staffSignInId);
+    const row = local.db
+      .prepare("SELECT envelope_json FROM offline_journal_staff_sign_in WHERE staff_sign_in_id = ?")
+      .get(env!.payload.staffSignInId) as { envelope_json: string };
+    expect(JSON.parse(row.envelope_json).payload.kind).toBe("offline_staff_sign_in");
+  });
+
+  it("accumulates online batch usage for snapshot watermark math", () => {
+    const batchId = installed.snapshot.payload.lines[0]!.batchId;
+    writer.recordOnlineSaleBatchUsage(identity.enrollmentId, [
+      { batchId, qty: 3 },
+      { batchId, qty: 2 },
+    ]);
+    expect(writer.getBatchUsageQuantities(identity.enrollmentId)[batchId]).toBe(5);
+  });
+
+  it("commits journal commands with contiguous sequence and SHA-256 chain matching #134", () => {
+    const signIn = writer.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: deviceKey,
+    })!;
+    const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
+    const snapLine = installed.snapshot.payload.lines[0]!;
+    const qty = 2;
+    const net = qty * snapLine.unitPriceMinor;
+    const tax = Number((BigInt(net) * BigInt(snapLine.taxBasisPoints) + 5000n) / 10000n);
+    const sale1 = buildOrdinarySale(installed, {
+      sequence: 1,
+      previousCommandHash: null,
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: qty,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: tax,
+        },
+      ],
+    });
+    const env1 = deviceKey.sign(sale1, "command");
+    writer.appendSignedCommand(env1);
+    expect(writer.getHead(identity.enrollmentId)).toEqual({
+      sequence: 1,
+      previousHash: journalCommandHash(sale1),
+    });
+
+    const sale2 = buildOrdinarySale(installed, {
+      sequence: 2,
+      previousCommandHash: journalCommandHash(sale1),
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: 1,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: Number((BigInt(snapLine.unitPriceMinor) * BigInt(snapLine.taxBasisPoints) + 5000n) / 10000n),
+        },
+      ],
+    });
+    writer.appendSignedCommand(deviceKey.sign(sale2, "command"));
+    expect(writer.getHead(identity.enrollmentId).sequence).toBe(2);
+  });
+
+  it("refuses stale snapshot at first outage boundary", () => {
+    // Authority was installed while the snapshot was fresh; starting an outage much later breaks D4.
+    expect(() =>
+      writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + MAX_SNAPSHOT_AGE_AT_OUTAGE_MS + 1),
+    ).toThrow("SNAPSHOT_STALE");
+  });
+
+  it("rejects discount lines via shared offlineSalePolicyError", () => {
+    const signIn = writer.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: deviceKey,
+    })!;
+    const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
+    const snapLine = installed.snapshot.payload.lines[0]!;
+    const qty = 1;
+    const net = qty * snapLine.unitPriceMinor;
+    const tax = Number((BigInt(net) * BigInt(snapLine.taxBasisPoints) + 5000n) / 10000n);
+    const sale = buildOrdinarySale(installed, {
+      sequence: 1,
+      previousCommandHash: null,
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: qty,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 50,
+          taxMinor: tax,
+        },
+      ],
+      totalMinor: net + tax,
+    });
+    const err = writer.validateOrdinaryOfflineSalePolicy({
+      grant: installed.grant.payload,
+      snapshot: installed.snapshot.payload,
+      sale,
+      trustedNow: sale.occurredAt,
+      terminalState: "offline",
+      usageQuantities: writer.getBatchUsageQuantities(identity.enrollmentId),
+      offlineSessionId,
+      offlineStartedAt,
+      staffSignIn: signIn.payload,
+      openShift: {
+        identity,
+        session: staffSession,
+        openedAt: NOW,
+        openingCashMinor: 0,
+      },
+    });
+    expect(err).toBe("INVALID_COMMAND");
+  });
+
+  it("treats LOCAL_STOCK_EXHAUSTED when usage exceeds snapshot availability", () => {
+    const signIn = writer.recordStaffSignInFromPin({
+      enrollmentId: identity.enrollmentId,
+      identity,
+      registerId: counter.registerId,
+      tillId: counter.tillId,
+      session: { workSessionId: staffSession.workSessionId, staffUserId: staffSession.staffUserId },
+      key: deviceKey,
+    })!;
+    const { offlineSessionId, offlineStartedAt } = writer.ensureOfflineOutageSession(identity.enrollmentId, NOW + 30_000);
+    const snapLine = installed.snapshot.payload.lines[0]!;
+    writer.recordOnlineSaleBatchUsage(identity.enrollmentId, [{ batchId: snapLine.batchId, qty: snapLine.availableQuantity }]);
+    const qty = 1;
+    const net = qty * snapLine.unitPriceMinor;
+    const tax = Number((BigInt(net) * BigInt(snapLine.taxBasisPoints) + 5000n) / 10000n);
+    const sale = buildOrdinarySale(installed, {
+      sequence: 1,
+      previousCommandHash: null,
+      staffSignInId: signIn.payload.staffSignInId,
+      offlineSessionId,
+      offlineStartedAt,
+      lines: [
+        {
+          snapshotLineId: snapLine.snapshotLineId,
+          quantity: qty,
+          unitPriceMinor: snapLine.unitPriceMinor,
+          discountMinor: 0,
+          taxMinor: tax,
+        },
+      ],
+    });
+    const err = writer.validateOrdinaryOfflineSalePolicy({
+      grant: installed.grant.payload,
+      snapshot: installed.snapshot.payload,
+      sale,
+      trustedNow: sale.occurredAt,
+      terminalState: "offline",
+      usageQuantities: writer.getBatchUsageQuantities(identity.enrollmentId),
+      offlineSessionId,
+      offlineStartedAt,
+      staffSignIn: signIn.payload,
+      openShift: {
+        identity,
+        session: staffSession,
+        openedAt: NOW,
+        openingCashMinor: 0,
+      },
+    });
+    expect(err).toBe("LOCAL_STOCK_EXHAUSTED");
+  });
+});

@@ -11,6 +11,7 @@ import { staffCredentialRole } from "./0009-staff-credential-role";
 import { offlineAuthority } from "./0010-offline-authority";
 import { checkoutDiscountCoSigner } from "./0011-checkout-discount-co-signer";
 import { tillShifts } from "./0012-till-shifts";
+import { offlineJournal } from "./0013-offline-journal";
 
 /** Append only. A released migration is never edited or reordered. */
-export const migrations: readonly Migration[] = [foundation, deviceIdentity, staffCredentials, checkoutDrafts, signedCommands, checkoutCoSigner, checkoutDraftCounter, pinLockUptime, staffCredentialRole, offlineAuthority, checkoutDiscountCoSigner, tillShifts];
+export const migrations: readonly Migration[] = [foundation, deviceIdentity, staffCredentials, checkoutDrafts, signedCommands, checkoutCoSigner, checkoutDraftCounter, pinLockUptime, staffCredentialRole, offlineAuthority, checkoutDiscountCoSigner, tillShifts, offlineJournal];
