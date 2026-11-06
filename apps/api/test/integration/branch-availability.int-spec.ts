@@ -142,23 +142,43 @@ describe("the permission", () => {
     ).toBe(true);
   });
 
+  const runMigration = async () => {
+    const sql = readFileSync(
+      join(__dirname, "../../prisma/migrations/20261105400000_other_branch_availability/migration.sql"),
+      "utf8",
+    );
+    for (const statement of sql.split(/;\s*$/m).map((s) => s.trim()).filter(Boolean))
+      await prisma.$executeRawUnsafe(statement);
+  };
+  const grantedRoles = async () =>
+    (
+      await prisma.rolePermission.findMany({
+        where: { tenantId: fx.tenantId, permissionKey: KEY },
+        select: { role: { select: { key: true } } },
+      })
+    )
+      .map((g) => g.role.key)
+      .sort();
+
   it("is granted to existing tenants' built-in counter roles by the migration, and no others", async () => {
     const custom = await roles.createRole(fx.tenantId, fx.ownerId, {
       name: "Shelf helper",
       permissionKeys: ["inventory.view"],
     });
-    await prisma.rolePermission.deleteMany({ where: { tenantId: fx.tenantId, permissionKey: KEY } });
-    const sql = readFileSync(
-      join(__dirname, "../../prisma/migrations/20261105300000_other_branch_availability/migration.sql"),
-      "utf8",
-    );
-    for (const statement of sql.split(/;\s*$/m).map((s) => s.trim()).filter(Boolean))
-      await prisma.$executeRawUnsafe(statement);
-    const granted = await prisma.rolePermission.findMany({
-      where: { tenantId: fx.tenantId, permissionKey: KEY },
-      select: { role: { select: { key: true } } },
-    });
-    expect(granted.map((g) => g.role.key).sort()).toEqual(["cashier", "manager", "owner", "pharmacist"]);
-    expect(granted.some((g) => g.role.key === custom.key)).toBe(false);
+    // A database that never had the permission: the migration adds it and grants it.
+    await prisma.rolePermission.deleteMany({ where: { permissionKey: KEY } });
+    await prisma.permission.delete({ where: { key: KEY } });
+    await runMigration();
+    expect(await grantedRoles()).toEqual(["cashier", "manager", "owner", "pharmacist"]);
+    expect((await grantedRoles()).includes(custom.key)).toBe(false);
+  });
+
+  it("grants nothing when re-run where the permission already exists", async () => {
+    // It first merged as 20261105300000_other_branch_availability; a database that ran that runs
+    // the renamed migration again, and an owner's switch-off since must survive it.
+    const cashier = await roleOf("cashier");
+    await prisma.rolePermission.deleteMany({ where: { roleId: cashier.id, permissionKey: KEY } });
+    await runMigration();
+    expect(await grantedRoles()).toEqual(["manager", "owner", "pharmacist"]);
   });
 });
