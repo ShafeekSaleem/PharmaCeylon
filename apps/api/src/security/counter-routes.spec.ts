@@ -9,6 +9,7 @@ import { TerminalCommandsController } from "../terminal-commands/terminal-comman
 import { OfflineActivationController } from "../terminals/offline-activation.controller";
 import { OfflineAssignmentController } from "../terminals/offline-assignment.controller";
 import { OfflineAuthorityController } from "../terminals/offline-authority.controller";
+import { OfflineJournalController } from "../terminals/journal/offline-journal.controller";
 import { TerminalEnrollmentController } from "../terminals/terminal-enrollment.controller";
 import { TillShiftsController } from "../terminals/shifts/till-shifts.controller";
 import { COUNTER_ROUTE_KEY } from "./decorators/counter-route.decorator";
@@ -62,6 +63,8 @@ describe("routes a PIN-opened counter login may call", () => {
     [OfflineAssignmentController, ["view"]],
     [TillShiftsController, ["current", "list", "detail", "open", "close"]],
     [OfflineAuthorityController, ["prepare", "issue"]],
+    // P5 #51: the nominated counter uploads its offline journal.
+    [OfflineJournalController, ["sync"]],
     [
       TerminalEnrollmentController,
       [

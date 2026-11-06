@@ -12,6 +12,8 @@ import { OfflineActivationController } from "./offline-activation.controller";
 import { OfflineActivationClearance, OfflineActivationService } from "./offline-activation.service";
 import { OfflineAssignmentController } from "./offline-assignment.controller";
 import { OfflineAuthorityController } from "./offline-authority.controller";
+import { OfflineJournalController } from "./journal/offline-journal.controller";
+import { OfflineJournalService } from "./journal/offline-journal.service";
 import { OfflineAssignmentService } from "./offline-assignment.service";
 import { OfflineSupportRecords } from "./offline-support-records.service";
 import { OperatingHoursEvidence } from "./operating-hours.evidence";
@@ -29,6 +31,7 @@ import { TillShiftsService } from "./shifts/till-shifts.service";
   controllers: [
     OfflineAssignmentController,
     OfflineAuthorityController,
+    OfflineJournalController,
     OfflineActivationController,
     TerminalEnrollmentController,
     EnrollmentCodesController,
@@ -51,6 +54,7 @@ import { TillShiftsService } from "./shifts/till-shifts.service";
     OfflineActivationClearance,
     OfflineActivationService,
     TillShiftsService,
+    OfflineJournalService,
   ],
   exports: [
     TerminalTrustService,

@@ -169,6 +169,16 @@ recorded at the counter on the caller's own staff session, D7b's online form. Th
 and no cash of their own. Sales, refunds and payouts attach to the open shift inside their own
 operations. Contract: [API_CONTRACT.md](API_CONTRACT.md#till-shifts-p2b-103).
 
+## P5 offline journal intake
+
+`POST /terminals/offline-journal/sync` is `checkout`, never clinical (D2 keeps prescription and
+controlled lines out of the snapshot). It uploads the nominated counter's device-signed journal:
+each accepted `ordinary_sale` is a sale that already happened at the enrolled counter, with its
+stock effect posted or (approved D1) held by a discrepancy case and batch block, and its cash on
+the replayed shift; `shift_open` / `shift_close` replay D7b's offline shift records. A revoked or
+retired counter may upload to recover old evidence, which is kept for review and writes no
+effect. Contract: [API_CONTRACT.md](API_CONTRACT.md#offline-journal-sync-p5-51).
+
 ## P1 signed terminal commands
 
 `POST /terminal-commands/prepare` is classified `identity`: it issues a single-use command

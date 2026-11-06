@@ -10,6 +10,7 @@ import {
   Prisma,
   RoleName,
   SaleStatus,
+  SaleStockPosting,
   StockMovementType,
   GoodsReturnStatus,
   GoodsReturnType,
@@ -25,6 +26,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { businessToday, safeTimeZone } from "../common/business-date.util";
 import { StockService } from "../inventory/stock/stock.service";
+import { blockedBatchIds } from "../inventory/stock/sale-blocks";
 import { TaxService } from "../pricing/tax.service";
 import { CheckoutDto } from "./dto/checkout.dto";
 import {
@@ -82,6 +84,19 @@ class CheckoutReplay extends Error {
   constructor(readonly saleId: string) {
     super("checkout replay");
   }
+}
+
+/**
+ * P5 #51 (approved D1): an offline sale whose stock is still waiting on its discrepancy case took
+ * nothing off the shelf in the books, so a void or refund would put back stock that was never
+ * taken. It waits for the case to be accounted for.
+ */
+function assertStockPosted(sale: { stockPosting?: SaleStockPosting }): void {
+  if (sale.stockPosting === SaleStockPosting.pending_reconciliation)
+    throw new ConflictException({
+      code: "STOCK_POSTING_PENDING",
+      message: "This offline sale's stock is still being reconciled. Resolve its stock review before a void or refund.",
+    });
 }
 
 /** `INV-YYMM-000123` — human-readable at the counter, unique per branch. */
@@ -702,14 +717,25 @@ export class SalesService {
         );
         await this.stock.lockBatches(tx, tenantId, lockIds);
         const balances = await this.stock.balances(tx, tenantId, lockIds);
+        // P5 #51 (approved D1): a batch an offline discrepancy case holds is not sold from until
+        // the case is accounted for. Read under the batch locks the sync also takes.
+        const blocked = await blockedBatchIds(tx, tenantId, branchId, lockIds);
         const allocated = new Map<string, number>();
         const availableFor = (batchId: string) =>
           (balances.get(batchId)?.available ?? 0) - (allocated.get(batchId) ?? 0);
 
         for (const pick of picks) {
           const item = pick.item;
+          if (pick.batch && blocked.has(pick.batch.id)) {
+            throw new ConflictException({
+              code: "BATCH_STOCK_REVIEW",
+              message: `Batch ${pick.batch.batchNo} is paused while an offline sale's stock is reviewed. Sell another batch.`,
+            });
+          }
           const batch =
-            pick.batch ?? pick.candidates.find((c) => availableFor(c.id) >= item.qty) ?? null;
+            pick.batch ??
+            pick.candidates.find((c) => !blocked.has(c.id) && availableFor(c.id) >= item.qty) ??
+            null;
           if (!batch) {
             throw new BadRequestException(
               "No sellable batch with sufficient quantity (FEFO auto-pick)",
@@ -1004,6 +1030,7 @@ export class SalesService {
           "Only posted sales with no prior returns can be voided",
         );
       }
+      assertStockPosted(sale);
 
       const { lines } = await getSaleReturnableByLine(
         tx,
@@ -1177,6 +1204,7 @@ export class SalesService {
     sale: RefundSale,
     items: ReadonlyArray<{ productId: string; batchId: string; qty: number; disposition?: RefundDisposition }> | undefined,
   ): Promise<RefundPlan> {
+    assertStockPosted(sale);
     if (sale.status !== SaleStatus.posted && sale.status !== SaleStatus.partially_refunded) {
       throw new BadRequestException("Only posted or partially refunded sales can be refunded");
     }
