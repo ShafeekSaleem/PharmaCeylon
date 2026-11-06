@@ -9,7 +9,7 @@ import type {
   ReadinessCheck,
   ReadinessReport,
 } from "../../shared/ipc-contract";
-import { dayMonthYear, relativeTime, time } from "./format";
+import { dayMonthYear, longDay, relativeTime, time } from "./format";
 import { Icon } from "./Icon";
 import { KeyHint } from "./KeyHint";
 import { useKeyBinding } from "./keymap";
@@ -31,6 +31,12 @@ const STATUS_PILL: Record<CheckStatus, string | undefined> = {
   failed: ui.bad,
   not_ready: ui.neutral,
 };
+
+/** Short till label from UUID: "a1b2c3d4" — no stable human label exists locally. */
+function tillShortLabel(tillId: string) {
+  const hex = tillId.replace(/-/g, "");
+  return hex.slice(0, 8);
+}
 
 /** The readiness checks in the mockup's three groups; any check not listed lands in the first. */
 const GROUPS: { title: string; ids: string[] }[] = [
@@ -142,7 +148,10 @@ function PrinterTest() {
     null,
   );
   const [printed, setPrinted] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<{
+    at: string;
+    byName: string | null;
+  } | null>(null);
 
   useEffect(() => {
     window.pos
@@ -186,7 +195,10 @@ function PrinterTest() {
         .confirmTestReceipt({ printerName: printed })
         .catch(() => null);
       if (result?.ok) {
-        setConfirmed(result.value.confirmedAt);
+        setConfirmed({
+          at: result.value.confirmedByAt,
+          byName: result.value.confirmedByName,
+        });
         setPrinted(null);
         setMessage(null);
       } else
@@ -206,7 +218,7 @@ function PrinterTest() {
   const asking = Boolean(printed) && !printing && !confirming;
   useKeyBinding("Ctrl+Enter", () => void confirm(), { enabled: asking });
 
-  const pill = confirmed ? (
+  const pill = confirmed && !printed ? (
     <span className={cx(ui.pill, ui.ok, styles.right)}>
       <Icon name="check" />
       Ready
@@ -308,10 +320,11 @@ function PrinterTest() {
             </div>
           </div>
         )}
-        {confirmed && (
+        {confirmed && !printed && (
           <div className={styles.footN}>
-            Confirmed at {time(new Date(confirmed))}. Recorded for the branch
-            go-live checklist.
+            Last confirmed {longDay(new Date(confirmed.at))}
+            {confirmed.byName ? ` by ${confirmed.byName}` : ""}. Recorded for
+            the branch go-live checklist.
           </div>
         )}
       </div>
@@ -518,11 +531,25 @@ export function ThisCounterPage({
   onCheck: () => void;
 }) {
   const enrollment = state.enrollment!;
-  const enrolledAt = enrollment.enrolledAt
-    ? dayMonthYear(new Date(enrollment.enrolledAt))
+  const enrolledAtDate = enrollment.enrolledAt
+    ? new Date(enrollment.enrolledAt)
     : null;
+  const enrolledAt = enrolledAtDate ? dayMonthYear(enrolledAtDate) : null;
+  const enrollerLine = enrollment.enrolledByName
+    ? ` by ${enrollment.enrolledByName}`
+    : "";
+  const enrolledSub =
+    enrolledAtDate && enrollment.enrolledByName
+      ? `${longDay(enrolledAtDate)}${enrollerLine}`
+      : enrolledAtDate
+        ? `${longDay(enrolledAtDate)}${enrollerLine || " · who enrolled isn’t stored on this computer"}`
+        : "Date not recorded";
   const local = atTheComputer(state);
   const server = host(state.serverUrl);
+  const branchCodeSub = enrollment.branchCode
+    ? `Branch code ${enrollment.branchCode}`
+    : "Branch code: sign in online as whoever enrolled this counter to store it here";
+  const tillSub = `Till ${tillShortLabel(enrollment.tillId)} · one open shift at a time`;
   return (
     <div className={styles.page}>
       <div className={ui.pageH}>
@@ -536,8 +563,8 @@ export function ThisCounterPage({
       </div>
 
       <div className={ui.panel}>
-        <div className={styles.head}>
-          <span className={cx(ui.kind, styles.kind)}>
+        <div className={styles.shiftH}>
+          <span className={cx(ui.kind, styles.heroKind)}>
             <Icon name="monitor" />
           </span>
           <div>
@@ -546,7 +573,7 @@ export function ThisCounterPage({
             </b>
             <small>
               This computer is &quot;{enrollment.label}&quot;
-              {enrolledAt && ` · enrolled ${enrolledAt}`}
+              {enrolledAt && ` · enrolled ${enrolledAt}${enrollerLine}`}
             </small>
           </div>
           <div className={styles.headRight}>
@@ -564,21 +591,17 @@ export function ThisCounterPage({
           <div className={ui.tile}>
             <small>Branch</small>
             <b>{enrollment.branchName}</b>
-            <span>Set when this computer was enrolled</span>
+            <span>{branchCodeSub}</span>
           </div>
           <div className={ui.tile}>
-            <small>Counter</small>
+            <small>Counter and till</small>
             <b>{enrollment.counterLabel}</b>
-            <span>This computer is &quot;{enrollment.label}&quot;</span>
+            <span>{tillSub}</span>
           </div>
           <div className={ui.tile}>
             <small>Enrolled</small>
             <b>{enrolledAt ?? "—"}</b>
-            <span>
-              {enrollment.enrolledAt
-                ? `At ${time(new Date(enrollment.enrolledAt))}`
-                : "Date not recorded"}
-            </span>
+            <span>{enrolledSub}</span>
           </div>
           <div className={ui.tile}>
             <small>App version</small>

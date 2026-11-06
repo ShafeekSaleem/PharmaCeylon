@@ -101,11 +101,19 @@ export const deviceStateSchema = z.object({
     .object({
       status: z.enum(["pending", "active", "revoked", "retired"]),
       branchName: z.string(),
+      /** Branch short code from tenant context when enrolled; empty string when unknown (older enrollments). */
+      branchCode: z.string(),
+      /** Register and till tied to this enrollment (UUIDs from the server). */
+      registerId: uuid,
+      tillId: uuid,
       counterLabel: z.string(),
       label: z.string(),
       terminalId: uuid,
       enrollmentId: uuid,
       enrolledAt: z.string().nullable(),
+      enrolledByUserId: uuid,
+      /** Enroller display name when stored or backfilled; null when unknown. */
+      enrolledByName: z.string().nullable(),
     })
     .nullable(),
   operator: z.object({ userId: uuid, fullName: z.string(), email: z.string() }).nullable(),
@@ -974,7 +982,15 @@ export const ipcContract = {
   confirmTestReceipt: {
     channel: "pos:printers:confirm-test-receipt",
     input: z.object({ printerName: z.string().min(1).max(260) }),
-    output: result(z.object({ confirmedAt: z.string() })),
+    output: result(
+      z.object({
+        confirmedAt: z.string(),
+        /** ISO time from the server when available; otherwise same as confirmedAt. */
+        confirmedByAt: z.string(),
+        /** Display name of the person who confirmed, when the API returns it. */
+        confirmedByName: z.string().nullable(),
+      }),
+    ),
   },
   offlineCounter: { channel: "pos:offline:status", input: noInput, output: result(offlineCounterSchema) },
   activateOffline: {

@@ -16,11 +16,16 @@ const state = deviceState({
   enrollment: {
     status: "active",
     branchName: "Colombo 03",
+    branchCode: "C03",
+    registerId: ids.register,
+    tillId: ids.till,
     counterLabel: "Counter 1",
     label: "Front desk PC",
     terminalId: ids.till,
     enrollmentId: ids.register,
     enrolledAt: null,
+    enrolledByUserId: ids.ana,
+    enrolledByName: "Branch enroller",
   },
   counterStaff: [
     {

@@ -470,7 +470,12 @@ describe("TerminalService enrollment", () => {
     expect(state.enrollment).toMatchObject({
       status: "active",
       branchName: "Main",
+      branchCode: "MAIN",
       counterLabel: "Counter 1",
+      registerId,
+      tillId,
+      enrolledByUserId: manager.id,
+      enrolledByName: manager.fullName,
     });
     expect(state.operator).toBeNull();
     const key = new DeviceStore(local.db).key()!;
@@ -1001,6 +1006,8 @@ describe("TerminalService enrollment codes", () => {
       counterLabel: "Code counter",
     });
     expect(new DeviceStore(local.db).read()?.enrolledByUserId).toBe(cashier.id);
+    expect(new DeviceStore(local.db).read()?.enrolledByName).toBe(cashier.fullName);
+    expect(new DeviceStore(local.db).read()?.branchCode).toBe("MAIN");
   });
 });
 

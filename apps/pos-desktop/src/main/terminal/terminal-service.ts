@@ -151,11 +151,16 @@ export class TerminalService {
         ? {
             status: device.status,
             branchName: device.branchName,
+            branchCode: device.branchCode,
+            registerId: device.registerId,
+            tillId: device.tillId,
             counterLabel: device.counterLabel,
             label: device.label,
             terminalId: device.identity.terminalId,
             enrollmentId: device.identity.enrollmentId,
             enrolledAt: device.enrolledAt,
+            enrolledByUserId: device.enrolledByUserId,
+            enrolledByName: device.enrolledByName,
           }
         : null,
       operator: operator
@@ -217,8 +222,10 @@ export class TerminalService {
             MESSAGES.TERMINAL_REVOKED!,
           );
         await this.openStaffSession(user);
+        await this.maybeBackfillEnrollmentDisplay();
       } else {
         this.branches = await this.loadBranches();
+        await this.maybeBackfillEnrollmentDisplay();
       }
     } catch (error) {
       if (!this.staff) await this.deps.api.logout();
@@ -661,12 +668,14 @@ export class TerminalService {
       apiBaseUrl,
       identity: challenge.identity,
       branchName: branch.name,
+      branchCode: branch.code,
       registerId: challenge.registerId,
       tillId: challenge.tillId,
       counterLabel: input.counterLabel,
       label: input.label,
       key,
       enrolledByUserId: user.id,
+      enrolledByName: user.fullName,
       now: this.now(),
     });
     try {
@@ -715,7 +724,35 @@ export class TerminalService {
       );
       this.staff = null;
     }
+    await this.maybeBackfillEnrollmentDisplay();
     return this.state();
+  }
+
+  /** Fills branch code and enroller name on older enrollments when the signed-in user is the enroller. */
+  private async maybeBackfillEnrollmentDisplay(): Promise<void> {
+    const device = this.deps.store.read();
+    if (!device || device.status !== "active") return;
+    const needBranchCode = !device.branchCode;
+    const needEnroller = device.enrolledByName == null;
+    if (!needBranchCode && !needEnroller) return;
+    if (needBranchCode && !this.branches.length && this.deps.api.user) {
+      try {
+        this.branches = await this.loadBranches();
+      } catch {
+        /* offline or error — leave gaps documented in UI */
+      }
+    }
+    const branchFromList = this.branches.find((b) => b.id === device.identity.branchId);
+    const patch: { branchCode?: string; enrolledByName?: string | null } = {};
+    if (needBranchCode) patch.branchCode = branchFromList?.code ?? "";
+    if (
+      needEnroller &&
+      this.deps.api.user &&
+      this.deps.api.user.id === device.enrolledByUserId
+    ) {
+      patch.enrolledByName = this.deps.api.user.fullName;
+    }
+    if (Object.keys(patch).length) this.deps.store.patchEnrollmentDisplay(patch);
   }
 
   /** Signs and records an attendance proof for a signed command prepared by the server. */
@@ -736,8 +773,9 @@ export class TerminalService {
   /** Go-live evidence: the signed-in person confirms the test receipt came out of this printer. */
   async confirmTestReceipt(
     printerName: string,
-  ): Promise<{ confirmedAt: string }> {
+  ): Promise<{ confirmedAt: string; confirmedByAt: string; confirmedByName: string | null }> {
     const { staff, device } = this.requireStaff();
+    const operator = this.requireOperator();
     const result = await this.deps.api.request<{
       testReceiptId: string;
       confirmedAt: number;
@@ -745,7 +783,12 @@ export class TerminalService {
       branchId: device.identity.branchId,
       body: { printerName },
     });
-    return { confirmedAt: new Date(result.confirmedAt).toISOString() };
+    const confirmedAt = new Date(result.confirmedAt).toISOString();
+    return {
+      confirmedAt,
+      confirmedByAt: confirmedAt,
+      confirmedByName: operator.fullName,
+    };
   }
 
   /** Whether this counter is the branch's offline counter, or has an authorization waiting. */
